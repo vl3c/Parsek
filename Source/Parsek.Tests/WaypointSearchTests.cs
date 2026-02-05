@@ -1,0 +1,221 @@
+using System;
+using System.Collections.Generic;
+using Xunit;
+using UnityEngine;
+
+namespace Parsek.Tests
+{
+    /// <summary>
+    /// Tests for FindWaypointIndex binary search logic.
+    /// Calls the production ParsekSpike.FindWaypointIndex method via InternalsVisibleTo.
+    /// </summary>
+    public class WaypointSearchTests
+    {
+        private readonly ParsekSpike spike;
+
+        public WaypointSearchTests()
+        {
+            spike = new ParsekSpike();
+        }
+
+        private void PopulateRecording(params double[] timestamps)
+        {
+            spike.recording.Clear();
+            spike.lastPlaybackIndex = 0;
+            foreach (var ut in timestamps)
+            {
+                spike.recording.Add(new ParsekSpike.TrajectoryPoint
+                {
+                    ut = ut,
+                    latitude = 0,
+                    longitude = 0,
+                    altitude = 0,
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero,
+                    bodyName = "Kerbin"
+                });
+            }
+        }
+
+        [Fact]
+        public void FindWaypointIndex_BeforeFirstPoint_ReturnsMinusOne()
+        {
+            // Arrange
+            PopulateRecording(10, 20, 30, 40, 50);
+
+            // Act
+            var result = spike.FindWaypointIndex(5);
+
+            // Assert
+            Assert.Equal(-1, result);
+        }
+
+        [Fact]
+        public void FindWaypointIndex_AtOrAfterLastPoint_ReturnsSecondToLast()
+        {
+            // Arrange
+            PopulateRecording(10, 20, 30, 40, 50);
+
+            // Act
+            var resultAt = spike.FindWaypointIndex(50);
+            var resultAfter = spike.FindWaypointIndex(60);
+
+            // Assert
+            Assert.Equal(3, resultAt); // points.Count - 2
+            Assert.Equal(3, resultAfter);
+        }
+
+        [Fact]
+        public void FindWaypointIndex_BetweenPoints_ReturnsCorrectIndex()
+        {
+            // Arrange
+            PopulateRecording(10, 20, 30, 40, 50);
+
+            // Act & Assert
+            Assert.Equal(0, spike.FindWaypointIndex(15)); // Between 10 and 20
+            Assert.Equal(1, spike.FindWaypointIndex(25)); // Between 20 and 30
+            Assert.Equal(2, spike.FindWaypointIndex(35)); // Between 30 and 40
+            Assert.Equal(3, spike.FindWaypointIndex(45)); // Between 40 and 50
+        }
+
+        [Fact]
+        public void FindWaypointIndex_ExactlyOnPoint_ReturnsCorrectIndex()
+        {
+            // Arrange
+            PopulateRecording(10, 20, 30, 40, 50);
+
+            // Act & Assert
+            Assert.Equal(0, spike.FindWaypointIndex(10)); // Exactly at first
+            Assert.Equal(1, spike.FindWaypointIndex(20)); // Exactly at second
+            Assert.Equal(2, spike.FindWaypointIndex(30)); // Exactly at middle
+        }
+
+        [Fact]
+        public void FindWaypointIndex_SequentialAccess_UsesCachedIndex()
+        {
+            // Arrange
+            PopulateRecording(10, 20, 30, 40, 50, 60, 70, 80, 90, 100);
+
+            // Act - simulate sequential playback
+            var index1 = spike.FindWaypointIndex(15);
+            var index2 = spike.FindWaypointIndex(25); // Next segment
+            var index3 = spike.FindWaypointIndex(35); // Next segment
+
+            // Assert
+            Assert.Equal(0, index1);
+            Assert.Equal(1, index2);
+            Assert.Equal(2, index3);
+            Assert.Equal(2, spike.lastPlaybackIndex); // Cache should be updated
+        }
+
+        [Fact]
+        public void FindWaypointIndex_NonSequentialAccess_FallsBackToBinarySearch()
+        {
+            // Arrange
+            PopulateRecording(10, 20, 30, 40, 50, 60, 70, 80, 90, 100);
+            spike.lastPlaybackIndex = 2; // Cached at index 2 (ut=30)
+
+            // Act - jump to much later time
+            var result = spike.FindWaypointIndex(85);
+
+            // Assert
+            Assert.Equal(7, result); // Between 80 and 90
+            Assert.Equal(7, spike.lastPlaybackIndex); // Cache updated
+        }
+
+        [Fact]
+        public void FindWaypointIndex_LargeRecording_PerformsBinarySearch()
+        {
+            // Arrange - create recording with 1000 points
+            var timestamps = new double[1000];
+            for (int i = 0; i < 1000; i++)
+            {
+                timestamps[i] = i * 10;
+            }
+            PopulateRecording(timestamps);
+
+            // Act - search in middle
+            var result = spike.FindWaypointIndex(5005);
+
+            // Assert
+            Assert.Equal(500, result); // Between 5000 and 5010
+        }
+
+        [Fact]
+        public void FindWaypointIndex_DuplicateTimestamps_HandlesGracefully()
+        {
+            // Arrange - recordings shouldn't have duplicates, but test robustness
+            PopulateRecording(10, 20, 20, 30, 40);
+
+            // Act
+            var result = spike.FindWaypointIndex(20);
+
+            // Assert - should find one of the duplicate indices
+            Assert.InRange(result, 1, 2);
+        }
+
+        [Fact]
+        public void FindWaypointIndex_TwoPoints_WorksCorrectly()
+        {
+            // Arrange - minimum valid recording
+            PopulateRecording(10, 20);
+
+            // Act
+            var result = spike.FindWaypointIndex(15);
+
+            // Assert
+            Assert.Equal(0, result);
+        }
+
+        [Fact]
+        public void FindWaypointIndex_UnevenSpacing_WorksCorrectly()
+        {
+            // Arrange - realistic spacing with variable intervals
+            PopulateRecording(0, 0.5, 1.1, 5.3, 5.4, 10.0, 25.7);
+
+            // Act & Assert
+            Assert.Equal(0, spike.FindWaypointIndex(0.3));
+            Assert.Equal(2, spike.FindWaypointIndex(3.0));
+            Assert.Equal(4, spike.FindWaypointIndex(7.5));
+        }
+
+        [Fact]
+        public void FindWaypointIndex_EmptyRecording_ReturnsMinusOne()
+        {
+            // Arrange - Codex bug #3: no guard for recordings < 2 points
+            // spike starts with empty recording by default
+
+            // Act
+            var result = spike.FindWaypointIndex(50);
+
+            // Assert
+            Assert.Equal(-1, result);
+        }
+
+        [Fact]
+        public void FindWaypointIndex_SinglePoint_ReturnsMinusOne()
+        {
+            // Arrange - Codex bug #3: can't interpolate with single point
+            PopulateRecording(10);
+
+            // Act
+            var result = spike.FindWaypointIndex(10);
+
+            // Assert
+            Assert.Equal(-1, result);
+        }
+
+        [Fact]
+        public void FindWaypointIndex_DuplicatesAtEnd_HandlesConsistently()
+        {
+            // Arrange - Codex suggestion #3
+            PopulateRecording(10, 20, 30, 30);
+
+            // Act
+            var result = spike.FindWaypointIndex(30);
+
+            // Assert - should find one of indices 1 or 2
+            Assert.InRange(result, 1, 2);
+        }
+    }
+}

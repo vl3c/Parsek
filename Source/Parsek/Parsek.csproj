@@ -1,0 +1,51 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <AssemblyName>Parsek</AssemblyName>
+    <RootNamespace>Parsek</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+
+    <!-- Local KSP instance for development -->
+    <KSPDir Condition="'$(KSPDir)' == ''">$(MSBuildProjectDirectory)\..\..\Kerbal Space Program</KSPDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- KSP Assemblies -->
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(KSPDir)\KSP_x64_Data\Managed\Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine">
+      <HintPath>$(KSPDir)\KSP_x64_Data\Managed\UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(KSPDir)\KSP_x64_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.InputLegacyModule">
+      <HintPath>$(KSPDir)\KSP_x64_Data\Managed\UnityEngine.InputLegacyModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.IMGUIModule">
+      <HintPath>$(KSPDir)\KSP_x64_Data\Managed\UnityEngine.IMGUIModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.PhysicsModule">
+      <HintPath>$(KSPDir)\KSP_x64_Data\Managed\UnityEngine.PhysicsModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Post-build: Copy to local KSP GameData -->
+  <Target Name="CopyToGameData" AfterTargets="Build" Condition="Exists('$(KSPDir)')">
+    <MakeDir Directories="$(KSPDir)\GameData\Parsek\Plugins" />
+    <Copy SourceFiles="$(OutputPath)Parsek.dll" DestinationFolder="$(KSPDir)\GameData\Parsek\Plugins" />
+    <Copy SourceFiles="$(OutputPath)Parsek.pdb" DestinationFolder="$(KSPDir)\GameData\Parsek\Plugins" Condition="Exists('$(OutputPath)Parsek.pdb')" />
+    <Message Text="Copied to $(KSPDir)\GameData\Parsek\Plugins" Importance="high" />
+  </Target>
+
+</Project>
