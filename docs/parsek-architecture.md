@@ -1,8 +1,8 @@
 # Parsek: Preliminary Architecture
 
 ## Document Status
-**Version:** 0.1 (Draft)  
-**Phase:** Research & Planning  
+**Version:** 0.2
+**Phase:** Research & Planning (Post-Analysis)
 **Last Updated:** February 2026
 
 ---
@@ -108,9 +108,10 @@ public class MissionRecorder : VesselModule
     public bool IsRecording { get; private set; }
     public MissionRecording CurrentRecording { get; private set; }
     
-    // Sampling configuration
-    public float PositionSampleInterval = 1.0f;  // seconds
-    public float OrientationSampleInterval = 0.5f;
+    // Adaptive sampling thresholds (source: PersistentTrails)
+    public float OrientationThreshold = 2.0f;   // degrees
+    public float VelocityDirThreshold = 2.0f;   // degrees
+    public float SpeedChangeThreshold = 0.05f;  // 5% relative change
     
     // Recording control
     public void StartRecording();
@@ -119,6 +120,7 @@ public class MissionRecorder : VesselModule
     public void DiscardRecording();
     
     // Called every physics frame when recording
+    // velocity = vessel.rb_velocityD + Krakensbane.GetFrameVelocity()
     private void SampleState();
     
     // Event handlers
@@ -128,14 +130,17 @@ public class MissionRecorder : VesselModule
 }
 ```
 
+**Recording Hook:**
+- Primary: Harmony postfix on `VesselPrecalculate.CalculatePhysicsStats()` for per-physics-frame data (source: KSPCommunityFixes)
+- Fallback: `FixedUpdate()` polling for compatibility
+
 **Sampling Strategy (MVP):**
-- Position: Every 1 second (configurable)
-- Orientation: Every 0.5 seconds
-- Staging events: On occurrence
+- Adaptive threshold-based: record frame if orientation changes > 2deg, velocity direction changes > 2deg, or speed changes > 5% (source: PersistentTrails)
+- Staging events: On occurrence (with 0.2s delay for state to settle — source: FMRS)
 - SOI changes: On occurrence
+- Event detection: GameEvents + polling hybrid for redundant reliable detection (source: StageRecovery)
 
 **Sampling Strategy (Full Vision):**
-- Adaptive sampling based on acceleration
 - Milestone events (orbit achieved, landing, etc.)
 - Maneuver node executions
 - Resource states at key moments
@@ -174,11 +179,16 @@ public class MissionRecording
 public struct TrajectoryFrame
 {
     public double UT;
-    public Vector3d Position;      // World space or body-relative
+    public double Latitude;         // Geographic (double precision)
+    public double Longitude;        // Geographic (double precision)
+    public double Altitude;         // Above sea level
     public QuaternionD Rotation;
-    public Vector3d Velocity;      // For interpolation
-    public CelestialBody RefBody;  // Reference frame
+    public Vector3d Velocity;       // True velocity (rb_velocity + Krakensbane)
+    public string BodyName;         // Reference body name (for SOI transitions)
 }
+// NOTE: Geographic coords avoid floating-point drift at large distances.
+// Convert to world position via: body.GetWorldSurfacePosition(lat, lon, alt)
+// Source: VesselMover + PersistentTrails patterns.
 
 public enum RecordingState
 {
@@ -293,12 +303,26 @@ public class PlaybackEngine : MonoBehaviour
     
     // Vessel management
     private void SpawnPlaybackVessel(PlaybackVessel pv);
-    private void UpdatePlaybackVessel(PlaybackVessel pv, double ut);
     private void DespawnPlaybackVessel(PlaybackVessel pv);
-    
+
+    // 5-step positioning pipeline (source: VesselMover)
+    private void UpdatePlaybackVessel(PlaybackVessel pv, double ut)
+    {
+        var frame = InterpolateTrajectory(pv, ut);
+        var body = FlightGlobals.Bodies.Find(b => b.name == frame.BodyName);
+        Vector3d worldPos = body.GetWorldSurfacePosition(
+            frame.Latitude, frame.Longitude, frame.Altitude);
+
+        pv.KSPVessel.IgnoreGForces(240);  // CRITICAL: every physics frame
+        pv.KSPVessel.SetPosition(worldPos);
+        pv.KSPVessel.SetRotation(frame.Rotation);
+        pv.KSPVessel.SetWorldVelocity(Vector3d.zero);
+        pv.KSPVessel.angularVelocity = Vector3.zero;
+    }
+
     // Interpolation
     private TrajectoryFrame InterpolateTrajectory(
-        PlaybackVessel pv, 
+        PlaybackVessel pv,
         double ut
     );
 }
@@ -502,7 +526,7 @@ GameData/Parsek/Recordings/
   "endUT": 98765.43,
   "vesselSnapshot": "<ConfigNode as string>",
   "trajectory": [
-    {"ut": 12345.67, "pos": [x,y,z], "rot": [x,y,z,w], "ref": "Kerbin"},
+    {"ut": 12345.67, "lat": -0.0972, "lon": -74.5575, "alt": 77.3, "rot": [x,y,z,w], "vel": [x,y,z], "body": "Kerbin"},
     ...
   ],
   "events": [
@@ -570,6 +594,50 @@ public void OnPlayerTakesControl(PlaybackVessel pv)
 
 ---
 
+## Technical Patterns & Gotchas
+
+Critical patterns discovered from analysis of 8 reference KSP mods. Ignoring these will cause hard-to-debug failures.
+
+### Vessel State
+
+- **Packed vs Unpacked:** Never manipulate a packed vessel (on-rails). Always check `vessel.packed` before calling `SetPosition`, staging, or any physics operation. Wait for `vessel.loaded && !vessel.packed`.
+- **IgnoreGForces(240):** Must be called **every physics frame** before repositioning a vessel, or KSP's acceleration checks will destroy it. The `240` value is the number of frames to suppress. (Source: VesselMover)
+- **ProtoVessel access:** Use `vessel.protoVessel` for accessing data on unloaded vessels (e.g., vessel name, parts list, crew).
+
+### Coordinate Systems
+
+- **Geographic storage:** Store trajectory as `(lat, lon, alt)` not world-space `Vector3d`. World positions suffer floating-point drift at large distances. Convert back via `body.GetWorldSurfacePosition(lat, lon, alt)`.
+- **Krakensbane velocity:** KSP shifts the entire universe to keep the active vessel near the origin. True velocity = `vessel.rb_velocityD + Krakensbane.GetFrameVelocity()`. Recording `vessel.velocity` alone will be wrong.
+- **Quaternion NaN protection:** Sanitize quaternion values before applying. NaN quaternions crash Unity rendering.
+
+### Scene & Lifecycle
+
+- **Scene switch cleanup:** Clear all tracked state (recording buffers, playback vessels, coroutines) in `GameEvents.onGameSceneLoadRequested` handler. Failing to do this causes null references and memory leaks.
+- **Async save coordination:** Never load data while a save is in progress. Listen for `GameEvents.onGameStateSaved` to know when it's safe. (Source: FMRS)
+- **Staging delay:** Wait ~0.2s after a staging event before capturing vessel state, because KSP takes several frames to finalize part decoupling and vessel splitting. (Source: FMRS)
+
+### Performance & Time
+
+- **Time warp awareness:** Destroy or hide ghost vessels during physics warp (warp > 1x with `TimeWarp.WarpMode == TimeWarp.Modes.LOW`). Pause kinematic playback entirely during high time warp.
+- **Unity null checks:** In hot paths (FixedUpdate), use the `IsNotNullOrDestroyed()` pattern (direct reference check) instead of Unity's overloaded `== null` operator, which is 4-5x slower. (Source: KSPCommunityFixes)
+
+---
+
+## Recording Architecture
+
+Summary of the recording strategy derived from mod analysis:
+
+| Aspect | Approach | Source |
+|--------|----------|--------|
+| Hook | Harmony postfix on `VesselPrecalculate.CalculatePhysicsStats()` | KSPCommunityFixes |
+| Storage | Geographic coordinates (lat/lon/alt, double precision) | VesselMover, PersistentTrails |
+| Sampling | Adaptive thresholds (orientation > 2deg, velocity dir > 2deg, speed > 5%) | PersistentTrails |
+| Events | GameEvents + polling hybrid for redundant detection | StageRecovery |
+| Velocity | `rb_velocityD + Krakensbane.GetFrameVelocity()` | VesselMover |
+| Staging | Capture with 0.2s delay after event | FMRS |
+
+---
+
 ## UI Design (Preliminary)
 
 ### Recording Panel
@@ -624,6 +692,39 @@ public void OnPlayerTakesControl(PlaybackVessel pv)
 
 ---
 
+## Stock Integration Patterns
+
+Patterns for integrating with KSP's built-in systems (source: FMRS, KSPCommunityFixes):
+
+### Settings via GameParameters
+
+Use `GameParameters.CustomParameterNode` for mod settings that appear in the KSP difficulty settings menu:
+
+```csharp
+public class ParsekSettings : GameParameters.CustomParameterNode
+{
+    [GameParameters.CustomParameterUI("Enable Recording")]
+    public bool enableRecording = true;
+
+    [GameParameters.CustomFloatParameterUI("Orientation Threshold (deg)", minValue = 0.5f, maxValue = 10f)]
+    public float orientationThreshold = 2.0f;
+}
+```
+
+### Localization
+
+Use `Localizer.GetStringByTag()` for all user-facing strings:
+
+```csharp
+// In en-us.cfg:
+// #Parsek_RecordingStarted = Recording started for <<1>>
+string msg = Localizer.Format("#Parsek_RecordingStarted", vesselName);
+```
+
+Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
+
+---
+
 ## Dependencies
 
 ### Required
@@ -632,13 +733,12 @@ public void OnPlayerTakesControl(PlaybackVessel pv)
 |------------|---------|---------|
 | Module Manager | Config patching | CC-BY-SA |
 | Harmony | Runtime patching | MIT |
-
-### Recommended
-
-| Dependency | Purpose | License |
-|------------|---------|---------|
 | ClickThroughBlocker | UI click handling | GPL-3.0 |
-| ToolbarController | Toolbar buttons | GPL-3.0 |
+| ToolbarControl | Toolbar buttons | GPL-3.0 |
+
+**Integration patterns:**
+- ClickThroughBlocker: Replace `GUILayout.Window()` with `ClickThruBlocker.GUILayoutWindow()` — drop-in replacement that prevents clicks passing through UI windows to vessels/parts behind them.
+- ToolbarControl: Two-phase registration — register at `Startup.Instantly`, then create scene-specific buttons in the appropriate scene callback. Supports both stock and Blizzy toolbar.
 
 ### Optional Integration
 
@@ -664,11 +764,18 @@ public void OnPlayerTakesControl(PlaybackVessel pv)
 
 **Technical Tasks:**
 - [ ] Project setup with dependencies
-- [ ] MissionRecorder implementation
-- [ ] TrajectoryFrame sampling
-- [ ] PlaybackEngine (kinematic mode)
+- [ ] Implement geographic coordinate storage in TrajectoryFrame
+- [ ] Add Krakensbane velocity compensation to recording
+- [ ] MissionRecorder with adaptive threshold-based sampling
+- [ ] Implement Harmony hook on `VesselPrecalculate.CalculatePhysicsStats()`
+- [ ] Implement IgnoreGForces(240) positioning pipeline in PlaybackEngine
+- [ ] Integrate ClickThroughBlocker for UI windows
+- [ ] Integrate ToolbarControl for toolbar button
+- [ ] Add scene transition cleanup handlers (`onGameSceneLoadRequested`)
 - [ ] Basic UI panel
 - [ ] Save/load integration
+- [ ] Add `GameParameters.CustomParameterNode` for settings
+- [ ] Set up localization infrastructure (en-us.cfg)
 
 ### Phase 2: Core Features (Target: 2-3 months)
 
@@ -706,41 +813,48 @@ public void OnPlayerTakesControl(PlaybackVessel pv)
 | KSP version incompatibility | Medium | Medium | Abstract KSP APIs, Harmony patches |
 | Physics issues with ghost vessels | Medium | High | Use debris type, disable collisions by default |
 | Complex recording edge cases | Medium | High | Extensive testing, fail-safe defaults |
+| Krakensbane velocity drift | High | High | Record true velocity (`rb_velocityD` + frame shift) |
+| Packed vessel manipulation | Critical | Medium | Always check `vessel.packed` before `SetPosition` |
+| Scene transition memory leaks | Medium | High | Cleanup in `onGameSceneLoadRequested` |
+| Save/load race condition | Critical | Medium | Async coordination pattern (wait for `onGameStateSaved`) |
+| Time warp ghost desync | Medium | High | Pause/destroy ghosts during physics warp |
 
 ---
 
-## Open Questions
+## Open Questions (Resolved)
 
-1. **Trajectory interpolation:** Linear, cubic, or physics-based?
-2. **Ghost vessel rendering:** Same model or simplified?
-3. **SOI transitions:** Record position per-body or transform?
-4. **Recording file size:** Embed in save or external files?
-5. **Multiplayer architecture:** Peer-to-peer or server-based?
+1. **Trajectory interpolation:** Linear (`Vector3.Lerp`, `Quaternion.Lerp`) is sufficient for MVP. Proven by PersistentTrails — cubic adds complexity with negligible visual improvement at typical sample rates.
+2. **Ghost vessel rendering:** Same model for MVP (use VesselSnapshot to spawn identical vessel). Simplified/transparent rendering deferred to Phase 2.
+3. **SOI transitions:** Store body name (`string BodyName`) per TrajectoryFrame. Record body change as a discrete `SOIChangeEvent`. This naturally handles multi-body trajectories.
+4. **Recording file size:** Hybrid approach — metadata and event list stored in save game via ScenarioModule; large trajectory data stored in external `.parsek` files under `GameData/Parsek/Recordings/`.
+5. **Multiplayer architecture:** Deferred to Phase 4. Recording export/import is the foundation — design for file-based sharing first, network layer later.
 
 ---
 
 ## Next Steps
 
-1. **Set up development environment**
-   - KSP 1.12.5 install
-   - Visual Studio / Rider configuration
-   - Mod project template
+1. ~~**Set up development environment**~~ (DONE)
+   - KSP 1.12.5 local instance configured
+   - dotnet SDK-style project with auto-deploy
 
-2. **Create proof-of-concept**
-   - Basic recording of vessel position
-   - Simple playback loop
-   - Verify feasibility
+2. ~~**Create proof-of-concept**~~ (DONE)
+   - Spike: recording vessel position + playback with green sphere
+   - Verified feasibility of kinematic replay
 
-3. **Study FMRS and Persistent Trails code**
-   - Understand save point mechanism
-   - Understand replay implementation
+3. ~~**Study reference mods**~~ (DONE)
+   - Analyzed 8 mods: FMRS, PersistentTrails, KSPCommunityFixes, ClickThroughBlocker, ToolbarControl, StageRecovery, VesselMover, KerbalAlarmClock
+   - Findings incorporated into this architecture document
 
 4. **Implement MVP incrementally**
-   - Start with recording
-   - Add playback
-   - Add UI
-   - Add persistence
+   - Replace spike with geographic coordinate TrajectoryFrame
+   - Add Krakensbane-compensated velocity recording
+   - Implement IgnoreGForces(240) positioning pipeline
+   - Add ClickThroughBlocker + ToolbarControl integration
+   - Implement adaptive threshold sampling
+   - Add scene transition cleanup
+   - Build recording UI with commit/discard
+   - Add persistence via ScenarioModule + external .parsek files
 
 ---
 
-*Document version: 0.1 — Subject to significant revision as development progresses*
+*Document version: 0.2 — Updated with findings from reference mod analysis*
