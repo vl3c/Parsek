@@ -427,6 +427,9 @@ namespace Parsek
                 // Use a copy to avoid modifying the saved snapshot
                 ConfigNode spawnNode = vesselNode.CreateCopy();
 
+                // Remove dead/missing crew from snapshot to avoid resurrecting them
+                RemoveDeadCrewFromSnapshot(spawnNode);
+
                 // Set reserved crew back to Available so KSP can assign them to this vessel
                 ParsekScenario.UnreserveCrewInSnapshot(spawnNode);
 
@@ -1141,6 +1144,48 @@ namespace Parsek
         #endregion
 
         #region Utilities
+
+        void RemoveDeadCrewFromSnapshot(ConfigNode snapshot)
+        {
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null) return;
+
+            foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
+            {
+                var crewNames = partNode.GetValues("crew");
+                if (crewNames.Length == 0) continue;
+
+                // Check if any crew are dead/missing
+                var keepNames = new List<string>();
+                bool removedAny = false;
+                foreach (string name in crewNames)
+                {
+                    bool isDead = false;
+                    foreach (ProtoCrewMember pcm in roster.Crew)
+                    {
+                        if (pcm.name == name &&
+                            (pcm.rosterStatus == ProtoCrewMember.RosterStatus.Dead ||
+                             pcm.rosterStatus == ProtoCrewMember.RosterStatus.Missing))
+                        {
+                            isDead = true;
+                            Log($"Removed dead/missing crew '{name}' from vessel snapshot");
+                            break;
+                        }
+                    }
+                    if (isDead)
+                        removedAny = true;
+                    else
+                        keepNames.Add(name);
+                }
+
+                if (removedAny)
+                {
+                    partNode.RemoveValues("crew");
+                    foreach (string name in keepNames)
+                        partNode.AddValue("crew", name);
+                }
+            }
+        }
 
         bool VesselExistsByPid(uint pid)
         {
