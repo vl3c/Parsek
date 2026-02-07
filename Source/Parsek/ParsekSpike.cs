@@ -877,16 +877,17 @@ namespace Parsek
             float t = (float)((targetUT - before.ut) / segmentDuration);
             t = Mathf.Clamp01(t);
 
-            CelestialBody body = FlightGlobals.Bodies.Find(b => b.name == before.bodyName);
-            if (body == null)
+            CelestialBody bodyBefore = FlightGlobals.Bodies.Find(b => b.name == before.bodyName);
+            CelestialBody bodyAfter = FlightGlobals.Bodies.Find(b => b.name == after.bodyName);
+            if (bodyBefore == null || bodyAfter == null)
             {
-                Log($"Could not find body: {before.bodyName}");
+                Log($"Could not find body: {(bodyBefore == null ? before.bodyName : after.bodyName)}");
                 return;
             }
 
-            Vector3 posBefore = body.GetWorldSurfacePosition(
+            Vector3 posBefore = bodyBefore.GetWorldSurfacePosition(
                 before.latitude, before.longitude, before.altitude);
-            Vector3 posAfter = body.GetWorldSurfacePosition(
+            Vector3 posAfter = bodyAfter.GetWorldSurfacePosition(
                 after.latitude, after.longitude, after.altitude);
 
             Vector3 interpolatedPos = Vector3.Lerp(posBefore, posAfter, t);

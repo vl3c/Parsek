@@ -10,7 +10,7 @@ Identified during vessel persistence implementation. Prioritized by likelihood a
 
 ## High (likely to encounter)
 
-- [ ] **SOI change during recording** — Recording starts on Kerbin, goes to Mun orbit. `InterpolateAndPosition` uses `before.bodyName` to find the body, but consecutive points may have different bodies. Lerp between Kerbin-relative and Mun-relative positions = garbage coordinates.
+- [x] **SOI change during recording** — Recording starts on Kerbin, goes to Mun orbit. `InterpolateAndPosition` uses `before.bodyName` to find the body, but consecutive points may have different bodies. Lerp between Kerbin-relative and Mun-relative positions = garbage coordinates. **Fixed:** Look up each point's body separately in `InterpolateAndPosition`; both world positions are in Unity's global coordinate system so the lerp remains valid across SOI boundaries.
 - [ ] **Docking during recording** — Active vessel changes identity. Snapshot captures the docked composite. Respawned vessel is the whole docked assembly, potentially duplicating the station it docked to.
 - [ ] **Vessel switching during recording** — Player switches to another vessel mid-recording with `[` or `]`. `FlightGlobals.ActiveVessel` changes. SamplePosition records the wrong vessel's position.
 - [x] **Multiple reverts spawn duplicate vessels** — Record, merge+keep, vessel spawns, revert, OnLoad resets `VesselSpawned=false`, vessel spawns again. Two copies of the same vessel if the first one persisted (e.g. tracked in Tracking Station). **Fixed:** Store `SpawnedVesselPersistentId` on spawn; before re-spawning, check `FlightGlobals.Vessels` for a vessel with that pid — if it exists, skip the spawn.
