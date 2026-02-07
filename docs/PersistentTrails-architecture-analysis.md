@@ -633,6 +633,68 @@ currentReplayTime += playbackFactor * (currentTimeUT - lastUpdateUT);
 
 ---
 
+## 13. ADDITIONAL COMPONENTS NOT IN INITIAL ANALYSIS
+
+### MeshFactory (MeshFactory.cs)
+
+Utility class for runtime mesh generation. Used to create ghost vessel fallback shapes.
+
+**Key Methods:**
+
+```csharp
+// Create a GameObject with MeshFilter + MeshRenderer from any mesh
+public static GameObject makeMeshGameObject(ref Mesh mesh, string name)
+{
+    GameObject go = new GameObject("Dynamic Mesh: " + name);
+    MeshFilter filter = go.AddComponent<MeshFilter>();
+    MeshRenderer renderer = go.AddComponent<MeshRenderer>();
+    filter.mesh = mesh;
+    return go;
+}
+
+// Create icosphere via subdivision (used as fallback ghost shape)
+public static Mesh createSphere()  // Icosahedron with 2 levels of subdivision
+
+// Create cone mesh (used for direction markers on trails)
+public static Mesh createCone(float radius, float height, int approx)
+```
+
+**Relevance for Parsek:** The `makeMeshGameObject` + `createSphere` pattern is exactly what the spike uses for the green ghost sphere. For Phase 1, this same approach works. For later phases, replace with `CraftLoader.assembleCraft()` to show actual vessel geometry.
+
+### TireTracker (TireTracker.cs)
+
+A `PartModule`-based system that creates ground tire tracks as dynamic meshes.
+
+```csharp
+class ModuleTireTracker : PartModule
+{
+    [KSPField(isPersistant = false, guiActive = true, guiName = "Tire Width")]
+    public float tireWidth;
+}
+```
+
+**Key patterns:**
+- Uses `PartModule` with `[KSPField]` attributes for in-game configuration
+- Dynamic mesh generation: builds triangle strips incrementally as the vessel moves
+- Movement threshold check: `(newPos - oldPos).sqrMagnitude < 0.1f` to avoid recording when stationary
+- Material setup: `Shader.Find("KSP/Emissive/Diffuse")` for self-lit visuals
+
+**Relevance for Parsek:** The `PartModule` + `[KSPField]` pattern is useful for per-vessel recording configuration (e.g., recording precision settings visible in the part's right-click menu). The movement threshold pattern reinforces the adaptive sampling approach.
+
+### CraftLoader Details (CraftLoader.cs)
+
+Additional detail on ghost vessel geometry reconstruction:
+
+- Loads `.crf` files containing serialized part geometry (not full KSP parts, just visual models)
+- Fetches models from `GameDatabase.Instance.GetModel(partName)`
+- Builds a hierarchy: parent GameObject with child part models at correct local positions/rotations
+- Disables lights, animations, and colliders by default for ghost vessels
+- Fallback: if `.crf` file missing, uses `MeshFactory.createSphere()` as ghost shape
+
+**Relevance for Parsek:** Phase 1 uses sphere fallback. Phase 2+ should serialize vessel geometry at recording start using this `.crf` pattern for realistic ghost vessels.
+
+---
+
 ## SUMMARY OF KEY INSIGHTS FOR PARSEK
 
 1. **Threshold-based sampling** dramatically reduces file sizes (10-100x compression vs. fixed-rate recording)
@@ -654,5 +716,11 @@ currentReplayTime += playbackFactor * (currentTimeUT - lastUpdateUT);
 9. **Buoyancy simulation** demonstrates how to add specialized physics behaviors to ghosts
 
 10. **Auto-destruction system** prevents memory leaks from abandoned replay objects
+
+11. **MeshFactory utility** provides runtime sphere/cone generation for ghost vessel fallbacks
+
+12. **CraftLoader serialization** enables realistic ghost vessels by reconstructing part geometry from `.crf` files
+
+13. **PartModule with [KSPField]** pattern (TireTracker) enables per-vessel configuration visible in the right-click menu
 
 This architecture provides an excellent foundation for Parsek's kinematic playback system. The threshold-based recording, geographic coordinate storage, and time-based interpolation patterns are directly applicable to your mission recording needs.

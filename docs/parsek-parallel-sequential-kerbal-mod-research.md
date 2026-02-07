@@ -19,6 +19,7 @@ This document compiles research on 20 KSP1 mods relevant to developing the Paral
 | Latest | v1.2.9.6 (September 2025) |
 | KSP Version | 1.12.5 |
 | Status | **Actively Maintained** |
+| **Cloned** | **Yes** (`mods/FMRS`) |
 
 **Why It's Critical:**
 FMRS already implements the core mechanic we need: **time jumping and save point generation**. It creates save points at vessel separation, allows jumping back in time to control dropped stages, and merges vessels back into the main save.
@@ -36,7 +37,7 @@ FMRS already implements the core mechanic we need: **time jumping and save point
 - State serialization/deserialization
 - Event detection (separation, landing)
 
-**Usability:** High - MIT license allows direct code reuse. Architecture closely matches our needs.
+**Usability:** High - MIT license allows direct code reuse. Architecture closely matches our needs. See `docs/FMRS-architecture-analysis.md`.
 
 ---
 
@@ -51,6 +52,7 @@ FMRS already implements the core mechanic we need: **time jumping and save point
 | Latest | v1.11 (March 2020) |
 | KSP Version | 1.9.1 |
 | Status | Unmaintained (needs recompilation) |
+| **Cloned** | **Yes** (`mods/KSPPersistentTrails`) |
 
 **Why It's Critical:**
 Persistent Trails implements **vessel geometry recording and replay** - exactly what our MVP needs for kinematic playback.
@@ -69,7 +71,7 @@ Persistent Trails implements **vessel geometry recording and replay** - exactly 
 - `OffRailsObject.cs` - Handling off-rails replays
 - `RecordingThresholds.cs` - Sampling configuration
 
-**Usability:** High - MIT license. Needs updating for KSP 1.12.x but architecture is directly applicable.
+**Usability:** High - MIT license. Needs updating for KSP 1.12.x but architecture is directly applicable. See `docs/PersistentTrails-architecture-analysis.md`.
 
 ---
 
@@ -83,6 +85,7 @@ Persistent Trails implements **vessel geometry recording and replay** - exactly 
 | Latest | v3.14.0.0 (April 2022) |
 | KSP Version | 1.12.3 |
 | Status | Stable/Complete |
+| **Cloned** | **Yes** (`mods/KerbalAlarmClock`) |
 
 **Why It's Important:**
 KAC provides **time-based event scheduling and warp control** - essential for managing timeline events.
@@ -101,7 +104,7 @@ KAC provides **time-based event scheduling and warp control** - essential for ma
 - Persistent alarm storage
 - kOS integration API
 
-**Usability:** High - MIT license, well-documented API, stable codebase.
+**Usability:** High - MIT license, well-documented API, stable codebase. See `docs/KerbalAlarmClock-architecture-analysis.md`.
 
 ---
 
@@ -206,6 +209,7 @@ Provides **advanced time warp control** including lossless physics warp and free
 | Latest | v1.9.8 (October 2025) |
 | KSP Version | 1.12.5 |
 | Status | **Actively Maintained** |
+| **Cloned** | **Yes** (`mods/StageRecovery`) |
 
 **Why It's Relevant:**
 Handles **automatic stage recovery** without manual control - demonstrates background vessel processing.
@@ -216,7 +220,7 @@ Handles **automatic stage recovery** without manual control - demonstrates backg
 - Background recovery simulation
 - Fund/science/Kerbal recovery
 
-**Usability:** Study for background vessel handling patterns.
+**Usability:** Study for background vessel handling patterns. See `docs/StageRecovery-architecture-analysis.md`.
 
 ---
 
@@ -262,11 +266,12 @@ Improves **vessel switching** experience. Useful patterns for our vessel managem
 | License | **MIT** ✓ |
 | Latest | v1.9.0 (2020) |
 | Status | Needs recompilation |
+| **Cloned** | **Yes** (`mods/VesselMover`) |
 
 **Why It's Relevant:**
 Demonstrates **programmatic vessel positioning** - useful for debugging/testing recorded missions.
 
-**Usability:** High - MIT license.
+**Usability:** High - MIT license. See `docs/VesselMover-architecture-analysis.md`.
 
 ---
 
@@ -368,43 +373,50 @@ Enables **runtime method patching** - critical for hooking into KSP's internal s
 | License | **GPL-3.0** ⚠️ |
 | Latest | v2.1.10.21 |
 | Status | Maintained |
+| **Cloned** | **Yes** (`mods/ClickThroughBlocker`) |
 
 **Why It's Important:**
-Prevents UI click-through issues. Standard dependency for mods with custom windows.
+Prevents UI click-through issues. Standard dependency for mods with custom windows. Drop-in replacement for `GUILayout.Window()` via `ClickThruBlocker.GUILayoutWindow()`.
 
-**Usability:** Recommended dependency for UI.
+**Usability:** Recommended dependency for UI. See `docs/ClickThroughBlocker-architecture-analysis.md`.
 
 ---
 
-### 16. ToolbarController
+### 16. ToolbarControl (formerly ToolbarController)
 **Relevance: ★★★☆☆ RECOMMENDED DEPENDENCY**
 
 | Attribute | Value |
 |-----------|-------|
-| Repository | https://github.com/linuxgurugamer/ToolbarController |
+| Repository | https://github.com/linuxgurugamer/ToolbarControl |
 | License | GPL-3.0 |
-| Status | Maintained |
+| Latest | v0.1.9.14 (May 2025) |
+| KSP Version | 1.12.5 |
+| Status | **Actively Maintained** |
+| **Cloned** | **Yes** (`mods/ToolbarControl`) |
 
 **Why It's Important:**
 Provides unified toolbar button management (stock + Blizzy toolbar).
 
-**Usability:** Recommended dependency for UI buttons.
+**Usability:** Recommended dependency for UI buttons. See `docs/ToolbarControl-architecture-analysis.md`.
 
 ---
 
 ## Priority Tier 5: Reference/Architectural Study
 
 ### 17. KSPCommunityFixes
-**Relevance: ★★☆☆☆ REFERENCE**
+**Relevance: ★★★☆☆ REFERENCE (upgraded)**
 
 | Attribute | Value |
 |-----------|-------|
 | Repository | https://github.com/KSPModdingLibs/KSPCommunityFixes |
 | License | MIT |
 | Status | Actively Maintained |
+| **Cloned** | **Yes** (`mods/KSPCommunityFixes`) |
 
 **Why It's Relevant:**
-Shows how to **patch KSP bugs** using Harmony. Excellent reference for understanding KSP internals.
+Shows how to **patch KSP bugs** using Harmony. Excellent reference for understanding KSP internals. Contains patches for vessel handling, save/load, time warp, physics, and orbit systems that are directly relevant to Parsek.
+
+**Usability:** High - MIT license. Essential reference for Harmony patching patterns. See `docs/KSPCommunityFixes-architecture-analysis.md`.
 
 ---
 
@@ -495,11 +507,28 @@ Advanced n-body physics. Reference for orbital prediction systems, though overki
 
 ## Next Steps
 
-1. **Clone and compile** FMRS and Persistent Trails against KSP 1.12.5
-2. **Extract key classes** from both mods as reference implementations
+1. ~~**Clone and compile** FMRS and Persistent Trails against KSP 1.12.5~~ **DONE** - All Tier 1 mods cloned + 5 additional reference mods
+2. ~~**Extract key classes** from both mods as reference implementations~~ **DONE** - Architecture analysis docs created for all 8 cloned mods
 3. **Design unified architecture** combining:
-   - FMRS's save point system
-   - Persistent Trails' recording format
-   - KAC's event scheduling
-4. **Create project skeleton** with proper dependencies
-5. **Implement MVP recording** (position + staging only)
+   - FMRS's save point system + throttle replay
+   - Persistent Trails' recording format + adaptive sampling
+   - KAC's event scheduling + warp control
+   - ClickThroughBlocker + ToolbarControl for UI
+   - GameParameters.CustomParameterNode for settings (from FMRS)
+   - KSP.Localization for all UI strings (from FMRS)
+4. ~~**Create project skeleton** with proper dependencies~~ **DONE** - SDK-style .csproj created
+5. ~~**Implement spike prototype**~~ **DONE** - Basic recording + playback verified
+6. **Implement MVP Phase 1** - See `docs/parsek-architecture.md` Phase 1 checklist
+
+## Cloned Mods Summary
+
+| Mod | Location | License | Analysis Doc |
+|-----|----------|---------|--------------|
+| FMRS | `mods/FMRS` | MIT | `docs/FMRS-architecture-analysis.md` |
+| KSPPersistentTrails | `mods/KSPPersistentTrails` | MIT | `docs/PersistentTrails-architecture-analysis.md` |
+| KerbalAlarmClock | `mods/KerbalAlarmClock` | MIT | `docs/KerbalAlarmClock-architecture-analysis.md` |
+| ClickThroughBlocker | `mods/ClickThroughBlocker` | GPL-3.0 | `docs/ClickThroughBlocker-architecture-analysis.md` |
+| ToolbarControl | `mods/ToolbarControl` | GPL-3.0 | `docs/ToolbarControl-architecture-analysis.md` |
+| KSPCommunityFixes | `mods/KSPCommunityFixes` | MIT | `docs/KSPCommunityFixes-architecture-analysis.md` |
+| StageRecovery | `mods/StageRecovery` | GPL-3.0 | `docs/StageRecovery-architecture-analysis.md` |
+| VesselMover | `mods/VesselMover` | MIT | `docs/VesselMover-architecture-analysis.md` |

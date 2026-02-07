@@ -42,7 +42,7 @@ Parsek/
 │   │   ├── Parsek.csproj    # SDK-style project
 │   │   ├── ParsekSpike.cs   # Main spike — recording, playback, UI, scene handling
 │   │   ├── RecordingStore.cs # Static storage surviving scene changes
-│   │   └── ParsekScenario.cs # ScenarioModule for save/load persistence
+│   │   └── ParsekScenario.cs # ScenarioModule for save/load, crew reservation & replacement
 │   └── Parsek.Tests/         # Unit tests (xUnit)
 ├── docs/                     # Documentation
 ├── mods/                     # Reference mods (git-ignored)
@@ -79,10 +79,30 @@ dotnet test
 3. Fly around for 30-60 seconds
 4. Press **F9** to stop recording
 5. Revert to Launch (Esc → Revert to Launch)
-6. A "Merge to Timeline?" dialog appears — click **Merge to Timeline**
+6. A context-aware merge dialog appears with recommended action:
+   - **Vessel barely moved (<100m):** "Merge + Recover" (default), "Merge + Keep Vessel", "Discard"
+   - **Vessel destroyed:** "Merge to Timeline" (default), "Discard"
+   - **Vessel intact, moved far:** "Merge + Keep Vessel" (default), "Merge + Recover", "Discard"
 7. Wait on the pad until UT reaches original recording timestamps
 8. Green-cyan ghost sphere appears and replays previous flight
 9. Funds/science/reputation deltas are applied at the correct UT
+
+**Vessel persistence test:**
+1. Launch to orbit → F9 record → revert → "Merge + Keep Vessel"
+2. Go to Tracking Station → vessel appears in orbit
+3. Or choose "Merge + Recover" → funds credited, no vessel in orbit
+
+**Crew replacement test:**
+1. Record with Jeb → revert → "Merge + Keep Vessel"
+2. Check Astronaut Complex: Jeb is Assigned, a new kerbal with same trait appeared
+3. Launch new flight — replacement kerbal is available in crew selection
+4. Wait for EndUT → Jeb's vessel spawns, replacement is removed from roster
+5. Repeat: record again → replacement pool stays stable (no kerbal leak)
+
+**Wipe cleanup test:**
+1. Record + merge several times with "Keep Vessel"
+2. Click "Wipe Recordings" in Parsek UI
+3. All reserved kerbals return to Available, all replacements removed
 
 **Manual preview (no revert needed):**
 1. Record as above, press **F10** to preview playback immediately
@@ -97,6 +117,7 @@ dotnet test
 ### Debug
 - Check `Kerbal Space Program/KSP.log` for errors
 - Look for `[Parsek Spike]` and `[Parsek Scenario]` log entries
+- Crew replacement actions logged as `[Parsek Scenario] Hired replacement ...` / `Removed replacement ...`
 - Alt+F12 opens Unity debug console in-game
 
 ## Git Configuration

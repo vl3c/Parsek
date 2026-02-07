@@ -547,6 +547,159 @@ private void write_recovered_values_to_save() {
 
 ---
 
+## 8. THROTTLE LOGGING AND REPLAY (FMRS_THL.cs)
+
+**Not covered in initial analysis.** FMRS includes a full throttle recording and replay system that is directly relevant to Parsek's flight input recording.
+
+### Throttle Logger (FMRS_THL_Log)
+
+Records throttle values keyed by Universal Time:
+
+```csharp
+public void LogThrottle(float in_throttle)
+{
+    if (started)
+    {
+        if (!writing)
+            Throttle_Log_Buffer.Add(new entry(Planetarium.GetUniversalTime(), in_throttle));
+        else
+            temp_buffer.Add(new entry(Planetarium.GetUniversalTime(), in_throttle));
+    }
+}
+```
+
+**Key patterns:**
+- **Double-buffering**: Uses `temp_buffer` during writes to prevent data loss
+- **Batch writing**: Flushes to file when buffer exceeds 1000 entries
+- **Sorted output**: Sorts entries by time before writing
+- **File format**: Simple `time@value` text format with `####EOF####` terminator
+
+### Throttle Replayer (FMRS_THL_Rep)
+
+Replays throttle values via KSP's `FlightCtrlState` callback:
+
+```csharp
+public void flybywire(FlightCtrlState state)
+{
+    // Reads from queue, skips entries in the past
+    while (true)
+    {
+        if (Throttle_Replay.Count < 10 && !EOF)
+            read_throttle_values();
+        temp_entry = Throttle_Replay.Dequeue();
+        if (temp_entry.time < Planetarium.GetUniversalTime())
+            continue;  // Skip past entries
+        state.mainThrottle = temp_entry.value;
+        break;
+    }
+}
+```
+
+**Key patterns:**
+- **Queue-based replay**: Uses `Queue<entry>` for efficient dequeue
+- **Streaming file reads**: Reads 1000 entries at a time, not entire file
+- **Time-based seeking**: Skips entries until reaching current UT
+- **FlightCtrlState injection**: Hooks into KSP's fly-by-wire system to set throttle
+
+**Relevance for Parsek:** This pattern can be extended to record/replay ALL flight inputs (pitch, yaw, roll, throttle, SAS, RCS) for more accurate mission replay than position-only recording.
+
+---
+
+## 9. STOCK SETTINGS INTEGRATION (Settings.cs)
+
+**Not covered in initial analysis.** FMRS integrates settings into KSP's built-in settings menu using `GameParameters.CustomParameterNode`.
+
+```csharp
+public class FMRS_Settings : GameParameters.CustomParameterNode
+{
+    public override string Title { get { return ""; } }
+    public override GameParameters.GameMode GameMode { get { return GameParameters.GameMode.ANY; } }
+    public override string Section { get { return "FMRS"; } }
+    public override string DisplaySection { get { return "FMRS"; } }
+    public override int SectionOrder { get { return 1; } }
+    public override bool HasPresets { get { return false; } }
+
+    [GameParameters.CustomParameterUI("#FMRS_Local_027")]  // FMRS Enabled
+    public bool enabled = true;
+
+    [GameParameters.CustomFloatParameterUI("#FMRS_Local_031", minValue = 0.2f, maxValue = 5.0f,
+        asPercentage = false, displayFormat = "0.0",
+        toolTip = "#FMRS_Local_032")]  // Stage Delay
+    public float Timer_Stage_Delay = 0.2f;
+}
+```
+
+**Key patterns:**
+- Uses `[GameParameters.CustomParameterUI]` for booleans
+- Uses `[GameParameters.CustomFloatParameterUI]` for sliders with min/max/format
+- `Enabled()` method controls conditional visibility of settings
+- Localization keys used for all UI strings
+
+**Relevance for Parsek:** Use this pattern instead of custom settings windows. Gives users a familiar interface and persists settings per-save automatically.
+
+---
+
+## 10. LOCALIZATION SUPPORT (FMRS_Core_GUI.cs)
+
+**Not covered in initial analysis.** FMRS uses KSP's built-in localization system.
+
+```csharp
+using KSP.Localization;
+
+private static string Local_001 = Localizer.GetStringByTag("#FMRS_Local_001");  // "Mission Time"
+private static string Local_007 = Localizer.GetStringByTag("#FMRS_Local_007");  // "YES"
+
+// In-line formatting:
+GUILayout.Box(Localizer.Format("#FMRS_Local_015", get_time_string(...)), ...);
+```
+
+**Localization files at:** `GameData/FMRS/Localization/en-us.cfg` and `zh-cn.cfg`
+
+**Relevance for Parsek:** Key all UI strings from the start using `Localizer.GetStringByTag()`. Even if you only ship English initially, it's much easier to add languages later if strings are already keyed.
+
+---
+
+## 11. GUI PATTERNS (FMRS_Core_GUI.cs)
+
+**Not covered in initial analysis.** FMRS demonstrates several important KSP GUI patterns:
+
+### ClickThroughBlocker Integration
+```csharp
+using ClickThroughFix;
+
+windowPos = ClickThruBlocker.GUILayoutWindow(baseWindowID + 1, windowPos, MainGUI, "FMRS", GUILayout.MinWidth(100));
+```
+Drop-in replacement for `GUILayout.Window()` that prevents mouse clicks from passing through the mod window to the game world.
+
+### Window ID Generation
+```csharp
+baseWindowID = UnityEngine.Random.Range(1000, 2000000) + _AssemblyName.GetHashCode();
+```
+Prevents window ID collisions with other mods.
+
+### Screen Clamping
+```csharp
+windowPos.x = Mathf.Clamp(windowPos.x, 0, Screen.width - windowPos.width);
+windowPos.y = Mathf.Clamp(windowPos.y, 0, Screen.height - windowPos.height);
+```
+Keeps windows on-screen after resolution changes.
+
+### Custom GUIStyle Initialization
+```csharp
+private void init_skin()
+{
+    GUI.skin = HighLogic.Skin;  // Use KSP's built-in skin
+    GUIStyle MyButton = new GUIStyle(HighLogic.Skin.button);
+    MyButton.fontSize = 15;
+    MyButton.normal.textColor = Color.white;
+    // Color-coded styles for status: green (landed), red (destroyed), yellow (in flight)
+}
+```
+
+**Relevance for Parsek:** All of these patterns are essential for Parsek's recording panel, timeline viewer, and playback controls.
+
+---
+
 ## SUMMARY
 
 FMRS implements a sophisticated **save-branch-merge** architecture that allows KSP players to control multiple vessels across different points in time. The key innovation is using KSP's built-in save/load system to create temporal branches, then surgically merging the results back into a main timeline.
@@ -559,6 +712,9 @@ The architecture is built on these pillars:
 5. **State Machines** - Track vessel lifecycle states
 6. **Event-Driven** - Heavy use of GameEvents for integration
 7. **Multi-Scene Support** - Persistent state across scenes
+8. **Throttle Recording/Replay** - FlightCtrlState injection for input replay
+9. **Stock Settings Integration** - GameParameters.CustomParameterNode for settings
+10. **Localization** - KSP.Localization.Localizer for all UI strings
 
 For Parsek's mission recording system, the most valuable patterns are:
 - Save-branch-merge architecture for parallel timelines
@@ -566,3 +722,7 @@ For Parsek's mission recording system, the most valuable patterns are:
 - Recovery value accumulation for deferred state changes
 - Async save/load coordination to prevent race conditions
 - Delayed event processing for physics stability
+- Throttle recording via double-buffered UT-keyed entries and FlightCtrlState replay
+- Stock settings menu integration via GameParameters.CustomParameterNode
+- ClickThroughBlocker for window rendering, random window IDs, screen clamping
+- Localization keys for all UI strings from day one
