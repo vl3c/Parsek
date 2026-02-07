@@ -30,9 +30,9 @@ Identified during vessel persistence implementation. Prioritized by likelihood a
 - [x] **Vessel unloaded at snapshot time** — BackupVessel() on an unloaded vessel might return incomplete data. **Fixed:** Added warning log when vessel is unloaded at snapshot time. `BackupVessel()` falls back to `protoVessel` for unloaded vessels, which is valid but may be stale.
 - [x] **Recording duration zero** — Single sample point before revert. StartUT = EndUT. Ghost playback logic may behave unexpectedly. **Fixed:** `StashPending` requires >= 2 points; single-point recordings are silently dropped (all playback paths already require >= 2 points).
 - [x] **Negative resource delta with insufficient resources** — Could leave player with negative funds. **Fixed:** `ApplyResourceDeltas` clamps negative deltas so funds, science, and reputation never go below zero.
-- [ ] **Float precision in science/reputation** — Large values lose precision due to float storage.
-- [ ] **Latitude/longitude precision at poles** — Recording at lat=90, lon=any is ambiguous for positioning.
-- [ ] **ConfigNode.SetValue silent failure** — SetValue returns false if key doesn't exist; doesn't create new values.
+- [x] **Float precision in science/reputation** — Large values lose precision due to float storage. **Won't fix:** KSP's own science and reputation systems use float natively. Matching their precision is correct behavior.
+- [x] **Latitude/longitude precision at poles** — Recording at lat=90, lon=any is ambiguous for positioning. **Won't fix:** `GetWorldSurfacePosition(90, any_lon, alt)` always returns the same world position regardless of longitude. Interpolation at poles produces correct results.
+- [x] **ConfigNode.SetValue silent failure** — SetValue returns false if key doesn't exist; doesn't create new values. **Won't fix:** Not used in codebase. All save code uses `AddValue` which always creates new entries.
 - [x] **Save file locale issues** — Double.TryParse without InvariantCulture in OnLoad could fail with comma-decimal locales. **Fixed:** All TryParse calls in OnLoad now use `CultureInfo.InvariantCulture`.
 
 ## Fixed
