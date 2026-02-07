@@ -220,6 +220,22 @@ namespace Parsek
 
             ReserveSnapshotCrew();
 
+            // Auto-unreserve crew for recordings whose EndUT has already passed
+            // but vessel was never spawned (e.g. UT advanced while in Space Center).
+            double currentUT = Planetarium.GetUniversalTime();
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var rec = recordings[i];
+                if (rec.VesselSnapshot != null && !rec.VesselSpawned && currentUT > rec.EndUT)
+                {
+                    UnreserveCrewInSnapshot(rec.VesselSnapshot);
+                    rec.VesselSnapshot = null;
+                    rec.VesselSpawned = true;
+                    Debug.Log($"[Parsek Scenario] Auto-unreserved crew for recording #{i} " +
+                        $"({rec.VesselName}) — EndUT passed without spawn");
+                }
+            }
+
             // If pending recording exists but we're not in Flight, auto-commit it.
             // Merge dialog can only show in Flight (ParsekSpike is Flight-only).
             // This handles Esc > Abort Mission → Space Center path.
