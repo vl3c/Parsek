@@ -230,6 +230,8 @@ namespace Parsek
             }
 
             // Snapshot the vessel (works for regular vessels and EVA kerbals)
+            if (!vessel.loaded)
+                Log("Warning: Active vessel is unloaded at snapshot time — snapshot may be incomplete");
             ProtoVessel pv = vessel.BackupVessel();
             ConfigNode node = new ConfigNode("VESSEL");
             pv.Save(node);
