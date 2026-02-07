@@ -346,6 +346,54 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Swap reserved crew out of the active flight vessel, replacing them
+        /// with their hired replacements. Prevents the player from recording
+        /// with a reserved kerbal again after revert.
+        /// </summary>
+        public static void SwapReservedCrewInFlight()
+        {
+            if (FlightGlobals.ActiveVessel == null) return;
+            if (crewReplacements.Count == 0) return;
+
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null) return;
+
+            foreach (Part part in FlightGlobals.ActiveVessel.parts)
+            {
+                // Iterate a copy because RemoveCrewmember modifies the list
+                var crewList = new List<ProtoCrewMember>(part.protoModuleCrew);
+                for (int i = 0; i < crewList.Count; i++)
+                {
+                    ProtoCrewMember original = crewList[i];
+                    if (!crewReplacements.TryGetValue(original.name, out string replacementName))
+                        continue;
+
+                    // Find the replacement in the roster
+                    ProtoCrewMember replacement = null;
+                    foreach (ProtoCrewMember pcm in roster.Crew)
+                    {
+                        if (pcm.name == replacementName)
+                        {
+                            replacement = pcm;
+                            break;
+                        }
+                    }
+
+                    if (replacement == null)
+                    {
+                        Debug.Log($"[Parsek Scenario] Cannot swap '{original.name}': replacement '{replacementName}' not in roster");
+                        continue;
+                    }
+
+                    int seatIndex = part.protoModuleCrew.IndexOf(original);
+                    part.RemoveCrewmember(original);
+                    part.AddCrewmemberAt(replacement, seatIndex);
+                    Debug.Log($"[Parsek Scenario] Swapped '{original.name}' → '{replacement.name}' in part '{part.partInfo.title}'");
+                }
+            }
+        }
+
+        /// <summary>
         /// Clears replacement dictionary without roster access. For unit tests only.
         /// </summary>
         internal static void ResetReplacementsForTesting()

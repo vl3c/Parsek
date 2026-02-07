@@ -6,7 +6,7 @@ Identified during vessel persistence implementation. Prioritized by likelihood a
 
 - [ ] **Resource deltas applied multiple times on revert** — `LastAppliedResourceIndex` is NOT reset in OnLoad's revert path, only `VesselSpawned` is. Every revert re-applies the same funds/science/reputation deltas. Runaway inflation.
 - [ ] **`initialLoadDone` flag never resets** — Loading a different save game within the same KSP session skips OnLoad entirely. Save B shows Save A's recordings.
-- [ ] **Multiple recordings sharing same crew** — Record with Jeb, merge+keep. Record with Jeb again (before first vessel spawns). Both snapshots have Jeb. First vessel spawns and unreserves Jeb. Second vessel tries to spawn with Jeb but he's now on vessel #1.
+- [x] **Multiple recordings sharing same crew** — Record with Jeb, merge+keep. Record with Jeb again (before first vessel spawns). Both snapshots have Jeb. First vessel spawns and unreserves Jeb. Second vessel tries to spawn with Jeb but he's now on vessel #1. **Fixed:** `SwapReservedCrewInFlight()` swaps reserved kerbals out of the active vessel after reservation, replacing them with their hired replacements.
 - [ ] **Time warp skips entire recording range** — Player warps from UT 100 to UT 5000. Recording EndUT is 500. Ghost was never active, but the `pastEnd && !ghostActive` immediate-spawn path fires. Vessel appears without any ghost playback (confusing but functional).
 
 ## High (likely to encounter)

@@ -262,6 +262,10 @@ namespace Parsek
                 ShowMergeDialog(pending);
             }
 
+            // Swap reserved crew out of the active vessel so the player
+            // can't record with them again (they belong to deferred-spawn vessels)
+            ParsekScenario.SwapReservedCrewInFlight();
+
             Log($"Timeline has {RecordingStore.CommittedRecordings.Count} committed recording(s)");
         }
 
@@ -302,6 +306,7 @@ namespace Parsek
                             // Defer spawn — vessel appears when ghost finishes at EndUT
                             RecordingStore.CommitPending();
                             ParsekScenario.ReserveSnapshotCrew();
+                            ParsekScenario.SwapReservedCrewInFlight();
                             ScreenMessage("Recording merged — vessel will appear after ghost playback", 3f);
                             Log("User chose: Merge + Keep Vessel (deferred spawn)");
                         }),
@@ -344,6 +349,7 @@ namespace Parsek
                             // Defer spawn — vessel appears when ghost finishes at EndUT
                             RecordingStore.CommitPending();
                             ParsekScenario.ReserveSnapshotCrew();
+                            ParsekScenario.SwapReservedCrewInFlight();
                             ScreenMessage("Recording merged — vessel will appear after ghost playback", 3f);
                             Log("User chose: Merge + Keep Vessel (deferred spawn, default for intact vessel)");
                         }),
