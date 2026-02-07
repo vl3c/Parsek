@@ -75,7 +75,7 @@ namespace Parsek
 
         public static void StashPending(List<ParsekSpike.TrajectoryPoint> points, string vesselName)
         {
-            if (points == null || points.Count == 0) return;
+            if (points == null || points.Count < 2) return;
 
             pendingRecording = new Recording
             {
