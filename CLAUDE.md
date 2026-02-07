@@ -38,12 +38,15 @@ Parsek/
 │   │   └── Managed/         # Assembly references
 │   └── KSP.log              # Debug output here
 ├── Source/                   # Mod source code
-│   └── Parsek/
-│       ├── Parsek.csproj    # SDK-style project
-│       └── ParsekSpike.cs   # Spike implementation
+│   ├── Parsek/
+│   │   ├── Parsek.csproj    # SDK-style project
+│   │   ├── ParsekSpike.cs   # Main spike — recording, playback, UI, scene handling
+│   │   ├── RecordingStore.cs # Static storage surviving scene changes
+│   │   └── ParsekScenario.cs # ScenarioModule for save/load persistence
+│   └── Parsek.Tests/         # Unit tests (xUnit)
 ├── docs/                     # Documentation
 ├── mods/                     # Reference mods (git-ignored)
-├── claude.md                 # This file
+├── CLAUDE.md                 # This file
 ├── build.bat                 # Build script (alternative to dotnet)
 └── .gitignore               # Git ignore rules
 ```
@@ -59,22 +62,41 @@ dotnet build -c Release   # Release build
 
 Builds automatically copy to `Kerbal Space Program/GameData/Parsek/Plugins/`
 
-### Test
+### Unit Tests
+```bash
+cd Source/Parsek.Tests
+dotnet test
+```
+
+### In-Game Test
 ```bash
 "Kerbal Space Program/KSP_x64.exe"
 ```
 
-**Testing the spike:**
-1. Launch KSP, start any flight
+**Recording + Timeline (core flow):**
+1. Launch KSP, start any flight (career mode for resource tracking)
 2. Press **F9** to start recording
 3. Fly around for 30-60 seconds
 4. Press **F9** to stop recording
-5. Press **F10** to start playback
-6. Observe green sphere (12m diameter) following your path
+5. Revert to Launch (Esc → Revert to Launch)
+6. A "Merge to Timeline?" dialog appears — click **Merge to Timeline**
+7. Wait on the pad until UT reaches original recording timestamps
+8. Green-cyan ghost sphere appears and replays previous flight
+9. Funds/science/reputation deltas are applied at the correct UT
+
+**Manual preview (no revert needed):**
+1. Record as above, press **F10** to preview playback immediately
+2. Press **F11** to stop preview
+
+**Controls:**
+- **F9** — Start/Stop recording
+- **F10** — Preview playback (current recording, relative time)
+- **F11** — Stop preview
+- **Alt+P** — Toggle UI window
 
 ### Debug
 - Check `Kerbal Space Program/KSP.log` for errors
-- Look for `[Parsek Spike]` log entries
+- Look for `[Parsek Spike]` and `[Parsek Scenario]` log entries
 - Alt+F12 opens Unity debug console in-game
 
 ## Git Configuration
