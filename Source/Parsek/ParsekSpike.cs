@@ -58,6 +58,7 @@ namespace Parsek
         // Recording state
         internal List<TrajectoryPoint> recording = new List<TrajectoryPoint>();
         private bool isRecording = false;
+        private uint recordingVesselId;
         private float sampleInterval = 0.5f; // seconds between samples
 
         // Manual playback state (F10/F11 preview of current recording)
@@ -512,6 +513,7 @@ namespace Parsek
             recording.Clear();
             isRecording = true;
             vesselDestroyedDuringRecording = false;
+            recordingVesselId = FlightGlobals.ActiveVessel.persistentId;
             recordingStartUT = Planetarium.GetUniversalTime();
 
             // Start sampling
@@ -538,6 +540,15 @@ namespace Parsek
         {
             Vessel v = FlightGlobals.ActiveVessel;
             if (v == null) return;
+
+            if (v.persistentId != recordingVesselId)
+            {
+                CancelInvoke(nameof(SamplePosition));
+                isRecording = false;
+                Log($"Active vessel changed during recording (was pid={recordingVesselId}, now pid={v.persistentId}) — auto-stopping");
+                ScreenMessage("Recording stopped — vessel changed", 3f);
+                return;
+            }
 
             TrajectoryPoint point = new TrajectoryPoint
             {
