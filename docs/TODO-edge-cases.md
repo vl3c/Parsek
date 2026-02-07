@@ -4,9 +4,8 @@ Identified during vessel persistence implementation. Prioritized by likelihood a
 
 ## Critical (will hit these in testing)
 
-- [ ] **Resource deltas applied multiple times on revert** — `LastAppliedResourceIndex` is NOT reset in OnLoad's revert path, only `VesselSpawned` is. Every revert re-applies the same funds/science/reputation deltas. Runaway inflation.
-- [ ] **`initialLoadDone` flag never resets** — Loading a different save game within the same KSP session skips OnLoad entirely. Save B shows Save A's recordings.
-- [x] **Multiple recordings sharing same crew** — Record with Jeb, merge+keep. Record with Jeb again (before first vessel spawns). Both snapshots have Jeb. First vessel spawns and unreserves Jeb. Second vessel tries to spawn with Jeb but he's now on vessel #1. **Fixed:** `SwapReservedCrewInFlight()` swaps reserved kerbals out of the active vessel after reservation, replacing them with their hired replacements.
+- [x] **Resource deltas applied multiple times on revert** — `LastAppliedResourceIndex` is NOT reset in OnLoad's revert path, only `VesselSpawned` is. Every revert re-applies the same funds/science/reputation deltas. Runaway inflation. **Fixed:** Reset `LastAppliedResourceIndex = -1` alongside `VesselSpawned` in the revert path.
+- [x] **`initialLoadDone` flag never resets** — Loading a different save game within the same KSP session skips OnLoad entirely. Save B shows Save A's recordings. **Fixed:** Track `HighLogic.SaveFolder`; when it changes, reset `initialLoadDone` so the new save's data loads fresh.
 - [ ] **Time warp skips entire recording range** — Player warps from UT 100 to UT 5000. Recording EndUT is 500. Ghost was never active, but the `pastEnd && !ghostActive` immediate-spawn path fires. Vessel appears without any ghost playback (confusing but functional).
 
 ## High (likely to encounter)
@@ -35,3 +34,7 @@ Identified during vessel persistence implementation. Prioritized by likelihood a
 - [ ] **Latitude/longitude precision at poles** — Recording at lat=90, lon=any is ambiguous for positioning.
 - [ ] **ConfigNode.SetValue silent failure** — SetValue returns false if key doesn't exist; doesn't create new values.
 - [ ] **Save file locale issues** — Double.TryParse without InvariantCulture in OnLoad could fail with comma-decimal locales.
+
+## Fixed
+
+- [x] **Multiple recordings sharing same crew** — `SwapReservedCrewInFlight()` swaps reserved kerbals out of the active vessel after reservation, replacing them with their hired replacements.

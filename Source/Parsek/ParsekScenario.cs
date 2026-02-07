@@ -82,19 +82,32 @@ namespace Parsek
         // On revert, the launch quicksave has stale data — the in-memory
         // static list is the real source of truth within a session.
         private static bool initialLoadDone = false;
+        private static string lastSaveFolder = null;
 
         public override void OnLoad(ConfigNode node)
         {
             var recordings = RecordingStore.CommittedRecordings;
+
+            // Detect loading a different save game (not a revert)
+            string currentSave = HighLogic.SaveFolder;
+            if (currentSave != lastSaveFolder)
+            {
+                initialLoadDone = false;
+                lastSaveFolder = currentSave;
+                Debug.Log($"[Parsek Scenario] Save folder changed to '{currentSave}' — resetting session state");
+            }
 
             // Load crew replacement mappings from the node (both initial and revert paths need this)
             LoadCrewReplacements(node);
 
             if (initialLoadDone)
             {
-                // Reset VesselSpawned on all recordings so they re-spawn after revert
+                // Reset spawn and resource state so recordings replay correctly after revert
                 for (int i = 0; i < recordings.Count; i++)
+                {
                     recordings[i].VesselSpawned = false;
+                    recordings[i].LastAppliedResourceIndex = -1;
+                }
 
                 ReserveSnapshotCrew();
                 Debug.Log($"[Parsek Scenario] Revert detected — preserving {recordings.Count} session recordings");
