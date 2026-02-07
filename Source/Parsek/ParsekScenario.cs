@@ -12,6 +12,18 @@ namespace Parsek
         GameScenes.FLIGHT, GameScenes.SPACECENTER, GameScenes.TRACKSTATION, GameScenes.EDITOR)]
     public class ParsekScenario : ScenarioModule
     {
+        #region Crew Replacements
+
+        // Maps reserved kerbal name → replacement kerbal name
+        private static Dictionary<string, string> crewReplacements = new Dictionary<string, string>();
+
+        /// <summary>
+        /// Read-only access to current replacement mappings. For testing/diagnostics.
+        /// </summary>
+        internal static IReadOnlyDictionary<string, string> CrewReplacements => crewReplacements;
+
+        #endregion
+
         public override void OnSave(ConfigNode node)
         {
             // Clear any existing recording nodes
@@ -51,6 +63,19 @@ namespace Parsek
                     recNode.AddNode("VESSEL_SNAPSHOT", rec.VesselSnapshot);
                 }
             }
+
+            // Persist crew replacement mappings
+            if (crewReplacements.Count > 0)
+            {
+                ConfigNode replacementsNode = node.AddNode("CREW_REPLACEMENTS");
+                foreach (var kvp in crewReplacements)
+                {
+                    ConfigNode entry = replacementsNode.AddNode("ENTRY");
+                    entry.AddValue("original", kvp.Key);
+                    entry.AddValue("replacement", kvp.Value);
+                }
+                Debug.Log($"[Parsek Scenario] Saved {crewReplacements.Count} crew replacement(s)");
+            }
         }
 
         // Static flag: only load from save once per KSP session.
@@ -61,6 +86,9 @@ namespace Parsek
         public override void OnLoad(ConfigNode node)
         {
             var recordings = RecordingStore.CommittedRecordings;
+
+            // Load crew replacement mappings from the node (both initial and revert paths need this)
+            LoadCrewReplacements(node);
 
             if (initialLoadDone)
             {
@@ -177,6 +205,10 @@ namespace Parsek
                         {
                             pcm.rosterStatus = ProtoCrewMember.RosterStatus.Available;
                             Debug.Log($"[Parsek Scenario] Unreserved crew '{name}'");
+
+                            // Clean up the replacement kerbal
+                            CleanUpReplacement(name, roster);
+
                             break;
                         }
                     }
@@ -198,11 +230,127 @@ namespace Parsek
                         {
                             pcm.rosterStatus = ProtoCrewMember.RosterStatus.Assigned;
                             Debug.Log($"[Parsek Scenario] Reserved crew '{name}' for deferred vessel spawn");
+
+                            // Hire a replacement kerbal so the available pool stays constant
+                            if (!crewReplacements.ContainsKey(name))
+                            {
+                                try
+                                {
+                                    ProtoCrewMember replacement = roster.GetNewKerbal(ProtoCrewMember.KerbalType.Crew);
+                                    if (replacement != null)
+                                    {
+                                        KerbalRoster.SetExperienceTrait(replacement, pcm.experienceTrait.TypeName);
+                                        crewReplacements[name] = replacement.name;
+                                        Debug.Log($"[Parsek Scenario] Hired replacement '{replacement.name}' " +
+                                            $"(trait: {pcm.experienceTrait.TypeName}) for reserved '{name}'");
+                                    }
+                                }
+                                catch (System.Exception ex)
+                                {
+                                    Debug.Log($"[Parsek Scenario] Failed to hire replacement for '{name}': {ex.Message}");
+                                }
+                            }
+
                             break;
                         }
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Remove a replacement kerbal from the roster if they're still Available.
+        /// If the replacement is Assigned (on a mission), leave them as a "real" kerbal.
+        /// </summary>
+        private static void CleanUpReplacement(string originalName, KerbalRoster roster)
+        {
+            if (!crewReplacements.TryGetValue(originalName, out string replacementName))
+                return;
+
+            // Always remove the mapping
+            crewReplacements.Remove(originalName);
+
+            // Find the replacement in the roster
+            ProtoCrewMember replacement = null;
+            foreach (ProtoCrewMember pcm in roster.Crew)
+            {
+                if (pcm.name == replacementName)
+                {
+                    replacement = pcm;
+                    break;
+                }
+            }
+
+            if (replacement == null)
+            {
+                Debug.Log($"[Parsek Scenario] Replacement '{replacementName}' not found in roster (already removed?)");
+                return;
+            }
+
+            if (replacement.rosterStatus == ProtoCrewMember.RosterStatus.Available)
+            {
+                roster.Remove(replacement);
+                Debug.Log($"[Parsek Scenario] Removed replacement '{replacementName}' (was unused)");
+            }
+            else
+            {
+                Debug.Log($"[Parsek Scenario] Kept replacement '{replacementName}' " +
+                    $"(status: {replacement.rosterStatus} — now a real kerbal)");
+            }
+        }
+
+        /// <summary>
+        /// Remove all Available replacement kerbals and clear the mapping.
+        /// Called when wiping all recordings.
+        /// </summary>
+        public static void ClearReplacements()
+        {
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null)
+            {
+                crewReplacements.Clear();
+                return;
+            }
+
+            foreach (var kvp in new Dictionary<string, string>(crewReplacements))
+            {
+                CleanUpReplacement(kvp.Key, roster);
+            }
+
+            crewReplacements.Clear();
+            Debug.Log("[Parsek Scenario] Cleared all crew replacements");
+        }
+
+        /// <summary>
+        /// Load crew replacement mappings from a ConfigNode.
+        /// </summary>
+        private static void LoadCrewReplacements(ConfigNode node)
+        {
+            crewReplacements.Clear();
+
+            ConfigNode replacementsNode = node.GetNode("CREW_REPLACEMENTS");
+            if (replacementsNode == null) return;
+
+            ConfigNode[] entries = replacementsNode.GetNodes("ENTRY");
+            for (int i = 0; i < entries.Length; i++)
+            {
+                string original = entries[i].GetValue("original");
+                string replacement = entries[i].GetValue("replacement");
+                if (!string.IsNullOrEmpty(original) && !string.IsNullOrEmpty(replacement))
+                {
+                    crewReplacements[original] = replacement;
+                }
+            }
+
+            Debug.Log($"[Parsek Scenario] Loaded {crewReplacements.Count} crew replacement(s)");
+        }
+
+        /// <summary>
+        /// Clears replacement dictionary without roster access. For unit tests only.
+        /// </summary>
+        internal static void ResetReplacementsForTesting()
+        {
+            crewReplacements.Clear();
         }
 
         #endregion

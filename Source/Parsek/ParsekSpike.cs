@@ -1053,6 +1053,7 @@ namespace Parsek
                 // Unreserve crew from all recordings before wiping
                 foreach (var rec in RecordingStore.CommittedRecordings)
                     ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
+                ParsekScenario.ClearReplacements();
                 DestroyAllTimelineGhosts();
                 RecordingStore.CommittedRecordings.Clear();
                 Log("All recordings wiped");
