@@ -76,6 +76,9 @@ namespace Parsek
         // Vessel destruction tracking
         private bool vesselDestroyedDuringRecording = false;
 
+        // Timeline warp protection — tracks previous frame's UT
+        private double lastTimelineUT = -1;
+
         // UI
         private Rect windowRect = new Rect(20, 100, 250, 250);
         private bool showUI = true;
@@ -634,9 +637,32 @@ namespace Parsek
         void UpdateTimelinePlayback()
         {
             var committed = RecordingStore.CommittedRecordings;
-            if (committed.Count == 0) return;
-
             double currentUT = Planetarium.GetUniversalTime();
+
+            // Prevent time warp from skipping ghost playback for vessel spawns
+            if (committed.Count > 0 && TimeWarp.CurrentRate > 1f && lastTimelineUT >= 0)
+            {
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    var rec = committed[i];
+                    if (rec.Points.Count < 2) continue;
+                    if (rec.VesselSnapshot == null || rec.VesselSpawned) continue;
+
+                    bool crossedInto = lastTimelineUT < rec.EndUT && currentUT >= rec.StartUT;
+                    bool approaching = currentUT < rec.StartUT &&
+                                       currentUT + TimeWarp.CurrentRate >= rec.StartUT;
+                    if (crossedInto || approaching)
+                    {
+                        TimeWarp.SetRate(0, true);
+                        Log($"Stopped time warp for recording #{i} ({rec.VesselName}) ghost playback");
+                        ScreenMessage($"Time warp stopped — '{rec.VesselName}' playback", 3f);
+                        break;
+                    }
+                }
+            }
+            lastTimelineUT = currentUT;
+
+            if (committed.Count == 0) return;
 
             for (int i = 0; i < committed.Count; i++)
             {

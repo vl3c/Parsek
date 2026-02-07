@@ -6,7 +6,7 @@ Identified during vessel persistence implementation. Prioritized by likelihood a
 
 - [x] **Resource deltas applied multiple times on revert** — `LastAppliedResourceIndex` is NOT reset in OnLoad's revert path, only `VesselSpawned` is. Every revert re-applies the same funds/science/reputation deltas. Runaway inflation. **Fixed:** Reset `LastAppliedResourceIndex = -1` alongside `VesselSpawned` in the revert path.
 - [x] **`initialLoadDone` flag never resets** — Loading a different save game within the same KSP session skips OnLoad entirely. Save B shows Save A's recordings. **Fixed:** Track `HighLogic.SaveFolder`; when it changes, reset `initialLoadDone` so the new save's data loads fresh.
-- [ ] **Time warp skips entire recording range** — Player warps from UT 100 to UT 5000. Recording EndUT is 500. Ghost was never active, but the `pastEnd && !ghostActive` immediate-spawn path fires. Vessel appears without any ghost playback (confusing but functional).
+- [x] **Time warp skips entire recording range** — Player warps from UT 100 to UT 5000. Recording EndUT is 500. Ghost was never active, but the `pastEnd && !ghostActive` immediate-spawn path fires. Vessel appears without any ghost playback (confusing but functional). **Fixed:** Stop time warp when UT is about to enter a recording's range with a pending vessel spawn; uses frame-over-frame overlap detection plus a 1-real-second look-ahead for high warp rates.
 
 ## High (likely to encounter)
 
