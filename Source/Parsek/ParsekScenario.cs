@@ -63,6 +63,12 @@ namespace Parsek
                 {
                     recNode.AddNode("VESSEL_SNAPSHOT", rec.VesselSnapshot);
                 }
+
+                // Persist spawned vessel pid so we can detect duplicates after scene changes
+                if (rec.SpawnedVesselPersistentId != 0)
+                {
+                    recNode.AddValue("spawnedPid", rec.SpawnedVesselPersistentId);
+                }
             }
 
             // Persist crew replacement mappings
@@ -170,6 +176,15 @@ namespace Parsek
                 if (snapshotNode != null)
                 {
                     rec.VesselSnapshot = snapshotNode;
+                }
+
+                // Restore spawned vessel pid for duplicate spawn detection
+                string pidStr = recNode.GetValue("spawnedPid");
+                if (pidStr != null)
+                {
+                    uint pid;
+                    if (uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out pid))
+                        rec.SpawnedVesselPersistentId = pid;
                 }
 
                 if (rec.Points.Count > 0)

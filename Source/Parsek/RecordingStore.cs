@@ -43,6 +43,7 @@ namespace Parsek
             public bool VesselDestroyed;            // Vessel was destroyed before revert
             public string VesselSituation;          // "Orbiting Kerbin", "Landed on Mun", etc.
             public bool VesselSpawned;              // True after deferred RespawnVessel has fired
+            public uint SpawnedVesselPersistentId;  // persistentId of spawned vessel (0 = not yet spawned)
 
             public double StartUT => Points.Count > 0 ? Points[0].ut : 0;
             public double EndUT => Points.Count > 0 ? Points[Points.Count - 1].ut : 0;

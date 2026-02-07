@@ -416,7 +416,7 @@ namespace Parsek
             }
         }
 
-        void RespawnVessel(ConfigNode vesselNode)
+        uint RespawnVessel(ConfigNode vesselNode)
         {
             try
             {
@@ -429,11 +429,13 @@ namespace Parsek
                 ProtoVessel pv = new ProtoVessel(spawnNode, HighLogic.CurrentGame);
                 HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
                 pv.Load(HighLogic.CurrentGame.flightState);
-                Log($"Vessel respawned with crew (sit={spawnNode.GetValue("sit")})");
+                Log($"Vessel respawned with crew (sit={spawnNode.GetValue("sit")}, pid={pv.persistentId})");
+                return pv.persistentId;
             }
             catch (System.Exception ex)
             {
                 Log($"Failed to respawn vessel: {ex.Message}");
+                return 0;
             }
         }
 
@@ -646,6 +648,16 @@ namespace Parsek
                 bool ghostActive = timelineGhosts.ContainsKey(i) && timelineGhosts[i] != null;
                 bool needsSpawn = rec.VesselSnapshot != null && !rec.VesselSpawned;
 
+                // Guard: if vessel was spawned before but VesselSpawned got reset (scene change),
+                // check if the vessel still exists by its persistentId to avoid duplicates.
+                if (needsSpawn && rec.SpawnedVesselPersistentId != 0 &&
+                    VesselExistsByPid(rec.SpawnedVesselPersistentId))
+                {
+                    rec.VesselSpawned = true;
+                    needsSpawn = false;
+                    Log($"Vessel pid={rec.SpawnedVesselPersistentId} still exists — skipping duplicate spawn for recording #{i}");
+                }
+
                 if (inRange)
                 {
                     // Normal ghost playback
@@ -665,7 +677,7 @@ namespace Parsek
                 {
                     // Ghost was playing, UT just crossed EndUT — hold at final pos, spawn, despawn ghost
                     PositionGhostAt(timelineGhosts[i], rec.Points[rec.Points.Count - 1]);
-                    RespawnVessel(rec.VesselSnapshot);
+                    rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot);
                     rec.VesselSpawned = true;
                     Log($"Deferred vessel spawn for recording #{i} ({rec.VesselName})");
                     ScreenMessage($"Vessel '{rec.VesselName}' has appeared!", 4f);
@@ -674,7 +686,7 @@ namespace Parsek
                 else if (pastEnd && needsSpawn && !ghostActive)
                 {
                     // UT already past EndUT on scene load — spawn immediately, no ghost
-                    RespawnVessel(rec.VesselSnapshot);
+                    rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot);
                     rec.VesselSpawned = true;
                     Log($"Immediate vessel spawn for recording #{i} ({rec.VesselName}) — UT already past EndUT");
                     ScreenMessage($"Vessel '{rec.VesselName}' restored!", 4f);
@@ -1084,6 +1096,17 @@ namespace Parsek
         #endregion
 
         #region Utilities
+
+        bool VesselExistsByPid(uint pid)
+        {
+            if (FlightGlobals.Vessels == null) return false;
+            for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
+            {
+                if (FlightGlobals.Vessels[i].persistentId == pid)
+                    return true;
+            }
+            return false;
+        }
 
         void Log(string message)
         {
