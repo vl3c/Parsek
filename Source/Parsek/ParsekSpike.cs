@@ -446,6 +446,41 @@ namespace Parsek
             }
         }
 
+        void SpawnOrRecoverIfTooClose(RecordingStore.Recording rec, int index)
+        {
+            // Check proximity to active vessel to avoid physics collisions on launchpad
+            bool tooClose = false;
+            if (FlightGlobals.ActiveVessel != null && rec.Points.Count > 0)
+            {
+                var lastPt = rec.Points[rec.Points.Count - 1];
+                CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == lastPt.bodyName);
+                if (body != null && FlightGlobals.ActiveVessel.mainBody == body)
+                {
+                    Vector3d spawnPos = body.GetWorldSurfacePosition(
+                        lastPt.latitude, lastPt.longitude, lastPt.altitude);
+                    double dist = Vector3d.Distance(spawnPos, FlightGlobals.ActiveVessel.GetWorldPos3D());
+                    tooClose = dist < 200.0;
+                }
+            }
+
+            if (tooClose)
+            {
+                RecoverVessel(rec.VesselSnapshot);
+                ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
+                rec.VesselSpawned = true;
+                rec.VesselSnapshot = null;
+                Log($"Recovered vessel #{index} ({rec.VesselName}) — too close to active vessel");
+                ScreenMessage($"Vessel '{rec.VesselName}' recovered (too close to launch)", 4f);
+            }
+            else
+            {
+                rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot);
+                rec.VesselSpawned = true;
+                Log($"Vessel spawn for recording #{index} ({rec.VesselName})");
+                ScreenMessage($"Vessel '{rec.VesselName}' has appeared!", 4f);
+            }
+        }
+
         void RecoverVessel(ConfigNode vesselNode)
         {
             try
@@ -724,19 +759,13 @@ namespace Parsek
                 {
                     // Ghost was playing, UT just crossed EndUT — hold at final pos, spawn, despawn ghost
                     PositionGhostAt(timelineGhosts[i], rec.Points[rec.Points.Count - 1]);
-                    rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot);
-                    rec.VesselSpawned = true;
-                    Log($"Deferred vessel spawn for recording #{i} ({rec.VesselName})");
-                    ScreenMessage($"Vessel '{rec.VesselName}' has appeared!", 4f);
+                    SpawnOrRecoverIfTooClose(rec, i);
                     DestroyTimelineGhost(i);
                 }
                 else if (pastEnd && needsSpawn && !ghostActive)
                 {
                     // UT already past EndUT on scene load — spawn immediately, no ghost
-                    rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot);
-                    rec.VesselSpawned = true;
-                    Log($"Immediate vessel spawn for recording #{i} ({rec.VesselName}) — UT already past EndUT");
-                    ScreenMessage($"Vessel '{rec.VesselName}' restored!", 4f);
+                    SpawnOrRecoverIfTooClose(rec, i);
                 }
                 else
                 {
