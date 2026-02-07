@@ -69,6 +69,9 @@ namespace Parsek
                 {
                     recNode.AddValue("spawnedPid", rec.SpawnedVesselPersistentId);
                 }
+
+                // Persist resource index so quickload doesn't re-apply deltas
+                recNode.AddValue("lastResIdx", rec.LastAppliedResourceIndex);
             }
 
             // Persist crew replacement mappings
@@ -109,11 +112,21 @@ namespace Parsek
 
             if (initialLoadDone)
             {
-                // Reset spawn and resource state so recordings replay correctly after revert
+                // Reset spawn state; restore resource index from save so quickload
+                // doesn't re-apply deltas that were already applied before the save.
+                // On revert, the launch quicksave has lastResIdx=-1, which is correct.
+                ConfigNode[] savedRecNodes = node.GetNodes("RECORDING");
                 for (int i = 0; i < recordings.Count; i++)
                 {
                     recordings[i].VesselSpawned = false;
-                    recordings[i].LastAppliedResourceIndex = -1;
+                    int resIdx = -1;
+                    if (i < savedRecNodes.Length)
+                    {
+                        string resIdxStr = savedRecNodes[i].GetValue("lastResIdx");
+                        if (resIdxStr != null)
+                            int.TryParse(resIdxStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out resIdx);
+                    }
+                    recordings[i].LastAppliedResourceIndex = resIdx;
                 }
 
                 ReserveSnapshotCrew();
@@ -185,6 +198,15 @@ namespace Parsek
                     uint pid;
                     if (uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out pid))
                         rec.SpawnedVesselPersistentId = pid;
+                }
+
+                // Restore resource application index
+                string resIdxStr = recNode.GetValue("lastResIdx");
+                if (resIdxStr != null)
+                {
+                    int resIdx;
+                    if (int.TryParse(resIdxStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out resIdx))
+                        rec.LastAppliedResourceIndex = resIdx;
                 }
 
                 if (rec.Points.Count > 0)
