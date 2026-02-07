@@ -197,6 +197,20 @@ namespace Parsek
             }
 
             ReserveSnapshotCrew();
+
+            // If pending recording exists but we're not in Flight, auto-commit it.
+            // Merge dialog can only show in Flight (ParsekSpike is Flight-only).
+            // This handles Esc > Abort Mission → Space Center path.
+            if (RecordingStore.HasPending && HighLogic.LoadedScene != GameScenes.FLIGHT)
+            {
+                var pending = RecordingStore.Pending;
+                if (pending.VesselSnapshot != null)
+                    UnreserveCrewInSnapshot(pending.VesselSnapshot);
+                pending.VesselSnapshot = null;
+                RecordingStore.CommitPending();
+                Debug.Log($"[Parsek Scenario] Auto-committed pending recording outside Flight " +
+                    $"(scene: {HighLogic.LoadedScene})");
+            }
         }
 
         #region Crew Reservation
