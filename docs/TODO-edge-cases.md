@@ -33,7 +33,7 @@ Identified during vessel persistence implementation. Prioritized by likelihood a
 - [ ] **Float precision in science/reputation** — Large values lose precision due to float storage.
 - [ ] **Latitude/longitude precision at poles** — Recording at lat=90, lon=any is ambiguous for positioning.
 - [ ] **ConfigNode.SetValue silent failure** — SetValue returns false if key doesn't exist; doesn't create new values.
-- [ ] **Save file locale issues** — Double.TryParse without InvariantCulture in OnLoad could fail with comma-decimal locales.
+- [x] **Save file locale issues** — Double.TryParse without InvariantCulture in OnLoad could fail with comma-decimal locales. **Fixed:** All TryParse calls in OnLoad now use `CultureInfo.InvariantCulture`.
 
 ## Fixed
 

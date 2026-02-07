@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 using UnityEngine;
 
 namespace Parsek
@@ -134,27 +135,30 @@ namespace Parsek
                     var ptNode = ptNodes[i];
                     var pt = new ParsekSpike.TrajectoryPoint();
 
-                    double.TryParse(ptNode.GetValue("ut"), out pt.ut);
-                    double.TryParse(ptNode.GetValue("lat"), out pt.latitude);
-                    double.TryParse(ptNode.GetValue("lon"), out pt.longitude);
-                    double.TryParse(ptNode.GetValue("alt"), out pt.altitude);
+                    var inv = NumberStyles.Float;
+                    var ic = CultureInfo.InvariantCulture;
+
+                    double.TryParse(ptNode.GetValue("ut"), inv, ic, out pt.ut);
+                    double.TryParse(ptNode.GetValue("lat"), inv, ic, out pt.latitude);
+                    double.TryParse(ptNode.GetValue("lon"), inv, ic, out pt.longitude);
+                    double.TryParse(ptNode.GetValue("alt"), inv, ic, out pt.altitude);
 
                     float rx, ry, rz, rw;
-                    float.TryParse(ptNode.GetValue("rotX"), out rx);
-                    float.TryParse(ptNode.GetValue("rotY"), out ry);
-                    float.TryParse(ptNode.GetValue("rotZ"), out rz);
-                    float.TryParse(ptNode.GetValue("rotW"), out rw);
+                    float.TryParse(ptNode.GetValue("rotX"), inv, ic, out rx);
+                    float.TryParse(ptNode.GetValue("rotY"), inv, ic, out ry);
+                    float.TryParse(ptNode.GetValue("rotZ"), inv, ic, out rz);
+                    float.TryParse(ptNode.GetValue("rotW"), inv, ic, out rw);
                     pt.rotation = new Quaternion(rx, ry, rz, rw);
 
                     pt.bodyName = ptNode.GetValue("body") ?? "Kerbin";
 
                     double funds;
-                    double.TryParse(ptNode.GetValue("funds"), out funds);
+                    double.TryParse(ptNode.GetValue("funds"), inv, ic, out funds);
                     pt.funds = funds;
 
                     float science, rep;
-                    float.TryParse(ptNode.GetValue("science"), out science);
-                    float.TryParse(ptNode.GetValue("rep"), out rep);
+                    float.TryParse(ptNode.GetValue("science"), inv, ic, out science);
+                    float.TryParse(ptNode.GetValue("rep"), inv, ic, out rep);
                     pt.science = science;
                     pt.reputation = rep;
 
