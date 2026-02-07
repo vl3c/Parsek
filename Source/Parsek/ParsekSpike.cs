@@ -811,18 +811,24 @@ namespace Parsek
 
                 if (fundsDelta != 0 && Funding.Instance != null)
                 {
+                    if (fundsDelta < 0 && Funding.Instance.Funds + fundsDelta < 0)
+                        fundsDelta = -Funding.Instance.Funds;
                     Funding.Instance.AddFunds(fundsDelta, TransactionReasons.None);
                     Log($"Timeline resource: funds {fundsDelta:+0.0;-0.0}");
                 }
 
                 if (scienceDelta != 0 && ResearchAndDevelopment.Instance != null)
                 {
+                    if (scienceDelta < 0 && ResearchAndDevelopment.Instance.Science + scienceDelta < 0)
+                        scienceDelta = -ResearchAndDevelopment.Instance.Science;
                     ResearchAndDevelopment.Instance.AddScience(scienceDelta, TransactionReasons.None);
                     Log($"Timeline resource: science {scienceDelta:+0.0;-0.0}");
                 }
 
                 if (repDelta != 0 && Reputation.Instance != null)
                 {
+                    if (repDelta < 0 && Reputation.CurrentRep + repDelta < 0)
+                        repDelta = -Reputation.CurrentRep;
                     Reputation.Instance.AddReputation(repDelta, TransactionReasons.None);
                     Log($"Timeline resource: reputation {repDelta:+0.0;-0.0}");
                 }
