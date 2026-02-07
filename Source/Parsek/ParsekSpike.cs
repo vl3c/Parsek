@@ -504,6 +504,13 @@ namespace Parsek
 
         void StartRecording()
         {
+            if (Time.timeScale < 0.01f)
+            {
+                Log("Cannot start recording while paused");
+                ScreenMessage("Cannot record while paused", 2f);
+                return;
+            }
+
             if (FlightGlobals.ActiveVessel == null)
             {
                 Log("No active vessel to record!");

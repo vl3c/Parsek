@@ -17,7 +17,7 @@ Identified during vessel persistence implementation. Prioritized by likelihood a
 
 ## Medium (edge cases worth knowing about)
 
-- [ ] **F9 pressed while game paused** — `HandleInput` runs during pause. Recording starts but `InvokeRepeating` may not tick while paused, or captures stale positions.
+- [x] **F9 pressed while game paused** — `HandleInput` runs during pause. Recording starts but `InvokeRepeating` may not tick while paused, or captures stale positions. **Fixed:** `StartRecording()` checks `Time.timeScale` and refuses to start while paused.
 - [ ] **Crew dies during recording** — Kerbal dies, `onVesselWillDestroy` fires, `vesselDestroyedDuringRecording = true`. But the kerbal's death status isn't synced with the snapshot. Respawning the vessel brings back a dead kerbal.
 - [ ] **Merge dialog appears in wrong scene** — Esc > Abort Mission fires `OnSceneChangeRequested(SPACECENTER)`. Recording stashed. `OnFlightReady` doesn't fire in Space Center, so merge dialog never shows. Recording stuck as pending forever.
 - [ ] **Quicksave/quickload bypasses revert logic** — F5/F9 quicksave/load doesn't go through the "Revert to Launch" path. OnLoad fires but from quicksave data. The `initialLoadDone` flag skips it, preserving session recordings, but `VesselSpawned` flags aren't reset.
