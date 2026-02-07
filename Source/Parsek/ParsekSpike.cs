@@ -185,20 +185,21 @@ namespace Parsek
 
             // Compute distance from launch
             var firstPoint = pending.Points[0];
-            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == firstPoint.bodyName);
+            CelestialBody bodyFirst = FlightGlobals.Bodies?.Find(b => b.name == firstPoint.bodyName);
 
             if (vesselDestroyedDuringRecording)
             {
                 pending.VesselDestroyed = true;
                 pending.VesselSnapshot = null;
 
-                // Use last recorded point for distance
+                // Use last recorded point for distance (may be a different SOI)
                 var lastPoint = pending.Points[pending.Points.Count - 1];
-                if (body != null)
+                CelestialBody bodyLast = FlightGlobals.Bodies?.Find(b => b.name == lastPoint.bodyName);
+                if (bodyFirst != null && bodyLast != null)
                 {
-                    Vector3d launchPos = body.GetWorldSurfacePosition(
+                    Vector3d launchPos = bodyFirst.GetWorldSurfacePosition(
                         firstPoint.latitude, firstPoint.longitude, firstPoint.altitude);
-                    Vector3d lastPos = body.GetWorldSurfacePosition(
+                    Vector3d lastPos = bodyLast.GetWorldSurfacePosition(
                         lastPoint.latitude, lastPoint.longitude, lastPoint.altitude);
                     pending.DistanceFromLaunch = Vector3d.Distance(launchPos, lastPos);
                 }
@@ -219,12 +220,12 @@ namespace Parsek
             }
 
             // Compute distance from launch position
-            if (body != null)
+            // Use vessel.GetWorldPos3D() for current position — always correct regardless of SOI
+            if (bodyFirst != null)
             {
-                Vector3d launchPos = body.GetWorldSurfacePosition(
+                Vector3d launchPos = bodyFirst.GetWorldSurfacePosition(
                     firstPoint.latitude, firstPoint.longitude, firstPoint.altitude);
-                Vector3d currentPos = body.GetWorldSurfacePosition(
-                    vessel.latitude, vessel.longitude, vessel.altitude);
+                Vector3d currentPos = vessel.GetWorldPos3D();
                 pending.DistanceFromLaunch = Vector3d.Distance(launchPos, currentPos);
             }
 

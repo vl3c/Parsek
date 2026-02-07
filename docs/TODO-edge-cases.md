@@ -26,7 +26,7 @@ Identified during vessel persistence implementation. Prioritized by likelihood a
 
 ## Low (unlikely but worth tracking)
 
-- [ ] **DistanceFromLaunch calculation with SOI change** — First point on Kerbin, vessel now orbiting Mun. GetWorldSurfacePosition on Kerbin with Mun-relative lat/lon/alt = wrong result.
+- [x] **DistanceFromLaunch calculation with SOI change** — First point on Kerbin, vessel now orbiting Mun. GetWorldSurfacePosition on Kerbin with Mun-relative lat/lon/alt = wrong result. **Fixed:** Destroyed case uses each point's own body. Intact case uses `vessel.GetWorldPos3D()` which is always correct regardless of SOI.
 - [ ] **Vessel unloaded at snapshot time** — BackupVessel() on an unloaded vessel might return incomplete data.
 - [ ] **Recording duration zero** — Single sample point before revert. StartUT = EndUT. Ghost playback logic may behave unexpectedly.
 - [ ] **Negative resource delta with insufficient resources** — Could leave player with negative funds.
