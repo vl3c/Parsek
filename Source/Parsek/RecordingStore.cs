@@ -9,6 +9,25 @@ namespace Parsek
     /// </summary>
     public static class RecordingStore
     {
+        // When true, suppresses Debug.Log calls (for unit testing outside Unity)
+        internal static bool SuppressLogging;
+
+        static void Log(string message)
+        {
+            if (!SuppressLogging)
+                UnityEngine.Debug.Log(message);
+        }
+
+        /// <summary>
+        /// Recommended merge action based on vessel state after recording.
+        /// </summary>
+        public enum MergeDefault
+        {
+            Recover,    // Vessel barely moved — recover for funds
+            MergeOnly,  // Vessel destroyed or snapshot missing — merge recording only
+            Persist     // Vessel intact and moved — respawn where it ended up
+        }
+
         public class Recording
         {
             public List<ParsekSpike.TrajectoryPoint> Points = new List<ParsekSpike.TrajectoryPoint>();
@@ -18,8 +37,29 @@ namespace Parsek
             // -1 means no resources applied yet (start from point 0's delta).
             public int LastAppliedResourceIndex = -1;
 
+            // Vessel persistence fields (transient — only needed between revert and merge dialog)
+            public ConfigNode VesselSnapshot;       // ProtoVessel as ConfigNode (null if destroyed)
+            public double DistanceFromLaunch;       // Meters from launch position
+            public bool VesselDestroyed;            // Vessel was destroyed before revert
+            public string VesselSituation;          // "Orbiting Kerbin", "Landed on Mun", etc.
+            public bool VesselSpawned;              // True after deferred RespawnVessel has fired
+
             public double StartUT => Points.Count > 0 ? Points[0].ut : 0;
             public double EndUT => Points.Count > 0 ? Points[Points.Count - 1].ut : 0;
+        }
+
+        /// <summary>
+        /// Determines the recommended merge action based on vessel state.
+        /// </summary>
+        public static MergeDefault GetRecommendedAction(double distance, bool destroyed, bool hasSnapshot)
+        {
+            if (distance < 100.0)
+                return MergeDefault.Recover;
+
+            if (destroyed || !hasSnapshot)
+                return MergeDefault.MergeOnly;
+
+            return MergeDefault.Persist;
         }
 
         // Just-finished recording awaiting user decision (merge or discard)
@@ -42,7 +82,7 @@ namespace Parsek
                 VesselName = vesselName
             };
 
-            UnityEngine.Debug.Log($"[Parsek] Stashed pending recording: {points.Count} points from {vesselName}");
+            Log($"[Parsek] Stashed pending recording: {points.Count} points from {vesselName}");
         }
 
         public static void CommitPending()
@@ -50,7 +90,7 @@ namespace Parsek
             if (pendingRecording == null) return;
 
             committedRecordings.Add(pendingRecording);
-            UnityEngine.Debug.Log($"[Parsek] Committed recording from {pendingRecording.VesselName} " +
+            Log($"[Parsek] Committed recording from {pendingRecording.VesselName} " +
                 $"({pendingRecording.Points.Count} points). Total committed: {committedRecordings.Count}");
             pendingRecording = null;
         }
@@ -59,7 +99,7 @@ namespace Parsek
         {
             if (pendingRecording == null) return;
 
-            UnityEngine.Debug.Log($"[Parsek] Discarded pending recording from {pendingRecording.VesselName}");
+            Log($"[Parsek] Discarded pending recording from {pendingRecording.VesselName}");
             pendingRecording = null;
         }
 
@@ -67,7 +107,16 @@ namespace Parsek
         {
             pendingRecording = null;
             committedRecordings.Clear();
-            UnityEngine.Debug.Log("[Parsek] All recordings cleared");
+            Log("[Parsek] All recordings cleared");
+        }
+
+        /// <summary>
+        /// Resets state without Unity logging. For unit tests only.
+        /// </summary>
+        internal static void ResetForTesting()
+        {
+            pendingRecording = null;
+            committedRecordings.Clear();
         }
     }
 }

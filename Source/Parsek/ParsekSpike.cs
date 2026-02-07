@@ -73,6 +73,9 @@ namespace Parsek
         private Dictionary<int, Material> timelineGhostMaterials = new Dictionary<int, Material>();
         private Dictionary<int, int> timelinePlaybackIndices = new Dictionary<int, int>();
 
+        // Vessel destruction tracking
+        private bool vesselDestroyedDuringRecording = false;
+
         // UI
         private Rect windowRect = new Rect(20, 100, 250, 250);
         private bool showUI = true;
@@ -88,6 +91,7 @@ namespace Parsek
 
             GameEvents.onGameSceneLoadRequested.Add(OnSceneChangeRequested);
             GameEvents.onFlightReady.Add(OnFlightReady);
+            GameEvents.onVesselWillDestroy.Add(OnVesselWillDestroy);
         }
 
         void Update()
@@ -121,6 +125,7 @@ namespace Parsek
             // Unregister events to prevent handler leaks
             GameEvents.onGameSceneLoadRequested.Remove(OnSceneChangeRequested);
             GameEvents.onFlightReady.Remove(OnFlightReady);
+            GameEvents.onVesselWillDestroy.Remove(OnVesselWillDestroy);
 
             // Clean up recording if active
             if (isRecording)
@@ -156,13 +161,94 @@ namespace Parsek
                     : "Unknown Vessel";
 
                 RecordingStore.StashPending(recording, vesselName);
+
+                // Snapshot vessel for persistence across revert
+                SnapshotVessel(RecordingStore.Pending);
+
                 recording.Clear();
                 lastPlaybackIndex = 0;
+                vesselDestroyedDuringRecording = false;
             }
 
             // Stop manual playback
             StopPlayback();
             DestroyAllTimelineGhosts();
+        }
+
+        void SnapshotVessel(RecordingStore.Recording pending)
+        {
+            if (pending == null || pending.Points.Count == 0) return;
+
+            // Compute distance from launch
+            var firstPoint = pending.Points[0];
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == firstPoint.bodyName);
+
+            if (vesselDestroyedDuringRecording)
+            {
+                pending.VesselDestroyed = true;
+                pending.VesselSnapshot = null;
+
+                // Use last recorded point for distance
+                var lastPoint = pending.Points[pending.Points.Count - 1];
+                if (body != null)
+                {
+                    Vector3d launchPos = body.GetWorldSurfacePosition(
+                        firstPoint.latitude, firstPoint.longitude, firstPoint.altitude);
+                    Vector3d lastPos = body.GetWorldSurfacePosition(
+                        lastPoint.latitude, lastPoint.longitude, lastPoint.altitude);
+                    pending.DistanceFromLaunch = Vector3d.Distance(launchPos, lastPos);
+                }
+
+                pending.VesselSituation = "Destroyed";
+                Log($"Vessel was destroyed during recording. Distance from launch: {pending.DistanceFromLaunch:F0}m");
+                return;
+            }
+
+            Vessel vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null)
+            {
+                pending.VesselDestroyed = true;
+                pending.VesselSnapshot = null;
+                pending.VesselSituation = "Unknown (no active vessel)";
+                Log("No active vessel at snapshot time");
+                return;
+            }
+
+            // Compute distance from launch position
+            if (body != null)
+            {
+                Vector3d launchPos = body.GetWorldSurfacePosition(
+                    firstPoint.latitude, firstPoint.longitude, firstPoint.altitude);
+                Vector3d currentPos = body.GetWorldSurfacePosition(
+                    vessel.latitude, vessel.longitude, vessel.altitude);
+                pending.DistanceFromLaunch = Vector3d.Distance(launchPos, currentPos);
+            }
+
+            // Snapshot the vessel (works for regular vessels and EVA kerbals)
+            ProtoVessel pv = vessel.BackupVessel();
+            ConfigNode node = new ConfigNode("VESSEL");
+            pv.Save(node);
+            pending.VesselSnapshot = node;
+            pending.VesselDestroyed = false;
+
+            // Build situation string
+            pending.VesselSituation = vessel.isEVA
+                ? $"EVA {vessel.mainBody.name}"
+                : $"{vessel.situation} {vessel.mainBody.name}";
+
+            Log($"Vessel snapshot taken. Distance from launch: {pending.DistanceFromLaunch:F0}m, " +
+                $"Situation: {pending.VesselSituation}");
+        }
+
+        void OnVesselWillDestroy(Vessel v)
+        {
+            if (!isRecording) return;
+            if (FlightGlobals.ActiveVessel == null) return;
+            if (v == FlightGlobals.ActiveVessel)
+            {
+                vesselDestroyedDuringRecording = true;
+                Log("Active vessel destroyed during recording!");
+            }
         }
 
         void OnFlightReady()
@@ -182,11 +268,110 @@ namespace Parsek
         void ShowMergeDialog(RecordingStore.Recording pending)
         {
             double duration = pending.EndUT - pending.StartUT;
-            string message = $"You have a recording from your previous flight.\n\n" +
-                $"Vessel: {pending.VesselName}\n" +
-                $"Points: {pending.Points.Count}\n" +
-                $"Duration: {duration:F1}s\n\n" +
-                $"Merge to timeline for auto-playback?";
+            var recommended = RecordingStore.GetRecommendedAction(
+                pending.DistanceFromLaunch, pending.VesselDestroyed,
+                pending.VesselSnapshot != null);
+
+            Log($"Merge dialog: distance={pending.DistanceFromLaunch:F0}m, " +
+                $"destroyed={pending.VesselDestroyed}, hasSnapshot={pending.VesselSnapshot != null}, " +
+                $"recommended={recommended}");
+
+            DialogGUIButton[] buttons;
+
+            switch (recommended)
+            {
+                case RecordingStore.MergeDefault.Recover:
+                    // Case A: Vessel barely moved
+                    buttons = new[]
+                    {
+                        new DialogGUIButton("Merge + Recover", () =>
+                        {
+                            RecordingStore.CommitPending();
+                            if (pending.VesselSnapshot != null)
+                            {
+                                ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
+                                RecoverVessel(pending.VesselSnapshot);
+                            }
+                            // Clear snapshot so ghost despawns normally at EndUT
+                            pending.VesselSnapshot = null;
+                            ScreenMessage("Recording merged, vessel recovered!", 3f);
+                            Log("User chose: Merge + Recover (default for short distance)");
+                        }),
+                        new DialogGUIButton("Merge + Keep Vessel", () =>
+                        {
+                            // Defer spawn — vessel appears when ghost finishes at EndUT
+                            RecordingStore.CommitPending();
+                            ParsekScenario.ReserveSnapshotCrew();
+                            ScreenMessage("Recording merged — vessel will appear after ghost playback", 3f);
+                            Log("User chose: Merge + Keep Vessel (deferred spawn)");
+                        }),
+                        new DialogGUIButton("Discard", () =>
+                        {
+                            ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
+                            RecordingStore.DiscardPending();
+                            ScreenMessage("Recording discarded", 2f);
+                            Log("User chose: Discard");
+                        })
+                    };
+                    break;
+
+                case RecordingStore.MergeDefault.MergeOnly:
+                    // Case B: Vessel destroyed or no snapshot
+                    buttons = new[]
+                    {
+                        new DialogGUIButton("Merge to Timeline", () =>
+                        {
+                            RecordingStore.CommitPending();
+                            ScreenMessage("Recording merged to timeline!", 3f);
+                            Log("User chose: Merge to Timeline (vessel destroyed)");
+                        }),
+                        new DialogGUIButton("Discard", () =>
+                        {
+                            ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
+                            RecordingStore.DiscardPending();
+                            ScreenMessage("Recording discarded", 2f);
+                            Log("User chose: Discard");
+                        })
+                    };
+                    break;
+
+                default: // Persist
+                    // Case C: Vessel intact, moved far
+                    buttons = new[]
+                    {
+                        new DialogGUIButton("Merge + Keep Vessel", () =>
+                        {
+                            // Defer spawn — vessel appears when ghost finishes at EndUT
+                            RecordingStore.CommitPending();
+                            ParsekScenario.ReserveSnapshotCrew();
+                            ScreenMessage("Recording merged — vessel will appear after ghost playback", 3f);
+                            Log("User chose: Merge + Keep Vessel (deferred spawn, default for intact vessel)");
+                        }),
+                        new DialogGUIButton("Merge + Recover", () =>
+                        {
+                            RecordingStore.CommitPending();
+                            if (pending.VesselSnapshot != null)
+                            {
+                                ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
+                                RecoverVessel(pending.VesselSnapshot);
+                            }
+                            // Clear snapshot so ghost despawns normally at EndUT
+                            pending.VesselSnapshot = null;
+                            ScreenMessage("Recording merged, vessel recovered!", 3f);
+                            Log("User chose: Merge + Recover");
+                        }),
+                        new DialogGUIButton("Discard", () =>
+                        {
+                            ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
+                            RecordingStore.DiscardPending();
+                            ScreenMessage("Recording discarded", 2f);
+                            Log("User chose: Discard");
+                        })
+                    };
+                    break;
+            }
+
+            string message = BuildMergeMessage(pending, duration, recommended);
 
             PopupDialog.SpawnPopupDialog(
                 new Vector2(0.5f, 0.5f),
@@ -196,22 +381,68 @@ namespace Parsek
                     message,
                     "Parsek — Merge Recording",
                     HighLogic.UISkin,
-                    new DialogGUIButton("Merge to Timeline", () =>
-                    {
-                        RecordingStore.CommitPending();
-                        ScreenMessage("Recording merged to timeline!", 3f);
-                        Log("User chose: Merge to Timeline");
-                    }),
-                    new DialogGUIButton("Discard", () =>
-                    {
-                        RecordingStore.DiscardPending();
-                        ScreenMessage("Recording discarded", 2f);
-                        Log("User chose: Discard");
-                    })
+                    buttons
                 ),
                 false,
                 HighLogic.UISkin
             );
+        }
+
+        string BuildMergeMessage(RecordingStore.Recording pending, double duration,
+            RecordingStore.MergeDefault recommended)
+        {
+            string header = $"Vessel: {pending.VesselName}\n" +
+                $"Points: {pending.Points.Count}\n" +
+                $"Duration: {duration:F1}s\n" +
+                $"Distance from launch: {pending.DistanceFromLaunch:F0}m\n\n";
+
+            switch (recommended)
+            {
+                case RecordingStore.MergeDefault.Recover:
+                    return header + "Your vessel hasn't moved far from the launch site.";
+
+                case RecordingStore.MergeDefault.MergeOnly:
+                    return header + "Your vessel was destroyed. Recording captured.";
+
+                default: // Persist
+                    return header + $"Your vessel is {pending.VesselSituation}.\n" +
+                        "It will persist in the timeline.";
+            }
+        }
+
+        void RespawnVessel(ConfigNode vesselNode)
+        {
+            try
+            {
+                // Use a copy to avoid modifying the saved snapshot
+                ConfigNode spawnNode = vesselNode.CreateCopy();
+
+                // Set reserved crew back to Available so KSP can assign them to this vessel
+                ParsekScenario.UnreserveCrewInSnapshot(spawnNode);
+
+                ProtoVessel pv = new ProtoVessel(spawnNode, HighLogic.CurrentGame);
+                HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
+                pv.Load(HighLogic.CurrentGame.flightState);
+                Log($"Vessel respawned with crew (sit={spawnNode.GetValue("sit")})");
+            }
+            catch (System.Exception ex)
+            {
+                Log($"Failed to respawn vessel: {ex.Message}");
+            }
+        }
+
+        void RecoverVessel(ConfigNode vesselNode)
+        {
+            try
+            {
+                ProtoVessel pv = new ProtoVessel(vesselNode, HighLogic.CurrentGame);
+                ShipConstruction.RecoverVesselFromFlight(pv, HighLogic.CurrentGame.flightState, true);
+                Log($"Vessel recovered for funds");
+            }
+            catch (System.Exception ex)
+            {
+                Log($"Failed to recover vessel: {ex.Message}");
+            }
         }
 
         #endregion
@@ -269,6 +500,7 @@ namespace Parsek
 
             recording.Clear();
             isRecording = true;
+            vesselDestroyedDuringRecording = false;
             recordingStartUT = Planetarium.GetUniversalTime();
 
             // Start sampling
@@ -404,16 +636,16 @@ namespace Parsek
                 if (rec.Points.Count < 2) continue;
 
                 bool inRange = currentUT >= rec.StartUT && currentUT <= rec.EndUT;
+                bool pastEnd = currentUT > rec.EndUT;
+                bool ghostActive = timelineGhosts.ContainsKey(i) && timelineGhosts[i] != null;
+                bool needsSpawn = rec.VesselSnapshot != null && !rec.VesselSpawned;
 
                 if (inRange)
                 {
-                    // Spawn ghost if not yet active
-                    if (!timelineGhosts.ContainsKey(i) || timelineGhosts[i] == null)
-                    {
+                    // Normal ghost playback
+                    if (!ghostActive)
                         SpawnTimelineGhost(i, rec);
-                    }
 
-                    // Position the ghost
                     int playbackIdx = 0;
                     if (timelinePlaybackIndices.ContainsKey(i))
                         playbackIdx = timelinePlaybackIndices[i];
@@ -421,16 +653,31 @@ namespace Parsek
                     InterpolateAndPosition(timelineGhosts[i], rec.Points, ref playbackIdx, currentUT);
                     timelinePlaybackIndices[i] = playbackIdx;
 
-                    // Apply resource deltas for any points we've passed since last frame
                     ApplyResourceDeltas(rec, currentUT);
+                }
+                else if (pastEnd && needsSpawn && ghostActive)
+                {
+                    // Ghost was playing, UT just crossed EndUT — hold at final pos, spawn, despawn ghost
+                    PositionGhostAt(timelineGhosts[i], rec.Points[rec.Points.Count - 1]);
+                    RespawnVessel(rec.VesselSnapshot);
+                    rec.VesselSpawned = true;
+                    Log($"Deferred vessel spawn for recording #{i} ({rec.VesselName})");
+                    ScreenMessage($"Vessel '{rec.VesselName}' has appeared!", 4f);
+                    DestroyTimelineGhost(i);
+                }
+                else if (pastEnd && needsSpawn && !ghostActive)
+                {
+                    // UT already past EndUT on scene load — spawn immediately, no ghost
+                    RespawnVessel(rec.VesselSnapshot);
+                    rec.VesselSpawned = true;
+                    Log($"Immediate vessel spawn for recording #{i} ({rec.VesselName}) — UT already past EndUT");
+                    ScreenMessage($"Vessel '{rec.VesselName}' restored!", 4f);
                 }
                 else
                 {
-                    // Outside time range — despawn if active
-                    if (timelineGhosts.ContainsKey(i) && timelineGhosts[i] != null)
-                    {
+                    // Outside time range, no spawn needed — despawn ghost if active
+                    if (ghostActive)
                         DestroyTimelineGhost(i);
-                    }
                 }
             }
         }
@@ -785,7 +1032,7 @@ namespace Parsek
 
             // Clear buttons
             GUILayout.Space(5);
-            GUI.enabled = !isRecording && !isPlaying;
+            GUI.enabled = !isRecording && !isPlaying && recording.Count > 0;
             if (GUILayout.Button("Clear Current Recording"))
             {
                 recording.Clear();
@@ -793,13 +1040,23 @@ namespace Parsek
                 Log("Recording cleared");
             }
 
-            GUI.enabled = committedCount > 0;
-            if (GUILayout.Button($"Clear Timeline ({committedCount})"))
+            GUI.enabled = activeGhosts > 0;
+            if (GUILayout.Button($"Despawn Ghosts ({activeGhosts})"))
             {
                 DestroyAllTimelineGhosts();
+                Log("Ghosts despawned");
+            }
+
+            GUI.enabled = committedCount > 0;
+            if (GUILayout.Button($"Wipe Recordings ({committedCount})"))
+            {
+                // Unreserve crew from all recordings before wiping
+                foreach (var rec in RecordingStore.CommittedRecordings)
+                    ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
+                DestroyAllTimelineGhosts();
                 RecordingStore.CommittedRecordings.Clear();
-                Log("Timeline cleared");
-                ScreenMessage("Timeline cleared", 2f);
+                Log("All recordings wiped");
+                ScreenMessage("All recordings wiped", 2f);
             }
             GUI.enabled = true;
 
