@@ -87,6 +87,10 @@ namespace Parsek
         private Rect windowRect = new Rect(20, 100, 250, 250);
         private bool showUI = true;
 
+        // Map view markers
+        private GUIStyle mapMarkerStyle;
+        private Texture2D mapMarkerTexture;
+
         #endregion
 
         #region Unity Lifecycle
@@ -127,6 +131,9 @@ namespace Parsek
 
         void OnGUI()
         {
+            if (MapView.MapIsEnabled)
+                DrawMapMarkers();
+
             if (showUI)
             {
                 windowRect = GUILayout.Window(
@@ -156,6 +163,9 @@ namespace Parsek
             }
             StopPlayback();
             DestroyAllTimelineGhosts();
+
+            if (mapMarkerTexture != null)
+                Destroy(mapMarkerTexture);
         }
 
         #endregion
@@ -1154,6 +1164,85 @@ namespace Parsek
             }
 
             return new Quaternion(q.x / magnitude, q.y / magnitude, q.z / magnitude, q.w / magnitude);
+        }
+
+        #endregion
+
+        #region Map View Markers
+
+        void DrawMapMarkers()
+        {
+            Camera cam = PlanetariumCamera.Camera;
+            if (cam == null) return;
+
+            EnsureMapMarkerResources();
+
+            // Manual preview ghost
+            if (isPlaying && ghostObject != null)
+            {
+                DrawMapMarkerAt(cam, ghostObject.transform.position, "Preview", Color.green);
+            }
+
+            // Timeline ghosts
+            var committed = RecordingStore.CommittedRecordings;
+            Color ghostColor = new Color(0.2f, 1f, 0.4f, 0.9f);
+            foreach (var kvp in timelineGhosts)
+            {
+                if (kvp.Value == null) continue;
+                string name = kvp.Key < committed.Count ? committed[kvp.Key].VesselName : "Ghost";
+                DrawMapMarkerAt(cam, kvp.Value.transform.position, name, ghostColor);
+            }
+        }
+
+        void DrawMapMarkerAt(Camera cam, Vector3 worldPos, string label, Color color)
+        {
+            Vector3d scaledPos = ScaledSpace.LocalToScaledSpace(worldPos);
+            Vector3 screenPos = cam.WorldToScreenPoint(scaledPos);
+
+            // Behind camera
+            if (screenPos.z < 0) return;
+
+            // GUI coordinates (Y inverted)
+            float x = screenPos.x;
+            float y = Screen.height - screenPos.y;
+
+            // Draw marker dot
+            Color prevColor = GUI.color;
+            GUI.color = color;
+            GUI.DrawTexture(new Rect(x - 5, y - 5, 10, 10), mapMarkerTexture);
+            GUI.color = prevColor;
+
+            // Draw vessel name label
+            mapMarkerStyle.normal.textColor = color;
+            GUI.Label(new Rect(x - 75, y + 7, 150, 20), label, mapMarkerStyle);
+        }
+
+        void EnsureMapMarkerResources()
+        {
+            if (mapMarkerTexture == null)
+            {
+                int size = 10;
+                mapMarkerTexture = new Texture2D(size, size, TextureFormat.ARGB32, false);
+                float center = size / 2f;
+                float radius = size / 2f - 1f;
+                for (int py = 0; py < size; py++)
+                {
+                    for (int px = 0; px < size; px++)
+                    {
+                        float dist = Mathf.Sqrt((px - center) * (px - center) + (py - center) * (py - center));
+                        mapMarkerTexture.SetPixel(px, py, dist <= radius ? Color.white : Color.clear);
+                    }
+                }
+                mapMarkerTexture.Apply();
+            }
+
+            if (mapMarkerStyle == null)
+            {
+                mapMarkerStyle = new GUIStyle(GUI.skin.label);
+                mapMarkerStyle.fontSize = 11;
+                mapMarkerStyle.fontStyle = FontStyle.Bold;
+                mapMarkerStyle.alignment = TextAnchor.UpperCenter;
+            }
         }
 
         #endregion
