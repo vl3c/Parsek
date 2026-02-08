@@ -707,7 +707,7 @@ namespace Parsek
                     if (rec.Points.Count < 2) continue;
                     if (rec.VesselSnapshot == null || rec.VesselSpawned) continue;
 
-                    bool crossedInto = lastTimelineUT < rec.EndUT && currentUT >= rec.StartUT;
+                    bool crossedInto = lastTimelineUT < rec.StartUT && currentUT >= rec.StartUT;
                     bool approaching = currentUT < rec.StartUT &&
                                        currentUT + TimeWarp.CurrentRate >= rec.StartUT;
                     if (crossedInto || approaching)
