@@ -104,6 +104,12 @@ dotnet test
 2. Click "Wipe Recordings" in Parsek UI
 3. All reserved kerbals return to Available, all replacements removed
 
+**Orbital recording test (hybrid orbit segments):**
+1. Launch → establish orbit → F9 record → time warp 50x for one orbit → drop to 1x → F9 stop → revert → merge
+2. Verify ghost follows orbital path during playback (uses analytical orbit, not sampled points)
+3. Record Mun encounter with time warp → verify SOI transition in ghost playback
+4. Record with multiple time warp on/off cycles → verify smooth transitions at boundary points
+
 **Manual preview (no revert needed):**
 1. Record as above, press **F10** to preview playback immediately
 2. Press **F11** to stop preview
@@ -127,10 +133,14 @@ These happen silently to keep gameplay smooth. All are logged to `KSP.log` with 
 - Recording is blocked while the game is paused
 - Recording auto-stops if the active vessel changes (docking, pressing `[`/`]`)
 - Recordings shorter than 2 sample points are silently dropped on revert
+- When vessel goes on rails (time warp), trajectory sampling stops and an OrbitSegment captures the Keplerian orbit parameters instead
+- When vessel goes off rails, the orbit segment is finalized and sampling resumes with boundary points at each transition
+- SOI changes during on-rails recording close the current orbit segment and open a new one for the new body
 
 **Ghost playback:**
 - Time warp is stopped once when UT first enters a recording's range (only if the recording has an unspawned vessel). Time warp during active ghost playback is allowed.
 - SOI changes during recording are handled — each trajectory point references its own celestial body
+- During orbit segments, ghost position is computed analytically from Keplerian orbit parameters (no interpolation needed)
 
 **Vessel spawning:**
 - If a vessel would spawn within 200m of any other vessel, it is offset to 250m away to prevent physics collisions

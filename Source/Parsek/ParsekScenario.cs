@@ -58,6 +58,24 @@ namespace Parsek
                     ptNode.AddValue("rep", pt.reputation.ToString("R"));
                 }
 
+                // Persist orbit segments
+                var ic = CultureInfo.InvariantCulture;
+                for (int s = 0; s < rec.OrbitSegments.Count; s++)
+                {
+                    var seg = rec.OrbitSegments[s];
+                    ConfigNode segNode = recNode.AddNode("ORBIT_SEGMENT");
+                    segNode.AddValue("startUT", seg.startUT.ToString("R", ic));
+                    segNode.AddValue("endUT", seg.endUT.ToString("R", ic));
+                    segNode.AddValue("inc", seg.inclination.ToString("R", ic));
+                    segNode.AddValue("ecc", seg.eccentricity.ToString("R", ic));
+                    segNode.AddValue("sma", seg.semiMajorAxis.ToString("R", ic));
+                    segNode.AddValue("lan", seg.longitudeOfAscendingNode.ToString("R", ic));
+                    segNode.AddValue("argPe", seg.argumentOfPeriapsis.ToString("R", ic));
+                    segNode.AddValue("mna", seg.meanAnomalyAtEpoch.ToString("R", ic));
+                    segNode.AddValue("epoch", seg.epoch.ToString("R", ic));
+                    segNode.AddValue("body", seg.bodyName);
+                }
+
                 // Persist vessel snapshot if present
                 if (rec.VesselSnapshot != null)
                 {
@@ -184,6 +202,29 @@ namespace Parsek
                     rec.Points.Add(pt);
                 }
 
+                // Restore orbit segments
+                ConfigNode[] segNodes = recNode.GetNodes("ORBIT_SEGMENT");
+                for (int s = 0; s < segNodes.Length; s++)
+                {
+                    var segNode = segNodes[s];
+                    var seg = new ParsekSpike.OrbitSegment();
+                    var inv = NumberStyles.Float;
+                    var ic = CultureInfo.InvariantCulture;
+
+                    double.TryParse(segNode.GetValue("startUT"), inv, ic, out seg.startUT);
+                    double.TryParse(segNode.GetValue("endUT"), inv, ic, out seg.endUT);
+                    double.TryParse(segNode.GetValue("inc"), inv, ic, out seg.inclination);
+                    double.TryParse(segNode.GetValue("ecc"), inv, ic, out seg.eccentricity);
+                    double.TryParse(segNode.GetValue("sma"), inv, ic, out seg.semiMajorAxis);
+                    double.TryParse(segNode.GetValue("lan"), inv, ic, out seg.longitudeOfAscendingNode);
+                    double.TryParse(segNode.GetValue("argPe"), inv, ic, out seg.argumentOfPeriapsis);
+                    double.TryParse(segNode.GetValue("mna"), inv, ic, out seg.meanAnomalyAtEpoch);
+                    double.TryParse(segNode.GetValue("epoch"), inv, ic, out seg.epoch);
+                    seg.bodyName = segNode.GetValue("body") ?? "Kerbin";
+
+                    rec.OrbitSegments.Add(seg);
+                }
+
                 // Restore vessel snapshot if saved
                 ConfigNode snapshotNode = recNode.GetNode("VESSEL_SNAPSHOT");
                 if (snapshotNode != null)
@@ -213,7 +254,8 @@ namespace Parsek
                 {
                     recordings.Add(rec);
                     Debug.Log($"[Parsek Scenario] Loaded recording: {rec.VesselName}, " +
-                        $"{rec.Points.Count} points, UT {rec.StartUT:F0}-{rec.EndUT:F0}" +
+                        $"{rec.Points.Count} points, {rec.OrbitSegments.Count} orbit segments, " +
+                        $"UT {rec.StartUT:F0}-{rec.EndUT:F0}" +
                         (rec.VesselSnapshot != null ? " (has vessel snapshot)" : ""));
                 }
             }

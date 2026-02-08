@@ -51,6 +51,19 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// A segment of on-rails (Keplerian) orbit captured during recording.
+        /// Replaces thousands of sampled TrajectoryPoints with ~8 orbital parameters.
+        /// </summary>
+        public struct OrbitSegment
+        {
+            public double startUT, endUT;
+            public double inclination, eccentricity, semiMajorAxis;
+            public double longitudeOfAscendingNode, argumentOfPeriapsis;
+            public double meanAnomalyAtEpoch, epoch;
+            public string bodyName;
+        }
+
         #endregion
 
         #region State
@@ -73,6 +86,11 @@ namespace Parsek
         private Dictionary<int, GameObject> timelineGhosts = new Dictionary<int, GameObject>();
         private Dictionary<int, Material> timelineGhostMaterials = new Dictionary<int, Material>();
         private Dictionary<int, int> timelinePlaybackIndices = new Dictionary<int, int>();
+
+        // Orbital recording state (on-rails detection)
+        private List<OrbitSegment> orbitSegments = new List<OrbitSegment>();
+        private bool isOnRails = false;
+        private OrbitSegment currentOrbitSegment;
 
         // Vessel destruction tracking
         private bool vesselDestroyedDuringRecording = false;
@@ -105,6 +123,9 @@ namespace Parsek
             GameEvents.onVesselWillDestroy.Add(OnVesselWillDestroy);
             GameEvents.onVesselSituationChange.Add(OnVesselSituationChange);
             GameEvents.onCrewOnEva.Add(OnCrewOnEva);
+            GameEvents.onVesselGoOnRails.Add(OnVesselGoOnRails);
+            GameEvents.onVesselGoOffRails.Add(OnVesselGoOffRails);
+            GameEvents.onVesselSOIChanged.Add(OnVesselSOIChanged);
         }
 
         void Update()
@@ -154,6 +175,9 @@ namespace Parsek
             GameEvents.onVesselWillDestroy.Remove(OnVesselWillDestroy);
             GameEvents.onVesselSituationChange.Remove(OnVesselSituationChange);
             GameEvents.onCrewOnEva.Remove(OnCrewOnEva);
+            GameEvents.onVesselGoOnRails.Remove(OnVesselGoOnRails);
+            GameEvents.onVesselGoOffRails.Remove(OnVesselGoOffRails);
+            GameEvents.onVesselSOIChanged.Remove(OnVesselSOIChanged);
 
             // Clean up recording if active
             if (isRecording)
@@ -182,6 +206,14 @@ namespace Parsek
                 // Stop recording if active
                 if (isRecording)
                 {
+                    // Finalize in-progress orbit segment
+                    if (isOnRails)
+                    {
+                        currentOrbitSegment.endUT = Planetarium.GetUniversalTime();
+                        orbitSegments.Add(currentOrbitSegment);
+                        isOnRails = false;
+                    }
+
                     CancelInvoke(nameof(SamplePosition));
                     isRecording = false;
                     Log("Auto-stopped recording due to scene change");
@@ -191,12 +223,13 @@ namespace Parsek
                     ? FlightGlobals.ActiveVessel.vesselName
                     : "Unknown Vessel";
 
-                RecordingStore.StashPending(recording, vesselName);
+                RecordingStore.StashPending(recording, vesselName, orbitSegments);
 
                 // Snapshot vessel for persistence across revert
                 SnapshotVessel(RecordingStore.Pending);
 
                 recording.Clear();
+                orbitSegments.Clear();
                 lastPlaybackIndex = 0;
                 vesselDestroyedDuringRecording = false;
             }
@@ -312,6 +345,14 @@ namespace Parsek
             if (FlightGlobals.ActiveVessel == null) return;
             if (v == FlightGlobals.ActiveVessel)
             {
+                // Finalize in-progress orbit segment if on rails
+                if (isOnRails)
+                {
+                    currentOrbitSegment.endUT = Planetarium.GetUniversalTime();
+                    orbitSegments.Add(currentOrbitSegment);
+                    isOnRails = false;
+                }
+
                 vesselDestroyedDuringRecording = true;
                 Log("Active vessel destroyed during recording!");
             }
@@ -337,6 +378,82 @@ namespace Parsek
             // The EVA kerbal may not yet be the active vessel, defer to Update()
             pendingAutoRecord = true;
             Log("EVA from pad detected — pending auto-record");
+        }
+
+        void OnVesselGoOnRails(Vessel v)
+        {
+            if (!isRecording) return;
+            if (v != FlightGlobals.ActiveVessel) return;
+            if (v.persistentId != recordingVesselId) return;
+
+            // Record a boundary TrajectoryPoint at current UT (stitching point)
+            SamplePosition();
+
+            // Capture orbit params
+            currentOrbitSegment = new OrbitSegment
+            {
+                startUT = Planetarium.GetUniversalTime(),
+                inclination = v.orbit.inclination,
+                eccentricity = v.orbit.eccentricity,
+                semiMajorAxis = v.orbit.semiMajorAxis,
+                longitudeOfAscendingNode = v.orbit.LAN,
+                argumentOfPeriapsis = v.orbit.argumentOfPeriapsis,
+                meanAnomalyAtEpoch = v.orbit.meanAnomalyAtEpoch,
+                epoch = v.orbit.epoch,
+                bodyName = v.mainBody.name
+            };
+
+            CancelInvoke(nameof(SamplePosition));
+            isOnRails = true;
+            Log($"Vessel went on rails — capturing orbit segment (body={v.mainBody.name})");
+        }
+
+        void OnVesselGoOffRails(Vessel v)
+        {
+            if (!isRecording || !isOnRails) return;
+            if (v != FlightGlobals.ActiveVessel) return;
+            if (v.persistentId != recordingVesselId) return;
+
+            // Finalize orbit segment
+            currentOrbitSegment.endUT = Planetarium.GetUniversalTime();
+            orbitSegments.Add(currentOrbitSegment);
+            isOnRails = false;
+
+            // Record a boundary TrajectoryPoint at current UT
+            SamplePosition();
+
+            // Resume sampling
+            InvokeRepeating(nameof(SamplePosition), sampleInterval, sampleInterval);
+            Log($"Vessel went off rails — orbit segment closed " +
+                $"(UT {currentOrbitSegment.startUT:F0}-{currentOrbitSegment.endUT:F0})");
+        }
+
+        void OnVesselSOIChanged(GameEvents.HostedFromToAction<Vessel, CelestialBody> data)
+        {
+            if (!isRecording || !isOnRails) return;
+            if (data.host != FlightGlobals.ActiveVessel) return;
+            if (data.host.persistentId != recordingVesselId) return;
+
+            // Close current orbit segment in old SOI
+            currentOrbitSegment.endUT = Planetarium.GetUniversalTime();
+            orbitSegments.Add(currentOrbitSegment);
+
+            // Start new orbit segment in new SOI
+            var v = data.host;
+            currentOrbitSegment = new OrbitSegment
+            {
+                startUT = Planetarium.GetUniversalTime(),
+                inclination = v.orbit.inclination,
+                eccentricity = v.orbit.eccentricity,
+                semiMajorAxis = v.orbit.semiMajorAxis,
+                longitudeOfAscendingNode = v.orbit.LAN,
+                argumentOfPeriapsis = v.orbit.argumentOfPeriapsis,
+                meanAnomalyAtEpoch = v.orbit.meanAnomalyAtEpoch,
+                epoch = v.orbit.epoch,
+                bodyName = v.mainBody.name
+            };
+
+            Log($"SOI changed during orbit recording: {data.from.name} → {data.to.name}");
         }
 
         void OnFlightReady()
@@ -657,13 +774,40 @@ namespace Parsek
             }
 
             recording.Clear();
+            orbitSegments.Clear();
             isRecording = true;
+            isOnRails = false;
             vesselDestroyedDuringRecording = false;
             recordingVesselId = FlightGlobals.ActiveVessel.persistentId;
             recordingStartUT = Planetarium.GetUniversalTime();
 
-            // Start sampling
-            InvokeRepeating(nameof(SamplePosition), 0f, sampleInterval);
+            // Check if vessel is already on rails (e.g. started recording during time warp)
+            if (FlightGlobals.ActiveVessel.packed)
+            {
+                var v = FlightGlobals.ActiveVessel;
+                // Take one boundary point first
+                SamplePosition();
+
+                currentOrbitSegment = new OrbitSegment
+                {
+                    startUT = Planetarium.GetUniversalTime(),
+                    inclination = v.orbit.inclination,
+                    eccentricity = v.orbit.eccentricity,
+                    semiMajorAxis = v.orbit.semiMajorAxis,
+                    longitudeOfAscendingNode = v.orbit.LAN,
+                    argumentOfPeriapsis = v.orbit.argumentOfPeriapsis,
+                    meanAnomalyAtEpoch = v.orbit.meanAnomalyAtEpoch,
+                    epoch = v.orbit.epoch,
+                    bodyName = v.mainBody.name
+                };
+                isOnRails = true;
+                Log($"Recording started on rails — capturing orbit (body={v.mainBody.name})");
+            }
+            else
+            {
+                // Start sampling
+                InvokeRepeating(nameof(SamplePosition), 0f, sampleInterval);
+            }
 
             Log($"Recording started. Sampling every {sampleInterval}s");
             ScreenMessage("Recording STARTED", 2f);
@@ -671,6 +815,17 @@ namespace Parsek
 
         void StopRecording()
         {
+            // Finalize in-progress orbit segment
+            if (isOnRails)
+            {
+                currentOrbitSegment.endUT = Planetarium.GetUniversalTime();
+                orbitSegments.Add(currentOrbitSegment);
+                isOnRails = false;
+
+                // Record a boundary point at stop time
+                SamplePosition();
+            }
+
             CancelInvoke(nameof(SamplePosition));
             isRecording = false;
 
@@ -678,7 +833,7 @@ namespace Parsek
                 ? recording[recording.Count - 1].ut - recording[0].ut
                 : 0;
 
-            Log($"Recording stopped. {recording.Count} points over {duration:F1}s");
+            Log($"Recording stopped. {recording.Count} points, {orbitSegments.Count} orbit segments over {duration:F1}s");
             ScreenMessage($"Recording STOPPED: {recording.Count} points", 3f);
         }
 
@@ -686,6 +841,9 @@ namespace Parsek
         {
             Vessel v = FlightGlobals.ActiveVessel;
             if (v == null) return;
+
+            // Safety net: don't sample while on rails (orbit segment handles this range)
+            if (isOnRails) return;
 
             if (v.persistentId != recordingVesselId)
             {
@@ -761,6 +919,7 @@ namespace Parsek
                 ghostObject = null;
             }
 
+            orbitCache.Clear();
             Log("Manual playback stopped");
         }
 
@@ -784,7 +943,8 @@ namespace Parsek
                 return;
             }
 
-            InterpolateAndPosition(ghostObject, recording, ref lastPlaybackIndex, recordingTime);
+            InterpolateAndPosition(ghostObject, recording, orbitSegments,
+                ref lastPlaybackIndex, recordingTime, 10000);
         }
 
         #endregion
@@ -851,7 +1011,8 @@ namespace Parsek
                     if (timelinePlaybackIndices.ContainsKey(i))
                         playbackIdx = timelinePlaybackIndices[i];
 
-                    InterpolateAndPosition(timelineGhosts[i], rec.Points, ref playbackIdx, currentUT);
+                    InterpolateAndPosition(timelineGhosts[i], rec.Points, rec.OrbitSegments,
+                        ref playbackIdx, currentUT, i * 100);
                     timelinePlaybackIndices[i] = playbackIdx;
 
                     ApplyResourceDeltas(rec, currentUT);
@@ -975,6 +1136,7 @@ namespace Parsek
             {
                 DestroyTimelineGhost(key);
             }
+            orbitCache.Clear();
         }
 
         #endregion
@@ -1150,6 +1312,77 @@ namespace Parsek
             ghost.transform.rotation = SanitizeQuaternion(point.rotation);
         }
 
+        /// <summary>
+        /// Find an orbit segment that covers the given UT. Returns null if none match.
+        /// Linear scan — the list is tiny (typically 0-3 segments per recording).
+        /// </summary>
+        internal static OrbitSegment? FindOrbitSegment(List<OrbitSegment> segments, double ut)
+        {
+            if (segments == null) return null;
+            for (int i = 0; i < segments.Count; i++)
+            {
+                if (ut >= segments[i].startUT && ut <= segments[i].endUT)
+                    return segments[i];
+            }
+            return null;
+        }
+
+        // Cache to avoid reconstructing Orbit objects every frame
+        private Dictionary<int, Orbit> orbitCache = new Dictionary<int, Orbit>();
+
+        void PositionGhostFromOrbit(GameObject ghost, OrbitSegment segment, double ut, int cacheKey)
+        {
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == segment.bodyName);
+            if (body == null)
+            {
+                Log($"Could not find body '{segment.bodyName}' for orbit playback");
+                return;
+            }
+
+            Orbit orbit;
+            if (!orbitCache.TryGetValue(cacheKey, out orbit))
+            {
+                orbit = new Orbit(
+                    segment.inclination,
+                    segment.eccentricity,
+                    segment.semiMajorAxis,
+                    segment.longitudeOfAscendingNode,
+                    segment.argumentOfPeriapsis,
+                    segment.meanAnomalyAtEpoch,
+                    segment.epoch,
+                    body);
+                orbitCache[cacheKey] = orbit;
+            }
+
+            Vector3d worldPos = orbit.getPositionAtUT(ut);
+            ghost.transform.position = worldPos;
+
+            // Orient prograde
+            Vector3d velocity = orbit.getOrbitalVelocityAtUT(ut);
+            if (velocity.sqrMagnitude > 0.001)
+                ghost.transform.rotation = Quaternion.LookRotation(velocity);
+        }
+
+        void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points,
+            List<OrbitSegment> segments, ref int cachedIndex, double targetUT, int orbitCacheBase)
+        {
+            // Check orbit segments first
+            if (segments != null && segments.Count > 0)
+            {
+                OrbitSegment? seg = FindOrbitSegment(segments, targetUT);
+                if (seg.HasValue)
+                {
+                    // Use segment index as cache key offset
+                    int segIdx = segments.IndexOf(seg.Value);
+                    PositionGhostFromOrbit(ghost, seg.Value, targetUT, orbitCacheBase + segIdx);
+                    return;
+                }
+            }
+
+            // Fall through to point-based interpolation
+            InterpolateAndPosition(ghost, points, ref cachedIndex, targetUT);
+        }
+
         internal Quaternion SanitizeQuaternion(Quaternion q)
         {
             if (float.IsNaN(q.x) || float.IsInfinity(q.x)) q.x = 0;
@@ -1317,6 +1550,7 @@ namespace Parsek
             if (GUILayout.Button("Clear Current Recording"))
             {
                 recording.Clear();
+                orbitSegments.Clear();
                 lastPlaybackIndex = 0;
                 Log("Recording cleared");
             }

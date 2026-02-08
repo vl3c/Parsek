@@ -776,7 +776,7 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 
 **Remaining for MVP release:**
 - [ ] Take control of playback vessel
-- [ ] Orbital/time-warp recording (save orbit params instead of sampling)
+- [x] Orbital/time-warp recording (save orbit params instead of sampling)
 - [ ] Ghost as actual vessel model (replace sphere)
 - [ ] Adaptive threshold sampling (currently fixed 0.5s interval)
 - [ ] ClickThroughBlocker for UI windows
@@ -867,7 +867,7 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
    - 17 edge cases resolved
 
 5. **Complete MVP for release**
-   - Orbital/time-warp recording strategy
+   - ~~Orbital/time-warp recording strategy~~ (DONE — hybrid OrbitSegment recording)
    - Take control of playback vessel
    - Ghost as vessel model (replace sphere)
    - ClickThroughBlocker + ToolbarControl integration
