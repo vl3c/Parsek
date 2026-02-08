@@ -761,7 +761,7 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 - [x] Context-aware merge dialog (Keep Vessel / Recover / Discard)
 - [x] Persistence to save game via ScenarioModule
 - [x] Scene transition cleanup (`onGameSceneLoadRequested`)
-- [x] Basic UI panel (Alt+P toggle)
+- [x] Basic UI panel (toolbar button)
 - [x] Auto-recording on launch and EVA from pad
 - [x] SOI change handling during recording and playback
 
@@ -779,8 +779,8 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 - [x] Orbital/time-warp recording (save orbit params instead of sampling)
 - [ ] Ghost as actual vessel model (replace sphere)
 - [x] Adaptive threshold sampling (velocity direction >2deg, speed >5%, 3s backstop)
-- [ ] ClickThroughBlocker for UI windows
-- [ ] ToolbarControl for toolbar button
+- [x] ClickThroughBlocker for UI windows
+- [x] ToolbarControl for toolbar button
 
 **Deferred (nice-to-have, not blocking release):**
 - [ ] Krakensbane velocity compensation
@@ -870,7 +870,7 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
    - ~~Orbital/time-warp recording strategy~~ (DONE — hybrid OrbitSegment recording)
    - Take control of playback vessel
    - Ghost as vessel model (replace sphere)
-   - ClickThroughBlocker + ToolbarControl integration
+   - ~~ClickThroughBlocker + ToolbarControl integration~~ (DONE)
    - ~~Adaptive sampling for maneuvers~~ (DONE — velocity/speed thresholds with max-interval backstop)
 
 ---
