@@ -36,12 +36,22 @@ namespace Parsek
 
         public static void SpawnOrRecoverIfTooClose(RecordingStore.Recording rec, int index)
         {
+            const int maxSpawnAttempts = 3;
+            if (rec.SpawnAttempts >= maxSpawnAttempts)
+                return;
+
             if (rec.Points.Count == 0 || FlightGlobals.Vessels == null)
             {
                 rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot);
                 rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
                 if (!rec.VesselSpawned)
-                    ParsekLog.Log($"Vessel spawn failed for recording #{index} ({rec.VesselName}) — will retry");
+                {
+                    rec.SpawnAttempts++;
+                    if (rec.SpawnAttempts >= maxSpawnAttempts)
+                        ParsekLog.Log($"Vessel spawn failed permanently for recording #{index} ({rec.VesselName}) after {maxSpawnAttempts} attempts");
+                    else
+                        ParsekLog.Log($"Vessel spawn failed for recording #{index} ({rec.VesselName}) — will retry (attempt {rec.SpawnAttempts}/{maxSpawnAttempts})");
+                }
                 return;
             }
 
@@ -52,7 +62,13 @@ namespace Parsek
                 rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot);
                 rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
                 if (!rec.VesselSpawned)
-                    ParsekLog.Log($"Vessel spawn failed for recording #{index} ({rec.VesselName}) — will retry");
+                {
+                    rec.SpawnAttempts++;
+                    if (rec.SpawnAttempts >= maxSpawnAttempts)
+                        ParsekLog.Log($"Vessel spawn failed permanently for recording #{index} ({rec.VesselName}) after {maxSpawnAttempts} attempts");
+                    else
+                        ParsekLog.Log($"Vessel spawn failed for recording #{index} ({rec.VesselName}) — will retry (attempt {rec.SpawnAttempts}/{maxSpawnAttempts})");
+                }
                 return;
             }
 
@@ -126,7 +142,11 @@ namespace Parsek
             }
             else
             {
-                ParsekLog.Log($"Vessel spawn failed for recording #{index} ({rec.VesselName}) — will retry");
+                rec.SpawnAttempts++;
+                if (rec.SpawnAttempts >= maxSpawnAttempts)
+                    ParsekLog.Log($"Vessel spawn failed permanently for recording #{index} ({rec.VesselName}) after {maxSpawnAttempts} attempts");
+                else
+                    ParsekLog.Log($"Vessel spawn failed for recording #{index} ({rec.VesselName}) — will retry (attempt {rec.SpawnAttempts}/{maxSpawnAttempts})");
             }
         }
 

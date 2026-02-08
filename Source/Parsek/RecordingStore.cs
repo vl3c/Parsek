@@ -46,6 +46,7 @@ namespace Parsek
             public double MaxDistanceFromLaunch;     // Peak distance reached during recording
             public bool VesselSpawned;              // True after deferred RespawnVessel has fired
             public uint SpawnedVesselPersistentId;  // persistentId of spawned vessel (0 = not yet spawned)
+            public int SpawnAttempts;               // Number of failed spawn attempts (give up after 3)
 
             public double StartUT => Points.Count > 0 ? Points[0].ut : 0;
             public double EndUT => Points.Count > 0 ? Points[Points.Count - 1].ut : 0;
