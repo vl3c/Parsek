@@ -512,6 +512,11 @@ namespace Parsek
                     }
 
                     int seatIndex = part.protoModuleCrew.IndexOf(original);
+                    if (seatIndex < 0)
+                    {
+                        Debug.Log($"[Parsek Scenario] Cannot swap '{original.name}': not found in part crew list");
+                        continue;
+                    }
                     part.RemoveCrewmember(original);
                     part.AddCrewmemberAt(replacement, seatIndex);
                     Debug.Log($"[Parsek Scenario] Swapped '{original.name}' → '{replacement.name}' in part '{part.partInfo.title}'");

@@ -85,7 +85,11 @@ namespace Parsek
         public static void StashPending(List<TrajectoryPoint> points, string vesselName,
             List<OrbitSegment> orbitSegments = null)
         {
-            if (points == null || points.Count < 2) return;
+            if (points == null || points.Count < 2)
+            {
+                Log("[Parsek] Recording too short (< 2 points) — discarded");
+                return;
+            }
 
             pendingRecording = new Recording
             {

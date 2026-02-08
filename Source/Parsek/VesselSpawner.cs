@@ -96,9 +96,10 @@ namespace Parsek
             if (closestDist < 200.0)
             {
                 // Offset away from the closest vessel
-                Vector3d direction = (spawnPos - closestPos).normalized;
-                if (direction.magnitude < 0.001)
-                    direction = body.GetSurfaceNVector(lastPt.latitude, lastPt.longitude);
+                Vector3d diff = spawnPos - closestPos;
+                Vector3d direction = diff.magnitude > 0.001
+                    ? diff.normalized
+                    : body.GetSurfaceNVector(lastPt.latitude, lastPt.longitude);
                 Vector3d offsetPos = closestPos + direction * 250.0;
 
                 double newLat = body.GetLatitude(offsetPos);

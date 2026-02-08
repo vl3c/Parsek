@@ -54,7 +54,10 @@ namespace Parsek
             if (segments == null) return null;
             for (int i = 0; i < segments.Count; i++)
             {
-                if (ut >= segments[i].startUT && ut <= segments[i].endUT)
+                bool inRange = (i == segments.Count - 1)
+                    ? (ut >= segments[i].startUT && ut <= segments[i].endUT)
+                    : (ut >= segments[i].startUT && ut < segments[i].endUT);
+                if (inRange)
                     return segments[i];
             }
             return null;

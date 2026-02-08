@@ -638,8 +638,10 @@ namespace Parsek
             if (bodyBefore == null || bodyAfter == null)
             {
                 Log($"Could not find body: {(bodyBefore == null ? before.bodyName : after.bodyName)}");
+                ghost.SetActive(false);
                 return;
             }
+            if (!ghost.activeSelf) ghost.SetActive(true);
 
             Vector3 posBefore = bodyBefore.GetWorldSurfacePosition(
                 before.latitude, before.longitude, before.altitude);
