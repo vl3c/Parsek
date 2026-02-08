@@ -797,6 +797,7 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 - [ ] Timeline viewer UI
 - [ ] Conflict detection
 - [ ] KAC integration
+- [ ] Space racing — race against ghost recordings to reach orbit, the Mun, or any destination faster
 
 ### Phase 3: Advanced
 
