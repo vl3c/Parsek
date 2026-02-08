@@ -752,41 +752,53 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 
 ## Development Phases
 
-### Phase 1: MVP (Target: 4-6 weeks)
+### Phase 1: MVP — Current Phase
+
+**Core gameplay (done):**
+- [x] Position recording with geographic coordinates (lat/lon/alt per body)
+- [x] Kinematic ghost playback (sphere, with map view markers)
+- [x] Single recording at a time
+- [x] Context-aware merge dialog (Keep Vessel / Recover / Discard)
+- [x] Persistence to save game via ScenarioModule
+- [x] Scene transition cleanup (`onGameSceneLoadRequested`)
+- [x] Basic UI panel (Alt+P toggle)
+- [x] Auto-recording on launch and EVA from pad
+- [x] SOI change handling during recording and playback
+
+**Vessel persistence (done, beyond original MVP scope):**
+- [x] Vessel snapshot + deferred spawn at EndUT
+- [x] Crew reservation and replacement system
+- [x] Resource delta tracking (funds, science, reputation)
+- [x] Proximity-aware spawn offset (200m check)
+- [x] Duplicate spawn prevention via persistentId
+- [x] Dead crew removal from snapshots
+- [x] 17 edge cases identified and resolved (see TODO-edge-cases.md)
+
+**Remaining for MVP release:**
+- [ ] Take control of playback vessel
+- [ ] Orbital/time-warp recording (save orbit params instead of sampling)
+- [ ] Ghost as actual vessel model (replace sphere)
+- [ ] Adaptive threshold sampling (currently fixed 0.5s interval)
+- [ ] ClickThroughBlocker for UI windows
+- [ ] ToolbarControl for toolbar button
+
+**Deferred (nice-to-have, not blocking release):**
+- [ ] Krakensbane velocity compensation
+- [ ] Harmony hook on `VesselPrecalculate.CalculatePhysicsStats()`
+- [ ] IgnoreGForces(240) positioning (needed when ghost becomes a vessel)
+- [ ] `GameParameters.CustomParameterNode` for settings
+- [ ] Localization infrastructure (en-us.cfg)
+
+### Phase 2: Core Features
 
 **Features:**
-- [ ] Basic recording (position + staging)
-- [ ] Kinematic playback (ghost vessels)
-- [ ] Single recording at a time
-- [ ] Simple commit/discard UI
-- [ ] Take control functionality
-- [ ] Persistence to save game
-
-**Technical Tasks:**
-- [ ] Project setup with dependencies
-- [ ] Implement geographic coordinate storage in TrajectoryFrame
-- [ ] Add Krakensbane velocity compensation to recording
-- [ ] MissionRecorder with adaptive threshold-based sampling
-- [ ] Implement Harmony hook on `VesselPrecalculate.CalculatePhysicsStats()`
-- [ ] Implement IgnoreGForces(240) positioning pipeline in PlaybackEngine
-- [ ] Integrate ClickThroughBlocker for UI windows
-- [ ] Integrate ToolbarControl for toolbar button
-- [ ] Add scene transition cleanup handlers (`onGameSceneLoadRequested`)
-- [ ] Basic UI panel
-- [ ] Save/load integration
-- [ ] Add `GameParameters.CustomParameterNode` for settings
-- [ ] Set up localization infrastructure (en-us.cfg)
-
-### Phase 2: Core Features (Target: 2-3 months)
-
-**Features:**
-- [ ] Multiple concurrent recordings
-- [ ] Event-based recording (not just trajectory)
+- [ ] Multiple concurrent recordings (timeline playback already supports multiple)
+- [ ] Event-based recording (staging, maneuvers as discrete events)
 - [ ] Timeline viewer UI
 - [ ] Conflict detection
 - [ ] KAC integration
 
-### Phase 3: Advanced (Target: 3-6 months)
+### Phase 3: Advanced
 
 **Features:**
 - [ ] Milestone-based recording
@@ -845,16 +857,22 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
    - Analyzed 8 mods: FMRS, PersistentTrails, KSPCommunityFixes, ClickThroughBlocker, ToolbarControl, StageRecovery, VesselMover, KerbalAlarmClock
    - Findings incorporated into this architecture document
 
-4. **Implement MVP incrementally**
-   - Replace spike with geographic coordinate TrajectoryFrame
-   - Add Krakensbane-compensated velocity recording
-   - Implement IgnoreGForces(240) positioning pipeline
-   - Add ClickThroughBlocker + ToolbarControl integration
-   - Implement adaptive threshold sampling
-   - Add scene transition cleanup
-   - Build recording UI with commit/discard
-   - Add persistence via ScenarioModule + external .parsek files
+4. ~~**Implement core recording + playback**~~ (DONE)
+   - Geographic coordinate TrajectoryFrame with SOI support
+   - Timeline persistence via ScenarioModule
+   - Context-aware merge dialog with vessel persistence
+   - Crew reservation/replacement system
+   - Resource delta tracking
+   - Map view ghost markers
+   - 17 edge cases resolved
+
+5. **Complete MVP for release**
+   - Orbital/time-warp recording strategy
+   - Take control of playback vessel
+   - Ghost as vessel model (replace sphere)
+   - ClickThroughBlocker + ToolbarControl integration
+   - Adaptive sampling for maneuvers
 
 ---
 
-*Document version: 0.2 — Updated with findings from reference mod analysis*
+*Document version: 0.3 — Updated to reflect current implementation status*
