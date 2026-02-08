@@ -13,8 +13,8 @@ namespace Parsek.Tests
         public void SegmentDuration_ZeroOrNegative_ShouldBeGuarded()
         {
             // Arrange - two points with same or reversed timestamps
-            var before = new ParsekSpike.TrajectoryPoint { ut = 100.0 };
-            var after = new ParsekSpike.TrajectoryPoint { ut = 100.0 }; // Same time!
+            var before = new TrajectoryPoint { ut = 100.0 };
+            var after = new TrajectoryPoint { ut = 100.0 }; // Same time!
 
             // Act
             double segmentDuration = after.ut - before.ut;

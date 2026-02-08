@@ -10,7 +10,7 @@ namespace Parsek.Tests
         public void TrajectoryPoint_ToString_FormatsCorrectly()
         {
             // Arrange
-            var point = new ParsekSpike.TrajectoryPoint
+            var point = new TrajectoryPoint
             {
                 ut = 12345.6789,
                 latitude = 0.1234,
@@ -36,7 +36,7 @@ namespace Parsek.Tests
             var rotation = Quaternion.identity;
             var velocity = new Vector3(10, 20, 30);
 
-            var point = new ParsekSpike.TrajectoryPoint
+            var point = new TrajectoryPoint
             {
                 ut = 100,
                 latitude = 1.5,

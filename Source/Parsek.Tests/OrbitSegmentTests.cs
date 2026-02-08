@@ -13,9 +13,9 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
         }
 
-        private ParsekSpike.OrbitSegment MakeSegment(double startUT, double endUT, string body = "Kerbin")
+        private OrbitSegment MakeSegment(double startUT, double endUT, string body = "Kerbin")
         {
-            return new ParsekSpike.OrbitSegment
+            return new OrbitSegment
             {
                 startUT = startUT,
                 endUT = endUT,
@@ -30,12 +30,12 @@ namespace Parsek.Tests
             };
         }
 
-        private List<ParsekSpike.TrajectoryPoint> MakePoints(int count, double startUT = 100)
+        private List<TrajectoryPoint> MakePoints(int count, double startUT = 100)
         {
-            var points = new List<ParsekSpike.TrajectoryPoint>();
+            var points = new List<TrajectoryPoint>();
             for (int i = 0; i < count; i++)
             {
-                points.Add(new ParsekSpike.TrajectoryPoint
+                points.Add(new TrajectoryPoint
                 {
                     ut = startUT + i * 10,
                     latitude = 0,
@@ -54,7 +54,7 @@ namespace Parsek.Tests
         [Fact]
         public void FindOrbitSegment_EmptyList_ReturnsNull()
         {
-            var segments = new List<ParsekSpike.OrbitSegment>();
+            var segments = new List<OrbitSegment>();
             var result = ParsekSpike.FindOrbitSegment(segments, 500);
             Assert.Null(result);
         }
@@ -69,7 +69,7 @@ namespace Parsek.Tests
         [Fact]
         public void FindOrbitSegment_UTInRange_ReturnsSegment()
         {
-            var segments = new List<ParsekSpike.OrbitSegment>
+            var segments = new List<OrbitSegment>
             {
                 MakeSegment(100, 200)
             };
@@ -83,7 +83,7 @@ namespace Parsek.Tests
         [Fact]
         public void FindOrbitSegment_UTBeforeRange_ReturnsNull()
         {
-            var segments = new List<ParsekSpike.OrbitSegment>
+            var segments = new List<OrbitSegment>
             {
                 MakeSegment(100, 200)
             };
@@ -95,7 +95,7 @@ namespace Parsek.Tests
         [Fact]
         public void FindOrbitSegment_UTAfterRange_ReturnsNull()
         {
-            var segments = new List<ParsekSpike.OrbitSegment>
+            var segments = new List<OrbitSegment>
             {
                 MakeSegment(100, 200)
             };
@@ -107,7 +107,7 @@ namespace Parsek.Tests
         [Fact]
         public void FindOrbitSegment_UTAtExactStart_ReturnsSegment()
         {
-            var segments = new List<ParsekSpike.OrbitSegment>
+            var segments = new List<OrbitSegment>
             {
                 MakeSegment(100, 200)
             };
@@ -119,7 +119,7 @@ namespace Parsek.Tests
         [Fact]
         public void FindOrbitSegment_UTAtExactEnd_ReturnsSegment()
         {
-            var segments = new List<ParsekSpike.OrbitSegment>
+            var segments = new List<OrbitSegment>
             {
                 MakeSegment(100, 200)
             };
@@ -131,7 +131,7 @@ namespace Parsek.Tests
         [Fact]
         public void FindOrbitSegment_MultipleSegments_FindsCorrectOne()
         {
-            var segments = new List<ParsekSpike.OrbitSegment>
+            var segments = new List<OrbitSegment>
             {
                 MakeSegment(100, 200, "Kerbin"),
                 MakeSegment(300, 400, "Mun"),
@@ -146,7 +146,7 @@ namespace Parsek.Tests
         [Fact]
         public void FindOrbitSegment_UTBetweenSegments_ReturnsNull()
         {
-            var segments = new List<ParsekSpike.OrbitSegment>
+            var segments = new List<OrbitSegment>
             {
                 MakeSegment(100, 200),
                 MakeSegment(300, 400)
@@ -187,7 +187,7 @@ namespace Parsek.Tests
             node.AddValue("body", original.bodyName);
 
             // Deserialize
-            var loaded = new ParsekSpike.OrbitSegment();
+            var loaded = new OrbitSegment();
             var inv = NumberStyles.Float;
 
             double.TryParse(node.GetValue("startUT"), inv, ic, out loaded.startUT);
@@ -251,7 +251,7 @@ namespace Parsek.Tests
         public void StashPending_WithOrbitSegments_CopiesSegments()
         {
             var points = MakePoints(5);
-            var segments = new List<ParsekSpike.OrbitSegment>
+            var segments = new List<OrbitSegment>
             {
                 MakeSegment(110, 120),
                 MakeSegment(130, 140)
@@ -293,7 +293,7 @@ namespace Parsek.Tests
         public void CommitPending_WithOrbitSegments_PreservesSegments()
         {
             var points = MakePoints(5);
-            var segments = new List<ParsekSpike.OrbitSegment>
+            var segments = new List<OrbitSegment>
             {
                 MakeSegment(110, 120, "Mun")
             };

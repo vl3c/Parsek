@@ -170,7 +170,7 @@ namespace Parsek
                 for (int i = 0; i < ptNodes.Length; i++)
                 {
                     var ptNode = ptNodes[i];
-                    var pt = new ParsekSpike.TrajectoryPoint();
+                    var pt = new TrajectoryPoint();
 
                     var inv = NumberStyles.Float;
                     var ic = CultureInfo.InvariantCulture;
@@ -207,7 +207,7 @@ namespace Parsek
                 for (int s = 0; s < segNodes.Length; s++)
                 {
                     var segNode = segNodes[s];
-                    var seg = new ParsekSpike.OrbitSegment();
+                    var seg = new OrbitSegment();
                     var inv = NumberStyles.Float;
                     var ic = CultureInfo.InvariantCulture;
 

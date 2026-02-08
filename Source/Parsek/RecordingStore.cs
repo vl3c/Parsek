@@ -30,8 +30,8 @@ namespace Parsek
 
         public class Recording
         {
-            public List<ParsekSpike.TrajectoryPoint> Points = new List<ParsekSpike.TrajectoryPoint>();
-            public List<ParsekSpike.OrbitSegment> OrbitSegments = new List<ParsekSpike.OrbitSegment>();
+            public List<TrajectoryPoint> Points = new List<TrajectoryPoint>();
+            public List<OrbitSegment> OrbitSegments = new List<OrbitSegment>();
             public string VesselName = "";
 
             // Tracks which point's resource deltas have been applied during playback.
@@ -82,17 +82,17 @@ namespace Parsek
         public static Recording Pending => pendingRecording;
         public static List<Recording> CommittedRecordings => committedRecordings;
 
-        public static void StashPending(List<ParsekSpike.TrajectoryPoint> points, string vesselName,
-            List<ParsekSpike.OrbitSegment> orbitSegments = null)
+        public static void StashPending(List<TrajectoryPoint> points, string vesselName,
+            List<OrbitSegment> orbitSegments = null)
         {
             if (points == null || points.Count < 2) return;
 
             pendingRecording = new Recording
             {
-                Points = new List<ParsekSpike.TrajectoryPoint>(points),
+                Points = new List<TrajectoryPoint>(points),
                 OrbitSegments = orbitSegments != null
-                    ? new List<ParsekSpike.OrbitSegment>(orbitSegments)
-                    : new List<ParsekSpike.OrbitSegment>(),
+                    ? new List<OrbitSegment>(orbitSegments)
+                    : new List<OrbitSegment>(),
                 VesselName = vesselName
             };
 

@@ -15,12 +15,12 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
         }
 
-        private List<ParsekSpike.TrajectoryPoint> MakePoints(int count, double startUT = 100)
+        private List<TrajectoryPoint> MakePoints(int count, double startUT = 100)
         {
-            var points = new List<ParsekSpike.TrajectoryPoint>();
+            var points = new List<TrajectoryPoint>();
             for (int i = 0; i < count; i++)
             {
-                points.Add(new ParsekSpike.TrajectoryPoint
+                points.Add(new TrajectoryPoint
                 {
                     ut = startUT + i * 10,
                     latitude = 0,
@@ -49,7 +49,7 @@ namespace Parsek.Tests
         [Fact]
         public void StashPending_EmptyList_DoesNotStash()
         {
-            RecordingStore.StashPending(new List<ParsekSpike.TrajectoryPoint>(), "Empty");
+            RecordingStore.StashPending(new List<TrajectoryPoint>(), "Empty");
 
             Assert.False(RecordingStore.HasPending);
         }

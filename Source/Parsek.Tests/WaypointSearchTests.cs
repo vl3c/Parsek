@@ -24,7 +24,7 @@ namespace Parsek.Tests
             spike.lastPlaybackIndex = 0;
             foreach (var ut in timestamps)
             {
-                spike.recording.Add(new ParsekSpike.TrajectoryPoint
+                spike.recording.Add(new TrajectoryPoint
                 {
                     ut = ut,
                     latitude = 0,

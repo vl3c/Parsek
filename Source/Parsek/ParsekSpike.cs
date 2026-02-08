@@ -29,49 +29,6 @@ namespace Parsek
         internal const string MODID = "Parsek_NS";
         internal const string MODNAME = "Parsek";
 
-        #region Data Structures
-
-        /// <summary>
-        /// A single point in the recorded trajectory.
-        /// Uses geographic coordinates (lat/lon/alt) instead of Unity world coords
-        /// because world coords drift over time as celestial bodies move.
-        /// </summary>
-        public struct TrajectoryPoint
-        {
-            public double ut;           // Universal Time when recorded
-            public double latitude;
-            public double longitude;
-            public double altitude;
-            public Quaternion rotation;
-            public Vector3 velocity;    // Surface-relative velocity
-            public string bodyName;     // Reference celestial body
-
-            // Career mode resources (absolute values at this tick)
-            public double funds;
-            public float science;
-            public float reputation;
-
-            public override string ToString()
-            {
-                return $"UT={ut:F1} lat={latitude:F4} lon={longitude:F4} alt={altitude:F1}";
-            }
-        }
-
-        /// <summary>
-        /// A segment of on-rails (Keplerian) orbit captured during recording.
-        /// Replaces thousands of sampled TrajectoryPoints with ~8 orbital parameters.
-        /// </summary>
-        public struct OrbitSegment
-        {
-            public double startUT, endUT;
-            public double inclination, eccentricity, semiMajorAxis;
-            public double longitudeOfAscendingNode, argumentOfPeriapsis;
-            public double meanAnomalyAtEpoch, epoch;
-            public string bodyName;
-        }
-
-        #endregion
-
         #region State
 
         // Recording state
