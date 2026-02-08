@@ -452,7 +452,6 @@ namespace Parsek
         void SpawnOrRecoverIfTooClose(RecordingStore.Recording rec, int index)
         {
             // Check proximity to active vessel to avoid physics collisions on launchpad
-            bool tooClose = false;
             if (FlightGlobals.ActiveVessel != null && rec.Points.Count > 0)
             {
                 var lastPt = rec.Points[rec.Points.Count - 1];
@@ -461,27 +460,35 @@ namespace Parsek
                 {
                     Vector3d spawnPos = body.GetWorldSurfacePosition(
                         lastPt.latitude, lastPt.longitude, lastPt.altitude);
-                    double dist = Vector3d.Distance(spawnPos, FlightGlobals.ActiveVessel.GetWorldPos3D());
-                    tooClose = dist < 200.0;
+                    Vector3d activePos = FlightGlobals.ActiveVessel.GetWorldPos3D();
+                    double dist = Vector3d.Distance(spawnPos, activePos);
+
+                    if (dist < 200.0)
+                    {
+                        // Offset the vessel just outside the 200m boundary
+                        Vector3d direction = (spawnPos - activePos).normalized;
+                        if (direction.magnitude < 0.001)
+                            direction = body.GetSurfaceNVector(lastPt.latitude, lastPt.longitude);
+                        Vector3d offsetPos = activePos + direction * 250.0;
+
+                        double newLat = body.GetLatitude(offsetPos);
+                        double newLon = body.GetLongitude(offsetPos);
+                        double newAlt = body.GetAltitude(offsetPos);
+
+                        // Update snapshot position
+                        rec.VesselSnapshot.SetValue("lat", newLat.ToString("R"));
+                        rec.VesselSnapshot.SetValue("lon", newLon.ToString("R"));
+                        rec.VesselSnapshot.SetValue("alt", newAlt.ToString("R"));
+
+                        Log($"Offset vessel #{index} ({rec.VesselName}) from {dist:F0}m to 250m from active vessel");
+                    }
                 }
             }
 
-            if (tooClose)
-            {
-                RecoverVessel(rec.VesselSnapshot);
-                ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
-                rec.VesselSpawned = true;
-                rec.VesselSnapshot = null;
-                Log($"Recovered vessel #{index} ({rec.VesselName}) — too close to active vessel");
-                ScreenMessage($"Vessel '{rec.VesselName}' recovered (too close to launch)", 4f);
-            }
-            else
-            {
-                rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot);
-                rec.VesselSpawned = true;
-                Log($"Vessel spawn for recording #{index} ({rec.VesselName})");
-                ScreenMessage($"Vessel '{rec.VesselName}' has appeared!", 4f);
-            }
+            rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot);
+            rec.VesselSpawned = true;
+            Log($"Vessel spawn for recording #{index} ({rec.VesselName})");
+            ScreenMessage($"Vessel '{rec.VesselName}' has appeared!", 4f);
         }
 
         void RecoverVessel(ConfigNode vesselNode)
