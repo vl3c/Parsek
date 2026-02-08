@@ -93,7 +93,7 @@ namespace Parsek
             if (GUILayout.Button($"Despawn Ghosts ({activeGhosts})"))
             {
                 flight.DestroyAllTimelineGhosts();
-                Debug.Log("[Parsek] Ghosts despawned");
+                ParsekLog.Log("Ghosts despawned");
             }
 
             GUI.enabled = committedCount > 0;
@@ -105,10 +105,8 @@ namespace Parsek
                 ParsekScenario.ClearReplacements();
                 flight.DestroyAllTimelineGhosts();
                 RecordingStore.CommittedRecordings.Clear();
-                Debug.Log("[Parsek] All recordings wiped");
-                ScreenMessages.PostScreenMessage(
-                    "[Parsek] All recordings wiped", 2f,
-                    ScreenMessageStyle.UPPER_CENTER);
+                ParsekLog.Log("All recordings wiped");
+                ParsekLog.ScreenMessage("All recordings wiped", 2f);
             }
             GUI.enabled = true;
 

@@ -24,12 +24,12 @@ namespace Parsek
                 ProtoVessel pv = new ProtoVessel(spawnNode, HighLogic.CurrentGame);
                 HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
                 pv.Load(HighLogic.CurrentGame.flightState);
-                Debug.Log($"[Parsek] Vessel respawned with crew (sit={spawnNode.GetValue("sit")}, pid={pv.persistentId})");
+                ParsekLog.Log($"Vessel respawned with crew (sit={spawnNode.GetValue("sit")}, pid={pv.persistentId})");
                 return pv.persistentId;
             }
             catch (System.Exception ex)
             {
-                Debug.Log($"[Parsek] Failed to respawn vessel: {ex.Message}");
+                ParsekLog.Log($"Failed to respawn vessel: {ex.Message}");
                 return 0;
             }
         }
@@ -109,15 +109,13 @@ namespace Parsek
                 rec.VesselSnapshot.SetValue("lon", newLon.ToString("R"));
                 rec.VesselSnapshot.SetValue("alt", newAlt.ToString("R"));
 
-                Debug.Log($"[Parsek] Offset vessel #{index} ({rec.VesselName}) from {closestDist:F0}m to 250m from nearest vessel/recording");
+                ParsekLog.Log($"Offset vessel #{index} ({rec.VesselName}) from {closestDist:F0}m to 250m from nearest vessel/recording");
             }
 
             rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot);
             rec.VesselSpawned = true;
-            Debug.Log($"[Parsek] Vessel spawn for recording #{index} ({rec.VesselName})");
-            ScreenMessages.PostScreenMessage(
-                $"[Parsek] Vessel '{rec.VesselName}' has appeared!",
-                4f, ScreenMessageStyle.UPPER_CENTER);
+            ParsekLog.Log($"Vessel spawn for recording #{index} ({rec.VesselName})");
+            ParsekLog.ScreenMessage($"Vessel '{rec.VesselName}' has appeared!", 4f);
         }
 
         public static void RecoverVessel(ConfigNode vesselNode)
@@ -126,11 +124,11 @@ namespace Parsek
             {
                 ProtoVessel pv = new ProtoVessel(vesselNode, HighLogic.CurrentGame);
                 ShipConstruction.RecoverVesselFromFlight(pv, HighLogic.CurrentGame.flightState, true);
-                Debug.Log("[Parsek] Vessel recovered for funds");
+                ParsekLog.Log("Vessel recovered for funds");
             }
             catch (System.Exception ex)
             {
-                Debug.Log($"[Parsek] Failed to recover vessel: {ex.Message}");
+                ParsekLog.Log($"Failed to recover vessel: {ex.Message}");
             }
         }
 
@@ -157,7 +155,7 @@ namespace Parsek
                              pcm.rosterStatus == ProtoCrewMember.RosterStatus.Missing))
                         {
                             isDead = true;
-                            Debug.Log($"[Parsek] Removed dead/missing crew '{name}' from vessel snapshot");
+                            ParsekLog.Log($"Removed dead/missing crew '{name}' from vessel snapshot");
                             break;
                         }
                     }
@@ -216,7 +214,7 @@ namespace Parsek
                 ComputeMaxDistance(pending, bodyFirst, firstPoint);
 
                 pending.VesselSituation = "Destroyed";
-                Debug.Log($"[Parsek] Vessel was destroyed during recording. Distance from launch: {pending.DistanceFromLaunch:F0}m, " +
+                ParsekLog.Log($"Vessel was destroyed during recording. Distance from launch: {pending.DistanceFromLaunch:F0}m, " +
                     $"Max distance: {pending.MaxDistanceFromLaunch:F0}m");
                 return;
             }
@@ -227,7 +225,7 @@ namespace Parsek
                 pending.VesselDestroyed = true;
                 pending.VesselSnapshot = null;
                 pending.VesselSituation = "Unknown (no active vessel)";
-                Debug.Log("[Parsek] No active vessel at snapshot time");
+                ParsekLog.Log("No active vessel at snapshot time");
                 return;
             }
 
@@ -244,7 +242,7 @@ namespace Parsek
 
             // Snapshot the vessel (works for regular vessels and EVA kerbals)
             if (!vessel.loaded)
-                Debug.Log("[Parsek] Warning: Active vessel is unloaded at snapshot time — snapshot may be incomplete");
+                ParsekLog.Log("Warning: Active vessel is unloaded at snapshot time — snapshot may be incomplete");
             ProtoVessel pv = vessel.BackupVessel();
             ConfigNode node = new ConfigNode("VESSEL");
             pv.Save(node);
@@ -256,7 +254,7 @@ namespace Parsek
                 ? $"EVA {vessel.mainBody.name}"
                 : $"{vessel.situation} {vessel.mainBody.name}";
 
-            Debug.Log($"[Parsek] Vessel snapshot taken. Distance from launch: {pending.DistanceFromLaunch:F0}m, " +
+            ParsekLog.Log($"Vessel snapshot taken. Distance from launch: {pending.DistanceFromLaunch:F0}m, " +
                 $"Max distance: {pending.MaxDistanceFromLaunch:F0}m, Situation: {pending.VesselSituation}");
         }
 

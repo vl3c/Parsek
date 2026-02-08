@@ -983,19 +983,8 @@ namespace Parsek
 
         #region Utilities
 
-        void Log(string message)
-        {
-            Debug.Log($"[Parsek] {message}");
-        }
-
-        void ScreenMessage(string message, float duration)
-        {
-            ScreenMessages.PostScreenMessage(
-                $"[Parsek] {message}",
-                duration,
-                ScreenMessageStyle.UPPER_CENTER
-            );
-        }
+        void Log(string message) => ParsekLog.Log(message);
+        void ScreenMessage(string message, float duration) => ParsekLog.ScreenMessage(message, duration);
 
         #endregion
     }

@@ -15,7 +15,7 @@ namespace Parsek
                 pending.VesselSnapshot != null,
                 duration, pending.MaxDistanceFromLaunch);
 
-            Debug.Log($"[Parsek] Merge dialog: distance={pending.DistanceFromLaunch:F0}m, " +
+            ParsekLog.Log($"Merge dialog: distance={pending.DistanceFromLaunch:F0}m, " +
                 $"maxDistance={pending.MaxDistanceFromLaunch:F0}m, duration={duration:F1}s, " +
                 $"destroyed={pending.VesselDestroyed}, hasSnapshot={pending.VesselSnapshot != null}, " +
                 $"recommended={recommended}");
@@ -31,19 +31,15 @@ namespace Parsek
                         new DialogGUIButton("Merge to Timeline", () =>
                         {
                             RecordingStore.CommitPending();
-                            ScreenMessages.PostScreenMessage(
-                                "[Parsek] Recording merged to timeline!", 3f,
-                                ScreenMessageStyle.UPPER_CENTER);
-                            Debug.Log("[Parsek] User chose: Merge to Timeline (vessel destroyed)");
+                            ParsekLog.ScreenMessage("Recording merged to timeline!", 3f);
+                            ParsekLog.Log("User chose: Merge to Timeline (vessel destroyed)");
                         }),
                         new DialogGUIButton("Discard", () =>
                         {
                             ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
                             RecordingStore.DiscardPending();
-                            ScreenMessages.PostScreenMessage(
-                                "[Parsek] Recording discarded", 2f,
-                                ScreenMessageStyle.UPPER_CENTER);
-                            Debug.Log("[Parsek] User chose: Discard");
+                            ParsekLog.ScreenMessage("Recording discarded", 2f);
+                            ParsekLog.Log("User chose: Discard");
                         })
                     };
                     break;
@@ -57,10 +53,8 @@ namespace Parsek
                             RecordingStore.CommitPending();
                             ParsekScenario.ReserveSnapshotCrew();
                             ParsekScenario.SwapReservedCrewInFlight();
-                            ScreenMessages.PostScreenMessage(
-                                "[Parsek] Recording merged — vessel will appear after ghost playback", 3f,
-                                ScreenMessageStyle.UPPER_CENTER);
-                            Debug.Log("[Parsek] User chose: Merge + Keep Vessel (deferred spawn)");
+                            ParsekLog.ScreenMessage("Recording merged — vessel will appear after ghost playback", 3f);
+                            ParsekLog.Log("User chose: Merge + Keep Vessel (deferred spawn)");
                         }),
                         new DialogGUIButton("Merge + Recover", () =>
                         {
@@ -72,19 +66,15 @@ namespace Parsek
                             }
                             // Clear snapshot so ghost despawns normally at EndUT
                             pending.VesselSnapshot = null;
-                            ScreenMessages.PostScreenMessage(
-                                "[Parsek] Recording merged, vessel recovered!", 3f,
-                                ScreenMessageStyle.UPPER_CENTER);
-                            Debug.Log("[Parsek] User chose: Merge + Recover");
+                            ParsekLog.ScreenMessage("Recording merged, vessel recovered!", 3f);
+                            ParsekLog.Log("User chose: Merge + Recover");
                         }),
                         new DialogGUIButton("Discard", () =>
                         {
                             ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
                             RecordingStore.DiscardPending();
-                            ScreenMessages.PostScreenMessage(
-                                "[Parsek] Recording discarded", 2f,
-                                ScreenMessageStyle.UPPER_CENTER);
-                            Debug.Log("[Parsek] User chose: Discard");
+                            ParsekLog.ScreenMessage("Recording discarded", 2f);
+                            ParsekLog.Log("User chose: Discard");
                         })
                     };
                     break;
