@@ -1,8 +1,8 @@
 # Parsek: Preliminary Architecture
 
 ## Document Status
-**Version:** 0.2
-**Phase:** Research & Planning (Post-Analysis)
+**Version:** 0.3
+**Phase:** MVP Implementation
 **Last Updated:** February 2026
 
 ---
@@ -778,7 +778,7 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 - [ ] Take control of playback vessel
 - [x] Orbital/time-warp recording (save orbit params instead of sampling)
 - [ ] Ghost as actual vessel model (replace sphere)
-- [ ] Adaptive threshold sampling (currently fixed 0.5s interval)
+- [x] Adaptive threshold sampling (velocity direction >2deg, speed >5%, 3s backstop)
 - [ ] ClickThroughBlocker for UI windows
 - [ ] ToolbarControl for toolbar button
 
@@ -871,8 +871,8 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
    - Take control of playback vessel
    - Ghost as vessel model (replace sphere)
    - ClickThroughBlocker + ToolbarControl integration
-   - Adaptive sampling for maneuvers
+   - ~~Adaptive sampling for maneuvers~~ (DONE — velocity/speed thresholds with max-interval backstop)
 
 ---
 
-*Document version: 0.3 — Updated to reflect current implementation status*
+*Document version: 0.4 — Adaptive sampling complete, spike plan retired*

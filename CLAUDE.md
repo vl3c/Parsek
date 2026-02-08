@@ -133,6 +133,7 @@ These happen silently to keep gameplay smooth. All are logged to `KSP.log` with 
 - Recording is blocked while the game is paused
 - Recording auto-stops if the active vessel changes (docking, pressing `[`/`]`)
 - Recordings shorter than 2 sample points are silently dropped on revert
+- Adaptive sampling: ticks every 0.1s but only records when velocity direction changes >2deg, speed changes >5%, or 3s max interval elapses
 - When vessel goes on rails (time warp), trajectory sampling stops and an OrbitSegment captures the Keplerian orbit parameters instead
 - When vessel goes off rails, the orbit segment is finalized and sampling resumes with boundary points at each transition
 - SOI changes during on-rails recording close the current orbit segment and open a new one for the new body
