@@ -13,6 +13,8 @@
 - Squad / SquadExpansion (stock game files)
 - ModuleManager 4.2.3 (essential for mods)
 - Harmony (essential for runtime patching)
+- ClickThroughBlocker (prevents UI click-through)
+- ToolbarControl (stock + Blizzy toolbar integration)
 - **Parsek** (our mod being developed)
 
 All other mods removed for clean testing environment.
@@ -41,6 +43,7 @@ Parsek/
 │   ├── Parsek/
 │   │   ├── Parsek.csproj    # SDK-style project
 │   │   ├── ParsekSpike.cs   # Main spike — recording, playback, UI, scene handling
+│   │   ├── ParsekToolbarRegistration.cs # ToolbarControl Phase 1 registration
 │   │   ├── RecordingStore.cs # Static storage surviving scene changes
 │   │   └── ParsekScenario.cs # ScenarioModule for save/load, crew reservation & replacement
 │   └── Parsek.Tests/         # Unit tests (xUnit)
@@ -118,7 +121,7 @@ dotnet test
 - **F9** — Start/Stop recording
 - **F10** — Preview playback (current recording, relative time)
 - **F11** — Stop preview
-- **Alt+P** — Toggle UI window
+- **Toolbar button** (top-right) — Toggle Parsek UI window
 
 ### Automatic Behaviors
 

@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using ClickThroughFix;
+using KSP.UI.Screens;
+using ToolbarControl_NS;
 using UnityEngine;
 
 namespace Parsek
@@ -23,6 +26,9 @@ namespace Parsek
     [KSPAddon(KSPAddon.Startup.Flight, false)]
     public class ParsekSpike : MonoBehaviour
     {
+        internal const string MODID = "Parsek_NS";
+        internal const string MODNAME = "Parsek";
+
         #region Data Structures
 
         /// <summary>
@@ -110,7 +116,8 @@ namespace Parsek
 
         // UI
         private Rect windowRect = new Rect(20, 100, 250, 250);
-        private bool showUI = true;
+        private bool showUI = false;
+        private ToolbarControl toolbarControl;
 
         // Map view markers
         private GUIStyle mapMarkerStyle;
@@ -133,6 +140,17 @@ namespace Parsek
             GameEvents.onVesselGoOnRails.Add(OnVesselGoOnRails);
             GameEvents.onVesselGoOffRails.Add(OnVesselGoOffRails);
             GameEvents.onVesselSOIChanged.Add(OnVesselSOIChanged);
+
+            toolbarControl = gameObject.AddComponent<ToolbarControl>();
+            toolbarControl.AddToAllToolbars(
+                () => { showUI = true; },
+                () => { showUI = false; },
+                ApplicationLauncher.AppScenes.FLIGHT | ApplicationLauncher.AppScenes.MAPVIEW,
+                MODID, "parsekButton",
+                "Parsek/Textures/parsek_38",
+                "Parsek/Textures/parsek_24",
+                MODNAME
+            );
         }
 
         void Update()
@@ -164,7 +182,7 @@ namespace Parsek
 
             if (showUI)
             {
-                windowRect = GUILayout.Window(
+                windowRect = ClickThruBlocker.GUILayoutWindow(
                     GetInstanceID(),
                     windowRect,
                     DrawWindow,
@@ -176,6 +194,13 @@ namespace Parsek
 
         void OnDestroy()
         {
+            if (toolbarControl != null)
+            {
+                toolbarControl.OnDestroy();
+                Destroy(toolbarControl);
+                toolbarControl = null;
+            }
+
             // Unregister events to prevent handler leaks
             GameEvents.onGameSceneLoadRequested.Remove(OnSceneChangeRequested);
             GameEvents.onFlightReady.Remove(OnFlightReady);
@@ -753,12 +778,6 @@ namespace Parsek
                 }
             }
 
-            // Alt+P - Toggle UI
-            if (Input.GetKeyDown(KeyCode.P) &&
-                (Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt)))
-            {
-                showUI = !showUI;
-            }
         }
 
         #endregion
@@ -1565,7 +1584,6 @@ namespace Parsek
             GUILayout.Label("  F9  - Start/Stop Recording");
             GUILayout.Label("  F10 - Preview Playback");
             GUILayout.Label("  F11 - Stop Preview");
-            GUILayout.Label("  Alt+P - Toggle this window");
 
             GUILayout.Space(10);
 
