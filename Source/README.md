@@ -5,7 +5,9 @@
 ```
 Parsek/
 ├── Parsek.csproj        # SDK-style project, targets .NET 4.7.2
-├── ParsekSpike.cs       # Main spike — recording, manual preview, timeline auto-playback, UI
+├── ParsekFlight.cs      # Main flight controller (recording, preview, timeline playback, UI)
+├── FlightRecorder.cs    # Physics-frame recording logic (Harmony-driven)
+├── Patches/PhysicsFramePatch.cs # Harmony postfix hook for per-frame sampling
 ├── RecordingStore.cs    # Static storage for pending/committed recordings (survives scene changes)
 └── ParsekScenario.cs   # ScenarioModule — persists committed recordings to save games
 
@@ -58,18 +60,18 @@ cd Source/Parsek.Tests
 dotnet test
 ```
 
-58 tests pass, 1 skipped (QuaternionSlerp NaN edge case — Unity behavior).
+124 tests total: 123 pass, 1 skipped (QuaternionSlerp NaN edge case — Unity behavior).
 
 ## Testing In-Game
 
 1. Launch KSP, start a flight (career mode for resource tracking)
-2. A window titled "Parsek Spike" appears
+2. Open the Parsek window from the toolbar button
 
 **Controls:**
 - **F9** — Start/Stop recording
 - **F10** — Preview playback (plays current recording from now)
 - **F11** — Stop preview
-- **Alt+P** — Toggle UI window
+- **Toolbar button** — Show/hide the Parsek window
 
 ### Timeline Test (core flow)
 
@@ -128,7 +130,7 @@ dotnet test
 - Verify DLL is in `GameData/Parsek/Plugins/`
 
 **Ghost doesn't appear on timeline:**
-- Check KSP.log for `[Parsek Spike]` and `[Parsek Scenario]` entries
+- Check KSP.log for `[Parsek]` and `[Parsek Scenario]` entries
 - Verify recording was merged (not discarded)
 - Current UT must be within the recording's time range
 
@@ -136,7 +138,8 @@ dotnet test
 
 - **RecordingStore** — static class holding pending + committed recordings. Static fields survive scene loads within a KSP session. Pending = just-finished recording awaiting merge/discard. Committed = merged to timeline for auto-playback. Also holds vessel persistence fields (snapshot, distance, destruction state) and the `GetRecommendedAction()` merge-decision logic.
 - **ParsekScenario** — KSP ScenarioModule that serializes committed recordings to ConfigNode for save/load persistence. Active in FLIGHT, SPACECENTER, TRACKSTATION, and EDITOR scenes. Manages crew reservation (marking snapshot crew as Assigned) and the crew replacement system (hiring/removing replacement kerbals to keep the available pool constant).
-- **ParsekSpike** — KSPAddon (Flight only). Handles recording via InvokeRepeating, manual preview playback (relative time), timeline auto-playback (absolute UT), scene change events, context-aware merge dialog, vessel snapshot/respawn/recovery, destruction tracking, and resource delta application.
+- **ParsekFlight** — KSPAddon (Flight only). Handles manual preview playback (relative time), timeline auto-playback (absolute UT), scene change events, context-aware merge dialog, vessel snapshot/respawn/recovery, destruction tracking, and resource delta application.
+- **FlightRecorder + PhysicsFramePatch** — recording pipeline. `FlightRecorder` owns sampling state; Harmony postfix on `VesselPrecalculate.CalculatePhysicsStats()` provides per-physics-frame callbacks.
 - **TrajectoryPoint** — struct storing per-tick data: position (lat/lon/alt), rotation, velocity, body name, and career resources (funds, science, reputation). All timestamps use absolute UT.
 
 ### Vessel Persistence

@@ -4,7 +4,7 @@
 1. Go to launchpad with any vessel
 2. Stage / throttle up so the vessel lifts off
 3. Verify: screen message "Recording STARTED (auto)" appears
-4. Verify: Parsek UI (Alt+P) shows "RECORDING" status
+4. Verify: Parsek UI (toolbar window) shows "RECORDING" status
 5. Fly for 30+ seconds, press F9 to stop, revert, merge as usual
 
 ## 2. Auto-start on runway
@@ -43,7 +43,7 @@
 4. No regressions in crew replacement, vessel spawning, etc.
 
 ## Log verification
-- Search `KSP.log` for `[Parsek Spike]` — look for:
+- Search `KSP.log` for `[Parsek]` — look for:
   - `"Auto-record started (vessel left pad/runway)"` on launch
   - `"EVA from pad detected — pending auto-record"` + `"Auto-record started (EVA from pad)"` for EVA case
   - No unexpected errors or duplicate triggers

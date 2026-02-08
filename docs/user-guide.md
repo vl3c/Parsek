@@ -9,7 +9,8 @@ Parsek lets you record missions, revert to launch, and merge them into the timel
 | **F9** | Start / Stop recording |
 | **F10** | Preview playback (current recording) |
 | **F11** | Stop preview |
-| **Alt+P** | Toggle UI window |
+
+The Parsek window is available from the toolbar button in Flight/Map view.
 
 ## How It Works
 
@@ -62,11 +63,11 @@ You can preview a recording without reverting:
 
 ### Wipe Recordings
 
-Click "Wipe Recordings" in the Parsek UI window (Alt+P) to clear all committed recordings. This also frees any reserved crew and removes replacement kerbals.
+Click "Wipe Recordings" in the Parsek UI window to clear all committed recordings. This also frees any reserved crew and removes replacement kerbals.
 
 ## Automatic Behaviors
 
-Parsek handles several edge cases automatically. These are logged to `KSP.log` (search for `[Parsek Spike]` or `[Parsek Scenario]`).
+Parsek handles several edge cases automatically. These are logged to `KSP.log` (search for `[Parsek]` or `[Parsek Scenario]`).
 
 ### Recording
 

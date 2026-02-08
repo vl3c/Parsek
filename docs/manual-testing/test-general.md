@@ -62,7 +62,7 @@ Use career mode for all tests (resource tracking requires it).
 ## Wipe Cleanup
 
 1. Record + merge several times with "Keep Vessel"
-2. Open Parsek UI (Alt+P), click "Wipe Recordings"
+2. Open Parsek UI from the toolbar button, click "Wipe Recordings"
 3. Verify: all reserved kerbals return to Available, all replacements removed
 4. Verify: timeline empty, no ghosts
 
@@ -136,7 +136,7 @@ Use career mode for all tests (resource tracking requires it).
 
 ## UI
 
-1. Alt+P toggles the Parsek window on/off
+1. Toolbar button toggles the Parsek window on/off
 2. Window shows correct status: Idle / RECORDING / PREVIEWING
 3. Recorded points count and duration update in real time
 4. Timeline count and active ghosts count are accurate
@@ -144,7 +144,7 @@ Use career mode for all tests (resource tracking requires it).
 
 ## Log Verification
 
-Search `KSP.log` for `[Parsek Spike]` and `[Parsek Scenario]`:
+Search `KSP.log` for `[Parsek]` and `[Parsek Scenario]`:
 - No unexpected errors or exceptions
 - Auto-record triggers logged correctly
 - Crew replacement actions logged as "Hired replacement ..." / "Removed replacement ..."
