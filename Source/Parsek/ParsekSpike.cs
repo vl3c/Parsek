@@ -72,7 +72,14 @@ namespace Parsek
         internal List<TrajectoryPoint> recording = new List<TrajectoryPoint>();
         private bool isRecording = false;
         private uint recordingVesselId;
-        private float sampleInterval = 0.5f; // seconds between samples
+
+        // Adaptive sampling: fast tick that decides whether to record
+        private const float sampleTickInterval = 0.1f;   // how often SamplePosition fires
+        private const float maxSampleInterval = 3.0f;     // max time between recorded points
+        private const float velocityDirThreshold = 2.0f;  // degrees of velocity direction change
+        private const float speedChangeThreshold = 0.05f; // 5% relative speed change
+        private double lastRecordedUT = -1;
+        private Vector3 lastRecordedVelocity;
 
         // Manual playback state (F10/F11 preview of current recording)
         private bool isPlaying = false;
@@ -422,8 +429,8 @@ namespace Parsek
             // Record a boundary TrajectoryPoint at current UT
             SamplePosition();
 
-            // Resume sampling
-            InvokeRepeating(nameof(SamplePosition), sampleInterval, sampleInterval);
+            // Resume sampling (fast tick — adaptive logic decides whether to record)
+            InvokeRepeating(nameof(SamplePosition), sampleTickInterval, sampleTickInterval);
             Log($"Vessel went off rails — orbit segment closed " +
                 $"(UT {currentOrbitSegment.startUT:F0}-{currentOrbitSegment.endUT:F0})");
         }
@@ -780,6 +787,8 @@ namespace Parsek
             vesselDestroyedDuringRecording = false;
             recordingVesselId = FlightGlobals.ActiveVessel.persistentId;
             recordingStartUT = Planetarium.GetUniversalTime();
+            lastRecordedUT = -1;
+            lastRecordedVelocity = Vector3.zero;
 
             // Check if vessel is already on rails (e.g. started recording during time warp)
             if (FlightGlobals.ActiveVessel.packed)
@@ -805,11 +814,11 @@ namespace Parsek
             }
             else
             {
-                // Start sampling
-                InvokeRepeating(nameof(SamplePosition), 0f, sampleInterval);
+                // Start sampling (fast tick — adaptive logic decides whether to record)
+                InvokeRepeating(nameof(SamplePosition), 0f, sampleTickInterval);
             }
 
-            Log($"Recording started. Sampling every {sampleInterval}s");
+            Log("Recording started (adaptive sampling)");
             ScreenMessage("Recording STARTED", 2f);
         }
 
@@ -854,6 +863,13 @@ namespace Parsek
                 return;
             }
 
+            // Adaptive threshold: skip if nothing meaningful changed
+            Vector3 currentVelocity = v.GetSrfVelocity();
+            if (!ShouldRecordPoint(currentVelocity, lastRecordedVelocity,
+                Planetarium.GetUniversalTime(), lastRecordedUT,
+                maxSampleInterval, velocityDirThreshold, speedChangeThreshold))
+                return;
+
             TrajectoryPoint point = new TrajectoryPoint
             {
                 ut = Planetarium.GetUniversalTime(),
@@ -869,12 +885,51 @@ namespace Parsek
             };
 
             recording.Add(point);
+            lastRecordedUT = point.ut;
+            lastRecordedVelocity = point.velocity;
 
             // Debug: Log every 10th point
             if (recording.Count % 10 == 0)
             {
                 Log($"Recorded point #{recording.Count}: {point}");
             }
+        }
+
+        /// <summary>
+        /// Decides whether to record a trajectory point based on velocity changes
+        /// and a max-interval backstop. Pure function for testability.
+        /// </summary>
+        internal static bool ShouldRecordPoint(
+            Vector3 currentVelocity, Vector3 lastVelocity,
+            double currentUT, double lastRecordedUT,
+            float maxInterval, float velDirThreshold, float speedThreshold)
+        {
+            // Always record the first point
+            if (lastRecordedUT < 0)
+                return true;
+
+            // Max interval backstop — always record after this long
+            if (currentUT - lastRecordedUT >= maxInterval)
+                return true;
+
+            float currentSpeed = currentVelocity.magnitude;
+            float lastSpeed = lastVelocity.magnitude;
+
+            // Velocity direction change (guard against zero vectors to avoid NaN)
+            if (currentSpeed > 0.1f && lastSpeed > 0.1f)
+            {
+                float angle = Vector3.Angle(currentVelocity, lastVelocity);
+                if (angle > velDirThreshold)
+                    return true;
+            }
+
+            // Speed change (relative to last speed, with floor to avoid div-by-near-zero)
+            float speedDelta = Mathf.Abs(currentSpeed - lastSpeed);
+            float reference = Mathf.Max(lastSpeed, 0.1f);
+            if (speedDelta / reference > speedThreshold)
+                return true;
+
+            return false;
         }
 
         #endregion
