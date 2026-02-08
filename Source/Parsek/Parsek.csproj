@@ -50,6 +50,10 @@
       <HintPath>$(KSPDir)\GameData\001_ToolbarControl\Plugins\ToolbarControl.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(KSPDir)\GameData\000_Harmony\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
   <!-- Post-build: Copy to local KSP GameData -->
