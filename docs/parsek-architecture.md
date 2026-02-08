@@ -851,7 +851,7 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
    - dotnet SDK-style project with auto-deploy
 
 2. ~~**Create proof-of-concept**~~ (DONE)
-   - Spike: recording vessel position + playback with green sphere
+   - Proof-of-concept: recording vessel position + playback with green sphere
    - Verified feasibility of kinematic replay
 
 3. ~~**Study reference mods**~~ (DONE)
@@ -873,7 +873,8 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
    - Ghost as vessel model (replace sphere)
    - ~~ClickThroughBlocker + ToolbarControl integration~~ (DONE)
    - ~~Adaptive sampling for maneuvers~~ (DONE — velocity/speed thresholds with max-interval backstop)
+   - ~~Architecture cleanup~~ (DONE — decomposed god class into focused files)
 
 ---
 
-*Document version: 0.4 — Adaptive sampling complete, spike plan retired*
+*Document version: 0.5 — Architecture cleanup complete*

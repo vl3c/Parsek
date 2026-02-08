@@ -42,10 +42,17 @@ Parsek/
 ├── Source/                   # Mod source code
 │   ├── Parsek/
 │   │   ├── Parsek.csproj    # SDK-style project
-│   │   ├── ParsekSpike.cs   # Main spike — recording, playback, UI, scene handling
-│   │   ├── ParsekToolbarRegistration.cs # ToolbarControl Phase 1 registration
+│   │   ├── ParsekFlight.cs  # Main flight-scene controller (recording, playback, timeline)
+│   │   ├── ParsekUI.cs      # UI window and map view markers
+│   │   ├── ParsekLog.cs     # Shared logging utilities
+│   │   ├── ParsekScenario.cs # ScenarioModule for save/load, crew reservation & replacement
+│   │   ├── ParsekToolbarRegistration.cs # ToolbarControl registration
 │   │   ├── RecordingStore.cs # Static storage surviving scene changes
-│   │   └── ParsekScenario.cs # ScenarioModule for save/load, crew reservation & replacement
+│   │   ├── TrajectoryPoint.cs # Position/rotation/resource data struct
+│   │   ├── OrbitSegment.cs   # Keplerian orbit parameters for on-rails recording
+│   │   ├── TrajectoryMath.cs # Pure static math (sampling, interpolation, orbit search)
+│   │   ├── VesselSpawner.cs  # Vessel spawn/recover/snapshot utilities
+│   │   └── MergeDialog.cs    # Post-revert merge dialog
 │   └── Parsek.Tests/         # Unit tests (xUnit)
 ├── docs/                     # Documentation
 ├── mods/                     # Reference mods (git-ignored)
@@ -125,7 +132,7 @@ dotnet test
 
 ### Automatic Behaviors
 
-These happen silently to keep gameplay smooth. All are logged to `KSP.log` with `[Parsek Spike]` or `[Parsek Scenario]` prefixes.
+These happen silently to keep gameplay smooth. All are logged to `KSP.log` with `[Parsek]` or `[Parsek Scenario]` prefixes.
 
 **Auto-recording:**
 - Recording starts automatically when a vessel leaves PRELAUNCH (pad/runway liftoff)
@@ -161,7 +168,7 @@ These happen silently to keep gameplay smooth. All are logged to `KSP.log` with 
 
 ### Debug
 - Check `Kerbal Space Program/KSP.log` for errors
-- Look for `[Parsek Spike]` and `[Parsek Scenario]` log entries
+- Look for `[Parsek]` and `[Parsek Scenario]` log entries
 - Crew replacement actions logged as `[Parsek Scenario] Hired replacement ...` / `Removed replacement ...`
 - Alt+F12 opens Unity debug console in-game
 
