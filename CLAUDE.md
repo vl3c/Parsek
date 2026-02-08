@@ -114,6 +114,32 @@ dotnet test
 - **F11** — Stop preview
 - **Alt+P** — Toggle UI window
 
+### Automatic Behaviors
+
+These happen silently to keep gameplay smooth. All are logged to `KSP.log` with `[Parsek Spike]` or `[Parsek Scenario]` prefixes.
+
+**Recording safeguards:**
+- Recording is blocked while the game is paused
+- Recording auto-stops if the active vessel changes (docking, pressing `[`/`]`)
+- Recordings shorter than 2 sample points are silently dropped on revert
+
+**Ghost playback:**
+- Time warp is stopped once when UT first enters a recording's range (only if the recording has an unspawned vessel). Time warp during active ghost playback is allowed.
+- SOI changes during recording are handled — each trajectory point references its own celestial body
+
+**Vessel spawning:**
+- If a vessel would spawn within 200m of any other vessel, it is offset to 250m away to prevent physics collisions
+- Duplicate spawns are prevented by tracking each spawned vessel's `persistentId`
+- Dead or missing crew are stripped from vessel snapshots before spawning
+
+**Resource deltas:**
+- Funds, science, and reputation deltas are clamped so they never go below zero
+- `LastAppliedResourceIndex` is persisted in saves so quickload doesn't double-apply deltas
+
+**Scene transitions:**
+- If a pending recording exists when leaving Flight (e.g. Abort Mission → Space Center), it is auto-committed to the timeline without vessel persistence
+- If UT passes a recording's EndUT while outside Flight (Space Center, Tracking Station), reserved crew are auto-unreserved to prevent them being stuck as Assigned forever
+
 ### Debug
 - Check `Kerbal Space Program/KSP.log` for errors
 - Look for `[Parsek Spike]` and `[Parsek Scenario]` log entries
