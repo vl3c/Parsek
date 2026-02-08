@@ -42,7 +42,11 @@ Parsek/
 ├── Source/                   # Mod source code
 │   ├── Parsek/
 │   │   ├── Parsek.csproj    # SDK-style project
-│   │   ├── ParsekFlight.cs  # Main flight-scene controller (recording, playback, timeline)
+│   │   ├── ParsekFlight.cs  # Main flight-scene controller (playback, timeline, input)
+│   │   ├── FlightRecorder.cs # Recording state + sampling (called by Harmony patch)
+│   │   ├── ParsekHarmony.cs  # Harmony patcher entry point (KSPAddon.Startup.Instantly)
+│   │   ├── Patches/
+│   │   │   └── PhysicsFramePatch.cs # Harmony postfix on VesselPrecalculate
 │   │   ├── ParsekUI.cs      # UI window and map view markers
 │   │   ├── ParsekLog.cs     # Shared logging utilities
 │   │   ├── ParsekScenario.cs # ScenarioModule for save/load, crew reservation & replacement
@@ -143,7 +147,7 @@ These happen silently to keep gameplay smooth. All are logged to `KSP.log` with 
 - Recording is blocked while the game is paused
 - Recording auto-stops if the active vessel changes (docking, pressing `[`/`]`)
 - Recordings shorter than 2 sample points are silently dropped on revert
-- Adaptive sampling: ticks every 0.1s but only records when velocity direction changes >2deg, speed changes >5%, or 3s max interval elapses
+- Adaptive sampling: Harmony postfix fires every physics frame but only records when velocity direction changes >2deg, speed changes >5%, or 3s max interval elapses
 - When vessel goes on rails (time warp), trajectory sampling stops and an OrbitSegment captures the Keplerian orbit parameters instead
 - When vessel goes off rails, the orbit segment is finalized and sampling resumes with boundary points at each transition
 - SOI changes during on-rails recording close the current orbit segment and open a new one for the new body

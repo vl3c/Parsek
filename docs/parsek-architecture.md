@@ -783,8 +783,8 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 - [x] ToolbarControl for toolbar button
 
 **Deferred (nice-to-have, not blocking release):**
-- [ ] Krakensbane velocity compensation
-- [ ] Harmony hook on `VesselPrecalculate.CalculatePhysicsStats()`
+- [x] Krakensbane velocity compensation (`rb_velocityD + Krakensbane.GetFrameVelocity()`)
+- [x] Harmony hook on `VesselPrecalculate.CalculatePhysicsStats()` (FlightRecorder + PhysicsFramePatch)
 - [ ] IgnoreGForces(240) positioning (needed when ghost becomes a vessel)
 - [ ] `GameParameters.CustomParameterNode` for settings
 - [ ] Localization infrastructure (en-us.cfg)
@@ -877,4 +877,4 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 
 ---
 
-*Document version: 0.5 — Architecture cleanup complete*
+*Document version: 0.6 — Architecture cleanup + Harmony integration complete*
