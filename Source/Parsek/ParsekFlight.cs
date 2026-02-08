@@ -449,7 +449,7 @@ namespace Parsek
                         playbackIdx = timelinePlaybackIndices[i];
 
                     InterpolateAndPosition(timelineGhosts[i], rec.Points, rec.OrbitSegments,
-                        ref playbackIdx, currentUT, i * 100);
+                        ref playbackIdx, currentUT, i * 10000);
                     timelinePlaybackIndices[i] = playbackIdx;
 
                     ApplyResourceDeltas(rec, currentUT);
@@ -460,17 +460,22 @@ namespace Parsek
                     PositionGhostAt(timelineGhosts[i], rec.Points[rec.Points.Count - 1]);
                     VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
                     DestroyTimelineGhost(i);
+                    ApplyResourceDeltas(rec, currentUT);
                 }
                 else if (pastEnd && needsSpawn && !ghostActive)
                 {
                     // UT already past EndUT on scene load — spawn immediately, no ghost
                     VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
+                    ApplyResourceDeltas(rec, currentUT);
                 }
                 else
                 {
                     // Outside time range, no spawn needed — despawn ghost if active
                     if (ghostActive)
                         DestroyTimelineGhost(i);
+                    // Catch up resource deltas for recordings we jumped past
+                    if (pastEnd)
+                        ApplyResourceDeltas(rec, currentUT);
                 }
             }
         }

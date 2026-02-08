@@ -39,7 +39,9 @@ namespace Parsek
             if (rec.Points.Count == 0 || FlightGlobals.Vessels == null)
             {
                 rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot);
-                rec.VesselSpawned = true;
+                rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
+                if (!rec.VesselSpawned)
+                    ParsekLog.Log($"Vessel spawn failed for recording #{index} ({rec.VesselName}) — will retry");
                 return;
             }
 
@@ -48,7 +50,9 @@ namespace Parsek
             if (body == null)
             {
                 rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot);
-                rec.VesselSpawned = true;
+                rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
+                if (!rec.VesselSpawned)
+                    ParsekLog.Log($"Vessel spawn failed for recording #{index} ({rec.VesselName}) — will retry");
                 return;
             }
 
@@ -114,9 +118,16 @@ namespace Parsek
             }
 
             rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot);
-            rec.VesselSpawned = true;
-            ParsekLog.Log($"Vessel spawn for recording #{index} ({rec.VesselName})");
-            ParsekLog.ScreenMessage($"Vessel '{rec.VesselName}' has appeared!", 4f);
+            rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
+            if (rec.VesselSpawned)
+            {
+                ParsekLog.Log($"Vessel spawn for recording #{index} ({rec.VesselName})");
+                ParsekLog.ScreenMessage($"Vessel '{rec.VesselName}' has appeared!", 4f);
+            }
+            else
+            {
+                ParsekLog.Log($"Vessel spawn failed for recording #{index} ({rec.VesselName}) — will retry");
+            }
         }
 
         public static void RecoverVessel(ConfigNode vesselNode)
