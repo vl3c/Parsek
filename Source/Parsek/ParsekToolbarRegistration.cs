@@ -8,7 +8,7 @@ namespace Parsek
     {
         void Start()
         {
-            ToolbarControl.RegisterMod(ParsekSpike.MODID, ParsekSpike.MODNAME);
+            ToolbarControl.RegisterMod(ParsekFlight.MODID, ParsekFlight.MODNAME);
         }
     }
 }

@@ -8,23 +8,11 @@ using UnityEngine;
 namespace Parsek
 {
     /// <summary>
-    /// Parsek Spike Prototype — Phase 2
-    ///
-    /// Purpose: Validate recording persistence across reverts and
-    /// automatic timeline playback at original UT timestamps.
-    ///
-    /// Controls:
-    ///   F9  - Start/Stop recording
-    ///   F10 - Start manual playback of current recording (preview)
-    ///   F11 - Stop manual playback
-    ///
-    /// Timeline: Committed recordings auto-play when UT enters their time range.
-    /// On revert/scene change, pending recordings trigger a merge dialog.
-    ///
-    /// This is a throwaway prototype. Delete after validating concept.
+    /// Main flight-scene controller for Parsek.
+    /// Handles recording, playback, timeline management, and UI.
     /// </summary>
     [KSPAddon(KSPAddon.Startup.Flight, false)]
-    public class ParsekSpike : MonoBehaviour
+    public class ParsekFlight : MonoBehaviour
     {
         internal const string MODID = "Parsek_NS";
         internal const string MODNAME = "Parsek";
@@ -86,7 +74,7 @@ namespace Parsek
 
         void Start()
         {
-            Log("Parsek Spike loaded (Phase 2 — timeline persistence).");
+            Log("Parsek Flight loaded.");
             Log("Press F9 to record, F10 to preview playback.");
 
             GameEvents.onGameSceneLoadRequested.Add(OnSceneChangeRequested);
@@ -143,7 +131,7 @@ namespace Parsek
                     GetInstanceID(),
                     windowRect,
                     DrawWindow,
-                    "Parsek Spike",
+                    "Parsek",
                     GUILayout.Width(250)
                 );
             }
@@ -1563,7 +1551,7 @@ namespace Parsek
 
         void Log(string message)
         {
-            Debug.Log($"[Parsek Spike] {message}");
+            Debug.Log($"[Parsek] {message}");
         }
 
         void ScreenMessage(string message, float duration)

@@ -279,7 +279,7 @@ namespace Parsek
             }
 
             // If pending recording exists but we're not in Flight, auto-commit it.
-            // Merge dialog can only show in Flight (ParsekSpike is Flight-only).
+            // Merge dialog can only show in Flight (ParsekFlight is Flight-only).
             // This handles Esc > Abort Mission → Space Center path.
             if (RecordingStore.HasPending && HighLogic.LoadedScene != GameScenes.FLIGHT)
             {
