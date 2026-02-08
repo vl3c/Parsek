@@ -451,38 +451,57 @@ namespace Parsek
 
         void SpawnOrRecoverIfTooClose(RecordingStore.Recording rec, int index)
         {
-            // Check proximity to active vessel to avoid physics collisions on launchpad
-            if (FlightGlobals.ActiveVessel != null && rec.Points.Count > 0)
+            if (rec.Points.Count == 0 || FlightGlobals.Vessels == null)
             {
-                var lastPt = rec.Points[rec.Points.Count - 1];
-                CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == lastPt.bodyName);
-                if (body != null && FlightGlobals.ActiveVessel.mainBody == body)
+                rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot);
+                rec.VesselSpawned = true;
+                return;
+            }
+
+            var lastPt = rec.Points[rec.Points.Count - 1];
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == lastPt.bodyName);
+            if (body == null)
+            {
+                rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot);
+                rec.VesselSpawned = true;
+                return;
+            }
+
+            Vector3d spawnPos = body.GetWorldSurfacePosition(
+                lastPt.latitude, lastPt.longitude, lastPt.altitude);
+
+            // Check proximity against all loaded vessels on the same body
+            Vector3d closestPos = Vector3d.zero;
+            double closestDist = double.MaxValue;
+            for (int v = 0; v < FlightGlobals.Vessels.Count; v++)
+            {
+                Vessel other = FlightGlobals.Vessels[v];
+                if (other.mainBody != body) continue;
+                double dist = Vector3d.Distance(spawnPos, other.GetWorldPos3D());
+                if (dist < closestDist)
                 {
-                    Vector3d spawnPos = body.GetWorldSurfacePosition(
-                        lastPt.latitude, lastPt.longitude, lastPt.altitude);
-                    Vector3d activePos = FlightGlobals.ActiveVessel.GetWorldPos3D();
-                    double dist = Vector3d.Distance(spawnPos, activePos);
-
-                    if (dist < 200.0)
-                    {
-                        // Offset the vessel just outside the 200m boundary
-                        Vector3d direction = (spawnPos - activePos).normalized;
-                        if (direction.magnitude < 0.001)
-                            direction = body.GetSurfaceNVector(lastPt.latitude, lastPt.longitude);
-                        Vector3d offsetPos = activePos + direction * 250.0;
-
-                        double newLat = body.GetLatitude(offsetPos);
-                        double newLon = body.GetLongitude(offsetPos);
-                        double newAlt = body.GetAltitude(offsetPos);
-
-                        // Update snapshot position
-                        rec.VesselSnapshot.SetValue("lat", newLat.ToString("R"));
-                        rec.VesselSnapshot.SetValue("lon", newLon.ToString("R"));
-                        rec.VesselSnapshot.SetValue("alt", newAlt.ToString("R"));
-
-                        Log($"Offset vessel #{index} ({rec.VesselName}) from {dist:F0}m to 250m from active vessel");
-                    }
+                    closestDist = dist;
+                    closestPos = other.GetWorldPos3D();
                 }
+            }
+
+            if (closestDist < 200.0)
+            {
+                // Offset away from the closest vessel
+                Vector3d direction = (spawnPos - closestPos).normalized;
+                if (direction.magnitude < 0.001)
+                    direction = body.GetSurfaceNVector(lastPt.latitude, lastPt.longitude);
+                Vector3d offsetPos = closestPos + direction * 250.0;
+
+                double newLat = body.GetLatitude(offsetPos);
+                double newLon = body.GetLongitude(offsetPos);
+                double newAlt = body.GetAltitude(offsetPos);
+
+                rec.VesselSnapshot.SetValue("lat", newLat.ToString("R"));
+                rec.VesselSnapshot.SetValue("lon", newLon.ToString("R"));
+                rec.VesselSnapshot.SetValue("alt", newAlt.ToString("R"));
+
+                Log($"Offset vessel #{index} ({rec.VesselName}) from {closestDist:F0}m to 250m from nearest vessel");
             }
 
             rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot);
