@@ -63,10 +63,17 @@ namespace Parsek
         private Rect windowRect = new Rect(20, 100, 250, 250);
         private bool showUI = false;
         private ToolbarControl toolbarControl;
+        private ParsekUI ui;
 
-        // Map view markers
-        private GUIStyle mapMarkerStyle;
-        private Texture2D mapMarkerTexture;
+        #endregion
+
+        #region Public Accessors (for ParsekUI)
+
+        public bool IsRecording => isRecording;
+        public bool IsPlaying => isPlaying;
+        public int TimelineGhostCount => timelineGhosts.Count;
+        public GameObject PreviewGhost => ghostObject;
+        public Dictionary<int, GameObject> TimelineGhosts => timelineGhosts;
 
         #endregion
 
@@ -85,6 +92,8 @@ namespace Parsek
             GameEvents.onVesselGoOnRails.Add(OnVesselGoOnRails);
             GameEvents.onVesselGoOffRails.Add(OnVesselGoOffRails);
             GameEvents.onVesselSOIChanged.Add(OnVesselSOIChanged);
+
+            ui = new ParsekUI(this);
 
             toolbarControl = gameObject.AddComponent<ToolbarControl>();
             toolbarControl.AddToAllToolbars(
@@ -123,14 +132,14 @@ namespace Parsek
         void OnGUI()
         {
             if (MapView.MapIsEnabled)
-                DrawMapMarkers();
+                ui.DrawMapMarkers();
 
             if (showUI)
             {
                 windowRect = ClickThruBlocker.GUILayoutWindow(
                     GetInstanceID(),
                     windowRect,
-                    DrawWindow,
+                    ui.DrawWindow,
                     "Parsek",
                     GUILayout.Width(250)
                 );
@@ -165,8 +174,7 @@ namespace Parsek
             StopPlayback();
             DestroyAllTimelineGhosts();
 
-            if (mapMarkerTexture != null)
-                Destroy(mapMarkerTexture);
+            ui?.Cleanup();
         }
 
         #endregion
@@ -203,7 +211,7 @@ namespace Parsek
                 RecordingStore.StashPending(recording, vesselName, orbitSegments);
 
                 // Snapshot vessel for persistence across revert
-                SnapshotVessel(RecordingStore.Pending);
+                VesselSpawner.SnapshotVessel(RecordingStore.Pending, vesselDestroyedDuringRecording);
 
                 recording.Clear();
                 orbitSegments.Clear();
@@ -214,106 +222,6 @@ namespace Parsek
             // Stop manual playback
             StopPlayback();
             DestroyAllTimelineGhosts();
-        }
-
-        void SnapshotVessel(RecordingStore.Recording pending)
-        {
-            if (pending == null || pending.Points.Count == 0) return;
-
-            // Compute distance from launch
-            var firstPoint = pending.Points[0];
-            CelestialBody bodyFirst = FlightGlobals.Bodies?.Find(b => b.name == firstPoint.bodyName);
-
-            if (vesselDestroyedDuringRecording)
-            {
-                pending.VesselDestroyed = true;
-                pending.VesselSnapshot = null;
-
-                // Use last recorded point for distance (may be a different SOI)
-                var lastPoint = pending.Points[pending.Points.Count - 1];
-                CelestialBody bodyLast = FlightGlobals.Bodies?.Find(b => b.name == lastPoint.bodyName);
-                if (bodyFirst != null && bodyLast != null)
-                {
-                    Vector3d launchPos = bodyFirst.GetWorldSurfacePosition(
-                        firstPoint.latitude, firstPoint.longitude, firstPoint.altitude);
-                    Vector3d lastPos = bodyLast.GetWorldSurfacePosition(
-                        lastPoint.latitude, lastPoint.longitude, lastPoint.altitude);
-                    pending.DistanceFromLaunch = Vector3d.Distance(launchPos, lastPos);
-                }
-
-                // Compute max distance from launch across all recorded points
-                if (bodyFirst != null)
-                {
-                    Vector3d launchPos = bodyFirst.GetWorldSurfacePosition(
-                        firstPoint.latitude, firstPoint.longitude, firstPoint.altitude);
-                    double maxDist = 0;
-                    for (int i = 1; i < pending.Points.Count; i++)
-                    {
-                        var pt = pending.Points[i];
-                        CelestialBody bodyPt = FlightGlobals.Bodies?.Find(b => b.name == pt.bodyName);
-                        if (bodyPt == null) continue;
-                        Vector3d ptPos = bodyPt.GetWorldSurfacePosition(pt.latitude, pt.longitude, pt.altitude);
-                        double d = Vector3d.Distance(launchPos, ptPos);
-                        if (d > maxDist) maxDist = d;
-                    }
-                    pending.MaxDistanceFromLaunch = maxDist;
-                }
-
-                pending.VesselSituation = "Destroyed";
-                Log($"Vessel was destroyed during recording. Distance from launch: {pending.DistanceFromLaunch:F0}m, " +
-                    $"Max distance: {pending.MaxDistanceFromLaunch:F0}m");
-                return;
-            }
-
-            Vessel vessel = FlightGlobals.ActiveVessel;
-            if (vessel == null)
-            {
-                pending.VesselDestroyed = true;
-                pending.VesselSnapshot = null;
-                pending.VesselSituation = "Unknown (no active vessel)";
-                Log("No active vessel at snapshot time");
-                return;
-            }
-
-            // Compute distance from launch position
-            // Use vessel.GetWorldPos3D() for current position — always correct regardless of SOI
-            if (bodyFirst != null)
-            {
-                Vector3d launchPos = bodyFirst.GetWorldSurfacePosition(
-                    firstPoint.latitude, firstPoint.longitude, firstPoint.altitude);
-                Vector3d currentPos = vessel.GetWorldPos3D();
-                pending.DistanceFromLaunch = Vector3d.Distance(launchPos, currentPos);
-
-                // Compute max distance from launch across all recorded points
-                double maxDist = 0;
-                for (int i = 1; i < pending.Points.Count; i++)
-                {
-                    var pt = pending.Points[i];
-                    CelestialBody bodyPt = FlightGlobals.Bodies?.Find(b => b.name == pt.bodyName);
-                    if (bodyPt == null) continue;
-                    Vector3d ptPos = bodyPt.GetWorldSurfacePosition(pt.latitude, pt.longitude, pt.altitude);
-                    double d = Vector3d.Distance(launchPos, ptPos);
-                    if (d > maxDist) maxDist = d;
-                }
-                pending.MaxDistanceFromLaunch = maxDist;
-            }
-
-            // Snapshot the vessel (works for regular vessels and EVA kerbals)
-            if (!vessel.loaded)
-                Log("Warning: Active vessel is unloaded at snapshot time — snapshot may be incomplete");
-            ProtoVessel pv = vessel.BackupVessel();
-            ConfigNode node = new ConfigNode("VESSEL");
-            pv.Save(node);
-            pending.VesselSnapshot = node;
-            pending.VesselDestroyed = false;
-
-            // Build situation string
-            pending.VesselSituation = vessel.isEVA
-                ? $"EVA {vessel.mainBody.name}"
-                : $"{vessel.situation} {vessel.mainBody.name}";
-
-            Log($"Vessel snapshot taken. Distance from launch: {pending.DistanceFromLaunch:F0}m, " +
-                $"Max distance: {pending.MaxDistanceFromLaunch:F0}m, Situation: {pending.VesselSituation}");
         }
 
         void OnVesselWillDestroy(Vessel v)
@@ -441,7 +349,7 @@ namespace Parsek
             {
                 var pending = RecordingStore.Pending;
                 Log($"Found pending recording from {pending.VesselName} ({pending.Points.Count} points)");
-                ShowMergeDialog(pending);
+                MergeDialog.Show(pending);
             }
 
             // Swap reserved crew out of the active vessel so the player
@@ -449,245 +357,6 @@ namespace Parsek
             ParsekScenario.SwapReservedCrewInFlight();
 
             Log($"Timeline has {RecordingStore.CommittedRecordings.Count} committed recording(s)");
-        }
-
-        void ShowMergeDialog(RecordingStore.Recording pending)
-        {
-            double duration = pending.EndUT - pending.StartUT;
-            var recommended = RecordingStore.GetRecommendedAction(
-                pending.DistanceFromLaunch, pending.VesselDestroyed,
-                pending.VesselSnapshot != null,
-                duration, pending.MaxDistanceFromLaunch);
-
-            Log($"Merge dialog: distance={pending.DistanceFromLaunch:F0}m, " +
-                $"maxDistance={pending.MaxDistanceFromLaunch:F0}m, duration={duration:F1}s, " +
-                $"destroyed={pending.VesselDestroyed}, hasSnapshot={pending.VesselSnapshot != null}, " +
-                $"recommended={recommended}");
-
-            DialogGUIButton[] buttons;
-
-            switch (recommended)
-            {
-                case RecordingStore.MergeDefault.MergeOnly:
-                    // Vessel destroyed or no snapshot — no vessel to persist
-                    buttons = new[]
-                    {
-                        new DialogGUIButton("Merge to Timeline", () =>
-                        {
-                            RecordingStore.CommitPending();
-                            ScreenMessage("Recording merged to timeline!", 3f);
-                            Log("User chose: Merge to Timeline (vessel destroyed)");
-                        }),
-                        new DialogGUIButton("Discard", () =>
-                        {
-                            ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
-                            RecordingStore.DiscardPending();
-                            ScreenMessage("Recording discarded", 2f);
-                            Log("User chose: Discard");
-                        })
-                    };
-                    break;
-
-                default: // Recover or Persist — vessel intact with snapshot
-                    buttons = new[]
-                    {
-                        new DialogGUIButton("Merge + Keep Vessel", () =>
-                        {
-                            // Defer spawn — vessel appears when ghost finishes at EndUT
-                            RecordingStore.CommitPending();
-                            ParsekScenario.ReserveSnapshotCrew();
-                            ParsekScenario.SwapReservedCrewInFlight();
-                            ScreenMessage("Recording merged — vessel will appear after ghost playback", 3f);
-                            Log("User chose: Merge + Keep Vessel (deferred spawn)");
-                        }),
-                        new DialogGUIButton("Merge + Recover", () =>
-                        {
-                            RecordingStore.CommitPending();
-                            if (pending.VesselSnapshot != null)
-                            {
-                                ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
-                                RecoverVessel(pending.VesselSnapshot);
-                            }
-                            // Clear snapshot so ghost despawns normally at EndUT
-                            pending.VesselSnapshot = null;
-                            ScreenMessage("Recording merged, vessel recovered!", 3f);
-                            Log("User chose: Merge + Recover");
-                        }),
-                        new DialogGUIButton("Discard", () =>
-                        {
-                            ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
-                            RecordingStore.DiscardPending();
-                            ScreenMessage("Recording discarded", 2f);
-                            Log("User chose: Discard");
-                        })
-                    };
-                    break;
-            }
-
-            string message = BuildMergeMessage(pending, duration, recommended);
-
-            PopupDialog.SpawnPopupDialog(
-                new Vector2(0.5f, 0.5f),
-                new Vector2(0.5f, 0.5f),
-                new MultiOptionDialog(
-                    "ParsekMerge",
-                    message,
-                    "Parsek — Merge Recording",
-                    HighLogic.UISkin,
-                    buttons
-                ),
-                false,
-                HighLogic.UISkin
-            );
-        }
-
-        string BuildMergeMessage(RecordingStore.Recording pending, double duration,
-            RecordingStore.MergeDefault recommended)
-        {
-            string header = $"Vessel: {pending.VesselName}\n" +
-                $"Points: {pending.Points.Count}\n" +
-                $"Duration: {duration:F1}s\n" +
-                $"Distance from launch: {pending.DistanceFromLaunch:F0}m\n\n";
-
-            switch (recommended)
-            {
-                case RecordingStore.MergeDefault.Recover:
-                    return header + "Your vessel hasn't moved far from the launch site.";
-
-                case RecordingStore.MergeDefault.MergeOnly:
-                    return header + "Your vessel was destroyed. Recording captured.";
-
-                default: // Persist
-                    string situation = pending.DistanceFromLaunch < 100.0
-                        ? "Your vessel returned near the launch site after traveling " +
-                          $"{pending.MaxDistanceFromLaunch:F0}m."
-                        : $"Your vessel is {pending.VesselSituation}.";
-                    return header + situation + "\nIt will persist in the timeline.";
-            }
-        }
-
-        uint RespawnVessel(ConfigNode vesselNode)
-        {
-            try
-            {
-                // Use a copy to avoid modifying the saved snapshot
-                ConfigNode spawnNode = vesselNode.CreateCopy();
-
-                // Remove dead/missing crew from snapshot to avoid resurrecting them
-                RemoveDeadCrewFromSnapshot(spawnNode);
-
-                // Set reserved crew back to Available so KSP can assign them to this vessel
-                ParsekScenario.UnreserveCrewInSnapshot(spawnNode);
-
-                ProtoVessel pv = new ProtoVessel(spawnNode, HighLogic.CurrentGame);
-                HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
-                pv.Load(HighLogic.CurrentGame.flightState);
-                Log($"Vessel respawned with crew (sit={spawnNode.GetValue("sit")}, pid={pv.persistentId})");
-                return pv.persistentId;
-            }
-            catch (System.Exception ex)
-            {
-                Log($"Failed to respawn vessel: {ex.Message}");
-                return 0;
-            }
-        }
-
-        void SpawnOrRecoverIfTooClose(RecordingStore.Recording rec, int index)
-        {
-            if (rec.Points.Count == 0 || FlightGlobals.Vessels == null)
-            {
-                rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot);
-                rec.VesselSpawned = true;
-                return;
-            }
-
-            var lastPt = rec.Points[rec.Points.Count - 1];
-            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == lastPt.bodyName);
-            if (body == null)
-            {
-                rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot);
-                rec.VesselSpawned = true;
-                return;
-            }
-
-            Vector3d spawnPos = body.GetWorldSurfacePosition(
-                lastPt.latitude, lastPt.longitude, lastPt.altitude);
-
-            // Check proximity against all loaded vessels on the same body
-            Vector3d closestPos = Vector3d.zero;
-            double closestDist = double.MaxValue;
-            for (int v = 0; v < FlightGlobals.Vessels.Count; v++)
-            {
-                Vessel other = FlightGlobals.Vessels[v];
-                if (other.mainBody != body) continue;
-                double dist = Vector3d.Distance(spawnPos, other.GetWorldPos3D());
-                if (dist < closestDist)
-                {
-                    closestDist = dist;
-                    closestPos = other.GetWorldPos3D();
-                }
-            }
-
-            // Also check final positions of other committed recordings that have
-            // already spawned (may not be in FlightGlobals yet) or will spawn later,
-            // to prevent overlapping spawn positions.
-            var committed = RecordingStore.CommittedRecordings;
-            for (int r = 0; r < committed.Count; r++)
-            {
-                if (r == index) continue;
-                var other = committed[r];
-                if (other.VesselSnapshot == null) continue;
-                if (other.Points.Count == 0) continue;
-                var otherLastPt = other.Points[other.Points.Count - 1];
-                CelestialBody otherBody = FlightGlobals.Bodies?.Find(b => b.name == otherLastPt.bodyName);
-                if (otherBody != body) continue;
-                Vector3d otherPos = otherBody.GetWorldSurfacePosition(
-                    otherLastPt.latitude, otherLastPt.longitude, otherLastPt.altitude);
-                double dist = Vector3d.Distance(spawnPos, otherPos);
-                if (dist < closestDist)
-                {
-                    closestDist = dist;
-                    closestPos = otherPos;
-                }
-            }
-
-            if (closestDist < 200.0)
-            {
-                // Offset away from the closest vessel
-                Vector3d direction = (spawnPos - closestPos).normalized;
-                if (direction.magnitude < 0.001)
-                    direction = body.GetSurfaceNVector(lastPt.latitude, lastPt.longitude);
-                Vector3d offsetPos = closestPos + direction * 250.0;
-
-                double newLat = body.GetLatitude(offsetPos);
-                double newLon = body.GetLongitude(offsetPos);
-                double newAlt = body.GetAltitude(offsetPos);
-
-                rec.VesselSnapshot.SetValue("lat", newLat.ToString("R"));
-                rec.VesselSnapshot.SetValue("lon", newLon.ToString("R"));
-                rec.VesselSnapshot.SetValue("alt", newAlt.ToString("R"));
-
-                Log($"Offset vessel #{index} ({rec.VesselName}) from {closestDist:F0}m to 250m from nearest vessel/recording");
-            }
-
-            rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot);
-            rec.VesselSpawned = true;
-            Log($"Vessel spawn for recording #{index} ({rec.VesselName})");
-            ScreenMessage($"Vessel '{rec.VesselName}' has appeared!", 4f);
-        }
-
-        void RecoverVessel(ConfigNode vesselNode)
-        {
-            try
-            {
-                ProtoVessel pv = new ProtoVessel(vesselNode, HighLogic.CurrentGame);
-                ShipConstruction.RecoverVesselFromFlight(pv, HighLogic.CurrentGame.flightState, true);
-                Log($"Vessel recovered for funds");
-            }
-            catch (System.Exception ex)
-            {
-                Log($"Failed to recover vessel: {ex.Message}");
-            }
         }
 
         #endregion
@@ -729,7 +398,7 @@ namespace Parsek
 
         #region Recording
 
-        void StartRecording()
+        public void StartRecording()
         {
             if (Time.timeScale < 0.01f)
             {
@@ -786,7 +455,7 @@ namespace Parsek
             ScreenMessage("Recording STARTED", 2f);
         }
 
-        void StopRecording()
+        public void StopRecording()
         {
             // Finalize in-progress orbit segment
             if (isOnRails)
@@ -808,6 +477,14 @@ namespace Parsek
 
             Log($"Recording stopped. {recording.Count} points, {orbitSegments.Count} orbit segments over {duration:F1}s");
             ScreenMessage($"Recording STOPPED: {recording.Count} points", 3f);
+        }
+
+        public void ClearRecording()
+        {
+            recording.Clear();
+            orbitSegments.Clear();
+            lastPlaybackIndex = 0;
+            Log("Recording cleared");
         }
 
         void SamplePosition()
@@ -873,7 +550,7 @@ namespace Parsek
 
         #region Manual Playback (F10/F11 preview)
 
-        void StartPlayback()
+        public void StartPlayback()
         {
             if (recording.Count < 2)
             {
@@ -895,7 +572,7 @@ namespace Parsek
             ScreenMessage("Preview Playback STARTED", 2f);
         }
 
-        void StopPlayback()
+        public void StopPlayback()
         {
             isPlaying = false;
 
@@ -986,7 +663,7 @@ namespace Parsek
                 // Guard: if vessel was spawned before but VesselSpawned got reset (scene change),
                 // check if the vessel still exists by its persistentId to avoid duplicates.
                 if (needsSpawn && rec.SpawnedVesselPersistentId != 0 &&
-                    VesselExistsByPid(rec.SpawnedVesselPersistentId))
+                    VesselSpawner.VesselExistsByPid(rec.SpawnedVesselPersistentId))
                 {
                     rec.VesselSpawned = true;
                     needsSpawn = false;
@@ -1013,13 +690,13 @@ namespace Parsek
                 {
                     // Ghost was playing, UT just crossed EndUT — hold at final pos, spawn, despawn ghost
                     PositionGhostAt(timelineGhosts[i], rec.Points[rec.Points.Count - 1]);
-                    SpawnOrRecoverIfTooClose(rec, i);
+                    VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
                     DestroyTimelineGhost(i);
                 }
                 else if (pastEnd && needsSpawn && !ghostActive)
                 {
                     // UT already past EndUT on scene load — spawn immediately, no ghost
-                    SpawnOrRecoverIfTooClose(rec, i);
+                    VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
                 }
                 else
                 {
@@ -1120,7 +797,7 @@ namespace Parsek
             timelinePlaybackIndices.Remove(index);
         }
 
-        void DestroyAllTimelineGhosts()
+        public void DestroyAllTimelineGhosts()
         {
             // Copy keys to avoid modifying during iteration
             var keys = new List<int>(timelineGhosts.Keys);
@@ -1304,250 +981,7 @@ namespace Parsek
 
         #endregion
 
-        #region Map View Markers
-
-        void DrawMapMarkers()
-        {
-            Camera cam = PlanetariumCamera.Camera;
-            if (cam == null) return;
-
-            EnsureMapMarkerResources();
-
-            // Manual preview ghost
-            if (isPlaying && ghostObject != null)
-            {
-                DrawMapMarkerAt(cam, ghostObject.transform.position, "Preview", Color.green);
-            }
-
-            // Timeline ghosts
-            var committed = RecordingStore.CommittedRecordings;
-            Color ghostColor = new Color(0.2f, 1f, 0.4f, 0.9f);
-            foreach (var kvp in timelineGhosts)
-            {
-                if (kvp.Value == null) continue;
-                string name = kvp.Key < committed.Count ? committed[kvp.Key].VesselName : "Ghost";
-                DrawMapMarkerAt(cam, kvp.Value.transform.position, name, ghostColor);
-            }
-        }
-
-        void DrawMapMarkerAt(Camera cam, Vector3 worldPos, string label, Color color)
-        {
-            Vector3d scaledPos = ScaledSpace.LocalToScaledSpace(worldPos);
-            Vector3 screenPos = cam.WorldToScreenPoint(scaledPos);
-
-            // Behind camera
-            if (screenPos.z < 0) return;
-
-            // GUI coordinates (Y inverted)
-            float x = screenPos.x;
-            float y = Screen.height - screenPos.y;
-
-            // Draw marker dot
-            Color prevColor = GUI.color;
-            GUI.color = color;
-            GUI.DrawTexture(new Rect(x - 5, y - 5, 10, 10), mapMarkerTexture);
-            GUI.color = prevColor;
-
-            // Draw vessel name label
-            mapMarkerStyle.normal.textColor = color;
-            GUI.Label(new Rect(x - 75, y + 7, 150, 20), label, mapMarkerStyle);
-        }
-
-        void EnsureMapMarkerResources()
-        {
-            if (mapMarkerTexture == null)
-            {
-                int size = 10;
-                mapMarkerTexture = new Texture2D(size, size, TextureFormat.ARGB32, false);
-                float center = size / 2f;
-                float radius = size / 2f - 1f;
-                for (int py = 0; py < size; py++)
-                {
-                    for (int px = 0; px < size; px++)
-                    {
-                        float dist = Mathf.Sqrt((px - center) * (px - center) + (py - center) * (py - center));
-                        mapMarkerTexture.SetPixel(px, py, dist <= radius ? Color.white : Color.clear);
-                    }
-                }
-                mapMarkerTexture.Apply();
-            }
-
-            if (mapMarkerStyle == null)
-            {
-                mapMarkerStyle = new GUIStyle(GUI.skin.label);
-                mapMarkerStyle.fontSize = 11;
-                mapMarkerStyle.fontStyle = FontStyle.Bold;
-                mapMarkerStyle.alignment = TextAnchor.UpperCenter;
-            }
-        }
-
-        #endregion
-
-        #region UI
-
-        void DrawWindow(int windowID)
-        {
-            GUILayout.BeginVertical();
-
-            // Status
-            GUILayout.Label($"Status: {GetStatusText()}");
-            GUILayout.Space(5);
-
-            // Recording info
-            GUILayout.Label($"Recorded Points: {recording.Count}");
-            if (recording.Count > 0)
-            {
-                double duration = recording[recording.Count - 1].ut - recording[0].ut;
-                GUILayout.Label($"Duration: {duration:F1}s");
-            }
-
-            // Timeline info
-            int committedCount = RecordingStore.CommittedRecordings.Count;
-            int activeGhosts = timelineGhosts.Count;
-            GUILayout.Label($"Timeline: {committedCount} recording(s), {activeGhosts} active ghost(s)");
-
-            GUILayout.Space(10);
-
-            // Controls
-            GUILayout.Label("Controls:");
-            GUILayout.Label("  F9  - Start/Stop Recording");
-            GUILayout.Label("  F10 - Preview Playback");
-            GUILayout.Label("  F11 - Stop Preview");
-
-            GUILayout.Space(10);
-
-            // Buttons
-            GUILayout.BeginHorizontal();
-
-            if (!isRecording)
-            {
-                if (GUILayout.Button("Start Recording"))
-                    StartRecording();
-            }
-            else
-            {
-                if (GUILayout.Button("Stop Recording"))
-                    StopRecording();
-            }
-
-            GUILayout.EndHorizontal();
-
-            GUILayout.BeginHorizontal();
-
-            GUI.enabled = !isRecording && recording.Count > 0 && !isPlaying;
-            if (GUILayout.Button("Preview Playback"))
-                StartPlayback();
-
-            GUI.enabled = isPlaying;
-            if (GUILayout.Button("Stop Preview"))
-                StopPlayback();
-
-            GUI.enabled = true;
-
-            GUILayout.EndHorizontal();
-
-            // Clear buttons
-            GUILayout.Space(5);
-            GUI.enabled = !isRecording && !isPlaying && recording.Count > 0;
-            if (GUILayout.Button("Clear Current Recording"))
-            {
-                recording.Clear();
-                orbitSegments.Clear();
-                lastPlaybackIndex = 0;
-                Log("Recording cleared");
-            }
-
-            GUI.enabled = activeGhosts > 0;
-            if (GUILayout.Button($"Despawn Ghosts ({activeGhosts})"))
-            {
-                DestroyAllTimelineGhosts();
-                Log("Ghosts despawned");
-            }
-
-            GUI.enabled = committedCount > 0;
-            if (GUILayout.Button($"Wipe Recordings ({committedCount})"))
-            {
-                // Unreserve crew from all recordings before wiping
-                foreach (var rec in RecordingStore.CommittedRecordings)
-                    ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
-                ParsekScenario.ClearReplacements();
-                DestroyAllTimelineGhosts();
-                RecordingStore.CommittedRecordings.Clear();
-                Log("All recordings wiped");
-                ScreenMessage("All recordings wiped", 2f);
-            }
-            GUI.enabled = true;
-
-            GUILayout.EndVertical();
-
-            // Make window draggable
-            GUI.DragWindow();
-        }
-
-        string GetStatusText()
-        {
-            if (isRecording) return "RECORDING";
-            if (isPlaying) return "PREVIEWING";
-            if (recording.Count > 0) return "Ready (has recording)";
-            return "Idle";
-        }
-
-        #endregion
-
         #region Utilities
-
-        void RemoveDeadCrewFromSnapshot(ConfigNode snapshot)
-        {
-            var roster = HighLogic.CurrentGame?.CrewRoster;
-            if (roster == null) return;
-
-            foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
-            {
-                var crewNames = partNode.GetValues("crew");
-                if (crewNames.Length == 0) continue;
-
-                // Check if any crew are dead/missing
-                var keepNames = new List<string>();
-                bool removedAny = false;
-                foreach (string name in crewNames)
-                {
-                    bool isDead = false;
-                    foreach (ProtoCrewMember pcm in roster.Crew)
-                    {
-                        if (pcm.name == name &&
-                            (pcm.rosterStatus == ProtoCrewMember.RosterStatus.Dead ||
-                             pcm.rosterStatus == ProtoCrewMember.RosterStatus.Missing))
-                        {
-                            isDead = true;
-                            Log($"Removed dead/missing crew '{name}' from vessel snapshot");
-                            break;
-                        }
-                    }
-                    if (isDead)
-                        removedAny = true;
-                    else
-                        keepNames.Add(name);
-                }
-
-                if (removedAny)
-                {
-                    partNode.RemoveValues("crew");
-                    foreach (string name in keepNames)
-                        partNode.AddValue("crew", name);
-                }
-            }
-        }
-
-        bool VesselExistsByPid(uint pid)
-        {
-            if (FlightGlobals.Vessels == null) return false;
-            for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
-            {
-                if (FlightGlobals.Vessels[i].persistentId == pid)
-                    return true;
-            }
-            return false;
-        }
 
         void Log(string message)
         {
