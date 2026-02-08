@@ -18,10 +18,18 @@ Use career mode for all tests (resource tracking requires it).
 
 ## Merge Dialog Options
 
-### Vessel barely moved (<100m)
+### Vessel barely moved
 1. Launch, fly a few meters, F9 stop, revert
-2. Verify: dialog default is "Merge + Recover"
-3. Pick "Merge + Recover" — vessel recovered for funds, no vessel in tracking station
+2. Verify: dialog shows "Keep Vessel / Recover / Discard" buttons
+3. Verify: message says vessel hasn't moved far
+4. Pick "Merge + Recover" — vessel recovered for funds, no vessel in tracking station
+
+### Vessel returned to pad
+1. Launch, fly a suborbital hop (gain altitude, fly >100m away), land back on or near the pad
+2. F9 stop, revert
+3. Verify: dialog shows "Keep Vessel / Recover / Discard" buttons
+4. Verify: message mentions the vessel returned near the launch site and shows max distance traveled
+5. Pick "Merge + Keep Vessel" — vessel appears at pad after ghost finishes
 
 ### Vessel destroyed
 1. Launch, crash into the ground, revert
@@ -30,7 +38,7 @@ Use career mode for all tests (resource tracking requires it).
 
 ### Vessel intact, moved far
 1. Launch to orbit, F9 stop, revert
-2. Verify: dialog default is "Merge + Keep Vessel"
+2. Verify: dialog shows "Keep Vessel / Recover / Discard" buttons (Keep Vessel first)
 3. Pick "Merge + Keep Vessel" — vessel appears in Tracking Station after ghost finishes
 
 ### Discard

@@ -221,8 +221,27 @@ namespace Parsek
                     pending.DistanceFromLaunch = Vector3d.Distance(launchPos, lastPos);
                 }
 
+                // Compute max distance from launch across all recorded points
+                if (bodyFirst != null)
+                {
+                    Vector3d launchPos = bodyFirst.GetWorldSurfacePosition(
+                        firstPoint.latitude, firstPoint.longitude, firstPoint.altitude);
+                    double maxDist = 0;
+                    for (int i = 1; i < pending.Points.Count; i++)
+                    {
+                        var pt = pending.Points[i];
+                        CelestialBody bodyPt = FlightGlobals.Bodies?.Find(b => b.name == pt.bodyName);
+                        if (bodyPt == null) continue;
+                        Vector3d ptPos = bodyPt.GetWorldSurfacePosition(pt.latitude, pt.longitude, pt.altitude);
+                        double d = Vector3d.Distance(launchPos, ptPos);
+                        if (d > maxDist) maxDist = d;
+                    }
+                    pending.MaxDistanceFromLaunch = maxDist;
+                }
+
                 pending.VesselSituation = "Destroyed";
-                Log($"Vessel was destroyed during recording. Distance from launch: {pending.DistanceFromLaunch:F0}m");
+                Log($"Vessel was destroyed during recording. Distance from launch: {pending.DistanceFromLaunch:F0}m, " +
+                    $"Max distance: {pending.MaxDistanceFromLaunch:F0}m");
                 return;
             }
 
@@ -244,6 +263,19 @@ namespace Parsek
                     firstPoint.latitude, firstPoint.longitude, firstPoint.altitude);
                 Vector3d currentPos = vessel.GetWorldPos3D();
                 pending.DistanceFromLaunch = Vector3d.Distance(launchPos, currentPos);
+
+                // Compute max distance from launch across all recorded points
+                double maxDist = 0;
+                for (int i = 1; i < pending.Points.Count; i++)
+                {
+                    var pt = pending.Points[i];
+                    CelestialBody bodyPt = FlightGlobals.Bodies?.Find(b => b.name == pt.bodyName);
+                    if (bodyPt == null) continue;
+                    Vector3d ptPos = bodyPt.GetWorldSurfacePosition(pt.latitude, pt.longitude, pt.altitude);
+                    double d = Vector3d.Distance(launchPos, ptPos);
+                    if (d > maxDist) maxDist = d;
+                }
+                pending.MaxDistanceFromLaunch = maxDist;
             }
 
             // Snapshot the vessel (works for regular vessels and EVA kerbals)
@@ -261,7 +293,7 @@ namespace Parsek
                 : $"{vessel.situation} {vessel.mainBody.name}";
 
             Log($"Vessel snapshot taken. Distance from launch: {pending.DistanceFromLaunch:F0}m, " +
-                $"Situation: {pending.VesselSituation}");
+                $"Max distance: {pending.MaxDistanceFromLaunch:F0}m, Situation: {pending.VesselSituation}");
         }
 
         void OnVesselWillDestroy(Vessel v)
@@ -320,9 +352,11 @@ namespace Parsek
             double duration = pending.EndUT - pending.StartUT;
             var recommended = RecordingStore.GetRecommendedAction(
                 pending.DistanceFromLaunch, pending.VesselDestroyed,
-                pending.VesselSnapshot != null);
+                pending.VesselSnapshot != null,
+                duration, pending.MaxDistanceFromLaunch);
 
             Log($"Merge dialog: distance={pending.DistanceFromLaunch:F0}m, " +
+                $"maxDistance={pending.MaxDistanceFromLaunch:F0}m, duration={duration:F1}s, " +
                 $"destroyed={pending.VesselDestroyed}, hasSnapshot={pending.VesselSnapshot != null}, " +
                 $"recommended={recommended}");
 
@@ -330,44 +364,8 @@ namespace Parsek
 
             switch (recommended)
             {
-                case RecordingStore.MergeDefault.Recover:
-                    // Case A: Vessel barely moved
-                    buttons = new[]
-                    {
-                        new DialogGUIButton("Merge + Recover", () =>
-                        {
-                            RecordingStore.CommitPending();
-                            if (pending.VesselSnapshot != null)
-                            {
-                                ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
-                                RecoverVessel(pending.VesselSnapshot);
-                            }
-                            // Clear snapshot so ghost despawns normally at EndUT
-                            pending.VesselSnapshot = null;
-                            ScreenMessage("Recording merged, vessel recovered!", 3f);
-                            Log("User chose: Merge + Recover (default for short distance)");
-                        }),
-                        new DialogGUIButton("Merge + Keep Vessel", () =>
-                        {
-                            // Defer spawn — vessel appears when ghost finishes at EndUT
-                            RecordingStore.CommitPending();
-                            ParsekScenario.ReserveSnapshotCrew();
-                            ParsekScenario.SwapReservedCrewInFlight();
-                            ScreenMessage("Recording merged — vessel will appear after ghost playback", 3f);
-                            Log("User chose: Merge + Keep Vessel (deferred spawn)");
-                        }),
-                        new DialogGUIButton("Discard", () =>
-                        {
-                            ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
-                            RecordingStore.DiscardPending();
-                            ScreenMessage("Recording discarded", 2f);
-                            Log("User chose: Discard");
-                        })
-                    };
-                    break;
-
                 case RecordingStore.MergeDefault.MergeOnly:
-                    // Case B: Vessel destroyed or no snapshot
+                    // Vessel destroyed or no snapshot — no vessel to persist
                     buttons = new[]
                     {
                         new DialogGUIButton("Merge to Timeline", () =>
@@ -386,8 +384,7 @@ namespace Parsek
                     };
                     break;
 
-                default: // Persist
-                    // Case C: Vessel intact, moved far
+                default: // Recover or Persist — vessel intact with snapshot
                     buttons = new[]
                     {
                         new DialogGUIButton("Merge + Keep Vessel", () =>
@@ -397,7 +394,7 @@ namespace Parsek
                             ParsekScenario.ReserveSnapshotCrew();
                             ParsekScenario.SwapReservedCrewInFlight();
                             ScreenMessage("Recording merged — vessel will appear after ghost playback", 3f);
-                            Log("User chose: Merge + Keep Vessel (deferred spawn, default for intact vessel)");
+                            Log("User chose: Merge + Keep Vessel (deferred spawn)");
                         }),
                         new DialogGUIButton("Merge + Recover", () =>
                         {
@@ -457,8 +454,11 @@ namespace Parsek
                     return header + "Your vessel was destroyed. Recording captured.";
 
                 default: // Persist
-                    return header + $"Your vessel is {pending.VesselSituation}.\n" +
-                        "It will persist in the timeline.";
+                    string situation = pending.DistanceFromLaunch < 100.0
+                        ? "Your vessel returned near the launch site after traveling " +
+                          $"{pending.MaxDistanceFromLaunch:F0}m."
+                        : $"Your vessel is {pending.VesselSituation}.";
+                    return header + situation + "\nIt will persist in the timeline.";
             }
         }
 
@@ -524,6 +524,29 @@ namespace Parsek
                 }
             }
 
+            // Also check final positions of other committed recordings that have
+            // already spawned (may not be in FlightGlobals yet) or will spawn later,
+            // to prevent overlapping spawn positions.
+            var committed = RecordingStore.CommittedRecordings;
+            for (int r = 0; r < committed.Count; r++)
+            {
+                if (r == index) continue;
+                var other = committed[r];
+                if (other.VesselSnapshot == null) continue;
+                if (other.Points.Count == 0) continue;
+                var otherLastPt = other.Points[other.Points.Count - 1];
+                CelestialBody otherBody = FlightGlobals.Bodies?.Find(b => b.name == otherLastPt.bodyName);
+                if (otherBody != body) continue;
+                Vector3d otherPos = otherBody.GetWorldSurfacePosition(
+                    otherLastPt.latitude, otherLastPt.longitude, otherLastPt.altitude);
+                double dist = Vector3d.Distance(spawnPos, otherPos);
+                if (dist < closestDist)
+                {
+                    closestDist = dist;
+                    closestPos = otherPos;
+                }
+            }
+
             if (closestDist < 200.0)
             {
                 // Offset away from the closest vessel
@@ -540,7 +563,7 @@ namespace Parsek
                 rec.VesselSnapshot.SetValue("lon", newLon.ToString("R"));
                 rec.VesselSnapshot.SetValue("alt", newAlt.ToString("R"));
 
-                Log($"Offset vessel #{index} ({rec.VesselName}) from {closestDist:F0}m to 250m from nearest vessel");
+                Log($"Offset vessel #{index} ({rec.VesselName}) from {closestDist:F0}m to 250m from nearest vessel/recording");
             }
 
             rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot);

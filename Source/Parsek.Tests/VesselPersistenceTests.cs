@@ -78,5 +78,73 @@ namespace Parsek.Tests
 
             Assert.Equal(RecordingStore.MergeDefault.MergeOnly, result);
         }
+
+        // --- Returned-to-pad tests ---
+
+        [Fact]
+        public void GetMergeDefault_ShortDistance_LongDuration_HighMaxDist_ReturnsPersist()
+        {
+            // Real mission that returned to pad — should persist
+            var result = RecordingStore.GetRecommendedAction(
+                distance: 50, destroyed: false, hasSnapshot: true,
+                duration: 60, maxDistance: 5000);
+
+            Assert.Equal(RecordingStore.MergeDefault.Persist, result);
+        }
+
+        [Fact]
+        public void GetMergeDefault_ShortDistance_LongDuration_LowMaxDist_ReturnsRecover()
+        {
+            // Sat on pad for a while but didn't go anywhere
+            var result = RecordingStore.GetRecommendedAction(
+                distance: 50, destroyed: false, hasSnapshot: true,
+                duration: 60, maxDistance: 50);
+
+            Assert.Equal(RecordingStore.MergeDefault.Recover, result);
+        }
+
+        [Fact]
+        public void GetMergeDefault_ShortDistance_ShortDuration_HighMaxDist_ReturnsRecover()
+        {
+            // Quick bounce — short duration means recover even with high max distance
+            var result = RecordingStore.GetRecommendedAction(
+                distance: 50, destroyed: false, hasSnapshot: true,
+                duration: 5, maxDistance: 200);
+
+            Assert.Equal(RecordingStore.MergeDefault.Recover, result);
+        }
+
+        [Fact]
+        public void GetMergeDefault_ShortDistance_LongDuration_ExactMaxDistThreshold_ReturnsRecover()
+        {
+            // maxDistance exactly 100 is <= 100, so Recover
+            var result = RecordingStore.GetRecommendedAction(
+                distance: 50, destroyed: false, hasSnapshot: true,
+                duration: 60, maxDistance: 100);
+
+            Assert.Equal(RecordingStore.MergeDefault.Recover, result);
+        }
+
+        [Fact]
+        public void GetMergeDefault_ShortDistance_ExactDurationThreshold_HighMaxDist_ReturnsRecover()
+        {
+            // duration exactly 10 is <= 10, so Recover
+            var result = RecordingStore.GetRecommendedAction(
+                distance: 50, destroyed: false, hasSnapshot: true,
+                duration: 10, maxDistance: 5000);
+
+            Assert.Equal(RecordingStore.MergeDefault.Recover, result);
+        }
+
+        [Fact]
+        public void GetMergeDefault_ShortDistance_JustAboveBothThresholds_ReturnsPersist()
+        {
+            // Both duration > 10 and maxDistance > 100 → Persist
+            var result = RecordingStore.GetRecommendedAction(
+                distance: 50, destroyed: false, hasSnapshot: true,
+                duration: 10.1, maxDistance: 100.1);
+
+            Assert.Equal(RecordingStore.MergeDefault.Persist, result);
+        }
     }
 }

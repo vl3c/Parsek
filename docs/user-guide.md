@@ -29,8 +29,10 @@ After reverting, a dialog appears with context-aware options:
 
 | Situation | Default Option | Other Options |
 |-----------|---------------|---------------|
-| Vessel barely moved (<100m) | Merge + Recover | Merge + Keep Vessel, Discard |
-| Vessel destroyed | Merge to Timeline | Discard |
+| Vessel barely moved (short duration or low max distance) | Merge + Keep Vessel | Merge + Recover, Discard |
+| Vessel returned to pad after a real mission | Merge + Keep Vessel | Merge + Recover, Discard |
+| Vessel destroyed, near pad | Merge + Recover | Discard |
+| Vessel destroyed, far from pad | Merge to Timeline | Discard |
 | Vessel intact, moved far | Merge + Keep Vessel | Merge + Recover, Discard |
 
 - **Merge + Recover** — Recording is merged; vessel is recovered for funds immediately

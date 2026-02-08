@@ -42,6 +42,7 @@ namespace Parsek
             public double DistanceFromLaunch;       // Meters from launch position
             public bool VesselDestroyed;            // Vessel was destroyed before revert
             public string VesselSituation;          // "Orbiting Kerbin", "Landed on Mun", etc.
+            public double MaxDistanceFromLaunch;     // Peak distance reached during recording
             public bool VesselSpawned;              // True after deferred RespawnVessel has fired
             public uint SpawnedVesselPersistentId;  // persistentId of spawned vessel (0 = not yet spawned)
 
@@ -52,13 +53,20 @@ namespace Parsek
         /// <summary>
         /// Determines the recommended merge action based on vessel state.
         /// </summary>
-        public static MergeDefault GetRecommendedAction(double distance, bool destroyed, bool hasSnapshot)
+        public static MergeDefault GetRecommendedAction(
+            double distance, bool destroyed, bool hasSnapshot,
+            double duration = 0, double maxDistance = 0)
         {
-            if (distance < 100.0)
-                return MergeDefault.Recover;
-
             if (destroyed || !hasSnapshot)
+            {
+                if (distance < 100.0)
+                    return MergeDefault.Recover;
                 return MergeDefault.MergeOnly;
+            }
+
+            // Vessel intact with snapshot — did it actually go somewhere?
+            if (distance < 100.0 && (duration <= 10.0 || maxDistance <= 100.0))
+                return MergeDefault.Recover;
 
             return MergeDefault.Persist;
         }
