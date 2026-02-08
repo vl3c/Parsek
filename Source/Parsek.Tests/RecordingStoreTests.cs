@@ -151,6 +151,80 @@ namespace Parsek.Tests
             Assert.Null(rec.VesselSnapshot);
             Assert.Null(rec.VesselSituation);
         }
+
+        [Fact]
+        public void Recording_DefaultFields()
+        {
+            var rec = new RecordingStore.Recording();
+
+            Assert.False(rec.VesselSpawned);
+            Assert.Equal(0u, rec.SpawnedVesselPersistentId);
+            Assert.Equal(-1, rec.LastAppliedResourceIndex);
+            Assert.Equal(0, rec.DistanceFromLaunch);
+            Assert.Equal(0, rec.MaxDistanceFromLaunch);
+        }
+
+        [Fact]
+        public void Recording_DistanceFields_Roundtrip()
+        {
+            var rec = new RecordingStore.Recording();
+            rec.DistanceFromLaunch = 12345.67;
+            rec.MaxDistanceFromLaunch = 99999.99;
+
+            Assert.Equal(12345.67, rec.DistanceFromLaunch);
+            Assert.Equal(99999.99, rec.MaxDistanceFromLaunch);
+        }
+
+        [Fact]
+        public void Recording_SpawnFields_Roundtrip()
+        {
+            var rec = new RecordingStore.Recording();
+            rec.VesselSpawned = true;
+            rec.SpawnedVesselPersistentId = 42u;
+
+            Assert.True(rec.VesselSpawned);
+            Assert.Equal(42u, rec.SpawnedVesselPersistentId);
+        }
+
+        [Fact]
+        public void Recording_LastAppliedResourceIndex_Tracks()
+        {
+            var rec = new RecordingStore.Recording();
+            rec.LastAppliedResourceIndex = 5;
+
+            Assert.Equal(5, rec.LastAppliedResourceIndex);
+        }
+
+        [Fact]
+        public void StashPending_SinglePoint_Discards()
+        {
+            var points = MakePoints(1);
+
+            RecordingStore.StashPending(points, "TooShort");
+
+            Assert.False(RecordingStore.HasPending);
+        }
+
+        [Fact]
+        public void StashPending_ExactlyTwoPoints_Succeeds()
+        {
+            var points = MakePoints(2);
+
+            RecordingStore.StashPending(points, "MinValid");
+
+            Assert.True(RecordingStore.HasPending);
+            Assert.Equal(2, RecordingStore.Pending.Points.Count);
+        }
+
+        [Fact]
+        public void GetRecommendedAction_DestroyedWithSnapshot()
+        {
+            // destroyed=true takes priority over hasSnapshot=true
+            var result = RecordingStore.GetRecommendedAction(
+                distance: 500, destroyed: true, hasSnapshot: true);
+
+            Assert.Equal(RecordingStore.MergeDefault.MergeOnly, result);
+        }
     }
 
     [Collection("Sequential")]

@@ -201,5 +201,63 @@ namespace Parsek.Tests
 
             Assert.False(result);
         }
+
+        [Fact]
+        public void NaNVelocity_DoesNotCrash()
+        {
+            var nan = new Vector3(float.NaN, float.NaN, float.NaN);
+            var normal = new Vector3(10, 0, 0);
+
+            // NaN magnitude is NaN, NaN > threshold is false, so no direction/speed trigger
+            var result = TrajectoryMath.ShouldRecordPoint(
+                nan, normal,
+                currentUT: 100.5, lastRecordedUT: 100,
+                MaxInterval, VelDirThreshold, SpeedThreshold);
+
+            // Should not throw — result depends on whether NaN comparisons trigger thresholds
+            // NaN comparisons return false, so neither direction nor speed triggers fire
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void InfinityVelocity_DoesNotCrash()
+        {
+            var inf = new Vector3(float.PositiveInfinity, 0, 0);
+            var normal = new Vector3(10, 0, 0);
+
+            // Infinity speed - delta is Infinity, Infinity / 10 is Infinity > threshold
+            var result = TrajectoryMath.ShouldRecordPoint(
+                inf, normal,
+                currentUT: 100.5, lastRecordedUT: 100,
+                MaxInterval, VelDirThreshold, SpeedThreshold);
+
+            // Infinity speed change should trigger recording
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void ZeroTimeDelta_NoRecord()
+        {
+            var vel = new Vector3(10, 0, 0);
+            var result = TrajectoryMath.ShouldRecordPoint(
+                vel, vel,
+                currentUT: 100, lastRecordedUT: 100,
+                MaxInterval, VelDirThreshold, SpeedThreshold);
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void BackwardTime_NoRecord()
+        {
+            var vel = new Vector3(10, 0, 0);
+            var result = TrajectoryMath.ShouldRecordPoint(
+                vel, vel,
+                currentUT: 99, lastRecordedUT: 100,
+                MaxInterval, VelDirThreshold, SpeedThreshold);
+
+            // Negative interval: 99-100 = -1, not >= 3
+            Assert.False(result);
+        }
     }
 }

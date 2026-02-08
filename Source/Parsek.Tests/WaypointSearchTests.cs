@@ -223,5 +223,47 @@ namespace Parsek.Tests
             // Assert - should find one of indices 1 or 2
             Assert.InRange(result, 1, 2);
         }
+
+        [Fact]
+        public void FindWaypointIndex_BackwardTimeSearch()
+        {
+            // Arrange — advance cache forward then search backward
+            PopulateRecording(10, 20, 30, 40, 50, 60, 70, 80);
+            FindWaypointIndex(65); // advance cache to index 5
+            Assert.Equal(5, cachedIndex);
+
+            // Act — search backward, cache miss, falls to binary search
+            var result = FindWaypointIndex(25);
+
+            // Assert
+            Assert.Equal(1, result);
+            Assert.Equal(1, cachedIndex);
+        }
+
+        [Fact]
+        public void FindWaypointIndex_AllSameTimestamp_ReturnsLastPair()
+        {
+            // All points at same UT — degenerate case
+            PopulateRecording(100, 100, 100, 100);
+
+            // At or after last point → returns Count-2
+            var result = FindWaypointIndex(100);
+            Assert.Equal(2, result);
+        }
+
+        [Fact]
+        public void FindWaypointIndex_CachedIndex_BeyondListSize_FallsBack()
+        {
+            // Arrange — set cache to a stale value larger than list
+            PopulateRecording(10, 20, 30, 40, 50);
+            cachedIndex = 100; // stale cache, way beyond list size
+
+            // Act
+            var result = FindWaypointIndex(35);
+
+            // Assert — should still find via binary search
+            Assert.Equal(2, result);
+            Assert.Equal(2, cachedIndex);
+        }
     }
 }

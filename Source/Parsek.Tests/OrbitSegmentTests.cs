@@ -223,6 +223,75 @@ namespace Parsek.Tests
             Assert.Equal("Kerbin", bodyName);
         }
 
+        [Fact]
+        public void FindOrbitSegment_AdjacentSegments_NoOverlap()
+        {
+            // Two segments sharing a boundary at ut=200
+            var segments = new List<OrbitSegment>
+            {
+                MakeSegment(100, 200, "Kerbin"),
+                MakeSegment(200, 300, "Mun")
+            };
+
+            // ut=200 is the exclusive end of first, inclusive start of second
+            var result = TrajectoryMath.FindOrbitSegment(segments, 200);
+            Assert.NotNull(result);
+            Assert.Equal("Mun", result.Value.bodyName);
+        }
+
+        [Fact]
+        public void FindOrbitSegment_LastSegment_InclusiveEnd()
+        {
+            var segments = new List<OrbitSegment>
+            {
+                MakeSegment(100, 200, "Kerbin"),
+                MakeSegment(300, 400, "Mun")
+            };
+
+            // ut=400 at endUT of last segment — should match (inclusive)
+            var result = TrajectoryMath.FindOrbitSegment(segments, 400);
+            Assert.NotNull(result);
+            Assert.Equal("Mun", result.Value.bodyName);
+        }
+
+        [Fact]
+        public void FindOrbitSegment_NegativeUT_ReturnsNull()
+        {
+            var segments = new List<OrbitSegment>
+            {
+                MakeSegment(100, 200)
+            };
+
+            var result = TrajectoryMath.FindOrbitSegment(segments, -50);
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void Recording_OnlyOrbitSegments_EmptyPoints()
+        {
+            var rec = new RecordingStore.Recording();
+            rec.OrbitSegments.Add(MakeSegment(500, 1000));
+
+            // StartUT/EndUT come from Points, which is empty
+            Assert.Equal(0, rec.StartUT);
+            Assert.Equal(0, rec.EndUT);
+        }
+
+        [Fact]
+        public void FindOrbitSegment_SinglePointBoundary()
+        {
+            // startUT == endUT, a degenerate segment
+            var segments = new List<OrbitSegment>
+            {
+                MakeSegment(150, 150)
+            };
+
+            // Last (only) segment uses inclusive end, so exact match works
+            var result = TrajectoryMath.FindOrbitSegment(segments, 150);
+            Assert.NotNull(result);
+            Assert.Equal(150, result.Value.startUT);
+        }
+
         #endregion
 
         #region Recording with OrbitSegments

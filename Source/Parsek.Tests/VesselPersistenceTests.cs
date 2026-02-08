@@ -146,5 +146,45 @@ namespace Parsek.Tests
 
             Assert.Equal(RecordingStore.MergeDefault.Persist, result);
         }
+
+        [Fact]
+        public void GetMergeDefault_NegativeDistance_TreatsAsRecover()
+        {
+            // Negative distance (shouldn't happen, but test defensive behavior)
+            var result = RecordingStore.GetRecommendedAction(
+                distance: -50, destroyed: false, hasSnapshot: true);
+
+            Assert.Equal(RecordingStore.MergeDefault.Recover, result);
+        }
+
+        [Fact]
+        public void GetMergeDefault_ZeroDistance_Destroyed_Recovers()
+        {
+            var result = RecordingStore.GetRecommendedAction(
+                distance: 0, destroyed: true, hasSnapshot: false);
+
+            Assert.Equal(RecordingStore.MergeDefault.Recover, result);
+        }
+
+        [Fact]
+        public void GetMergeDefault_BoundaryDuration_ExactlyTen()
+        {
+            // duration=10.0 exactly is <= 10, so still Recover
+            var result = RecordingStore.GetRecommendedAction(
+                distance: 50, destroyed: false, hasSnapshot: true,
+                duration: 10.0, maxDistance: 5000);
+
+            Assert.Equal(RecordingStore.MergeDefault.Recover, result);
+        }
+
+        [Fact]
+        public void GetMergeDefault_LargeDistance_AllFlags()
+        {
+            // Large distance + destroyed + hasSnapshot → destroyed takes priority → MergeOnly
+            var result = RecordingStore.GetRecommendedAction(
+                distance: 50000, destroyed: true, hasSnapshot: true);
+
+            Assert.Equal(RecordingStore.MergeDefault.MergeOnly, result);
+        }
     }
 }

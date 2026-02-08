@@ -56,5 +56,119 @@ namespace Parsek.Tests
             Assert.Equal(velocity, point.velocity);
             Assert.Equal("Kerbin", point.bodyName);
         }
+
+        [Fact]
+        public void ResourceFields_StoreCorrectly()
+        {
+            var point = new TrajectoryPoint
+            {
+                funds = 123456.78,
+                science = 42.5f,
+                reputation = -10.3f
+            };
+
+            Assert.Equal(123456.78, point.funds);
+            Assert.Equal(42.5f, point.science);
+            Assert.Equal(-10.3f, point.reputation);
+        }
+
+        [Fact]
+        public void DefaultValues_AreZeroOrNull()
+        {
+            var point = new TrajectoryPoint();
+
+            Assert.Equal(0, point.ut);
+            Assert.Equal(0, point.latitude);
+            Assert.Equal(0, point.longitude);
+            Assert.Equal(0, point.altitude);
+            Assert.Equal(0, point.funds);
+            Assert.Equal(0f, point.science);
+            Assert.Equal(0f, point.reputation);
+            Assert.Null(point.bodyName);
+            Assert.Equal(Vector3.zero, point.velocity);
+        }
+
+        [Fact]
+        public void ToString_DoesNotIncludeResourceFields()
+        {
+            var point = new TrajectoryPoint
+            {
+                ut = 100, latitude = 1, longitude = 2, altitude = 300,
+                funds = 50000, science = 10, reputation = 5
+            };
+
+            var result = point.ToString();
+
+            Assert.DoesNotContain("funds", result);
+            Assert.DoesNotContain("science", result);
+            Assert.DoesNotContain("rep", result);
+        }
+
+        [Fact]
+        public void ToString_WithNegativeCoordinates()
+        {
+            var point = new TrajectoryPoint
+            {
+                ut = 500,
+                latitude = -28.6083,
+                longitude = -80.6041,
+                altitude = 10
+            };
+
+            var result = point.ToString();
+
+            Assert.Contains("lat=", result);
+            Assert.Contains("lon=", result);
+            Assert.Contains("-", result);
+        }
+
+        [Fact]
+        public void ToString_WithExtremeAltitude()
+        {
+            var point = new TrajectoryPoint
+            {
+                ut = 1000,
+                latitude = 0,
+                longitude = 0,
+                altitude = 70000000 // 70,000 km
+            };
+
+            var result = point.ToString();
+
+            Assert.Contains("alt=", result);
+            Assert.Contains("70000000", result);
+        }
+
+        [Fact]
+        public void EqualityCheck_SameValues()
+        {
+            var rot = new Quaternion(0.1f, 0.2f, 0.3f, 0.9f);
+            var vel = new Vector3(5, 10, 15);
+
+            var a = new TrajectoryPoint
+            {
+                ut = 100, latitude = 1, longitude = 2, altitude = 300,
+                rotation = rot, velocity = vel, bodyName = "Mun",
+                funds = 1000, science = 5, reputation = 3
+            };
+
+            var b = new TrajectoryPoint
+            {
+                ut = 100, latitude = 1, longitude = 2, altitude = 300,
+                rotation = rot, velocity = vel, bodyName = "Mun",
+                funds = 1000, science = 5, reputation = 3
+            };
+
+            Assert.Equal(a.ut, b.ut);
+            Assert.Equal(a.latitude, b.latitude);
+            Assert.Equal(a.longitude, b.longitude);
+            Assert.Equal(a.altitude, b.altitude);
+            Assert.Equal(a.rotation, b.rotation);
+            Assert.Equal(a.velocity, b.velocity);
+            Assert.Equal(a.bodyName, b.bodyName);
+            Assert.Equal(a.funds, b.funds);
+            Assert.Equal(a.science, b.science);
+            Assert.Equal(a.reputation, b.reputation);
+        }
     }
 }
