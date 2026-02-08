@@ -19,18 +19,12 @@ namespace Parsek
 
         #region State
 
-        // Recording state
-        internal List<TrajectoryPoint> recording = new List<TrajectoryPoint>();
-        private bool isRecording = false;
-        private uint recordingVesselId;
-
-        // Adaptive sampling: fast tick that decides whether to record
-        private const float sampleTickInterval = 0.1f;   // how often SamplePosition fires
-        private const float maxSampleInterval = 3.0f;     // max time between recorded points
-        private const float velocityDirThreshold = 2.0f;  // degrees of velocity direction change
-        private const float speedChangeThreshold = 0.05f; // 5% relative speed change
-        private double lastRecordedUT = -1;
-        private Vector3 lastRecordedVelocity;
+        // Recording (delegated to FlightRecorder)
+        private FlightRecorder recorder;
+        internal List<TrajectoryPoint> recording => recorder?.Recording ?? noRecording;
+        private List<OrbitSegment> orbitSegments => recorder?.OrbitSegments ?? noOrbitSegments;
+        private static readonly List<TrajectoryPoint> noRecording = new List<TrajectoryPoint>();
+        private static readonly List<OrbitSegment> noOrbitSegments = new List<OrbitSegment>();
 
         // Manual playback state (F10/F11 preview of current recording)
         private bool isPlaying = false;
@@ -44,14 +38,6 @@ namespace Parsek
         private Dictionary<int, GameObject> timelineGhosts = new Dictionary<int, GameObject>();
         private Dictionary<int, Material> timelineGhostMaterials = new Dictionary<int, Material>();
         private Dictionary<int, int> timelinePlaybackIndices = new Dictionary<int, int>();
-
-        // Orbital recording state (on-rails detection)
-        private List<OrbitSegment> orbitSegments = new List<OrbitSegment>();
-        private bool isOnRails = false;
-        private OrbitSegment currentOrbitSegment;
-
-        // Vessel destruction tracking
-        private bool vesselDestroyedDuringRecording = false;
 
         // Auto-record: EVA from pad triggers recording after vessel switch completes
         private bool pendingAutoRecord = false;
@@ -69,7 +55,7 @@ namespace Parsek
 
         #region Public Accessors (for ParsekUI)
 
-        public bool IsRecording => isRecording;
+        public bool IsRecording => recorder?.IsRecording ?? false;
         public bool IsPlaying => isPlaying;
         public int TimelineGhostCount => timelineGhosts.Count;
         public GameObject PreviewGhost => ghostObject;
@@ -110,7 +96,7 @@ namespace Parsek
         void Update()
         {
             // Complete deferred auto-record for EVA (vessel switch may take a frame)
-            if (pendingAutoRecord && !isRecording &&
+            if (pendingAutoRecord && !IsRecording &&
                 FlightGlobals.ActiveVessel != null && FlightGlobals.ActiveVessel.isEVA)
             {
                 pendingAutoRecord = false;
@@ -166,10 +152,9 @@ namespace Parsek
             GameEvents.onVesselSOIChanged.Remove(OnVesselSOIChanged);
 
             // Clean up recording if active
-            if (isRecording)
+            if (IsRecording)
             {
-                CancelInvoke(nameof(SamplePosition));
-                isRecording = false;
+                recorder.ForceStop();
             }
             StopPlayback();
             DestroyAllTimelineGhosts();
@@ -186,37 +171,25 @@ namespace Parsek
             Log($"Scene change requested: {scene}");
 
             // If we have recording data and are leaving flight, stash it
-            if (recording.Count > 0)
+            if (recorder != null && recorder.Recording.Count > 0)
             {
-                // Stop recording if active
-                if (isRecording)
-                {
-                    // Finalize in-progress orbit segment
-                    if (isOnRails)
-                    {
-                        currentOrbitSegment.endUT = Planetarium.GetUniversalTime();
-                        orbitSegments.Add(currentOrbitSegment);
-                        isOnRails = false;
-                    }
+                bool wasDestroyed = recorder.VesselDestroyedDuringRecording;
 
-                    CancelInvoke(nameof(SamplePosition));
-                    isRecording = false;
-                    Log("Auto-stopped recording due to scene change");
-                }
+                // Stop recording if active
+                if (recorder.IsRecording)
+                    recorder.ForceStop();
 
                 string vesselName = FlightGlobals.ActiveVessel != null
                     ? FlightGlobals.ActiveVessel.vesselName
                     : "Unknown Vessel";
 
-                RecordingStore.StashPending(recording, vesselName, orbitSegments);
+                RecordingStore.StashPending(recorder.Recording, vesselName, recorder.OrbitSegments);
 
                 // Snapshot vessel for persistence across revert
-                VesselSpawner.SnapshotVessel(RecordingStore.Pending, vesselDestroyedDuringRecording);
+                VesselSpawner.SnapshotVessel(RecordingStore.Pending, wasDestroyed);
 
-                recording.Clear();
-                orbitSegments.Clear();
+                recorder = null;
                 lastPlaybackIndex = 0;
-                vesselDestroyedDuringRecording = false;
             }
 
             // Stop manual playback
@@ -226,26 +199,12 @@ namespace Parsek
 
         void OnVesselWillDestroy(Vessel v)
         {
-            if (!isRecording) return;
-            if (FlightGlobals.ActiveVessel == null) return;
-            if (v == FlightGlobals.ActiveVessel)
-            {
-                // Finalize in-progress orbit segment if on rails
-                if (isOnRails)
-                {
-                    currentOrbitSegment.endUT = Planetarium.GetUniversalTime();
-                    orbitSegments.Add(currentOrbitSegment);
-                    isOnRails = false;
-                }
-
-                vesselDestroyedDuringRecording = true;
-                Log("Active vessel destroyed during recording!");
-            }
+            recorder?.OnVesselWillDestroy(v);
         }
 
         void OnVesselSituationChange(GameEvents.HostedFromToAction<Vessel, Vessel.Situations> data)
         {
-            if (isRecording) return;
+            if (IsRecording) return;
             if (data.host != FlightGlobals.ActiveVessel) return;
             if (data.from != Vessel.Situations.PRELAUNCH) return;
 
@@ -256,7 +215,7 @@ namespace Parsek
 
         void OnCrewOnEva(GameEvents.FromToAction<Part, Part> data)
         {
-            if (isRecording) return;
+            if (IsRecording) return;
             if (data.from.vessel == null) return;
             if (data.from.vessel.situation != Vessel.Situations.PRELAUNCH) return;
 
@@ -267,78 +226,17 @@ namespace Parsek
 
         void OnVesselGoOnRails(Vessel v)
         {
-            if (!isRecording) return;
-            if (v != FlightGlobals.ActiveVessel) return;
-            if (v.persistentId != recordingVesselId) return;
-
-            // Record a boundary TrajectoryPoint at current UT (stitching point)
-            SamplePosition();
-
-            // Capture orbit params
-            currentOrbitSegment = new OrbitSegment
-            {
-                startUT = Planetarium.GetUniversalTime(),
-                inclination = v.orbit.inclination,
-                eccentricity = v.orbit.eccentricity,
-                semiMajorAxis = v.orbit.semiMajorAxis,
-                longitudeOfAscendingNode = v.orbit.LAN,
-                argumentOfPeriapsis = v.orbit.argumentOfPeriapsis,
-                meanAnomalyAtEpoch = v.orbit.meanAnomalyAtEpoch,
-                epoch = v.orbit.epoch,
-                bodyName = v.mainBody.name
-            };
-
-            CancelInvoke(nameof(SamplePosition));
-            isOnRails = true;
-            Log($"Vessel went on rails — capturing orbit segment (body={v.mainBody.name})");
+            recorder?.OnVesselGoOnRails(v);
         }
 
         void OnVesselGoOffRails(Vessel v)
         {
-            if (!isRecording || !isOnRails) return;
-            if (v != FlightGlobals.ActiveVessel) return;
-            if (v.persistentId != recordingVesselId) return;
-
-            // Finalize orbit segment
-            currentOrbitSegment.endUT = Planetarium.GetUniversalTime();
-            orbitSegments.Add(currentOrbitSegment);
-            isOnRails = false;
-
-            // Record a boundary TrajectoryPoint at current UT
-            SamplePosition();
-
-            // Resume sampling (fast tick — adaptive logic decides whether to record)
-            InvokeRepeating(nameof(SamplePosition), sampleTickInterval, sampleTickInterval);
-            Log($"Vessel went off rails — orbit segment closed " +
-                $"(UT {currentOrbitSegment.startUT:F0}-{currentOrbitSegment.endUT:F0})");
+            recorder?.OnVesselGoOffRails(v);
         }
 
         void OnVesselSOIChanged(GameEvents.HostedFromToAction<Vessel, CelestialBody> data)
         {
-            if (!isRecording || !isOnRails) return;
-            if (data.host != FlightGlobals.ActiveVessel) return;
-            if (data.host.persistentId != recordingVesselId) return;
-
-            // Close current orbit segment in old SOI
-            currentOrbitSegment.endUT = Planetarium.GetUniversalTime();
-            orbitSegments.Add(currentOrbitSegment);
-
-            // Start new orbit segment in new SOI
-            var v = data.host;
-            currentOrbitSegment = new OrbitSegment
-            {
-                startUT = Planetarium.GetUniversalTime(),
-                inclination = v.orbit.inclination,
-                eccentricity = v.orbit.eccentricity,
-                semiMajorAxis = v.orbit.semiMajorAxis,
-                longitudeOfAscendingNode = v.orbit.LAN,
-                argumentOfPeriapsis = v.orbit.argumentOfPeriapsis,
-                meanAnomalyAtEpoch = v.orbit.meanAnomalyAtEpoch,
-                epoch = v.orbit.epoch,
-                bodyName = v.mainBody.name
-            };
-
-            Log($"SOI changed during orbit recording: {data.from.name} → {data.to.name}");
+            recorder?.OnVesselSOIChanged(data);
         }
 
         void OnFlightReady()
@@ -368,7 +266,7 @@ namespace Parsek
             // F9 - Toggle recording
             if (Input.GetKeyDown(KeyCode.F9))
             {
-                if (!isRecording)
+                if (!IsRecording)
                     StartRecording();
                 else
                     StopRecording();
@@ -377,7 +275,7 @@ namespace Parsek
             // F10 - Start manual playback (preview current recording)
             if (Input.GetKeyDown(KeyCode.F10))
             {
-                if (!isRecording && recording.Count > 0 && !isPlaying)
+                if (!IsRecording && recording.Count > 0 && !isPlaying)
                 {
                     StartPlayback();
                 }
@@ -400,150 +298,20 @@ namespace Parsek
 
         public void StartRecording()
         {
-            if (Time.timeScale < 0.01f)
-            {
-                Log("Cannot start recording while paused");
-                ScreenMessage("Cannot record while paused", 2f);
-                return;
-            }
-
-            if (FlightGlobals.ActiveVessel == null)
-            {
-                Log("No active vessel to record!");
-                return;
-            }
-
-            recording.Clear();
-            orbitSegments.Clear();
-            isRecording = true;
-            isOnRails = false;
-            vesselDestroyedDuringRecording = false;
-            recordingVesselId = FlightGlobals.ActiveVessel.persistentId;
-            recordingStartUT = Planetarium.GetUniversalTime();
-            lastRecordedUT = -1;
-            lastRecordedVelocity = Vector3.zero;
-
-            // Check if vessel is already on rails (e.g. started recording during time warp)
-            if (FlightGlobals.ActiveVessel.packed)
-            {
-                var v = FlightGlobals.ActiveVessel;
-                // Take one boundary point first
-                SamplePosition();
-
-                currentOrbitSegment = new OrbitSegment
-                {
-                    startUT = Planetarium.GetUniversalTime(),
-                    inclination = v.orbit.inclination,
-                    eccentricity = v.orbit.eccentricity,
-                    semiMajorAxis = v.orbit.semiMajorAxis,
-                    longitudeOfAscendingNode = v.orbit.LAN,
-                    argumentOfPeriapsis = v.orbit.argumentOfPeriapsis,
-                    meanAnomalyAtEpoch = v.orbit.meanAnomalyAtEpoch,
-                    epoch = v.orbit.epoch,
-                    bodyName = v.mainBody.name
-                };
-                isOnRails = true;
-                Log($"Recording started on rails — capturing orbit (body={v.mainBody.name})");
-            }
-            else
-            {
-                // Start sampling (fast tick — adaptive logic decides whether to record)
-                InvokeRepeating(nameof(SamplePosition), 0f, sampleTickInterval);
-            }
-
-            Log("Recording started (adaptive sampling)");
-            ScreenMessage("Recording STARTED", 2f);
+            recorder = new FlightRecorder();
+            recorder.StartRecording();
         }
 
         public void StopRecording()
         {
-            // Finalize in-progress orbit segment
-            if (isOnRails)
-            {
-                currentOrbitSegment.endUT = Planetarium.GetUniversalTime();
-                orbitSegments.Add(currentOrbitSegment);
-                isOnRails = false;
-
-                // Record a boundary point at stop time
-                SamplePosition();
-            }
-
-            CancelInvoke(nameof(SamplePosition));
-            isRecording = false;
-
-            double duration = recording.Count > 0
-                ? recording[recording.Count - 1].ut - recording[0].ut
-                : 0;
-
-            Log($"Recording stopped. {recording.Count} points, {orbitSegments.Count} orbit segments over {duration:F1}s");
-            ScreenMessage($"Recording STOPPED: {recording.Count} points", 3f);
+            recorder?.StopRecording();
         }
 
         public void ClearRecording()
         {
-            recording.Clear();
-            orbitSegments.Clear();
+            recorder = null;
             lastPlaybackIndex = 0;
             Log("Recording cleared");
-        }
-
-        void SamplePosition()
-        {
-            Vessel v = FlightGlobals.ActiveVessel;
-            if (v == null) return;
-
-            // Safety net: don't sample while on rails (orbit segment handles this range)
-            if (isOnRails) return;
-
-            if (v.persistentId != recordingVesselId)
-            {
-                CancelInvoke(nameof(SamplePosition));
-                isRecording = false;
-                Log($"Active vessel changed during recording (was pid={recordingVesselId}, now pid={v.persistentId}) — auto-stopping");
-                ScreenMessage("Recording stopped — vessel changed", 3f);
-                return;
-            }
-
-            // Adaptive threshold: skip if nothing meaningful changed
-            Vector3 currentVelocity = v.GetSrfVelocity();
-            if (!ShouldRecordPoint(currentVelocity, lastRecordedVelocity,
-                Planetarium.GetUniversalTime(), lastRecordedUT,
-                maxSampleInterval, velocityDirThreshold, speedChangeThreshold))
-                return;
-
-            TrajectoryPoint point = new TrajectoryPoint
-            {
-                ut = Planetarium.GetUniversalTime(),
-                latitude = v.latitude,
-                longitude = v.longitude,
-                altitude = v.altitude,
-                rotation = v.transform.rotation,
-                velocity = v.GetSrfVelocity(),
-                bodyName = v.mainBody.name,
-                funds = Funding.Instance != null ? Funding.Instance.Funds : 0,
-                science = ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science : 0,
-                reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0
-            };
-
-            recording.Add(point);
-            lastRecordedUT = point.ut;
-            lastRecordedVelocity = point.velocity;
-
-            // Debug: Log every 10th point
-            if (recording.Count % 10 == 0)
-            {
-                Log($"Recorded point #{recording.Count}: {point}");
-            }
-        }
-
-        // Delegates to TrajectoryMath — kept for backward compatibility
-        internal static bool ShouldRecordPoint(
-            Vector3 currentVelocity, Vector3 lastVelocity,
-            double currentUT, double lastRecordedUT,
-            float maxInterval, float velDirThreshold, float speedThreshold)
-        {
-            return TrajectoryMath.ShouldRecordPoint(currentVelocity, lastVelocity,
-                currentUT, lastRecordedUT, maxInterval, velDirThreshold, speedThreshold);
         }
 
         #endregion
