@@ -6,18 +6,10 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// Tests for quaternion sanitization logic.
-    /// Tests call the actual ParsekSpike.SanitizeQuaternion method (exposed via InternalsVisibleTo).
+    /// Tests call TrajectoryMath.SanitizeQuaternion directly (exposed via InternalsVisibleTo).
     /// </summary>
     public class QuaternionSanitizationTests
     {
-        private readonly Parsek.ParsekSpike spike;
-
-        public QuaternionSanitizationTests()
-        {
-            // Create a ParsekSpike instance to access internal methods
-            spike = new Parsek.ParsekSpike();
-        }
-
         [Fact]
         public void SanitizeQuaternion_ValidQuaternion_ReturnsNormalized()
         {
@@ -25,7 +17,7 @@ namespace Parsek.Tests
             var q = new Quaternion(1, 2, 3, 4); // Not normalized
 
             // Act
-            var result = spike.SanitizeQuaternion(q);
+            var result = TrajectoryMath.SanitizeQuaternion(q);
 
             // Assert
             float magnitude = Mathf.Sqrt(result.x * result.x + result.y * result.y +
@@ -40,7 +32,7 @@ namespace Parsek.Tests
             var q = new Quaternion(float.NaN, 0, 0, 1);
 
             // Act
-            var result = spike.SanitizeQuaternion(q);
+            var result = TrajectoryMath.SanitizeQuaternion(q);
 
             // Assert
             Assert.False(float.IsNaN(result.x));
@@ -56,7 +48,7 @@ namespace Parsek.Tests
             var q = new Quaternion(float.NaN, float.NaN, float.NaN, float.NaN);
 
             // Act
-            var result = spike.SanitizeQuaternion(q);
+            var result = TrajectoryMath.SanitizeQuaternion(q);
 
             // Assert - after sanitizing NaN to 0,0,0,1 and normalizing
             Assert.False(float.IsNaN(result.x));
@@ -72,7 +64,7 @@ namespace Parsek.Tests
             var q = new Quaternion(0, 0, 0, 0);
 
             // Act
-            var result = spike.SanitizeQuaternion(q);
+            var result = TrajectoryMath.SanitizeQuaternion(q);
 
             // Assert
             Assert.Equal(Quaternion.identity, result);
@@ -85,7 +77,7 @@ namespace Parsek.Tests
             var q = new Quaternion(0.0001f, 0.0001f, 0.0001f, 0.0001f);
 
             // Act
-            var result = spike.SanitizeQuaternion(q);
+            var result = TrajectoryMath.SanitizeQuaternion(q);
 
             // Assert
             Assert.Equal(Quaternion.identity, result);
@@ -98,7 +90,7 @@ namespace Parsek.Tests
             var q = Quaternion.identity;
 
             // Act
-            var result = spike.SanitizeQuaternion(q);
+            var result = TrajectoryMath.SanitizeQuaternion(q);
 
             // Assert
             Assert.InRange(result.x, -0.01f, 0.01f);
@@ -114,7 +106,7 @@ namespace Parsek.Tests
             var q = new Quaternion(float.PositiveInfinity, 0, 0, 1);
 
             // Act
-            var result = spike.SanitizeQuaternion(q);
+            var result = TrajectoryMath.SanitizeQuaternion(q);
 
             // Assert - should not contain NaN or Infinity
             Assert.True(!float.IsNaN(result.x) && !float.IsInfinity(result.x));
@@ -132,7 +124,7 @@ namespace Parsek.Tests
                                    float.PositiveInfinity, float.NegativeInfinity);
 
             // Act
-            var result = spike.SanitizeQuaternion(q);
+            var result = TrajectoryMath.SanitizeQuaternion(q);
 
             // Assert
             Assert.True(!float.IsNaN(result.x) && !float.IsInfinity(result.x));
@@ -149,7 +141,7 @@ namespace Parsek.Tests
             var q = new Quaternion(0, 0, 0, 0.99999f);
 
             // Act
-            var result = spike.SanitizeQuaternion(q);
+            var result = TrajectoryMath.SanitizeQuaternion(q);
 
             // Assert - should remain stable and normalized
             float magnitude = Mathf.Sqrt(result.x * result.x + result.y * result.y +

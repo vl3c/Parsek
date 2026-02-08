@@ -55,14 +55,14 @@ namespace Parsek.Tests
         public void FindOrbitSegment_EmptyList_ReturnsNull()
         {
             var segments = new List<OrbitSegment>();
-            var result = ParsekSpike.FindOrbitSegment(segments, 500);
+            var result = TrajectoryMath.FindOrbitSegment(segments, 500);
             Assert.Null(result);
         }
 
         [Fact]
         public void FindOrbitSegment_NullList_ReturnsNull()
         {
-            var result = ParsekSpike.FindOrbitSegment(null, 500);
+            var result = TrajectoryMath.FindOrbitSegment(null, 500);
             Assert.Null(result);
         }
 
@@ -74,7 +74,7 @@ namespace Parsek.Tests
                 MakeSegment(100, 200)
             };
 
-            var result = ParsekSpike.FindOrbitSegment(segments, 150);
+            var result = TrajectoryMath.FindOrbitSegment(segments, 150);
             Assert.NotNull(result);
             Assert.Equal(100, result.Value.startUT);
             Assert.Equal(200, result.Value.endUT);
@@ -88,7 +88,7 @@ namespace Parsek.Tests
                 MakeSegment(100, 200)
             };
 
-            var result = ParsekSpike.FindOrbitSegment(segments, 50);
+            var result = TrajectoryMath.FindOrbitSegment(segments, 50);
             Assert.Null(result);
         }
 
@@ -100,7 +100,7 @@ namespace Parsek.Tests
                 MakeSegment(100, 200)
             };
 
-            var result = ParsekSpike.FindOrbitSegment(segments, 250);
+            var result = TrajectoryMath.FindOrbitSegment(segments, 250);
             Assert.Null(result);
         }
 
@@ -112,7 +112,7 @@ namespace Parsek.Tests
                 MakeSegment(100, 200)
             };
 
-            var result = ParsekSpike.FindOrbitSegment(segments, 100);
+            var result = TrajectoryMath.FindOrbitSegment(segments, 100);
             Assert.NotNull(result);
         }
 
@@ -124,7 +124,7 @@ namespace Parsek.Tests
                 MakeSegment(100, 200)
             };
 
-            var result = ParsekSpike.FindOrbitSegment(segments, 200);
+            var result = TrajectoryMath.FindOrbitSegment(segments, 200);
             Assert.NotNull(result);
         }
 
@@ -138,7 +138,7 @@ namespace Parsek.Tests
                 MakeSegment(500, 600, "Minmus")
             };
 
-            var result = ParsekSpike.FindOrbitSegment(segments, 350);
+            var result = TrajectoryMath.FindOrbitSegment(segments, 350);
             Assert.NotNull(result);
             Assert.Equal("Mun", result.Value.bodyName);
         }
@@ -152,7 +152,7 @@ namespace Parsek.Tests
                 MakeSegment(300, 400)
             };
 
-            var result = ParsekSpike.FindOrbitSegment(segments, 250);
+            var result = TrajectoryMath.FindOrbitSegment(segments, 250);
             Assert.Null(result);
         }
 

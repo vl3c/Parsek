@@ -12,7 +12,7 @@ namespace Parsek.Tests
         [Fact]
         public void FirstPoint_AlwaysRecords()
         {
-            var result = ParsekSpike.ShouldRecordPoint(
+            var result = TrajectoryMath.ShouldRecordPoint(
                 Vector3.zero, Vector3.zero,
                 currentUT: 100, lastRecordedUT: -1,
                 MaxInterval, VelDirThreshold, SpeedThreshold);
@@ -25,7 +25,7 @@ namespace Parsek.Tests
         {
             // Same velocity, but 3+ seconds elapsed
             var vel = new Vector3(10, 0, 0);
-            var result = ParsekSpike.ShouldRecordPoint(
+            var result = TrajectoryMath.ShouldRecordPoint(
                 vel, vel,
                 currentUT: 103.1, lastRecordedUT: 100,
                 MaxInterval, VelDirThreshold, SpeedThreshold);
@@ -37,7 +37,7 @@ namespace Parsek.Tests
         public void WithinMaxInterval_NoChange_Skips()
         {
             var vel = new Vector3(10, 0, 0);
-            var result = ParsekSpike.ShouldRecordPoint(
+            var result = TrajectoryMath.ShouldRecordPoint(
                 vel, vel,
                 currentUT: 100.5, lastRecordedUT: 100,
                 MaxInterval, VelDirThreshold, SpeedThreshold);
@@ -52,7 +52,7 @@ namespace Parsek.Tests
             var last = new Vector3(10, 0, 0);
             var current = new Vector3(10, 0, Mathf.Tan(5f * Mathf.Deg2Rad) * 10f);
 
-            var result = ParsekSpike.ShouldRecordPoint(
+            var result = TrajectoryMath.ShouldRecordPoint(
                 current, last,
                 currentUT: 100.2, lastRecordedUT: 100,
                 MaxInterval, VelDirThreshold, SpeedThreshold);
@@ -67,7 +67,7 @@ namespace Parsek.Tests
             var last = new Vector3(10, 0, 0);
             var current = new Vector3(10, 0, Mathf.Tan(1f * Mathf.Deg2Rad) * 10f);
 
-            var result = ParsekSpike.ShouldRecordPoint(
+            var result = TrajectoryMath.ShouldRecordPoint(
                 current, last,
                 currentUT: 100.2, lastRecordedUT: 100,
                 MaxInterval, VelDirThreshold, SpeedThreshold);
@@ -82,7 +82,7 @@ namespace Parsek.Tests
             var last = new Vector3(10, 0, 0);
             var current = new Vector3(11, 0, 0);
 
-            var result = ParsekSpike.ShouldRecordPoint(
+            var result = TrajectoryMath.ShouldRecordPoint(
                 current, last,
                 currentUT: 100.2, lastRecordedUT: 100,
                 MaxInterval, VelDirThreshold, SpeedThreshold);
@@ -97,7 +97,7 @@ namespace Parsek.Tests
             var last = new Vector3(10, 0, 0);
             var current = new Vector3(9, 0, 0);
 
-            var result = ParsekSpike.ShouldRecordPoint(
+            var result = TrajectoryMath.ShouldRecordPoint(
                 current, last,
                 currentUT: 100.2, lastRecordedUT: 100,
                 MaxInterval, VelDirThreshold, SpeedThreshold);
@@ -112,7 +112,7 @@ namespace Parsek.Tests
             var last = new Vector3(10, 0, 0);
             var current = new Vector3(10.3f, 0, 0);
 
-            var result = ParsekSpike.ShouldRecordPoint(
+            var result = TrajectoryMath.ShouldRecordPoint(
                 current, last,
                 currentUT: 100.2, lastRecordedUT: 100,
                 MaxInterval, VelDirThreshold, SpeedThreshold);
@@ -124,7 +124,7 @@ namespace Parsek.Tests
         public void BothVelocitiesNearZero_OnlyMaxIntervalTriggers()
         {
             // Sitting on pad, both ~0 — should skip (not enough time elapsed)
-            var result = ParsekSpike.ShouldRecordPoint(
+            var result = TrajectoryMath.ShouldRecordPoint(
                 Vector3.zero, Vector3.zero,
                 currentUT: 100.5, lastRecordedUT: 100,
                 MaxInterval, VelDirThreshold, SpeedThreshold);
@@ -132,7 +132,7 @@ namespace Parsek.Tests
             Assert.False(result);
 
             // After max interval, should record
-            var result2 = ParsekSpike.ShouldRecordPoint(
+            var result2 = TrajectoryMath.ShouldRecordPoint(
                 Vector3.zero, Vector3.zero,
                 currentUT: 103.1, lastRecordedUT: 100,
                 MaxInterval, VelDirThreshold, SpeedThreshold);
@@ -147,7 +147,7 @@ namespace Parsek.Tests
             var last = Vector3.zero;
             var current = new Vector3(0, 5, 0);
 
-            var result = ParsekSpike.ShouldRecordPoint(
+            var result = TrajectoryMath.ShouldRecordPoint(
                 current, last,
                 currentUT: 100.2, lastRecordedUT: 100,
                 MaxInterval, VelDirThreshold, SpeedThreshold);
@@ -160,7 +160,7 @@ namespace Parsek.Tests
         {
             // Exactly at the max interval boundary
             var vel = new Vector3(10, 0, 0);
-            var result = ParsekSpike.ShouldRecordPoint(
+            var result = TrajectoryMath.ShouldRecordPoint(
                 vel, vel,
                 currentUT: 103, lastRecordedUT: 100,
                 MaxInterval, VelDirThreshold, SpeedThreshold);
@@ -178,7 +178,7 @@ namespace Parsek.Tests
             // delta = 0.01, reference = max(0.05, 0.1) = 0.1, ratio = 0.1 = 10% > 5%
             // This actually records because even small absolute changes are significant
             // at near-zero speeds (floor kicks in at 0.1)
-            var result = ParsekSpike.ShouldRecordPoint(
+            var result = TrajectoryMath.ShouldRecordPoint(
                 current, last,
                 currentUT: 100.2, lastRecordedUT: 100,
                 MaxInterval, VelDirThreshold, SpeedThreshold);
@@ -194,7 +194,7 @@ namespace Parsek.Tests
             var last = new Vector3(100, 0, 0);
             var current = new Vector3(100.5f, 0, 0);
 
-            var result = ParsekSpike.ShouldRecordPoint(
+            var result = TrajectoryMath.ShouldRecordPoint(
                 current, last,
                 currentUT: 100.2, lastRecordedUT: 100,
                 MaxInterval, VelDirThreshold, SpeedThreshold);
