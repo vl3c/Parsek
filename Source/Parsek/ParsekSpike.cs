@@ -77,6 +77,9 @@ namespace Parsek
         // Vessel destruction tracking
         private bool vesselDestroyedDuringRecording = false;
 
+        // Auto-record: EVA from pad triggers recording after vessel switch completes
+        private bool pendingAutoRecord = false;
+
         // Timeline warp protection — tracks previous frame's UT
         private double lastTimelineUT = -1;
 
@@ -96,10 +99,22 @@ namespace Parsek
             GameEvents.onGameSceneLoadRequested.Add(OnSceneChangeRequested);
             GameEvents.onFlightReady.Add(OnFlightReady);
             GameEvents.onVesselWillDestroy.Add(OnVesselWillDestroy);
+            GameEvents.onVesselSituationChange.Add(OnVesselSituationChange);
+            GameEvents.onCrewOnEva.Add(OnCrewOnEva);
         }
 
         void Update()
         {
+            // Complete deferred auto-record for EVA (vessel switch may take a frame)
+            if (pendingAutoRecord && !isRecording &&
+                FlightGlobals.ActiveVessel != null && FlightGlobals.ActiveVessel.isEVA)
+            {
+                pendingAutoRecord = false;
+                StartRecording();
+                Log("Auto-record started (EVA from pad)");
+                ScreenMessage("Recording STARTED (auto — EVA from pad)", 2f);
+            }
+
             HandleInput();
 
             if (isPlaying)
@@ -130,6 +145,8 @@ namespace Parsek
             GameEvents.onGameSceneLoadRequested.Remove(OnSceneChangeRequested);
             GameEvents.onFlightReady.Remove(OnFlightReady);
             GameEvents.onVesselWillDestroy.Remove(OnVesselWillDestroy);
+            GameEvents.onVesselSituationChange.Remove(OnVesselSituationChange);
+            GameEvents.onCrewOnEva.Remove(OnCrewOnEva);
 
             // Clean up recording if active
             if (isRecording)
@@ -256,6 +273,28 @@ namespace Parsek
                 vesselDestroyedDuringRecording = true;
                 Log("Active vessel destroyed during recording!");
             }
+        }
+
+        void OnVesselSituationChange(GameEvents.HostedFromToAction<Vessel, Vessel.Situations> data)
+        {
+            if (isRecording) return;
+            if (data.host != FlightGlobals.ActiveVessel) return;
+            if (data.from != Vessel.Situations.PRELAUNCH) return;
+
+            StartRecording();
+            Log("Auto-record started (vessel left pad/runway)");
+            ScreenMessage("Recording STARTED (auto)", 2f);
+        }
+
+        void OnCrewOnEva(GameEvents.FromToAction<Part, Part> data)
+        {
+            if (isRecording) return;
+            if (data.from.vessel == null) return;
+            if (data.from.vessel.situation != Vessel.Situations.PRELAUNCH) return;
+
+            // The EVA kerbal may not yet be the active vessel, defer to Update()
+            pendingAutoRecord = true;
+            Log("EVA from pad detected — pending auto-record");
         }
 
         void OnFlightReady()

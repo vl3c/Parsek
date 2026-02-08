@@ -118,6 +118,11 @@ dotnet test
 
 These happen silently to keep gameplay smooth. All are logged to `KSP.log` with `[Parsek Spike]` or `[Parsek Scenario]` prefixes.
 
+**Auto-recording:**
+- Recording starts automatically when a vessel leaves PRELAUNCH (pad/runway liftoff)
+- Recording starts automatically when a kerbal goes EVA from a vessel on the pad/runway
+- EVA auto-record is deferred by one frame via `pendingAutoRecord` flag (vessel switch delay)
+
 **Recording safeguards:**
 - Recording is blocked while the game is paused
 - Recording auto-stops if the active vessel changes (docking, pressing `[`/`]`)

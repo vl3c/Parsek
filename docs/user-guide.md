@@ -16,10 +16,12 @@ Parsek lets you record missions, revert to launch, and merge them into the timel
 ### Recording a Mission
 
 1. Launch any vessel (career mode recommended for resource tracking)
-2. Press **F9** to start recording
+2. Recording starts automatically when the vessel leaves the pad/runway
 3. Fly your mission normally
 4. Press **F9** to stop recording
 5. Revert to Launch (Esc > Revert to Launch)
+
+You can also press **F9** manually at any time to start or stop recording. Going EVA from a vessel on the pad will also auto-start recording on the EVA kerbal.
 
 ### Merge Dialog
 
@@ -66,6 +68,8 @@ Parsek handles several edge cases automatically. These are logged to `KSP.log` (
 
 ### Recording
 
+- **Auto-start on launch** — Recording begins automatically when a vessel leaves the pad or runway (transitions out of PRELAUNCH). A screen message confirms "Recording STARTED (auto)".
+- **Auto-start on EVA from pad** — Going EVA from a vessel sitting on the pad/runway also auto-starts recording on the EVA kerbal.
 - **Paused game** — Recording cannot start while the game is paused.
 - **Vessel change** — If the active vessel changes during recording (docking, switching with `[`/`]`), the recording stops automatically with a screen message.
 - **Very short recordings** — Recordings with fewer than 2 sample points are silently dropped on revert (nothing to play back).
