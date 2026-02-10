@@ -62,7 +62,8 @@ Parsek/
 │       │   ├── RecordingBuilder.cs       # Fluent RECORDING ConfigNode builder
 │       │   ├── VesselSnapshotBuilder.cs  # Minimal VESSEL ConfigNode builder
 │       │   └── ScenarioWriter.cs         # SCENARIO assembly + .sfs injection
-│       └── SyntheticRecordingTests.cs    # 4 synthetic recordings + injection tests
+│       ├── SyntheticRecordingTests.cs    # 4 synthetic recordings + injection tests
+│       └── DiagnosticLoggingTests.cs    # Regression tests for playback logging
 ├── docs/                     # Documentation
 ├── mods/                     # Reference mods (git-ignored)
 ├── CLAUDE.md                 # This file
@@ -93,7 +94,27 @@ cd Source/Parsek.Tests
 dotnet test --filter InjectAllRecordings
 ```
 
-Injects 4 pre-built recordings (KSC Hopper, Suborbital Arc, Orbit-1, Island Probe) into `saves/4/1.sfs`. See `docs/synthetic-recordings.md` for the full in-game walkthrough and builder API docs.
+Injects 4 pre-built recordings into `saves/test career/` (both `persistent.sfs` and `1.sfs`):
+- **KSC Hopper** — 56s suborbital hop, ghost-only (no vessel spawn)
+- **Suborbital Arc** — 300s arc, ghost-only
+- **Orbit-1** — 3000s with orbit segment, crewed vessel spawns in orbit
+- **Island Probe** — 180s probe landing, vessel spawns on island airstrip
+
+**How it works:**
+- Auto-reads UT from the save file's FLIGHTSTATE node
+- Recording UTs are offset from save UT (first ghost appears ~2 min after load)
+- Injected into both `persistent.sfs` and `1.sfs` (KSP's `initialLoadDone` guard skips reload if only one is patched)
+- Uses career-appropriate parts: `mk1pod.v2` (command pod), `probeCoreSphere` (Stayputnik)
+
+**Reproducible end-to-end test workflow:**
+1. `dotnet test --filter InjectAllRecordings` — inject recordings
+2. (Re)start KSP (required if DLL changed — post-build copy fails while KSP locks it)
+3. Load `test career` → save 1
+4. Enter flight (launch any vessel or EVA from pad)
+5. Time warp — ghosts appear at scheduled UTs, vessels spawn at end
+6. `grep "[Parsek]" "Kerbal Space Program/KSP.log"` — verify full diagnostic narrative
+
+See `docs/synthetic-recordings.md` for builder API docs.
 
 ### In-Game Test
 ```bash
@@ -185,9 +206,18 @@ These happen silently to keep gameplay smooth. All are logged to `KSP.log` with 
 
 ### Debug
 - Check `Kerbal Space Program/KSP.log` for errors
-- Look for `[Parsek]` and `[Parsek Scenario]` log entries
-- Crew replacement actions logged as `[Parsek Scenario] Hired replacement ...` / `Removed replacement ...`
+- `grep "[Parsek]" KSP.log` captures all diagnostic logs (single prefix)
+- `[Parsek Scenario]` prefix used only by legacy OnSave/OnLoad bookkeeping
 - Alt+F12 opens Unity debug console in-game
+
+**Diagnostic log narrative** (all use `[Parsek]` prefix):
+- **Scenario load:** recording count, per-recording status (future/in-progress/past), crew reservations
+- **Flight ready:** per-recording summary (UT range, point count, orbit segments, vessel/ghost-only)
+- **Ghost lifecycle:** ENTERED/EXITED range with UT, spawn or no-spawn reason
+- **Orbit segments:** activation with cache key, body, SMA, UT range
+- **Resource deltas:** completion summary with recorded fund/science/rep totals
+- **Vessel spawn:** situation, crew list, nearest vessel distance
+- **Warp stop:** one log per recording (not per-frame — guarded by HashSet)
 
 ## Git Configuration
 
