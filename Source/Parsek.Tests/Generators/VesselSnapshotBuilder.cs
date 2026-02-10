@@ -29,7 +29,7 @@ namespace Parsek.Tests.Generators
             var b = new VesselSnapshotBuilder();
             b.name = name;
             b.persistentId = pid;
-            b.AddPart("mk1pod_v2", crewMember);
+            b.AddPart("mk1pod.v2", crewMember);
             return b;
         }
 
@@ -39,7 +39,7 @@ namespace Parsek.Tests.Generators
             b.name = name;
             b.persistentId = pid;
             b.type = "Probe";
-            b.AddPart("probeCoreOcto2");
+            b.AddPart("probeCoreSphere");
             return b;
         }
 

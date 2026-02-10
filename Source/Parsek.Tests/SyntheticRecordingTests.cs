@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.IO;
+using System.Text.RegularExpressions;
 using Parsek.Tests.Generators;
 using Xunit;
 
@@ -12,156 +13,140 @@ namespace Parsek.Tests
 
         #region Recording Builders
 
-        internal static RecordingBuilder KscHopper()
+        // Offsets from baseUT for each recording
+        // KSC Hopper:     +120s to +176s  (56s duration)
+        // Suborbital Arc: +210s to +510s  (300s duration)
+        // Orbit-1:        +560s to +3560s (3000s, ascent+orbit segment)
+        // Island Probe:   +3610s to +3790s (180s duration)
+
+        internal static RecordingBuilder KscHopper(double baseUT = 0)
         {
-            // 15 points: launchpad → 500m up → drift east 1km → descend near VAB
-            // UT 127000–127056, 4-second intervals
+            double t = baseUT + 120;
             var b = new RecordingBuilder("KSC Hopper");
             double baseLat = -0.0972;
             double baseLon = -74.5575;
 
-            // Liftoff (0-12s): straight up to 500m
-            b.AddPoint(127000, baseLat, baseLon, 77);        // pad
-            b.AddPoint(127004, baseLat, baseLon, 150);
-            b.AddPoint(127008, baseLat, baseLon, 300);
-            b.AddPoint(127012, baseLat, baseLon, 500);
-
-            // Hover + drift east (12-32s): move ~1km east, hold ~500m
-            b.AddPoint(127016, baseLat, baseLon + 0.002, 490);
-            b.AddPoint(127020, baseLat, baseLon + 0.004, 480);
-            b.AddPoint(127024, baseLat, baseLon + 0.006, 470);
-            b.AddPoint(127028, baseLat, baseLon + 0.008, 460);
-            b.AddPoint(127032, baseLat, baseLon + 0.009, 440);
-
-            // Descend near VAB (32-56s): come down, slight north drift
-            b.AddPoint(127036, baseLat + 0.0005, baseLon + 0.009, 380);
-            b.AddPoint(127040, baseLat + 0.001, baseLon + 0.009, 300);
-            b.AddPoint(127044, baseLat + 0.001, baseLon + 0.009, 200);
-            b.AddPoint(127048, baseLat + 0.001, baseLon + 0.009, 120);
-            b.AddPoint(127052, baseLat + 0.001, baseLon + 0.009, 85);
-            b.AddPoint(127056, baseLat + 0.001, baseLon + 0.009, 77);  // landed
+            b.AddPoint(t,    baseLat, baseLon, 77);
+            b.AddPoint(t+4,  baseLat, baseLon, 150);
+            b.AddPoint(t+8,  baseLat, baseLon, 300);
+            b.AddPoint(t+12, baseLat, baseLon, 500);
+            b.AddPoint(t+16, baseLat, baseLon + 0.002, 490);
+            b.AddPoint(t+20, baseLat, baseLon + 0.004, 480);
+            b.AddPoint(t+24, baseLat, baseLon + 0.006, 470);
+            b.AddPoint(t+28, baseLat, baseLon + 0.008, 460);
+            b.AddPoint(t+32, baseLat, baseLon + 0.009, 440);
+            b.AddPoint(t+36, baseLat + 0.0005, baseLon + 0.009, 380);
+            b.AddPoint(t+40, baseLat + 0.001, baseLon + 0.009, 300);
+            b.AddPoint(t+44, baseLat + 0.001, baseLon + 0.009, 200);
+            b.AddPoint(t+48, baseLat + 0.001, baseLon + 0.009, 120);
+            b.AddPoint(t+52, baseLat + 0.001, baseLon + 0.009, 85);
+            b.AddPoint(t+56, baseLat + 0.001, baseLon + 0.009, 77);
 
             return b;
         }
 
-        internal static RecordingBuilder SuborbitalArc()
+        internal static RecordingBuilder SuborbitalArc(double baseUT = 0)
         {
-            // 25 points: launchpad → gravity turn east → 70km apex → splashdown
-            // UT 128000–128300, variable spacing
+            double t = baseUT + 210;
             var b = new RecordingBuilder("Suborbital Arc");
             double lat = -0.0972;
             double lon = -74.5575;
 
-            // Launch phase (0-40s, dense sampling)
-            b.AddPoint(128000, lat, lon, 77);
-            b.AddPoint(128005, lat, lon, 300);
-            b.AddPoint(128010, lat, lon, 800);
-            b.AddPoint(128015, lat, lon + 0.001, 1800);
-            b.AddPoint(128020, lat, lon + 0.003, 3500);
-            b.AddPoint(128025, lat + 0.001, lon + 0.006, 6000);
-            b.AddPoint(128030, lat + 0.002, lon + 0.01, 9500);
-            b.AddPoint(128035, lat + 0.003, lon + 0.015, 14000);
-            b.AddPoint(128040, lat + 0.004, lon + 0.02, 19000);
-
-            // Gravity turn (40-100s, sparser)
-            b.AddPoint(128050, lat + 0.006, lon + 0.035, 28000);
-            b.AddPoint(128060, lat + 0.008, lon + 0.055, 37000);
-            b.AddPoint(128070, lat + 0.01, lon + 0.08, 46000);
-            b.AddPoint(128080, lat + 0.012, lon + 0.11, 55000);
-            b.AddPoint(128090, lat + 0.014, lon + 0.14, 63000);
-            b.AddPoint(128100, lat + 0.015, lon + 0.17, 68000);
-
-            // Apex (100-140s)
-            b.AddPoint(128110, lat + 0.016, lon + 0.20, 70500);
-            b.AddPoint(128120, lat + 0.017, lon + 0.23, 71000);  // peak
-            b.AddPoint(128130, lat + 0.018, lon + 0.26, 70200);
-            b.AddPoint(128140, lat + 0.019, lon + 0.29, 67000);
-
-            // Descent (140-300s, sparser)
-            b.AddPoint(128160, lat + 0.021, lon + 0.35, 55000);
-            b.AddPoint(128180, lat + 0.023, lon + 0.42, 40000);
-            b.AddPoint(128210, lat + 0.026, lon + 0.52, 22000);
-            b.AddPoint(128240, lat + 0.028, lon + 0.62, 8000);
-            b.AddPoint(128270, lat + 0.029, lon + 0.70, 1500);
-            b.AddPoint(128300, lat + 0.03, lon + 0.75, 0);  // splashdown
+            b.AddPoint(t,     lat, lon, 77);
+            b.AddPoint(t+5,   lat, lon, 300);
+            b.AddPoint(t+10,  lat, lon, 800);
+            b.AddPoint(t+15,  lat, lon + 0.001, 1800);
+            b.AddPoint(t+20,  lat, lon + 0.003, 3500);
+            b.AddPoint(t+25,  lat + 0.001, lon + 0.006, 6000);
+            b.AddPoint(t+30,  lat + 0.002, lon + 0.01, 9500);
+            b.AddPoint(t+35,  lat + 0.003, lon + 0.015, 14000);
+            b.AddPoint(t+40,  lat + 0.004, lon + 0.02, 19000);
+            b.AddPoint(t+50,  lat + 0.006, lon + 0.035, 28000);
+            b.AddPoint(t+60,  lat + 0.008, lon + 0.055, 37000);
+            b.AddPoint(t+70,  lat + 0.01, lon + 0.08, 46000);
+            b.AddPoint(t+80,  lat + 0.012, lon + 0.11, 55000);
+            b.AddPoint(t+90,  lat + 0.014, lon + 0.14, 63000);
+            b.AddPoint(t+100, lat + 0.015, lon + 0.17, 68000);
+            b.AddPoint(t+110, lat + 0.016, lon + 0.20, 70500);
+            b.AddPoint(t+120, lat + 0.017, lon + 0.23, 71000);
+            b.AddPoint(t+130, lat + 0.018, lon + 0.26, 70200);
+            b.AddPoint(t+140, lat + 0.019, lon + 0.29, 67000);
+            b.AddPoint(t+160, lat + 0.021, lon + 0.35, 55000);
+            b.AddPoint(t+180, lat + 0.023, lon + 0.42, 40000);
+            b.AddPoint(t+210, lat + 0.026, lon + 0.52, 22000);
+            b.AddPoint(t+240, lat + 0.028, lon + 0.62, 8000);
+            b.AddPoint(t+270, lat + 0.029, lon + 0.70, 1500);
+            b.AddPoint(t+300, lat + 0.03, lon + 0.75, 0);
 
             return b;
         }
 
-        internal static RecordingBuilder Orbit1()
+        internal static RecordingBuilder Orbit1(double baseUT = 0)
         {
-            // 10 ascent points + 1 orbit segment, crewed vessel
-            // UT 129000–132000
+            double t = baseUT + 560;
             var b = new RecordingBuilder("Orbit-1");
             double lat = -0.0972;
             double lon = -74.5575;
 
-            // Ascent phase: 10 points from pad to ~80km
-            b.AddPoint(129000, lat, lon, 77);
-            b.AddPoint(129020, lat, lon + 0.005, 5000);
-            b.AddPoint(129040, lat + 0.005, lon + 0.02, 15000);
-            b.AddPoint(129060, lat + 0.01, lon + 0.05, 30000);
-            b.AddPoint(129080, lat + 0.015, lon + 0.1, 45000);
-            b.AddPoint(129100, lat + 0.02, lon + 0.16, 58000);
-            b.AddPoint(129120, lat + 0.025, lon + 0.24, 68000);
-            b.AddPoint(129140, lat + 0.03, lon + 0.34, 75000);
-            b.AddPoint(129160, lat + 0.035, lon + 0.46, 79000);
-            b.AddPoint(129180, lat + 0.04, lon + 0.60, 80000);
+            // 11 ascent points, last at orbit segment start
+            b.AddPoint(t,     lat, lon, 77);
+            b.AddPoint(t+50,  lat, lon + 0.005, 5000);
+            b.AddPoint(t+100, lat + 0.005, lon + 0.02, 15000);
+            b.AddPoint(t+150, lat + 0.01, lon + 0.05, 30000);
+            b.AddPoint(t+200, lat + 0.015, lon + 0.1, 45000);
+            b.AddPoint(t+250, lat + 0.02, lon + 0.16, 58000);
+            b.AddPoint(t+300, lat + 0.025, lon + 0.24, 68000);
+            b.AddPoint(t+350, lat + 0.03, lon + 0.34, 75000);
+            b.AddPoint(t+400, lat + 0.035, lon + 0.46, 79000);
+            b.AddPoint(t+450, lat + 0.04, lon + 0.55, 80000);
+            b.AddPoint(t+500, lat + 0.045, lon + 0.60, 80000);
 
-            // Orbital segment: ~80km circular, from 129500 to 132000
-            b.AddOrbitSegment(129500, 132000,
+            // Orbit segment starts at last ascent point
+            double segStart = t + 500;
+            double segEnd = t + 3000;
+            b.AddOrbitSegment(segStart, segEnd,
                 inc: 28.5, ecc: 0.001, sma: 700000,
-                lan: 90, argPe: 45, mna: 0, epoch: 129500,
+                lan: 90, argPe: 45, mna: 0, epoch: segStart,
                 body: "Kerbin");
 
-            // Vessel snapshot: crewed pod with Bill
             b.WithVesselSnapshot(
                 VesselSnapshotBuilder.CrewedShip("Orbit-1", "Bill Kerman", pid: 12345678)
                     .AsOrbiting(sma: 700000, ecc: 0.001, inc: 28.5,
-                        lan: 90, argPe: 45, mna: 0, epoch: 129500));
+                        lan: 90, argPe: 45, mna: 0, epoch: segStart));
 
             return b;
         }
 
-        internal static RecordingBuilder IslandProbe()
+        internal static RecordingBuilder IslandProbe(double baseUT = 0)
         {
-            // 20 points: launchpad → fly SE → island airfield
-            // UT 133000–133180
+            double t = baseUT + 3610;
             var b = new RecordingBuilder("Island Probe");
             double startLat = -0.0972;
             double startLon = -74.5575;
             double endLat = -1.52;
             double endLon = -71.97;
 
-            // Takeoff (0-20s)
-            b.AddPoint(133000, startLat, startLon, 77);
-            b.AddPoint(133010, startLat, startLon, 200);
+            b.AddPoint(t,     startLat, startLon, 77);
+            b.AddPoint(t+10,  startLat, startLon, 200);
+            b.AddPoint(t+20,  -0.15, -74.40, 400);
+            b.AddPoint(t+30,  -0.25, -74.20, 600);
+            b.AddPoint(t+40,  -0.40, -73.95, 800);
+            b.AddPoint(t+50,  -0.55, -73.70, 900);
+            b.AddPoint(t+60,  -0.70, -73.45, 950);
+            b.AddPoint(t+70,  -0.82, -73.20, 1000);
+            b.AddPoint(t+80,  -0.93, -72.95, 1000);
+            b.AddPoint(t+90,  -1.03, -72.70, 1000);
+            b.AddPoint(t+100, -1.12, -72.50, 1000);
+            b.AddPoint(t+110, -1.20, -72.30, 950);
+            b.AddPoint(t+120, -1.28, -72.15, 900);
+            b.AddPoint(t+130, -1.34, -72.05, 800);
+            b.AddPoint(t+140, -1.39, -71.98, 600);
+            b.AddPoint(t+150, -1.43, -71.97, 400);
+            b.AddPoint(t+160, -1.47, -71.97, 200);
+            b.AddPoint(t+170, -1.50, -71.97, 80);
+            b.AddPoint(t+175, -1.51, -71.97, 50);
+            b.AddPoint(t+180, endLat, endLon, 40);
 
-            // Climb + turn SE (20-60s)
-            b.AddPoint(133020, -0.15, -74.40, 400);
-            b.AddPoint(133030, -0.25, -74.20, 600);
-            b.AddPoint(133040, -0.40, -73.95, 800);
-            b.AddPoint(133050, -0.55, -73.70, 900);
-            b.AddPoint(133060, -0.70, -73.45, 950);
-
-            // Cruise toward island (60-120s)
-            b.AddPoint(133070, -0.82, -73.20, 1000);
-            b.AddPoint(133080, -0.93, -72.95, 1000);
-            b.AddPoint(133090, -1.03, -72.70, 1000);
-            b.AddPoint(133100, -1.12, -72.50, 1000);
-            b.AddPoint(133110, -1.20, -72.30, 950);
-            b.AddPoint(133120, -1.28, -72.15, 900);
-
-            // Approach + descent (120-180s)
-            b.AddPoint(133130, -1.34, -72.05, 800);
-            b.AddPoint(133140, -1.39, -71.98, 600);
-            b.AddPoint(133150, -1.43, -71.97, 400);
-            b.AddPoint(133160, -1.47, -71.97, 200);
-            b.AddPoint(133170, -1.50, -71.97, 80);
-            b.AddPoint(133175, -1.51, -71.97, 50);
-            b.AddPoint(133180, endLat, endLon, 40);  // landed
-
-            // Vessel: unmanned probe
             b.WithVesselSnapshot(
                 VesselSnapshotBuilder.ProbeShip("Island Probe", pid: 87654321)
                     .AsLanded(endLat, endLon, 40));
@@ -208,7 +193,7 @@ namespace Parsek.Tests
         {
             var node = Orbit1().Build();
             Assert.Equal("Orbit-1", node.GetValue("vesselName"));
-            Assert.Equal(10, node.GetNodes("POINT").Length);
+            Assert.Equal(11, node.GetNodes("POINT").Length);
             Assert.Single(node.GetNodes("ORBIT_SEGMENT"));
 
             var seg = node.GetNodes("ORBIT_SEGMENT")[0];
@@ -379,43 +364,71 @@ namespace Parsek.Tests
 
         #region Save File Injection (manual — requires save file)
 
+        /// <summary>
+        /// Read UT from FLIGHTSTATE in a save file.
+        /// </summary>
+        private static double ReadUTFromSave(string savePath)
+        {
+            string content = File.ReadAllText(savePath);
+            var match = Regex.Match(content, @"FLIGHTSTATE\s*\{[^}]*?UT\s*=\s*([0-9.eE+\-]+)",
+                RegexOptions.Singleline);
+            if (match.Success &&
+                double.TryParse(match.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double ut))
+                return ut;
+            return 0;
+        }
+
         [Trait("Category", "Manual")]
         [Fact]
         public void InjectAllRecordings()
         {
-            string savePath = Path.Combine(ProjectRoot,
-                "Kerbal Space Program", "saves", "4", "1.sfs");
-            if (!File.Exists(savePath))
+            string saveDir = Path.Combine(ProjectRoot,
+                "Kerbal Space Program", "saves", "test career");
+
+            // Inject into both persistent.sfs and the target save — KSP loads
+            // persistent first (sets initialLoadDone), so it must have the recordings too.
+            // Use the target save's UT as the base for recording timestamps.
+            string targetSave = "6.sfs";
+            string[] targets = { "persistent.sfs", targetSave };
+
+            string targetPath = Path.Combine(saveDir, targetSave);
+            if (!File.Exists(targetPath))
                 return;
 
-            // Work on a temp copy, then replace the original
-            string tempPath = savePath + ".tmp";
-            try
+            double baseUT = ReadUTFromSave(targetPath);
+
+            var writer = new ScenarioWriter();
+            writer.AddRecording(KscHopper(baseUT));
+            writer.AddRecording(SuborbitalArc(baseUT));
+            writer.AddRecording(Orbit1(baseUT));
+            writer.AddRecording(IslandProbe(baseUT));
+
+            foreach (string file in targets)
             {
-                var writer = new ScenarioWriter();
-                writer.AddRecording(KscHopper());
-                writer.AddRecording(SuborbitalArc());
-                writer.AddRecording(Orbit1());
-                writer.AddRecording(IslandProbe());
+                string savePath = Path.Combine(saveDir, file);
+                if (!File.Exists(savePath))
+                    continue;
 
-                writer.InjectIntoSaveFile(savePath, tempPath);
+                string tempPath = savePath + ".tmp";
+                try
+                {
+                    writer.InjectIntoSaveFile(savePath, tempPath);
 
-                // Verify the temp output before overwriting
-                string content = File.ReadAllText(tempPath);
-                Assert.Contains("name = ParsekScenario", content);
-                Assert.Contains("vesselName = KSC Hopper", content);
-                Assert.Contains("vesselName = Suborbital Arc", content);
-                Assert.Contains("vesselName = Orbit-1", content);
-                Assert.Contains("vesselName = Island Probe", content);
-                Assert.Contains("FLIGHTSTATE", content);
+                    string content = File.ReadAllText(tempPath);
+                    Assert.Contains("name = ParsekScenario", content);
+                    Assert.Contains("vesselName = KSC Hopper", content);
+                    Assert.Contains("vesselName = Suborbital Arc", content);
+                    Assert.Contains("vesselName = Orbit-1", content);
+                    Assert.Contains("vesselName = Island Probe", content);
+                    Assert.Contains("FLIGHTSTATE", content);
 
-                // Only replace if verification passed
-                File.Copy(tempPath, savePath, overwrite: true);
-            }
-            finally
-            {
-                if (File.Exists(tempPath))
-                    File.Delete(tempPath);
+                    File.Copy(tempPath, savePath, overwrite: true);
+                }
+                finally
+                {
+                    if (File.Exists(tempPath))
+                        File.Delete(tempPath);
+                }
             }
         }
 

@@ -262,6 +262,32 @@ namespace Parsek
 
             ReserveSnapshotCrew();
 
+            // Diagnostic summary of loaded recordings with UT context
+            double loadUT = Planetarium.GetUniversalTime();
+            ParsekLog.Log($"Scenario load summary — UT: {loadUT:F0}, {recordings.Count} recording(s)");
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var loadedRec = recordings[i];
+                double duration = loadedRec.EndUT - loadedRec.StartUT;
+                string status;
+                if (loadUT < loadedRec.StartUT)
+                    status = $"future (starts in {loadedRec.StartUT - loadUT:F0}s)";
+                else if (loadUT <= loadedRec.EndUT && duration > 0)
+                    status = $"IN PROGRESS ({(loadUT - loadedRec.StartUT) / duration * 100:F0}%)";
+                else if (loadUT <= loadedRec.EndUT)
+                    status = "IN PROGRESS";
+                else
+                    status = "past";
+                ParsekLog.Log($"  #{i}: \"{loadedRec.VesselName}\" — {status}");
+            }
+
+            if (crewReplacements.Count > 0)
+            {
+                ParsekLog.Log($"Crew reservations active ({crewReplacements.Count}):");
+                foreach (var kvp in crewReplacements)
+                    ParsekLog.Log($"  {kvp.Key} -> replacement: {kvp.Value}");
+            }
+
             // Auto-unreserve crew for recordings whose EndUT has already passed
             // but vessel was never spawned (e.g. UT advanced while in Space Center).
             double currentUT = Planetarium.GetUniversalTime();

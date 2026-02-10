@@ -42,6 +42,7 @@ namespace Parsek
 
             if (rec.Points.Count == 0 || FlightGlobals.Vessels == null)
             {
+                LogSpawnContext(rec, double.MaxValue);
                 rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot);
                 rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
                 if (!rec.VesselSpawned)
@@ -59,6 +60,7 @@ namespace Parsek
             CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == lastPt.bodyName);
             if (body == null)
             {
+                LogSpawnContext(rec, double.MaxValue);
                 rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot);
                 rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
                 if (!rec.VesselSpawned)
@@ -133,6 +135,8 @@ namespace Parsek
                 ParsekLog.Log($"Offset vessel #{index} ({rec.VesselName}) from {closestDist:F0}m to 250m from nearest vessel/recording");
             }
 
+            LogSpawnContext(rec, closestDist);
+
             rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot);
             rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
             if (rec.VesselSpawned)
@@ -148,6 +152,24 @@ namespace Parsek
                 else
                     ParsekLog.Log($"Vessel spawn failed for recording #{index} ({rec.VesselName}) — will retry (attempt {rec.SpawnAttempts}/{maxSpawnAttempts})");
             }
+        }
+
+        internal static void LogSpawnContext(RecordingStore.Recording rec, double closestDist)
+        {
+            string sit = rec.VesselSnapshot?.GetValue("sit") ?? "?";
+            var allCrew = new List<string>();
+            if (rec.VesselSnapshot != null)
+            {
+                foreach (ConfigNode partNode in rec.VesselSnapshot.GetNodes("PART"))
+                {
+                    var crewNames = partNode.GetValues("crew");
+                    for (int c = 0; c < crewNames.Length; c++)
+                        allCrew.Add(crewNames[c]);
+                }
+            }
+            string crewStr = allCrew.Count > 0 ? $", crew=[{string.Join(", ", allCrew)}]" : "";
+            ParsekLog.Log($"Spawning vessel: \"{rec.VesselName}\" sit={sit}{crewStr}, " +
+                $"nearest vessel={closestDist:F0}m");
         }
 
         public static void RecoverVessel(ConfigNode vesselNode)

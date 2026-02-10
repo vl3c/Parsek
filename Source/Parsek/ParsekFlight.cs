@@ -45,6 +45,13 @@ namespace Parsek
         // Timeline warp protection — tracks previous frame's UT
         private double lastTimelineUT = -1;
 
+        // Diagnostic logging guards (log once per state transition, not per frame)
+        private HashSet<int> loggedGhostEnter = new HashSet<int>();
+        private HashSet<int> loggedOrbitSegments = new HashSet<int>();
+
+        // Warp-stop guard: only stop time warp once per recording
+        private HashSet<int> warpStoppedForRecording = new HashSet<int>();
+
         // UI
         private Rect windowRect = new Rect(20, 100, 250, 250);
         private bool showUI = false;
@@ -254,7 +261,18 @@ namespace Parsek
             // can't record with them again (they belong to deferred-spawn vessels)
             ParsekScenario.SwapReservedCrewInFlight();
 
-            Log($"Timeline has {RecordingStore.CommittedRecordings.Count} committed recording(s)");
+            var committed = RecordingStore.CommittedRecordings;
+            Log($"Timeline has {committed.Count} committed recording(s)");
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                string hasVessel = rec.VesselSnapshot != null ? "vessel" : "ghost-only";
+                string orbitInfo = rec.OrbitSegments.Count > 0
+                    ? $", {rec.OrbitSegments.Count} orbit seg(s)"
+                    : "";
+                Log($"  Recording #{i}: \"{rec.VesselName}\" UT {rec.StartUT:F0}-{rec.EndUT:F0}, " +
+                    $"{rec.Points.Count} pts{orbitInfo}, {hasVessel}");
+            }
         }
 
         #endregion
@@ -357,6 +375,7 @@ namespace Parsek
             }
 
             orbitCache.Clear();
+            loggedOrbitSegments.Clear();
             Log("Manual playback stopped");
         }
 
@@ -407,9 +426,12 @@ namespace Parsek
                                        currentUT + TimeWarp.CurrentRate >= rec.StartUT;
                     if (crossedInto || approaching)
                     {
-                        TimeWarp.SetRate(0, true);
-                        Log($"Stopped time warp for recording #{i} ({rec.VesselName}) ghost playback");
-                        ScreenMessage($"Time warp stopped — '{rec.VesselName}' playback", 3f);
+                        if (warpStoppedForRecording.Add(i))
+                        {
+                            TimeWarp.SetRate(0, true);
+                            Log($"Stopped time warp for recording #{i} ({rec.VesselName}) ghost playback");
+                            ScreenMessage($"Time warp stopped — '{rec.VesselName}' playback", 3f);
+                        }
                         break;
                     }
                 }
@@ -442,7 +464,11 @@ namespace Parsek
                 {
                     // Normal ghost playback
                     if (!ghostActive)
+                    {
                         SpawnTimelineGhost(i, rec);
+                        if (loggedGhostEnter.Add(i))
+                            Log($"Ghost ENTERED range: #{i} \"{rec.VesselName}\" at UT {currentUT:F1}");
+                    }
 
                     int playbackIdx = 0;
                     if (timelinePlaybackIndices.ContainsKey(i))
@@ -457,6 +483,7 @@ namespace Parsek
                 else if (pastEnd && needsSpawn && ghostActive)
                 {
                     // Ghost was playing, UT just crossed EndUT — hold at final pos, spawn, despawn ghost
+                    Log($"Ghost EXITED range: #{i} \"{rec.VesselName}\" at UT {currentUT:F1} — spawning vessel");
                     PositionGhostAt(timelineGhosts[i], rec.Points[rec.Points.Count - 1]);
                     VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
                     DestroyTimelineGhost(i);
@@ -472,7 +499,10 @@ namespace Parsek
                 {
                     // Outside time range, no spawn needed — despawn ghost if active
                     if (ghostActive)
+                    {
+                        Log($"Ghost EXITED range: #{i} \"{rec.VesselName}\" at UT {currentUT:F1} — no vessel to spawn");
                         DestroyTimelineGhost(i);
+                    }
                     // Catch up resource deltas for recordings we jumped past
                     if (pastEnd)
                         ApplyResourceDeltas(rec, currentUT);
@@ -535,6 +565,15 @@ namespace Parsek
                 }
 
                 rec.LastAppliedResourceIndex = targetIndex;
+
+                // Log summary when all resource deltas have been applied
+                if (targetIndex == points.Count - 1 && startIdx < targetIndex)
+                {
+                    Log($"Resource deltas complete for \"{rec.VesselName}\" (recorded totals): " +
+                        $"funds={toPoint.funds - points[0].funds:+0.0;-0.0}, " +
+                        $"science={toPoint.science - points[0].science:+0.0;-0.0}, " +
+                        $"rep={toPoint.reputation - points[0].reputation:+0.0;-0.0}");
+                }
             }
         }
 
@@ -579,6 +618,9 @@ namespace Parsek
                 DestroyTimelineGhost(key);
             }
             orbitCache.Clear();
+            loggedGhostEnter.Clear();
+            loggedOrbitSegments.Clear();
+            warpStoppedForRecording.Clear();
         }
 
         #endregion
@@ -739,7 +781,11 @@ namespace Parsek
                 {
                     // Use segment index as cache key offset
                     int segIdx = segments.IndexOf(seg.Value);
-                    PositionGhostFromOrbit(ghost, seg.Value, targetUT, orbitCacheBase + segIdx);
+                    int cacheKey = orbitCacheBase + segIdx;
+                    if (loggedOrbitSegments.Add(cacheKey))
+                        Log($"Orbit segment activated: cache={cacheKey}, body={seg.Value.bodyName}, " +
+                            $"sma={seg.Value.semiMajorAxis:F0}, UT {seg.Value.startUT:F0}-{seg.Value.endUT:F0}");
+                    PositionGhostFromOrbit(ghost, seg.Value, targetUT, cacheKey);
                     return;
                 }
             }
