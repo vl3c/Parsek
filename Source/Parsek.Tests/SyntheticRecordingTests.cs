@@ -388,7 +388,7 @@ namespace Parsek.Tests
             // Inject into both persistent.sfs and the target save — KSP loads
             // persistent first (sets initialLoadDone), so it must have the recordings too.
             // Use the target save's UT as the base for recording timestamps.
-            string targetSave = "6.sfs";
+            string targetSave = "1.sfs";
             string[] targets = { "persistent.sfs", targetSave };
 
             string targetPath = Path.Combine(saveDir, targetSave);
