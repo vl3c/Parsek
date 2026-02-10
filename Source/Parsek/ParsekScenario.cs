@@ -352,33 +352,43 @@ namespace Parsek
                 {
                     foreach (ProtoCrewMember pcm in roster.Crew)
                     {
-                        if (pcm.name == name && pcm.rosterStatus == ProtoCrewMember.RosterStatus.Available)
+                        if (pcm.name != name) continue;
+
+                        // Skip dead/missing crew — they'll be stripped at spawn time
+                        if (!ShouldProcessCrewForReservation(pcm.rosterStatus))
+                            break;
+
+                        // Mark as Assigned if Available
+                        if (NeedsStatusChange(pcm.rosterStatus))
                         {
                             pcm.rosterStatus = ProtoCrewMember.RosterStatus.Assigned;
                             Debug.Log($"[Parsek Scenario] Reserved crew '{name}' for deferred vessel spawn");
+                        }
 
-                            // Hire a replacement kerbal so the available pool stays constant
-                            if (!crewReplacements.ContainsKey(name))
+                        // Hire a replacement kerbal so the available pool stays constant.
+                        // This also handles crew who are already Assigned (e.g. on the pad
+                        // vessel after a revert) — they still need a replacement so the
+                        // swap can move them off the active vessel.
+                        if (!crewReplacements.ContainsKey(name))
+                        {
+                            try
                             {
-                                try
+                                ProtoCrewMember replacement = roster.GetNewKerbal(ProtoCrewMember.KerbalType.Crew);
+                                if (replacement != null)
                                 {
-                                    ProtoCrewMember replacement = roster.GetNewKerbal(ProtoCrewMember.KerbalType.Crew);
-                                    if (replacement != null)
-                                    {
-                                        KerbalRoster.SetExperienceTrait(replacement, pcm.experienceTrait.TypeName);
-                                        crewReplacements[name] = replacement.name;
-                                        Debug.Log($"[Parsek Scenario] Hired replacement '{replacement.name}' " +
-                                            $"(trait: {pcm.experienceTrait.TypeName}) for reserved '{name}'");
-                                    }
-                                }
-                                catch (System.Exception ex)
-                                {
-                                    Debug.Log($"[Parsek Scenario] Failed to hire replacement for '{name}': {ex.Message}");
+                                    KerbalRoster.SetExperienceTrait(replacement, pcm.experienceTrait.TypeName);
+                                    crewReplacements[name] = replacement.name;
+                                    Debug.Log($"[Parsek Scenario] Hired replacement '{replacement.name}' " +
+                                        $"(trait: {pcm.experienceTrait.TypeName}) for reserved '{name}'");
                                 }
                             }
-
-                            break;
+                            catch (System.Exception ex)
+                            {
+                                Debug.Log($"[Parsek Scenario] Failed to hire replacement for '{name}': {ex.Message}");
+                            }
                         }
+
+                        break;
                     }
                 }
             }
@@ -522,6 +532,45 @@ namespace Parsek
                     Debug.Log($"[Parsek Scenario] Swapped '{original.name}' → '{replacement.name}' in part '{part.partInfo.title}'");
                 }
             }
+        }
+
+        /// <summary>
+        /// Returns true if a crew member with the given roster status should be
+        /// processed for reservation (i.e. not dead/missing). Extracted for testability.
+        /// </summary>
+        internal static bool ShouldProcessCrewForReservation(ProtoCrewMember.RosterStatus status)
+        {
+            return status != ProtoCrewMember.RosterStatus.Dead &&
+                   status != ProtoCrewMember.RosterStatus.Missing;
+        }
+
+        /// <summary>
+        /// Returns true if a crew member with the given roster status needs to be
+        /// marked as Assigned. Already-Assigned crew (e.g. on the pad vessel after
+        /// revert) still need replacements but don't need a status change.
+        /// </summary>
+        internal static bool NeedsStatusChange(ProtoCrewMember.RosterStatus status)
+        {
+            return status == ProtoCrewMember.RosterStatus.Available;
+        }
+
+        /// <summary>
+        /// Extracts crew names from a vessel snapshot ConfigNode.
+        /// </summary>
+        internal static List<string> ExtractCrewFromSnapshot(ConfigNode snapshot)
+        {
+            var crew = new List<string>();
+            if (snapshot == null) return crew;
+
+            foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
+            {
+                foreach (string name in partNode.GetValues("crew"))
+                {
+                    if (!string.IsNullOrEmpty(name))
+                        crew.Add(name);
+                }
+            }
+            return crew;
         }
 
         /// <summary>

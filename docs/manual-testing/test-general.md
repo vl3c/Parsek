@@ -53,11 +53,34 @@ Use career mode for all tests (resource tracking requires it).
 
 ## Crew Replacement
 
+### Basic swap (regression test for crew-not-swapped bug)
+1. Launch a vessel with Jeb as pilot
+2. F9 start recording, fly around briefly, F9 stop
+3. Revert to Launch
+4. Merge dialog appears — pick "Merge + Keep Vessel"
+5. **Verify on the pad:** the vessel's crew portrait should show a REPLACEMENT kerbal, NOT Jeb
+   - If Jeb is still shown, the swap failed (this was the bug)
+6. Check `KSP.log` for `[Parsek Scenario] Swapped 'Jebediah Kerman' → '...'`
+7. Launch the new flight with the replacement pilot
+8. Wait for EndUT → verify Jeb's recorded vessel spawns WITH Jeb aboard
+   - Go to Tracking Station, click the spawned vessel, check crew tab
+   - Jeb should be listed as crew on the spawned vessel
+9. Verify: replacement kerbal is removed from roster (Astronaut Complex)
+
+### Astronaut Complex verification
 1. Record with Jeb → revert → "Merge + Keep Vessel"
-2. Check Astronaut Complex: Jeb should be Assigned, a new kerbal with same trait should appear
-3. Launch new flight — replacement kerbal is available in crew selection
-4. Wait for EndUT → Jeb's vessel spawns, replacement is removed from roster
-5. Repeat: record again → replacement pool stays stable (no kerbal leak)
+2. Go to Space Center → Astronaut Complex
+3. Jeb should be Assigned (not Available)
+4. A new kerbal with Pilot trait should appear as Available
+5. Wait for EndUT → Jeb's vessel spawns, replacement is removed from roster
+6. Repeat: record again → replacement pool stays stable (no kerbal leak)
+
+### Multi-crew vessel swap
+1. Build a vessel with 3 crew (e.g. Mk1-3 pod with Jeb, Bill, Valentina)
+2. Record → revert → "Merge + Keep Vessel"
+3. Verify: ALL three originals are swapped for replacements on the pad vessel
+4. Check log for three `Swapped` entries
+5. At EndUT: spawned vessel should have all three original kerbals
 
 ## Wipe Cleanup
 

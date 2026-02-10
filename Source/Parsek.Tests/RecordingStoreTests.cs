@@ -327,5 +327,231 @@ namespace Parsek.Tests
             Assert.Null(node.GetNode("CREW_REPLACEMENTS"));
             // This mirrors what LoadCrewReplacements does: clear + return early
         }
+
+        // --- Reservation decision logic (extracted for testability) ---
+
+        [Fact]
+        public void ShouldProcessCrew_Available_ReturnsTrue()
+        {
+            Assert.True(ParsekScenario.ShouldProcessCrewForReservation(
+                ProtoCrewMember.RosterStatus.Available));
+        }
+
+        [Fact]
+        public void ShouldProcessCrew_Assigned_ReturnsTrue()
+        {
+            // Key scenario: crew already Assigned (on pad vessel after revert)
+            // must still be processed so a replacement is hired and swap can happen
+            Assert.True(ParsekScenario.ShouldProcessCrewForReservation(
+                ProtoCrewMember.RosterStatus.Assigned));
+        }
+
+        [Fact]
+        public void ShouldProcessCrew_Dead_ReturnsFalse()
+        {
+            Assert.False(ParsekScenario.ShouldProcessCrewForReservation(
+                ProtoCrewMember.RosterStatus.Dead));
+        }
+
+        [Fact]
+        public void ShouldProcessCrew_Missing_ReturnsFalse()
+        {
+            Assert.False(ParsekScenario.ShouldProcessCrewForReservation(
+                ProtoCrewMember.RosterStatus.Missing));
+        }
+
+        [Fact]
+        public void NeedsStatusChange_Available_ReturnsTrue()
+        {
+            Assert.True(ParsekScenario.NeedsStatusChange(
+                ProtoCrewMember.RosterStatus.Available));
+        }
+
+        [Fact]
+        public void NeedsStatusChange_Assigned_ReturnsFalse()
+        {
+            // Already Assigned (e.g. on pad vessel) — no status change needed,
+            // but replacement still needed
+            Assert.False(ParsekScenario.NeedsStatusChange(
+                ProtoCrewMember.RosterStatus.Assigned));
+        }
+
+        [Fact]
+        public void NeedsStatusChange_Dead_ReturnsFalse()
+        {
+            Assert.False(ParsekScenario.NeedsStatusChange(
+                ProtoCrewMember.RosterStatus.Dead));
+        }
+
+        // --- Snapshot crew extraction ---
+
+        [Fact]
+        public void ExtractCrewFromSnapshot_SinglePart_SingleCrew()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            part.AddValue("crew", "Jebediah Kerman");
+
+            var crew = ParsekScenario.ExtractCrewFromSnapshot(snapshot);
+
+            Assert.Single(crew);
+            Assert.Equal("Jebediah Kerman", crew[0]);
+        }
+
+        [Fact]
+        public void ExtractCrewFromSnapshot_MultiplePartsAndCrew()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part1 = snapshot.AddNode("PART");
+            part1.AddValue("crew", "Jebediah Kerman");
+            part1.AddValue("crew", "Bill Kerman");
+            var part2 = snapshot.AddNode("PART");
+            part2.AddValue("crew", "Valentina Kerman");
+
+            var crew = ParsekScenario.ExtractCrewFromSnapshot(snapshot);
+
+            Assert.Equal(3, crew.Count);
+            Assert.Contains("Jebediah Kerman", crew);
+            Assert.Contains("Bill Kerman", crew);
+            Assert.Contains("Valentina Kerman", crew);
+        }
+
+        [Fact]
+        public void ExtractCrewFromSnapshot_NoCrew_ReturnsEmpty()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddNode("PART"); // part with no crew
+
+            var crew = ParsekScenario.ExtractCrewFromSnapshot(snapshot);
+
+            Assert.Empty(crew);
+        }
+
+        [Fact]
+        public void ExtractCrewFromSnapshot_NullSnapshot_ReturnsEmpty()
+        {
+            var crew = ParsekScenario.ExtractCrewFromSnapshot(null);
+
+            Assert.Empty(crew);
+        }
+
+        [Fact]
+        public void ExtractCrewFromSnapshot_EmptyCrewValue_Skipped()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            part.AddValue("crew", "");
+            part.AddValue("crew", "Jebediah Kerman");
+
+            var crew = ParsekScenario.ExtractCrewFromSnapshot(snapshot);
+
+            Assert.Single(crew);
+            Assert.Equal("Jebediah Kerman", crew[0]);
+        }
+    }
+
+    [Collection("Sequential")]
+    public class MergeDialogTests
+    {
+        private static List<TrajectoryPoint> MakePoints(int count, double startUT = 100)
+        {
+            var points = new List<TrajectoryPoint>();
+            for (int i = 0; i < count; i++)
+            {
+                points.Add(new TrajectoryPoint
+                {
+                    ut = startUT + i * 10,
+                    latitude = 0,
+                    longitude = 0,
+                    altitude = 100,
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero,
+                    bodyName = "Kerbin"
+                });
+            }
+            return points;
+        }
+
+        [Fact]
+        public void BuildMergeMessage_Recover_MentionsLaunchSite()
+        {
+            var rec = new RecordingStore.Recording { VesselName = "TestShip" };
+            rec.Points.AddRange(MakePoints(3));
+            rec.DistanceFromLaunch = 50;
+
+            string msg = MergeDialog.BuildMergeMessage(rec, 30,
+                RecordingStore.MergeDefault.Recover);
+
+            Assert.Contains("TestShip", msg);
+            Assert.Contains("launch site", msg);
+        }
+
+        [Fact]
+        public void BuildMergeMessage_MergeOnly_MentionsDestroyed()
+        {
+            var rec = new RecordingStore.Recording { VesselName = "Boom" };
+            rec.Points.AddRange(MakePoints(5));
+            rec.VesselDestroyed = true;
+
+            string msg = MergeDialog.BuildMergeMessage(rec, 60,
+                RecordingStore.MergeDefault.MergeOnly);
+
+            Assert.Contains("destroyed", msg);
+        }
+
+        [Fact]
+        public void BuildMergeMessage_Persist_ShortDistance_MentionsMaxDistance()
+        {
+            var rec = new RecordingStore.Recording { VesselName = "Orbiter" };
+            rec.Points.AddRange(MakePoints(10));
+            rec.DistanceFromLaunch = 50;
+            rec.MaxDistanceFromLaunch = 500000;
+
+            string msg = MergeDialog.BuildMergeMessage(rec, 300,
+                RecordingStore.MergeDefault.Persist);
+
+            Assert.Contains("500000", msg);
+            Assert.Contains("persist", msg, System.StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public void BuildMergeMessage_Persist_FarDistance_MentionsSituation()
+        {
+            var rec = new RecordingStore.Recording { VesselName = "Explorer" };
+            rec.Points.AddRange(MakePoints(10));
+            rec.DistanceFromLaunch = 500;
+            rec.VesselSituation = "Orbiting Kerbin";
+
+            string msg = MergeDialog.BuildMergeMessage(rec, 300,
+                RecordingStore.MergeDefault.Persist);
+
+            Assert.Contains("Orbiting Kerbin", msg);
+        }
+
+        [Fact]
+        public void BuildMergeMessage_IncludesPointCount()
+        {
+            var rec = new RecordingStore.Recording { VesselName = "Ship" };
+            rec.Points.AddRange(MakePoints(7));
+
+            string msg = MergeDialog.BuildMergeMessage(rec, 60,
+                RecordingStore.MergeDefault.Recover);
+
+            Assert.Contains("7", msg);
+        }
+
+        [Fact]
+        public void BuildMergeMessage_IncludesDuration()
+        {
+            var rec = new RecordingStore.Recording { VesselName = "Ship" };
+            rec.Points.AddRange(MakePoints(3));
+
+            string msg = MergeDialog.BuildMergeMessage(rec, 45.3,
+                RecordingStore.MergeDefault.Recover);
+
+            // Duration is locale-formatted ("45.3" or "45,3"), just check it contains "45"
+            Assert.Contains("45", msg);
+            Assert.Contains("Duration:", msg);
+        }
     }
 }
