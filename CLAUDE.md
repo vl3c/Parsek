@@ -58,6 +58,11 @@ Parsek/
 │   │   ├── VesselSpawner.cs  # Vessel spawn/recover/snapshot utilities
 │   │   └── MergeDialog.cs    # Post-revert merge dialog
 │   └── Parsek.Tests/         # Unit tests (xUnit)
+│       ├── Generators/
+│       │   ├── RecordingBuilder.cs       # Fluent RECORDING ConfigNode builder
+│       │   ├── VesselSnapshotBuilder.cs  # Minimal VESSEL ConfigNode builder
+│       │   └── ScenarioWriter.cs         # SCENARIO assembly + .sfs injection
+│       └── SyntheticRecordingTests.cs    # 4 synthetic recordings + injection tests
 ├── docs/                     # Documentation
 ├── mods/                     # Reference mods (git-ignored)
 ├── CLAUDE.md                 # This file
@@ -81,6 +86,14 @@ Builds automatically copy to `Kerbal Space Program/GameData/Parsek/Plugins/`
 cd Source/Parsek.Tests
 dotnet test
 ```
+
+### Synthetic Recording Injection
+```bash
+cd Source/Parsek.Tests
+dotnet test --filter InjectAllRecordings
+```
+
+Injects 4 pre-built recordings (KSC Hopper, Suborbital Arc, Orbit-1, Island Probe) into `saves/4/1.sfs`. See `docs/synthetic-recordings.md` for the full in-game walkthrough and builder API docs.
 
 ### In-Game Test
 ```bash
