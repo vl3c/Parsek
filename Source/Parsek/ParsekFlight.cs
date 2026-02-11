@@ -31,7 +31,7 @@ namespace Parsek
         private double playbackStartUT;
         private double recordingStartUT;
         private GameObject ghostObject;
-        private Material ghostMaterial;
+        private List<Material> previewGhostMaterials = new List<Material>();
         internal int lastPlaybackIndex = 0;
 
         // Timeline ghost state (auto-playback of committed recordings)
@@ -361,8 +361,22 @@ namespace Parsek
                 return;
             }
 
-            ghostObject = CreateGhostSphere("Parsek_Ghost_Preview", Color.green);
-            ghostMaterial = ghostObject.GetComponent<Renderer>()?.material;
+            ExitAllWarpForPlaybackStart("Preview");
+
+            Color previewColor = Color.green;
+            ghostObject = BuildPreviewGhostFromActiveVessel("Parsek_Ghost_Preview");
+            if (ghostObject != null)
+            {
+                previewGhostMaterials = ApplyGhostStyleAndCollectMaterials(ghostObject, previewColor, 0.55f);
+                Log("Manual preview ghost: built from active vessel snapshot");
+            }
+            else
+            {
+                ghostObject = CreateGhostSphere("Parsek_Ghost_Preview", previewColor);
+                var m = ghostObject.GetComponent<Renderer>()?.material;
+                previewGhostMaterials = m != null ? new List<Material> { m } : new List<Material>();
+                Log("Manual preview ghost: using sphere fallback");
+            }
 
             // Replay from current time (ghost starts at recording start position)
             playbackStartUT = Planetarium.GetUniversalTime();
@@ -379,10 +393,14 @@ namespace Parsek
         {
             isPlaying = false;
 
-            if (ghostMaterial != null)
+            if (previewGhostMaterials != null)
             {
-                Destroy(ghostMaterial);
-                ghostMaterial = null;
+                for (int i = 0; i < previewGhostMaterials.Count; i++)
+                {
+                    if (previewGhostMaterials[i] != null)
+                        Destroy(previewGhostMaterials[i]);
+                }
+                previewGhostMaterials.Clear();
             }
 
             if (ghostObject != null)
@@ -430,8 +448,9 @@ namespace Parsek
             double currentUT = Planetarium.GetUniversalTime();
 
             // Prevent time warp from skipping ghost playback for vessel spawns
-            if (committed.Count > 0 && TimeWarp.CurrentRate > 1f && lastTimelineUT >= 0)
+            if (committed.Count > 0 && IsAnyWarpActive() && lastTimelineUT >= 0)
             {
+                double timelineStep = System.Math.Max(0, currentUT - lastTimelineUT);
                 for (int i = 0; i < committed.Count; i++)
                 {
                     var rec = committed[i];
@@ -440,13 +459,13 @@ namespace Parsek
 
                     bool crossedInto = lastTimelineUT < rec.StartUT && currentUT >= rec.StartUT;
                     bool approaching = currentUT < rec.StartUT &&
-                                       currentUT + TimeWarp.CurrentRate >= rec.StartUT;
+                                       rec.StartUT - currentUT <= System.Math.Max(1.0, timelineStep);
                     if (crossedInto || approaching)
                     {
                         if (warpStoppedForRecording.Add(i))
                         {
-                            TimeWarp.SetRate(0, true);
-                            Log($"Stopped time warp for recording #{i} ({rec.VesselName}) ghost playback");
+                            ExitAllWarpForPlaybackStart(rec.VesselName);
+                            Log($"Stopped warp for recording #{i} ({rec.VesselName}) ghost playback");
                             ScreenMessage($"Time warp stopped — '{rec.VesselName}' playback", 3f);
                         }
                         break;
@@ -661,6 +680,37 @@ namespace Parsek
             loggedGhostEnter.Clear();
             loggedOrbitSegments.Clear();
             warpStoppedForRecording.Clear();
+        }
+
+        GameObject BuildPreviewGhostFromActiveVessel(string name)
+        {
+            Vessel vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null) return null;
+
+            ProtoVessel pv = vessel.BackupVessel();
+            if (pv == null) return null;
+
+            ConfigNode node = new ConfigNode("VESSEL");
+            pv.Save(node);
+
+            var recordingView = new RecordingStore.Recording
+            {
+                VesselSnapshot = node
+            };
+            return GhostVisualBuilder.BuildTimelineGhostFromSnapshot(recordingView, name);
+        }
+
+        bool IsAnyWarpActive()
+        {
+            // CurrentRateIndex > 0 covers both rails warp and physics warp.
+            return TimeWarp.CurrentRateIndex > 0 || TimeWarp.CurrentRate > 1f;
+        }
+
+        void ExitAllWarpForPlaybackStart(string context)
+        {
+            if (!IsAnyWarpActive()) return;
+            TimeWarp.SetRate(0, true);
+            Log($"Warp reset for playback start ({context})");
         }
 
         #endregion

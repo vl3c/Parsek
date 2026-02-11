@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Globalization;
 using UnityEngine;
 
 namespace Parsek
@@ -117,16 +119,25 @@ namespace Parsek
 
             if (closestDist < 200.0)
             {
-                // Offset away from the closest vessel
+                // Offset away from the closest vessel along the body surface to avoid
+                // injecting vertical error that can produce hovering landed spawns.
                 Vector3d diff = spawnPos - closestPos;
-                Vector3d direction = diff.magnitude > 0.001
-                    ? diff.normalized
-                    : body.GetSurfaceNVector(lastPt.latitude, lastPt.longitude);
-                Vector3d offsetPos = closestPos + direction * 250.0;
+                Vector3d normal = body.GetSurfaceNVector(lastPt.latitude, lastPt.longitude).normalized;
+                Vector3d tangent = diff - Vector3d.Dot(diff, normal) * normal;
+                if (tangent.magnitude < 0.001)
+                    tangent = Vector3d.Cross(normal, Vector3d.up);
+                if (tangent.magnitude < 0.001)
+                    tangent = Vector3d.Cross(normal, Vector3d.right);
+                tangent = tangent.normalized;
 
-                double newLat = body.GetLatitude(offsetPos);
-                double newLon = body.GetLongitude(offsetPos);
-                double newAlt = body.GetAltitude(offsetPos);
+                double angularDistance = 250.0 / body.Radius;
+                Vector3d rotatedNormal =
+                    (normal * Math.Cos(angularDistance) + tangent * Math.Sin(angularDistance)).normalized;
+                Vector3d surfacePos = body.position + rotatedNormal * (body.Radius + 1.0);
+
+                double newLat = body.GetLatitude(surfacePos);
+                double newLon = body.GetLongitude(surfacePos);
+                double newAlt = ResolveRelocatedAltitude(rec, body, newLat, newLon);
 
                 rec.VesselSnapshot.SetValue("lat", newLat.ToString("R"));
                 rec.VesselSnapshot.SetValue("lon", newLon.ToString("R"));
@@ -239,7 +250,10 @@ namespace Parsek
             return false;
         }
 
-        public static void SnapshotVessel(RecordingStore.Recording pending, bool vesselDestroyed)
+        public static void SnapshotVessel(
+            RecordingStore.Recording pending,
+            bool vesselDestroyed,
+            Vessel vesselOverride = null)
         {
             if (pending == null || pending.Points.Count == 0) return;
 
@@ -277,7 +291,7 @@ namespace Parsek
                 return;
             }
 
-            Vessel vessel = FlightGlobals.ActiveVessel;
+            Vessel vessel = vesselOverride ?? FlightGlobals.ActiveVessel;
             if (vessel == null)
             {
                 pending.VesselDestroyed = true;
@@ -340,6 +354,57 @@ namespace Parsek
                 if (d > maxDist) maxDist = d;
             }
             pending.MaxDistanceFromLaunch = maxDist;
+        }
+
+        private static double ResolveRelocatedAltitude(
+            RecordingStore.Recording rec, CelestialBody body, double latitude, double longitude)
+        {
+            bool landedLike = IsLandedLikeSnapshot(rec?.VesselSnapshot);
+            if (landedLike)
+            {
+                double terrainAlt = body.TerrainAltitude(latitude, longitude);
+                if (!double.IsNaN(terrainAlt) && !double.IsInfinity(terrainAlt))
+                    return Math.Max(0.0, terrainAlt);
+            }
+
+            if (TryGetSnapshotDouble(rec?.VesselSnapshot, "alt", out double snapshotAlt))
+                return snapshotAlt;
+
+            return 0.0;
+        }
+
+        private static bool IsLandedLikeSnapshot(ConfigNode snapshot)
+        {
+            if (snapshot == null) return false;
+
+            string sit = snapshot.GetValue("sit") ?? string.Empty;
+            if (sit.Equals("LANDED", StringComparison.OrdinalIgnoreCase) ||
+                sit.Equals("PRELAUNCH", StringComparison.OrdinalIgnoreCase) ||
+                sit.Equals("SPLASHED", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (TryGetSnapshotBool(snapshot, "landed", out bool landed) && landed)
+                return true;
+            if (TryGetSnapshotBool(snapshot, "splashed", out bool splashed) && splashed)
+                return true;
+
+            return false;
+        }
+
+        private static bool TryGetSnapshotBool(ConfigNode node, string key, out bool value)
+        {
+            value = false;
+            if (node == null) return false;
+            string raw = node.GetValue(key);
+            return bool.TryParse(raw, out value);
+        }
+
+        private static bool TryGetSnapshotDouble(ConfigNode node, string key, out double value)
+        {
+            value = 0.0;
+            if (node == null) return false;
+            string raw = node.GetValue(key);
+            return double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
         }
     }
 }

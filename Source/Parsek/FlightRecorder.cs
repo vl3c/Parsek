@@ -135,6 +135,28 @@ namespace Parsek
 
             if (v.persistentId != RecordingVesselId)
             {
+                Vessel recordedVessel = FindVesselByPid(RecordingVesselId);
+                if (isOnRails)
+                {
+                    currentOrbitSegment.endUT = Planetarium.GetUniversalTime();
+                    OrbitSegments.Add(currentOrbitSegment);
+                    isOnRails = false;
+                }
+
+                CaptureAtStop = new RecordingStore.Recording
+                {
+                    RecordingId = System.Guid.NewGuid().ToString("N"),
+                    RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                    GhostGeometryVersion = RecordingStore.CurrentGhostGeometryVersion,
+                    VesselName = recordedVessel != null ? recordedVessel.vesselName : v.vesselName,
+                    Points = new List<TrajectoryPoint>(Recording),
+                    OrbitSegments = new List<OrbitSegment>(OrbitSegments)
+                };
+                VesselSpawner.SnapshotVessel(
+                    CaptureAtStop,
+                    VesselDestroyedDuringRecording || recordedVessel == null,
+                    recordedVessel);
+
                 Patches.PhysicsFramePatch.ActiveRecorder = null;
                 IsRecording = false;
                 ParsekLog.Log($"Active vessel changed during recording (was pid={RecordingVesselId}, now pid={v.persistentId}) — auto-stopping");
@@ -313,6 +335,18 @@ namespace Parsek
             Patches.PhysicsFramePatch.ActiveRecorder = null;
             IsRecording = false;
             ParsekLog.Log("Auto-stopped recording due to scene change");
+        }
+
+        private static Vessel FindVesselByPid(uint pid)
+        {
+            if (FlightGlobals.Vessels == null) return null;
+            for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
+            {
+                Vessel vessel = FlightGlobals.Vessels[i];
+                if (vessel != null && vessel.persistentId == pid)
+                    return vessel;
+            }
+            return null;
         }
     }
 }
