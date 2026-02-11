@@ -24,7 +24,9 @@ namespace Parsek
             for (int i = 0; i < partNodes.Length; i++)
             {
                 ConfigNode partNode = partNodes[i];
-                string rawPart = partNode.GetValue("part");
+                // Proto snapshots use "name" for part ID in PART nodes.
+                // Some synthetic builders may also emit "part"; support both.
+                string rawPart = partNode.GetValue("name") ?? partNode.GetValue("part");
                 string partName = TryExtractPartName(rawPart);
                 if (string.IsNullOrEmpty(partName))
                     continue;

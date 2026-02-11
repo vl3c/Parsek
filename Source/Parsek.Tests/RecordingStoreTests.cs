@@ -450,6 +450,7 @@ namespace Parsek.Tests
         [InlineData("mk1pod_v2_123456", "mk1pod_v2")]
         [InlineData("probeCoreOcto2_1", "probeCoreOcto2")]
         [InlineData("adapter_size2_size1", "adapter_size2_size1")]
+        [InlineData("mk1pod.v2", "mk1pod.v2")]
         [InlineData("", null)]
         public void TryExtractPartName_Works(string raw, string expected)
         {
