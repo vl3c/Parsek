@@ -253,6 +253,8 @@ namespace Parsek
                 pending.VesselSnapshot = null;
                 pending.GhostGeometryAvailable = false;
                 pending.GhostGeometryCaptureError = "vessel_destroyed";
+                pending.GhostGeometryCaptureStrategy = "live_hierarchy_probe_v1";
+                pending.GhostGeometryProbeStatus = "vessel_destroyed";
 
                 // Use last recorded point for distance (may be a different SOI)
                 var lastPoint = pending.Points[pending.Points.Count - 1];
@@ -282,6 +284,8 @@ namespace Parsek
                 pending.VesselSnapshot = null;
                 pending.GhostGeometryAvailable = false;
                 pending.GhostGeometryCaptureError = "no_active_vessel";
+                pending.GhostGeometryCaptureStrategy = "live_hierarchy_probe_v1";
+                pending.GhostGeometryProbeStatus = "no_active_vessel";
                 pending.VesselSituation = "Unknown (no active vessel)";
                 ParsekLog.Log("No active vessel at snapshot time");
                 return;

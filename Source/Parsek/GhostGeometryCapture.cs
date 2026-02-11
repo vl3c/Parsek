@@ -19,6 +19,22 @@ namespace Parsek
             rec.GhostGeometryRelativePath = RecordingPaths.BuildGhostGeometryRelativePath(rec.RecordingId);
             rec.GhostGeometryAvailable = false;
             rec.GhostGeometryCaptureError = "stub_not_implemented";
+            rec.GhostGeometryCaptureStrategy = "live_hierarchy_probe_v1";
+
+            int partCount = 0;
+            int missingTransforms = 0;
+            bool vesselLoaded = vesselAtCapture != null && vesselAtCapture.loaded;
+            if (vesselAtCapture != null && vesselAtCapture.parts != null)
+            {
+                partCount = vesselAtCapture.parts.Count;
+                for (int i = 0; i < vesselAtCapture.parts.Count; i++)
+                {
+                    var part = vesselAtCapture.parts[i];
+                    if (part == null || part.partTransform == null)
+                        missingTransforms++;
+                }
+            }
+            rec.GhostGeometryProbeStatus = DetermineProbeStatus(vesselLoaded, partCount, missingTransforms);
 
             try
             {
@@ -36,6 +52,11 @@ namespace Parsek
                 node.AddValue("recordingId", rec.RecordingId);
                 node.AddValue("version", rec.GhostGeometryVersion);
                 node.AddValue("status", "stub_not_implemented");
+                node.AddValue("strategy", rec.GhostGeometryCaptureStrategy);
+                node.AddValue("probeStatus", rec.GhostGeometryProbeStatus);
+                node.AddValue("partCount", partCount);
+                node.AddValue("missingTransforms", missingTransforms);
+                node.AddValue("vesselLoaded", vesselLoaded);
                 node.AddValue("capturedUT", Planetarium.GetUniversalTime().ToString("R"));
                 node.AddValue("vesselName", vesselAtCapture != null ? vesselAtCapture.vesselName : rec.VesselName);
                 node.Save(absolutePath);
@@ -45,6 +66,15 @@ namespace Parsek
                 rec.GhostGeometryCaptureError = $"stub_write_failed:{ex.GetType().Name}";
                 ParsekLog.Log($"Ghost geometry stub write failed for '{rec.VesselName}': {ex.Message}");
             }
+        }
+
+        internal static string DetermineProbeStatus(bool vesselLoaded, int partCount, int missingTransforms)
+        {
+            if (!vesselLoaded) return "vessel_not_loaded";
+            if (partCount <= 0) return "no_parts";
+            if (missingTransforms <= 0) return "ready_for_hierarchy_clone";
+            if (missingTransforms < partCount) return "partial_missing_transforms";
+            return "missing_transforms";
         }
     }
 }

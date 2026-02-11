@@ -169,6 +169,8 @@ namespace Parsek.Tests
             Assert.False(rec.GhostGeometryAvailable);
             Assert.Null(rec.GhostGeometryRelativePath);
             Assert.Null(rec.GhostGeometryCaptureError);
+            Assert.Equal("stub_v1", rec.GhostGeometryCaptureStrategy);
+            Assert.Equal("uninitialized", rec.GhostGeometryProbeStatus);
         }
 
         [Fact]
@@ -330,7 +332,9 @@ namespace Parsek.Tests
                 GhostGeometryVersion = 8,
                 GhostGeometryRelativePath = "Parsek/Recordings/meta123.pcrf",
                 GhostGeometryAvailable = true,
-                GhostGeometryCaptureError = "none"
+                GhostGeometryCaptureError = "none",
+                GhostGeometryCaptureStrategy = "live_hierarchy_probe_v1",
+                GhostGeometryProbeStatus = "ready_for_hierarchy_clone"
             };
 
             var node = new ConfigNode("RECORDING");
@@ -345,6 +349,8 @@ namespace Parsek.Tests
             Assert.Equal("Parsek/Recordings/meta123.pcrf", loaded.GhostGeometryRelativePath);
             Assert.True(loaded.GhostGeometryAvailable);
             Assert.Equal("none", loaded.GhostGeometryCaptureError);
+            Assert.Equal("live_hierarchy_probe_v1", loaded.GhostGeometryCaptureStrategy);
+            Assert.Equal("ready_for_hierarchy_clone", loaded.GhostGeometryProbeStatus);
         }
 
         [Fact]
@@ -365,6 +371,8 @@ namespace Parsek.Tests
             Assert.Null(loaded.GhostGeometryRelativePath);
             Assert.False(loaded.GhostGeometryAvailable);
             Assert.Null(loaded.GhostGeometryCaptureError);
+            Assert.Equal("stub_v1", loaded.GhostGeometryCaptureStrategy);
+            Assert.Equal("uninitialized", loaded.GhostGeometryProbeStatus);
         }
 
         [Fact]
@@ -423,6 +431,19 @@ namespace Parsek.Tests
 
             Assert.Empty(RecordingStore.CommittedRecordings);
             Assert.False(RecordingStore.HasPending);
+        }
+
+        [Theory]
+        [InlineData(false, 3, 0, "vessel_not_loaded")]
+        [InlineData(true, 0, 0, "no_parts")]
+        [InlineData(true, 3, 0, "ready_for_hierarchy_clone")]
+        [InlineData(true, 3, 1, "partial_missing_transforms")]
+        [InlineData(true, 3, 3, "missing_transforms")]
+        public void DetermineProbeStatus_ClassifiesExpected(
+            bool loaded, int partCount, int missing, string expected)
+        {
+            string actual = GhostGeometryCapture.DetermineProbeStatus(loaded, partCount, missing);
+            Assert.Equal(expected, actual);
         }
 
         [Fact]

@@ -335,6 +335,8 @@ namespace Parsek
             recNode.AddValue("recordingId", rec.RecordingId ?? "");
             recNode.AddValue("recordingFormatVersion", rec.RecordingFormatVersion);
             recNode.AddValue("ghostGeometryVersion", rec.GhostGeometryVersion);
+            recNode.AddValue("ghostGeometryStrategy", rec.GhostGeometryCaptureStrategy ?? "stub_v1");
+            recNode.AddValue("ghostGeometryProbeStatus", rec.GhostGeometryProbeStatus ?? "unknown");
             if (!string.IsNullOrEmpty(rec.GhostGeometryRelativePath))
                 recNode.AddValue("ghostGeometryPath", rec.GhostGeometryRelativePath);
             recNode.AddValue("ghostGeometryAvailable", rec.GhostGeometryAvailable);
@@ -370,6 +372,12 @@ namespace Parsek
             }
 
             rec.GhostGeometryRelativePath = recNode.GetValue("ghostGeometryPath");
+            string strategy = recNode.GetValue("ghostGeometryStrategy");
+            if (!string.IsNullOrEmpty(strategy))
+                rec.GhostGeometryCaptureStrategy = strategy;
+            string probeStatus = recNode.GetValue("ghostGeometryProbeStatus");
+            if (!string.IsNullOrEmpty(probeStatus))
+                rec.GhostGeometryProbeStatus = probeStatus;
             string geomAvailableStr = recNode.GetValue("ghostGeometryAvailable");
             if (geomAvailableStr != null)
             {

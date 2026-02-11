@@ -43,6 +43,8 @@ namespace Parsek
             public string GhostGeometryRelativePath;
             public bool GhostGeometryAvailable;
             public string GhostGeometryCaptureError;
+            public string GhostGeometryCaptureStrategy = "stub_v1";
+            public string GhostGeometryProbeStatus = "uninitialized";
 
             // Tracks which point's resource deltas have been applied during playback.
             // -1 means no resources applied yet (start from point 0's delta).
@@ -79,6 +81,8 @@ namespace Parsek
                 GhostGeometryRelativePath = source.GhostGeometryRelativePath;
                 GhostGeometryAvailable = source.GhostGeometryAvailable;
                 GhostGeometryCaptureError = source.GhostGeometryCaptureError;
+                GhostGeometryCaptureStrategy = source.GhostGeometryCaptureStrategy;
+                GhostGeometryProbeStatus = source.GhostGeometryProbeStatus;
                 RecordingFormatVersion = source.RecordingFormatVersion;
                 GhostGeometryVersion = source.GhostGeometryVersion;
             }
