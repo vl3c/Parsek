@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using KSP.UI.Screens;
 using UnityEngine;
@@ -22,9 +23,12 @@ namespace Parsek
         private const float maxSampleInterval = 3.0f;
         private const float velocityDirThreshold = 2.0f;
         private const float speedChangeThreshold = 0.05f;
+        private const double snapshotRefreshIntervalUT = 10.0;
+        private const float snapshotPerfLogThresholdMs = 25.0f;
         private double lastRecordedUT = -1;
         private Vector3 lastRecordedVelocity;
         private ConfigNode lastGoodVesselSnapshot;
+        private double lastSnapshotRefreshUT = double.MinValue;
 
         // On-rails state
         private bool isOnRails;
@@ -55,7 +59,7 @@ namespace Parsek
             RecordingVesselId = v.persistentId;
             lastRecordedUT = -1;
             lastRecordedVelocity = Vector3.zero;
-            lastGoodVesselSnapshot = VesselSpawner.TryBackupSnapshot(v);
+            RefreshBackupSnapshot(v, "record_start", force: true);
 
             // Check if vessel is already on rails (e.g. started recording during time warp)
             if (v.packed)
@@ -146,7 +150,7 @@ namespace Parsek
                 {
                     RecordingVesselId = v.persistentId;
                     SamplePosition(v);
-                    lastGoodVesselSnapshot = VesselSpawner.TryBackupSnapshot(v) ?? lastGoodVesselSnapshot;
+                    RefreshBackupSnapshot(v, "eva_switch", force: true);
                     ParsekLog.Log($"Recording switched to EVA vessel (pid={v.persistentId})");
                     return;
                 }
@@ -201,12 +205,7 @@ namespace Parsek
             lastRecordedUT = point.ut;
             lastRecordedVelocity = point.velocity;
 
-            if (Recording.Count % 25 == 0)
-            {
-                var snapshot = VesselSpawner.TryBackupSnapshot(v);
-                if (snapshot != null)
-                    lastGoodVesselSnapshot = snapshot;
-            }
+            RefreshBackupSnapshot(v, "periodic");
 
             if (Recording.Count % 10 == 0)
             {
@@ -331,9 +330,7 @@ namespace Parsek
                 }
 
                 VesselDestroyedDuringRecording = true;
-                var snapshot = VesselSpawner.TryBackupSnapshot(v);
-                if (snapshot != null)
-                    lastGoodVesselSnapshot = snapshot;
+                RefreshBackupSnapshot(v, "destroy_event", force: true);
                 ParsekLog.Log("Active vessel destroyed during recording!");
             }
         }
@@ -368,6 +365,33 @@ namespace Parsek
                     return vessel;
             }
             return null;
+        }
+
+        private void RefreshBackupSnapshot(Vessel vessel, string reason, bool force = false)
+        {
+            if (vessel == null) return;
+
+            double ut = Planetarium.GetUniversalTime();
+            if (!force && lastSnapshotRefreshUT != double.MinValue &&
+                ut - lastSnapshotRefreshUT < snapshotRefreshIntervalUT)
+                return;
+
+            float startMs = Time.realtimeSinceStartup * 1000f;
+            var snapshot = VesselSpawner.TryBackupSnapshot(vessel);
+            float elapsedMs = Time.realtimeSinceStartup * 1000f - startMs;
+
+            if (snapshot != null)
+            {
+                lastGoodVesselSnapshot = snapshot;
+                lastSnapshotRefreshUT = ut;
+            }
+
+            if (elapsedMs >= snapshotPerfLogThresholdMs)
+            {
+                ParsekLog.Log(
+                    $"Snapshot backup cost ({reason}): {elapsedMs:F1}ms " +
+                    $"pid={vessel.persistentId}, points={Recording.Count}");
+            }
         }
     }
 }

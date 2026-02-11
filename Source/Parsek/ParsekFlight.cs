@@ -51,6 +51,7 @@ namespace Parsek
 
         // Warp-stop guard: only stop time warp once per recording
         private HashSet<int> warpStoppedForRecording = new HashSet<int>();
+        private bool timelineResourceReplayPausedLogged = false;
 
         // UI
         private Rect windowRect = new Rect(20, 100, 250, 250);
@@ -553,6 +554,21 @@ namespace Parsek
         /// </summary>
         void ApplyResourceDeltas(RecordingStore.Recording rec, double currentUT)
         {
+            if (IsRecording)
+            {
+                if (!timelineResourceReplayPausedLogged)
+                {
+                    Log("Timeline resource replay paused while a manual recording is active");
+                    timelineResourceReplayPausedLogged = true;
+                }
+                return;
+            }
+            if (timelineResourceReplayPausedLogged)
+            {
+                Log("Timeline resource replay resumed after manual recording stopped");
+                timelineResourceReplayPausedLogged = false;
+            }
+
             var points = rec.Points;
 
             // Find the highest point index whose UT we've passed
