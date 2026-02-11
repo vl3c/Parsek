@@ -484,7 +484,7 @@ namespace Parsek
                 bool inRange = currentUT >= rec.StartUT && currentUT <= rec.EndUT;
                 bool pastEnd = currentUT > rec.EndUT;
                 bool ghostActive = timelineGhosts.ContainsKey(i) && timelineGhosts[i] != null;
-                bool needsSpawn = rec.VesselSnapshot != null && !rec.VesselSpawned;
+                bool needsSpawn = rec.VesselSnapshot != null && !rec.VesselSpawned && !rec.VesselDestroyed;
 
                 // Guard: if vessel was spawned before but VesselSpawned got reset (scene change),
                 // check if the vessel still exists by its persistentId to avoid duplicates.

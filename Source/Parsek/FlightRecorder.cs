@@ -24,6 +24,7 @@ namespace Parsek
         private const float speedChangeThreshold = 0.05f;
         private double lastRecordedUT = -1;
         private Vector3 lastRecordedVelocity;
+        private ConfigNode lastGoodVesselSnapshot;
 
         // On-rails state
         private bool isOnRails;
@@ -54,6 +55,7 @@ namespace Parsek
             RecordingVesselId = v.persistentId;
             lastRecordedUT = -1;
             lastRecordedVelocity = Vector3.zero;
+            lastGoodVesselSnapshot = VesselSpawner.TryBackupSnapshot(v);
 
             // Check if vessel is already on rails (e.g. started recording during time warp)
             if (v.packed)
@@ -115,7 +117,10 @@ namespace Parsek
                 Points = new List<TrajectoryPoint>(Recording),
                 OrbitSegments = new List<OrbitSegment>(OrbitSegments)
             };
-            VesselSpawner.SnapshotVessel(CaptureAtStop, VesselDestroyedDuringRecording);
+            VesselSpawner.SnapshotVessel(
+                CaptureAtStop,
+                VesselDestroyedDuringRecording,
+                destroyedFallbackSnapshot: lastGoodVesselSnapshot);
 
             double duration = Recording.Count > 0
                 ? Recording[Recording.Count - 1].ut - Recording[0].ut
@@ -135,6 +140,17 @@ namespace Parsek
 
             if (v.persistentId != RecordingVesselId)
             {
+                // Keep recording across switch to EVA. This preserves player intent for
+                // launch -> EVA sequences until multi-track replay lands.
+                if (v.isEVA)
+                {
+                    RecordingVesselId = v.persistentId;
+                    SamplePosition(v);
+                    lastGoodVesselSnapshot = VesselSpawner.TryBackupSnapshot(v) ?? lastGoodVesselSnapshot;
+                    ParsekLog.Log($"Recording switched to EVA vessel (pid={v.persistentId})");
+                    return;
+                }
+
                 Vessel recordedVessel = FindVesselByPid(RecordingVesselId);
 
                 CaptureAtStop = new RecordingStore.Recording
@@ -149,7 +165,8 @@ namespace Parsek
                 VesselSpawner.SnapshotVessel(
                     CaptureAtStop,
                     VesselDestroyedDuringRecording || recordedVessel == null,
-                    recordedVessel);
+                    recordedVessel,
+                    lastGoodVesselSnapshot);
 
                 Patches.PhysicsFramePatch.ActiveRecorder = null;
                 IsRecording = false;
@@ -183,6 +200,13 @@ namespace Parsek
             Recording.Add(point);
             lastRecordedUT = point.ut;
             lastRecordedVelocity = point.velocity;
+
+            if (Recording.Count % 25 == 0)
+            {
+                var snapshot = VesselSpawner.TryBackupSnapshot(v);
+                if (snapshot != null)
+                    lastGoodVesselSnapshot = snapshot;
+            }
 
             if (Recording.Count % 10 == 0)
             {
@@ -307,6 +331,9 @@ namespace Parsek
                 }
 
                 VesselDestroyedDuringRecording = true;
+                var snapshot = VesselSpawner.TryBackupSnapshot(v);
+                if (snapshot != null)
+                    lastGoodVesselSnapshot = snapshot;
                 ParsekLog.Log("Active vessel destroyed during recording!");
             }
         }

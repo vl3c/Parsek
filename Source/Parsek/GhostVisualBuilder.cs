@@ -112,10 +112,10 @@ namespace Parsek
 
         private static bool AddPartVisuals(Transform root, ConfigNode partNode, Part prefab)
         {
-            var renderers = prefab.GetComponentsInChildren<MeshRenderer>(true);
-            // Known limitation for v1: parts that only use SkinnedMeshRenderer
-            // (e.g. EVA models) are not reconstructed here and will fallback.
-            if (renderers == null || renderers.Length == 0)
+            var meshRenderers = prefab.GetComponentsInChildren<MeshRenderer>(true);
+            var skinnedRenderers = prefab.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            if ((meshRenderers == null || meshRenderers.Length == 0) &&
+                (skinnedRenderers == null || skinnedRenderers.Length == 0))
                 return false;
 
             GameObject partRoot = new GameObject($"ghost_part_{prefab.partInfo?.name ?? "unknown"}");
@@ -131,9 +131,9 @@ namespace Parsek
 
             bool added = false;
             Transform prefabRoot = prefab.transform;
-            for (int r = 0; r < renderers.Length; r++)
+            for (int r = 0; r < meshRenderers.Length; r++)
             {
-                var mr = renderers[r];
+                var mr = meshRenderers[r];
                 if (mr == null) continue;
                 var mf = mr.GetComponent<MeshFilter>();
                 if (mf == null || mf.sharedMesh == null) continue;
@@ -148,6 +148,25 @@ namespace Parsek
                 childMf.sharedMesh = mf.sharedMesh;
                 var childMr = child.AddComponent<MeshRenderer>();
                 childMr.sharedMaterials = mr.sharedMaterials;
+                added = true;
+            }
+
+            for (int r = 0; r < skinnedRenderers.Length; r++)
+            {
+                var smr = skinnedRenderers[r];
+                if (smr == null || smr.sharedMesh == null) continue;
+
+                GameObject child = new GameObject(smr.gameObject.name);
+                child.transform.SetParent(partRoot.transform, false);
+                child.transform.localPosition = prefabRoot.InverseTransformPoint(smr.transform.position);
+                child.transform.localRotation = Quaternion.Inverse(prefabRoot.rotation) * smr.transform.rotation;
+                child.transform.localScale = smr.transform.localScale;
+
+                // Use shared bind-pose mesh as a static ghost visual.
+                var childMf = child.AddComponent<MeshFilter>();
+                childMf.sharedMesh = smr.sharedMesh;
+                var childMr = child.AddComponent<MeshRenderer>();
+                childMr.sharedMaterials = smr.sharedMaterials;
                 added = true;
             }
 

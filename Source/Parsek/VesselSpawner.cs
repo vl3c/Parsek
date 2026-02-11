@@ -10,6 +10,24 @@ namespace Parsek
     /// </summary>
     public static class VesselSpawner
     {
+        public static ConfigNode TryBackupSnapshot(Vessel vessel)
+        {
+            if (vessel == null) return null;
+            try
+            {
+                ProtoVessel pv = vessel.BackupVessel();
+                if (pv == null) return null;
+                ConfigNode node = new ConfigNode("VESSEL");
+                pv.Save(node);
+                return node;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Log($"Failed to backup vessel snapshot: {ex.Message}");
+                return null;
+            }
+        }
+
         public static uint RespawnVessel(ConfigNode vesselNode)
         {
             try
@@ -253,7 +271,8 @@ namespace Parsek
         public static void SnapshotVessel(
             RecordingStore.Recording pending,
             bool vesselDestroyed,
-            Vessel vesselOverride = null)
+            Vessel vesselOverride = null,
+            ConfigNode destroyedFallbackSnapshot = null)
         {
             if (pending == null || pending.Points.Count == 0) return;
 
@@ -264,11 +283,17 @@ namespace Parsek
             if (vesselDestroyed)
             {
                 pending.VesselDestroyed = true;
-                pending.VesselSnapshot = null;
+                pending.VesselSnapshot = destroyedFallbackSnapshot != null
+                    ? destroyedFallbackSnapshot.CreateCopy()
+                    : null;
                 pending.GhostGeometryAvailable = false;
-                pending.GhostGeometryCaptureError = "vessel_destroyed";
+                pending.GhostGeometryCaptureError = pending.VesselSnapshot != null
+                    ? "vessel_destroyed_using_last_snapshot"
+                    : "vessel_destroyed";
                 pending.GhostGeometryCaptureStrategy = "live_hierarchy_probe_v1";
-                pending.GhostGeometryProbeStatus = "vessel_destroyed";
+                pending.GhostGeometryProbeStatus = pending.VesselSnapshot != null
+                    ? "vessel_destroyed_with_snapshot"
+                    : "vessel_destroyed";
 
                 // Use last recorded point for distance (may be a different SOI)
                 var lastPoint = pending.Points[pending.Points.Count - 1];
@@ -285,9 +310,9 @@ namespace Parsek
                 // Compute max distance from launch across all recorded points
                 ComputeMaxDistance(pending, bodyFirst, firstPoint);
 
-                pending.VesselSituation = "Destroyed";
+                pending.VesselSituation = pending.VesselSnapshot != null ? "Destroyed (snapshot kept)" : "Destroyed";
                 ParsekLog.Log($"Vessel was destroyed during recording. Distance from launch: {pending.DistanceFromLaunch:F0}m, " +
-                    $"Max distance: {pending.MaxDistanceFromLaunch:F0}m");
+                    $"Max distance: {pending.MaxDistanceFromLaunch:F0}m, Snapshot kept: {pending.VesselSnapshot != null}");
                 return;
             }
 
@@ -319,9 +344,19 @@ namespace Parsek
             // Snapshot the vessel (works for regular vessels and EVA kerbals)
             if (!vessel.loaded)
                 ParsekLog.Log("Warning: Active vessel is unloaded at snapshot time — snapshot may be incomplete");
-            ProtoVessel pv = vessel.BackupVessel();
-            ConfigNode node = new ConfigNode("VESSEL");
-            pv.Save(node);
+            ConfigNode node = TryBackupSnapshot(vessel);
+            if (node == null)
+            {
+                pending.VesselDestroyed = true;
+                pending.VesselSnapshot = null;
+                pending.GhostGeometryAvailable = false;
+                pending.GhostGeometryCaptureError = "snapshot_backup_failed";
+                pending.GhostGeometryCaptureStrategy = "live_hierarchy_probe_v1";
+                pending.GhostGeometryProbeStatus = "snapshot_backup_failed";
+                pending.VesselSituation = "Unknown (snapshot failed)";
+                ParsekLog.Log("Failed to backup active vessel at snapshot time");
+                return;
+            }
             pending.VesselSnapshot = node;
             pending.VesselDestroyed = false;
 

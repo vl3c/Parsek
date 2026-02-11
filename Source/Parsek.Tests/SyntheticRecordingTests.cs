@@ -194,6 +194,68 @@ namespace Parsek.Tests
             return b;
         }
 
+        internal static RecordingBuilder KscPadDestroyed(double baseUT = 0)
+        {
+            // Edge case: vessel destroyed near KSC pad. No vessel snapshot on purpose.
+            double t = baseUT + 900;
+            var b = new RecordingBuilder("KSC Pad Destroyed");
+            double lat = -0.0972;
+            double lon = -74.5576;
+
+            b.AddPoint(t + 0, lat, lon, 70, funds: 43429);
+            b.AddPoint(t + 2, lat, lon, 95, funds: 43429);
+            b.AddPoint(t + 4, lat, lon + 0.0002, 150, funds: 43429);
+            b.AddPoint(t + 6, lat, lon + 0.0005, 210, funds: 43429);
+            b.AddPoint(t + 8, lat, lon + 0.0008, 160, funds: 43429);
+            b.AddPoint(t + 10, lat, lon + 0.0011, 90, funds: 43429);
+            b.AddPoint(t + 12, lat, lon + 0.0012, 65, funds: 43429);
+
+            // No snapshot intentionally to force destroyed/no-snapshot fallback path.
+            return b;
+        }
+
+        internal static RecordingBuilder EvaWalkSkinned(double baseUT = 0)
+        {
+            // Edge case: explicit EVA snapshot with kerbal part model.
+            double t = baseUT + 980;
+            var b = new RecordingBuilder("EVA Walk Test");
+            double lat = -0.0969;
+            double lon = -74.5580;
+
+            b.AddPoint(t + 0, lat, lon, 66);
+            b.AddPoint(t + 3, lat + 0.0001, lon + 0.0001, 66);
+            b.AddPoint(t + 6, lat + 0.0002, lon + 0.0002, 66);
+            b.AddPoint(t + 9, lat + 0.0003, lon + 0.0003, 66);
+            b.AddPoint(t + 12, lat + 0.00035, lon + 0.0004, 66);
+
+            b.WithVesselSnapshot(
+                VesselSnapshotBuilder.CrewedShip("EVA Walk Test", "Jebediah Kerman", pid: 33333333)
+                    .WithType("EVA")
+                    .AsLanded(lat + 0.00035, lon + 0.0004, 66));
+
+            return b;
+        }
+
+        internal static RecordingBuilder CloseSpawnConflict(double baseUT = 0)
+        {
+            // Edge case: landed vessel very near KSC to exercise spawn offset logic.
+            double t = baseUT + 1060;
+            var b = new RecordingBuilder("Close Spawn Conflict");
+            double lat = -0.09718;
+            double lon = -74.55755;
+
+            b.AddPoint(t + 0, lat, lon, 70);
+            b.AddPoint(t + 4, lat + 0.00002, lon + 0.00002, 70);
+            b.AddPoint(t + 8, lat + 0.00003, lon + 0.00003, 70);
+            b.AddPoint(t + 12, lat + 0.00003, lon + 0.00003, 70);
+
+            b.WithVesselSnapshot(
+                VesselSnapshotBuilder.ProbeShip("Close Spawn Conflict", pid: 44444444)
+                    .AsLanded(lat + 0.00003, lon + 0.00003, 70));
+
+            return b;
+        }
+
         #endregion
 
         #region Unit Tests
@@ -285,6 +347,35 @@ namespace Parsek.Tests
             Assert.True(parts.Length > 0);
             Assert.Equal("mk1pod.v2", parts[0].GetValue("name"));
             Assert.Equal("Tedorf Kerman", parts[0].GetValue("crew"));
+        }
+
+        [Fact]
+        public void KscPadDestroyed_HasNoSnapshot()
+        {
+            var node = KscPadDestroyed().Build();
+            Assert.Equal("KSC Pad Destroyed", node.GetValue("vesselName"));
+            Assert.Equal(7, node.GetNodes("POINT").Length);
+            Assert.Null(node.GetNode("VESSEL_SNAPSHOT"));
+        }
+
+        [Fact]
+        public void EvaWalkSkinned_HasEvaTypeSnapshot()
+        {
+            var node = EvaWalkSkinned().Build();
+            Assert.Equal("EVA Walk Test", node.GetValue("vesselName"));
+            var snapshot = node.GetNode("VESSEL_SNAPSHOT");
+            Assert.NotNull(snapshot);
+            Assert.Equal("EVA", snapshot.GetValue("type"));
+        }
+
+        [Fact]
+        public void CloseSpawnConflict_HasLandedSnapshotNearKsc()
+        {
+            var node = CloseSpawnConflict().Build();
+            Assert.Equal("Close Spawn Conflict", node.GetValue("vesselName"));
+            var snapshot = node.GetNode("VESSEL_SNAPSHOT");
+            Assert.NotNull(snapshot);
+            Assert.Equal("LANDED", snapshot.GetValue("sit"));
         }
 
         [Fact]
@@ -462,6 +553,9 @@ namespace Parsek.Tests
             writer.AddRecording(Orbit1(baseUT));
             writer.AddRecording(IslandProbe(baseUT));
             writer.AddRecording(TedorfEvaSwitch(baseUT));
+            writer.AddRecording(KscPadDestroyed(baseUT));
+            writer.AddRecording(EvaWalkSkinned(baseUT));
+            writer.AddRecording(CloseSpawnConflict(baseUT));
 
             foreach (string file in targets)
             {
@@ -481,6 +575,9 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Orbit-1", content);
                     Assert.Contains("vesselName = Island Probe", content);
                     Assert.Contains("vesselName = Tedorf Kerman", content);
+                    Assert.Contains("vesselName = KSC Pad Destroyed", content);
+                    Assert.Contains("vesselName = EVA Walk Test", content);
+                    Assert.Contains("vesselName = Close Spawn Conflict", content);
                     Assert.Contains("FLIGHTSTATE", content);
 
                     File.Copy(tempPath, savePath, overwrite: true);
