@@ -613,13 +613,11 @@ namespace Parsek
                 Log($"Timeline ghost #{index}: built from vessel snapshot");
                 // Snapshot-based ghosts use prefab materials by default; apply a
                 // consistent translucent tint so they remain visually distinct.
-                ApplyGhostStyle(ghost, ghostColor, 0.55f);
+                timelineGhostMaterials[index] = ApplyGhostStyleAndCollectMaterials(ghost, ghostColor, 0.55f);
             }
 
             timelineGhosts[index] = ghost;
-            if (builtFromSnapshot)
-                timelineGhostMaterials[index] = CollectAllMaterials(ghost);
-            else
+            if (!builtFromSnapshot)
             {
                 var m = ghost.GetComponent<Renderer>()?.material;
                 timelineGhostMaterials[index] = m != null ? new List<Material> { m } : new List<Material>();
@@ -699,9 +697,10 @@ namespace Parsek
             return ghost;
         }
 
-        void ApplyGhostStyle(GameObject ghost, Color tint, float alpha)
+        List<Material> ApplyGhostStyleAndCollectMaterials(GameObject ghost, Color tint, float alpha)
         {
-            if (ghost == null) return;
+            var unique = new HashSet<Material>();
+            if (ghost == null) return new List<Material>();
 
             var renderers = ghost.GetComponentsInChildren<Renderer>(true);
             for (int i = 0; i < renderers.Length; i++)
@@ -725,23 +724,7 @@ namespace Parsek
                         mat.SetColor("_EmissiveColor", c);
                     if (mat.HasProperty("_TintColor"))
                         mat.SetColor("_TintColor", c);
-                }
-            }
-        }
-
-        List<Material> CollectAllMaterials(GameObject root)
-        {
-            var unique = new HashSet<Material>();
-            if (root == null) return new List<Material>();
-
-            var renderers = root.GetComponentsInChildren<Renderer>(true);
-            for (int i = 0; i < renderers.Length; i++)
-            {
-                var mats = renderers[i].materials;
-                for (int m = 0; m < mats.Length; m++)
-                {
-                    if (mats[m] != null)
-                        unique.Add(mats[m]);
+                    unique.Add(mat);
                 }
             }
             return new List<Material>(unique);
