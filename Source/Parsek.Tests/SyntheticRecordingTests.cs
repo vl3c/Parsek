@@ -42,6 +42,11 @@ namespace Parsek.Tests
             b.AddPoint(t+52, baseLat + 0.001, baseLon + 0.009, 85);
             b.AddPoint(t+56, baseLat + 0.001, baseLon + 0.009, 77);
 
+            // Vessel snapshot so playback can render as vessel geometry (not sphere)
+            b.WithVesselSnapshot(
+                VesselSnapshotBuilder.ProbeShip("KSC Hopper", pid: 11111111)
+                    .AsLanded(baseLat + 0.001, baseLon + 0.009, 77));
+
             return b;
         }
 
@@ -77,6 +82,11 @@ namespace Parsek.Tests
             b.AddPoint(t+240, lat + 0.028, lon + 0.62, 8000);
             b.AddPoint(t+270, lat + 0.029, lon + 0.70, 1500);
             b.AddPoint(t+300, lat + 0.03, lon + 0.75, 0);
+
+            // Vessel snapshot so playback can render as vessel geometry (not sphere)
+            b.WithVesselSnapshot(
+                VesselSnapshotBuilder.ProbeShip("Suborbital Arc", pid: 22222222)
+                    .AsLanded(lat + 0.03, lon + 0.75, 0));
 
             return b;
         }
@@ -166,7 +176,7 @@ namespace Parsek.Tests
             Assert.Equal("15", node.GetValue("pointCount"));
             Assert.Equal(15, node.GetNodes("POINT").Length);
             Assert.Empty(node.GetNodes("ORBIT_SEGMENT"));
-            Assert.Null(node.GetNode("VESSEL_SNAPSHOT"));
+            Assert.NotNull(node.GetNode("VESSEL_SNAPSHOT"));
         }
 
         [Fact]
@@ -176,6 +186,7 @@ namespace Parsek.Tests
             Assert.Equal("Suborbital Arc", node.GetValue("vesselName"));
             Assert.Equal("25", node.GetValue("pointCount"));
             Assert.Equal(25, node.GetNodes("POINT").Length);
+            Assert.NotNull(node.GetNode("VESSEL_SNAPSHOT"));
 
             // Verify UT ordering
             var points = node.GetNodes("POINT");
@@ -387,13 +398,18 @@ namespace Parsek.Tests
 
             // Inject into both persistent.sfs and the target save — KSP loads
             // persistent first (sets initialLoadDone), so it must have the recordings too.
-            // Use the target save's UT as the base for recording timestamps.
-            string targetSave = "1.sfs";
+            // Use a fresh target save for test injections.
+            string targetSave = "2.sfs";
             string[] targets = { "persistent.sfs", targetSave };
 
             string targetPath = Path.Combine(saveDir, targetSave);
             if (!File.Exists(targetPath))
-                return;
+            {
+                string sourcePath = Path.Combine(saveDir, "1.sfs");
+                if (!File.Exists(sourcePath))
+                    return;
+                File.Copy(sourcePath, targetPath, overwrite: true);
+            }
 
             double baseUT = ReadUTFromSave(targetPath);
 

@@ -9,7 +9,8 @@ cd Source/Parsek.Tests
 dotnet test --filter InjectAllRecordings
 ```
 
-This injects 4 test recordings into `Kerbal Space Program/saves/4/1.sfs`. The command is idempotent — running it again replaces the existing ParsekScenario block. The test writes to a temp file first and only overwrites the save after verification passes.
+This injects 4 test recordings into `Kerbal Space Program/saves/test career/2.sfs` and `persistent.sfs`.  
+If `2.sfs` does not exist, it is created from `1.sfs` first. The command is idempotent — running it again replaces the existing ParsekScenario block. The test writes to a temp file first and only overwrites the save after verification passes.
 
 `InjectAllRecordings` is tagged `[Trait("Category", "Manual")]` since it mutates a real save file. It silently skips if the save file doesn't exist (CI-safe). To exclude it from automated runs:
 
@@ -19,17 +20,17 @@ dotnet test --filter "Category!=Manual"
 
 ## In-Game Walkthrough
 
-After injecting, launch KSP and load **save 4**. The save's UT is ~126682, so all recordings are in the future. Here's what to expect as you time warp forward:
+After injecting, launch KSP and load **test career**. The save UT is read dynamically from `2.sfs`, so all recordings are scheduled in the near future. Here's what to expect as you time warp forward:
 
 ### 1. KSC Hopper (UT 127000-127056)
 
 1. Go to any flight (launch a vessel or switch to an existing one)
 2. Open Map View (M) or stay in flight view
-3. Time warp forward — warp will **not** auto-stop (no vessel to spawn)
+3. Time warp forward — warp auto-stops at recording start (vessel snapshot present)
 4. At UT ~127000, a green-cyan ghost sphere appears near the launchpad
 5. The ghost rises to ~500m, drifts east ~1km, then descends near the VAB
 6. Ghost disappears at UT 127056
-7. No vessel spawns (this recording has no vessel snapshot)
+7. At EndUT, a probe vessel named **KSC Hopper** spawns at the landing point
 
 ### 2. Suborbital Arc (UT 128000-128300)
 
@@ -38,7 +39,7 @@ After injecting, launch KSP and load **save 4**. The save's UT is ~126682, so al
 3. Switch to **Map View** (M) to see the trajectory climb
 4. The ghost follows a gravity turn east, reaching ~71km apex
 5. It descends and splashes down at UT 128300
-6. No vessel spawns
+6. At EndUT, a probe vessel named **Suborbital Arc** spawns at the splashdown point
 
 ### 3. Orbit-1 (UT 129000-132000)
 
