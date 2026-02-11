@@ -600,7 +600,17 @@ namespace Parsek
 
             // Use a slightly different color to distinguish from manual preview
             Color ghostColor = new Color(0.2f, 1f, 0.4f, 0.8f); // bright green-cyan
-            GameObject ghost = CreateGhostSphere($"Parsek_Timeline_{index}", ghostColor);
+            GameObject ghost = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
+                rec, $"Parsek_Timeline_{index}");
+            if (ghost == null)
+            {
+                ghost = CreateGhostSphere($"Parsek_Timeline_{index}", ghostColor);
+                Log($"Timeline ghost #{index}: using sphere fallback");
+            }
+            else
+            {
+                Log($"Timeline ghost #{index}: built from vessel snapshot");
+            }
 
             timelineGhosts[index] = ghost;
             timelineGhostMaterials[index] = ghost.GetComponent<Renderer>()?.material;

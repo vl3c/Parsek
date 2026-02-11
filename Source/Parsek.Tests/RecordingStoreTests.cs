@@ -446,6 +446,40 @@ namespace Parsek.Tests
             Assert.Equal(expected, actual);
         }
 
+        [Theory]
+        [InlineData("mk1pod_v2_123456", "mk1pod_v2")]
+        [InlineData("probeCoreOcto2_1", "probeCoreOcto2")]
+        [InlineData("adapter_size2_size1", "adapter_size2_size1")]
+        [InlineData("", null)]
+        public void TryExtractPartName_Works(string raw, string expected)
+        {
+            Assert.Equal(expected, GhostVisualBuilder.TryExtractPartName(raw));
+        }
+
+        [Theory]
+        [InlineData("1,2,3", true)]
+        [InlineData(" 1.5 , -2 , 3 ", true)]
+        [InlineData("1,2", false)]
+        [InlineData("x,2,3", false)]
+        public void TryParseVector3_Works(string value, bool expected)
+        {
+            Vector3 parsed;
+            bool ok = GhostVisualBuilder.TryParseVector3(value, out parsed);
+            Assert.Equal(expected, ok);
+        }
+
+        [Theory]
+        [InlineData("0,0,0,1", true)]
+        [InlineData(" 0.1 , 0.2 , 0.3 , 0.4 ", true)]
+        [InlineData("0,0,1", false)]
+        [InlineData("0,0,0,w", false)]
+        public void TryParseQuaternion_Works(string value, bool expected)
+        {
+            Quaternion parsed;
+            bool ok = GhostVisualBuilder.TryParseQuaternion(value, out parsed);
+            Assert.Equal(expected, ok);
+        }
+
         [Fact]
         public void GetRecommendedAction_DestroyedWithSnapshot()
         {
