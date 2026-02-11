@@ -11,6 +11,13 @@ namespace Parsek
     /// </summary>
     public class FlightRecorder
     {
+        internal enum VesselSwitchDecision
+        {
+            None,
+            ContinueOnEva,
+            Stop
+        }
+
         // Recording output
         public List<TrajectoryPoint> Recording { get; } = new List<TrajectoryPoint>();
         public List<OrbitSegment> OrbitSegments { get; } = new List<OrbitSegment>();
@@ -144,9 +151,12 @@ namespace Parsek
 
             if (v.persistentId != RecordingVesselId)
             {
+                VesselSwitchDecision decision = DecideOnVesselSwitch(
+                    RecordingVesselId, v.persistentId, v.isEVA);
+
                 // Keep recording across switch to EVA. This preserves player intent for
                 // launch -> EVA sequences until multi-track replay lands.
-                if (v.isEVA)
+                if (decision == VesselSwitchDecision.ContinueOnEva)
                 {
                     RecordingVesselId = v.persistentId;
                     SamplePosition(v);
@@ -372,8 +382,7 @@ namespace Parsek
             if (vessel == null) return;
 
             double ut = Planetarium.GetUniversalTime();
-            if (!force && lastSnapshotRefreshUT != double.MinValue &&
-                ut - lastSnapshotRefreshUT < snapshotRefreshIntervalUT)
+            if (!ShouldRefreshSnapshot(lastSnapshotRefreshUT, ut, snapshotRefreshIntervalUT, force))
                 return;
 
             float startMs = Time.realtimeSinceStartup * 1000f;
@@ -392,6 +401,24 @@ namespace Parsek
                     $"Snapshot backup cost ({reason}): {elapsedMs:F1}ms " +
                     $"pid={vessel.persistentId}, points={Recording.Count}");
             }
+        }
+
+        internal static bool ShouldRefreshSnapshot(
+            double lastSnapshotRefreshUT, double currentUT, double intervalUT, bool force)
+        {
+            if (force) return true;
+            if (lastSnapshotRefreshUT == double.MinValue) return true;
+            return currentUT - lastSnapshotRefreshUT >= intervalUT;
+        }
+
+        internal static VesselSwitchDecision DecideOnVesselSwitch(
+            uint recordingVesselId, uint currentVesselId, bool currentIsEva)
+        {
+            if (currentVesselId == recordingVesselId)
+                return VesselSwitchDecision.None;
+            if (currentIsEva)
+                return VesselSwitchDecision.ContinueOnEva;
+            return VesselSwitchDecision.Stop;
         }
     }
 }

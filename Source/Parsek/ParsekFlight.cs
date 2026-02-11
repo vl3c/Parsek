@@ -554,7 +554,7 @@ namespace Parsek
         /// </summary>
         void ApplyResourceDeltas(RecordingStore.Recording rec, double currentUT)
         {
-            if (IsRecording)
+            if (ShouldPauseTimelineResourceReplay(IsRecording))
             {
                 if (!timelineResourceReplayPausedLogged)
                 {
@@ -572,14 +572,7 @@ namespace Parsek
             var points = rec.Points;
 
             // Find the highest point index whose UT we've passed
-            int targetIndex = rec.LastAppliedResourceIndex;
-            for (int j = rec.LastAppliedResourceIndex + 1; j < points.Count; j++)
-            {
-                if (points[j].ut <= currentUT)
-                    targetIndex = j;
-                else
-                    break;
-            }
+            int targetIndex = ComputeTargetResourceIndex(points, rec.LastAppliedResourceIndex, currentUT);
 
             // Apply deltas for each point we've newly passed
             if (targetIndex > rec.LastAppliedResourceIndex)
@@ -719,7 +712,7 @@ namespace Parsek
         bool IsAnyWarpActive()
         {
             // CurrentRateIndex > 0 covers both rails warp and physics warp.
-            return TimeWarp.CurrentRateIndex > 0 || TimeWarp.CurrentRate > 1f;
+            return IsAnyWarpActive(TimeWarp.CurrentRateIndex, TimeWarp.CurrentRate);
         }
 
         void ExitAllWarpForPlaybackStart(string context)
@@ -727,6 +720,30 @@ namespace Parsek
             if (!IsAnyWarpActive()) return;
             TimeWarp.SetRate(0, true);
             Log($"Warp reset for playback start ({context})");
+        }
+
+        internal static bool ShouldPauseTimelineResourceReplay(bool isRecording)
+        {
+            return isRecording;
+        }
+
+        internal static int ComputeTargetResourceIndex(
+            List<TrajectoryPoint> points, int lastAppliedResourceIndex, double currentUT)
+        {
+            int targetIndex = lastAppliedResourceIndex;
+            for (int j = lastAppliedResourceIndex + 1; j < points.Count; j++)
+            {
+                if (points[j].ut <= currentUT)
+                    targetIndex = j;
+                else
+                    break;
+            }
+            return targetIndex;
+        }
+
+        internal static bool IsAnyWarpActive(int currentRateIndex, float currentRate)
+        {
+            return currentRateIndex > 0 || currentRate > 1f;
         }
 
         #endregion

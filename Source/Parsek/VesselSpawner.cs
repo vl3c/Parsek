@@ -395,17 +395,15 @@ namespace Parsek
             RecordingStore.Recording rec, CelestialBody body, double latitude, double longitude)
         {
             bool landedLike = IsLandedLikeSnapshot(rec?.VesselSnapshot);
+            bool hasSnapshotAlt = TryGetSnapshotDouble(rec?.VesselSnapshot, "alt", out double snapshotAlt);
             if (landedLike)
             {
                 double terrainAlt = body.TerrainAltitude(latitude, longitude);
-                if (!double.IsNaN(terrainAlt) && !double.IsInfinity(terrainAlt))
-                    return terrainAlt;
+                bool terrainValid = !double.IsNaN(terrainAlt) && !double.IsInfinity(terrainAlt);
+                return SelectRelocatedAltitude(landedLike, terrainAlt, terrainValid, snapshotAlt, hasSnapshotAlt);
             }
 
-            if (TryGetSnapshotDouble(rec?.VesselSnapshot, "alt", out double snapshotAlt))
-                return snapshotAlt;
-
-            return 0.0;
+            return SelectRelocatedAltitude(landedLike, 0.0, false, snapshotAlt, hasSnapshotAlt);
         }
 
         private static bool IsLandedLikeSnapshot(ConfigNode snapshot)
@@ -440,6 +438,16 @@ namespace Parsek
             if (node == null) return false;
             string raw = node.GetValue(key);
             return double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+        }
+
+        internal static double SelectRelocatedAltitude(
+            bool landedLike, double terrainAltitude, bool terrainValid, double snapshotAltitude, bool hasSnapshotAltitude)
+        {
+            if (landedLike && terrainValid)
+                return terrainAltitude;
+            if (hasSnapshotAltitude)
+                return snapshotAltitude;
+            return 0.0;
         }
     }
 }
