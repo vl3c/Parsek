@@ -364,7 +364,7 @@ namespace Parsek
             {
                 double terrainAlt = body.TerrainAltitude(latitude, longitude);
                 if (!double.IsNaN(terrainAlt) && !double.IsInfinity(terrainAlt))
-                    return Math.Max(0.0, terrainAlt);
+                    return terrainAlt;
             }
 
             if (TryGetSnapshotDouble(rec?.VesselSnapshot, "alt", out double snapshotAlt))

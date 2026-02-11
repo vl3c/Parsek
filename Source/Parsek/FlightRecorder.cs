@@ -136,12 +136,6 @@ namespace Parsek
             if (v.persistentId != RecordingVesselId)
             {
                 Vessel recordedVessel = FindVesselByPid(RecordingVesselId);
-                if (isOnRails)
-                {
-                    currentOrbitSegment.endUT = Planetarium.GetUniversalTime();
-                    OrbitSegments.Add(currentOrbitSegment);
-                    isOnRails = false;
-                }
 
                 CaptureAtStop = new RecordingStore.Recording
                 {

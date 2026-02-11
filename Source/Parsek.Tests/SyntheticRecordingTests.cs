@@ -164,6 +164,36 @@ namespace Parsek.Tests
             return b;
         }
 
+        internal static RecordingBuilder TedorfEvaSwitch(double baseUT = 0)
+        {
+            // Mirrors the real-world case: a launch recording that ended around
+            // vessel-switch/EVA timing and should replay as the vessel, not EVA.
+            double t = baseUT + 8;
+            var b = new RecordingBuilder("Tedorf Kerman");
+            double baseLat = -0.09720776197;
+            double baseLon = -74.55767853202;
+
+            b.AddPoint(t + 0, baseLat, baseLon, 69.6, funds: 42469);
+            b.AddPoint(t + 2, baseLat + 0.002, baseLon + 0.0001, 120, funds: 42469);
+            b.AddPoint(t + 4, baseLat + 0.004, baseLon + 0.0003, 180, funds: 42469);
+            b.AddPoint(t + 6, baseLat + 0.008, baseLon + 0.0005, 230, funds: 42469);
+            b.AddPoint(t + 8, baseLat + 0.012, baseLon + 0.0007, 255, funds: 42469);
+            b.AddPoint(t + 10, baseLat + 0.015, baseLon + 0.0008, 240, funds: 42469);
+            b.AddPoint(t + 12, baseLat + 0.020, baseLon + 0.00085, 220, funds: 42469);
+            b.AddPoint(t + 14, baseLat + 0.026, baseLon + 0.0009, 190, funds: 42469);
+            b.AddPoint(t + 16, baseLat + 0.034, baseLon + 0.00095, 130, funds: 42469);
+            b.AddPoint(t + 18, baseLat + 0.043, baseLon + 0.0010, 90, funds: 42469);
+            b.AddPoint(t + 20, baseLat + 0.051, baseLon + 0.00102, 70, funds: 43429);
+            b.AddPoint(t + 22, baseLat + 0.061, baseLon + 0.00105, 66, funds: 43429);
+
+            // Snapshot deliberately points to the vessel, not kerbal EVA.
+            b.WithVesselSnapshot(
+                VesselSnapshotBuilder.CrewedShip("Untitled Space Craft", "Tedorf Kerman", pid: 314348688)
+                    .AsLanded(baseLat + 0.061, baseLon + 0.00105, 66));
+
+            return b;
+        }
+
         #endregion
 
         #region Unit Tests
@@ -237,6 +267,24 @@ namespace Parsek.Tests
             var parts = snapshot.GetNodes("PART");
             Assert.True(parts.Length > 0);
             Assert.Null(parts[0].GetValue("crew"));
+        }
+
+        [Fact]
+        public void TedorfEvaSwitch_BuildsVesselSnapshotNotEVA()
+        {
+            var node = TedorfEvaSwitch().Build();
+            Assert.Equal("Tedorf Kerman", node.GetValue("vesselName"));
+
+            var snapshot = node.GetNode("VESSEL_SNAPSHOT");
+            Assert.NotNull(snapshot);
+            Assert.Equal("Untitled Space Craft", snapshot.GetValue("name"));
+            Assert.Equal("Ship", snapshot.GetValue("type"));
+            Assert.Equal("LANDED", snapshot.GetValue("sit"));
+
+            var parts = snapshot.GetNodes("PART");
+            Assert.True(parts.Length > 0);
+            Assert.Equal("mk1pod.v2", parts[0].GetValue("name"));
+            Assert.Equal("Tedorf Kerman", parts[0].GetValue("crew"));
         }
 
         [Fact]
@@ -398,18 +446,13 @@ namespace Parsek.Tests
 
             // Inject into both persistent.sfs and the target save — KSP loads
             // persistent first (sets initialLoadDone), so it must have the recordings too.
-            // Use a fresh target save for test injections.
-            string targetSave = "2.sfs";
+            // Inject into save 1 and persistent so loading save 1 shows the recordings.
+            string targetSave = "1.sfs";
             string[] targets = { "persistent.sfs", targetSave };
 
             string targetPath = Path.Combine(saveDir, targetSave);
             if (!File.Exists(targetPath))
-            {
-                string sourcePath = Path.Combine(saveDir, "1.sfs");
-                if (!File.Exists(sourcePath))
-                    return;
-                File.Copy(sourcePath, targetPath, overwrite: true);
-            }
+                return;
 
             double baseUT = ReadUTFromSave(targetPath);
 
@@ -418,6 +461,7 @@ namespace Parsek.Tests
             writer.AddRecording(SuborbitalArc(baseUT));
             writer.AddRecording(Orbit1(baseUT));
             writer.AddRecording(IslandProbe(baseUT));
+            writer.AddRecording(TedorfEvaSwitch(baseUT));
 
             foreach (string file in targets)
             {
@@ -436,6 +480,7 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Suborbital Arc", content);
                     Assert.Contains("vesselName = Orbit-1", content);
                     Assert.Contains("vesselName = Island Probe", content);
+                    Assert.Contains("vesselName = Tedorf Kerman", content);
                     Assert.Contains("FLIGHTSTATE", content);
 
                     File.Copy(tempPath, savePath, overwrite: true);

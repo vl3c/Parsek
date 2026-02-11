@@ -98,6 +98,18 @@ namespace Parsek
             return true;
         }
 
+        internal static string GetPartPositionRaw(ConfigNode partNode)
+        {
+            if (partNode == null) return null;
+            return partNode.GetValue("pos") ?? partNode.GetValue("position");
+        }
+
+        internal static string GetPartRotationRaw(ConfigNode partNode)
+        {
+            if (partNode == null) return null;
+            return partNode.GetValue("rot") ?? partNode.GetValue("rotation");
+        }
+
         private static bool AddPartVisuals(Transform root, ConfigNode partNode, Part prefab)
         {
             var renderers = prefab.GetComponentsInChildren<MeshRenderer>(true);
@@ -110,11 +122,11 @@ namespace Parsek
             partRoot.transform.SetParent(root, false);
 
             Vector3 localPos;
-            if (TryParseVector3(partNode.GetValue("pos"), out localPos))
+            if (TryParseVector3(GetPartPositionRaw(partNode), out localPos))
                 partRoot.transform.localPosition = localPos;
 
             Quaternion localRot;
-            if (TryParseQuaternion(partNode.GetValue("rot"), out localRot))
+            if (TryParseQuaternion(GetPartRotationRaw(partNode), out localRot))
                 partRoot.transform.localRotation = localRot;
 
             bool added = false;

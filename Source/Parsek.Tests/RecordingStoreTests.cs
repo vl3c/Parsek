@@ -482,6 +482,21 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void GetPartTransformRaw_PrefersLegacyKeys_ButSupportsProtoKeys()
+        {
+            var node = new ConfigNode("PART");
+            node.AddValue("position", "1,2,3");
+            node.AddValue("rotation", "0,0,0,1");
+            Assert.Equal("1,2,3", GhostVisualBuilder.GetPartPositionRaw(node));
+            Assert.Equal("0,0,0,1", GhostVisualBuilder.GetPartRotationRaw(node));
+
+            node.AddValue("pos", "4,5,6");
+            node.AddValue("rot", "0.1,0.2,0.3,0.4");
+            Assert.Equal("4,5,6", GhostVisualBuilder.GetPartPositionRaw(node));
+            Assert.Equal("0.1,0.2,0.3,0.4", GhostVisualBuilder.GetPartRotationRaw(node));
+        }
+
+        [Fact]
         public void GetRecommendedAction_DestroyedWithSnapshot()
         {
             // destroyed=true takes priority over hasSnapshot=true
