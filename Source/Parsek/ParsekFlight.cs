@@ -190,10 +190,27 @@ namespace Parsek
                     ? FlightGlobals.ActiveVessel.vesselName
                     : "Unknown Vessel";
 
-                RecordingStore.StashPending(recorder.Recording, vesselName, recorder.OrbitSegments);
+                var captured = recorder.CaptureAtStop;
+                RecordingStore.StashPending(
+                    recorder.Recording,
+                    vesselName,
+                    recorder.OrbitSegments,
+                    recordingId: captured != null ? captured.RecordingId : null,
+                    recordingFormatVersion: captured != null ? (int?)captured.RecordingFormatVersion : null,
+                    ghostGeometryVersion: captured != null ? (int?)captured.GhostGeometryVersion : null);
 
-                // Snapshot vessel for persistence across revert
-                VesselSpawner.SnapshotVessel(RecordingStore.Pending, wasDestroyed);
+                // Use stop-time atomic capture when available; fallback to scene-change capture.
+                if (captured != null)
+                {
+                    var pending = RecordingStore.Pending;
+                    pending.ApplyPersistenceArtifactsFrom(captured);
+                    Log("Applied stop-time snapshot/geometry artifacts to pending recording");
+                }
+                else
+                {
+                    // Snapshot vessel for persistence across revert.
+                    VesselSpawner.SnapshotVessel(RecordingStore.Pending, wasDestroyed);
+                }
 
                 recorder = null;
                 lastPlaybackIndex = 0;

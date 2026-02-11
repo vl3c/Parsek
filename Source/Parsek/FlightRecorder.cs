@@ -16,6 +16,7 @@ namespace Parsek
         public bool IsRecording { get; private set; }
         public uint RecordingVesselId { get; private set; }
         public bool VesselDestroyedDuringRecording { get; set; }
+        public RecordingStore.Recording CaptureAtStop { get; private set; }
 
         // Adaptive sampling thresholds
         private const float maxSampleInterval = 3.0f;
@@ -49,6 +50,7 @@ namespace Parsek
             IsRecording = true;
             isOnRails = false;
             VesselDestroyedDuringRecording = false;
+            CaptureAtStop = null;
             RecordingVesselId = v.persistentId;
             lastRecordedUT = -1;
             lastRecordedVelocity = Vector3.zero;
@@ -99,6 +101,21 @@ namespace Parsek
             // Disconnect from Harmony patch
             Patches.PhysicsFramePatch.ActiveRecorder = null;
             IsRecording = false;
+
+            // Capture persistence artifacts at stop-time so later scene changes
+            // don't depend on whatever vessel is currently active.
+            CaptureAtStop = new RecordingStore.Recording
+            {
+                RecordingId = System.Guid.NewGuid().ToString("N"),
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                GhostGeometryVersion = RecordingStore.CurrentGhostGeometryVersion,
+                VesselName = FlightGlobals.ActiveVessel != null
+                    ? FlightGlobals.ActiveVessel.vesselName
+                    : "Unknown Vessel",
+                Points = new List<TrajectoryPoint>(Recording),
+                OrbitSegments = new List<OrbitSegment>(OrbitSegments)
+            };
+            VesselSpawner.SnapshotVessel(CaptureAtStop, VesselDestroyedDuringRecording);
 
             double duration = Recording.Count > 0
                 ? Recording[Recording.Count - 1].ut - Recording[0].ut
@@ -283,6 +300,9 @@ namespace Parsek
         /// </summary>
         public void ForceStop()
         {
+            // Intentionally does not set CaptureAtStop. Forced stops happen during
+            // scene transitions where vessel state may already be changing/unreliable;
+            // ParsekFlight falls back to scene-change snapshot capture in that path.
             if (isOnRails)
             {
                 currentOrbitSegment.endUT = Planetarium.GetUniversalTime();

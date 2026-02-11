@@ -251,6 +251,8 @@ namespace Parsek
             {
                 pending.VesselDestroyed = true;
                 pending.VesselSnapshot = null;
+                pending.GhostGeometryAvailable = false;
+                pending.GhostGeometryCaptureError = "vessel_destroyed";
 
                 // Use last recorded point for distance (may be a different SOI)
                 var lastPoint = pending.Points[pending.Points.Count - 1];
@@ -278,6 +280,8 @@ namespace Parsek
             {
                 pending.VesselDestroyed = true;
                 pending.VesselSnapshot = null;
+                pending.GhostGeometryAvailable = false;
+                pending.GhostGeometryCaptureError = "no_active_vessel";
                 pending.VesselSituation = "Unknown (no active vessel)";
                 ParsekLog.Log("No active vessel at snapshot time");
                 return;
@@ -307,6 +311,9 @@ namespace Parsek
             pending.VesselSituation = vessel.isEVA
                 ? $"EVA {vessel.mainBody.name}"
                 : $"{vessel.situation} {vessel.mainBody.name}";
+
+            // Atomic capture: snapshot and ghost geometry metadata are captured together.
+            GhostGeometryCapture.CaptureStub(pending, vessel);
 
             ParsekLog.Log($"Vessel snapshot taken. Distance from launch: {pending.DistanceFromLaunch:F0}m, " +
                 $"Max distance: {pending.MaxDistanceFromLaunch:F0}m, Situation: {pending.VesselSituation}");

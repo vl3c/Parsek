@@ -37,6 +37,7 @@ namespace Parsek
             {
                 var rec = recordings[r];
                 ConfigNode recNode = node.AddNode("RECORDING");
+                SaveRecordingMetadata(recNode, rec);
                 recNode.AddValue("vesselName", rec.VesselName);
                 recNode.AddValue("pointCount", rec.Points.Count);
 
@@ -165,6 +166,7 @@ namespace Parsek
                 {
                     VesselName = recNode.GetValue("vesselName") ?? "Unknown"
                 };
+                LoadRecordingMetadata(recNode, rec);
 
                 ConfigNode[] ptNodes = recNode.GetNodes("POINT");
                 for (int i = 0; i < ptNodes.Length; i++)
@@ -256,7 +258,10 @@ namespace Parsek
                     Debug.Log($"[Parsek Scenario] Loaded recording: {rec.VesselName}, " +
                         $"{rec.Points.Count} points, {rec.OrbitSegments.Count} orbit segments, " +
                         $"UT {rec.StartUT:F0}-{rec.EndUT:F0}" +
-                        (rec.VesselSnapshot != null ? " (has vessel snapshot)" : ""));
+                        (rec.VesselSnapshot != null ? " (has vessel snapshot)" : "") +
+                        (!string.IsNullOrEmpty(rec.GhostGeometryRelativePath)
+                            ? $" (ghost geometry: {(rec.GhostGeometryAvailable ? "ready" : "fallback")})"
+                            : ""));
                 }
             }
 
@@ -320,6 +325,60 @@ namespace Parsek
         }
 
         #region Crew Reservation
+
+        /// <summary>
+        /// Saves versioned recording metadata and ghost-geometry metadata.
+        /// Extracted for testability.
+        /// </summary>
+        internal static void SaveRecordingMetadata(ConfigNode recNode, RecordingStore.Recording rec)
+        {
+            recNode.AddValue("recordingId", rec.RecordingId ?? "");
+            recNode.AddValue("recordingFormatVersion", rec.RecordingFormatVersion);
+            recNode.AddValue("ghostGeometryVersion", rec.GhostGeometryVersion);
+            if (!string.IsNullOrEmpty(rec.GhostGeometryRelativePath))
+                recNode.AddValue("ghostGeometryPath", rec.GhostGeometryRelativePath);
+            recNode.AddValue("ghostGeometryAvailable", rec.GhostGeometryAvailable);
+            if (!string.IsNullOrEmpty(rec.GhostGeometryCaptureError))
+                recNode.AddValue("ghostGeometryError", rec.GhostGeometryCaptureError);
+        }
+
+        /// <summary>
+        /// Loads versioned recording metadata and ghost-geometry metadata.
+        /// Missing fields are treated as old-format recordings.
+        /// Extracted for testability.
+        /// </summary>
+        internal static void LoadRecordingMetadata(ConfigNode recNode, RecordingStore.Recording rec)
+        {
+            string id = recNode.GetValue("recordingId");
+            if (!string.IsNullOrEmpty(id))
+                rec.RecordingId = id;
+
+            string formatVersionStr = recNode.GetValue("recordingFormatVersion");
+            if (formatVersionStr != null)
+            {
+                int formatVersion;
+                if (int.TryParse(formatVersionStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out formatVersion))
+                    rec.RecordingFormatVersion = formatVersion;
+            }
+
+            string geomVersionStr = recNode.GetValue("ghostGeometryVersion");
+            if (geomVersionStr != null)
+            {
+                int geomVersion;
+                if (int.TryParse(geomVersionStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out geomVersion))
+                    rec.GhostGeometryVersion = geomVersion;
+            }
+
+            rec.GhostGeometryRelativePath = recNode.GetValue("ghostGeometryPath");
+            string geomAvailableStr = recNode.GetValue("ghostGeometryAvailable");
+            if (geomAvailableStr != null)
+            {
+                bool geomAvailable;
+                if (bool.TryParse(geomAvailableStr, out geomAvailable))
+                    rec.GhostGeometryAvailable = geomAvailable;
+            }
+            rec.GhostGeometryCaptureError = recNode.GetValue("ghostGeometryError");
+        }
 
         /// <summary>
         /// Mark crew from all unspawned vessel snapshots as Assigned so they

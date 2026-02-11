@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Parsek
@@ -9,6 +10,9 @@ namespace Parsek
     /// </summary>
     public static class RecordingStore
     {
+        public const int CurrentRecordingFormatVersion = 2;
+        public const int CurrentGhostGeometryVersion = 1;
+
         // When true, suppresses Debug.Log calls (for unit testing outside Unity)
         internal static bool SuppressLogging;
 
@@ -30,9 +34,15 @@ namespace Parsek
 
         public class Recording
         {
+            public string RecordingId = Guid.NewGuid().ToString("N");
+            public int RecordingFormatVersion = CurrentRecordingFormatVersion;
+            public int GhostGeometryVersion = CurrentGhostGeometryVersion;
             public List<TrajectoryPoint> Points = new List<TrajectoryPoint>();
             public List<OrbitSegment> OrbitSegments = new List<OrbitSegment>();
             public string VesselName = "";
+            public string GhostGeometryRelativePath;
+            public bool GhostGeometryAvailable;
+            public string GhostGeometryCaptureError;
 
             // Tracks which point's resource deltas have been applied during playback.
             // -1 means no resources applied yet (start from point 0's delta).
@@ -50,6 +60,28 @@ namespace Parsek
 
             public double StartUT => Points.Count > 0 ? Points[0].ut : 0;
             public double EndUT => Points.Count > 0 ? Points[Points.Count - 1].ut : 0;
+
+            /// <summary>
+            /// Copies persistence/capture artifacts from a stop-time captured recording.
+            /// Intentionally does NOT copy Points/OrbitSegments/VesselName, which are
+            /// set by StashPending from the current recorder buffers.
+            /// </summary>
+            public void ApplyPersistenceArtifactsFrom(Recording source)
+            {
+                if (source == null) return;
+
+                VesselSnapshot = source.VesselSnapshot;
+                RecordingId = source.RecordingId;
+                DistanceFromLaunch = source.DistanceFromLaunch;
+                VesselDestroyed = source.VesselDestroyed;
+                VesselSituation = source.VesselSituation;
+                MaxDistanceFromLaunch = source.MaxDistanceFromLaunch;
+                GhostGeometryRelativePath = source.GhostGeometryRelativePath;
+                GhostGeometryAvailable = source.GhostGeometryAvailable;
+                GhostGeometryCaptureError = source.GhostGeometryCaptureError;
+                RecordingFormatVersion = source.RecordingFormatVersion;
+                GhostGeometryVersion = source.GhostGeometryVersion;
+            }
         }
 
         /// <summary>
@@ -84,7 +116,10 @@ namespace Parsek
         public static List<Recording> CommittedRecordings => committedRecordings;
 
         public static void StashPending(List<TrajectoryPoint> points, string vesselName,
-            List<OrbitSegment> orbitSegments = null)
+            List<OrbitSegment> orbitSegments = null,
+            string recordingId = null,
+            int? recordingFormatVersion = null,
+            int? ghostGeometryVersion = null)
         {
             if (points == null || points.Count < 2)
             {
@@ -94,6 +129,9 @@ namespace Parsek
 
             pendingRecording = new Recording
             {
+                RecordingId = string.IsNullOrEmpty(recordingId) ? Guid.NewGuid().ToString("N") : recordingId,
+                RecordingFormatVersion = recordingFormatVersion ?? CurrentRecordingFormatVersion,
+                GhostGeometryVersion = ghostGeometryVersion ?? CurrentGhostGeometryVersion,
                 Points = new List<TrajectoryPoint>(points),
                 OrbitSegments = orbitSegments != null
                     ? new List<OrbitSegment>(orbitSegments)
