@@ -104,7 +104,7 @@ namespace Parsek
                     ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
                 ParsekScenario.ClearReplacements();
                 flight.DestroyAllTimelineGhosts();
-                RecordingStore.CommittedRecordings.Clear();
+                RecordingStore.ClearCommitted();
                 ParsekLog.Log("All recordings wiped");
                 ParsekLog.ScreenMessage("All recordings wiped", 2f);
             }

@@ -157,14 +157,24 @@ namespace Parsek
         {
             if (pendingRecording == null) return;
 
+            DeleteGhostGeometryArtifact(pendingRecording);
             Log($"[Parsek] Discarded pending recording from {pendingRecording.VesselName}");
             pendingRecording = null;
         }
 
+        public static void ClearCommitted()
+        {
+            for (int i = 0; i < committedRecordings.Count; i++)
+                DeleteGhostGeometryArtifact(committedRecordings[i]);
+            committedRecordings.Clear();
+        }
+
         public static void Clear()
         {
+            if (pendingRecording != null)
+                DeleteGhostGeometryArtifact(pendingRecording);
             pendingRecording = null;
-            committedRecordings.Clear();
+            ClearCommitted();
             Log("[Parsek] All recordings cleared");
         }
 
@@ -175,6 +185,25 @@ namespace Parsek
         {
             pendingRecording = null;
             committedRecordings.Clear();
+        }
+
+        internal static bool DeleteGhostGeometryArtifact(Recording rec)
+        {
+            if (rec == null) return false;
+            if (string.IsNullOrEmpty(rec.GhostGeometryRelativePath)) return false;
+
+            try
+            {
+                string absolutePath = RecordingPaths.ResolveSaveScopedPath(rec.GhostGeometryRelativePath);
+                if (string.IsNullOrEmpty(absolutePath)) return false;
+                if (!System.IO.File.Exists(absolutePath)) return false;
+                System.IO.File.Delete(absolutePath);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
     }
 }

@@ -368,6 +368,64 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DeleteGhostGeometryArtifact_NoPath_ReturnsFalse()
+        {
+            var rec = new RecordingStore.Recording();
+            rec.GhostGeometryRelativePath = null;
+            Assert.False(RecordingStore.DeleteGhostGeometryArtifact(rec));
+        }
+
+        [Fact]
+        public void DeleteGhostGeometryArtifact_NoSaveContext_ReturnsFalse()
+        {
+            var rec = new RecordingStore.Recording
+            {
+                GhostGeometryRelativePath = "Parsek/Recordings/test.pcrf"
+            };
+            Assert.False(RecordingStore.DeleteGhostGeometryArtifact(rec));
+        }
+
+        [Fact]
+        public void DiscardPending_WithGeometryPath_DoesNotThrow()
+        {
+            RecordingStore.StashPending(MakePoints(3), "Ship");
+            RecordingStore.Pending.GhostGeometryRelativePath = "Parsek/Recordings/pending.pcrf";
+            RecordingStore.DiscardPending();
+            Assert.False(RecordingStore.HasPending);
+        }
+
+        [Fact]
+        public void ClearCommitted_WithGeometryPath_DoesNotThrow()
+        {
+            RecordingStore.StashPending(MakePoints(3), "A");
+            RecordingStore.Pending.GhostGeometryRelativePath = "Parsek/Recordings/a.pcrf";
+            RecordingStore.CommitPending();
+            RecordingStore.StashPending(MakePoints(3, 200), "B");
+            RecordingStore.Pending.GhostGeometryRelativePath = "Parsek/Recordings/b.pcrf";
+            RecordingStore.CommitPending();
+
+            RecordingStore.ClearCommitted();
+
+            Assert.Empty(RecordingStore.CommittedRecordings);
+        }
+
+        [Fact]
+        public void Clear_WithPendingAndCommittedGeometry_DoesNotThrow()
+        {
+            RecordingStore.StashPending(MakePoints(3), "A");
+            RecordingStore.Pending.GhostGeometryRelativePath = "Parsek/Recordings/a.pcrf";
+            RecordingStore.CommitPending();
+
+            RecordingStore.StashPending(MakePoints(3, 200), "Pending");
+            RecordingStore.Pending.GhostGeometryRelativePath = "Parsek/Recordings/pending.pcrf";
+
+            RecordingStore.Clear();
+
+            Assert.Empty(RecordingStore.CommittedRecordings);
+            Assert.False(RecordingStore.HasPending);
+        }
+
+        [Fact]
         public void GetRecommendedAction_DestroyedWithSnapshot()
         {
             // destroyed=true takes priority over hasSnapshot=true
