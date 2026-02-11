@@ -36,7 +36,7 @@ namespace Parsek
 
         // Timeline ghost state (auto-playback of committed recordings)
         private Dictionary<int, GameObject> timelineGhosts = new Dictionary<int, GameObject>();
-        private Dictionary<int, Material> timelineGhostMaterials = new Dictionary<int, Material>();
+        private Dictionary<int, List<Material>> timelineGhostMaterials = new Dictionary<int, List<Material>>();
         private Dictionary<int, int> timelinePlaybackIndices = new Dictionary<int, int>();
 
         // Auto-record: EVA from pad triggers recording after vessel switch completes
@@ -602,6 +602,7 @@ namespace Parsek
             Color ghostColor = new Color(0.2f, 1f, 0.4f, 0.8f); // bright green-cyan
             GameObject ghost = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
                 rec, $"Parsek_Timeline_{index}");
+            bool builtFromSnapshot = ghost != null;
             if (ghost == null)
             {
                 ghost = CreateGhostSphere($"Parsek_Timeline_{index}", ghostColor);
@@ -610,10 +611,19 @@ namespace Parsek
             else
             {
                 Log($"Timeline ghost #{index}: built from vessel snapshot");
+                // Snapshot-based ghosts use prefab materials by default; apply a
+                // consistent translucent tint so they remain visually distinct.
+                ApplyGhostStyle(ghost, ghostColor, 0.55f);
             }
 
             timelineGhosts[index] = ghost;
-            timelineGhostMaterials[index] = ghost.GetComponent<Renderer>()?.material;
+            if (builtFromSnapshot)
+                timelineGhostMaterials[index] = CollectAllMaterials(ghost);
+            else
+            {
+                var m = ghost.GetComponent<Renderer>()?.material;
+                timelineGhostMaterials[index] = m != null ? new List<Material> { m } : new List<Material>();
+            }
             timelinePlaybackIndices[index] = 0;
         }
 
@@ -623,7 +633,12 @@ namespace Parsek
 
             if (timelineGhostMaterials.ContainsKey(index) && timelineGhostMaterials[index] != null)
             {
-                Destroy(timelineGhostMaterials[index]);
+                var mats = timelineGhostMaterials[index];
+                for (int i = 0; i < mats.Count; i++)
+                {
+                    if (mats[i] != null)
+                        Destroy(mats[i]);
+                }
                 timelineGhostMaterials.Remove(index);
             }
 
@@ -682,6 +697,54 @@ namespace Parsek
             }
 
             return ghost;
+        }
+
+        void ApplyGhostStyle(GameObject ghost, Color tint, float alpha)
+        {
+            if (ghost == null) return;
+
+            var renderers = ghost.GetComponentsInChildren<Renderer>(true);
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                var renderer = renderers[i];
+                if (renderer == null) continue;
+
+                // Accessing .materials creates per-instance copies so styling this
+                // ghost doesn't mutate shared prefab materials.
+                var mats = renderer.materials;
+                for (int m = 0; m < mats.Length; m++)
+                {
+                    var mat = mats[m];
+                    if (mat == null) continue;
+
+                    Color c = tint;
+                    c.a = alpha;
+                    if (mat.HasProperty("_Color"))
+                        mat.SetColor("_Color", c);
+                    if (mat.HasProperty("_EmissiveColor"))
+                        mat.SetColor("_EmissiveColor", c);
+                    if (mat.HasProperty("_TintColor"))
+                        mat.SetColor("_TintColor", c);
+                }
+            }
+        }
+
+        List<Material> CollectAllMaterials(GameObject root)
+        {
+            var unique = new HashSet<Material>();
+            if (root == null) return new List<Material>();
+
+            var renderers = root.GetComponentsInChildren<Renderer>(true);
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                var mats = renderers[i].materials;
+                for (int m = 0; m < mats.Length; m++)
+                {
+                    if (mats[m] != null)
+                        unique.Add(mats[m]);
+                }
+            }
+            return new List<Material>(unique);
         }
 
         void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points, ref int cachedIndex, double targetUT)

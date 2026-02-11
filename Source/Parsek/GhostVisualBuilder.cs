@@ -6,6 +6,9 @@ namespace Parsek
 {
     internal static class GhostVisualBuilder
     {
+        private static readonly Regex trailingNumericSuffixRegex =
+            new Regex(@"^(.*)_\d+$", RegexOptions.Compiled);
+
         internal static GameObject BuildTimelineGhostFromSnapshot(RecordingStore.Recording rec, string rootName)
         {
             if (rec == null || rec.VesselSnapshot == null)
@@ -50,7 +53,7 @@ namespace Parsek
 
             // Snapshot format often uses "partName_123456789". Keep the full
             // name unless there is a trailing numeric suffix.
-            var match = Regex.Match(rawPart, @"^(.*)_\d+$");
+            var match = trailingNumericSuffixRegex.Match(rawPart);
             return match.Success ? match.Groups[1].Value : rawPart;
         }
 
@@ -96,6 +99,8 @@ namespace Parsek
         private static bool AddPartVisuals(Transform root, ConfigNode partNode, Part prefab)
         {
             var renderers = prefab.GetComponentsInChildren<MeshRenderer>(true);
+            // Known limitation for v1: parts that only use SkinnedMeshRenderer
+            // (e.g. EVA models) are not reconstructed here and will fallback.
             if (renderers == null || renderers.Length == 0)
                 return false;
 
