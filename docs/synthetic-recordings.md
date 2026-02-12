@@ -5,18 +5,39 @@ A reusable system for generating synthetic recordings and injecting them into KS
 ## Quick Start
 
 ```bash
-cd Source/Parsek.Tests
-dotnet test --filter InjectAllRecordings
+pwsh -File scripts/inject-recordings.ps1 --clean-start
 ```
 
-This injects 4 test recordings into `Kerbal Space Program/saves/test career/2.sfs` and `persistent.sfs`.  
-If `2.sfs` does not exist, it is created from `1.sfs` first. The command is idempotent — running it again replaces the existing ParsekScenario block. The test writes to a temp file first and only overwrites the save after verification passes.
+This injects synthetic recordings into `Kerbal Space Program/saves/test career/1.sfs` and `persistent.sfs`.
+`--clean-start` removes top-level world `VESSEL` blocks and stale `spawnedPid` values before injection so replay starts from a clean baseline.
+If the target save is missing, it is created from `persistent.sfs`.
+The operation is idempotent: existing `ParsekScenario` is replaced.
+
+Optional script flags:
+
+```bash
+# Inject into a different save slot without cleaning
+pwsh -File scripts/inject-recordings.ps1 -TargetSave 3.sfs
+
+# Different save game folder
+pwsh -File scripts/inject-recordings.ps1 -SaveName "career hard" --clean-start
+
+# Force a rebuild (use when code changed and KSP is closed)
+pwsh -File scripts/inject-recordings.ps1 --clean-start --build
+```
+
+By default the script runs `dotnet test --no-build` to avoid plugin DLL copy-lock issues while KSP is running.
 
 `InjectAllRecordings` is tagged `[Trait("Category", "Manual")]` since it mutates a real save file. It silently skips if the save file doesn't exist (CI-safe). To exclude it from automated runs:
 
 ```bash
 dotnet test --filter "Category!=Manual"
 ```
+
+Advanced: the manual injector test also respects environment variables:
+- `PARSEK_INJECT_SAVE_NAME`
+- `PARSEK_INJECT_TARGET_SAVE`
+- `PARSEK_INJECT_CLEAN_START` (`1`/`true`)
 
 ## In-Game Walkthrough
 
