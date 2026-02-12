@@ -39,8 +39,18 @@ namespace Parsek
         private Dictionary<int, List<Material>> timelineGhostMaterials = new Dictionary<int, List<Material>>();
         private Dictionary<int, int> timelinePlaybackIndices = new Dictionary<int, int>();
 
+        // Part event playback state
+        private Dictionary<int, int> timelinePartEventIndices = new Dictionary<int, int>();
+        private Dictionary<int, Dictionary<uint, List<uint>>> ghostPartTrees = new Dictionary<int, Dictionary<uint, List<uint>>>();
+
         // Auto-record: EVA from pad triggers recording after vessel switch completes
         private bool pendingAutoRecord = false;
+
+        // EVA child recording state
+        private bool pendingEvaChildRecord;
+        private string pendingEvaCrewName;
+        private string activeChildParentId;
+        private string activeChildCrewName;
 
         // Timeline warp protection — tracks previous frame's UT
         private double lastTimelineUT = -1;
@@ -103,14 +113,64 @@ namespace Parsek
 
         void Update()
         {
+            // EVA child: auto-commit parent recording once vessel-switch auto-stop fires
+            if (pendingEvaChildRecord && recorder != null && !recorder.IsRecording && recorder.CaptureAtStop != null)
+            {
+                string parentRecordingId = recorder.CaptureAtStop.RecordingId;
+                Log($"EVA child: auto-committing parent recording (id={parentRecordingId})");
+
+                RecordingStore.StashPending(
+                    recorder.Recording,
+                    recorder.CaptureAtStop.VesselName,
+                    recorder.OrbitSegments,
+                    recordingId: parentRecordingId,
+                    recordingFormatVersion: recorder.CaptureAtStop.RecordingFormatVersion,
+                    ghostGeometryVersion: recorder.CaptureAtStop.GhostGeometryVersion,
+                    partEvents: recorder.PartEvents);
+
+                if (RecordingStore.HasPending)
+                {
+                    RecordingStore.Pending.ApplyPersistenceArtifactsFrom(recorder.CaptureAtStop);
+                    RecordingStore.CommitPending();
+                    ParsekScenario.ReserveSnapshotCrew();
+                    ParsekScenario.SwapReservedCrewInFlight();
+
+                    activeChildParentId = parentRecordingId;
+                    activeChildCrewName = pendingEvaCrewName;
+                }
+                else
+                {
+                    // Parent recording too short — abort child flow
+                    Log("EVA child: parent recording too short to stash — aborting child");
+                    pendingEvaChildRecord = false;
+                    pendingEvaCrewName = null;
+                    pendingAutoRecord = false;
+                }
+
+                recorder = null;
+                // pendingAutoRecord is still true — will start child recording next
+            }
+
             // Complete deferred auto-record for EVA (vessel switch may take a frame)
             if (pendingAutoRecord && !IsRecording &&
                 FlightGlobals.ActiveVessel != null && FlightGlobals.ActiveVessel.isEVA)
             {
                 pendingAutoRecord = false;
                 StartRecording();
-                Log("Auto-record started (EVA from pad)");
-                ScreenMessage("Recording STARTED (auto — EVA from pad)", 2f);
+
+                // Tag child recording with parent linkage
+                if (pendingEvaChildRecord)
+                {
+                    pendingEvaChildRecord = false;
+                    pendingEvaCrewName = null;
+                    Log($"EVA child recording started (parent={activeChildParentId}, crew={activeChildCrewName})");
+                    ScreenMessage("Recording STARTED (EVA child)", 2f);
+                }
+                else
+                {
+                    Log("Auto-record started (EVA from pad)");
+                    ScreenMessage("Recording STARTED (auto — EVA from pad)", 2f);
+                }
             }
 
             HandleInput();
@@ -198,9 +258,12 @@ namespace Parsek
                     recorder.OrbitSegments,
                     recordingId: captured != null ? captured.RecordingId : null,
                     recordingFormatVersion: captured != null ? (int?)captured.RecordingFormatVersion : null,
-                    ghostGeometryVersion: captured != null ? (int?)captured.GhostGeometryVersion : null);
+                    ghostGeometryVersion: captured != null ? (int?)captured.GhostGeometryVersion : null,
+                    partEvents: recorder.PartEvents);
 
                 // Use stop-time atomic capture when available; fallback to scene-change capture.
+                // ApplyPersistenceArtifactsFrom copies ParentRecordingId/EvaCrewName from
+                // CaptureAtStop on the normal path (StopRecording tagged them there).
                 if (captured != null)
                 {
                     var pending = RecordingStore.Pending;
@@ -210,8 +273,29 @@ namespace Parsek
                 else
                 {
                     // Snapshot vessel for persistence across revert.
-                    VesselSpawner.SnapshotVessel(RecordingStore.Pending, wasDestroyed);
+                    VesselSpawner.SnapshotVessel(
+                        RecordingStore.Pending,
+                        wasDestroyed,
+                        destroyedFallbackSnapshot: recorder.InitialGhostVisualSnapshot ?? recorder.LastGoodVesselSnapshot);
+                    RecordingStore.Pending.GhostVisualSnapshot = recorder.InitialGhostVisualSnapshot != null
+                        ? recorder.InitialGhostVisualSnapshot.CreateCopy()
+                        : (RecordingStore.Pending.VesselSnapshot != null
+                            ? RecordingStore.Pending.VesselSnapshot.CreateCopy()
+                            : null);
+
+                    // Fallback path (ForceStop): CaptureAtStop is null, so
+                    // ApplyPersistenceArtifactsFrom didn't run. Apply child
+                    // metadata directly from the active fields.
+                    if (RecordingStore.HasPending && !string.IsNullOrEmpty(activeChildParentId))
+                    {
+                        RecordingStore.Pending.ParentRecordingId = activeChildParentId;
+                        RecordingStore.Pending.EvaCrewName = activeChildCrewName;
+                    }
                 }
+
+                // Clear child fields after both paths have consumed them
+                activeChildParentId = null;
+                activeChildCrewName = null;
 
                 recorder = null;
                 lastPlaybackIndex = 0;
@@ -240,13 +324,45 @@ namespace Parsek
 
         void OnCrewOnEva(GameEvents.FromToAction<Part, Part> data)
         {
-            if (IsRecording) return;
+            // Mid-recording EVA: auto-stop parent, start child for EVA kerbal
+            if (IsRecording)
+            {
+                // Only trigger child flow if EVA is from the vessel we're recording
+                if (data.from?.vessel == null ||
+                    data.from.vessel.persistentId != recorder.RecordingVesselId)
+                {
+                    return;
+                }
+
+                string kerbalName = ExtractEvaKerbalName(data);
+                if (string.IsNullOrEmpty(kerbalName))
+                {
+                    Log("EVA during recording but could not extract kerbal name — ignoring");
+                    return;
+                }
+
+                pendingEvaChildRecord = true;
+                pendingEvaCrewName = kerbalName;
+                pendingAutoRecord = true;
+                Log($"Mid-recording EVA detected: '{kerbalName}' — pending child record");
+                return;
+            }
+
             if (data.from.vessel == null) return;
             if (data.from.vessel.situation != Vessel.Situations.PRELAUNCH) return;
 
             // The EVA kerbal may not yet be the active vessel, defer to Update()
             pendingAutoRecord = true;
             Log("EVA from pad detected — pending auto-record");
+        }
+
+        internal static string ExtractEvaKerbalName(GameEvents.FromToAction<Part, Part> data)
+        {
+            if (data.to == null) return null;
+            var crew = data.to.protoModuleCrew;
+            if (crew != null && crew.Count > 0) return crew[0].name;
+            if (data.to.vessel != null) return data.to.vessel.vesselName;
+            return null;
         }
 
         void OnVesselGoOnRails(Vessel v)
@@ -271,8 +387,36 @@ namespace Parsek
             if (RecordingStore.HasPending)
             {
                 var pending = RecordingStore.Pending;
-                Log($"Found pending recording from {pending.VesselName} ({pending.Points.Count} points)");
-                MergeDialog.Show(pending);
+
+                // Auto-commit EVA child recordings (skip merge dialog)
+                if (!string.IsNullOrEmpty(pending.ParentRecordingId))
+                {
+                    bool parentFound = false;
+                    foreach (var rec in RecordingStore.CommittedRecordings)
+                    {
+                        if (rec.RecordingId == pending.ParentRecordingId)
+                        {
+                            parentFound = true;
+                            break;
+                        }
+                    }
+                    if (parentFound)
+                    {
+                        Log($"Auto-committing EVA child recording (parent={pending.ParentRecordingId}, crew={pending.EvaCrewName})");
+                        RecordingStore.CommitPending();
+                        ParsekScenario.ReserveSnapshotCrew();
+                    }
+                    else
+                    {
+                        Log($"EVA child recording has no matching parent — showing merge dialog");
+                        MergeDialog.Show(pending);
+                    }
+                }
+                else
+                {
+                    Log($"Found pending recording from {pending.VesselName} ({pending.Points.Count} points)");
+                    MergeDialog.Show(pending);
+                }
             }
 
             // Swap reserved crew out of the active vessel so the player
@@ -284,7 +428,7 @@ namespace Parsek
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
-                string hasVessel = rec.VesselSnapshot != null ? "vessel" : "ghost-only";
+                string hasVessel = (rec.GhostVisualSnapshot != null || rec.VesselSnapshot != null) ? "vessel" : "ghost-only";
                 string orbitInfo = rec.OrbitSegments.Count > 0
                     ? $", {rec.OrbitSegments.Count} orbit seg(s)"
                     : "";
@@ -341,6 +485,17 @@ namespace Parsek
         public void StopRecording()
         {
             recorder?.StopRecording();
+
+            // Tag child recording if this was an EVA child.
+            // Do NOT clear activeChild* here — OnSceneChangeRequested needs them
+            // as a fallback when CaptureAtStop is unavailable (ForceStop path).
+            // ApplyPersistenceArtifactsFrom copies them from CaptureAtStop on the
+            // normal path; the activeChild* fields cover the ForceStop fallback.
+            if (recorder?.CaptureAtStop != null && !string.IsNullOrEmpty(activeChildParentId))
+            {
+                recorder.CaptureAtStop.ParentRecordingId = activeChildParentId;
+                recorder.CaptureAtStop.EvaCrewName = activeChildCrewName;
+            }
         }
 
         public void ClearRecording()
@@ -515,6 +670,7 @@ namespace Parsek
                         ref playbackIdx, currentUT, i * 10000);
                     timelinePlaybackIndices[i] = playbackIdx;
 
+                    ApplyPartEvents(i, rec, currentUT, timelineGhosts[i]);
                     ApplyResourceDeltas(rec, currentUT);
                 }
                 else if (pastEnd && needsSpawn && ghostActive)
@@ -638,7 +794,10 @@ namespace Parsek
             }
             else
             {
-                Log($"Timeline ghost #{index}: built from vessel snapshot");
+                bool usedStartSnapshot = rec.GhostVisualSnapshot != null;
+                Log(usedStartSnapshot
+                    ? $"Timeline ghost #{index}: built from recording-start snapshot"
+                    : $"Timeline ghost #{index}: built from vessel snapshot");
                 // Snapshot-based ghosts use prefab materials by default; apply a
                 // consistent translucent tint so they remain visually distinct.
                 timelineGhostMaterials[index] = ApplyGhostStyleAndCollectMaterials(ghost, ghostColor, 0.55f);
@@ -651,6 +810,11 @@ namespace Parsek
                 timelineGhostMaterials[index] = m != null ? new List<Material> { m } : new List<Material>();
             }
             timelinePlaybackIndices[index] = 0;
+
+            // Build part tree for event playback
+            timelinePartEventIndices[index] = 0;
+            ConfigNode snapshot = GhostVisualBuilder.GetGhostSnapshot(rec);
+            ghostPartTrees[index] = GhostVisualBuilder.BuildPartSubtreeMap(snapshot);
         }
 
         void DestroyTimelineGhost(int index)
@@ -675,6 +839,8 @@ namespace Parsek
             }
 
             timelinePlaybackIndices.Remove(index);
+            timelinePartEventIndices.Remove(index);
+            ghostPartTrees.Remove(index);
         }
 
         public void DestroyAllTimelineGhosts()
@@ -689,6 +855,70 @@ namespace Parsek
             loggedGhostEnter.Clear();
             loggedOrbitSegments.Clear();
             warpStoppedForRecording.Clear();
+        }
+
+        void ApplyPartEvents(int recIdx, RecordingStore.Recording rec, double currentUT, GameObject ghost)
+        {
+            if (rec.PartEvents == null || rec.PartEvents.Count == 0) return;
+            if (ghost == null) return;
+
+            int evtIdx;
+            if (!timelinePartEventIndices.TryGetValue(recIdx, out evtIdx))
+                evtIdx = 0;
+
+            Dictionary<uint, List<uint>> tree;
+            ghostPartTrees.TryGetValue(recIdx, out tree);
+
+            while (evtIdx < rec.PartEvents.Count && rec.PartEvents[evtIdx].ut <= currentUT)
+            {
+                var evt = rec.PartEvents[evtIdx];
+                switch (evt.eventType)
+                {
+                    case PartEventType.Decoupled:
+                        if (tree != null)
+                            HidePartSubtree(ghost, evt.partPersistentId, tree);
+                        else
+                            HideGhostPart(ghost, evt.partPersistentId);
+                        Log($"Part event applied: Decoupled '{evt.partName}' pid={evt.partPersistentId}");
+                        break;
+                    case PartEventType.Destroyed:
+                        HideGhostPart(ghost, evt.partPersistentId);
+                        Log($"Part event applied: Destroyed '{evt.partName}' pid={evt.partPersistentId}");
+                        break;
+                    case PartEventType.ParachuteCut:
+                        HideGhostPart(ghost, evt.partPersistentId);
+                        break;
+                    case PartEventType.ParachuteDeployed:
+                        // Canopy mesh is procedural — cannot recreate; log only
+                        Log($"Part event: ParachuteDeployed '{evt.partName}' (visual not applied)");
+                        break;
+                }
+                evtIdx++;
+            }
+
+            timelinePartEventIndices[recIdx] = evtIdx;
+        }
+
+        static void HideGhostPart(GameObject ghost, uint persistentId)
+        {
+            var t = ghost.transform.Find($"ghost_part_{persistentId}");
+            if (t != null) t.gameObject.SetActive(false);
+        }
+
+        static void HidePartSubtree(GameObject ghost, uint rootPid, Dictionary<uint, List<uint>> tree)
+        {
+            var stack = new Stack<uint>();
+            stack.Push(rootPid);
+            while (stack.Count > 0)
+            {
+                uint pid = stack.Pop();
+                var t = ghost.transform.Find($"ghost_part_{pid}");
+                if (t != null) t.gameObject.SetActive(false);
+                List<uint> children;
+                if (tree.TryGetValue(pid, out children))
+                    for (int c = 0; c < children.Count; c++)
+                        stack.Push(children[c]);
+            }
         }
 
         GameObject BuildPreviewGhostFromActiveVessel(string name)
@@ -785,6 +1015,10 @@ namespace Parsek
             var unique = new HashSet<Material>();
             if (ghost == null) return new List<Material>();
 
+            // Try to find a transparent shader so the ghost preserves original
+            // part textures instead of being a solid green blob.
+            Shader transparentShader = FindTransparentGhostShader();
+
             var renderers = ghost.GetComponentsInChildren<Renderer>(true);
             for (int i = 0; i < renderers.Length; i++)
             {
@@ -799,18 +1033,44 @@ namespace Parsek
                     var mat = mats[m];
                     if (mat == null) continue;
 
-                    Color c = tint;
-                    c.a = alpha;
-                    if (mat.HasProperty("_Color"))
-                        mat.SetColor("_Color", c);
-                    if (mat.HasProperty("_EmissiveColor"))
-                        mat.SetColor("_EmissiveColor", c);
-                    if (mat.HasProperty("_TintColor"))
-                        mat.SetColor("_TintColor", c);
+                    if (transparentShader != null)
+                    {
+                        // Switch to transparent shader, preserving original textures.
+                        // Ghost looks like a semi-transparent replica of the vessel.
+                        mat.shader = transparentShader;
+                        Color original = mat.HasProperty("_Color")
+                            ? mat.GetColor("_Color") : Color.white;
+                        Color blended = Color.Lerp(original, tint, 0.2f);
+                        blended.a = alpha;
+                        mat.SetColor("_Color", blended);
+                    }
+                    else
+                    {
+                        // Fallback: solid color tint (no transparency support)
+                        Color c = tint;
+                        c.a = alpha;
+                        if (mat.HasProperty("_Color"))
+                            mat.SetColor("_Color", c);
+                        if (mat.HasProperty("_EmissiveColor"))
+                            mat.SetColor("_EmissiveColor", c);
+                        if (mat.HasProperty("_TintColor"))
+                            mat.SetColor("_TintColor", c);
+                    }
+
                     unique.Add(mat);
                 }
             }
             return new List<Material>(unique);
+        }
+
+        static Shader FindTransparentGhostShader()
+        {
+            // KSP-specific transparent shaders first, then Unity built-in
+            Shader s = Shader.Find("KSP/Alpha/Translucent Specular");
+            if (s != null) return s;
+            s = Shader.Find("KSP/Alpha/Translucent");
+            if (s != null) return s;
+            return Shader.Find("Legacy Shaders/Transparent/Diffuse");
         }
 
         void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points, ref int cachedIndex, double targetUT)

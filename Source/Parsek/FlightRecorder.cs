@@ -21,10 +21,18 @@ namespace Parsek
         // Recording output
         public List<TrajectoryPoint> Recording { get; } = new List<TrajectoryPoint>();
         public List<OrbitSegment> OrbitSegments { get; } = new List<OrbitSegment>();
+        public List<PartEvent> PartEvents { get; } = new List<PartEvent>();
+
+        // Part event tracking
+        private HashSet<uint> deployedParachutes = new HashSet<uint>();
+        internal bool partEventsSubscribed;
         public bool IsRecording { get; private set; }
         public uint RecordingVesselId { get; private set; }
+        public bool RecordingStartedAsEva { get; private set; }
         public bool VesselDestroyedDuringRecording { get; set; }
         public RecordingStore.Recording CaptureAtStop { get; private set; }
+        public ConfigNode LastGoodVesselSnapshot => lastGoodVesselSnapshot;
+        public ConfigNode InitialGhostVisualSnapshot => initialGhostVisualSnapshot;
 
         // Adaptive sampling thresholds
         private const float maxSampleInterval = 3.0f;
@@ -35,11 +43,122 @@ namespace Parsek
         private double lastRecordedUT = -1;
         private Vector3 lastRecordedVelocity;
         private ConfigNode lastGoodVesselSnapshot;
+        private ConfigNode initialGhostVisualSnapshot;
         private double lastSnapshotRefreshUT = double.MinValue;
 
         // On-rails state
         private bool isOnRails;
         private OrbitSegment currentOrbitSegment;
+
+        #region Part Event Subscription
+
+        private void SubscribePartEvents()
+        {
+            if (partEventsSubscribed) return;
+            GameEvents.onPartDie.Add(OnPartDie);
+            GameEvents.onPartJointBreak.Add(OnPartJointBreak);
+            partEventsSubscribed = true;
+        }
+
+        private void UnsubscribePartEvents()
+        {
+            if (!partEventsSubscribed) return;
+            GameEvents.onPartDie.Remove(OnPartDie);
+            GameEvents.onPartJointBreak.Remove(OnPartJointBreak);
+            partEventsSubscribed = false;
+        }
+
+        private void OnPartDie(Part p)
+        {
+            if (!IsRecording) return;
+            if (p?.vessel == null) return;
+            if (p.vessel.persistentId != RecordingVesselId) return;
+
+            PartEvents.Add(new PartEvent
+            {
+                ut = Planetarium.GetUniversalTime(),
+                partPersistentId = p.persistentId,
+                eventType = PartEventType.Destroyed,
+                partName = p.partInfo?.name ?? "unknown"
+            });
+            ParsekLog.Log($"Part event: Destroyed '{p.partInfo?.name}' pid={p.persistentId}");
+        }
+
+        private void OnPartJointBreak(PartJoint joint, float breakForce)
+        {
+            if (!IsRecording) return;
+            if (joint?.Child?.vessel == null) return;
+            if (joint.Child.vessel.persistentId != RecordingVesselId) return;
+
+            PartEvents.Add(new PartEvent
+            {
+                ut = Planetarium.GetUniversalTime(),
+                partPersistentId = joint.Child.persistentId,
+                eventType = PartEventType.Decoupled,
+                partName = joint.Child.partInfo?.name ?? "unknown"
+            });
+            ParsekLog.Log($"Part event: Decoupled '{joint.Child.partInfo?.name}' pid={joint.Child.persistentId}");
+        }
+
+        internal static PartEvent? CheckParachuteTransition(
+            uint partPersistentId, string partName, bool isDeployed, HashSet<uint> deployedSet, double ut)
+        {
+            bool wasDeployed = deployedSet.Contains(partPersistentId);
+
+            if (isDeployed && !wasDeployed)
+            {
+                deployedSet.Add(partPersistentId);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.ParachuteDeployed,
+                    partName = partName
+                };
+            }
+
+            if (!isDeployed && wasDeployed)
+            {
+                deployedSet.Remove(partPersistentId);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.ParachuteCut,
+                    partName = partName
+                };
+            }
+
+            return null;
+        }
+
+        private void CheckParachuteState(Vessel v)
+        {
+            if (v == null || v.parts == null) return;
+
+            double ut = Planetarium.GetUniversalTime();
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                var chute = p.FindModuleImplementing<ModuleParachute>();
+                if (chute == null) continue;
+
+                bool isDeployed = chute.deploymentState == ModuleParachute.deploymentStates.DEPLOYED ||
+                                  chute.deploymentState == ModuleParachute.deploymentStates.SEMIDEPLOYED;
+
+                var evt = CheckParachuteTransition(
+                    p.persistentId, p.partInfo?.name ?? "unknown", isDeployed, deployedParachutes, ut);
+                if (evt.HasValue)
+                {
+                    PartEvents.Add(evt.Value);
+                    ParsekLog.Log($"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
+                }
+            }
+        }
+
+        #endregion
 
         public void StartRecording()
         {
@@ -59,14 +178,20 @@ namespace Parsek
 
             Recording.Clear();
             OrbitSegments.Clear();
+            PartEvents.Clear();
+            deployedParachutes.Clear();
             IsRecording = true;
             isOnRails = false;
             VesselDestroyedDuringRecording = false;
             CaptureAtStop = null;
             RecordingVesselId = v.persistentId;
+            RecordingStartedAsEva = v.isEVA;
             lastRecordedUT = -1;
             lastRecordedVelocity = Vector3.zero;
             RefreshBackupSnapshot(v, "record_start", force: true);
+            initialGhostVisualSnapshot = lastGoodVesselSnapshot != null
+                ? lastGoodVesselSnapshot.CreateCopy()
+                : VesselSpawner.TryBackupSnapshot(v);
 
             // Check if vessel is already on rails (e.g. started recording during time warp)
             if (v.packed)
@@ -93,6 +218,8 @@ namespace Parsek
             // Register the Harmony patch to call us each physics frame
             Patches.PhysicsFramePatch.ActiveRecorder = this;
 
+            SubscribePartEvents();
+
             ParsekLog.Log("Recording started (physics-frame sampling)");
             ParsekLog.ScreenMessage("Recording STARTED", 2f);
         }
@@ -113,6 +240,7 @@ namespace Parsek
 
             // Disconnect from Harmony patch
             Patches.PhysicsFramePatch.ActiveRecorder = null;
+            UnsubscribePartEvents();
             IsRecording = false;
 
             // Capture persistence artifacts at stop-time so later scene changes
@@ -126,12 +254,16 @@ namespace Parsek
                     ? FlightGlobals.ActiveVessel.vesselName
                     : "Unknown Vessel",
                 Points = new List<TrajectoryPoint>(Recording),
-                OrbitSegments = new List<OrbitSegment>(OrbitSegments)
+                OrbitSegments = new List<OrbitSegment>(OrbitSegments),
+                PartEvents = new List<PartEvent>(PartEvents)
             };
             VesselSpawner.SnapshotVessel(
                 CaptureAtStop,
                 VesselDestroyedDuringRecording,
                 destroyedFallbackSnapshot: lastGoodVesselSnapshot);
+            CaptureAtStop.GhostVisualSnapshot = initialGhostVisualSnapshot != null
+                ? initialGhostVisualSnapshot.CreateCopy()
+                : (CaptureAtStop.VesselSnapshot != null ? CaptureAtStop.VesselSnapshot.CreateCopy() : null);
 
             double duration = Recording.Count > 0
                 ? Recording[Recording.Count - 1].ut - Recording[0].ut
@@ -152,7 +284,7 @@ namespace Parsek
             if (v.persistentId != RecordingVesselId)
             {
                 VesselSwitchDecision decision = DecideOnVesselSwitch(
-                    RecordingVesselId, v.persistentId, v.isEVA);
+                    RecordingVesselId, v.persistentId, v.isEVA, RecordingStartedAsEva);
 
                 // Keep recording across switch to EVA. This preserves player intent for
                 // launch -> EVA sequences until multi-track replay lands.
@@ -174,20 +306,28 @@ namespace Parsek
                     GhostGeometryVersion = RecordingStore.CurrentGhostGeometryVersion,
                     VesselName = recordedVessel != null ? recordedVessel.vesselName : v.vesselName,
                     Points = new List<TrajectoryPoint>(Recording),
-                    OrbitSegments = new List<OrbitSegment>(OrbitSegments)
+                    OrbitSegments = new List<OrbitSegment>(OrbitSegments),
+                    PartEvents = new List<PartEvent>(PartEvents)
                 };
                 VesselSpawner.SnapshotVessel(
                     CaptureAtStop,
                     VesselDestroyedDuringRecording || recordedVessel == null,
                     recordedVessel,
                     lastGoodVesselSnapshot);
+                CaptureAtStop.GhostVisualSnapshot = initialGhostVisualSnapshot != null
+                    ? initialGhostVisualSnapshot.CreateCopy()
+                    : (CaptureAtStop.VesselSnapshot != null ? CaptureAtStop.VesselSnapshot.CreateCopy() : null);
 
                 Patches.PhysicsFramePatch.ActiveRecorder = null;
+                UnsubscribePartEvents();
                 IsRecording = false;
                 ParsekLog.Log($"Active vessel changed during recording (was pid={RecordingVesselId}, now pid={v.persistentId}) — auto-stopping");
                 ParsekLog.ScreenMessage("Recording stopped — vessel changed", 3f);
                 return;
             }
+
+            // Poll parachute state every physics frame (before adaptive sampling skip)
+            CheckParachuteState(v);
 
             // Krakensbane-corrected true velocity
             Vector3 currentVelocity = (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity());
@@ -361,6 +501,7 @@ namespace Parsek
             }
 
             Patches.PhysicsFramePatch.ActiveRecorder = null;
+            UnsubscribePartEvents();
             IsRecording = false;
             ParsekLog.Log("Auto-stopped recording due to scene change");
         }
@@ -412,11 +553,13 @@ namespace Parsek
         }
 
         internal static VesselSwitchDecision DecideOnVesselSwitch(
-            uint recordingVesselId, uint currentVesselId, bool currentIsEva)
+            uint recordingVesselId, uint currentVesselId, bool currentIsEva, bool recordingStartedAsEva)
         {
             if (currentVesselId == recordingVesselId)
                 return VesselSwitchDecision.None;
-            if (currentIsEva)
+            // Avoid mixed-mode tracks (ship trajectory followed by EVA walking).
+            // Continue-on-EVA is only valid for recordings that started as EVA.
+            if (currentIsEva && recordingStartedAsEva)
                 return VesselSwitchDecision.ContinueOnEva;
             return VesselSwitchDecision.Stop;
         }

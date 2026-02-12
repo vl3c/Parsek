@@ -28,7 +28,7 @@ namespace Parsek
             }
         }
 
-        public static uint RespawnVessel(ConfigNode vesselNode)
+        public static uint RespawnVessel(ConfigNode vesselNode, HashSet<string> excludeCrew = null)
         {
             try
             {
@@ -37,6 +37,10 @@ namespace Parsek
 
                 // Remove dead/missing crew from snapshot to avoid resurrecting them
                 RemoveDeadCrewFromSnapshot(spawnNode);
+
+                // Remove specific crew (e.g. EVA'd kerbals) — they spawn via child recordings
+                if (excludeCrew != null && excludeCrew.Count > 0)
+                    RemoveSpecificCrewFromSnapshot(spawnNode, excludeCrew);
 
                 // Set reserved crew back to Available so KSP can assign them to this vessel
                 ParsekScenario.UnreserveCrewInSnapshot(spawnNode);
@@ -60,10 +64,13 @@ namespace Parsek
             if (rec.SpawnAttempts >= maxSpawnAttempts)
                 return;
 
+            // Build exclude set once for all spawn paths (EVA'd crew spawn via child recordings)
+            HashSet<string> excludeCrew = BuildExcludeCrewSet(rec);
+
             if (rec.Points.Count == 0 || FlightGlobals.Vessels == null)
             {
                 LogSpawnContext(rec, double.MaxValue);
-                rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot);
+                rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot, excludeCrew);
                 rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
                 if (!rec.VesselSpawned)
                 {
@@ -81,7 +88,7 @@ namespace Parsek
             if (body == null)
             {
                 LogSpawnContext(rec, double.MaxValue);
-                rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot);
+                rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot, excludeCrew);
                 rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
                 if (!rec.VesselSpawned)
                 {
@@ -166,7 +173,7 @@ namespace Parsek
 
             LogSpawnContext(rec, closestDist);
 
-            rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot);
+            rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot, excludeCrew);
             rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
             if (rec.VesselSpawned)
             {
@@ -181,6 +188,26 @@ namespace Parsek
                 else
                     ParsekLog.Log($"Vessel spawn failed for recording #{index} ({rec.VesselName}) — will retry (attempt {rec.SpawnAttempts}/{maxSpawnAttempts})");
             }
+        }
+
+        internal static HashSet<string> BuildExcludeCrewSet(RecordingStore.Recording rec)
+        {
+            if (string.IsNullOrEmpty(rec.RecordingId)) return null;
+
+            HashSet<string> excludeCrew = null;
+            var committed = RecordingStore.CommittedRecordings;
+            for (int c = 0; c < committed.Count; c++)
+            {
+                var child = committed[c];
+                if (child.ParentRecordingId == rec.RecordingId && !string.IsNullOrEmpty(child.EvaCrewName))
+                {
+                    if (excludeCrew == null) excludeCrew = new HashSet<string>();
+                    excludeCrew.Add(child.EvaCrewName);
+                }
+            }
+            if (excludeCrew != null)
+                ParsekLog.Log($"Excluding EVA'd crew from parent spawn: [{string.Join(", ", excludeCrew)}]");
+            return excludeCrew;
         }
 
         internal static void LogSpawnContext(RecordingStore.Recording rec, double closestDist)
@@ -212,6 +239,39 @@ namespace Parsek
             catch (System.Exception ex)
             {
                 ParsekLog.Log($"Failed to recover vessel: {ex.Message}");
+            }
+        }
+
+        public static void RemoveSpecificCrewFromSnapshot(ConfigNode snapshot, HashSet<string> crewNames)
+        {
+            if (snapshot == null || crewNames == null || crewNames.Count == 0) return;
+
+            foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
+            {
+                var names = partNode.GetValues("crew");
+                if (names.Length == 0) continue;
+
+                var keep = new List<string>();
+                bool removedAny = false;
+                foreach (string name in names)
+                {
+                    if (crewNames.Contains(name))
+                    {
+                        removedAny = true;
+                        ParsekLog.Log($"Removed EVA'd crew '{name}' from vessel snapshot");
+                    }
+                    else
+                    {
+                        keep.Add(name);
+                    }
+                }
+
+                if (removedAny)
+                {
+                    partNode.RemoveValues("crew");
+                    foreach (string name in keep)
+                        partNode.AddValue("crew", name);
+                }
             }
         }
 

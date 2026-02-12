@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using UnityEngine;
@@ -11,15 +12,20 @@ namespace Parsek
 
         internal static GameObject BuildTimelineGhostFromSnapshot(RecordingStore.Recording rec, string rootName)
         {
-            if (rec == null || rec.VesselSnapshot == null)
+            ConfigNode snapshotNode = GetGhostSnapshot(rec);
+            if (snapshotNode == null)
                 return null;
 
-            var partNodes = rec.VesselSnapshot.GetNodes("PART");
+            var partNodes = snapshotNode.GetNodes("PART");
             if (partNodes == null || partNodes.Length == 0)
                 return null;
 
             GameObject root = new GameObject(rootName);
             bool addedAnyVisual = false;
+            int visualCount = 0;
+            int skippedName = 0;
+            int skippedPrefab = 0;
+            int skippedMesh = 0;
 
             for (int i = 0; i < partNodes.Length; i++)
             {
@@ -29,15 +35,36 @@ namespace Parsek
                 string rawPart = partNode.GetValue("name") ?? partNode.GetValue("part");
                 string partName = TryExtractPartName(rawPart);
                 if (string.IsNullOrEmpty(partName))
+                {
+                    skippedName++;
                     continue;
+                }
+
+                // Read persistentId for ghost part naming (enables O(1) lookup during playback)
+                string pidStr = partNode.GetValue("persistentId");
+                uint persistentId = 0;
+                if (pidStr != null)
+                    uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out persistentId);
 
                 AvailablePart ap = PartLoader.getPartInfoByName(partName);
                 if (ap == null || ap.partPrefab == null)
+                {
+                    skippedPrefab++;
                     continue;
+                }
 
-                bool partVisualAdded = AddPartVisuals(root.transform, partNode, ap.partPrefab);
+                bool partVisualAdded = AddPartVisuals(root.transform, partNode, ap.partPrefab, persistentId);
+                if (partVisualAdded)
+                    visualCount++;
+                else
+                    skippedMesh++;
                 addedAnyVisual = addedAnyVisual || partVisualAdded;
             }
+
+            ParsekLog.Log($"Ghost built: {visualCount}/{partNodes.Length} parts with visuals" +
+                (skippedName > 0 ? $", {skippedName} bad name" : "") +
+                (skippedPrefab > 0 ? $", {skippedPrefab} no prefab" : "") +
+                (skippedMesh > 0 ? $", {skippedMesh} no mesh" : ""));
 
             if (!addedAnyVisual)
             {
@@ -46,6 +73,12 @@ namespace Parsek
             }
 
             return root;
+        }
+
+        internal static ConfigNode GetGhostSnapshot(RecordingStore.Recording rec)
+        {
+            if (rec == null) return null;
+            return rec.GhostVisualSnapshot ?? rec.VesselSnapshot;
         }
 
         internal static string TryExtractPartName(string rawPart)
@@ -110,7 +143,52 @@ namespace Parsek
             return partNode.GetValue("rot") ?? partNode.GetValue("rotation");
         }
 
-        private static bool AddPartVisuals(Transform root, ConfigNode partNode, Part prefab)
+        internal static Dictionary<uint, List<uint>> BuildPartSubtreeMap(ConfigNode snapshotNode)
+        {
+            var map = new Dictionary<uint, List<uint>>();
+            if (snapshotNode == null) return map;
+
+            var partNodes = snapshotNode.GetNodes("PART");
+            if (partNodes == null || partNodes.Length == 0) return map;
+
+            // First pass: collect persistentIds in order (index → pid)
+            var pidByIndex = new uint[partNodes.Length];
+            for (int i = 0; i < partNodes.Length; i++)
+            {
+                string pidStr = partNodes[i].GetValue("persistentId");
+                if (pidStr != null)
+                    uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out pidByIndex[i]);
+            }
+
+            // Second pass: build parent → children map
+            for (int i = 0; i < partNodes.Length; i++)
+            {
+                string parentStr = partNodes[i].GetValue("parent");
+                if (parentStr == null) continue;
+
+                int parentIdx;
+                if (!int.TryParse(parentStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out parentIdx))
+                    continue;
+                if (parentIdx < 0 || parentIdx >= partNodes.Length) continue;
+                if (parentIdx == i) continue; // root part references itself
+
+                uint parentPid = pidByIndex[parentIdx];
+                uint childPid = pidByIndex[i];
+                if (parentPid == 0 || childPid == 0) continue;
+
+                List<uint> children;
+                if (!map.TryGetValue(parentPid, out children))
+                {
+                    children = new List<uint>();
+                    map[parentPid] = children;
+                }
+                children.Add(childPid);
+            }
+
+            return map;
+        }
+
+        private static bool AddPartVisuals(Transform root, ConfigNode partNode, Part prefab, uint persistentId = 0)
         {
             var meshRenderers = prefab.GetComponentsInChildren<MeshRenderer>(true);
             var skinnedRenderers = prefab.GetComponentsInChildren<SkinnedMeshRenderer>(true);
@@ -118,7 +196,11 @@ namespace Parsek
                 (skinnedRenderers == null || skinnedRenderers.Length == 0))
                 return false;
 
-            GameObject partRoot = new GameObject($"ghost_part_{prefab.partInfo?.name ?? "unknown"}");
+            // Name by persistentId for O(1) lookup during playback; fall back to part name
+            string partLabel = persistentId != 0
+                ? persistentId.ToString()
+                : (prefab.partInfo?.name ?? "unknown");
+            GameObject partRoot = new GameObject($"ghost_part_{partLabel}");
             partRoot.transform.SetParent(root, false);
 
             Vector3 localPos;

@@ -77,11 +77,24 @@ namespace Parsek
                     segNode.AddValue("body", seg.bodyName);
                 }
 
-                // Persist vessel snapshot if present
-                if (rec.VesselSnapshot != null)
+                // Persist part events
+                for (int pe = 0; pe < rec.PartEvents.Count; pe++)
                 {
-                    recNode.AddNode("VESSEL_SNAPSHOT", rec.VesselSnapshot);
+                    var evt = rec.PartEvents[pe];
+                    ConfigNode evtNode = recNode.AddNode("PART_EVENT");
+                    evtNode.AddValue("ut", evt.ut.ToString("R", ic));
+                    evtNode.AddValue("pid", evt.partPersistentId.ToString(ic));
+                    evtNode.AddValue("type", ((int)evt.eventType).ToString(ic));
+                    evtNode.AddValue("part", evt.partName ?? "");
                 }
+
+                // Persist EVA child recording linkage
+                if (!string.IsNullOrEmpty(rec.ParentRecordingId))
+                    recNode.AddValue("parentRecordingId", rec.ParentRecordingId);
+                if (!string.IsNullOrEmpty(rec.EvaCrewName))
+                    recNode.AddValue("evaCrewName", rec.EvaCrewName);
+
+                SaveSnapshotNodes(recNode, rec);
 
                 // Persist spawned vessel pid so we can detect duplicates after scene changes
                 if (rec.SpawnedVesselPersistentId != 0)
@@ -227,11 +240,49 @@ namespace Parsek
                     rec.OrbitSegments.Add(seg);
                 }
 
+                // Restore part events
+                ConfigNode[] peNodes = recNode.GetNodes("PART_EVENT");
+                for (int pe = 0; pe < peNodes.Length; pe++)
+                {
+                    var peNode = peNodes[pe];
+                    var evt = new PartEvent();
+                    var inv = NumberStyles.Float;
+                    var icPe = CultureInfo.InvariantCulture;
+
+                    double.TryParse(peNode.GetValue("ut"), inv, icPe, out evt.ut);
+                    uint pid;
+                    if (uint.TryParse(peNode.GetValue("pid"), NumberStyles.Integer, icPe, out pid))
+                        evt.partPersistentId = pid;
+                    int typeInt;
+                    if (int.TryParse(peNode.GetValue("type"), NumberStyles.Integer, icPe, out typeInt))
+                        evt.eventType = (PartEventType)typeInt;
+                    evt.partName = peNode.GetValue("part") ?? "";
+
+                    rec.PartEvents.Add(evt);
+                }
+
+                // Restore EVA child recording linkage
+                rec.ParentRecordingId = recNode.GetValue("parentRecordingId");
+                rec.EvaCrewName = recNode.GetValue("evaCrewName");
+
                 // Restore vessel snapshot if saved
                 ConfigNode snapshotNode = recNode.GetNode("VESSEL_SNAPSHOT");
                 if (snapshotNode != null)
                 {
                     rec.VesselSnapshot = snapshotNode;
+                }
+
+                ConfigNode ghostSnapshotNode = recNode.GetNode("GHOST_VISUAL_SNAPSHOT");
+                if (ghostSnapshotNode != null)
+                {
+                    rec.GhostVisualSnapshot = ghostSnapshotNode;
+                }
+                else
+                {
+                    // Backward compatibility: old saves only have VESSEL_SNAPSHOT.
+                    rec.GhostVisualSnapshot = rec.VesselSnapshot != null
+                        ? rec.VesselSnapshot.CreateCopy()
+                        : null;
                 }
 
                 // Restore spawned vessel pid for duplicate spawn detection
@@ -258,7 +309,7 @@ namespace Parsek
                     Debug.Log($"[Parsek Scenario] Loaded recording: {rec.VesselName}, " +
                         $"{rec.Points.Count} points, {rec.OrbitSegments.Count} orbit segments, " +
                         $"UT {rec.StartUT:F0}-{rec.EndUT:F0}" +
-                        (rec.VesselSnapshot != null ? " (has vessel snapshot)" : "") +
+                        ((rec.GhostVisualSnapshot != null || rec.VesselSnapshot != null) ? " (has vessel snapshot)" : "") +
                         (!string.IsNullOrEmpty(rec.GhostGeometryRelativePath)
                             ? $" (ghost geometry: {(rec.GhostGeometryAvailable ? "ready" : "fallback")})"
                             : ""));
@@ -342,6 +393,21 @@ namespace Parsek
             recNode.AddValue("ghostGeometryAvailable", rec.GhostGeometryAvailable);
             if (!string.IsNullOrEmpty(rec.GhostGeometryCaptureError))
                 recNode.AddValue("ghostGeometryError", rec.GhostGeometryCaptureError);
+        }
+
+        internal static void SaveSnapshotNodes(ConfigNode recNode, RecordingStore.Recording rec)
+        {
+            if (recNode == null || rec == null) return;
+
+            if (rec.VesselSnapshot != null)
+            {
+                recNode.AddNode("VESSEL_SNAPSHOT", rec.VesselSnapshot.CreateCopy());
+            }
+
+            if (rec.GhostVisualSnapshot != null)
+            {
+                recNode.AddNode("GHOST_VISUAL_SNAPSHOT", rec.GhostVisualSnapshot.CreateCopy());
+            }
         }
 
         /// <summary>

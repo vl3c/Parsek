@@ -39,6 +39,11 @@ namespace Parsek
             public int GhostGeometryVersion = CurrentGhostGeometryVersion;
             public List<TrajectoryPoint> Points = new List<TrajectoryPoint>();
             public List<OrbitSegment> OrbitSegments = new List<OrbitSegment>();
+            public List<PartEvent> PartEvents = new List<PartEvent>();
+
+            // EVA child recording linkage
+            public string ParentRecordingId;
+            public string EvaCrewName;
             public string VesselName = "";
             public string GhostGeometryRelativePath;
             public bool GhostGeometryAvailable;
@@ -52,6 +57,7 @@ namespace Parsek
 
             // Vessel persistence fields (transient — only needed between revert and merge dialog)
             public ConfigNode VesselSnapshot;       // ProtoVessel as ConfigNode (null if destroyed)
+            public ConfigNode GhostVisualSnapshot;  // Snapshot used for ghost visuals (prefer recording-start state)
             public double DistanceFromLaunch;       // Meters from launch position
             public bool VesselDestroyed;            // Vessel was destroyed before revert
             public string VesselSituation;          // "Orbiting Kerbin", "Landed on Mun", etc.
@@ -72,7 +78,12 @@ namespace Parsek
             {
                 if (source == null) return;
 
-                VesselSnapshot = source.VesselSnapshot;
+                VesselSnapshot = source.VesselSnapshot != null
+                    ? source.VesselSnapshot.CreateCopy()
+                    : null;
+                GhostVisualSnapshot = source.GhostVisualSnapshot != null
+                    ? source.GhostVisualSnapshot.CreateCopy()
+                    : null;
                 RecordingId = source.RecordingId;
                 DistanceFromLaunch = source.DistanceFromLaunch;
                 VesselDestroyed = source.VesselDestroyed;
@@ -85,6 +96,8 @@ namespace Parsek
                 GhostGeometryProbeStatus = source.GhostGeometryProbeStatus;
                 RecordingFormatVersion = source.RecordingFormatVersion;
                 GhostGeometryVersion = source.GhostGeometryVersion;
+                ParentRecordingId = source.ParentRecordingId;
+                EvaCrewName = source.EvaCrewName;
             }
         }
 
@@ -123,7 +136,8 @@ namespace Parsek
             List<OrbitSegment> orbitSegments = null,
             string recordingId = null,
             int? recordingFormatVersion = null,
-            int? ghostGeometryVersion = null)
+            int? ghostGeometryVersion = null,
+            List<PartEvent> partEvents = null)
         {
             if (points == null || points.Count < 2)
             {
@@ -140,6 +154,9 @@ namespace Parsek
                 OrbitSegments = orbitSegments != null
                     ? new List<OrbitSegment>(orbitSegments)
                     : new List<OrbitSegment>(),
+                PartEvents = partEvents != null
+                    ? new List<PartEvent>(partEvents)
+                    : new List<PartEvent>(),
                 VesselName = vesselName
             };
 
