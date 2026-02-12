@@ -40,21 +40,32 @@ namespace Parsek.Tests
         [Fact]
         public void DecideOnVesselSwitch_SamePid_NoSwitch()
         {
-            var decision = FlightRecorder.DecideOnVesselSwitch(10u, 10u, currentIsEva: false);
+            var decision = FlightRecorder.DecideOnVesselSwitch(
+                10u, 10u, currentIsEva: false, recordingStartedAsEva: false);
             Assert.Equal(FlightRecorder.VesselSwitchDecision.None, decision);
         }
 
         [Fact]
-        public void DecideOnVesselSwitch_DifferentPidEva_Continues()
+        public void DecideOnVesselSwitch_DifferentPidEva_StartedAsVessel_Stops()
         {
-            var decision = FlightRecorder.DecideOnVesselSwitch(10u, 11u, currentIsEva: true);
+            var decision = FlightRecorder.DecideOnVesselSwitch(
+                10u, 11u, currentIsEva: true, recordingStartedAsEva: false);
+            Assert.Equal(FlightRecorder.VesselSwitchDecision.Stop, decision);
+        }
+
+        [Fact]
+        public void DecideOnVesselSwitch_DifferentPidEva_StartedAsEva_Continues()
+        {
+            var decision = FlightRecorder.DecideOnVesselSwitch(
+                10u, 11u, currentIsEva: true, recordingStartedAsEva: true);
             Assert.Equal(FlightRecorder.VesselSwitchDecision.ContinueOnEva, decision);
         }
 
         [Fact]
         public void DecideOnVesselSwitch_DifferentPidNonEva_Stops()
         {
-            var decision = FlightRecorder.DecideOnVesselSwitch(10u, 11u, currentIsEva: false);
+            var decision = FlightRecorder.DecideOnVesselSwitch(
+                10u, 11u, currentIsEva: false, recordingStartedAsEva: false);
             Assert.Equal(FlightRecorder.VesselSwitchDecision.Stop, decision);
         }
 

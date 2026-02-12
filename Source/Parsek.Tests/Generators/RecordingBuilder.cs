@@ -8,9 +8,12 @@ namespace Parsek.Tests.Generators
         private readonly string vesselName;
         private readonly List<ConfigNode> points = new List<ConfigNode>();
         private readonly List<ConfigNode> orbitSegments = new List<ConfigNode>();
+        private readonly List<ConfigNode> partEvents = new List<ConfigNode>();
         private ConfigNode vesselSnapshot;
         private uint spawnedPid;
         private int lastResIdx = -1;
+        private string parentRecordingId;
+        private string evaCrewName;
 
         public RecordingBuilder(string vesselName)
         {
@@ -85,6 +88,30 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
+        public RecordingBuilder AddPartEvent(double ut, uint pid, int type, string partName = "")
+        {
+            var ic = CultureInfo.InvariantCulture;
+            var node = new ConfigNode("PART_EVENT");
+            node.AddValue("ut", ut.ToString("R", ic));
+            node.AddValue("pid", pid.ToString(ic));
+            node.AddValue("type", type.ToString(ic));
+            node.AddValue("part", partName);
+            partEvents.Add(node);
+            return this;
+        }
+
+        public RecordingBuilder WithParentRecordingId(string id)
+        {
+            parentRecordingId = id;
+            return this;
+        }
+
+        public RecordingBuilder WithEvaCrewName(string name)
+        {
+            evaCrewName = name;
+            return this;
+        }
+
         public ConfigNode Build()
         {
             var node = new ConfigNode("RECORDING");
@@ -96,6 +123,14 @@ namespace Parsek.Tests.Generators
 
             foreach (var seg in orbitSegments)
                 node.AddNode(seg);
+
+            foreach (var pe in partEvents)
+                node.AddNode(pe);
+
+            if (!string.IsNullOrEmpty(parentRecordingId))
+                node.AddValue("parentRecordingId", parentRecordingId);
+            if (!string.IsNullOrEmpty(evaCrewName))
+                node.AddValue("evaCrewName", evaCrewName);
 
             if (vesselSnapshot != null)
                 node.AddNode("VESSEL_SNAPSHOT", vesselSnapshot);

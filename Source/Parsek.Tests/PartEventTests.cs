@@ -1,0 +1,397 @@
+using System.Collections.Generic;
+using System.Globalization;
+using Parsek.Tests.Generators;
+using Xunit;
+
+namespace Parsek.Tests
+{
+    [Collection("Sequential")]
+    public class PartEventTests
+    {
+        public PartEventTests()
+        {
+            RecordingStore.SuppressLogging = true;
+            ParsekLog.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+        }
+
+        #region Serialization roundtrip
+
+        [Fact]
+        public void PartEvents_SerializationRoundtrip()
+        {
+            // Build a RECORDING with PART_EVENT nodes via the builder
+            var recNode = new RecordingBuilder("TestVessel")
+                .AddPoint(100, 0, 0, 100)
+                .AddPoint(110, 0, 0, 200)
+                .AddPartEvent(105, 12345, (int)PartEventType.Decoupled, "fuelTank")
+                .AddPartEvent(108, 67890, (int)PartEventType.Destroyed, "engine")
+                .Build();
+
+            // Load via ParsekScenario's static loader
+            var rec = new RecordingStore.Recording
+            {
+                VesselName = recNode.GetValue("vesselName") ?? "Unknown"
+            };
+            ParsekScenario.LoadRecordingMetadata(recNode, rec);
+
+            // Load points
+            var ptNodes = recNode.GetNodes("POINT");
+            for (int i = 0; i < ptNodes.Length; i++)
+            {
+                var pt = new TrajectoryPoint();
+                var inv = NumberStyles.Float;
+                var ic = CultureInfo.InvariantCulture;
+                double.TryParse(ptNodes[i].GetValue("ut"), inv, ic, out pt.ut);
+                double.TryParse(ptNodes[i].GetValue("lat"), inv, ic, out pt.latitude);
+                double.TryParse(ptNodes[i].GetValue("lon"), inv, ic, out pt.longitude);
+                double.TryParse(ptNodes[i].GetValue("alt"), inv, ic, out pt.altitude);
+                pt.bodyName = ptNodes[i].GetValue("body") ?? "Kerbin";
+                rec.Points.Add(pt);
+            }
+
+            // Load part events
+            var peNodes = recNode.GetNodes("PART_EVENT");
+            for (int pe = 0; pe < peNodes.Length; pe++)
+            {
+                var evt = new PartEvent();
+                var inv = NumberStyles.Float;
+                var ic = CultureInfo.InvariantCulture;
+                double.TryParse(peNodes[pe].GetValue("ut"), inv, ic, out evt.ut);
+                uint pid;
+                if (uint.TryParse(peNodes[pe].GetValue("pid"), NumberStyles.Integer, ic, out pid))
+                    evt.partPersistentId = pid;
+                int typeInt;
+                if (int.TryParse(peNodes[pe].GetValue("type"), NumberStyles.Integer, ic, out typeInt))
+                    evt.eventType = (PartEventType)typeInt;
+                evt.partName = peNodes[pe].GetValue("part") ?? "";
+                rec.PartEvents.Add(evt);
+            }
+
+            Assert.Equal(2, rec.PartEvents.Count);
+
+            Assert.Equal(105.0, rec.PartEvents[0].ut);
+            Assert.Equal(12345u, rec.PartEvents[0].partPersistentId);
+            Assert.Equal(PartEventType.Decoupled, rec.PartEvents[0].eventType);
+            Assert.Equal("fuelTank", rec.PartEvents[0].partName);
+
+            Assert.Equal(108.0, rec.PartEvents[1].ut);
+            Assert.Equal(67890u, rec.PartEvents[1].partPersistentId);
+            Assert.Equal(PartEventType.Destroyed, rec.PartEvents[1].eventType);
+            Assert.Equal("engine", rec.PartEvents[1].partName);
+        }
+
+        [Fact]
+        public void PartEvents_BackwardCompat_EmptyListWhenNoNodes()
+        {
+            // Build a RECORDING with no PART_EVENT nodes
+            var recNode = new RecordingBuilder("OldVessel")
+                .AddPoint(100, 0, 0, 100)
+                .AddPoint(110, 0, 0, 200)
+                .Build();
+
+            var peNodes = recNode.GetNodes("PART_EVENT");
+
+            Assert.Empty(peNodes);
+
+            // A Recording starts with an empty PartEvents list
+            var rec = new RecordingStore.Recording();
+            Assert.Empty(rec.PartEvents);
+        }
+
+        #endregion
+
+        #region Part subtree building
+
+        [Fact]
+        public void BuildPartSubtreeMap_FourPartTree()
+        {
+            // Build a snapshot with 4 parts:
+            // Part 0 (pid=100, root, parent=0)
+            // Part 1 (pid=101, parent=0 → child of 100)
+            // Part 2 (pid=102, parent=1 → child of 101)
+            // Part 3 (pid=103, parent=1 → child of 101)
+            var snapshot = new ConfigNode("VESSEL");
+            AddTestPart(snapshot, "root", 100, 0);      // index 0, parent=0 (self = root)
+            AddTestPart(snapshot, "tank", 101, 0);       // index 1, parent=0
+            AddTestPart(snapshot, "engine", 102, 1);     // index 2, parent=1
+            AddTestPart(snapshot, "nozzle", 103, 1);     // index 3, parent=1
+
+            var map = GhostVisualBuilder.BuildPartSubtreeMap(snapshot);
+
+            // Part 100 has child 101 (parent=0 which is pid 100)
+            Assert.True(map.ContainsKey(100));
+            Assert.Contains(101u, map[100]);
+
+            // Part 101 has children 102 and 103
+            Assert.True(map.ContainsKey(101));
+            Assert.Contains(102u, map[101]);
+            Assert.Contains(103u, map[101]);
+
+            // Parts 102 and 103 have no children
+            Assert.False(map.ContainsKey(102));
+            Assert.False(map.ContainsKey(103));
+        }
+
+        [Fact]
+        public void BuildPartSubtreeMap_NullSnapshot_ReturnsEmpty()
+        {
+            var map = GhostVisualBuilder.BuildPartSubtreeMap(null);
+            Assert.Empty(map);
+        }
+
+        [Fact]
+        public void BuildPartSubtreeMap_EmptySnapshot_ReturnsEmpty()
+        {
+            var map = GhostVisualBuilder.BuildPartSubtreeMap(new ConfigNode("VESSEL"));
+            Assert.Empty(map);
+        }
+
+        #endregion
+
+        #region Subtree collection
+
+        [Fact]
+        public void SubtreeCollect_DecoupleAtNode101_CollectsAllDescendants()
+        {
+            // Same tree as above:
+            // 100 → 101 → {102, 103}
+            var tree = new Dictionary<uint, List<uint>>
+            {
+                { 100, new List<uint> { 101 } },
+                { 101, new List<uint> { 102, 103 } }
+            };
+
+            // Collect subtree from 101 (what HidePartSubtree would traverse)
+            var collected = CollectSubtree(101, tree);
+
+            Assert.Contains(101u, collected);
+            Assert.Contains(102u, collected);
+            Assert.Contains(103u, collected);
+            Assert.DoesNotContain(100u, collected);
+        }
+
+        [Fact]
+        public void SubtreeCollect_LeafNode_CollectsOnlyItself()
+        {
+            var tree = new Dictionary<uint, List<uint>>
+            {
+                { 100, new List<uint> { 101 } },
+                { 101, new List<uint> { 102, 103 } }
+            };
+
+            var collected = CollectSubtree(103, tree);
+
+            Assert.Single(collected);
+            Assert.Contains(103u, collected);
+        }
+
+        #endregion
+
+        #region Parachute state tracking
+
+        [Fact]
+        public void ParachuteTransition_StowedToDeployed_EmitsDeployedEvent()
+        {
+            var deployed = new HashSet<uint>();
+            var evt = FlightRecorder.CheckParachuteTransition(
+                42, "parachute", isDeployed: true, deployed, 100.0);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.ParachuteDeployed, evt.Value.eventType);
+            Assert.Equal(42u, evt.Value.partPersistentId);
+            Assert.Equal(100.0, evt.Value.ut);
+            Assert.Contains(42u, deployed);
+        }
+
+        [Fact]
+        public void ParachuteTransition_DeployedToCut_EmitsCutEvent()
+        {
+            var deployed = new HashSet<uint> { 42 };
+            var evt = FlightRecorder.CheckParachuteTransition(
+                42, "parachute", isDeployed: false, deployed, 120.0);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.ParachuteCut, evt.Value.eventType);
+            Assert.Equal(42u, evt.Value.partPersistentId);
+            Assert.DoesNotContain(42u, deployed);
+        }
+
+        [Fact]
+        public void ParachuteTransition_NoChange_ReturnsNull()
+        {
+            var deployed = new HashSet<uint>();
+            var evt = FlightRecorder.CheckParachuteTransition(
+                42, "parachute", isDeployed: false, deployed, 100.0);
+
+            Assert.Null(evt);
+        }
+
+        [Fact]
+        public void ParachuteTransition_AlreadyDeployed_ReturnsNull()
+        {
+            var deployed = new HashSet<uint> { 42 };
+            var evt = FlightRecorder.CheckParachuteTransition(
+                42, "parachute", isDeployed: true, deployed, 100.0);
+
+            Assert.Null(evt);
+        }
+
+        #endregion
+
+        #region EVA child recording fields
+
+        [Fact]
+        public void ParentRecordingId_SerializationRoundtrip()
+        {
+            var recNode = new RecordingBuilder("EVA Child")
+                .AddPoint(100, 0, 0, 100)
+                .AddPoint(110, 0, 0, 200)
+                .WithParentRecordingId("abc123")
+                .WithEvaCrewName("Jebediah Kerman")
+                .Build();
+
+            Assert.Equal("abc123", recNode.GetValue("parentRecordingId"));
+            Assert.Equal("Jebediah Kerman", recNode.GetValue("evaCrewName"));
+        }
+
+        [Fact]
+        public void ParentRecordingId_BackwardCompat_NullWhenMissing()
+        {
+            var recNode = new RecordingBuilder("Old Recording")
+                .AddPoint(100, 0, 0, 100)
+                .AddPoint(110, 0, 0, 200)
+                .Build();
+
+            Assert.Null(recNode.GetValue("parentRecordingId"));
+            Assert.Null(recNode.GetValue("evaCrewName"));
+        }
+
+        #endregion
+
+        #region RemoveSpecificCrewFromSnapshot
+
+        [Fact]
+        public void RemoveSpecificCrew_RemovesNamedKerbal()
+        {
+            var snapshot = new VesselSnapshotBuilder()
+                .AddPart("mk1pod.v2", "Jeb")
+                .Build();
+
+            var exclude = new HashSet<string> { "Jeb" };
+            VesselSpawner.RemoveSpecificCrewFromSnapshot(snapshot, exclude);
+
+            var parts = snapshot.GetNodes("PART");
+            foreach (var part in parts)
+            {
+                var crew = part.GetValues("crew");
+                Assert.DoesNotContain("Jeb", crew);
+            }
+        }
+
+        [Fact]
+        public void RemoveSpecificCrew_KeepsOtherCrew()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = snapshot.AddNode("PART");
+            part.AddValue("name", "mk1pod.v2");
+            part.AddValue("crew", "Jeb");
+            part.AddValue("crew", "Bill");
+
+            var exclude = new HashSet<string> { "Jeb" };
+            VesselSpawner.RemoveSpecificCrewFromSnapshot(snapshot, exclude);
+
+            var crewAfter = part.GetValues("crew");
+            Assert.Single(crewAfter);
+            Assert.Equal("Bill", crewAfter[0]);
+        }
+
+        [Fact]
+        public void RemoveSpecificCrew_NullSnapshot_NoException()
+        {
+            VesselSpawner.RemoveSpecificCrewFromSnapshot(null, new HashSet<string> { "Jeb" });
+            // No exception = pass
+        }
+
+        [Fact]
+        public void RemoveSpecificCrew_NullExcludeSet_NoException()
+        {
+            var snapshot = new VesselSnapshotBuilder()
+                .AddPart("mk1pod.v2", "Jeb")
+                .Build();
+
+            VesselSpawner.RemoveSpecificCrewFromSnapshot(snapshot, null);
+            // No exception = pass
+        }
+
+        #endregion
+
+        #region StashPending with PartEvents
+
+        [Fact]
+        public void StashPending_WithPartEvents_StoresEvents()
+        {
+            var points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                new TrajectoryPoint { ut = 110, bodyName = "Kerbin" }
+            };
+            var events = new List<PartEvent>
+            {
+                new PartEvent { ut = 105, partPersistentId = 42, eventType = PartEventType.Decoupled, partName = "tank" }
+            };
+
+            RecordingStore.StashPending(points, "TestVessel", partEvents: events);
+
+            Assert.True(RecordingStore.HasPending);
+            Assert.Single(RecordingStore.Pending.PartEvents);
+            Assert.Equal(PartEventType.Decoupled, RecordingStore.Pending.PartEvents[0].eventType);
+        }
+
+        [Fact]
+        public void StashPending_WithoutPartEvents_EmptyList()
+        {
+            var points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                new TrajectoryPoint { ut = 110, bodyName = "Kerbin" }
+            };
+
+            RecordingStore.StashPending(points, "TestVessel");
+
+            Assert.True(RecordingStore.HasPending);
+            Assert.Empty(RecordingStore.Pending.PartEvents);
+        }
+
+        #endregion
+
+        #region Helpers
+
+        private static void AddTestPart(ConfigNode vessel, string name, uint persistentId, int parentIndex)
+        {
+            var part = vessel.AddNode("PART");
+            part.AddValue("name", name);
+            part.AddValue("persistentId", persistentId.ToString(CultureInfo.InvariantCulture));
+            part.AddValue("parent", parentIndex.ToString(CultureInfo.InvariantCulture));
+        }
+
+        private static HashSet<uint> CollectSubtree(uint rootPid, Dictionary<uint, List<uint>> tree)
+        {
+            var result = new HashSet<uint>();
+            var stack = new Stack<uint>();
+            stack.Push(rootPid);
+            while (stack.Count > 0)
+            {
+                uint pid = stack.Pop();
+                result.Add(pid);
+                List<uint> children;
+                if (tree.TryGetValue(pid, out children))
+                    for (int c = 0; c < children.Count; c++)
+                        stack.Push(children[c]);
+            }
+            return result;
+        }
+
+        #endregion
+    }
+}

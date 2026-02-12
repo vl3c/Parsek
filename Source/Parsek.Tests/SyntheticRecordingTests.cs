@@ -528,17 +528,91 @@ namespace Parsek.Tests
             return 0;
         }
 
+        private static bool IsTruthy(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return false;
+            return value == "1" || value.Equals("true", System.StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string RemoveTopLevelVesselBlocks(string content)
+        {
+            var lines = content.Split(new[] { "\r\n", "\n" }, System.StringSplitOptions.None);
+            var result = new System.Collections.Generic.List<string>(lines.Length);
+            int i = 0;
+            while (i < lines.Length)
+            {
+                string trimmed = lines[i].Trim();
+                if (trimmed == "VESSEL")
+                {
+                    // Skip top-level world vessel block body.
+                    i++; // move to opening brace line
+                    int depth = 0;
+                    while (i < lines.Length)
+                    {
+                        string t = lines[i].Trim();
+                        if (t == "{") depth++;
+                        else if (t == "}")
+                        {
+                            depth--;
+                            if (depth <= 0)
+                            {
+                                i++;
+                                break;
+                            }
+                        }
+                        i++;
+                    }
+                    continue;
+                }
+                result.Add(lines[i]);
+                i++;
+            }
+
+            string sep = content.Contains("\r\n") ? "\r\n" : "\n";
+            return string.Join(sep, result);
+        }
+
+        private static string RemoveSpawnedPidLines(string content)
+        {
+            var lines = content.Split(new[] { "\r\n", "\n" }, System.StringSplitOptions.None);
+            var result = new System.Collections.Generic.List<string>(lines.Length);
+            for (int i = 0; i < lines.Length; i++)
+            {
+                if (lines[i].TrimStart().StartsWith("spawnedPid =",
+                    System.StringComparison.Ordinal))
+                    continue;
+                result.Add(lines[i]);
+            }
+            string sep = content.Contains("\r\n") ? "\r\n" : "\n";
+            return string.Join(sep, result);
+        }
+
+        private static void CleanSaveStart(string savePath)
+        {
+            if (!File.Exists(savePath))
+                return;
+
+            string content = File.ReadAllText(savePath);
+            content = RemoveTopLevelVesselBlocks(content);
+            content = RemoveSpawnedPidLines(content);
+            File.WriteAllText(savePath, content);
+        }
+
         [Trait("Category", "Manual")]
         [Fact]
         public void InjectAllRecordings()
         {
+            string saveName = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_SAVE_NAME")
+                ?? "test career";
+            string targetSave = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_TARGET_SAVE")
+                ?? "1.sfs";
+            bool cleanStart = IsTruthy(System.Environment.GetEnvironmentVariable("PARSEK_INJECT_CLEAN_START"));
+
             string saveDir = Path.Combine(ProjectRoot,
-                "Kerbal Space Program", "saves", "test career");
+                "Kerbal Space Program", "saves", saveName);
 
             // Inject into both persistent.sfs and the target save — KSP loads
             // persistent first (sets initialLoadDone), so it must have the recordings too.
-            // Inject into save 1 and persistent so loading save 1 shows the recordings.
-            string targetSave = "1.sfs";
             string[] targets = { "persistent.sfs", targetSave };
 
             string targetPath = Path.Combine(saveDir, targetSave);
@@ -562,6 +636,9 @@ namespace Parsek.Tests
                 string savePath = Path.Combine(saveDir, file);
                 if (!File.Exists(savePath))
                     continue;
+
+                if (cleanStart)
+                    CleanSaveStart(savePath);
 
                 string tempPath = savePath + ".tmp";
                 try

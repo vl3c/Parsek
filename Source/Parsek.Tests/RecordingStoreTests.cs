@@ -258,12 +258,17 @@ namespace Parsek.Tests
         [Fact]
         public void ApplyPersistenceArtifactsFrom_CopiesOnlyPersistenceFields()
         {
+            var vesselSnapshot = new ConfigNode("VESSEL");
+            vesselSnapshot.AddValue("name", "Vessel A");
+            var ghostSnapshot = new ConfigNode("VESSEL");
+            ghostSnapshot.AddValue("name", "Ghost A");
             var source = new RecordingStore.Recording
             {
                 RecordingId = "abc",
                 RecordingFormatVersion = 9,
                 GhostGeometryVersion = 4,
-                VesselSnapshot = new ConfigNode("VESSEL"),
+                VesselSnapshot = vesselSnapshot,
+                GhostVisualSnapshot = ghostSnapshot,
                 DistanceFromLaunch = 123,
                 VesselDestroyed = true,
                 VesselSituation = "Destroyed",
@@ -288,6 +293,11 @@ namespace Parsek.Tests
             Assert.Equal(9, target.RecordingFormatVersion);
             Assert.Equal(4, target.GhostGeometryVersion);
             Assert.NotNull(target.VesselSnapshot);
+            Assert.NotNull(target.GhostVisualSnapshot);
+            Assert.Equal("Vessel A", target.VesselSnapshot.GetValue("name"));
+            Assert.Equal("Ghost A", target.GhostVisualSnapshot.GetValue("name"));
+            Assert.NotSame(source.VesselSnapshot, target.VesselSnapshot);
+            Assert.NotSame(source.GhostVisualSnapshot, target.GhostVisualSnapshot);
             Assert.Equal(123, target.DistanceFromLaunch);
             Assert.True(target.VesselDestroyed);
             Assert.Equal("Destroyed", target.VesselSituation);
@@ -376,6 +386,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SaveSnapshotNodes_WhenSnapshotsAlias_WritesDistinctSnapshotNodes()
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("name", "AliasShip");
+            var rec = new RecordingStore.Recording
+            {
+                VesselSnapshot = snapshot,
+                GhostVisualSnapshot = snapshot
+            };
+            var recNode = new ConfigNode("RECORDING");
+
+            ParsekScenario.SaveSnapshotNodes(recNode, rec);
+
+            Assert.Single(recNode.GetNodes("VESSEL_SNAPSHOT"));
+            Assert.Single(recNode.GetNodes("GHOST_VISUAL_SNAPSHOT"));
+        }
+
+        [Fact]
         public void DeleteGhostGeometryArtifact_NoPath_ReturnsFalse()
         {
             var rec = new RecordingStore.Recording();
@@ -449,12 +477,29 @@ namespace Parsek.Tests
         [Theory]
         [InlineData("mk1pod_v2_123456", "mk1pod_v2")]
         [InlineData("probeCoreOcto2_1", "probeCoreOcto2")]
+        [InlineData("solidBooster.sm.v2_12345", "solidBooster.sm.v2")]
         [InlineData("adapter_size2_size1", "adapter_size2_size1")]
         [InlineData("mk1pod.v2", "mk1pod.v2")]
         [InlineData("", null)]
         public void TryExtractPartName_Works(string raw, string expected)
         {
             Assert.Equal(expected, GhostVisualBuilder.TryExtractPartName(raw));
+        }
+
+        [Fact]
+        public void GetGhostSnapshot_PrefersGhostVisualOverVesselSnapshot()
+        {
+            var rec = new RecordingStore.Recording();
+            var vessel = new ConfigNode("VESSEL");
+            vessel.AddValue("name", "EndSnapshot");
+            var ghost = new ConfigNode("VESSEL");
+            ghost.AddValue("name", "StartSnapshot");
+            rec.VesselSnapshot = vessel;
+            rec.GhostVisualSnapshot = ghost;
+
+            var selected = GhostVisualBuilder.GetGhostSnapshot(rec);
+
+            Assert.Equal("StartSnapshot", selected.GetValue("name"));
         }
 
         [Theory]
