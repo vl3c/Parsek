@@ -777,7 +777,7 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 **Remaining for MVP release:**
 - [ ] Take control of playback vessel
 - [x] Orbital/time-warp recording (save orbit params instead of sampling)
-- [ ] Ghost as actual vessel model (replace sphere)
+- [x] Ghost as actual vessel model (semi-transparent replica from prefab meshes)
 - [x] Adaptive threshold sampling (velocity direction >2deg, speed >5%, 3s backstop)
 - [x] ClickThroughBlocker for UI windows
 - [x] ToolbarControl for toolbar button
@@ -793,7 +793,7 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 
 **Features:**
 - [ ] Multiple concurrent recordings (timeline playback already supports multiple)
-- [ ] Event-based recording (staging, maneuvers as discrete events)
+- [x] Event-based recording (part events: decoupled, destroyed, parachute deployed/cut)
 - [ ] Timeline viewer UI
 - [ ] Conflict detection
 - [ ] KAC integration
@@ -877,4 +877,4 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 
 ---
 
-*Document version: 0.6 — Architecture cleanup + Harmony integration complete*
+*Document version: 0.7 — Part events, EVA child recordings, ghost vessel model*

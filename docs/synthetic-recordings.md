@@ -41,14 +41,14 @@ Advanced: the manual injector test also respects environment variables:
 
 ## In-Game Walkthrough
 
-After injecting, launch KSP and load **test career**. The save UT is read dynamically from `2.sfs`, so all recordings are scheduled in the near future. Here's what to expect as you time warp forward:
+After injecting, launch KSP and load **test career**. The save UT is read dynamically from `1.sfs`, so all recordings are scheduled in the near future. Here's what to expect as you time warp forward:
 
 ### 1. KSC Hopper (UT 127000-127056)
 
 1. Go to any flight (launch a vessel or switch to an existing one)
 2. Open Map View (M) or stay in flight view
 3. Time warp forward — warp auto-stops at recording start (vessel snapshot present)
-4. At UT ~127000, a green-cyan ghost sphere appears near the launchpad
+4. At UT ~127000, a semi-transparent ghost vessel appears near the launchpad
 5. The ghost rises to ~500m, drifts east ~1km, then descends near the VAB
 6. Ghost disappears at UT 127056
 7. At EndUT, a probe vessel named **KSC Hopper** spawns at the landing point
@@ -56,7 +56,7 @@ After injecting, launch KSP and load **test career**. The save UT is read dynami
 ### 2. Suborbital Arc (UT 128000-128300)
 
 1. Continue time warping past 127056
-2. At UT ~128000, a ghost appears at the launchpad
+2. At UT ~128000, a semi-transparent ghost appears at the launchpad
 3. Switch to **Map View** (M) to see the trajectory climb
 4. The ghost follows a gravity turn east, reaching ~71km apex
 5. It descends and splashes down at UT 128300
@@ -81,19 +81,42 @@ After injecting, launch KSP and load **test career**. The save UT is read dynami
 5. Try switching to it with `[`/`]` or from the Tracking Station
 6. No crew involved (unmanned probe)
 
+### 5. Tedorf EVA Switch (UT +8 to +30)
+
+Short recording that tests vessel-switch/EVA edge cases. Crewed vessel with Tedorf Kerman, landed trajectory near KSC. Ghost-only (no vessel spawn).
+
+### 6. KSC Pad Destroyed (UT +900 to +912)
+
+Edge case: vessel destroyed near KSC. No vessel snapshot — exercises the destroyed/no-snapshot fallback path. Ghost sphere appears briefly (no vessel geometry available).
+
+### 7. EVA Walk Test (UT +980 to +992)
+
+EVA-type vessel snapshot with kerbal part model. Tests ghost rendering for EVA kerbals.
+
+### 8. Close Spawn Conflict (UT +1060 to +1072)
+
+Landed vessel very near KSC to exercise spawn offset logic. Vessel spawns ~250m from the nearest vessel to prevent physics collisions.
+
 ### Timeline of Events
 
 ```
-UT 126682  ─── save loaded ───────────────────────────────
-UT 127000  ─── KSC Hopper ghost starts ──────────────────
-UT 127056  ─── KSC Hopper ghost ends ────────────────────
-UT 128000  ─── Suborbital Arc ghost starts ──────────────
-UT 128300  ─── Suborbital Arc ghost ends ────────────────
-UT 129000  ─── Orbit-1 ghost starts (warp stops) ───────
-UT 129500  ─── Orbit-1 enters orbital segment ──────────
-UT 132000  ─── Orbit-1 vessel spawns ───────────────────
-UT 133000  ─── Island Probe ghost starts (warp stops) ──
-UT 133180  ─── Island Probe vessel spawns ──────────────
+UT base+8     ─── Tedorf EVA Switch ghost starts ─────────
+UT base+30    ─── Tedorf EVA Switch ghost ends ───────────
+UT base+120   ─── KSC Hopper ghost starts ────────────────
+UT base+176   ─── KSC Hopper ghost ends ──────────────────
+UT base+210   ─── Suborbital Arc ghost starts ────────────
+UT base+510   ─── Suborbital Arc ghost ends ──────────────
+UT base+560   ─── Orbit-1 ghost starts (warp stops) ─────
+UT base+1060  ─── Orbit-1 enters orbital segment ────────
+UT base+900   ─── KSC Pad Destroyed ghost starts ────────
+UT base+912   ─── KSC Pad Destroyed ghost ends ──────────
+UT base+980   ─── EVA Walk Test ghost starts ─────────────
+UT base+992   ─── EVA Walk Test ghost ends ───────────────
+UT base+1060  ─── Close Spawn Conflict ghost starts ─────
+UT base+1072  ─── Close Spawn Conflict vessel spawns ────
+UT base+3560  ─── Orbit-1 vessel spawns ──────────────────
+UT base+3610  ─── Island Probe ghost starts (warp stops) ─
+UT base+3790  ─── Island Probe vessel spawns ─────────────
 ```
 
 ## Architecture
@@ -109,6 +132,9 @@ var rec = new RecordingBuilder("My Recording")
     .AddPoint(127000, -0.0972, -74.5575, 77)
     .AddPoint(127010, -0.0972, -74.5575, 500)
     .AddOrbitSegment(129500, 132000, sma: 700000, ecc: 0.001, inc: 28.5)
+    .AddPartEvent(127005, 42, (int)PartEventType.Decoupled, "fuelTank")
+    .WithParentRecordingId("abc123")        // EVA child linkage
+    .WithEvaCrewName("Jebediah Kerman")     // EVA child linkage
     .WithVesselSnapshot(vesselBuilder)
     .Build();   // returns ConfigNode
 ```
@@ -116,6 +142,10 @@ var rec = new RecordingBuilder("My Recording")
 **AddPoint** parameters: `(ut, lat, lon, alt, body, rotX/Y/Z/W, funds, science, rep)` — all optional after alt, defaults to Kerbin with identity rotation and zero resources.
 
 **AddOrbitSegment** parameters: `(startUT, endUT, inc, ecc, sma, lan, argPe, mna, epoch, body)` — Keplerian elements matching OrbitSegment struct.
+
+**AddPartEvent** parameters: `(ut, pid, type, partName)` — records a part event at the given UT. Type is a `PartEventType` enum cast to int (Decoupled=0, Destroyed=1, ParachuteDeployed=2, ParachuteCut=3).
+
+**WithParentRecordingId / WithEvaCrewName** — link a child recording to its parent (used for EVA child recordings). The parent recording ID is the `RecordingId` of the parent recording.
 
 All numeric values are serialized with `CultureInfo.InvariantCulture` for locale safety.
 
@@ -135,7 +165,7 @@ VesselSnapshotBuilder.ProbeShip("Island Probe", pid: 87654321)
     .Build();
 ```
 
-Static factories `CrewedShip` and `ProbeShip` add a single part (mk1pod_v2 or probeCoreOcto2) with required KSP fields. Use `.AddPart(name, crew)` to add more parts.
+Static factories `CrewedShip` and `ProbeShip` add a single part (mk1pod.v2 or probeCoreSphere) with required KSP fields. Use `.AddPart(name, crew)` to add more parts.
 
 The VESSEL `pid` field is deterministically derived from `persistentId` (hex-encoded, zero-padded to 32 chars). This means repeated builds with the same persistentId produce identical output, making the injection content-stable for diffing and debugging.
 
@@ -198,7 +228,7 @@ Use unique `pid` values for vessel snapshots to avoid collision with existing ve
 ## Tests
 
 ```bash
-# Run all synthetic recording tests (12 tests, excluding Manual)
+# Run all synthetic recording tests (excluding Manual)
 dotnet test --filter "FullyQualifiedName~SyntheticRecordingTests&Category!=Manual"
 
 # Run only the save file injection (Manual test)
@@ -216,6 +246,10 @@ dotnet test
 | SuborbitalArc_BuildsValidRecording | 25 points, ascending UT order (InvariantCulture parse) |
 | Orbit1_HasOrbitSegmentAndSnapshot | Orbit segment present, vessel snapshot with crew |
 | IslandProbe_HasSnapshotNoCrew | Landed probe snapshot, no crew values |
+| TedorfEvaSwitch_BuildsVesselSnapshotNotEVA | Vessel snapshot points to ship, not EVA kerbal |
+| KscPadDestroyed_HasNoSnapshot | No vessel snapshot (destroyed vessel) |
+| EvaWalkSkinned_HasEvaTypeSnapshot | EVA-type vessel snapshot with kerbal part |
+| CloseSpawnConflict_HasLandedSnapshotNearKsc | Landed snapshot near KSC for spawn offset test |
 | ScenarioWriter_SerializesCorrectly | ConfigNode to text serialization |
 | ScenarioWriter_InjectIntoSave_InsertsBeforeFlightstate | Correct insertion point |
 | ScenarioWriter_InjectIntoSave_ReplacesExistingParsekScenario | Idempotent replacement |

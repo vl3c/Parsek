@@ -24,6 +24,15 @@ The Parsek window is available from the toolbar button in Flight/Map view.
 
 You can also press **F9** manually at any time to start or stop recording. Going EVA from a vessel on the pad will also auto-start recording on the EVA kerbal.
 
+### EVA During Recording
+
+If a kerbal goes EVA while recording a vessel, Parsek automatically:
+
+1. Stops the parent vessel recording and commits it to the timeline
+2. Starts a new linked child recording for the EVA kerbal
+3. On revert, both ghosts play back — the vessel ghost and the EVA kerbal ghost
+4. When the parent vessel spawns, the EVA'd kerbal is excluded from its crew
+
 ### Merge Dialog
 
 After reverting, a dialog appears with context-aware options:
@@ -45,7 +54,8 @@ After reverting, a dialog appears with context-aware options:
 
 After merging, wait on the pad (or time warp) until UT reaches the recording's timestamps:
 
-- A green-cyan ghost sphere appears and replays the recorded flight
+- A semi-transparent ghost vessel appears and replays the recorded flight (original part textures are preserved with a subtle tint)
+- Parts that were decoupled or destroyed during the recording disappear from the ghost at the correct time
 - Funds, science, and reputation changes from the recording are applied at the correct time
 - When the ghost finishes, the vessel appears at its final position (if "Keep Vessel" was chosen)
 
@@ -73,6 +83,8 @@ Parsek handles several edge cases automatically. These are logged to `KSP.log` (
 
 - **Auto-start on launch** — Recording begins automatically when a vessel leaves the pad or runway (transitions out of PRELAUNCH). A screen message confirms "Recording STARTED (auto)".
 - **Auto-start on EVA from pad** — Going EVA from a vessel sitting on the pad/runway also auto-starts recording on the EVA kerbal.
+- **Mid-recording EVA** — Going EVA during an active recording auto-stops the parent recording, commits it, and starts a linked child recording on the EVA kerbal.
+- **Part events** — Staging, decoupling, and parachute events are recorded with timestamps. During ghost playback, decoupled parts (and their subtrees) disappear from the ghost at the correct time.
 - **Paused game** — Recording cannot start while the game is paused.
 - **Vessel change** — If the active vessel changes during recording (docking, switching with `[`/`]`), the recording stops automatically with a screen message.
 - **Very short recordings** — Recordings with fewer than 2 sample points are silently dropped on revert (nothing to play back).

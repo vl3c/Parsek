@@ -56,13 +56,17 @@ Parsek/
 │   │   ├── OrbitSegment.cs   # Keplerian orbit parameters for on-rails recording
 │   │   ├── TrajectoryMath.cs # Pure static math (sampling, interpolation, orbit search)
 │   │   ├── VesselSpawner.cs  # Vessel spawn/recover/snapshot utilities
-│   │   └── MergeDialog.cs    # Post-revert merge dialog
+│   │   ├── MergeDialog.cs    # Post-revert merge dialog
+│   │   ├── PartEvent.cs      # Part event enum + struct (decoupled, destroyed, parachute)
+│   │   ├── GhostVisualBuilder.cs # Ghost mesh building from vessel snapshots
+│   │   └── RecordingPaths.cs # Save-scoped path resolution
 │   └── Parsek.Tests/         # Unit tests (xUnit)
 │       ├── Generators/
 │       │   ├── RecordingBuilder.cs       # Fluent RECORDING ConfigNode builder
 │       │   ├── VesselSnapshotBuilder.cs  # Minimal VESSEL ConfigNode builder
 │       │   └── ScenarioWriter.cs         # SCENARIO assembly + .sfs injection
-│       ├── SyntheticRecordingTests.cs    # 4 synthetic recordings + injection tests
+│       ├── SyntheticRecordingTests.cs    # 8 synthetic recordings + injection tests
+│       ├── PartEventTests.cs            # Part event serialization, subtree, parachute tests
 │       └── DiagnosticLoggingTests.cs    # Regression tests for playback logging
 ├── docs/                     # Documentation
 ├── mods/                     # Reference mods (git-ignored)
@@ -132,8 +136,9 @@ See `docs/synthetic-recordings.md` for builder API docs.
    - **Vessel destroyed:** "Merge to Timeline" (default), "Discard"
    - **Vessel intact, moved far:** "Merge + Keep Vessel" (default), "Merge + Recover", "Discard"
 7. Wait on the pad until UT reaches original recording timestamps
-8. Green-cyan ghost sphere appears and replays previous flight
-9. Funds/science/reputation deltas are applied at the correct UT
+8. Semi-transparent ghost vessel appears and replays previous flight
+9. Decoupled/destroyed parts disappear from ghost at the correct time
+10. Funds/science/reputation deltas are applied at the correct UT
 
 **Vessel persistence test:**
 1. Launch to orbit → F9 record → revert → "Merge + Keep Vessel"
@@ -158,6 +163,16 @@ See `docs/synthetic-recordings.md` for builder API docs.
 3. Record Mun encounter with time warp → verify SOI transition in ghost playback
 4. Record with multiple time warp on/off cycles → verify smooth transitions at boundary points
 
+**Part event test (staging/decoupling):**
+1. Launch vessel with SRB + parachute → F9 record → stage SRB → deploy chute → F9 stop → revert → merge
+2. Watch ghost: SRB + everything below decoupler disappears at staging UT
+3. Parachute events logged (canopy mesh not replayed — procedural)
+
+**EVA child recording test:**
+1. Launch with crew → F9 record → EVA kerbal → verify parent auto-commits + child recording starts
+2. Revert → both ghosts play back (vessel ghost and EVA kerbal ghost)
+3. Parent vessel spawns without EVA'd kerbal → EVA kerbal spawns separately
+
 **Manual preview (no revert needed):**
 1. Record as above, press **F10** to preview playback immediately
 2. Press **F11** to stop preview
@@ -176,6 +191,12 @@ These happen silently to keep gameplay smooth. All are logged to `KSP.log` with 
 - Recording starts automatically when a vessel leaves PRELAUNCH (pad/runway liftoff)
 - Recording starts automatically when a kerbal goes EVA from a vessel on the pad/runway
 - EVA auto-record is deferred by one frame via `pendingAutoRecord` flag (vessel switch delay)
+- Mid-recording EVA: auto-stops parent, commits it to timeline, starts linked child recording for EVA kerbal
+
+**Part event recording:**
+- Part death (`onPartDie`) and joint break (`onPartJointBreak`) are recorded as `PartEvent` entries
+- Parachute state transitions are polled every physics frame (before adaptive sampling early-return)
+- Part events are serialized as `PART_EVENT` ConfigNodes in the save file
 
 **Recording safeguards:**
 - Recording is blocked while the game is paused
@@ -187,6 +208,10 @@ These happen silently to keep gameplay smooth. All are logged to `KSP.log` with 
 - SOI changes during on-rails recording close the current orbit segment and open a new one for the new body
 
 **Ghost playback:**
+- Ghost built from vessel snapshot using prefab meshes with transparent shader (original textures preserved, subtle tint)
+- Falls back to green sphere if no vessel snapshot or transparent shader unavailable
+- Part events applied during playback: decoupled subtrees hidden, destroyed parts hidden, parachute events logged
+- Ghost part tree (persistentId-based) enables O(1) part lookup and recursive subtree hiding on decouple
 - Time warp is stopped once when UT first enters a recording's range (only if the recording has an unspawned vessel). Time warp during active ghost playback is allowed.
 - SOI changes during recording are handled — each trajectory point references its own celestial body
 - During orbit segments, ghost position is computed analytically from Keplerian orbit parameters (no interpolation needed)
