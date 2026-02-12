@@ -280,6 +280,8 @@ namespace Parsek
             var roster = HighLogic.CurrentGame?.CrewRoster;
             if (roster == null) return;
 
+            var reserved = ParsekScenario.CrewReplacements;
+
             foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
             {
                 var crewNames = partNode.GetValues("crew");
@@ -290,6 +292,16 @@ namespace Parsek
                 bool removedAny = false;
                 foreach (string name in crewNames)
                 {
+                    // Reserved crew were alive at recording time — keep them
+                    // regardless of current roster status. Stale roster state
+                    // (e.g. Missing after --clean-start removed their vessel)
+                    // must not prevent them from spawning.
+                    if (reserved.ContainsKey(name))
+                    {
+                        keepNames.Add(name);
+                        continue;
+                    }
+
                     bool isDead = false;
                     foreach (ProtoCrewMember pcm in roster.Crew)
                     {

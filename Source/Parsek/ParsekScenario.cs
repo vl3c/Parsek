@@ -151,6 +151,8 @@ namespace Parsek
                 for (int i = 0; i < recordings.Count; i++)
                 {
                     recordings[i].VesselSpawned = false;
+                    recordings[i].SpawnedVesselPersistentId = 0;
+                    recordings[i].SpawnAttempts = 0;
                     int resIdx = -1;
                     if (i < savedRecNodes.Length)
                     {

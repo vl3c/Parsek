@@ -587,6 +587,64 @@ namespace Parsek.Tests
             return string.Join(sep, result);
         }
 
+        /// <summary>
+        /// Remove non-veteran Crew kerbals from the ROSTER section.
+        /// These are stale entries left by previous test runs (synthetic crew
+        /// like Tedorf, hired replacements like Jedeny). Keeps stock veterans
+        /// (Jeb/Bill/Bob/Val) and all Applicants.
+        /// </summary>
+        private static string RemoveNonVeteranCrewFromRoster(string content)
+        {
+            var lines = content.Split(new[] { "\r\n", "\n" }, System.StringSplitOptions.None);
+            var result = new System.Collections.Generic.List<string>(lines.Length);
+            int i = 0;
+            while (i < lines.Length)
+            {
+                string trimmed = lines[i].Trim();
+                if (trimmed == "KERBAL")
+                {
+                    // Capture the KERBAL block to inspect its contents.
+                    var block = new System.Collections.Generic.List<string>();
+                    block.Add(lines[i]);
+                    i++;
+                    int depth = 0;
+                    while (i < lines.Length)
+                    {
+                        block.Add(lines[i]);
+                        string t = lines[i].Trim();
+                        if (t == "{") depth++;
+                        else if (t == "}")
+                        {
+                            depth--;
+                            if (depth <= 0) { i++; break; }
+                        }
+                        i++;
+                    }
+
+                    // Check if this kerbal is type = Crew and NOT veteran = True
+                    bool isCrew = false;
+                    bool isVeteran = false;
+                    foreach (string line in block)
+                    {
+                        string l = line.Trim();
+                        if (l == "type = Crew") isCrew = true;
+                        if (l == "veteran = True") isVeteran = true;
+                    }
+
+                    if (isCrew && !isVeteran)
+                        continue; // drop this block
+
+                    result.AddRange(block);
+                    continue;
+                }
+                result.Add(lines[i]);
+                i++;
+            }
+
+            string sep = content.Contains("\r\n") ? "\r\n" : "\n";
+            return string.Join(sep, result);
+        }
+
         private static void CleanSaveStart(string savePath)
         {
             if (!File.Exists(savePath))
@@ -595,6 +653,7 @@ namespace Parsek.Tests
             string content = File.ReadAllText(savePath);
             content = RemoveTopLevelVesselBlocks(content);
             content = RemoveSpawnedPidLines(content);
+            content = RemoveNonVeteranCrewFromRoster(content);
             File.WriteAllText(savePath, content);
         }
 
