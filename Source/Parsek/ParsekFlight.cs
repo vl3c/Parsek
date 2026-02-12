@@ -155,8 +155,16 @@ namespace Parsek
             if (pendingAutoRecord && !IsRecording &&
                 FlightGlobals.ActiveVessel != null && FlightGlobals.ActiveVessel.isEVA)
             {
-                pendingAutoRecord = false;
                 StartRecording();
+
+                if (!IsRecording)
+                {
+                    // StartRecording failed (paused game or no active vessel).
+                    // Keep pending flags so we retry next frame.
+                    return;
+                }
+
+                pendingAutoRecord = false;
 
                 // Tag child recording with parent linkage
                 if (pendingEvaChildRecord)
@@ -348,7 +356,7 @@ namespace Parsek
                 return;
             }
 
-            if (data.from.vessel == null) return;
+            if (data.from?.vessel == null) return;
             if (data.from.vessel.situation != Vessel.Situations.PRELAUNCH) return;
 
             // The EVA kerbal may not yet be the active vessel, defer to Update()
