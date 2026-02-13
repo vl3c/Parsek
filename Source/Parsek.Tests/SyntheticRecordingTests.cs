@@ -534,36 +534,61 @@ namespace Parsek.Tests
             return value == "1" || value.Equals("true", System.StringComparison.OrdinalIgnoreCase);
         }
 
-        private static string RemoveTopLevelVesselBlocks(string content)
+        /// <summary>
+        /// Remove VESSEL blocks that are direct children of FLIGHTSTATE.
+        /// Only matches inside the FLIGHTSTATE scope so VESSEL nodes nested
+        /// elsewhere (e.g. inside SCENARIO modules) are left intact.
+        /// </summary>
+        private static string RemoveVesselBlocksFromFlightState(string content)
         {
             var lines = content.Split(new[] { "\r\n", "\n" }, System.StringSplitOptions.None);
             var result = new System.Collections.Generic.List<string>(lines.Length);
+            bool inFlightState = false;
+            int flightStateDepth = 0;
             int i = 0;
             while (i < lines.Length)
             {
                 string trimmed = lines[i].Trim();
-                if (trimmed == "VESSEL")
+
+                // Track FLIGHTSTATE scope
+                if (!inFlightState && trimmed == "FLIGHTSTATE")
                 {
-                    // Skip top-level world vessel block body.
-                    i++; // move to opening brace line
-                    int depth = 0;
-                    while (i < lines.Length)
-                    {
-                        string t = lines[i].Trim();
-                        if (t == "{") depth++;
-                        else if (t == "}")
-                        {
-                            depth--;
-                            if (depth <= 0)
-                            {
-                                i++;
-                                break;
-                            }
-                        }
-                        i++;
-                    }
+                    inFlightState = true;
+                    flightStateDepth = 0;
+                    result.Add(lines[i]);
+                    i++;
                     continue;
                 }
+
+                if (inFlightState)
+                {
+                    if (trimmed == "{") flightStateDepth++;
+                    else if (trimmed == "}")
+                    {
+                        flightStateDepth--;
+                        if (flightStateDepth <= 0) inFlightState = false;
+                    }
+
+                    // Only strip VESSEL blocks at depth 1 (direct children of FLIGHTSTATE)
+                    if (flightStateDepth == 1 && trimmed == "VESSEL")
+                    {
+                        i++;
+                        int depth = 0;
+                        while (i < lines.Length)
+                        {
+                            string t = lines[i].Trim();
+                            if (t == "{") depth++;
+                            else if (t == "}")
+                            {
+                                depth--;
+                                if (depth <= 0) { i++; break; }
+                            }
+                            i++;
+                        }
+                        continue;
+                    }
+                }
+
                 result.Add(lines[i]);
                 i++;
             }
@@ -588,55 +613,79 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Remove non-veteran Crew kerbals from the ROSTER section.
+        /// Remove non-veteran Crew kerbals from inside the ROSTER node only.
         /// These are stale entries left by previous test runs (synthetic crew
         /// like Tedorf, hired replacements like Jedeny). Keeps stock veterans
-        /// (Jeb/Bill/Bob/Val) and all Applicants.
+        /// (Jeb/Bill/Bob/Val) and all Applicants. KERBAL blocks outside ROSTER
+        /// (e.g. inside VESSEL crew manifests) are left intact.
         /// </summary>
         private static string RemoveNonVeteranCrewFromRoster(string content)
         {
             var lines = content.Split(new[] { "\r\n", "\n" }, System.StringSplitOptions.None);
             var result = new System.Collections.Generic.List<string>(lines.Length);
+            bool inRoster = false;
+            int rosterDepth = 0;
             int i = 0;
             while (i < lines.Length)
             {
                 string trimmed = lines[i].Trim();
-                if (trimmed == "KERBAL")
+
+                // Track ROSTER scope
+                if (!inRoster && trimmed == "ROSTER")
                 {
-                    // Capture the KERBAL block to inspect its contents.
-                    var block = new System.Collections.Generic.List<string>();
-                    block.Add(lines[i]);
+                    inRoster = true;
+                    rosterDepth = 0;
+                    result.Add(lines[i]);
                     i++;
-                    int depth = 0;
-                    while (i < lines.Length)
-                    {
-                        block.Add(lines[i]);
-                        string t = lines[i].Trim();
-                        if (t == "{") depth++;
-                        else if (t == "}")
-                        {
-                            depth--;
-                            if (depth <= 0) { i++; break; }
-                        }
-                        i++;
-                    }
-
-                    // Check if this kerbal is type = Crew and NOT veteran = True
-                    bool isCrew = false;
-                    bool isVeteran = false;
-                    foreach (string line in block)
-                    {
-                        string l = line.Trim();
-                        if (l == "type = Crew") isCrew = true;
-                        if (l == "veteran = True") isVeteran = true;
-                    }
-
-                    if (isCrew && !isVeteran)
-                        continue; // drop this block
-
-                    result.AddRange(block);
                     continue;
                 }
+
+                if (inRoster)
+                {
+                    if (trimmed == "{") rosterDepth++;
+                    else if (trimmed == "}")
+                    {
+                        rosterDepth--;
+                        if (rosterDepth <= 0) inRoster = false;
+                    }
+
+                    // Only inspect KERBAL blocks at depth 1 (direct children of ROSTER)
+                    if (rosterDepth == 1 && trimmed == "KERBAL")
+                    {
+                        var block = new System.Collections.Generic.List<string>();
+                        block.Add(lines[i]);
+                        i++;
+                        int depth = 0;
+                        while (i < lines.Length)
+                        {
+                            block.Add(lines[i]);
+                            string t = lines[i].Trim();
+                            if (t == "{") depth++;
+                            else if (t == "}")
+                            {
+                                depth--;
+                                if (depth <= 0) { i++; break; }
+                            }
+                            i++;
+                        }
+
+                        bool isCrew = false;
+                        bool isVeteran = false;
+                        foreach (string line in block)
+                        {
+                            string l = line.Trim();
+                            if (l == "type = Crew") isCrew = true;
+                            if (l == "veteran = True") isVeteran = true;
+                        }
+
+                        if (isCrew && !isVeteran)
+                            continue; // drop this block
+
+                        result.AddRange(block);
+                        continue;
+                    }
+                }
+
                 result.Add(lines[i]);
                 i++;
             }
@@ -651,7 +700,7 @@ namespace Parsek.Tests
                 return;
 
             string content = File.ReadAllText(savePath);
-            content = RemoveTopLevelVesselBlocks(content);
+            content = RemoveVesselBlocksFromFlightState(content);
             content = RemoveSpawnedPidLines(content);
             content = RemoveNonVeteranCrewFromRoster(content);
             File.WriteAllText(savePath, content);

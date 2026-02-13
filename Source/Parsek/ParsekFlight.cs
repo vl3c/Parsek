@@ -157,28 +157,27 @@ namespace Parsek
             {
                 StartRecording();
 
-                if (!IsRecording)
+                if (IsRecording)
                 {
-                    // StartRecording failed (paused game or no active vessel).
-                    // Keep pending flags so we retry next frame.
-                    return;
-                }
+                    pendingAutoRecord = false;
 
-                pendingAutoRecord = false;
-
-                // Tag child recording with parent linkage
-                if (pendingEvaChildRecord)
-                {
-                    pendingEvaChildRecord = false;
-                    pendingEvaCrewName = null;
-                    Log($"EVA child recording started (parent={activeChildParentId}, crew={activeChildCrewName})");
-                    ScreenMessage("Recording STARTED (EVA child)", 2f);
+                    // Tag child recording with parent linkage
+                    if (pendingEvaChildRecord)
+                    {
+                        pendingEvaChildRecord = false;
+                        pendingEvaCrewName = null;
+                        Log($"EVA child recording started (parent={activeChildParentId}, crew={activeChildCrewName})");
+                        ScreenMessage("Recording STARTED (EVA child)", 2f);
+                    }
+                    else
+                    {
+                        Log("Auto-record started (EVA from pad)");
+                        ScreenMessage("Recording STARTED (auto — EVA from pad)", 2f);
+                    }
                 }
-                else
-                {
-                    Log("Auto-record started (EVA from pad)");
-                    ScreenMessage("Recording STARTED (auto — EVA from pad)", 2f);
-                }
+                // else: StartRecording failed (paused game or no active vessel).
+                // Keep pending flags so we retry next frame; fall through to
+                // HandleInput/playback so they aren't starved.
             }
 
             HandleInput();
