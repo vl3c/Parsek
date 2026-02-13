@@ -58,6 +58,135 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Spawn a vessel from a snapshot at a specific position and velocity,
+        /// overriding the snapshot's stored orbit and location.
+        /// Used by Take Control to spawn at the ghost's current position.
+        /// </summary>
+        public static uint SpawnAtPosition(ConfigNode vesselNode, CelestialBody body,
+            double lat, double lon, double alt,
+            Vector3d velocity, double ut,
+            HashSet<string> excludeCrew = null)
+        {
+            try
+            {
+                ConfigNode spawnNode = vesselNode.CreateCopy();
+
+                // Update position
+                spawnNode.SetValue("lat", lat.ToString("R"), true);
+                spawnNode.SetValue("lon", lon.ToString("R"), true);
+                spawnNode.SetValue("alt", alt.ToString("R"), true);
+
+                // Determine situation from altitude and velocity
+                double orbitalSpeed = Math.Sqrt(body.gravParameter / (body.Radius + alt));
+                bool overWater = body.ocean && body.TerrainAltitude(lat, lon) < 0;
+                string sit;
+                if (alt <= 0 && overWater)
+                {
+                    sit = "SPLASHED";
+                    spawnNode.SetValue("landed", "False", true);
+                    spawnNode.SetValue("splashed", "True", true);
+                }
+                else if (alt <= 0)
+                {
+                    sit = "LANDED";
+                    spawnNode.SetValue("landed", "True", true);
+                    spawnNode.SetValue("splashed", "False", true);
+                }
+                else if (velocity.magnitude > orbitalSpeed * 0.9)
+                {
+                    sit = "ORBITING";
+                    spawnNode.SetValue("landed", "False", true);
+                    spawnNode.SetValue("splashed", "False", true);
+                }
+                else
+                {
+                    sit = "FLYING";
+                    spawnNode.SetValue("landed", "False", true);
+                    spawnNode.SetValue("splashed", "False", true);
+                }
+                spawnNode.SetValue("sit", sit, true);
+
+                // Rebuild ORBIT subnode from position + velocity
+                var orbit = new Orbit();
+                Vector3d worldPos = body.GetWorldSurfacePosition(lat, lon, alt);
+                orbit.UpdateFromStateVectors(worldPos, velocity, body, ut);
+                spawnNode.RemoveNode("ORBIT");
+                ConfigNode orbitNode = new ConfigNode("ORBIT");
+                SaveOrbitToNode(orbit, orbitNode, body);
+                spawnNode.AddNode(orbitNode);
+
+                // Proximity check against nearby vessels
+                Vector3d spawnPos = worldPos;
+                double closestDist = double.MaxValue;
+                Vector3d closestPos = Vector3d.zero;
+                if (FlightGlobals.Vessels != null)
+                {
+                    for (int v = 0; v < FlightGlobals.Vessels.Count; v++)
+                    {
+                        Vessel other = FlightGlobals.Vessels[v];
+                        if (other.mainBody != body) continue;
+                        double dist = Vector3d.Distance(spawnPos, other.GetWorldPos3D());
+                        if (dist < closestDist)
+                        {
+                            closestDist = dist;
+                            closestPos = other.GetWorldPos3D();
+                        }
+                    }
+                }
+
+                if (closestDist < 200.0)
+                {
+                    Vector3d diff = spawnPos - closestPos;
+                    Vector3d normal = body.GetSurfaceNVector(lat, lon).normalized;
+                    Vector3d tangent = diff - Vector3d.Dot(diff, normal) * normal;
+                    if (tangent.magnitude < 0.001)
+                        tangent = Vector3d.Cross(normal, Vector3d.up);
+                    if (tangent.magnitude < 0.001)
+                        tangent = Vector3d.Cross(normal, Vector3d.right);
+                    tangent = tangent.normalized;
+
+                    double angularDistance = 250.0 / body.Radius;
+                    Vector3d rotatedNormal =
+                        (normal * Math.Cos(angularDistance) + tangent * Math.Sin(angularDistance)).normalized;
+                    Vector3d surfacePos = body.position + rotatedNormal * (body.Radius + alt);
+
+                    double newLat = body.GetLatitude(surfacePos);
+                    double newLon = body.GetLongitude(surfacePos);
+                    spawnNode.SetValue("lat", newLat.ToString("R"), true);
+                    spawnNode.SetValue("lon", newLon.ToString("R"), true);
+
+                    // Recompute orbit for new position
+                    Vector3d newWorldPos = body.GetWorldSurfacePosition(newLat, newLon, alt);
+                    orbit.UpdateFromStateVectors(newWorldPos, velocity, body, ut);
+                    spawnNode.RemoveNode("ORBIT");
+                    orbitNode = new ConfigNode("ORBIT");
+                    SaveOrbitToNode(orbit, orbitNode, body);
+                    spawnNode.AddNode(orbitNode);
+
+                    ParsekLog.Log($"SpawnAtPosition: offset from {closestDist:F0}m to 250m from nearest vessel");
+                }
+
+                // Crew handling
+                RemoveDeadCrewFromSnapshot(spawnNode);
+                if (excludeCrew != null && excludeCrew.Count > 0)
+                    RemoveSpecificCrewFromSnapshot(spawnNode, excludeCrew);
+                ParsekScenario.UnreserveCrewInSnapshot(spawnNode);
+
+                ProtoVessel pv = new ProtoVessel(spawnNode, HighLogic.CurrentGame);
+                HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
+                pv.Load(HighLogic.CurrentGame.flightState);
+                ParsekLog.Log($"SpawnAtPosition: vessel spawned (sit={sit}, pid={pv.persistentId}, " +
+                    $"body={body.name}, alt={alt:F0}m)");
+                return pv.persistentId;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Log($"SpawnAtPosition failed: {ex.Message}");
+                return 0;
+            }
+        }
+
         public static void SpawnOrRecoverIfTooClose(RecordingStore.Recording rec, int index)
         {
             const int maxSpawnAttempts = 3;
@@ -510,6 +639,19 @@ namespace Parsek
             if (node == null) return false;
             string raw = node.GetValue(key);
             return double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+        }
+
+        private static void SaveOrbitToNode(Orbit orbit, ConfigNode node, CelestialBody body)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            node.AddValue("SMA", orbit.semiMajorAxis.ToString("R", ic));
+            node.AddValue("ECC", orbit.eccentricity.ToString("R", ic));
+            node.AddValue("INC", orbit.inclination.ToString("R", ic));
+            node.AddValue("LPE", orbit.argumentOfPeriapsis.ToString("R", ic));
+            node.AddValue("LAN", orbit.LAN.ToString("R", ic));
+            node.AddValue("MNA", orbit.meanAnomalyAtEpoch.ToString("R", ic));
+            node.AddValue("EPH", orbit.epoch.ToString("R", ic));
+            node.AddValue("REF", FlightGlobals.Bodies.IndexOf(body).ToString(ic));
         }
 
         internal static double SelectRelocatedAltitude(

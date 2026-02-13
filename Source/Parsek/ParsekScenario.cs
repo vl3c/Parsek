@@ -54,6 +54,9 @@ namespace Parsek
                     ptNode.AddValue("rotZ", pt.rotation.z.ToString("R"));
                     ptNode.AddValue("rotW", pt.rotation.w.ToString("R"));
                     ptNode.AddValue("body", pt.bodyName);
+                    ptNode.AddValue("velX", pt.velocity.x.ToString("R"));
+                    ptNode.AddValue("velY", pt.velocity.y.ToString("R"));
+                    ptNode.AddValue("velZ", pt.velocity.z.ToString("R"));
                     ptNode.AddValue("funds", pt.funds.ToString("R"));
                     ptNode.AddValue("science", pt.science.ToString("R"));
                     ptNode.AddValue("rep", pt.reputation.ToString("R"));
@@ -101,6 +104,9 @@ namespace Parsek
                 {
                     recNode.AddValue("spawnedPid", rec.SpawnedVesselPersistentId);
                 }
+
+                if (rec.TakenControl)
+                    recNode.AddValue("takenControl", rec.TakenControl.ToString());
 
                 // Persist resource index so quickload doesn't re-apply deltas
                 recNode.AddValue("lastResIdx", rec.LastAppliedResourceIndex);
@@ -151,6 +157,7 @@ namespace Parsek
                 for (int i = 0; i < recordings.Count; i++)
                 {
                     recordings[i].VesselSpawned = false;
+                    recordings[i].TakenControl = false;
                     recordings[i].SpawnedVesselPersistentId = 0;
                     recordings[i].SpawnAttempts = 0;
                     int resIdx = -1;
@@ -205,6 +212,12 @@ namespace Parsek
                     pt.rotation = new Quaternion(rx, ry, rz, rw);
 
                     pt.bodyName = ptNode.GetValue("body") ?? "Kerbin";
+
+                    float velX, velY, velZ;
+                    float.TryParse(ptNode.GetValue("velX"), inv, ic, out velX);
+                    float.TryParse(ptNode.GetValue("velY"), inv, ic, out velY);
+                    float.TryParse(ptNode.GetValue("velZ"), inv, ic, out velZ);
+                    pt.velocity = new Vector3(velX, velY, velZ);
 
                     double funds;
                     double.TryParse(ptNode.GetValue("funds"), inv, ic, out funds);
@@ -294,6 +307,15 @@ namespace Parsek
                     uint pid;
                     if (uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out pid))
                         rec.SpawnedVesselPersistentId = pid;
+                }
+
+                // Restore taken control flag
+                string takenStr = recNode.GetValue("takenControl");
+                if (takenStr != null)
+                {
+                    bool taken;
+                    if (bool.TryParse(takenStr, out taken))
+                        rec.TakenControl = taken;
                 }
 
                 // Restore resource application index

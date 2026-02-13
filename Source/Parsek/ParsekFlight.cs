@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using ClickThroughFix;
 using KSP.UI.Screens;
@@ -647,7 +648,7 @@ namespace Parsek
                 bool inRange = currentUT >= rec.StartUT && currentUT <= rec.EndUT;
                 bool pastEnd = currentUT > rec.EndUT;
                 bool ghostActive = timelineGhosts.ContainsKey(i) && timelineGhosts[i] != null;
-                bool needsSpawn = rec.VesselSnapshot != null && !rec.VesselSpawned && !rec.VesselDestroyed;
+                bool needsSpawn = rec.VesselSnapshot != null && !rec.VesselSpawned && !rec.VesselDestroyed && !rec.TakenControl;
 
                 // Guard: if vessel was spawned before but VesselSpawned got reset (scene change),
                 // check if the vessel still exists by its persistentId to avoid duplicates.
@@ -657,6 +658,14 @@ namespace Parsek
                     rec.VesselSpawned = true;
                     needsSpawn = false;
                     Log($"Vessel pid={rec.SpawnedVesselPersistentId} still exists — skipping duplicate spawn for recording #{i}");
+                }
+
+                // Skip ghost playback entirely for recordings where player took control
+                if (rec.TakenControl)
+                {
+                    if (ghostActive)
+                        DestroyTimelineGhost(i);
+                    continue;
                 }
 
                 if (inRange)
@@ -981,6 +990,149 @@ namespace Parsek
         internal static bool IsAnyWarpActive(int currentRateIndex, float currentRate)
         {
             return currentRateIndex > 0 || currentRate > 1f;
+        }
+
+        #endregion
+
+        #region Take Control
+
+        /// <summary>
+        /// Take control of an active timeline ghost, converting it into a real vessel
+        /// at its current position and switching the player to it.
+        /// </summary>
+        public void TakeControlOfGhost(int index)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            if (index < 0 || index >= committed.Count) return;
+
+            var rec = committed[index];
+            if (rec.VesselSnapshot == null || rec.VesselDestroyed || rec.VesselSpawned || rec.TakenControl)
+            {
+                Log($"Take control: cannot take control of recording #{index} — invalid state");
+                return;
+            }
+
+            if (!timelineGhosts.ContainsKey(index) || timelineGhosts[index] == null)
+            {
+                Log($"Take control: no active ghost for recording #{index}");
+                return;
+            }
+
+            double ut = Planetarium.GetUniversalTime();
+            GameObject ghost = timelineGhosts[index];
+
+            // Determine body and velocity from current interpolation context
+            CelestialBody body = null;
+            Vector3d velocity = Vector3d.zero;
+
+            // Check orbit segments first
+            OrbitSegment? seg = null;
+            if (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
+                seg = TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, ut);
+
+            if (seg.HasValue)
+            {
+                body = FlightGlobals.Bodies?.Find(b => b.name == seg.Value.bodyName);
+                if (body != null)
+                {
+                    var orbit = new Orbit(
+                        seg.Value.inclination, seg.Value.eccentricity,
+                        seg.Value.semiMajorAxis, seg.Value.longitudeOfAscendingNode,
+                        seg.Value.argumentOfPeriapsis, seg.Value.meanAnomalyAtEpoch,
+                        seg.Value.epoch, body);
+                    velocity = orbit.getOrbitalVelocityAtUT(ut);
+                }
+            }
+            else
+            {
+                // Point-based interpolation
+                int cachedIdx = 0;
+                if (timelinePlaybackIndices.ContainsKey(index))
+                    cachedIdx = timelinePlaybackIndices[index];
+
+                int idxBefore = TrajectoryMath.FindWaypointIndex(rec.Points, ref cachedIdx, ut);
+                if (idxBefore >= 0 && idxBefore < rec.Points.Count - 1)
+                {
+                    var before = rec.Points[idxBefore];
+                    var after = rec.Points[idxBefore + 1];
+                    double segDur = after.ut - before.ut;
+                    float t = segDur > 0.0001 ? (float)((ut - before.ut) / segDur) : 0f;
+                    t = Mathf.Clamp01(t);
+
+                    body = FlightGlobals.Bodies?.Find(b => b.name == before.bodyName);
+                    velocity = Vector3.Lerp(before.velocity, after.velocity, t);
+                }
+                else if (rec.Points.Count > 0)
+                {
+                    var pt = rec.Points[rec.Points.Count - 1];
+                    body = FlightGlobals.Bodies?.Find(b => b.name == pt.bodyName);
+                    velocity = pt.velocity;
+                }
+            }
+
+            if (body == null)
+            {
+                Log($"Take control: could not determine body for recording #{index}");
+                return;
+            }
+
+            // Compute lat/lon/alt from ghost world position
+            Vector3d ghostWorldPos = ghost.transform.position;
+            double lat = body.GetLatitude(ghostWorldPos);
+            double lon = body.GetLongitude(ghostWorldPos);
+            double alt = body.GetAltitude(ghostWorldPos);
+
+            // Apply remaining resource deltas up to current UT
+            ApplyResourceDeltas(rec, ut);
+
+            // Build exclude crew set (same as EndUT spawn)
+            HashSet<string> excludeCrew = VesselSpawner.BuildExcludeCrewSet(rec);
+
+            // Spawn vessel at ghost position
+            uint pid = VesselSpawner.SpawnAtPosition(
+                rec.VesselSnapshot, body, lat, lon, alt, velocity, ut, excludeCrew);
+
+            if (pid == 0)
+            {
+                Log($"Take control: spawn failed for recording #{index}");
+                ScreenMessage("Take Control failed — vessel spawn error", 3f);
+                return;
+            }
+
+            // Mark recording as taken
+            rec.TakenControl = true;
+            rec.VesselSpawned = true;
+            rec.SpawnedVesselPersistentId = pid;
+
+            // Clean up crew reservations (same as EndUT path)
+            ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
+            rec.VesselSnapshot = null;
+
+            // Destroy ghost
+            DestroyTimelineGhost(index);
+
+            // Deferred vessel activation
+            StartCoroutine(DeferredActivateVessel(pid));
+
+            Log($"Take control: spawned vessel pid={pid} for recording #{index} ({rec.VesselName})");
+            ScreenMessage($"Taking control of '{rec.VesselName}'", 3f);
+        }
+
+        IEnumerator DeferredActivateVessel(uint pid)
+        {
+            for (int frame = 0; frame < 10; frame++)
+            {
+                yield return null;
+                Vessel v = FlightGlobals.Vessels?.Find(vessel => vessel.persistentId == pid);
+                if (v != null && v.loaded)
+                {
+                    v.IgnoreGForces(240);
+                    FlightGlobals.ForceSetActiveVessel(v);
+                    Log($"Activated vessel pid={pid}");
+                    yield break;
+                }
+            }
+            Log($"WARNING: Could not activate vessel pid={pid} within 10 frames");
         }
 
         #endregion

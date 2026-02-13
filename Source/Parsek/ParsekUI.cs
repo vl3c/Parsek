@@ -41,6 +41,22 @@ namespace Parsek
             int activeGhosts = flight.TimelineGhostCount;
             GUILayout.Label($"Timeline: {committedCount} recording(s), {activeGhosts} active ghost(s)");
 
+            // Active ghost controls — Take Control buttons
+            var committed = RecordingStore.CommittedRecordings;
+            var ghosts = flight.TimelineGhosts;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                if (!ghosts.ContainsKey(i) || ghosts[i] == null) continue;
+                var rec = committed[i];
+                if (rec.VesselSnapshot == null || rec.VesselDestroyed || rec.VesselSpawned || rec.TakenControl) continue;
+
+                GUILayout.BeginHorizontal();
+                GUILayout.Label(rec.VesselName, GUILayout.ExpandWidth(true));
+                if (GUILayout.Button("Take Control", GUILayout.Width(90)))
+                    flight.TakeControlOfGhost(i);
+                GUILayout.EndHorizontal();
+            }
+
             GUILayout.Space(10);
 
             // Controls
