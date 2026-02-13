@@ -190,17 +190,57 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Compute the scale of a child transform relative to an ancestor.
-        /// Uses lossyScale (world-space) to account for intermediate parent transforms.
+        /// Find the visual model root transform for a part prefab.
+        /// KSP stores visual content under a "model" child. KerbalEVA uses "model01".
+        /// Falls back to the prefab root if neither exists.
         /// </summary>
-        private static Vector3 RelativeScale(Transform child, Transform ancestor)
+        private static Transform FindModelRoot(Part prefab)
         {
-            Vector3 childWorld = child.lossyScale;
-            Vector3 ancestorWorld = ancestor.lossyScale;
-            return new Vector3(
-                ancestorWorld.x > 0.0001f ? childWorld.x / ancestorWorld.x : childWorld.x,
-                ancestorWorld.y > 0.0001f ? childWorld.y / ancestorWorld.y : childWorld.y,
-                ancestorWorld.z > 0.0001f ? childWorld.z / ancestorWorld.z : childWorld.z);
+            Transform modelRoot = prefab.transform.Find("model");
+            if (modelRoot != null) return modelRoot;
+            modelRoot = prefab.transform.Find("model01");
+            if (modelRoot != null) return modelRoot;
+            return prefab.transform;
+        }
+
+        /// <summary>
+        /// Mirror the transform hierarchy from modelRoot down to a renderer's transform,
+        /// creating intermediate GameObjects under partRoot with matching local transforms.
+        /// Uses cloneMap to deduplicate shared parent nodes.
+        /// Returns the cloned leaf transform.
+        /// </summary>
+        private static Transform MirrorTransformChain(Transform rendererTransform, Transform modelRoot,
+            Transform partRootTransform, Dictionary<Transform, Transform> cloneMap)
+        {
+            // Build path from renderer up to modelRoot
+            var chain = new List<Transform>();
+            Transform cur = rendererTransform;
+            while (cur != null && cur != modelRoot)
+            {
+                chain.Add(cur);
+                cur = cur.parent;
+            }
+            chain.Reverse(); // root-first order
+
+            Transform parent = partRootTransform;
+            for (int i = 0; i < chain.Count; i++)
+            {
+                Transform src = chain[i];
+                if (cloneMap.TryGetValue(src, out Transform existing))
+                {
+                    parent = existing;
+                    continue;
+                }
+                GameObject clone = new GameObject(src.gameObject.name);
+                clone.transform.SetParent(parent, false);
+                clone.transform.localPosition = src.localPosition;
+                clone.transform.localRotation = src.localRotation;
+                clone.transform.localScale = src.localScale;
+                cloneMap[src] = clone.transform;
+                parent = clone.transform;
+            }
+
+            return parent;
         }
 
         /// <summary>
@@ -247,15 +287,17 @@ namespace Parsek
             uint persistentId, string partName, out int meshCount)
         {
             meshCount = 0;
-            var meshRenderers = prefab.GetComponentsInChildren<MeshRenderer>(true);
-            var skinnedRenderers = prefab.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            Transform modelRoot = FindModelRoot(prefab);
+            var meshRenderers = modelRoot.GetComponentsInChildren<MeshRenderer>(true);
+            var skinnedRenderers = modelRoot.GetComponentsInChildren<SkinnedMeshRenderer>(true);
             if ((meshRenderers == null || meshRenderers.Length == 0) &&
                 (skinnedRenderers == null || skinnedRenderers.Length == 0))
                 return false;
 
             int totalMR = meshRenderers != null ? meshRenderers.Length : 0;
             int totalSMR = skinnedRenderers != null ? skinnedRenderers.Length : 0;
-            ParsekLog.Log($"  Part '{partName}' pid={persistentId}: {totalMR} MeshRenderers, {totalSMR} SkinnedMeshRenderers");
+            ParsekLog.Log($"  Part '{partName}' pid={persistentId}: modelRoot='{modelRoot.name}', " +
+                $"{totalMR} MeshRenderers, {totalSMR} SkinnedMeshRenderers");
 
             // Name by persistentId for O(1) lookup during playback; fall back to part name
             string partLabel = persistentId != 0
@@ -273,7 +315,21 @@ namespace Parsek
                 partRoot.transform.localRotation = localRot;
 
             bool added = false;
-            Transform prefabRoot = prefab.transform;
+
+            // Clone map: maps prefab transforms → ghost cloned transforms.
+            // Deduplicates shared parent nodes across multiple renderers.
+            var cloneMap = new Dictionary<Transform, Transform>();
+
+            // Preserve the model root's own local transform (position/rotation/scale).
+            // Many KSP parts have non-identity transforms on the "model" child.
+            // partRoot already has snapshot pos/rot, so add an intermediate node.
+            GameObject modelNode = new GameObject(modelRoot.name);
+            modelNode.transform.SetParent(partRoot.transform, false);
+            modelNode.transform.localPosition = modelRoot.localPosition;
+            modelNode.transform.localRotation = modelRoot.localRotation;
+            modelNode.transform.localScale = modelRoot.localScale;
+            cloneMap[modelRoot] = modelNode.transform;
+
             for (int r = 0; r < meshRenderers.Length; r++)
             {
                 var mr = meshRenderers[r];
@@ -281,19 +337,12 @@ namespace Parsek
                 var mf = mr.GetComponent<MeshFilter>();
                 if (mf == null || mf.sharedMesh == null) continue;
 
-                GameObject child = new GameObject(mr.gameObject.name);
-                child.transform.SetParent(partRoot.transform, false);
-                child.transform.localPosition = prefabRoot.InverseTransformPoint(mr.transform.position);
-                child.transform.localRotation = Quaternion.Inverse(prefabRoot.rotation) * mr.transform.rotation;
-                child.transform.localScale = RelativeScale(mr.transform, prefabRoot);
-
-                var childMf = child.AddComponent<MeshFilter>();
-                childMf.sharedMesh = mf.sharedMesh;
-                var childMr = child.AddComponent<MeshRenderer>();
-                childMr.sharedMaterials = mr.sharedMaterials;
+                Transform leaf = MirrorTransformChain(mr.transform, modelRoot, partRoot.transform, cloneMap);
+                leaf.gameObject.AddComponent<MeshFilter>().sharedMesh = mf.sharedMesh;
+                leaf.gameObject.AddComponent<MeshRenderer>().sharedMaterials = mr.sharedMaterials;
                 meshCount++;
                 ParsekLog.Log($"    MR[{r}] '{mr.gameObject.name}' mesh={mf.sharedMesh.name} " +
-                    $"pos={child.transform.localPosition} scale={child.transform.localScale}");
+                    $"localPos={leaf.localPosition} localScale={leaf.localScale}");
                 added = true;
             }
 
@@ -302,17 +351,13 @@ namespace Parsek
                 var smr = skinnedRenderers[r];
                 if (smr == null || smr.sharedMesh == null) continue;
 
-                GameObject child = new GameObject(smr.gameObject.name);
-                child.transform.SetParent(partRoot.transform, false);
-                child.transform.localPosition = prefabRoot.InverseTransformPoint(smr.transform.position);
-                child.transform.localRotation = Quaternion.Inverse(prefabRoot.rotation) * smr.transform.rotation;
-                child.transform.localScale = RelativeScale(smr.transform, prefabRoot);
-
+                Transform leaf = MirrorTransformChain(smr.transform, modelRoot, partRoot.transform, cloneMap);
                 // Use shared bind-pose mesh as a static ghost visual.
-                var childMf = child.AddComponent<MeshFilter>();
-                childMf.sharedMesh = smr.sharedMesh;
-                var childMr = child.AddComponent<MeshRenderer>();
-                childMr.sharedMaterials = smr.sharedMaterials;
+                leaf.gameObject.AddComponent<MeshFilter>().sharedMesh = smr.sharedMesh;
+                leaf.gameObject.AddComponent<MeshRenderer>().sharedMaterials = smr.sharedMaterials;
+                meshCount++;
+                ParsekLog.Log($"    SMR[{r}] '{smr.gameObject.name}' mesh={smr.sharedMesh.name} " +
+                    $"localPos={leaf.localPosition} localScale={leaf.localScale}");
                 added = true;
             }
 
