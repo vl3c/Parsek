@@ -196,9 +196,11 @@ namespace Parsek
         /// </summary>
         private static Transform FindModelRoot(Part prefab)
         {
-            Transform modelRoot = prefab.transform.Find("model");
+            // KerbalEVA has body mesh under "model01"; "model" only has accessories
+            // (parachute, backpack). Check model01 first to get the actual kerbal.
+            Transform modelRoot = prefab.transform.Find("model01");
             if (modelRoot != null) return modelRoot;
-            modelRoot = prefab.transform.Find("model01");
+            modelRoot = prefab.transform.Find("model");
             if (modelRoot != null) return modelRoot;
             return prefab.transform;
         }

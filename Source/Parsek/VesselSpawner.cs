@@ -276,7 +276,10 @@ namespace Parsek
                 }
             }
 
-            if (closestDist < 200.0)
+            // Skip proximity offset for EVA kerbals — let them spawn where recorded
+            bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
+
+            if (closestDist < 200.0 && !isEva)
             {
                 // Offset away from the closest vessel along the body surface to avoid
                 // injecting vertical error that can produce hovering landed spawns.
