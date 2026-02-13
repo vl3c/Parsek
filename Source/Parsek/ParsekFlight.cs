@@ -44,6 +44,9 @@ namespace Parsek
         private Dictionary<int, int> timelinePartEventIndices = new Dictionary<int, int>();
         private Dictionary<int, Dictionary<uint, List<uint>>> ghostPartTrees = new Dictionary<int, Dictionary<uint, List<uint>>>();
 
+        // Fake canopy tracking: recIdx → (partPid → canopy GameObject)
+        private Dictionary<int, Dictionary<uint, GameObject>> fakeCanopies = new Dictionary<int, Dictionary<uint, GameObject>>();
+
         // Auto-record: EVA from pad triggers recording after vessel switch completes
         private bool pendingAutoRecord = false;
 
@@ -531,7 +534,7 @@ namespace Parsek
             ghostObject = BuildPreviewGhostFromActiveVessel("Parsek_Ghost_Preview");
             if (ghostObject != null)
             {
-                previewGhostMaterials = ApplyGhostStyleAndCollectMaterials(ghostObject, previewColor, 0.55f);
+                previewGhostMaterials = new List<Material>();
                 Log("Manual preview ghost: built from active vessel snapshot");
             }
             else
@@ -814,9 +817,7 @@ namespace Parsek
                 Log(usedStartSnapshot
                     ? $"Timeline ghost #{index}: built from recording-start snapshot"
                     : $"Timeline ghost #{index}: built from vessel snapshot");
-                // Snapshot-based ghosts use prefab materials by default; apply a
-                // consistent translucent tint so they remain visually distinct.
-                timelineGhostMaterials[index] = ApplyGhostStyleAndCollectMaterials(ghost, ghostColor, 0.55f);
+                timelineGhostMaterials[index] = new List<Material>();
             }
 
             timelineGhosts[index] = ghost;
@@ -857,6 +858,7 @@ namespace Parsek
             timelinePlaybackIndices.Remove(index);
             timelinePartEventIndices.Remove(index);
             ghostPartTrees.Remove(index);
+            DestroyAllFakeCanopies(index);
         }
 
         public void DestroyAllTimelineGhosts()
@@ -902,11 +904,21 @@ namespace Parsek
                         Log($"Part event applied: Destroyed '{evt.partName}' pid={evt.partPersistentId}");
                         break;
                     case PartEventType.ParachuteCut:
+                        // Hide canopy and part
+                        DestroyFakeCanopy(recIdx, evt.partPersistentId);
                         HideGhostPart(ghost, evt.partPersistentId);
                         break;
                     case PartEventType.ParachuteDeployed:
-                        // Canopy mesh is procedural — cannot recreate; log only
-                        Log($"Part event: ParachuteDeployed '{evt.partName}' (visual not applied)");
+                        var canopy = GhostVisualBuilder.CreateFakeCanopy(ghost, evt.partPersistentId);
+                        if (canopy != null)
+                        {
+                            TrackFakeCanopy(recIdx, evt.partPersistentId, canopy);
+                            Log($"Part event: ParachuteDeployed '{evt.partName}' — fake canopy created");
+                        }
+                        else
+                        {
+                            Log($"Part event: ParachuteDeployed '{evt.partName}' — could not create canopy");
+                        }
                         break;
                 }
                 evtIdx++;
@@ -919,6 +931,48 @@ namespace Parsek
         {
             var t = ghost.transform.Find($"ghost_part_{persistentId}");
             if (t != null) t.gameObject.SetActive(false);
+        }
+
+        void TrackFakeCanopy(int recIdx, uint partPid, GameObject canopy)
+        {
+            Dictionary<uint, GameObject> map;
+            if (!fakeCanopies.TryGetValue(recIdx, out map))
+            {
+                map = new Dictionary<uint, GameObject>();
+                fakeCanopies[recIdx] = map;
+            }
+            // Destroy previous canopy for this part if one exists (prevents leak)
+            GameObject existing;
+            if (map.TryGetValue(partPid, out existing) && existing != null)
+                DestroyCanopyAndMaterial(existing);
+            map[partPid] = canopy;
+        }
+
+        void DestroyFakeCanopy(int recIdx, uint partPid)
+        {
+            Dictionary<uint, GameObject> map;
+            if (!fakeCanopies.TryGetValue(recIdx, out map)) return;
+            GameObject canopy;
+            if (map.TryGetValue(partPid, out canopy) && canopy != null)
+                DestroyCanopyAndMaterial(canopy);
+            map.Remove(partPid);
+        }
+
+        void DestroyAllFakeCanopies(int recIdx)
+        {
+            Dictionary<uint, GameObject> map;
+            if (!fakeCanopies.TryGetValue(recIdx, out map)) return;
+            foreach (var kv in map)
+                if (kv.Value != null) DestroyCanopyAndMaterial(kv.Value);
+            fakeCanopies.Remove(recIdx);
+        }
+
+        static void DestroyCanopyAndMaterial(GameObject canopy)
+        {
+            var renderer = canopy.GetComponent<Renderer>();
+            if (renderer != null && renderer.material != null)
+                Destroy(renderer.material);
+            Destroy(canopy);
         }
 
         static void HidePartSubtree(GameObject ghost, uint rootPid, Dictionary<uint, List<uint>> tree)
@@ -1167,69 +1221,6 @@ namespace Parsek
             }
 
             return ghost;
-        }
-
-        List<Material> ApplyGhostStyleAndCollectMaterials(GameObject ghost, Color tint, float alpha)
-        {
-            var unique = new HashSet<Material>();
-            if (ghost == null) return new List<Material>();
-
-            // Try to find a transparent shader so the ghost preserves original
-            // part textures instead of being a solid green blob.
-            Shader transparentShader = FindTransparentGhostShader();
-
-            var renderers = ghost.GetComponentsInChildren<Renderer>(true);
-            for (int i = 0; i < renderers.Length; i++)
-            {
-                var renderer = renderers[i];
-                if (renderer == null) continue;
-
-                // Accessing .materials creates per-instance copies so styling this
-                // ghost doesn't mutate shared prefab materials.
-                var mats = renderer.materials;
-                for (int m = 0; m < mats.Length; m++)
-                {
-                    var mat = mats[m];
-                    if (mat == null) continue;
-
-                    if (transparentShader != null)
-                    {
-                        // Switch to transparent shader, preserving original textures.
-                        // Ghost looks like a semi-transparent replica of the vessel.
-                        mat.shader = transparentShader;
-                        Color original = mat.HasProperty("_Color")
-                            ? mat.GetColor("_Color") : Color.white;
-                        Color blended = Color.Lerp(original, tint, 0.2f);
-                        blended.a = alpha;
-                        mat.SetColor("_Color", blended);
-                    }
-                    else
-                    {
-                        // Fallback: solid color tint (no transparency support)
-                        Color c = tint;
-                        c.a = alpha;
-                        if (mat.HasProperty("_Color"))
-                            mat.SetColor("_Color", c);
-                        if (mat.HasProperty("_EmissiveColor"))
-                            mat.SetColor("_EmissiveColor", c);
-                        if (mat.HasProperty("_TintColor"))
-                            mat.SetColor("_TintColor", c);
-                    }
-
-                    unique.Add(mat);
-                }
-            }
-            return new List<Material>(unique);
-        }
-
-        static Shader FindTransparentGhostShader()
-        {
-            // KSP-specific transparent shaders first, then Unity built-in
-            Shader s = Shader.Find("KSP/Alpha/Translucent Specular");
-            if (s != null) return s;
-            s = Shader.Find("KSP/Alpha/Translucent");
-            if (s != null) return s;
-            return Shader.Find("Legacy Shaders/Transparent/Diffuse");
         }
 
         void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points, ref int cachedIndex, double targetUT)

@@ -136,7 +136,7 @@ See `docs/synthetic-recordings.md` for builder API docs.
    - **Vessel destroyed:** "Merge to Timeline" (default), "Discard"
    - **Vessel intact, moved far:** "Merge + Keep Vessel" (default), "Merge + Recover", "Discard"
 7. Wait on the pad until UT reaches original recording timestamps
-8. Semi-transparent ghost vessel appears and replays previous flight
+8. Ghost vessel appears (opaque replica with original part textures) and replays previous flight
 9. Decoupled/destroyed parts disappear from ghost at the correct time
 10. Funds/science/reputation deltas are applied at the correct UT
 
@@ -208,8 +208,8 @@ These happen silently to keep gameplay smooth. All are logged to `KSP.log` with 
 - SOI changes during on-rails recording close the current orbit segment and open a new one for the new body
 
 **Ghost playback:**
-- Ghost built from vessel snapshot using prefab meshes with transparent shader (original textures preserved, subtle tint)
-- Falls back to green sphere if no vessel snapshot or transparent shader unavailable
+- Ghost built from vessel snapshot using prefab meshes with original materials (fully opaque, realistic appearance)
+- Falls back to green sphere if no vessel snapshot available
 - Part events applied during playback: decoupled subtrees hidden, destroyed parts hidden, parachute events logged
 - Ghost part tree (persistentId-based) enables O(1) part lookup and recursive subtree hiding on decouple
 - Time warp is stopped once when UT first enters a recording's range (only if the recording has an unspawned vessel). Time warp during active ghost playback is allowed.

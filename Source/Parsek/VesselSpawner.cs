@@ -38,6 +38,10 @@ namespace Parsek
                 // Remove dead/missing crew from snapshot to avoid resurrecting them
                 RemoveDeadCrewFromSnapshot(spawnNode);
 
+                // Ensure all referenced crew exist in the roster (synthetic recordings
+                // may reference kerbals that were never added to this game's roster)
+                EnsureCrewExistInRoster(spawnNode);
+
                 // Remove specific crew (e.g. EVA'd kerbals) — they spawn via child recordings
                 if (excludeCrew != null && excludeCrew.Count > 0)
                     RemoveSpecificCrewFromSnapshot(spawnNode, excludeCrew);
@@ -169,6 +173,7 @@ namespace Parsek
 
                 // Crew handling
                 RemoveDeadCrewFromSnapshot(spawnNode);
+                EnsureCrewExistInRoster(spawnNode);
                 if (excludeCrew != null && excludeCrew.Count > 0)
                     RemoveSpecificCrewFromSnapshot(spawnNode, excludeCrew);
                 ParsekScenario.UnreserveCrewInSnapshot(spawnNode);
@@ -454,6 +459,47 @@ namespace Parsek
                     partNode.RemoveValues("crew");
                     foreach (string name in keepNames)
                         partNode.AddValue("crew", name);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Ensure all crew referenced in the snapshot exist in the game's CrewRoster.
+        /// Synthetic recordings or cross-save imports may reference kerbals that were
+        /// never added to this career's roster, causing NullRef in Part.RegisterCrew.
+        /// </summary>
+        public static void EnsureCrewExistInRoster(ConfigNode snapshot)
+        {
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null) return;
+
+            foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
+            {
+                var crewNames = partNode.GetValues("crew");
+                foreach (string name in crewNames)
+                {
+                    if (string.IsNullOrEmpty(name)) continue;
+
+                    // Check if already in roster
+                    bool found = false;
+                    foreach (ProtoCrewMember pcm in roster.Crew)
+                    {
+                        if (pcm.name == name) { found = true; break; }
+                    }
+                    if (found) continue;
+
+                    // Also check unowned (applicants, tourists, etc.)
+                    ProtoCrewMember existing = roster[name];
+                    if (existing != null) continue;
+
+                    // Create the kerbal and add to roster
+                    ProtoCrewMember newCrew = HighLogic.CurrentGame.CrewRoster.GetNewKerbal(ProtoCrewMember.KerbalType.Crew);
+                    if (newCrew != null)
+                    {
+                        newCrew.ChangeName(name);
+                        newCrew.rosterStatus = ProtoCrewMember.RosterStatus.Assigned;
+                        ParsekLog.Log($"Created missing crew '{name}' in roster for vessel spawn");
+                    }
                 }
             }
         }

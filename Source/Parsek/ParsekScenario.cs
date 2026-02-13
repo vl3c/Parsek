@@ -105,6 +105,9 @@ namespace Parsek
                     recNode.AddValue("spawnedPid", rec.SpawnedVesselPersistentId);
                 }
 
+                if (rec.VesselDestroyed)
+                    recNode.AddValue("vesselDestroyed", rec.VesselDestroyed.ToString());
+
                 if (rec.TakenControl)
                     recNode.AddValue("takenControl", rec.TakenControl.ToString());
 
@@ -307,6 +310,15 @@ namespace Parsek
                     uint pid;
                     if (uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out pid))
                         rec.SpawnedVesselPersistentId = pid;
+                }
+
+                // Restore vessel destroyed flag
+                string destroyedStr = recNode.GetValue("vesselDestroyed");
+                if (destroyedStr != null)
+                {
+                    bool destroyed;
+                    if (bool.TryParse(destroyedStr, out destroyed))
+                        rec.VesselDestroyed = destroyed;
                 }
 
                 // Restore taken control flag

@@ -53,7 +53,8 @@ namespace Parsek
                     continue;
                 }
 
-                bool partVisualAdded = AddPartVisuals(root.transform, partNode, ap.partPrefab, persistentId);
+                int meshCount = 0;
+                bool partVisualAdded = AddPartVisuals(root.transform, partNode, ap.partPrefab, persistentId, partName, out meshCount);
                 if (partVisualAdded)
                     visualCount++;
                 else
@@ -188,13 +189,73 @@ namespace Parsek
             return map;
         }
 
-        private static bool AddPartVisuals(Transform root, ConfigNode partNode, Part prefab, uint persistentId = 0)
+        /// <summary>
+        /// Compute the scale of a child transform relative to an ancestor.
+        /// Uses lossyScale (world-space) to account for intermediate parent transforms.
+        /// </summary>
+        private static Vector3 RelativeScale(Transform child, Transform ancestor)
         {
+            Vector3 childWorld = child.lossyScale;
+            Vector3 ancestorWorld = ancestor.lossyScale;
+            return new Vector3(
+                ancestorWorld.x > 0.0001f ? childWorld.x / ancestorWorld.x : childWorld.x,
+                ancestorWorld.y > 0.0001f ? childWorld.y / ancestorWorld.y : childWorld.y,
+                ancestorWorld.z > 0.0001f ? childWorld.z / ancestorWorld.z : childWorld.z);
+        }
+
+        /// <summary>
+        /// Create a fake parachute canopy (flattened hemisphere) and parent it to
+        /// the ghost part identified by persistentId. Returns the canopy GameObject.
+        /// </summary>
+        internal static GameObject CreateFakeCanopy(GameObject ghostRoot, uint partPersistentId)
+        {
+            if (ghostRoot == null) return null;
+
+            Transform partTransform = ghostRoot.transform.Find($"ghost_part_{partPersistentId}");
+            if (partTransform == null) return null;
+
+            GameObject canopy = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            canopy.name = $"fake_canopy_{partPersistentId}";
+
+            // Disable collider
+            var col = canopy.GetComponent<Collider>();
+            if (col != null) col.enabled = false;
+
+            // Scale: wide and flat (parachute dome shape)
+            canopy.transform.SetParent(partTransform, false);
+            canopy.transform.localPosition = new Vector3(0f, 4f, 0f); // above the part
+            canopy.transform.localScale = new Vector3(5.2f, 2f, 5.2f);
+
+            // Orange-white parachute color
+            var renderer = canopy.GetComponent<Renderer>();
+            if (renderer != null)
+            {
+                Shader shader = Shader.Find("KSP/Emissive/Diffuse");
+                if (shader != null)
+                {
+                    Material mat = new Material(shader);
+                    mat.color = new Color(1f, 0.6f, 0.2f, 1f);
+                    mat.SetColor("_EmissiveColor", new Color(1f, 0.6f, 0.2f, 0.3f));
+                    renderer.material = mat;
+                }
+            }
+
+            return canopy;
+        }
+
+        private static bool AddPartVisuals(Transform root, ConfigNode partNode, Part prefab,
+            uint persistentId, string partName, out int meshCount)
+        {
+            meshCount = 0;
             var meshRenderers = prefab.GetComponentsInChildren<MeshRenderer>(true);
             var skinnedRenderers = prefab.GetComponentsInChildren<SkinnedMeshRenderer>(true);
             if ((meshRenderers == null || meshRenderers.Length == 0) &&
                 (skinnedRenderers == null || skinnedRenderers.Length == 0))
                 return false;
+
+            int totalMR = meshRenderers != null ? meshRenderers.Length : 0;
+            int totalSMR = skinnedRenderers != null ? skinnedRenderers.Length : 0;
+            ParsekLog.Log($"  Part '{partName}' pid={persistentId}: {totalMR} MeshRenderers, {totalSMR} SkinnedMeshRenderers");
 
             // Name by persistentId for O(1) lookup during playback; fall back to part name
             string partLabel = persistentId != 0
@@ -224,12 +285,15 @@ namespace Parsek
                 child.transform.SetParent(partRoot.transform, false);
                 child.transform.localPosition = prefabRoot.InverseTransformPoint(mr.transform.position);
                 child.transform.localRotation = Quaternion.Inverse(prefabRoot.rotation) * mr.transform.rotation;
-                child.transform.localScale = mr.transform.localScale;
+                child.transform.localScale = RelativeScale(mr.transform, prefabRoot);
 
                 var childMf = child.AddComponent<MeshFilter>();
                 childMf.sharedMesh = mf.sharedMesh;
                 var childMr = child.AddComponent<MeshRenderer>();
                 childMr.sharedMaterials = mr.sharedMaterials;
+                meshCount++;
+                ParsekLog.Log($"    MR[{r}] '{mr.gameObject.name}' mesh={mf.sharedMesh.name} " +
+                    $"pos={child.transform.localPosition} scale={child.transform.localScale}");
                 added = true;
             }
 
@@ -242,7 +306,7 @@ namespace Parsek
                 child.transform.SetParent(partRoot.transform, false);
                 child.transform.localPosition = prefabRoot.InverseTransformPoint(smr.transform.position);
                 child.transform.localRotation = Quaternion.Inverse(prefabRoot.rotation) * smr.transform.rotation;
-                child.transform.localScale = smr.transform.localScale;
+                child.transform.localScale = RelativeScale(smr.transform, prefabRoot);
 
                 // Use shared bind-pose mesh as a static ghost visual.
                 var childMf = child.AddComponent<MeshFilter>();

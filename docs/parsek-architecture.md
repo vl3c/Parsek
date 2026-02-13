@@ -775,9 +775,9 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 - [x] 17 edge cases identified and resolved (see TODO-edge-cases.md)
 
 **Remaining for MVP release:**
-- [ ] Take control of playback vessel
+- [x] Take control of playback vessel (spawn at ghost position with velocity, crew cleanup)
 - [x] Orbital/time-warp recording (save orbit params instead of sampling)
-- [x] Ghost as actual vessel model (semi-transparent replica from prefab meshes)
+- [x] Ghost as actual vessel model (opaque replica from prefab meshes)
 - [x] Adaptive threshold sampling (velocity direction >2deg, speed >5%, 3s backstop)
 - [x] ClickThroughBlocker for UI windows
 - [x] ToolbarControl for toolbar button
@@ -837,7 +837,7 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 ## Open Questions (Resolved)
 
 1. **Trajectory interpolation:** Linear (`Vector3.Lerp`, `Quaternion.Lerp`) is sufficient for MVP. Proven by PersistentTrails — cubic adds complexity with negligible visual improvement at typical sample rates.
-2. **Ghost vessel rendering:** Same model for MVP (use VesselSnapshot to spawn identical vessel). Simplified/transparent rendering deferred to Phase 2.
+2. **Ghost vessel rendering:** Opaque replica built from prefab meshes using VesselSnapshot part data. No shader modification — uses original part materials for realistic appearance.
 3. **SOI transitions:** Store body name (`string BodyName`) per TrajectoryFrame. Record body change as a discrete `SOIChangeEvent`. This naturally handles multi-body trajectories.
 4. **Recording file size:** Hybrid approach — metadata and event list stored in save game via ScenarioModule; large trajectory data stored in external `.parsek` files under `GameData/Parsek/Recordings/`.
 5. **Multiplayer architecture:** Deferred to Phase 4. Recording export/import is the foundation — design for file-based sharing first, network layer later.
@@ -869,12 +869,12 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 
 5. **Complete MVP for release**
    - ~~Orbital/time-warp recording strategy~~ (DONE — hybrid OrbitSegment recording)
-   - Take control of playback vessel
-   - Ghost as vessel model (replace sphere)
+   - ~~Take control of playback vessel~~ (DONE — spawn at ghost position with velocity, crew cleanup)
+   - ~~Ghost as vessel model (replace sphere)~~ (DONE — opaque prefab mesh replica)
    - ~~ClickThroughBlocker + ToolbarControl integration~~ (DONE)
    - ~~Adaptive sampling for maneuvers~~ (DONE — velocity/speed thresholds with max-interval backstop)
    - ~~Architecture cleanup~~ (DONE — decomposed god class into focused files)
 
 ---
 
-*Document version: 0.7 — Part events, EVA child recordings, ghost vessel model*
+*Document version: 0.8 — Take control, opaque ghost visuals, velocity persistence*

@@ -54,7 +54,7 @@ After reverting, a dialog appears with context-aware options:
 
 After merging, wait on the pad (or time warp) until UT reaches the recording's timestamps:
 
-- A semi-transparent ghost vessel appears and replays the recorded flight (original part textures are preserved with a subtle tint)
+- A ghost vessel appears and replays the recorded flight using the original part meshes and textures
 - Parts that were decoupled or destroyed during the recording disappear from the ghost at the correct time
 - Funds, science, and reputation changes from the recording are applied at the correct time
 - When the ghost finishes, the vessel appears at its final position (if "Keep Vessel" was chosen)
@@ -62,6 +62,17 @@ After merging, wait on the pad (or time warp) until UT reaches the recording's t
 ### Crew Management
 
 When you choose "Merge + Keep Vessel", the recorded crew (e.g. Jeb) are reserved for the deferred vessel spawn. A replacement kerbal with the same trait is hired automatically so your available crew pool stays the same size. When the vessel spawns at EndUT, the original crew board it and the replacement is removed.
+
+### Take Control
+
+While a ghost is actively playing back, you can take control of it from the Parsek UI window:
+
+1. Open the Parsek window (toolbar button)
+2. Click "Take Control" next to an active ghost
+3. The ghost is replaced with a real vessel at its current position and velocity
+4. You are switched to the new vessel and can fly it normally
+
+The recording is marked as taken and the ghost will not reappear. Crew reservations are cleaned up as if the vessel had spawned normally at EndUT.
 
 ### Preview Playback
 
