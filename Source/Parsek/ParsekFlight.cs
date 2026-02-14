@@ -452,7 +452,8 @@ namespace Parsek
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
-                string hasVessel = (rec.GhostVisualSnapshot != null || rec.VesselSnapshot != null) ? "vessel" : "ghost-only";
+                string hasVessel = rec.VesselSnapshot != null ? "vessel" :
+                    rec.GhostVisualSnapshot != null ? "ghost" : "ghost-only";
                 string orbitInfo = rec.OrbitSegments.Count > 0
                     ? $", {rec.OrbitSegments.Count} orbit seg(s)"
                     : "";

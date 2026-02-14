@@ -194,7 +194,8 @@ namespace Parsek
                 Debug.Log($"[Parsek Scenario] Loaded recording: {rec.VesselName}, " +
                     $"{rec.Points.Count} points, {rec.OrbitSegments.Count} orbit segments" +
                     (rec.Points.Count > 0 ? $", UT {rec.StartUT:F0}-{rec.EndUT:F0}" : ", degraded (0 points)") +
-                    ((rec.GhostVisualSnapshot != null || rec.VesselSnapshot != null) ? " (has vessel snapshot)" : "") +
+                    (rec.VesselSnapshot != null ? " (vessel spawn)" :
+                     rec.GhostVisualSnapshot != null ? " (ghost-only)" : "") +
                     (!string.IsNullOrEmpty(rec.GhostGeometryRelativePath)
                         ? $" (ghost geometry: {(rec.GhostGeometryAvailable ? "ready" : "fallback")})"
                         : ""));
@@ -382,9 +383,18 @@ namespace Parsek
                     {
                         if (pcm.name != name) continue;
 
-                        // Skip dead/missing crew — they'll be stripped at spawn time
-                        if (!ShouldProcessCrewForReservation(pcm.rosterStatus))
+                        // Skip dead crew — they're truly gone
+                        if (pcm.rosterStatus == ProtoCrewMember.RosterStatus.Dead)
                             break;
+
+                        // Rescue Missing crew — they're alive but orphaned from a
+                        // removed vessel (e.g. --clean-start or manual save edits).
+                        // The recording will respawn them, so restore them first.
+                        if (pcm.rosterStatus == ProtoCrewMember.RosterStatus.Missing)
+                        {
+                            pcm.rosterStatus = ProtoCrewMember.RosterStatus.Available;
+                            Debug.Log($"[Parsek Scenario] Rescued Missing crew '{name}' → Available for reservation");
+                        }
 
                         // Mark as Assigned if Available
                         if (NeedsStatusChange(pcm.rosterStatus))
@@ -574,12 +584,13 @@ namespace Parsek
 
         /// <summary>
         /// Returns true if a crew member with the given roster status should be
-        /// processed for reservation (i.e. not dead/missing). Extracted for testability.
+        /// processed for reservation (i.e. not dead). Missing crew are processed
+        /// because they may be alive but orphaned from a removed vessel.
+        /// Extracted for testability.
         /// </summary>
         internal static bool ShouldProcessCrewForReservation(ProtoCrewMember.RosterStatus status)
         {
-            return status != ProtoCrewMember.RosterStatus.Dead &&
-                   status != ProtoCrewMember.RosterStatus.Missing;
+            return status != ProtoCrewMember.RosterStatus.Dead;
         }
 
         /// <summary>

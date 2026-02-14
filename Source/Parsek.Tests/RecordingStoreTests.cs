@@ -661,9 +661,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldProcessCrew_Missing_ReturnsFalse()
+        public void ShouldProcessCrew_Missing_ReturnsTrue()
         {
-            Assert.False(ParsekScenario.ShouldProcessCrewForReservation(
+            // Missing crew are processed: they may be alive but orphaned from
+            // a removed vessel (e.g. --clean-start). ReserveCrewIn rescues them.
+            Assert.True(ParsekScenario.ShouldProcessCrewForReservation(
                 ProtoCrewMember.RosterStatus.Missing));
         }
 

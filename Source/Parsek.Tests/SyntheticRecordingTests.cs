@@ -1058,6 +1058,109 @@ namespace Parsek.Tests
             return string.Join(sep, result);
         }
 
+        /// <summary>
+        /// Reset veteran crew status from Missing/Assigned to Available.
+        /// After --clean-start removes vessels, crew may be orphaned as Missing
+        /// or still Assigned to a non-existent vessel. This fixes them.
+        /// </summary>
+        private static string ResetVeteranCrewStatus(string content)
+        {
+            // Fix state = Missing/Assigned → Available for veteran crew
+            // Only affects lines inside KERBAL blocks that are veteran = True
+            var lines = content.Split(new[] { "\r\n", "\n" }, System.StringSplitOptions.None);
+            bool inRoster = false;
+            int rosterDepth = 0;
+            bool inKerbal = false;
+            int kerbalStart = -1;
+            int kerbalDepth = 0;
+
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string trimmed = lines[i].Trim();
+
+                if (!inRoster && trimmed == "ROSTER")
+                {
+                    inRoster = true;
+                    rosterDepth = 0;
+                    continue;
+                }
+
+                if (inRoster)
+                {
+                    if (trimmed == "{") rosterDepth++;
+                    else if (trimmed == "}")
+                    {
+                        rosterDepth--;
+                        if (rosterDepth <= 0) inRoster = false;
+                    }
+
+                    if (rosterDepth == 1 && trimmed == "KERBAL")
+                    {
+                        inKerbal = true;
+                        kerbalStart = i;
+                        kerbalDepth = 0;
+                        continue;
+                    }
+
+                    if (inKerbal)
+                    {
+                        if (trimmed == "{") kerbalDepth++;
+                        else if (trimmed == "}")
+                        {
+                            kerbalDepth--;
+                            if (kerbalDepth <= 0)
+                            {
+                                inKerbal = false;
+                                // Check if this was a veteran crew and fix state.
+                                // Only check top-level values (depth 1) — sub-nodes
+                                // like EVACHUTE/INVENTORY have their own "state = 0".
+                                bool isVeteran = false;
+                                int stateLine = -1;
+                                int todLine = -1;
+                                int idxLine = -1;
+                                int scanDepth = 0;
+                                for (int j = kerbalStart; j <= i; j++)
+                                {
+                                    string l = lines[j].Trim();
+                                    if (l == "{") scanDepth++;
+                                    else if (l == "}") scanDepth--;
+
+                                    if (scanDepth != 1) continue;
+                                    if (l == "veteran = True") isVeteran = true;
+                                    if (l.StartsWith("state = ", System.StringComparison.Ordinal)) stateLine = j;
+                                    if (l.StartsWith("ToD = ", System.StringComparison.Ordinal)) todLine = j;
+                                    if (l.StartsWith("idx = ", System.StringComparison.Ordinal)) idxLine = j;
+                                }
+
+                                if (isVeteran && stateLine >= 0)
+                                {
+                                    string stateVal = lines[stateLine].Trim();
+                                    if (stateVal == "state = Missing" || stateVal == "state = Assigned")
+                                    {
+                                        string indent = lines[stateLine].Substring(0, lines[stateLine].Length - lines[stateLine].TrimStart().Length);
+                                        lines[stateLine] = indent + "state = Available";
+                                        if (todLine >= 0)
+                                        {
+                                            indent = lines[todLine].Substring(0, lines[todLine].Length - lines[todLine].TrimStart().Length);
+                                            lines[todLine] = indent + "ToD = 0";
+                                        }
+                                        if (idxLine >= 0)
+                                        {
+                                            indent = lines[idxLine].Substring(0, lines[idxLine].Length - lines[idxLine].TrimStart().Length);
+                                            lines[idxLine] = indent + "idx = -1";
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            string sep = content.Contains("\r\n") ? "\r\n" : "\n";
+            return string.Join(sep, lines);
+        }
+
         private static void CleanSaveStart(string savePath)
         {
             if (!File.Exists(savePath))
@@ -1067,7 +1170,14 @@ namespace Parsek.Tests
             content = RemoveVesselBlocksFromFlightState(content);
             content = RemoveSpawnedPidLines(content);
             content = RemoveNonVeteranCrewFromRoster(content);
+            content = ResetVeteranCrewStatus(content);
             File.WriteAllText(savePath, content);
+
+            // Clean stale recording sidecar files
+            string saveDir = Path.GetDirectoryName(savePath);
+            string recordingsDir = Path.Combine(saveDir, "Parsek", "Recordings");
+            if (Directory.Exists(recordingsDir))
+                Directory.Delete(recordingsDir, recursive: true);
         }
 
         [Trait("Category", "Manual")]
