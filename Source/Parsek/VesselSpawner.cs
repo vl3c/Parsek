@@ -49,9 +49,15 @@ namespace Parsek
                 // Set reserved crew back to Available so KSP can assign them to this vessel
                 ParsekScenario.UnreserveCrewInSnapshot(spawnNode);
 
+                EnsureOwnedDiscovery(spawnNode);
+
                 ProtoVessel pv = new ProtoVessel(spawnNode, HighLogic.CurrentGame);
                 HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
                 pv.Load(HighLogic.CurrentGame.flightState);
+
+                if (pv.vesselRef != null)
+                    GameEvents.onNewVesselCreated.Fire(pv.vesselRef);
+
                 ParsekLog.Log($"Vessel respawned with crew (sit={spawnNode.GetValue("sit")}, pid={pv.persistentId})");
                 return pv.persistentId;
             }
@@ -178,9 +184,15 @@ namespace Parsek
                     RemoveSpecificCrewFromSnapshot(spawnNode, excludeCrew);
                 ParsekScenario.UnreserveCrewInSnapshot(spawnNode);
 
+                EnsureOwnedDiscovery(spawnNode);
+
                 ProtoVessel pv = new ProtoVessel(spawnNode, HighLogic.CurrentGame);
                 HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
                 pv.Load(HighLogic.CurrentGame.flightState);
+
+                if (pv.vesselRef != null)
+                    GameEvents.onNewVesselCreated.Fire(pv.vesselRef);
+
                 ParsekLog.Log($"SpawnAtPosition: vessel spawned (sit={sit}, pid={pv.persistentId}, " +
                     $"body={body.name}, alt={alt:F0}m)");
                 return pv.persistentId;
@@ -701,6 +713,24 @@ namespace Parsek
             node.AddValue("MNA", orbit.meanAnomalyAtEpoch.ToString("R", ic));
             node.AddValue("EPH", orbit.epoch.ToString("R", ic));
             node.AddValue("REF", FlightGlobals.Bodies.IndexOf(body).ToString(ic));
+        }
+
+        private static void EnsureOwnedDiscovery(ConfigNode spawnNode)
+        {
+            ConfigNode disc = spawnNode.GetNode("DISCOVERY");
+            if (disc == null)
+            {
+                disc = spawnNode.AddNode("DISCOVERY");
+                disc.AddValue("state", "31");
+                disc.AddValue("lastObservedTime", "0");
+                disc.AddValue("lifetime", "Infinity");
+                disc.AddValue("refTime", "0");
+                disc.AddValue("size", "2");
+            }
+            else
+            {
+                disc.SetValue("state", "31", true);
+            }
         }
 
         internal static double SelectRelocatedAltitude(

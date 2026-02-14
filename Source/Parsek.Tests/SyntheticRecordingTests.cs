@@ -57,35 +57,46 @@ namespace Parsek.Tests
             double lat = -0.0972;
             double lon = -74.5575;
 
-            b.AddPoint(t,     lat, lon, 77);
-            b.AddPoint(t+5,   lat, lon, 300);
-            b.AddPoint(t+10,  lat, lon, 800);
-            b.AddPoint(t+15,  lat, lon + 0.001, 1800);
-            b.AddPoint(t+20,  lat, lon + 0.003, 3500);
-            b.AddPoint(t+25,  lat + 0.001, lon + 0.006, 6000);
-            b.AddPoint(t+30,  lat + 0.002, lon + 0.01, 9500);
-            b.AddPoint(t+35,  lat + 0.003, lon + 0.015, 14000);
-            b.AddPoint(t+40,  lat + 0.004, lon + 0.02, 19000);
-            b.AddPoint(t+50,  lat + 0.006, lon + 0.035, 28000);
-            b.AddPoint(t+60,  lat + 0.008, lon + 0.055, 37000);
-            b.AddPoint(t+70,  lat + 0.01, lon + 0.08, 46000);
-            b.AddPoint(t+80,  lat + 0.012, lon + 0.11, 55000);
-            b.AddPoint(t+90,  lat + 0.014, lon + 0.14, 63000);
-            b.AddPoint(t+100, lat + 0.015, lon + 0.17, 68000);
-            b.AddPoint(t+110, lat + 0.016, lon + 0.20, 70500);
-            b.AddPoint(t+120, lat + 0.017, lon + 0.23, 71000);
-            b.AddPoint(t+130, lat + 0.018, lon + 0.26, 70200);
-            b.AddPoint(t+140, lat + 0.019, lon + 0.29, 67000);
-            b.AddPoint(t+160, lat + 0.021, lon + 0.35, 55000);
-            b.AddPoint(t+180, lat + 0.023, lon + 0.42, 40000);
-            b.AddPoint(t+210, lat + 0.026, lon + 0.52, 22000);
-            b.AddPoint(t+240, lat + 0.028, lon + 0.62, 8000);
-            b.AddPoint(t+270, lat + 0.029, lon + 0.70, 1500);
-            b.AddPoint(t+300, lat + 0.03, lon + 0.75, 0);
+            // Ascent with gravity-turn rotation (Z-axis pitch-over)
+            b.AddPoint(t,     lat, lon, 77,                             rotZ: 0f,     rotW: 1f);
+            b.AddPoint(t+5,   lat, lon, 300,                            rotZ: 0.044f, rotW: 0.999f);
+            b.AddPoint(t+10,  lat, lon, 800,                            rotZ: 0.087f, rotW: 0.996f);
+            b.AddPoint(t+15,  lat, lon + 0.001, 1800,                   rotZ: 0.131f, rotW: 0.991f);
+            b.AddPoint(t+20,  lat, lon + 0.003, 3500,                   rotZ: 0.174f, rotW: 0.985f);
+            b.AddPoint(t+25,  lat + 0.001, lon + 0.006, 6000,           rotZ: 0.216f, rotW: 0.976f);
+            b.AddPoint(t+30,  lat + 0.002, lon + 0.01, 9500,            rotZ: 0.259f, rotW: 0.966f);
+            // SRB burnout + decouple at t+30
+            b.AddPoint(t+35,  lat + 0.003, lon + 0.015, 14000,          rotZ: 0.309f, rotW: 0.951f);
+            b.AddPoint(t+40,  lat + 0.004, lon + 0.02, 19000,           rotZ: 0.342f, rotW: 0.940f);
+            b.AddPoint(t+50,  lat + 0.006, lon + 0.035, 28000,          rotZ: 0.383f, rotW: 0.924f);
+            b.AddPoint(t+60,  lat + 0.008, lon + 0.055, 37000,          rotZ: 0.423f, rotW: 0.906f);
+            b.AddPoint(t+70,  lat + 0.01, lon + 0.08, 46000,            rotZ: 0.454f, rotW: 0.891f);
+            b.AddPoint(t+80,  lat + 0.012, lon + 0.11, 55000,           rotZ: 0.500f, rotW: 0.866f);
+            b.AddPoint(t+90,  lat + 0.014, lon + 0.14, 63000,           rotZ: 0.545f, rotW: 0.838f);
+            b.AddPoint(t+100, lat + 0.015, lon + 0.17, 68000,           rotZ: 0.574f, rotW: 0.819f);
+            b.AddPoint(t+110, lat + 0.016, lon + 0.20, 70500,           rotZ: 0.588f, rotW: 0.809f);
+            b.AddPoint(t+120, lat + 0.017, lon + 0.23, 71000,           rotZ: 0.574f, rotW: 0.819f);
+            // Apex — begin descent, nose tilting back
+            b.AddPoint(t+130, lat + 0.018, lon + 0.26, 70200,           rotZ: 0.545f, rotW: 0.838f);
+            b.AddPoint(t+140, lat + 0.019, lon + 0.29, 67000,           rotZ: 0.500f, rotW: 0.866f);
+            b.AddPoint(t+160, lat + 0.021, lon + 0.35, 55000,           rotZ: 0.383f, rotW: 0.924f);
+            b.AddPoint(t+180, lat + 0.023, lon + 0.42, 40000,           rotZ: 0.259f, rotW: 0.966f);
+            b.AddPoint(t+210, lat + 0.026, lon + 0.52, 22000,           rotZ: 0.131f, rotW: 0.991f);
+            b.AddPoint(t+240, lat + 0.028, lon + 0.62, 8000,            rotZ: 0.044f, rotW: 0.999f);
+            // Parachute deploy at t+240, descent under canopy
+            b.AddPoint(t+270, lat + 0.029, lon + 0.70, 1500,            rotZ: 0f,     rotW: 1f);
+            b.AddPoint(t+300, lat + 0.03, lon + 0.75, 0,                rotZ: 0f,     rotW: 1f);
 
-            // Vessel snapshot so playback can render as vessel geometry (not sphere)
+            // Part events: SRB decouple after burnout, parachute at low altitude
+            // VesselSnapshotBuilder part uids: 100000, 101111, 102222
+            b.AddPartEvent(t + 30, 101111, 0, "solidBooster");       // Decoupled
+            b.AddPartEvent(t + 240, 102222, 2, "parachuteSingle");   // ParachuteDeployed
+
+            // Multi-part vessel: probe core + SRB + parachute
             b.WithVesselSnapshot(
                 VesselSnapshotBuilder.ProbeShip("Suborbital Arc", pid: 22222222)
+                    .AddPart("solidBooster")
+                    .AddPart("parachuteSingle")
                     .AsLanded(lat + 0.03, lon + 0.75, 0));
 
             return b;
@@ -98,18 +109,23 @@ namespace Parsek.Tests
             double lat = -0.0972;
             double lon = -74.5575;
 
-            // 11 ascent points, last at orbit segment start
-            b.AddPoint(t,     lat, lon, 77);
-            b.AddPoint(t+50,  lat, lon + 0.005, 5000);
-            b.AddPoint(t+100, lat + 0.005, lon + 0.02, 15000);
-            b.AddPoint(t+150, lat + 0.01, lon + 0.05, 30000);
-            b.AddPoint(t+200, lat + 0.015, lon + 0.1, 45000);
-            b.AddPoint(t+250, lat + 0.02, lon + 0.16, 58000);
-            b.AddPoint(t+300, lat + 0.025, lon + 0.24, 68000);
-            b.AddPoint(t+350, lat + 0.03, lon + 0.34, 75000);
-            b.AddPoint(t+400, lat + 0.035, lon + 0.46, 79000);
-            b.AddPoint(t+450, lat + 0.04, lon + 0.55, 80000);
-            b.AddPoint(t+500, lat + 0.045, lon + 0.60, 80000);
+            // 11 ascent points with gravity-turn rotation
+            b.AddPoint(t,     lat, lon, 77,                             rotZ: 0f,     rotW: 1f);
+            b.AddPoint(t+50,  lat, lon + 0.005, 5000,                   rotZ: 0.131f, rotW: 0.991f);
+            b.AddPoint(t+100, lat + 0.005, lon + 0.02, 15000,           rotZ: 0.259f, rotW: 0.966f);
+            b.AddPoint(t+150, lat + 0.01, lon + 0.05, 30000,            rotZ: 0.383f, rotW: 0.924f);
+            b.AddPoint(t+200, lat + 0.015, lon + 0.1, 45000,            rotZ: 0.500f, rotW: 0.866f);
+            b.AddPoint(t+250, lat + 0.02, lon + 0.16, 58000,            rotZ: 0.588f, rotW: 0.809f);
+            b.AddPoint(t+300, lat + 0.025, lon + 0.24, 68000,           rotZ: 0.643f, rotW: 0.766f);
+            b.AddPoint(t+350, lat + 0.03, lon + 0.34, 75000,            rotZ: 0.683f, rotW: 0.731f);
+            b.AddPoint(t+400, lat + 0.035, lon + 0.46, 79000,           rotZ: 0.700f, rotW: 0.714f);
+            b.AddPoint(t+450, lat + 0.04, lon + 0.55, 80000,            rotZ: 0.707f, rotW: 0.707f);
+            // Engine staging at t+450 — orbit insertion burn complete
+            b.AddPoint(t+500, lat + 0.045, lon + 0.60, 80000,           rotZ: 0.707f, rotW: 0.707f);
+
+            // Part event: engine stage separation before orbit
+            // VesselSnapshotBuilder part uids: 100000 (pod), 101111 (tank), 102222 (engine)
+            b.AddPartEvent(t + 450, 102222, 0, "liquidEngine");  // Decoupled
 
             // Orbit segment starts at last ascent point
             double segStart = t + 500;
@@ -119,8 +135,11 @@ namespace Parsek.Tests
                 lan: 90, argPe: 45, mna: 0, epoch: segStart,
                 body: "Kerbin");
 
+            // Multi-part vessel: command pod + fuel tank + engine
             b.WithVesselSnapshot(
                 VesselSnapshotBuilder.CrewedShip("Orbit-1", "Bill Kerman", pid: 12345678)
+                    .AddPart("fuelTank")
+                    .AddPart("liquidEngine")
                     .AsOrbiting(sma: 700000, ecc: 0.001, inc: 28.5,
                         lan: 90, argPe: 45, mna: 0, epoch: segStart));
 
@@ -289,6 +308,18 @@ namespace Parsek.Tests
                 Assert.True(ut > prevUT, $"UT {ut} should be > {prevUT}");
                 prevUT = ut;
             }
+
+            // Multi-part vessel snapshot (probe + SRB + parachute)
+            var snapshot = node.GetNode("VESSEL_SNAPSHOT");
+            Assert.Equal(3, snapshot.GetNodes("PART").Length);
+
+            // Part events: SRB decouple + parachute deploy
+            var partEvents = node.GetNodes("PART_EVENT");
+            Assert.Equal(2, partEvents.Length);
+            Assert.Equal("solidBooster", partEvents[0].GetValue("part"));
+            Assert.Equal("0", partEvents[0].GetValue("type"));   // Decoupled
+            Assert.Equal("parachuteSingle", partEvents[1].GetValue("part"));
+            Assert.Equal("2", partEvents[1].GetValue("type"));   // ParachuteDeployed
         }
 
         [Fact]
@@ -307,10 +338,18 @@ namespace Parsek.Tests
             Assert.Equal("Orbit-1", snapshot.GetValue("name"));
             Assert.Equal("ORBITING", snapshot.GetValue("sit"));
 
-            // Verify crew in snapshot
+            // Multi-part vessel: pod + fuel tank + engine
             var parts = snapshot.GetNodes("PART");
-            Assert.True(parts.Length > 0);
+            Assert.Equal(3, parts.Length);
             Assert.Equal("Bill Kerman", parts[0].GetValue("crew"));
+            Assert.Equal("fuelTank", parts[1].GetValue("name"));
+            Assert.Equal("liquidEngine", parts[2].GetValue("name"));
+
+            // Part event: engine stage separation
+            var partEvents = node.GetNodes("PART_EVENT");
+            Assert.Single(partEvents);
+            Assert.Equal("liquidEngine", partEvents[0].GetValue("part"));
+            Assert.Equal("0", partEvents[0].GetValue("type"));  // Decoupled
         }
 
         [Fact]

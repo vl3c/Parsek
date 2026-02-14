@@ -174,7 +174,7 @@ namespace Parsek.Tests.Generators
             v.AddNode("ACTIONGROUPS");
 
             var disc = v.AddNode("DISCOVERY");
-            disc.AddValue("state", "2");
+            disc.AddValue("state", "31");
             disc.AddValue("lastObservedTime", "0");
             disc.AddValue("lifetime", "Infinity");
             disc.AddValue("refTime", "0");
