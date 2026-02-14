@@ -5,6 +5,12 @@ using UnityEngine;
 
 namespace Parsek
 {
+    internal class JettisonGhostInfo
+    {
+        public uint partPersistentId;
+        public Transform jettisonTransform;
+    }
+
     internal class ParachuteGhostInfo
     {
         public uint partPersistentId;
@@ -21,9 +27,11 @@ namespace Parsek
 
         internal static GameObject BuildTimelineGhostFromSnapshot(
             RecordingStore.Recording rec, string rootName,
-            out List<ParachuteGhostInfo> parachuteInfos)
+            out List<ParachuteGhostInfo> parachuteInfos,
+            out List<JettisonGhostInfo> jettisonInfos)
         {
             parachuteInfos = null;
+            jettisonInfos = null;
             ConfigNode snapshotNode = GetGhostSnapshot(rec);
             if (snapshotNode == null)
                 return null;
@@ -39,6 +47,7 @@ namespace Parsek
             int skippedPrefab = 0;
             int skippedMesh = 0;
             var collectedParachuteInfos = new List<ParachuteGhostInfo>();
+            var collectedJettisonInfos = new List<JettisonGhostInfo>();
 
             for (int i = 0; i < partNodes.Length; i++)
             {
@@ -68,8 +77,9 @@ namespace Parsek
 
                 int meshCount = 0;
                 ParachuteGhostInfo parachuteInfo;
+                JettisonGhostInfo jettisonInfo;
                 bool partVisualAdded = AddPartVisuals(root.transform, partNode, ap.partPrefab,
-                    persistentId, partName, out meshCount, out parachuteInfo);
+                    persistentId, partName, out meshCount, out parachuteInfo, out jettisonInfo);
                 if (partVisualAdded)
                     visualCount++;
                 else
@@ -78,6 +88,8 @@ namespace Parsek
 
                 if (parachuteInfo != null)
                     collectedParachuteInfos.Add(parachuteInfo);
+                if (jettisonInfo != null)
+                    collectedJettisonInfos.Add(jettisonInfo);
             }
 
             ParsekLog.Log($"Ghost built: {visualCount}/{partNodes.Length} parts with visuals" +
@@ -92,13 +104,22 @@ namespace Parsek
             }
 
             parachuteInfos = collectedParachuteInfos.Count > 0 ? collectedParachuteInfos : null;
+            jettisonInfos = collectedJettisonInfos.Count > 0 ? collectedJettisonInfos : null;
             return root;
         }
 
-        // Overload without parachute info for callers that don't need it (preview ghost)
+        // Overload without parachute/jettison info for callers that don't need it (preview ghost)
         internal static GameObject BuildTimelineGhostFromSnapshot(RecordingStore.Recording rec, string rootName)
         {
-            return BuildTimelineGhostFromSnapshot(rec, rootName, out _);
+            return BuildTimelineGhostFromSnapshot(rec, rootName, out _, out _);
+        }
+
+        // Overload with only parachute info for backward compat
+        internal static GameObject BuildTimelineGhostFromSnapshot(
+            RecordingStore.Recording rec, string rootName,
+            out List<ParachuteGhostInfo> parachuteInfos)
+        {
+            return BuildTimelineGhostFromSnapshot(rec, rootName, out parachuteInfos, out _);
         }
 
         internal static ConfigNode GetGhostSnapshot(RecordingStore.Recording rec)
@@ -395,6 +416,19 @@ namespace Parsek
             return result;
         }
 
+        private static string GetTransformPath(Transform t, Transform root)
+        {
+            var parts = new List<string>();
+            Transform cur = t;
+            while (cur != null && cur != root)
+            {
+                parts.Add(cur.name);
+                cur = cur.parent;
+            }
+            parts.Reverse();
+            return string.Join("/", parts);
+        }
+
         internal static Transform FindTransformRecursive(Transform parent, string name)
         {
             if (parent.name == name) return parent;
@@ -406,13 +440,73 @@ namespace Parsek
             return null;
         }
 
+        /// <summary>
+        /// Recursively dump the full transform hierarchy of a part prefab for diagnostics.
+        /// Logs each transform with its depth, components, and active state.
+        /// </summary>
+        private static void DumpTransformHierarchy(Transform t, int depth, string partName)
+        {
+            string indent = new string(' ', depth * 2);
+            var components = t.gameObject.GetComponents<Component>();
+            var compNames = new List<string>();
+            foreach (var c in components)
+            {
+                if (c == null) continue;
+                string cName = c.GetType().Name;
+                if (cName == "Transform") continue; // skip ubiquitous Transform
+                compNames.Add(cName);
+            }
+            string compStr = compNames.Count > 0 ? " [" + string.Join(", ", compNames) + "]" : "";
+            string activeStr = t.gameObject.activeSelf ? "" : " (INACTIVE)";
+            ParsekLog.Log($"    HIERARCHY {partName}: {indent}{t.name}{compStr}{activeStr}");
+            for (int i = 0; i < t.childCount; i++)
+                DumpTransformHierarchy(t.GetChild(i), depth + 1, partName);
+        }
+
         private static bool AddPartVisuals(Transform root, ConfigNode partNode, Part prefab,
             uint persistentId, string partName, out int meshCount,
-            out ParachuteGhostInfo parachuteInfo)
+            out ParachuteGhostInfo parachuteInfo, out JettisonGhostInfo jettisonInfo)
         {
             meshCount = 0;
             parachuteInfo = null;
+            jettisonInfo = null;
             Transform modelRoot = FindModelRoot(prefab);
+
+            // Dump full hierarchy for engine parts to diagnose missing nozzle meshes.
+            // Search from the Part root (not just modelRoot) to catch siblings of "model".
+            if (prefab.FindModuleImplementing<ModuleEngines>() != null)
+            {
+                ParsekLog.Log($"  ENGINE PART HIERARCHY DUMP for '{partName}' pid={persistentId}:");
+                DumpTransformHierarchy(prefab.transform, 0, partName);
+
+                // Also log MeshRenderers found from Part root vs modelRoot
+                var allMR = prefab.GetComponentsInChildren<MeshRenderer>(true);
+                var modelMR = modelRoot.GetComponentsInChildren<MeshRenderer>(true);
+                if (allMR.Length != modelMR.Length)
+                {
+                    ParsekLog.Log($"  WARNING: Part root has {allMR.Length} MeshRenderers but " +
+                        $"modelRoot '{modelRoot.name}' has only {modelMR.Length}! " +
+                        $"Missing renderers are OUTSIDE the model subtree.");
+                    foreach (var mr in allMR)
+                    {
+                        bool isUnderModel = false;
+                        Transform cur = mr.transform;
+                        while (cur != null && cur != prefab.transform)
+                        {
+                            if (cur == modelRoot) { isUnderModel = true; break; }
+                            cur = cur.parent;
+                        }
+                        if (!isUnderModel)
+                        {
+                            var mf = mr.GetComponent<MeshFilter>();
+                            string meshName = mf?.sharedMesh?.name ?? "(no mesh)";
+                            ParsekLog.Log($"    OUTSIDE-MODEL MR: '{mr.gameObject.name}' mesh={meshName} " +
+                                $"path={GetTransformPath(mr.transform, prefab.transform)}");
+                        }
+                    }
+                }
+            }
+
             var meshRenderers = modelRoot.GetComponentsInChildren<MeshRenderer>(true);
             var skinnedRenderers = modelRoot.GetComponentsInChildren<SkinnedMeshRenderer>(true);
             if ((meshRenderers == null || meshRenderers.Length == 0) &&
@@ -524,6 +618,34 @@ namespace Parsek
                 else if (srcCanopy != null)
                 {
                     ParsekLog.Log($"    Parachute '{canopyName}' found on prefab but not in cloneMap — will use fake canopy");
+                }
+            }
+
+            // Detect jettison parts (shrouds/fairings) via cloneMap
+            ModuleJettison jettison = prefab.FindModuleImplementing<ModuleJettison>();
+            if (jettison != null)
+            {
+                string jettisonName = jettison.jettisonName;
+                if (!string.IsNullOrEmpty(jettisonName))
+                {
+                    Transform srcJettison = prefab.FindModelTransform(jettisonName);
+                    Transform ghostJettison = null;
+                    if (srcJettison != null)
+                        cloneMap.TryGetValue(srcJettison, out ghostJettison);
+
+                    if (ghostJettison != null)
+                    {
+                        jettisonInfo = new JettisonGhostInfo
+                        {
+                            partPersistentId = persistentId,
+                            jettisonTransform = ghostJettison
+                        };
+                        ParsekLog.Log($"    Jettison detected: '{jettisonName}' pid={persistentId}");
+                    }
+                    else if (srcJettison != null)
+                    {
+                        ParsekLog.Log($"    Jettison '{jettisonName}' found on prefab but not in cloneMap");
+                    }
                 }
             }
 

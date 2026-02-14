@@ -5,7 +5,8 @@ namespace Parsek
         Decoupled,
         Destroyed,
         ParachuteDeployed,
-        ParachuteCut
+        ParachuteCut,
+        ShroudJettisoned
     }
 
     public struct PartEvent

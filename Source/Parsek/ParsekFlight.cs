@@ -51,6 +51,10 @@ namespace Parsek
         private Dictionary<int, Dictionary<uint, ParachuteGhostInfo>> ghostParachuteInfos =
             new Dictionary<int, Dictionary<uint, ParachuteGhostInfo>>();
 
+        // Jettison (shroud) info: recIdx → (partPid → info)
+        private Dictionary<int, Dictionary<uint, JettisonGhostInfo>> ghostJettisonInfos =
+            new Dictionary<int, Dictionary<uint, JettisonGhostInfo>>();
+
         // Auto-record: EVA from pad triggers recording after vessel switch completes
         private bool pendingAutoRecord = false;
 
@@ -809,8 +813,9 @@ namespace Parsek
             // Use a slightly different color to distinguish from manual preview
             Color ghostColor = new Color(0.2f, 1f, 0.4f, 0.8f); // bright green-cyan
             List<ParachuteGhostInfo> parachuteInfoList;
+            List<JettisonGhostInfo> jettisonInfoList;
             GameObject ghost = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
-                rec, $"Parsek_Timeline_{index}", out parachuteInfoList);
+                rec, $"Parsek_Timeline_{index}", out parachuteInfoList, out jettisonInfoList);
             bool builtFromSnapshot = ghost != null;
             if (ghost == null)
             {
@@ -847,6 +852,15 @@ namespace Parsek
                     infoMap[parachuteInfoList[i].partPersistentId] = parachuteInfoList[i];
                 ghostParachuteInfos[index] = infoMap;
             }
+
+            // Store jettison info for shroud hiding
+            if (jettisonInfoList != null)
+            {
+                var infoMap = new Dictionary<uint, JettisonGhostInfo>();
+                for (int i = 0; i < jettisonInfoList.Count; i++)
+                    infoMap[jettisonInfoList[i].partPersistentId] = jettisonInfoList[i];
+                ghostJettisonInfos[index] = infoMap;
+            }
         }
 
         void DestroyTimelineGhost(int index)
@@ -874,6 +888,7 @@ namespace Parsek
             timelinePartEventIndices.Remove(index);
             ghostPartTrees.Remove(index);
             ghostParachuteInfos.Remove(index);
+            ghostJettisonInfos.Remove(index);
             DestroyAllFakeCanopies(index);
         }
 
@@ -937,6 +952,18 @@ namespace Parsek
                         DestroyFakeCanopy(recIdx, evt.partPersistentId);
                         // NOTE: Do NOT call HideGhostPart here — housing stays visible
                         Log($"Part event: ParachuteCut '{evt.partName}' — canopy hidden, housing remains");
+                        break;
+                    case PartEventType.ShroudJettisoned:
+                        Dictionary<uint, JettisonGhostInfo> jetMap;
+                        if (ghostJettisonInfos.TryGetValue(recIdx, out jetMap))
+                        {
+                            JettisonGhostInfo jetInfo;
+                            if (jetMap.TryGetValue(evt.partPersistentId, out jetInfo) && jetInfo.jettisonTransform != null)
+                            {
+                                jetInfo.jettisonTransform.gameObject.SetActive(false);
+                                Log($"Part event applied: ShroudJettisoned '{evt.partName}' pid={evt.partPersistentId}");
+                            }
+                        }
                         break;
                     case PartEventType.ParachuteDeployed:
                         bool usedRealCanopy = false;

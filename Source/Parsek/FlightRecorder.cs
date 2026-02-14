@@ -25,6 +25,7 @@ namespace Parsek
 
         // Part event tracking
         private HashSet<uint> deployedParachutes = new HashSet<uint>();
+        private HashSet<uint> jettisonedShrouds = new HashSet<uint>();
         internal bool partEventsSubscribed;
         public bool IsRecording { get; private set; }
         public uint RecordingVesselId { get; private set; }
@@ -158,6 +159,46 @@ namespace Parsek
             }
         }
 
+        internal static PartEvent? CheckJettisonTransition(
+            uint partPersistentId, string partName, bool isJettisoned, HashSet<uint> jettisonedSet, double ut)
+        {
+            if (isJettisoned && jettisonedSet.Add(partPersistentId))
+            {
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.ShroudJettisoned,
+                    partName = partName
+                };
+            }
+
+            return null;
+        }
+
+        private void CheckJettisonState(Vessel v)
+        {
+            if (v == null || v.parts == null) return;
+
+            double ut = Planetarium.GetUniversalTime();
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                var jettison = p.FindModuleImplementing<ModuleJettison>();
+                if (jettison == null) continue;
+
+                var evt = CheckJettisonTransition(
+                    p.persistentId, p.partInfo?.name ?? "unknown", jettison.isJettisoned, jettisonedShrouds, ut);
+                if (evt.HasValue)
+                {
+                    PartEvents.Add(evt.Value);
+                    ParsekLog.Log($"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
+                }
+            }
+        }
+
         #endregion
 
         public void StartRecording()
@@ -180,6 +221,7 @@ namespace Parsek
             OrbitSegments.Clear();
             PartEvents.Clear();
             deployedParachutes.Clear();
+            jettisonedShrouds.Clear();
             IsRecording = true;
             isOnRails = false;
             VesselDestroyedDuringRecording = false;
@@ -326,8 +368,9 @@ namespace Parsek
                 return;
             }
 
-            // Poll parachute state every physics frame (before adaptive sampling skip)
+            // Poll parachute and jettison state every physics frame (before adaptive sampling skip)
             CheckParachuteState(v);
+            CheckJettisonState(v);
 
             // Krakensbane-corrected true velocity
             Vector3 currentVelocity = (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity());

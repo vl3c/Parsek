@@ -258,6 +258,14 @@ These happen silently to keep gameplay smooth. All are logged to `KSP.log` with 
 - `build.bat` - Build script
 - `.gitignore` - Git ignore rules
 
+## Post-Change Checklist
+
+After any major change (new enum values, new event types, new serialized fields, schema changes):
+1. **Check save serialization** — verify `ParsekScenario.cs` OnSave/OnLoad handles the new data (int casts, ConfigNode keys)
+2. **Check synthetic recording injector** — verify `RecordingBuilder` / `VesselSnapshotBuilder` / `ScenarioWriter` in `Tests/Generators/` can produce test data exercising the new feature
+3. **Consider adding a synthetic recording** that exercises the new feature for end-to-end KSP testing via `dotnet test --filter InjectAllRecordings`
+4. **Run `dotnet test`** — all existing tests must still pass
+
 ## Why This Approach
 
 - **Isolated testing** - No conflicts with Steam installation
