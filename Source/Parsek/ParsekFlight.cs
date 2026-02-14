@@ -47,6 +47,10 @@ namespace Parsek
         // Fake canopy tracking: recIdx → (partPid → canopy GameObject)
         private Dictionary<int, Dictionary<uint, GameObject>> fakeCanopies = new Dictionary<int, Dictionary<uint, GameObject>>();
 
+        // Real parachute canopy info: recIdx → (partPid → info)
+        private Dictionary<int, Dictionary<uint, ParachuteGhostInfo>> ghostParachuteInfos =
+            new Dictionary<int, Dictionary<uint, ParachuteGhostInfo>>();
+
         // Auto-record: EVA from pad triggers recording after vessel switch completes
         private bool pendingAutoRecord = false;
 
@@ -315,6 +319,7 @@ namespace Parsek
             // Stop manual playback
             StopPlayback();
             DestroyAllTimelineGhosts();
+            GhostVisualBuilder.ClearDeployedCanopyCache();
         }
 
         void OnVesselWillDestroy(Vessel v)
@@ -803,8 +808,9 @@ namespace Parsek
 
             // Use a slightly different color to distinguish from manual preview
             Color ghostColor = new Color(0.2f, 1f, 0.4f, 0.8f); // bright green-cyan
+            List<ParachuteGhostInfo> parachuteInfoList;
             GameObject ghost = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
-                rec, $"Parsek_Timeline_{index}");
+                rec, $"Parsek_Timeline_{index}", out parachuteInfoList);
             bool builtFromSnapshot = ghost != null;
             if (ghost == null)
             {
@@ -832,6 +838,15 @@ namespace Parsek
             timelinePartEventIndices[index] = 0;
             ConfigNode snapshot = GhostVisualBuilder.GetGhostSnapshot(rec);
             ghostPartTrees[index] = GhostVisualBuilder.BuildPartSubtreeMap(snapshot);
+
+            // Store parachute info for real canopy deployment
+            if (parachuteInfoList != null)
+            {
+                var infoMap = new Dictionary<uint, ParachuteGhostInfo>();
+                for (int i = 0; i < parachuteInfoList.Count; i++)
+                    infoMap[parachuteInfoList[i].partPersistentId] = parachuteInfoList[i];
+                ghostParachuteInfos[index] = infoMap;
+            }
         }
 
         void DestroyTimelineGhost(int index)
@@ -858,6 +873,7 @@ namespace Parsek
             timelinePlaybackIndices.Remove(index);
             timelinePartEventIndices.Remove(index);
             ghostPartTrees.Remove(index);
+            ghostParachuteInfos.Remove(index);
             DestroyAllFakeCanopies(index);
         }
 
@@ -904,20 +920,56 @@ namespace Parsek
                         Log($"Part event applied: Destroyed '{evt.partName}' pid={evt.partPersistentId}");
                         break;
                     case PartEventType.ParachuteCut:
-                        // Hide canopy and part
+                        // Hide real canopy if present
+                        Dictionary<uint, ParachuteGhostInfo> cutMap;
+                        if (ghostParachuteInfos.TryGetValue(recIdx, out cutMap))
+                        {
+                            ParachuteGhostInfo cutInfo;
+                            if (cutMap.TryGetValue(evt.partPersistentId, out cutInfo))
+                            {
+                                if (cutInfo.canopyTransform != null)
+                                    cutInfo.canopyTransform.localScale = Vector3.zero;
+                                if (cutInfo.capTransform != null)
+                                    cutInfo.capTransform.gameObject.SetActive(false);
+                            }
+                        }
+                        // Also clean up fake canopy if one was used as fallback
                         DestroyFakeCanopy(recIdx, evt.partPersistentId);
-                        HideGhostPart(ghost, evt.partPersistentId);
+                        // NOTE: Do NOT call HideGhostPart here — housing stays visible
+                        Log($"Part event: ParachuteCut '{evt.partName}' — canopy hidden, housing remains");
                         break;
                     case PartEventType.ParachuteDeployed:
-                        var canopy = GhostVisualBuilder.CreateFakeCanopy(ghost, evt.partPersistentId);
-                        if (canopy != null)
+                        bool usedRealCanopy = false;
+
+                        // Try real canopy first
+                        Dictionary<uint, ParachuteGhostInfo> infoMap;
+                        if (ghostParachuteInfos.TryGetValue(recIdx, out infoMap))
                         {
-                            TrackFakeCanopy(recIdx, evt.partPersistentId, canopy);
-                            Log($"Part event: ParachuteDeployed '{evt.partName}' — fake canopy created");
+                            ParachuteGhostInfo info;
+                            if (infoMap.TryGetValue(evt.partPersistentId, out info) && info.canopyTransform != null)
+                            {
+                                info.canopyTransform.localScale = info.deployedCanopyScale;
+                                info.canopyTransform.localPosition = info.deployedCanopyPos;
+                                if (info.capTransform != null)
+                                    info.capTransform.gameObject.SetActive(false);
+                                usedRealCanopy = true;
+                                Log($"Part event: ParachuteDeployed '{evt.partName}' — real canopy deployed");
+                            }
                         }
-                        else
+
+                        // Fallback to fake canopy
+                        if (!usedRealCanopy)
                         {
-                            Log($"Part event: ParachuteDeployed '{evt.partName}' — could not create canopy");
+                            var canopy = GhostVisualBuilder.CreateFakeCanopy(ghost, evt.partPersistentId);
+                            if (canopy != null)
+                            {
+                                TrackFakeCanopy(recIdx, evt.partPersistentId, canopy);
+                                Log($"Part event: ParachuteDeployed '{evt.partName}' — fake canopy (fallback)");
+                            }
+                            else
+                            {
+                                Log($"Part event: ParachuteDeployed '{evt.partName}' — could not create canopy");
+                            }
                         }
                         break;
                 }

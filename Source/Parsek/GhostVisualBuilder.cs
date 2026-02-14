@@ -5,13 +5,25 @@ using UnityEngine;
 
 namespace Parsek
 {
+    internal class ParachuteGhostInfo
+    {
+        public uint partPersistentId;
+        public Transform canopyTransform;
+        public Transform capTransform;
+        public Vector3 deployedCanopyScale;
+        public Vector3 deployedCanopyPos;
+    }
+
     internal static class GhostVisualBuilder
     {
         private static readonly Regex trailingNumericSuffixRegex =
             new Regex(@"^(.*)_\d+$", RegexOptions.Compiled);
 
-        internal static GameObject BuildTimelineGhostFromSnapshot(RecordingStore.Recording rec, string rootName)
+        internal static GameObject BuildTimelineGhostFromSnapshot(
+            RecordingStore.Recording rec, string rootName,
+            out List<ParachuteGhostInfo> parachuteInfos)
         {
+            parachuteInfos = null;
             ConfigNode snapshotNode = GetGhostSnapshot(rec);
             if (snapshotNode == null)
                 return null;
@@ -26,6 +38,7 @@ namespace Parsek
             int skippedName = 0;
             int skippedPrefab = 0;
             int skippedMesh = 0;
+            var collectedParachuteInfos = new List<ParachuteGhostInfo>();
 
             for (int i = 0; i < partNodes.Length; i++)
             {
@@ -54,12 +67,17 @@ namespace Parsek
                 }
 
                 int meshCount = 0;
-                bool partVisualAdded = AddPartVisuals(root.transform, partNode, ap.partPrefab, persistentId, partName, out meshCount);
+                ParachuteGhostInfo parachuteInfo;
+                bool partVisualAdded = AddPartVisuals(root.transform, partNode, ap.partPrefab,
+                    persistentId, partName, out meshCount, out parachuteInfo);
                 if (partVisualAdded)
                     visualCount++;
                 else
                     skippedMesh++;
                 addedAnyVisual = addedAnyVisual || partVisualAdded;
+
+                if (parachuteInfo != null)
+                    collectedParachuteInfos.Add(parachuteInfo);
             }
 
             ParsekLog.Log($"Ghost built: {visualCount}/{partNodes.Length} parts with visuals" +
@@ -73,7 +91,14 @@ namespace Parsek
                 return null;
             }
 
+            parachuteInfos = collectedParachuteInfos.Count > 0 ? collectedParachuteInfos : null;
             return root;
+        }
+
+        // Overload without parachute info for callers that don't need it (preview ghost)
+        internal static GameObject BuildTimelineGhostFromSnapshot(RecordingStore.Recording rec, string rootName)
+        {
+            return BuildTimelineGhostFromSnapshot(rec, rootName, out _);
         }
 
         internal static ConfigNode GetGhostSnapshot(RecordingStore.Recording rec)
@@ -285,10 +310,92 @@ namespace Parsek
             return canopy;
         }
 
+        // Cache: partName → (scale, pos) — sample once per part type, reuse across ghosts
+        private static readonly Dictionary<string, (Vector3 scale, Vector3 pos)> deployedCanopyCache =
+            new Dictionary<string, (Vector3, Vector3)>();
+
+        internal static void ClearDeployedCanopyCache()
+        {
+            deployedCanopyCache.Clear();
+        }
+
+        private static (Vector3 scale, Vector3 pos) SampleDeployedCanopy(Part prefab, ModuleParachute chute)
+        {
+            string key = prefab.partInfo?.name ?? prefab.name;
+            if (deployedCanopyCache.TryGetValue(key, out var cached))
+                return cached;
+
+            // Use semiDeployedAnimation — matches our ParachuteDeployed event timing
+            // (fires when state enters SEMIDEPLOYED, not DEPLOYED)
+            string animName = chute.semiDeployedAnimation;
+            if (string.IsNullOrEmpty(animName))
+                animName = chute.fullyDeployedAnimation;
+            if (string.IsNullOrEmpty(animName))
+            {
+                var fallback = (Vector3.one, Vector3.zero);
+                deployedCanopyCache[key] = fallback;
+                return fallback;
+            }
+
+            // Clone ONLY the model subtree — avoids Part/PartModule Awake() side effects
+            Transform prefabModel = prefab.transform.Find("model") ?? prefab.transform;
+            GameObject tempClone = Object.Instantiate(prefabModel.gameObject);
+
+            Vector3 scale = Vector3.one;
+            Vector3 pos = Vector3.zero;
+
+            try
+            {
+                Animation anim = tempClone.GetComponentInChildren<Animation>(true);
+                if (anim != null)
+                {
+                    AnimationState state = anim[animName];
+                    if (state != null)
+                    {
+                        state.enabled = true;
+                        state.normalizedTime = 1f;
+                        state.weight = 1f;
+                        anim.Sample();
+
+                        string canopyName = chute.canopyName;
+                        Transform canopy = !string.IsNullOrEmpty(canopyName)
+                            ? FindTransformRecursive(tempClone.transform, canopyName) : null;
+                        if (canopy != null)
+                        {
+                            scale = canopy.localScale;
+                            pos = canopy.localPosition;
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(tempClone);
+            }
+
+            var result = (scale, pos);
+            deployedCanopyCache[key] = result;
+            ParsekLog.Log($"  Sampled deployed canopy for '{key}': scale={scale} pos={pos}");
+            return result;
+        }
+
+        internal static Transform FindTransformRecursive(Transform parent, string name)
+        {
+            if (parent.name == name) return parent;
+            for (int i = 0; i < parent.childCount; i++)
+            {
+                Transform found = FindTransformRecursive(parent.GetChild(i), name);
+                if (found != null) return found;
+            }
+            return null;
+        }
+
         private static bool AddPartVisuals(Transform root, ConfigNode partNode, Part prefab,
-            uint persistentId, string partName, out int meshCount)
+            uint persistentId, string partName, out int meshCount,
+            out ParachuteGhostInfo parachuteInfo)
         {
             meshCount = 0;
+            parachuteInfo = null;
             Transform modelRoot = FindModelRoot(prefab);
             var meshRenderers = modelRoot.GetComponentsInChildren<MeshRenderer>(true);
             var skinnedRenderers = modelRoot.GetComponentsInChildren<SkinnedMeshRenderer>(true);
@@ -362,6 +469,46 @@ namespace Parsek
                 ParsekLog.Log($"    SMR[{r}] '{smr.gameObject.name}' mesh={smr.sharedMesh.name} " +
                     $"localPos={leaf.localPosition} localScale={leaf.localScale}");
                 added = true;
+            }
+
+            // Detect parachute parts via cloneMap (after cloneMap is fully populated)
+            ModuleParachute chute = prefab.FindModuleImplementing<ModuleParachute>();
+            if (chute != null)
+            {
+                string canopyName = chute.canopyName;
+                string capName = chute.capName;
+
+                Transform srcCanopy = !string.IsNullOrEmpty(canopyName)
+                    ? prefab.FindModelTransform(canopyName) : null;
+                Transform srcCap = !string.IsNullOrEmpty(capName)
+                    ? prefab.FindModelTransform(capName) : null;
+
+                // Look up ghost clones via cloneMap (deterministic, no name collisions).
+                // NOTE: For EVA kerbals, FindModelRoot uses "model01" (body) but canopy is
+                // under "model" (accessories), so srcCanopy won't be in cloneMap.
+                // This is expected — EVA falls through to fake sphere fallback.
+                Transform ghostCanopy = null, ghostCap = null;
+                if (srcCanopy != null) cloneMap.TryGetValue(srcCanopy, out ghostCanopy);
+                if (srcCap != null) cloneMap.TryGetValue(srcCap, out ghostCap);
+
+                if (ghostCanopy != null)
+                {
+                    var (scale, pos) = SampleDeployedCanopy(prefab, chute);
+                    parachuteInfo = new ParachuteGhostInfo
+                    {
+                        partPersistentId = persistentId,
+                        canopyTransform = ghostCanopy,
+                        capTransform = ghostCap,
+                        deployedCanopyScale = scale,
+                        deployedCanopyPos = pos
+                    };
+                    ParsekLog.Log($"    Parachute detected: canopy='{canopyName}' cap='{capName}' " +
+                        $"deployScale={scale}");
+                }
+                else if (srcCanopy != null)
+                {
+                    ParsekLog.Log($"    Parachute '{canopyName}' found on prefab but not in cloneMap — will use fake canopy");
+                }
             }
 
             if (!added)
