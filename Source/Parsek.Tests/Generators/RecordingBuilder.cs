@@ -217,6 +217,9 @@ namespace Parsek.Tests.Generators
             if (vesselSnapshot != null)
                 node.AddNode("VESSEL_SNAPSHOT", vesselSnapshot);
 
+            if (ghostVisualSnapshot != null)
+                node.AddNode("GHOST_VISUAL_SNAPSHOT", ghostVisualSnapshot);
+
             if (spawnedPid != 0)
                 node.AddValue("spawnedPid", spawnedPid);
 

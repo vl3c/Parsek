@@ -16,14 +16,46 @@ namespace Parsek.Tests
         #region Recording Builders
 
         // Offsets from baseUT for each recording
-        // KSC Hopper:     +120s to +176s  (56s duration)
-        // Suborbital Arc: +210s to +510s  (300s duration)
-        // Orbit-1:        +560s to +3560s (3000s, ascent+orbit segment)
-        // Island Probe:   +3610s to +3790s (180s duration)
+        // Pad Walk:         +30s  to +60s   (30s EVA ghost)
+        // KSC Hopper:       +70s  to +126s  (56s ghost)
+        // Flea Flight:      +140s to +230s  (90s vessel spawn)
+        // Suborbital Arc:   +240s to +540s  (300s ghost)
+        // KSC Pad Destroyed:+250s to +262s  (12s sphere ghost)
+        // Orbit-1:          +560s to +3560s (3000s vessel spawn)
+        // Close Spawn:      +580s to +592s  (12s vessel spawn)
+        // Island Probe:     +3610s to +3790s (180s vessel spawn)
+
+        internal static RecordingBuilder PadWalk(double baseUT = 0)
+        {
+            // EVA: Jeb walks ~200m east from launchpad at ground level
+            double t = baseUT + 30;
+            var b = new RecordingBuilder("Pad Walk");
+            double baseLat = -0.0972;
+            double baseLon = -74.5575;
+
+            b.AddPoint(t,     baseLat, baseLon,          66);
+            b.AddPoint(t+3,   baseLat, baseLon + 0.0002, 66);
+            b.AddPoint(t+6,   baseLat, baseLon + 0.0004, 66);
+            b.AddPoint(t+9,   baseLat, baseLon + 0.0006, 66.5);
+            b.AddPoint(t+12,  baseLat, baseLon + 0.0008, 66.5);
+            b.AddPoint(t+15,  baseLat, baseLon + 0.0010, 67);
+            b.AddPoint(t+18,  baseLat, baseLon + 0.0012, 67);
+            b.AddPoint(t+21,  baseLat, baseLon + 0.0014, 66.5);
+            b.AddPoint(t+24,  baseLat, baseLon + 0.0016, 66.5);
+            b.AddPoint(t+30,  baseLat, baseLon + 0.0018, 66);
+
+            // Ghost-only EVA snapshot (no vessel spawn, no crew reservation)
+            b.WithGhostVisualSnapshot(
+                VesselSnapshotBuilder.CrewedShip("Jebediah Kerman", "Jebediah Kerman", pid: 55555555)
+                    .WithType("EVA")
+                    .AsLanded(baseLat, baseLon + 0.0018, 66));
+
+            return b;
+        }
 
         internal static RecordingBuilder KscHopper(double baseUT = 0)
         {
-            double t = baseUT + 120;
+            double t = baseUT + 70;
             var b = new RecordingBuilder("KSC Hopper");
             double baseLat = -0.0972;
             double baseLon = -74.5575;
@@ -36,7 +68,7 @@ namespace Parsek.Tests
             b.AddPoint(t+20, baseLat, baseLon + 0.004, 480);
             b.AddPoint(t+24, baseLat, baseLon + 0.006, 470);
             b.AddPoint(t+28, baseLat, baseLon + 0.008, 460);
-            b.AddPoint(t+32, baseLat, baseLon + 0.009, 440);
+            b.AddPoint(t+32, baseLat + 0.0005, baseLon + 0.009, 440);
             b.AddPoint(t+36, baseLat + 0.0005, baseLon + 0.009, 380);
             b.AddPoint(t+40, baseLat + 0.001, baseLon + 0.009, 300);
             b.AddPoint(t+44, baseLat + 0.001, baseLon + 0.009, 200);
@@ -44,17 +76,71 @@ namespace Parsek.Tests
             b.AddPoint(t+52, baseLat + 0.001, baseLon + 0.009, 85);
             b.AddPoint(t+56, baseLat + 0.001, baseLon + 0.009, 77);
 
-            // Vessel snapshot so playback can render as vessel geometry (not sphere)
-            b.WithVesselSnapshot(
-                VesselSnapshotBuilder.ProbeShip("KSC Hopper", pid: 11111111)
+            // Part events: SRB decouple + parachute deploy
+            b.AddPartEvent(t + 8, 101111, 0, "solidBooster.sm.v2");    // Decoupled
+            b.AddPartEvent(t + 40, 102222, 2, "parachuteSingle");      // ParachuteDeployed
+
+            // Ghost-only: visual fidelity without vessel spawn or crew reservation
+            b.WithGhostVisualSnapshot(
+                VesselSnapshotBuilder.FleaRocket("KSC Hopper", "Valentina Kerman", pid: 11111111)
                     .AsLanded(baseLat + 0.001, baseLon + 0.009, 77));
+
+            return b;
+        }
+
+        internal static RecordingBuilder FleaFlight(double baseUT = 0)
+        {
+            // Real flight data: mk1pod.v2 + solidBooster.sm.v2 + parachuteSingle
+            // Launch → 620m apex → parachute descent → landing
+            double t = baseUT + 140;
+            var b = new RecordingBuilder("Flea Flight");
+            double baseLat = -0.0972;
+            double baseLon = -74.5575;
+
+            b.AddPoint(t,     baseLat, baseLon, 77,                       funds: 42469);
+            b.AddPoint(t+2,   baseLat, baseLon, 100,                      funds: 42469);
+            b.AddPoint(t+4,   baseLat, baseLon, 140,                      funds: 48229, rep: 1.2f);
+            b.AddPoint(t+6,   baseLat, baseLon, 195,                      funds: 48229, rep: 1.2f);
+            b.AddPoint(t+8,   baseLat, baseLon + 0.0001, 260,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+10,  baseLat, baseLon + 0.0002, 330,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+12,  baseLat, baseLon + 0.0003, 400,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+14,  baseLat, baseLon + 0.0004, 465,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+16,  baseLat, baseLon + 0.0005, 520,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+18,  baseLat, baseLon + 0.0006, 565,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+20,  baseLat, baseLon + 0.0007, 600,             funds: 48229, rep: 1.2f);
+            // SRB burnout
+            b.AddPoint(t+24,  baseLat, baseLon + 0.0009, 620,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+28,  baseLat, baseLon + 0.0011, 610,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+32,  baseLat, baseLon + 0.0013, 590,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+36,  baseLat, baseLon + 0.0015, 560,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+40,  baseLat, baseLon + 0.0017, 520,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+45,  baseLat, baseLon + 0.0019, 460,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+50,  baseLat, baseLon + 0.0021, 390,             funds: 48229, rep: 1.2f);
+            // Parachute deploys
+            b.AddPoint(t+55,  baseLat, baseLon + 0.0022, 320,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+60,  baseLat, baseLon + 0.0023, 260,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+65,  baseLat, baseLon + 0.0024, 210,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+70,  baseLat, baseLon + 0.0025, 165,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+75,  baseLat, baseLon + 0.0026, 130,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+80,  baseLat, baseLon + 0.0027, 100,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+85,  baseLat, baseLon + 0.0028, 82,              funds: 48229, rep: 1.2f);
+            b.AddPoint(t+90,  baseLat, baseLon + 0.0029, 77,              funds: 48229, rep: 1.2f);
+
+            // Part events
+            b.AddPartEvent(t + 20, 101111, 0, "solidBooster.sm.v2");   // Decoupled (SRB burnout)
+            b.AddPartEvent(t + 50, 102222, 2, "parachuteSingle");      // ParachuteDeployed
+
+            // Vessel spawn: FleaRocket with Bob
+            b.WithVesselSnapshot(
+                VesselSnapshotBuilder.FleaRocket("Flea Flight", "Bob Kerman", pid: 22222222)
+                    .AsLanded(baseLat, baseLon + 0.0029, 77));
 
             return b;
         }
 
         internal static RecordingBuilder SuborbitalArc(double baseUT = 0)
         {
-            double t = baseUT + 210;
+            double t = baseUT + 240;
             var b = new RecordingBuilder("Suborbital Arc");
             double lat = -0.0972;
             double lon = -74.5575;
@@ -89,18 +175,34 @@ namespace Parsek.Tests
             b.AddPoint(t+270, lat + 0.029, lon + 0.70, 1500,            rotZ: 0f,     rotW: 1f);
             b.AddPoint(t+300, lat + 0.03, lon + 0.75, 0,                rotZ: 0f,     rotW: 1f);
 
-            // Part events: SRB decouple after burnout, parachute at low altitude
-            // VesselSnapshotBuilder part uids: 100000, 101111, 102222
-            b.AddPartEvent(t + 30, 101111, 0, "solidBooster");       // Decoupled
-            b.AddPartEvent(t + 240, 102222, 2, "parachuteSingle");   // ParachuteDeployed
+            // Part event: SRB decouple after burnout
+            b.AddPartEvent(t + 30, 101111, 0, "solidBooster.sm.v2");   // Decoupled
 
-            // Multi-part vessel: probe core + SRB + parachute
-            b.WithVesselSnapshot(
-                VesselSnapshotBuilder.ProbeShip("Suborbital Arc", pid: 22222222)
-                    .AddPart("solidBooster")
-                    .AddPart("parachuteSingle")
+            // Ghost-only: visual fidelity without vessel spawn or crew reservation
+            b.WithGhostVisualSnapshot(
+                VesselSnapshotBuilder.FleaRocket("Suborbital Arc", "Bill Kerman", pid: 33333333)
                     .AsLanded(lat + 0.03, lon + 0.75, 0));
 
+            return b;
+        }
+
+        internal static RecordingBuilder KscPadDestroyed(double baseUT = 0)
+        {
+            // Edge case: vessel destroyed near KSC pad. No vessel snapshot on purpose.
+            double t = baseUT + 250;
+            var b = new RecordingBuilder("KSC Pad Destroyed");
+            double lat = -0.0972;
+            double lon = -74.5576;
+
+            b.AddPoint(t + 0, lat, lon, 70, funds: 43429);
+            b.AddPoint(t + 2, lat, lon, 95, funds: 43429);
+            b.AddPoint(t + 4, lat, lon + 0.0002, 150, funds: 43429);
+            b.AddPoint(t + 6, lat, lon + 0.0005, 210, funds: 43429);
+            b.AddPoint(t + 8, lat, lon + 0.0008, 160, funds: 43429);
+            b.AddPoint(t + 10, lat, lon + 0.0011, 90, funds: 43429);
+            b.AddPoint(t + 12, lat, lon + 0.0012, 65, funds: 43429);
+
+            // No snapshot intentionally to force destroyed/no-snapshot fallback path.
             return b;
         }
 
@@ -148,6 +250,26 @@ namespace Parsek.Tests
             return b;
         }
 
+        internal static RecordingBuilder CloseSpawnConflict(double baseUT = 0)
+        {
+            // Edge case: landed vessel very near KSC to exercise spawn offset logic.
+            double t = baseUT + 580;
+            var b = new RecordingBuilder("Close Spawn Conflict");
+            double lat = -0.09718;
+            double lon = -74.55755;
+
+            b.AddPoint(t + 0, lat, lon, 70);
+            b.AddPoint(t + 4, lat + 0.00002, lon + 0.00002, 70);
+            b.AddPoint(t + 8, lat + 0.00003, lon + 0.00003, 70);
+            b.AddPoint(t + 12, lat + 0.00003, lon + 0.00003, 70);
+
+            b.WithVesselSnapshot(
+                VesselSnapshotBuilder.FleaRocket("Close Spawn Conflict", "Jebediah Kerman", pid: 44444444)
+                    .AsLanded(lat + 0.00003, lon + 0.00003, 70));
+
+            return b;
+        }
+
         internal static RecordingBuilder IslandProbe(double baseUT = 0)
         {
             double t = baseUT + 3610;
@@ -179,100 +301,8 @@ namespace Parsek.Tests
             b.AddPoint(t+180, endLat, endLon, 40);
 
             b.WithVesselSnapshot(
-                VesselSnapshotBuilder.ProbeShip("Island Probe", pid: 87654321)
+                VesselSnapshotBuilder.FleaRocket("Island Probe", "Valentina Kerman", pid: 87654321)
                     .AsLanded(endLat, endLon, 40));
-
-            return b;
-        }
-
-        internal static RecordingBuilder TedorfEvaSwitch(double baseUT = 0)
-        {
-            // Mirrors the real-world case: a launch recording that ended around
-            // vessel-switch/EVA timing and should replay as the vessel, not EVA.
-            double t = baseUT + 8;
-            var b = new RecordingBuilder("Tedorf Kerman");
-            double baseLat = -0.09720776197;
-            double baseLon = -74.55767853202;
-
-            b.AddPoint(t + 0, baseLat, baseLon, 69.6, funds: 42469);
-            b.AddPoint(t + 2, baseLat + 0.002, baseLon + 0.0001, 120, funds: 42469);
-            b.AddPoint(t + 4, baseLat + 0.004, baseLon + 0.0003, 180, funds: 42469);
-            b.AddPoint(t + 6, baseLat + 0.008, baseLon + 0.0005, 230, funds: 42469);
-            b.AddPoint(t + 8, baseLat + 0.012, baseLon + 0.0007, 255, funds: 42469);
-            b.AddPoint(t + 10, baseLat + 0.015, baseLon + 0.0008, 240, funds: 42469);
-            b.AddPoint(t + 12, baseLat + 0.020, baseLon + 0.00085, 220, funds: 42469);
-            b.AddPoint(t + 14, baseLat + 0.026, baseLon + 0.0009, 190, funds: 42469);
-            b.AddPoint(t + 16, baseLat + 0.034, baseLon + 0.00095, 130, funds: 42469);
-            b.AddPoint(t + 18, baseLat + 0.043, baseLon + 0.0010, 90, funds: 42469);
-            b.AddPoint(t + 20, baseLat + 0.051, baseLon + 0.00102, 70, funds: 43429);
-            b.AddPoint(t + 22, baseLat + 0.061, baseLon + 0.00105, 66, funds: 43429);
-
-            // Snapshot deliberately points to the vessel, not kerbal EVA.
-            b.WithVesselSnapshot(
-                VesselSnapshotBuilder.CrewedShip("Untitled Space Craft", "Tedorf Kerman", pid: 314348688)
-                    .AsLanded(baseLat + 0.061, baseLon + 0.00105, 66));
-
-            return b;
-        }
-
-        internal static RecordingBuilder KscPadDestroyed(double baseUT = 0)
-        {
-            // Edge case: vessel destroyed near KSC pad. No vessel snapshot on purpose.
-            double t = baseUT + 900;
-            var b = new RecordingBuilder("KSC Pad Destroyed");
-            double lat = -0.0972;
-            double lon = -74.5576;
-
-            b.AddPoint(t + 0, lat, lon, 70, funds: 43429);
-            b.AddPoint(t + 2, lat, lon, 95, funds: 43429);
-            b.AddPoint(t + 4, lat, lon + 0.0002, 150, funds: 43429);
-            b.AddPoint(t + 6, lat, lon + 0.0005, 210, funds: 43429);
-            b.AddPoint(t + 8, lat, lon + 0.0008, 160, funds: 43429);
-            b.AddPoint(t + 10, lat, lon + 0.0011, 90, funds: 43429);
-            b.AddPoint(t + 12, lat, lon + 0.0012, 65, funds: 43429);
-
-            // No snapshot intentionally to force destroyed/no-snapshot fallback path.
-            return b;
-        }
-
-        internal static RecordingBuilder EvaWalkSkinned(double baseUT = 0)
-        {
-            // Edge case: explicit EVA snapshot with kerbal part model.
-            double t = baseUT + 980;
-            var b = new RecordingBuilder("EVA Walk Test");
-            double lat = -0.0969;
-            double lon = -74.5580;
-
-            b.AddPoint(t + 0, lat, lon, 66);
-            b.AddPoint(t + 3, lat + 0.0001, lon + 0.0001, 66);
-            b.AddPoint(t + 6, lat + 0.0002, lon + 0.0002, 66);
-            b.AddPoint(t + 9, lat + 0.0003, lon + 0.0003, 66);
-            b.AddPoint(t + 12, lat + 0.00035, lon + 0.0004, 66);
-
-            b.WithVesselSnapshot(
-                VesselSnapshotBuilder.CrewedShip("EVA Walk Test", "Jebediah Kerman", pid: 33333333)
-                    .WithType("EVA")
-                    .AsLanded(lat + 0.00035, lon + 0.0004, 66));
-
-            return b;
-        }
-
-        internal static RecordingBuilder CloseSpawnConflict(double baseUT = 0)
-        {
-            // Edge case: landed vessel very near KSC to exercise spawn offset logic.
-            double t = baseUT + 1060;
-            var b = new RecordingBuilder("Close Spawn Conflict");
-            double lat = -0.09718;
-            double lon = -74.55755;
-
-            b.AddPoint(t + 0, lat, lon, 70);
-            b.AddPoint(t + 4, lat + 0.00002, lon + 0.00002, 70);
-            b.AddPoint(t + 8, lat + 0.00003, lon + 0.00003, 70);
-            b.AddPoint(t + 12, lat + 0.00003, lon + 0.00003, 70);
-
-            b.WithVesselSnapshot(
-                VesselSnapshotBuilder.ProbeShip("Close Spawn Conflict", pid: 44444444)
-                    .AsLanded(lat + 0.00003, lon + 0.00003, 70));
 
             return b;
         }
@@ -282,6 +312,20 @@ namespace Parsek.Tests
         #region Unit Tests
 
         [Fact]
+        public void PadWalk_HasEvaGhostSnapshot()
+        {
+            var node = PadWalk().Build();
+            Assert.Equal("Pad Walk", node.GetValue("vesselName"));
+            Assert.Equal("10", node.GetValue("pointCount"));
+            Assert.Equal(10, node.GetNodes("POINT").Length);
+            Assert.Null(node.GetNode("VESSEL_SNAPSHOT"));
+
+            var ghost = node.GetNode("GHOST_VISUAL_SNAPSHOT");
+            Assert.NotNull(ghost);
+            Assert.Equal("EVA", ghost.GetValue("type"));
+        }
+
+        [Fact]
         public void KscHopper_BuildsValidRecording()
         {
             var node = KscHopper().Build();
@@ -289,7 +333,46 @@ namespace Parsek.Tests
             Assert.Equal("15", node.GetValue("pointCount"));
             Assert.Equal(15, node.GetNodes("POINT").Length);
             Assert.Empty(node.GetNodes("ORBIT_SEGMENT"));
-            Assert.NotNull(node.GetNode("VESSEL_SNAPSHOT"));
+            Assert.Null(node.GetNode("VESSEL_SNAPSHOT"));
+
+            var ghost = node.GetNode("GHOST_VISUAL_SNAPSHOT");
+            Assert.NotNull(ghost);
+            Assert.Equal(3, ghost.GetNodes("PART").Length);
+
+            // Part events: SRB decouple + parachute deploy
+            var partEvents = node.GetNodes("PART_EVENT");
+            Assert.Equal(2, partEvents.Length);
+            Assert.Equal("solidBooster.sm.v2", partEvents[0].GetValue("part"));
+            Assert.Equal("0", partEvents[0].GetValue("type"));   // Decoupled
+            Assert.Equal("parachuteSingle", partEvents[1].GetValue("part"));
+            Assert.Equal("2", partEvents[1].GetValue("type"));   // ParachuteDeployed
+        }
+
+        [Fact]
+        public void FleaFlight_HasVesselSnapshotAndPartEvents()
+        {
+            var node = FleaFlight().Build();
+            Assert.Equal("Flea Flight", node.GetValue("vesselName"));
+
+            var snapshot = node.GetNode("VESSEL_SNAPSHOT");
+            Assert.NotNull(snapshot);
+            Assert.Equal("Ship", snapshot.GetValue("type"));
+            Assert.Equal(3, snapshot.GetNodes("PART").Length);
+            Assert.Equal("Bob Kerman", snapshot.GetNodes("PART")[0].GetValue("crew"));
+
+            // Part events: SRB decouple + parachute deploy
+            var partEvents = node.GetNodes("PART_EVENT");
+            Assert.Equal(2, partEvents.Length);
+            Assert.Equal("solidBooster.sm.v2", partEvents[0].GetValue("part"));
+            Assert.Equal("0", partEvents[0].GetValue("type"));   // Decoupled
+            Assert.Equal("parachuteSingle", partEvents[1].GetValue("part"));
+            Assert.Equal("2", partEvents[1].GetValue("type"));   // ParachuteDeployed
+
+            // Resource transition: funds increase during flight
+            var points = node.GetNodes("POINT");
+            double firstFunds = double.Parse(points[0].GetValue("funds"), CultureInfo.InvariantCulture);
+            double lastFunds = double.Parse(points[points.Length - 1].GetValue("funds"), CultureInfo.InvariantCulture);
+            Assert.True(lastFunds > firstFunds, "Funds should increase during flight");
         }
 
         [Fact]
@@ -299,7 +382,11 @@ namespace Parsek.Tests
             Assert.Equal("Suborbital Arc", node.GetValue("vesselName"));
             Assert.Equal("25", node.GetValue("pointCount"));
             Assert.Equal(25, node.GetNodes("POINT").Length);
-            Assert.NotNull(node.GetNode("VESSEL_SNAPSHOT"));
+            Assert.Null(node.GetNode("VESSEL_SNAPSHOT"));
+
+            var ghost = node.GetNode("GHOST_VISUAL_SNAPSHOT");
+            Assert.NotNull(ghost);
+            Assert.Equal(3, ghost.GetNodes("PART").Length);
 
             // Verify UT ordering
             var points = node.GetNodes("POINT");
@@ -311,17 +398,21 @@ namespace Parsek.Tests
                 prevUT = ut;
             }
 
-            // Multi-part vessel snapshot (probe + SRB + parachute)
-            var snapshot = node.GetNode("VESSEL_SNAPSHOT");
-            Assert.Equal(3, snapshot.GetNodes("PART").Length);
-
-            // Part events: SRB decouple + parachute deploy
+            // Part event: SRB decouple
             var partEvents = node.GetNodes("PART_EVENT");
-            Assert.Equal(2, partEvents.Length);
-            Assert.Equal("solidBooster", partEvents[0].GetValue("part"));
+            Assert.Single(partEvents);
+            Assert.Equal("solidBooster.sm.v2", partEvents[0].GetValue("part"));
             Assert.Equal("0", partEvents[0].GetValue("type"));   // Decoupled
-            Assert.Equal("parachuteSingle", partEvents[1].GetValue("part"));
-            Assert.Equal("2", partEvents[1].GetValue("type"));   // ParachuteDeployed
+        }
+
+        [Fact]
+        public void KscPadDestroyed_HasNoSnapshot()
+        {
+            var node = KscPadDestroyed().Build();
+            Assert.Equal("KSC Pad Destroyed", node.GetValue("vesselName"));
+            Assert.Equal(7, node.GetNodes("POINT").Length);
+            Assert.Null(node.GetNode("VESSEL_SNAPSHOT"));
+            Assert.Null(node.GetNode("GHOST_VISUAL_SNAPSHOT"));
         }
 
         [Fact]
@@ -355,7 +446,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IslandProbe_HasSnapshotNoCrew()
+        public void CloseSpawnConflict_HasLandedSnapshotNearKsc()
+        {
+            var node = CloseSpawnConflict().Build();
+            Assert.Equal("Close Spawn Conflict", node.GetValue("vesselName"));
+            var snapshot = node.GetNode("VESSEL_SNAPSHOT");
+            Assert.NotNull(snapshot);
+            Assert.Equal("LANDED", snapshot.GetValue("sit"));
+            Assert.Equal(3, snapshot.GetNodes("PART").Length);
+            Assert.Equal("Jebediah Kerman", snapshot.GetNodes("PART")[0].GetValue("crew"));
+        }
+
+        [Fact]
+        public void IslandProbe_HasFleaRocketWithCrew()
         {
             var node = IslandProbe().Build();
             Assert.Equal("Island Probe", node.GetValue("vesselName"));
@@ -364,59 +467,11 @@ namespace Parsek.Tests
             var snapshot = node.GetNode("VESSEL_SNAPSHOT");
             Assert.NotNull(snapshot);
             Assert.Equal("LANDED", snapshot.GetValue("sit"));
-            Assert.Equal("Probe", snapshot.GetValue("type"));
-
-            // No crew values
-            var parts = snapshot.GetNodes("PART");
-            Assert.True(parts.Length > 0);
-            Assert.Null(parts[0].GetValue("crew"));
-        }
-
-        [Fact]
-        public void TedorfEvaSwitch_BuildsVesselSnapshotNotEVA()
-        {
-            var node = TedorfEvaSwitch().Build();
-            Assert.Equal("Tedorf Kerman", node.GetValue("vesselName"));
-
-            var snapshot = node.GetNode("VESSEL_SNAPSHOT");
-            Assert.NotNull(snapshot);
-            Assert.Equal("Untitled Space Craft", snapshot.GetValue("name"));
             Assert.Equal("Ship", snapshot.GetValue("type"));
-            Assert.Equal("LANDED", snapshot.GetValue("sit"));
 
             var parts = snapshot.GetNodes("PART");
-            Assert.True(parts.Length > 0);
-            Assert.Equal("mk1pod.v2", parts[0].GetValue("name"));
-            Assert.Equal("Tedorf Kerman", parts[0].GetValue("crew"));
-        }
-
-        [Fact]
-        public void KscPadDestroyed_HasNoSnapshot()
-        {
-            var node = KscPadDestroyed().Build();
-            Assert.Equal("KSC Pad Destroyed", node.GetValue("vesselName"));
-            Assert.Equal(7, node.GetNodes("POINT").Length);
-            Assert.Null(node.GetNode("VESSEL_SNAPSHOT"));
-        }
-
-        [Fact]
-        public void EvaWalkSkinned_HasEvaTypeSnapshot()
-        {
-            var node = EvaWalkSkinned().Build();
-            Assert.Equal("EVA Walk Test", node.GetValue("vesselName"));
-            var snapshot = node.GetNode("VESSEL_SNAPSHOT");
-            Assert.NotNull(snapshot);
-            Assert.Equal("EVA", snapshot.GetValue("type"));
-        }
-
-        [Fact]
-        public void CloseSpawnConflict_HasLandedSnapshotNearKsc()
-        {
-            var node = CloseSpawnConflict().Build();
-            Assert.Equal("Close Spawn Conflict", node.GetValue("vesselName"));
-            var snapshot = node.GetNode("VESSEL_SNAPSHOT");
-            Assert.NotNull(snapshot);
-            Assert.Equal("LANDED", snapshot.GetValue("sit"));
+            Assert.Equal(3, parts.Length);
+            Assert.Equal("Valentina Kerman", parts[0].GetValue("crew"));
         }
 
         [Fact]
@@ -750,6 +805,7 @@ namespace Parsek.Tests
             Assert.Equal("KSC Hopper", recNode.GetValue("vesselName"));
             Assert.Empty(recNode.GetNodes("POINT"));
             Assert.Null(recNode.GetNode("VESSEL_SNAPSHOT"));
+            Assert.Null(recNode.GetNode("GHOST_VISUAL_SNAPSHOT"));
         }
 
         [Fact]
@@ -760,12 +816,12 @@ namespace Parsek.Tests
             try
             {
                 var writer = new ScenarioWriter().WithV3Format();
-                var hopper = KscHopper();
-                writer.AddRecording(hopper);
+                var flight = FleaFlight();
+                writer.AddRecording(flight);
 
                 writer.WriteSidecarFiles(tempDir);
 
-                string id = hopper.GetRecordingId();
+                string id = flight.GetRecordingId();
                 string recDir = Path.Combine(tempDir, "Parsek", "Recordings");
 
                 // .prec file exists and has correct content
@@ -779,9 +835,9 @@ namespace Parsek.Tests
                 string vesselPath = Path.Combine(recDir, $"{id}_vessel.craft");
                 Assert.True(File.Exists(vesselPath), $"Expected _vessel.craft at {vesselPath}");
                 string vesselContent = File.ReadAllText(vesselPath);
-                Assert.Contains("name = KSC Hopper", vesselContent);
+                Assert.Contains("name = Flea Flight", vesselContent);
 
-                // _ghost.craft file exists (same as vessel for hopper)
+                // _ghost.craft file exists (falls back to vessel snapshot)
                 string ghostPath = Path.Combine(recDir, $"{id}_ghost.craft");
                 Assert.True(File.Exists(ghostPath), $"Expected _ghost.craft at {ghostPath}");
             }
@@ -1038,14 +1094,14 @@ namespace Parsek.Tests
             double baseUT = ReadUTFromSave(targetPath);
 
             var writer = new ScenarioWriter().WithV3Format();
+            writer.AddRecording(PadWalk(baseUT));
             writer.AddRecording(KscHopper(baseUT));
+            writer.AddRecording(FleaFlight(baseUT));
             writer.AddRecording(SuborbitalArc(baseUT));
-            writer.AddRecording(Orbit1(baseUT));
-            writer.AddRecording(IslandProbe(baseUT));
-            writer.AddRecording(TedorfEvaSwitch(baseUT));
             writer.AddRecording(KscPadDestroyed(baseUT));
-            writer.AddRecording(EvaWalkSkinned(baseUT));
+            writer.AddRecording(Orbit1(baseUT));
             writer.AddRecording(CloseSpawnConflict(baseUT));
+            writer.AddRecording(IslandProbe(baseUT));
 
             foreach (string file in targets)
             {
@@ -1063,14 +1119,14 @@ namespace Parsek.Tests
 
                     string content = File.ReadAllText(tempPath);
                     Assert.Contains("name = ParsekScenario", content);
+                    Assert.Contains("vesselName = Pad Walk", content);
                     Assert.Contains("vesselName = KSC Hopper", content);
+                    Assert.Contains("vesselName = Flea Flight", content);
                     Assert.Contains("vesselName = Suborbital Arc", content);
-                    Assert.Contains("vesselName = Orbit-1", content);
-                    Assert.Contains("vesselName = Island Probe", content);
-                    Assert.Contains("vesselName = Tedorf Kerman", content);
                     Assert.Contains("vesselName = KSC Pad Destroyed", content);
-                    Assert.Contains("vesselName = EVA Walk Test", content);
+                    Assert.Contains("vesselName = Orbit-1", content);
                     Assert.Contains("vesselName = Close Spawn Conflict", content);
+                    Assert.Contains("vesselName = Island Probe", content);
                     Assert.Contains("FLIGHTSTATE", content);
 
                     // v3: no inline POINT data in .sfs

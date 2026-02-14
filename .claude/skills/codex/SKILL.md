@@ -58,6 +58,8 @@ codex exec review --full-auto "focus on security vulnerabilities"
 | `--uncommitted` | Review staged, unstaged, and untracked changes (can be flaky) |
 | `--title <TITLE>` | Optional title to display in review summary |
 
+**Important:** `codex exec review` is ONLY for git-diff-based code reviews. For general-purpose tasks (analyzing logs, inspecting files), use `codex exec --full-auto "prompt"` instead.
+
 ## Core Options
 
 | Flag | Description |

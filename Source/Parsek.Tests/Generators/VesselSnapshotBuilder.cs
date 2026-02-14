@@ -43,6 +43,17 @@ namespace Parsek.Tests.Generators
             return b;
         }
 
+        public static VesselSnapshotBuilder FleaRocket(string name, string crew, uint pid)
+        {
+            var b = new VesselSnapshotBuilder();
+            b.name = name;
+            b.persistentId = pid;
+            b.AddPart("mk1pod.v2", crew);
+            b.AddPart("solidBooster.sm.v2");
+            b.AddPart("parachuteSingle");
+            return b;
+        }
+
         public VesselSnapshotBuilder WithName(string n) { name = n; return this; }
         public VesselSnapshotBuilder WithPersistentId(uint pid) { persistentId = pid; return this; }
         public VesselSnapshotBuilder WithType(string t) { type = t; return this; }

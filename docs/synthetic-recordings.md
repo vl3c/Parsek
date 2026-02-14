@@ -41,82 +41,67 @@ Advanced: the manual injector test also respects environment variables:
 
 ## In-Game Walkthrough
 
-After injecting, launch KSP and load **test career**. The save UT is read dynamically from `1.sfs`, so all recordings are scheduled in the near future. Here's what to expect as you time warp forward:
+After injecting, launch KSP and load **test career**. The save UT is read dynamically from `1.sfs`, so all recordings are scheduled starting ~30s after loading. Enter any flight and time warp forward to see ghosts appear.
 
-### 1. KSC Hopper (UT 127000-127056)
+All crewed recordings use the **FleaRocket** craft (mk1pod.v2 + solidBooster.sm.v2 + parachuteSingle) unless noted otherwise.
 
-1. Go to any flight (launch a vessel or switch to an existing one)
-2. Open Map View (M) or stay in flight view
-3. Time warp forward — warp auto-stops at recording start (vessel snapshot present)
-4. At UT ~127000, an opaque ghost vessel appears near the launchpad
-5. The ghost rises to ~500m, drifts east ~1km, then descends near the VAB
-6. Ghost disappears at UT 127056
-7. At EndUT, a probe vessel named **KSC Hopper** spawns at the landing point
+### 1. Pad Walk (+30 to +60) — Ghost EVA
 
-### 2. Suborbital Arc (UT 128000-128300)
+Jeb walks ~200m east from the launchpad at ground level. Ghost-only (EVA type, no vessel spawn). Tests EVA ghost rendering.
 
-1. Continue time warping past 127056
-2. At UT ~128000, an opaque ghost appears at the launchpad
-3. Switch to **Map View** (M) to see the trajectory climb
-4. The ghost follows a gravity turn east, reaching ~71km apex
-5. It descends and splashes down at UT 128300
-6. At EndUT, a probe vessel named **Suborbital Arc** spawns at the splashdown point
+### 2. KSC Hopper (+70 to +126) — Ghost Ship
 
-### 3. Orbit-1 (UT 129000-132000)
+Val's FleaRocket hops to ~500m, drifts east ~1km, then descends near the VAB. Ghost-only (no vessel spawn). Part events: SRB decouple + parachute deploy.
 
-1. Time warp forward — warp **auto-stops** at UT ~129000 (this recording has a vessel snapshot with Bill Kerman)
-2. A ghost appears at the launchpad and follows an ascent trajectory
-3. At UT ~129500, the ghost transitions to the **orbital segment** — position is computed analytically from Keplerian parameters, visible as a smooth orbit in Map View
-4. The ghost orbits at ~100km (sma=700000m) with 28.5 deg inclination
-5. At UT ~132000 (EndUT), the ghost despawns and a **real vessel spawns** in orbit
-6. Switch to **Tracking Station** to verify "Orbit-1" appears as an orbiting vessel with Bill Kerman aboard
-7. Bill Kerman should be marked as Assigned in the Astronaut Complex until spawn
+### 3. Flea Flight (+140 to +230) — Vessel Spawn
 
-### 4. Island Probe (UT 133000-133180)
+Bob's FleaRocket launches to 620m apex, deploys parachute, lands. Based on real flight data with resource deltas (funds +5760, rep +1.2). **Vessel spawns** at EndUT. Part events: SRB decouple + parachute deploy.
 
-1. Time warp forward — warp **auto-stops** at UT ~133000
-2. A ghost appears at the launchpad and flies southeast toward the island airfield
-3. The ghost cruises at ~1000m altitude, then descends
-4. At UT ~133180 (EndUT), the ghost despawns and a **probe vessel spawns** landed at the island airfield (lat=-1.52, lon=-71.97)
-5. Try switching to it with `[`/`]` or from the Tracking Station
-6. No crew involved (unmanned probe)
+### 4. Suborbital Arc (+240 to +540) — Ghost Ship
 
-### 5. Tedorf EVA Switch (UT +8 to +30)
+Bill's FleaRocket follows a gravity turn east, reaching ~71km apex, then descends under parachute. Ghost-only (no vessel spawn). Part event: SRB decouple.
 
-Short recording that tests vessel-switch/EVA edge cases. Crewed vessel with Tedorf Kerman, landed trajectory near KSC. Ghost-only (no vessel spawn).
+### 5. KSC Pad Destroyed (+250 to +262) — Ghost Sphere
 
-### 6. KSC Pad Destroyed (UT +900 to +912)
+Vessel destroyed near KSC. No snapshot — exercises the destroyed/no-snapshot fallback path. Ghost sphere appears briefly.
 
-Edge case: vessel destroyed near KSC. No vessel snapshot — exercises the destroyed/no-snapshot fallback path. Ghost sphere appears briefly (no vessel geometry available).
+### 6. Orbit-1 (+560 to +3560) — Vessel Spawn (orbit)
 
-### 7. EVA Walk Test (UT +980 to +992)
+Bill's crewed vessel (pod+tank+engine) ascends to orbit. At +1060, the ghost transitions to the **orbital segment** — position computed analytically from Keplerian parameters. **Vessel spawns** in orbit at EndUT. Bill is marked Assigned in Astronaut Complex until spawn.
 
-EVA-type vessel snapshot with kerbal part model. Tests ghost rendering for EVA kerbals.
+### 7. Close Spawn Conflict (+580 to +592) — Vessel Spawn (landed)
 
-### 8. Close Spawn Conflict (UT +1060 to +1072)
+Jeb's FleaRocket landed very near KSC. **Vessel spawns** at EndUT, offset ~250m from nearest vessel to prevent physics collisions.
 
-Landed vessel very near KSC to exercise spawn offset logic. Vessel spawns ~250m from the nearest vessel to prevent physics collisions.
+### 8. Island Probe (+3610 to +3790) — Vessel Spawn (landed)
+
+Val's FleaRocket flies southeast to the island airfield, cruising at ~1000m. **Vessel spawns** landed at the island (lat=-1.52, lon=-71.97).
+
+### Crew Assignment
+
+- **Ghost-only** recordings (PadWalk, KSC Hopper, Suborbital Arc) reuse stock kerbal names safely — `WithGhostVisualSnapshot` triggers no crew reservation.
+- **Vessel-spawn** recordings each use a unique stock kerbal: Bob (Flea Flight), Bill (Orbit-1), Jeb (Close Spawn), Val (Island Probe).
 
 ### Timeline of Events
 
 ```
-UT base+8     ─── Tedorf EVA Switch ghost starts ─────────
-UT base+30    ─── Tedorf EVA Switch ghost ends ───────────
-UT base+120   ─── KSC Hopper ghost starts ────────────────
-UT base+176   ─── KSC Hopper ghost ends ──────────────────
-UT base+210   ─── Suborbital Arc ghost starts ────────────
-UT base+510   ─── Suborbital Arc ghost ends ──────────────
-UT base+560   ─── Orbit-1 ghost starts (warp stops) ─────
-UT base+1060  ─── Orbit-1 enters orbital segment ────────
-UT base+900   ─── KSC Pad Destroyed ghost starts ────────
-UT base+912   ─── KSC Pad Destroyed ghost ends ──────────
-UT base+980   ─── EVA Walk Test ghost starts ─────────────
-UT base+992   ─── EVA Walk Test ghost ends ───────────────
-UT base+1060  ─── Close Spawn Conflict ghost starts ─────
-UT base+1072  ─── Close Spawn Conflict vessel spawns ────
-UT base+3560  ─── Orbit-1 vessel spawns ──────────────────
-UT base+3610  ─── Island Probe ghost starts (warp stops) ─
-UT base+3790  ─── Island Probe vessel spawns ─────────────
+UT base+30    ─── Pad Walk ghost starts (EVA) ──────────
+UT base+60    ─── Pad Walk ghost ends ──────────────────
+UT base+70    ─── KSC Hopper ghost starts ──────────────
+UT base+126   ─── KSC Hopper ghost ends ────────────────
+UT base+140   ─── Flea Flight ghost starts ─────────────
+UT base+230   ─── Flea Flight vessel spawns (Bob) ──────
+UT base+240   ─── Suborbital Arc ghost starts ──────────
+UT base+250   ─── KSC Pad Destroyed ghost starts ───────
+UT base+262   ─── KSC Pad Destroyed ghost ends ─────────
+UT base+540   ─── Suborbital Arc ghost ends ────────────
+UT base+560   ─── Orbit-1 ghost starts ─────────────────
+UT base+580   ─── Close Spawn Conflict ghost starts ────
+UT base+592   ─── Close Spawn Conflict spawns (Jeb) ────
+UT base+1060  ─── Orbit-1 enters orbital segment ───────
+UT base+3560  ─── Orbit-1 vessel spawns (Bill) ─────────
+UT base+3610  ─── Island Probe ghost starts ────────────
+UT base+3790  ─── Island Probe vessel spawns (Val) ─────
 ```
 
 ## Architecture
@@ -161,6 +146,11 @@ All numeric values are serialized with `CultureInfo.InvariantCulture` for locale
 Builds a minimal `ConfigNode("VESSEL")` that KSP's ProtoVessel can load.
 
 ```csharp
+// Standard 3-part rocket (mk1pod.v2 + solidBooster.sm.v2 + parachuteSingle)
+VesselSnapshotBuilder.FleaRocket("Flea Flight", "Bob Kerman", pid: 22222222)
+    .AsLanded(-0.0972, -74.5575, 77)
+    .Build();
+
 // Crewed vessel in orbit
 VesselSnapshotBuilder.CrewedShip("Orbit-1", "Bill Kerman", pid: 12345678)
     .AsOrbiting(sma: 700000, ecc: 0.001, inc: 28.5)
@@ -172,7 +162,7 @@ VesselSnapshotBuilder.ProbeShip("Island Probe", pid: 87654321)
     .Build();
 ```
 
-Static factories `CrewedShip` and `ProbeShip` add a single part (mk1pod.v2 or probeCoreSphere) with required KSP fields. Use `.AddPart(name, crew)` to add more parts.
+Static factories: `FleaRocket` (3-part crewed rocket), `CrewedShip` (single pod with crew), `ProbeShip` (single probe core). Use `.AddPart(name, crew)` to add more parts.
 
 The VESSEL `pid` field is deterministically derived from `persistentId` (hex-encoded, zero-padded to 32 chars). This means repeated builds with the same persistentId produce identical output, making the injection content-stable for diffing and debugging.
 
@@ -251,18 +241,18 @@ dotnet test
 
 | Test | What it verifies |
 |------|-----------------|
-| KscHopper_BuildsValidRecording | 15 points, correct vesselName, no orbit segments |
-| SuborbitalArc_BuildsValidRecording | 25 points, ascending UT order (InvariantCulture parse) |
-| Orbit1_HasOrbitSegmentAndSnapshot | Orbit segment present, vessel snapshot with crew |
-| IslandProbe_HasSnapshotNoCrew | Landed probe snapshot, no crew values |
-| TedorfEvaSwitch_BuildsVesselSnapshotNotEVA | Vessel snapshot points to ship, not EVA kerbal |
-| KscPadDestroyed_HasNoSnapshot | No vessel snapshot (destroyed vessel) |
-| EvaWalkSkinned_HasEvaTypeSnapshot | EVA-type vessel snapshot with kerbal part |
-| CloseSpawnConflict_HasLandedSnapshotNearKsc | Landed snapshot near KSC for spawn offset test |
+| PadWalk_HasEvaGhostSnapshot | EVA-type GhostVisualSnapshot, no VesselSnapshot |
+| KscHopper_BuildsValidRecording | 15 points, GhostVisualSnapshot with FleaRocket parts, part events |
+| FleaFlight_HasVesselSnapshotAndPartEvents | VesselSnapshot (Ship), FleaRocket parts, part events, resource delta |
+| SuborbitalArc_BuildsValidRecording | 25 points, GhostVisualSnapshot, ascending UT order, SRB decouple event |
+| KscPadDestroyed_HasNoSnapshot | No VesselSnapshot or GhostVisualSnapshot (destroyed vessel) |
+| Orbit1_HasOrbitSegmentAndSnapshot | Orbit segment present, vessel snapshot with Bill Kerman |
+| CloseSpawnConflict_HasLandedSnapshotNearKsc | FleaRocket with Jeb, landed near KSC |
+| IslandProbe_HasFleaRocketWithCrew | FleaRocket with Val, landed at island airfield |
 | ScenarioWriter_SerializesCorrectly | ConfigNode to text serialization |
 | ScenarioWriter_InjectIntoSave_InsertsBeforeFlightstate | Correct insertion point |
 | ScenarioWriter_InjectIntoSave_ReplacesExistingParsekScenario | Idempotent replacement |
 | ScenarioWriter_InjectIntoSave_Idempotent | Double-injection produces single block |
 | ScenarioWriter_InjectIntoSave_HandlesVariousWhitespace | CRLF, nested nodes, extra values |
 | VesselSnapshotBuilder_DeterministicPid | Same pid across builds with same persistentId |
-| InjectAllRecordings | End-to-end injection into real save file (Manual) |
+| InjectAllRecordings | End-to-end injection of 8 recordings into real save file (Manual) |
