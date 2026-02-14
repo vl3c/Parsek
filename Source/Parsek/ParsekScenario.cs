@@ -689,6 +689,8 @@ namespace Parsek
             var roster = HighLogic.CurrentGame?.CrewRoster;
             if (roster == null) return;
 
+            bool anySwapped = false;
+
             foreach (Part part in FlightGlobals.ActiveVessel.parts)
             {
                 // Iterate a copy because RemoveCrewmember modifies the list
@@ -724,8 +726,16 @@ namespace Parsek
                     }
                     part.RemoveCrewmember(original);
                     part.AddCrewmemberAt(replacement, seatIndex);
+                    anySwapped = true;
                     Debug.Log($"[Parsek Scenario] Swapped '{original.name}' → '{replacement.name}' in part '{part.partInfo.title}'");
                 }
+            }
+
+            if (anySwapped)
+            {
+                FlightGlobals.ActiveVessel.SpawnCrew();
+                GameEvents.onVesselCrewWasModified.Fire(FlightGlobals.ActiveVessel);
+                Debug.Log("[Parsek Scenario] Crew swap complete — refreshed vessel crew display");
             }
         }
 

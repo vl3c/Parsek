@@ -298,7 +298,8 @@ namespace Parsek
 
             int totalMR = meshRenderers != null ? meshRenderers.Length : 0;
             int totalSMR = skinnedRenderers != null ? skinnedRenderers.Length : 0;
-            ParsekLog.Log($"  Part '{partName}' pid={persistentId}: modelRoot='{modelRoot.name}', " +
+            ParsekLog.Log($"  Part '{partName}' pid={persistentId}: modelRoot='{modelRoot.name}' " +
+                $"modelScale={modelRoot.localScale}, " +
                 $"{totalMR} MeshRenderers, {totalSMR} SkinnedMeshRenderers");
 
             // Name by persistentId for O(1) lookup during playback; fall back to part name
@@ -339,7 +340,7 @@ namespace Parsek
                 var mf = mr.GetComponent<MeshFilter>();
                 if (mf == null || mf.sharedMesh == null) continue;
 
-                Transform leaf = MirrorTransformChain(mr.transform, modelRoot, partRoot.transform, cloneMap);
+                Transform leaf = MirrorTransformChain(mr.transform, modelRoot, modelNode.transform, cloneMap);
                 leaf.gameObject.AddComponent<MeshFilter>().sharedMesh = mf.sharedMesh;
                 leaf.gameObject.AddComponent<MeshRenderer>().sharedMaterials = mr.sharedMaterials;
                 meshCount++;
@@ -353,7 +354,7 @@ namespace Parsek
                 var smr = skinnedRenderers[r];
                 if (smr == null || smr.sharedMesh == null) continue;
 
-                Transform leaf = MirrorTransformChain(smr.transform, modelRoot, partRoot.transform, cloneMap);
+                Transform leaf = MirrorTransformChain(smr.transform, modelRoot, modelNode.transform, cloneMap);
                 // Use shared bind-pose mesh as a static ghost visual.
                 leaf.gameObject.AddComponent<MeshFilter>().sharedMesh = smr.sharedMesh;
                 leaf.gameObject.AddComponent<MeshRenderer>().sharedMaterials = smr.sharedMaterials;
