@@ -325,57 +325,73 @@ namespace Parsek
             if (deployedCanopyCache.TryGetValue(key, out var cached))
                 return cached;
 
-            // Use semiDeployedAnimation — matches our ParachuteDeployed event timing
-            // (fires when state enters SEMIDEPLOYED, not DEPLOYED)
-            string animName = chute.semiDeployedAnimation;
+            // Use fullyDeployedAnimation for the open dome shape (visually correct for ghost).
+            // Fall back to semiDeployedAnimation if fullyDeployed is missing.
+            string animName = chute.fullyDeployedAnimation;
             if (string.IsNullOrEmpty(animName))
-                animName = chute.fullyDeployedAnimation;
-            if (string.IsNullOrEmpty(animName))
-            {
-                var fallback = (Vector3.one, Vector3.zero);
-                deployedCanopyCache[key] = fallback;
-                return fallback;
-            }
-
-            // Clone ONLY the model subtree — avoids Part/PartModule Awake() side effects
-            Transform prefabModel = prefab.transform.Find("model") ?? prefab.transform;
-            GameObject tempClone = Object.Instantiate(prefabModel.gameObject);
+                animName = chute.semiDeployedAnimation;
 
             Vector3 scale = Vector3.one;
             Vector3 pos = Vector3.zero;
+            bool sampled = false;
 
-            try
+            if (!string.IsNullOrEmpty(animName))
             {
-                Animation anim = tempClone.GetComponentInChildren<Animation>(true);
-                if (anim != null)
-                {
-                    AnimationState state = anim[animName];
-                    if (state != null)
-                    {
-                        state.enabled = true;
-                        state.normalizedTime = 1f;
-                        state.weight = 1f;
-                        anim.Sample();
+                // Clone ONLY the model subtree — avoids Part/PartModule Awake() side effects
+                Transform prefabModel = prefab.transform.Find("model") ?? prefab.transform;
+                GameObject tempClone = Object.Instantiate(prefabModel.gameObject);
 
-                        string canopyName = chute.canopyName;
-                        Transform canopy = !string.IsNullOrEmpty(canopyName)
-                            ? FindTransformRecursive(tempClone.transform, canopyName) : null;
-                        if (canopy != null)
+                try
+                {
+                    Animation anim = tempClone.GetComponentInChildren<Animation>(true);
+                    if (anim != null)
+                    {
+                        AnimationState state = anim[animName];
+                        if (state != null)
                         {
-                            scale = canopy.localScale;
-                            pos = canopy.localPosition;
+                            state.enabled = true;
+                            state.normalizedTime = 1f;
+                            state.weight = 1f;
+                            anim.Sample();
+
+                            string canopyName = chute.canopyName;
+                            Transform canopy = !string.IsNullOrEmpty(canopyName)
+                                ? FindTransformRecursive(tempClone.transform, canopyName) : null;
+                            if (canopy != null)
+                            {
+                                scale = canopy.localScale;
+                                pos = canopy.localPosition;
+                                sampled = true;
+                                ParsekLog.Log($"  Animation '{animName}' sampled canopy: scale={scale} pos={pos}");
+                            }
+                        }
+                        else
+                        {
+                            ParsekLog.Log($"  Animation '{animName}' not found on clone for '{key}'");
                         }
                     }
+                    else
+                    {
+                        ParsekLog.Log($"  No Animation component on model clone for '{key}'");
+                    }
+                }
+                finally
+                {
+                    Object.DestroyImmediate(tempClone);
                 }
             }
-            finally
+
+            // If animation was found but produced exactly zero, treat as failed sampling
+            if (sampled && scale == Vector3.zero)
             {
-                Object.DestroyImmediate(tempClone);
+                ParsekLog.Log($"  Animation produced zero scale, using Vector3.one fallback");
+                scale = Vector3.one;
+                pos = Vector3.zero;
             }
 
             var result = (scale, pos);
             deployedCanopyCache[key] = result;
-            ParsekLog.Log($"  Sampled deployed canopy for '{key}': scale={scale} pos={pos}");
+            ParsekLog.Log($"  Deployed canopy for '{key}': scale={scale} pos={pos}");
             return result;
         }
 
