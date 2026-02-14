@@ -35,25 +35,20 @@ namespace Parsek
         private List<Material> previewGhostMaterials = new List<Material>();
         internal int lastPlaybackIndex = 0;
 
-        // Timeline ghost state (auto-playback of committed recordings)
-        private Dictionary<int, GameObject> timelineGhosts = new Dictionary<int, GameObject>();
-        private Dictionary<int, List<Material>> timelineGhostMaterials = new Dictionary<int, List<Material>>();
-        private Dictionary<int, int> timelinePlaybackIndices = new Dictionary<int, int>();
+        // Per-ghost playback state (bundled to prevent dict-sync bugs)
+        private class GhostPlaybackState
+        {
+            public GameObject ghost;
+            public List<Material> materials;
+            public int playbackIndex;
+            public int partEventIndex;
+            public Dictionary<uint, List<uint>> partTree;
+            public Dictionary<uint, ParachuteGhostInfo> parachuteInfos;
+            public Dictionary<uint, JettisonGhostInfo> jettisonInfos;
+            public Dictionary<uint, GameObject> fakeCanopies;
+        }
 
-        // Part event playback state
-        private Dictionary<int, int> timelinePartEventIndices = new Dictionary<int, int>();
-        private Dictionary<int, Dictionary<uint, List<uint>>> ghostPartTrees = new Dictionary<int, Dictionary<uint, List<uint>>>();
-
-        // Fake canopy tracking: recIdx → (partPid → canopy GameObject)
-        private Dictionary<int, Dictionary<uint, GameObject>> fakeCanopies = new Dictionary<int, Dictionary<uint, GameObject>>();
-
-        // Real parachute canopy info: recIdx → (partPid → info)
-        private Dictionary<int, Dictionary<uint, ParachuteGhostInfo>> ghostParachuteInfos =
-            new Dictionary<int, Dictionary<uint, ParachuteGhostInfo>>();
-
-        // Jettison (shroud) info: recIdx → (partPid → info)
-        private Dictionary<int, Dictionary<uint, JettisonGhostInfo>> ghostJettisonInfos =
-            new Dictionary<int, Dictionary<uint, JettisonGhostInfo>>();
+        private Dictionary<int, GhostPlaybackState> ghostStates = new Dictionary<int, GhostPlaybackState>();
 
         // Auto-record: EVA from pad triggers recording after vessel switch completes
         private bool pendingAutoRecord = false;
@@ -87,9 +82,18 @@ namespace Parsek
 
         public bool IsRecording => recorder?.IsRecording ?? false;
         public bool IsPlaying => isPlaying;
-        public int TimelineGhostCount => timelineGhosts.Count;
+        public int TimelineGhostCount => ghostStates.Count;
         public GameObject PreviewGhost => ghostObject;
-        public Dictionary<int, GameObject> TimelineGhosts => timelineGhosts;
+        public Dictionary<int, GameObject> TimelineGhosts
+        {
+            get
+            {
+                var result = new Dictionary<int, GameObject>();
+                foreach (var kv in ghostStates)
+                    result[kv.Key] = kv.Value.ghost;
+                return result;
+            }
+        }
 
         #endregion
 
@@ -659,7 +663,9 @@ namespace Parsek
 
                 bool inRange = currentUT >= rec.StartUT && currentUT <= rec.EndUT;
                 bool pastEnd = currentUT > rec.EndUT;
-                bool ghostActive = timelineGhosts.ContainsKey(i) && timelineGhosts[i] != null;
+                GhostPlaybackState state;
+                ghostStates.TryGetValue(i, out state);
+                bool ghostActive = state != null && state.ghost != null;
                 bool needsSpawn = rec.VesselSnapshot != null && !rec.VesselSpawned && !rec.VesselDestroyed && !rec.TakenControl;
 
                 // Guard: if vessel was spawned before but VesselSpawned got reset (scene change),
@@ -686,26 +692,25 @@ namespace Parsek
                     if (!ghostActive)
                     {
                         SpawnTimelineGhost(i, rec);
+                        state = ghostStates[i];
                         if (loggedGhostEnter.Add(i))
                             Log($"Ghost ENTERED range: #{i} \"{rec.VesselName}\" at UT {currentUT:F1}");
                     }
 
-                    int playbackIdx = 0;
-                    if (timelinePlaybackIndices.ContainsKey(i))
-                        playbackIdx = timelinePlaybackIndices[i];
+                    int playbackIdx = state.playbackIndex;
 
-                    InterpolateAndPosition(timelineGhosts[i], rec.Points, rec.OrbitSegments,
+                    InterpolateAndPosition(state.ghost, rec.Points, rec.OrbitSegments,
                         ref playbackIdx, currentUT, i * 10000);
-                    timelinePlaybackIndices[i] = playbackIdx;
+                    state.playbackIndex = playbackIdx;
 
-                    ApplyPartEvents(i, rec, currentUT, timelineGhosts[i]);
+                    ApplyPartEvents(i, rec, currentUT, state);
                     ApplyResourceDeltas(rec, currentUT);
                 }
                 else if (pastEnd && needsSpawn && ghostActive)
                 {
                     // Ghost was playing, UT just crossed EndUT — hold at final pos, spawn, despawn ghost
                     Log($"Ghost EXITED range: #{i} \"{rec.VesselName}\" at UT {currentUT:F1} — spawning vessel");
-                    PositionGhostAt(timelineGhosts[i], rec.Points[rec.Points.Count - 1]);
+                    PositionGhostAt(state.ghost, rec.Points[rec.Points.Count - 1]);
                     VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
                     DestroyTimelineGhost(i);
                     ApplyResourceDeltas(rec, currentUT);
@@ -828,74 +833,71 @@ namespace Parsek
                 Log(usedStartSnapshot
                     ? $"Timeline ghost #{index}: built from recording-start snapshot"
                     : $"Timeline ghost #{index}: built from vessel snapshot");
-                timelineGhostMaterials[index] = new List<Material>();
             }
 
-            timelineGhosts[index] = ghost;
-            if (!builtFromSnapshot)
+            var state = new GhostPlaybackState
+            {
+                ghost = ghost,
+                playbackIndex = 0,
+                partEventIndex = 0,
+                partTree = GhostVisualBuilder.BuildPartSubtreeMap(GhostVisualBuilder.GetGhostSnapshot(rec))
+            };
+
+            if (builtFromSnapshot)
+            {
+                state.materials = new List<Material>();
+            }
+            else
             {
                 var m = ghost.GetComponent<Renderer>()?.material;
-                timelineGhostMaterials[index] = m != null ? new List<Material> { m } : new List<Material>();
+                state.materials = m != null ? new List<Material> { m } : new List<Material>();
             }
-            timelinePlaybackIndices[index] = 0;
 
-            // Build part tree for event playback
-            timelinePartEventIndices[index] = 0;
-            ConfigNode snapshot = GhostVisualBuilder.GetGhostSnapshot(rec);
-            ghostPartTrees[index] = GhostVisualBuilder.BuildPartSubtreeMap(snapshot);
-
-            // Store parachute info for real canopy deployment
             if (parachuteInfoList != null)
             {
-                var infoMap = new Dictionary<uint, ParachuteGhostInfo>();
+                state.parachuteInfos = new Dictionary<uint, ParachuteGhostInfo>();
                 for (int i = 0; i < parachuteInfoList.Count; i++)
-                    infoMap[parachuteInfoList[i].partPersistentId] = parachuteInfoList[i];
-                ghostParachuteInfos[index] = infoMap;
+                    state.parachuteInfos[parachuteInfoList[i].partPersistentId] = parachuteInfoList[i];
             }
 
-            // Store jettison info for shroud hiding
             if (jettisonInfoList != null)
             {
-                var infoMap = new Dictionary<uint, JettisonGhostInfo>();
+                state.jettisonInfos = new Dictionary<uint, JettisonGhostInfo>();
                 for (int i = 0; i < jettisonInfoList.Count; i++)
-                    infoMap[jettisonInfoList[i].partPersistentId] = jettisonInfoList[i];
-                ghostJettisonInfos[index] = infoMap;
+                    state.jettisonInfos[jettisonInfoList[i].partPersistentId] = jettisonInfoList[i];
             }
+
+            ghostStates[index] = state;
         }
 
         void DestroyTimelineGhost(int index)
         {
             Log($"Despawning timeline ghost #{index}");
 
-            if (timelineGhostMaterials.ContainsKey(index) && timelineGhostMaterials[index] != null)
+            GhostPlaybackState state;
+            if (!ghostStates.TryGetValue(index, out state))
+                return;
+
+            if (state.materials != null)
             {
-                var mats = timelineGhostMaterials[index];
-                for (int i = 0; i < mats.Count; i++)
+                for (int i = 0; i < state.materials.Count; i++)
                 {
-                    if (mats[i] != null)
-                        Destroy(mats[i]);
+                    if (state.materials[i] != null)
+                        Destroy(state.materials[i]);
                 }
-                timelineGhostMaterials.Remove(index);
             }
 
-            if (timelineGhosts.ContainsKey(index) && timelineGhosts[index] != null)
-            {
-                Destroy(timelineGhosts[index]);
-                timelineGhosts.Remove(index);
-            }
+            if (state.ghost != null)
+                Destroy(state.ghost);
 
-            timelinePlaybackIndices.Remove(index);
-            timelinePartEventIndices.Remove(index);
-            ghostPartTrees.Remove(index);
-            ghostParachuteInfos.Remove(index);
-            ghostJettisonInfos.Remove(index);
-            DestroyAllFakeCanopies(index);
+            DestroyAllFakeCanopies(state);
+            ghostStates.Remove(index);
         }
 
         public void DestroyAllTimelineGhosts()
         {
             // Copy keys to avoid modifying during iteration
-            var keys = new List<int>(timelineGhosts.Keys);
+            var keys = new List<int>(ghostStates.Keys);
             foreach (int key in keys)
             {
                 DestroyTimelineGhost(key);
@@ -906,17 +908,14 @@ namespace Parsek
             warpStoppedForRecording.Clear();
         }
 
-        void ApplyPartEvents(int recIdx, RecordingStore.Recording rec, double currentUT, GameObject ghost)
+        void ApplyPartEvents(int recIdx, RecordingStore.Recording rec, double currentUT, GhostPlaybackState state)
         {
             if (rec.PartEvents == null || rec.PartEvents.Count == 0) return;
-            if (ghost == null) return;
+            if (state.ghost == null) return;
 
-            int evtIdx;
-            if (!timelinePartEventIndices.TryGetValue(recIdx, out evtIdx))
-                evtIdx = 0;
-
-            Dictionary<uint, List<uint>> tree;
-            ghostPartTrees.TryGetValue(recIdx, out tree);
+            int evtIdx = state.partEventIndex;
+            var tree = state.partTree;
+            var ghost = state.ghost;
 
             while (evtIdx < rec.PartEvents.Count && rec.PartEvents[evtIdx].ut <= currentUT)
             {
@@ -935,12 +934,10 @@ namespace Parsek
                         Log($"Part event applied: Destroyed '{evt.partName}' pid={evt.partPersistentId}");
                         break;
                     case PartEventType.ParachuteCut:
-                        // Hide real canopy if present
-                        Dictionary<uint, ParachuteGhostInfo> cutMap;
-                        if (ghostParachuteInfos.TryGetValue(recIdx, out cutMap))
+                        if (state.parachuteInfos != null)
                         {
                             ParachuteGhostInfo cutInfo;
-                            if (cutMap.TryGetValue(evt.partPersistentId, out cutInfo))
+                            if (state.parachuteInfos.TryGetValue(evt.partPersistentId, out cutInfo))
                             {
                                 if (cutInfo.canopyTransform != null)
                                     cutInfo.canopyTransform.localScale = Vector3.zero;
@@ -948,17 +945,14 @@ namespace Parsek
                                     cutInfo.capTransform.gameObject.SetActive(false);
                             }
                         }
-                        // Also clean up fake canopy if one was used as fallback
-                        DestroyFakeCanopy(recIdx, evt.partPersistentId);
-                        // NOTE: Do NOT call HideGhostPart here — housing stays visible
+                        DestroyFakeCanopy(state, evt.partPersistentId);
                         Log($"Part event: ParachuteCut '{evt.partName}' — canopy hidden, housing remains");
                         break;
                     case PartEventType.ShroudJettisoned:
-                        Dictionary<uint, JettisonGhostInfo> jetMap;
-                        if (ghostJettisonInfos.TryGetValue(recIdx, out jetMap))
+                        if (state.jettisonInfos != null)
                         {
                             JettisonGhostInfo jetInfo;
-                            if (jetMap.TryGetValue(evt.partPersistentId, out jetInfo) && jetInfo.jettisonTransform != null)
+                            if (state.jettisonInfos.TryGetValue(evt.partPersistentId, out jetInfo) && jetInfo.jettisonTransform != null)
                             {
                                 jetInfo.jettisonTransform.gameObject.SetActive(false);
                                 Log($"Part event applied: ShroudJettisoned '{evt.partName}' pid={evt.partPersistentId}");
@@ -968,12 +962,10 @@ namespace Parsek
                     case PartEventType.ParachuteDeployed:
                         bool usedRealCanopy = false;
 
-                        // Try real canopy first
-                        Dictionary<uint, ParachuteGhostInfo> infoMap;
-                        if (ghostParachuteInfos.TryGetValue(recIdx, out infoMap))
+                        if (state.parachuteInfos != null)
                         {
                             ParachuteGhostInfo info;
-                            if (infoMap.TryGetValue(evt.partPersistentId, out info) && info.canopyTransform != null)
+                            if (state.parachuteInfos.TryGetValue(evt.partPersistentId, out info) && info.canopyTransform != null)
                             {
                                 info.canopyTransform.localScale = info.deployedCanopyScale;
                                 info.canopyTransform.localPosition = info.deployedCanopyPos;
@@ -984,13 +976,12 @@ namespace Parsek
                             }
                         }
 
-                        // Fallback to fake canopy
                         if (!usedRealCanopy)
                         {
                             var canopy = GhostVisualBuilder.CreateFakeCanopy(ghost, evt.partPersistentId);
                             if (canopy != null)
                             {
-                                TrackFakeCanopy(recIdx, evt.partPersistentId, canopy);
+                                TrackFakeCanopy(state, evt.partPersistentId, canopy);
                                 Log($"Part event: ParachuteDeployed '{evt.partName}' — fake canopy (fallback)");
                             }
                             else
@@ -1003,7 +994,7 @@ namespace Parsek
                 evtIdx++;
             }
 
-            timelinePartEventIndices[recIdx] = evtIdx;
+            state.partEventIndex = evtIdx;
         }
 
         static void HideGhostPart(GameObject ghost, uint persistentId)
@@ -1012,38 +1003,32 @@ namespace Parsek
             if (t != null) t.gameObject.SetActive(false);
         }
 
-        void TrackFakeCanopy(int recIdx, uint partPid, GameObject canopy)
+        void TrackFakeCanopy(GhostPlaybackState state, uint partPid, GameObject canopy)
         {
-            Dictionary<uint, GameObject> map;
-            if (!fakeCanopies.TryGetValue(recIdx, out map))
-            {
-                map = new Dictionary<uint, GameObject>();
-                fakeCanopies[recIdx] = map;
-            }
+            if (state.fakeCanopies == null)
+                state.fakeCanopies = new Dictionary<uint, GameObject>();
             // Destroy previous canopy for this part if one exists (prevents leak)
             GameObject existing;
-            if (map.TryGetValue(partPid, out existing) && existing != null)
+            if (state.fakeCanopies.TryGetValue(partPid, out existing) && existing != null)
                 DestroyCanopyAndMaterial(existing);
-            map[partPid] = canopy;
+            state.fakeCanopies[partPid] = canopy;
         }
 
-        void DestroyFakeCanopy(int recIdx, uint partPid)
+        void DestroyFakeCanopy(GhostPlaybackState state, uint partPid)
         {
-            Dictionary<uint, GameObject> map;
-            if (!fakeCanopies.TryGetValue(recIdx, out map)) return;
+            if (state.fakeCanopies == null) return;
             GameObject canopy;
-            if (map.TryGetValue(partPid, out canopy) && canopy != null)
+            if (state.fakeCanopies.TryGetValue(partPid, out canopy) && canopy != null)
                 DestroyCanopyAndMaterial(canopy);
-            map.Remove(partPid);
+            state.fakeCanopies.Remove(partPid);
         }
 
-        void DestroyAllFakeCanopies(int recIdx)
+        void DestroyAllFakeCanopies(GhostPlaybackState state)
         {
-            Dictionary<uint, GameObject> map;
-            if (!fakeCanopies.TryGetValue(recIdx, out map)) return;
-            foreach (var kv in map)
+            if (state.fakeCanopies == null) return;
+            foreach (var kv in state.fakeCanopies)
                 if (kv.Value != null) DestroyCanopyAndMaterial(kv.Value);
-            fakeCanopies.Remove(recIdx);
+            state.fakeCanopies = null;
         }
 
         static void DestroyCanopyAndMaterial(GameObject canopy)
@@ -1145,14 +1130,15 @@ namespace Parsek
                 return;
             }
 
-            if (!timelineGhosts.ContainsKey(index) || timelineGhosts[index] == null)
+            GhostPlaybackState controlState;
+            if (!ghostStates.TryGetValue(index, out controlState) || controlState.ghost == null)
             {
                 Log($"Take control: no active ghost for recording #{index}");
                 return;
             }
 
             double ut = Planetarium.GetUniversalTime();
-            GameObject ghost = timelineGhosts[index];
+            GameObject ghost = controlState.ghost;
 
             // Determine body and velocity from current interpolation context
             CelestialBody body = null;
@@ -1179,9 +1165,7 @@ namespace Parsek
             else
             {
                 // Point-based interpolation
-                int cachedIdx = 0;
-                if (timelinePlaybackIndices.ContainsKey(index))
-                    cachedIdx = timelinePlaybackIndices[index];
+                int cachedIdx = controlState.playbackIndex;
 
                 int idxBefore = TrajectoryMath.FindWaypointIndex(rec.Points, ref cachedIdx, ut);
                 if (idxBefore >= 0 && idxBefore < rec.Points.Count - 1)
