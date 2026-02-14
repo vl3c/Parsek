@@ -15,21 +15,27 @@ namespace Parsek.Tests
 
         #region Recording Builders
 
-        // Offsets from baseUT for each recording
-        // Pad Walk:         +30s  to +60s   (30s EVA ghost)
-        // KSC Hopper:       +70s  to +126s  (56s ghost)
-        // Flea Flight:      +140s to +230s  (90s vessel spawn)
-        // Suborbital Arc:   +240s to +540s  (300s ghost)
-        // KSC Pad Destroyed:+250s to +262s  (12s sphere ghost)
-        // Orbit-1:          +560s to +3560s (3000s vessel spawn)
-        // Close Spawn:      +580s to +592s  (12s vessel spawn)
-        // Island Probe:     +3610s to +3790s (180s vessel spawn)
+        // Offsets from baseUT for each recording (30s apart)
+        // Pad Walk:          +30s  to +60s   (30s EVA ghost)
+        // KSC Hopper:        +60s  to +116s  (56s ghost)
+        // Flea Flight:       +90s  to +180s  (90s vessel spawn)
+        // Suborbital Arc:    +120s to +420s  (300s ghost)
+        // KSC Pad Destroyed: +150s to +162s  (12s sphere ghost)
+        // Orbit-1:           +180s to +3180s (3000s vessel spawn)
+        // Close Spawn:       +210s to +222s  (12s vessel spawn)
+        // Island Probe:      +240s to +420s  (180s vessel spawn)
+
+        // Approximate "upright on surface" rotation at KSC for UT ~17000.
+        // From real recording data at UT=17285. Close enough for synthetic visuals
+        // (Kerbin rotates ~4° in the difference, negligible for ghost appearance).
+        private const float KscRotX = 0.33f, KscRotY = -0.63f, KscRotZ = -0.63f, KscRotW = -0.33f;
 
         internal static RecordingBuilder PadWalk(double baseUT = 0)
         {
             // EVA: Jeb walks ~200m east from launchpad at ground level
             double t = baseUT + 30;
             var b = new RecordingBuilder("Pad Walk");
+            b.WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW);
             double baseLat = -0.0972;
             double baseLon = -74.5575;
 
@@ -55,26 +61,27 @@ namespace Parsek.Tests
 
         internal static RecordingBuilder KscHopper(double baseUT = 0)
         {
-            double t = baseUT + 70;
+            double t = baseUT + 60;
             var b = new RecordingBuilder("KSC Hopper");
+            b.WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW);
             double baseLat = -0.0972;
             double baseLon = -74.5575;
 
             b.AddPoint(t,    baseLat, baseLon, 77);
-            b.AddPoint(t+4,  baseLat, baseLon, 150);
-            b.AddPoint(t+8,  baseLat, baseLon, 300);
-            b.AddPoint(t+12, baseLat, baseLon, 500);
-            b.AddPoint(t+16, baseLat, baseLon + 0.002, 490);
-            b.AddPoint(t+20, baseLat, baseLon + 0.004, 480);
-            b.AddPoint(t+24, baseLat, baseLon + 0.006, 470);
-            b.AddPoint(t+28, baseLat, baseLon + 0.008, 460);
-            b.AddPoint(t+32, baseLat + 0.0005, baseLon + 0.009, 440);
-            b.AddPoint(t+36, baseLat + 0.0005, baseLon + 0.009, 380);
-            b.AddPoint(t+40, baseLat + 0.001, baseLon + 0.009, 300);
-            b.AddPoint(t+44, baseLat + 0.001, baseLon + 0.009, 200);
-            b.AddPoint(t+48, baseLat + 0.001, baseLon + 0.009, 120);
-            b.AddPoint(t+52, baseLat + 0.001, baseLon + 0.009, 85);
-            b.AddPoint(t+56, baseLat + 0.001, baseLon + 0.009, 77);
+            b.AddPoint(t+4,  baseLat, baseLon + 0.0003, 150);
+            b.AddPoint(t+8,  baseLat, baseLon + 0.0008, 300);
+            b.AddPoint(t+12, baseLat, baseLon + 0.0015, 500);
+            b.AddPoint(t+16, baseLat, baseLon + 0.0024, 490);
+            b.AddPoint(t+20, baseLat, baseLon + 0.0032, 460);
+            b.AddPoint(t+24, baseLat, baseLon + 0.0038, 420);
+            b.AddPoint(t+28, baseLat + 0.0002, baseLon + 0.0043, 370);
+            b.AddPoint(t+32, baseLat + 0.0004, baseLon + 0.0047, 310);
+            b.AddPoint(t+36, baseLat + 0.0005, baseLon + 0.0050, 250);
+            b.AddPoint(t+40, baseLat + 0.0006, baseLon + 0.0052, 200);
+            b.AddPoint(t+44, baseLat + 0.0006, baseLon + 0.0053, 150);
+            b.AddPoint(t+48, baseLat + 0.0007, baseLon + 0.0054, 110);
+            b.AddPoint(t+52, baseLat + 0.0007, baseLon + 0.0054, 88);
+            b.AddPoint(t+56, baseLat + 0.0007, baseLon + 0.0054, 77);
 
             // Part events: SRB decouple + parachute deploy
             b.AddPartEvent(t + 8, 101111, 0, "solidBooster.sm.v2");    // Decoupled
@@ -83,7 +90,7 @@ namespace Parsek.Tests
             // Ghost-only: visual fidelity without vessel spawn or crew reservation
             b.WithGhostVisualSnapshot(
                 VesselSnapshotBuilder.FleaRocket("KSC Hopper", "Valentina Kerman", pid: 11111111)
-                    .AsLanded(baseLat + 0.001, baseLon + 0.009, 77));
+                    .AsLanded(baseLat + 0.0007, baseLon + 0.0054, 77));
 
             return b;
         }
@@ -92,55 +99,56 @@ namespace Parsek.Tests
         {
             // Real flight data: mk1pod.v2 + solidBooster.sm.v2 + parachuteSingle
             // Launch → 620m apex → parachute descent → landing
-            double t = baseUT + 140;
+            double t = baseUT + 90;
             var b = new RecordingBuilder("Flea Flight");
+            b.WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW);
             double baseLat = -0.0972;
             double baseLon = -74.5575;
 
             b.AddPoint(t,     baseLat, baseLon, 77,                       funds: 42469);
-            b.AddPoint(t+2,   baseLat, baseLon, 100,                      funds: 42469);
-            b.AddPoint(t+4,   baseLat, baseLon, 140,                      funds: 48229, rep: 1.2f);
-            b.AddPoint(t+6,   baseLat, baseLon, 195,                      funds: 48229, rep: 1.2f);
-            b.AddPoint(t+8,   baseLat, baseLon + 0.0001, 260,             funds: 48229, rep: 1.2f);
-            b.AddPoint(t+10,  baseLat, baseLon + 0.0002, 330,             funds: 48229, rep: 1.2f);
-            b.AddPoint(t+12,  baseLat, baseLon + 0.0003, 400,             funds: 48229, rep: 1.2f);
-            b.AddPoint(t+14,  baseLat, baseLon + 0.0004, 465,             funds: 48229, rep: 1.2f);
-            b.AddPoint(t+16,  baseLat, baseLon + 0.0005, 520,             funds: 48229, rep: 1.2f);
-            b.AddPoint(t+18,  baseLat, baseLon + 0.0006, 565,             funds: 48229, rep: 1.2f);
-            b.AddPoint(t+20,  baseLat, baseLon + 0.0007, 600,             funds: 48229, rep: 1.2f);
-            // SRB burnout
-            b.AddPoint(t+24,  baseLat, baseLon + 0.0009, 620,             funds: 48229, rep: 1.2f);
-            b.AddPoint(t+28,  baseLat, baseLon + 0.0011, 610,             funds: 48229, rep: 1.2f);
-            b.AddPoint(t+32,  baseLat, baseLon + 0.0013, 590,             funds: 48229, rep: 1.2f);
-            b.AddPoint(t+36,  baseLat, baseLon + 0.0015, 560,             funds: 48229, rep: 1.2f);
-            b.AddPoint(t+40,  baseLat, baseLon + 0.0017, 520,             funds: 48229, rep: 1.2f);
-            b.AddPoint(t+45,  baseLat, baseLon + 0.0019, 460,             funds: 48229, rep: 1.2f);
-            b.AddPoint(t+50,  baseLat, baseLon + 0.0021, 390,             funds: 48229, rep: 1.2f);
-            // Parachute deploys
-            b.AddPoint(t+55,  baseLat, baseLon + 0.0022, 320,             funds: 48229, rep: 1.2f);
-            b.AddPoint(t+60,  baseLat, baseLon + 0.0023, 260,             funds: 48229, rep: 1.2f);
-            b.AddPoint(t+65,  baseLat, baseLon + 0.0024, 210,             funds: 48229, rep: 1.2f);
-            b.AddPoint(t+70,  baseLat, baseLon + 0.0025, 165,             funds: 48229, rep: 1.2f);
-            b.AddPoint(t+75,  baseLat, baseLon + 0.0026, 130,             funds: 48229, rep: 1.2f);
-            b.AddPoint(t+80,  baseLat, baseLon + 0.0027, 100,             funds: 48229, rep: 1.2f);
-            b.AddPoint(t+85,  baseLat, baseLon + 0.0028, 82,              funds: 48229, rep: 1.2f);
-            b.AddPoint(t+90,  baseLat, baseLon + 0.0029, 77,              funds: 48229, rep: 1.2f);
+            b.AddPoint(t+2,   baseLat, baseLon + 0.0001, 100,             funds: 42469);
+            b.AddPoint(t+4,   baseLat, baseLon + 0.0004, 145,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+6,   baseLat, baseLon + 0.0008, 200,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+8,   baseLat, baseLon + 0.0014, 270,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+10,  baseLat, baseLon + 0.0022, 345,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+12,  baseLat, baseLon + 0.0032, 415,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+14,  baseLat, baseLon + 0.0044, 480,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+16,  baseLat, baseLon + 0.0056, 535,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+18,  baseLat, baseLon + 0.0068, 580,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+20,  baseLat, baseLon + 0.0080, 615,             funds: 48229, rep: 1.2f);
+            // SRB burnout — coasting with lateral drift
+            b.AddPoint(t+24,  baseLat, baseLon + 0.0095, 620,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+28,  baseLat, baseLon + 0.0108, 605,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+32,  baseLat, baseLon + 0.0118, 575,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+36,  baseLat, baseLon + 0.0128, 535,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+40,  baseLat, baseLon + 0.0135, 485,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+45,  baseLat, baseLon + 0.0143, 415,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+50,  baseLat, baseLon + 0.0150, 340,             funds: 48229, rep: 1.2f);
+            // Parachute deploys — slow lateral drift under canopy
+            b.AddPoint(t+55,  baseLat, baseLon + 0.0155, 270,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+60,  baseLat, baseLon + 0.0160, 215,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+65,  baseLat, baseLon + 0.0163, 170,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+70,  baseLat, baseLon + 0.0166, 130,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+75,  baseLat, baseLon + 0.0169, 100,             funds: 48229, rep: 1.2f);
+            b.AddPoint(t+80,  baseLat, baseLon + 0.0172, 85,              funds: 48229, rep: 1.2f);
+            b.AddPoint(t+85,  baseLat, baseLon + 0.0174, 78,              funds: 48229, rep: 1.2f);
+            b.AddPoint(t+90,  baseLat, baseLon + 0.0175, 77,              funds: 48229, rep: 1.2f);
 
             // Part events
             b.AddPartEvent(t + 20, 101111, 0, "solidBooster.sm.v2");   // Decoupled (SRB burnout)
             b.AddPartEvent(t + 50, 102222, 2, "parachuteSingle");      // ParachuteDeployed
 
-            // Vessel spawn: FleaRocket with Bob
+            // Vessel spawn: FleaRocket with Bob — lands ~2km east of pad
             b.WithVesselSnapshot(
                 VesselSnapshotBuilder.FleaRocket("Flea Flight", "Bob Kerman", pid: 22222222)
-                    .AsLanded(baseLat, baseLon + 0.0029, 77));
+                    .AsLanded(baseLat, baseLon + 0.0175, 77));
 
             return b;
         }
 
         internal static RecordingBuilder SuborbitalArc(double baseUT = 0)
         {
-            double t = baseUT + 240;
+            double t = baseUT + 120;
             var b = new RecordingBuilder("Suborbital Arc");
             double lat = -0.0972;
             double lon = -74.5575;
@@ -189,8 +197,9 @@ namespace Parsek.Tests
         internal static RecordingBuilder KscPadDestroyed(double baseUT = 0)
         {
             // Edge case: vessel destroyed near KSC pad. No vessel snapshot on purpose.
-            double t = baseUT + 250;
+            double t = baseUT + 150;
             var b = new RecordingBuilder("KSC Pad Destroyed");
+            b.WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW);
             double lat = -0.0972;
             double lon = -74.5576;
 
@@ -208,7 +217,7 @@ namespace Parsek.Tests
 
         internal static RecordingBuilder Orbit1(double baseUT = 0)
         {
-            double t = baseUT + 560;
+            double t = baseUT + 180;
             var b = new RecordingBuilder("Orbit-1");
             double lat = -0.0972;
             double lon = -74.5575;
@@ -239,11 +248,11 @@ namespace Parsek.Tests
                 lan: 90, argPe: 45, mna: 0, epoch: segStart,
                 body: "Kerbin");
 
-            // Multi-part vessel: command pod + fuel tank + engine
+            // Multi-part vessel: command pod + fuel tank + engine (Y-up positions)
             b.WithVesselSnapshot(
                 VesselSnapshotBuilder.CrewedShip("Orbit-1", "Bill Kerman", pid: 12345678)
-                    .AddPart("fuelTank")
-                    .AddPart("liquidEngine")
+                    .AddPart("fuelTank", position: "0,-0.75,0")
+                    .AddPart("liquidEngine", position: "0,-1.5,0")
                     .AsOrbiting(sma: 700000, ecc: 0.001, inc: 28.5,
                         lan: 90, argPe: 45, mna: 0, epoch: segStart));
 
@@ -253,8 +262,9 @@ namespace Parsek.Tests
         internal static RecordingBuilder CloseSpawnConflict(double baseUT = 0)
         {
             // Edge case: landed vessel very near KSC to exercise spawn offset logic.
-            double t = baseUT + 580;
+            double t = baseUT + 210;
             var b = new RecordingBuilder("Close Spawn Conflict");
+            b.WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW);
             double lat = -0.09718;
             double lon = -74.55755;
 
@@ -272,8 +282,9 @@ namespace Parsek.Tests
 
         internal static RecordingBuilder IslandProbe(double baseUT = 0)
         {
-            double t = baseUT + 3610;
+            double t = baseUT + 240;
             var b = new RecordingBuilder("Island Probe");
+            b.WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW);
             double startLat = -0.0972;
             double startLon = -74.5575;
             double endLat = -1.52;
@@ -1161,6 +1172,27 @@ namespace Parsek.Tests
             return string.Join(sep, lines);
         }
 
+        /// <summary>
+        /// Set the FLIGHTSTATE UT to a fixed value.
+        /// KSC sunrise ≈ phase 15180, noon ≈ 20580, sunset ≈ 25980 (mod 21600).
+        /// Default 17000 → mid-morning at KSC, good lighting.
+        /// Using a fixed value makes injection idempotent across re-runs.
+        /// </summary>
+        private static string SetUT(string content, double newUT)
+        {
+            var m = Regex.Match(content,
+                @"(FLIGHTSTATE\s*\{[^}]*?UT\s*=\s*)([0-9.eE+\-]+)",
+                RegexOptions.Singleline);
+            if (!m.Success) return content;
+
+            return content.Substring(0, m.Groups[2].Index)
+                 + newUT.ToString("R", CultureInfo.InvariantCulture)
+                 + content.Substring(m.Groups[2].Index + m.Groups[2].Length);
+        }
+
+        // KSC mid-morning UT (phase 17000 mod 21600 ≈ 30 min after sunrise)
+        private const double KscMorningUT = 17000;
+
         private static void CleanSaveStart(string savePath)
         {
             if (!File.Exists(savePath))
@@ -1171,6 +1203,7 @@ namespace Parsek.Tests
             content = RemoveSpawnedPidLines(content);
             content = RemoveNonVeteranCrewFromRoster(content);
             content = ResetVeteranCrewStatus(content);
+            content = SetUT(content, KscMorningUT);
             File.WriteAllText(savePath, content);
 
             // Clean stale recording sidecar files
@@ -1201,6 +1234,18 @@ namespace Parsek.Tests
             if (!File.Exists(targetPath))
                 return;
 
+            // Clean BOTH saves first so they share the same daytime UT,
+            // then read baseUT from the (now updated) target save.
+            if (cleanStart)
+            {
+                foreach (string file in targets)
+                {
+                    string sp = Path.Combine(saveDir, file);
+                    if (File.Exists(sp))
+                        CleanSaveStart(sp);
+                }
+            }
+
             double baseUT = ReadUTFromSave(targetPath);
 
             var writer = new ScenarioWriter().WithV3Format();
@@ -1218,9 +1263,6 @@ namespace Parsek.Tests
                 string savePath = Path.Combine(saveDir, file);
                 if (!File.Exists(savePath))
                     continue;
-
-                if (cleanStart)
-                    CleanSaveStart(savePath);
 
                 string tempPath = savePath + ".tmp";
                 try

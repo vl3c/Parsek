@@ -48,9 +48,18 @@ namespace Parsek.Tests.Generators
             var b = new VesselSnapshotBuilder();
             b.name = name;
             b.persistentId = pid;
-            b.AddPart("mk1pod.v2", crew);
-            b.AddPart("solidBooster.sm.v2");
-            b.AddPart("parachuteSingle");
+            // Real part positions from KSP save data (Y-up vessel-local coords)
+            b.AddPart("mk1pod.v2", crew);                                      // index 0: root
+            b.AddPart("solidBooster.sm.v2", position: "0,-1.163,0");           // index 1: below pod
+            b.AddPart("parachuteSingle", position: "0,0.657,0");               // index 2: above pod
+
+            // Attachment nodes for proper part tree
+            var parts = b.partsContainer.GetNodes("PART");
+            parts[0].AddValue("attN", "bottom, 1");
+            parts[0].AddValue("attN", "top, 2");
+            parts[1].AddValue("attN", "top, 0");
+            parts[2].AddValue("attN", "bottom, 0");
+
             return b;
         }
 
@@ -90,7 +99,8 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
-        public VesselSnapshotBuilder AddPart(string partName, string crew = null)
+        public VesselSnapshotBuilder AddPart(string partName, string crew = null,
+            string position = null, int parentIndex = 0)
         {
             var part = new ConfigNode("PART");
             uint uid = (uint)(100000 + partsContainer.CountNodes * 1111);
@@ -100,8 +110,8 @@ namespace Parsek.Tests.Generators
             part.AddValue("mid", uid.ToString(IC));
             part.AddValue("persistentId", uid.ToString(IC));
             part.AddValue("launchID", "1");
-            part.AddValue("parent", "0");
-            part.AddValue("position", "0,0,0");
+            part.AddValue("parent", parentIndex.ToString(IC));
+            part.AddValue("position", position ?? "0,0,0");
             part.AddValue("rotation", "0,0,0,1");
             part.AddValue("mirror", "1,1,1");
             part.AddValue("symMethod", "Radial");

@@ -17,9 +17,29 @@ namespace Parsek.Tests.Generators
         private string evaCrewName;
         private string recordingId;
 
+        // Default rotation for points that don't specify one explicitly
+        private float defaultRotX, defaultRotY, defaultRotZ;
+        private float defaultRotW = 1;
+        private bool hasDefaultRotation;
+
         public RecordingBuilder(string vesselName)
         {
             this.vesselName = vesselName;
+        }
+
+        /// <summary>
+        /// Set default rotation for all subsequent AddPoint calls that use
+        /// identity rotation (0,0,0,1). Points with explicit non-identity
+        /// rotation values are unaffected.
+        /// </summary>
+        public RecordingBuilder WithDefaultRotation(float x, float y, float z, float w)
+        {
+            defaultRotX = x;
+            defaultRotY = y;
+            defaultRotZ = z;
+            defaultRotW = w;
+            hasDefaultRotation = true;
+            return this;
         }
 
         public RecordingBuilder WithRecordingId(string id)
@@ -33,6 +53,15 @@ namespace Parsek.Tests.Generators
             float rotX = 0, float rotY = 0, float rotZ = 0, float rotW = 1,
             double funds = 0, float science = 0, float rep = 0)
         {
+            // Apply default rotation if caller left rotation at identity (0,0,0,1)
+            if (hasDefaultRotation && rotX == 0 && rotY == 0 && rotZ == 0 && rotW == 1)
+            {
+                rotX = defaultRotX;
+                rotY = defaultRotY;
+                rotZ = defaultRotZ;
+                rotW = defaultRotW;
+            }
+
             var ic = CultureInfo.InvariantCulture;
             var pt = new ConfigNode("POINT");
             pt.AddValue("ut", ut.ToString("R", ic));
