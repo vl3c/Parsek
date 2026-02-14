@@ -1,7 +1,9 @@
+using System;
 using System.Globalization;
 using System.IO;
 using System.Text.RegularExpressions;
 using Parsek.Tests.Generators;
+using UnityEngine;
 using Xunit;
 
 namespace Parsek.Tests
@@ -551,6 +553,273 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region v3 External File Tests
+
+        [Fact]
+        public void SerializeTrajectory_RoundTrip_PreservesData()
+        {
+            RecordingStore.SuppressLogging = true;
+            try
+            {
+                // Build a recording with points, orbit segments, and part events
+                var rec = new RecordingStore.Recording();
+                rec.RecordingId = "roundtrip_test";
+                rec.Points.Add(new TrajectoryPoint
+                {
+                    ut = 100.5, latitude = -0.0972, longitude = -74.5575, altitude = 77.3,
+                    rotation = new Quaternion(0.1f, 0.2f, 0.3f, 0.9f),
+                    velocity = new Vector3(10.5f, 20.3f, -5.7f),
+                    bodyName = "Kerbin", funds = 42000.5, science = 12.3f, reputation = 5.7f
+                });
+                rec.Points.Add(new TrajectoryPoint
+                {
+                    ut = 103.5, latitude = -0.0970, longitude = -74.5570, altitude = 150.0,
+                    rotation = new Quaternion(0.15f, 0.25f, 0.35f, 0.85f),
+                    velocity = new Vector3(15.0f, 25.0f, -3.0f),
+                    bodyName = "Kerbin", funds = 42000.5, science = 12.3f, reputation = 5.7f
+                });
+                rec.OrbitSegments.Add(new OrbitSegment
+                {
+                    startUT = 200, endUT = 500, inclination = 28.5, eccentricity = 0.001,
+                    semiMajorAxis = 700000, longitudeOfAscendingNode = 90,
+                    argumentOfPeriapsis = 45, meanAnomalyAtEpoch = 0, epoch = 200,
+                    bodyName = "Kerbin"
+                });
+                rec.PartEvents.Add(new PartEvent
+                {
+                    ut = 150, partPersistentId = 12345, eventType = PartEventType.Decoupled,
+                    partName = "solidBooster"
+                });
+
+                // Serialize to ConfigNode
+                var node = new ConfigNode("PARSEK_RECORDING");
+                node.AddValue("version", "3");
+                node.AddValue("recordingId", rec.RecordingId);
+                RecordingStore.SerializeTrajectoryInto(node, rec);
+
+                // Deserialize into a fresh recording
+                var rec2 = new RecordingStore.Recording();
+                RecordingStore.DeserializeTrajectoryFrom(node, rec2);
+
+                // Verify points
+                Assert.Equal(rec.Points.Count, rec2.Points.Count);
+                Assert.Equal(rec.Points[0].ut, rec2.Points[0].ut);
+                Assert.Equal(rec.Points[0].latitude, rec2.Points[0].latitude);
+                Assert.Equal(rec.Points[0].longitude, rec2.Points[0].longitude);
+                Assert.Equal(rec.Points[0].altitude, rec2.Points[0].altitude);
+                Assert.Equal(rec.Points[0].bodyName, rec2.Points[0].bodyName);
+                Assert.Equal(rec.Points[0].funds, rec2.Points[0].funds);
+                Assert.Equal((double)rec.Points[0].science, (double)rec2.Points[0].science, 3);
+                Assert.Equal((double)rec.Points[0].reputation, (double)rec2.Points[0].reputation, 3);
+                Assert.Equal(rec.Points[1].ut, rec2.Points[1].ut);
+
+                // Verify orbit segments
+                Assert.Equal(rec.OrbitSegments.Count, rec2.OrbitSegments.Count);
+                Assert.Equal(rec.OrbitSegments[0].startUT, rec2.OrbitSegments[0].startUT);
+                Assert.Equal(rec.OrbitSegments[0].semiMajorAxis, rec2.OrbitSegments[0].semiMajorAxis);
+                Assert.Equal(rec.OrbitSegments[0].bodyName, rec2.OrbitSegments[0].bodyName);
+
+                // Verify part events
+                Assert.Equal(rec.PartEvents.Count, rec2.PartEvents.Count);
+                Assert.Equal(rec.PartEvents[0].ut, rec2.PartEvents[0].ut);
+                Assert.Equal(rec.PartEvents[0].partPersistentId, rec2.PartEvents[0].partPersistentId);
+                Assert.Equal(rec.PartEvents[0].eventType, rec2.PartEvents[0].eventType);
+                Assert.Equal(rec.PartEvents[0].partName, rec2.PartEvents[0].partName);
+            }
+            finally
+            {
+                RecordingStore.SuppressLogging = false;
+            }
+        }
+
+        [Fact]
+        public void SerializeTrajectory_SaveToFile_WritesExpectedContent()
+        {
+            RecordingStore.SuppressLogging = true;
+            string tempDir = Path.Combine(Path.GetTempPath(), "parsek_test_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                // Build recording with data
+                var rec = new RecordingStore.Recording { RecordingId = "filetest" };
+                rec.Points.Add(new TrajectoryPoint
+                {
+                    ut = 500, latitude = 1.5, longitude = -74.0, altitude = 100,
+                    rotation = new Quaternion(0, 0, 0, 1), velocity = new Vector3(5, 10, 0),
+                    bodyName = "Kerbin", funds = 1000
+                });
+                rec.Points.Add(new TrajectoryPoint
+                {
+                    ut = 503, latitude = 1.6, longitude = -73.9, altitude = 200,
+                    rotation = new Quaternion(0, 0, 0, 1), velocity = new Vector3(5, 15, 0),
+                    bodyName = "Kerbin"
+                });
+
+                // Serialize to ConfigNode and save to file
+                var precNode = new ConfigNode("PARSEK_RECORDING");
+                precNode.AddValue("version", "3");
+                precNode.AddValue("recordingId", "filetest");
+                RecordingStore.SerializeTrajectoryInto(precNode, rec);
+
+                string precPath = Path.Combine(tempDir, "filetest.prec");
+                precNode.Save(precPath);
+
+                // Verify file exists and contains expected content
+                Assert.True(File.Exists(precPath), "Expected .prec file to be written");
+                string content = File.ReadAllText(precPath);
+                Assert.Contains("recordingId = filetest", content);
+                Assert.Contains("version = 3", content);
+                Assert.Contains("POINT", content);
+                Assert.Contains("ut = 500", content);
+                Assert.Contains("ut = 503", content);
+                Assert.Contains("body = Kerbin", content);
+
+                // Also save a vessel snapshot and verify
+                var vesselSnapshot = VesselSnapshotBuilder.ProbeShip("Test Probe", pid: 999).Build();
+                string vesselPath = Path.Combine(tempDir, "filetest_vessel.craft");
+                vesselSnapshot.Save(vesselPath);
+
+                Assert.True(File.Exists(vesselPath), "Expected _vessel.craft file to be written");
+                string vesselContent = File.ReadAllText(vesselPath);
+                Assert.Contains("name = Test Probe", vesselContent);
+            }
+            finally
+            {
+                RecordingStore.SuppressLogging = false;
+                Directory.Delete(tempDir, true);
+            }
+        }
+
+        [Fact]
+        public void RecordingBuilder_BuildV3Metadata_HasNoInlineData()
+        {
+            var builder = new RecordingBuilder("Test Vessel")
+                .WithRecordingId("abc123")
+                .AddPoint(100, 0, 0, 0)
+                .AddPoint(103, 0.1, 0.1, 100)
+                .AddOrbitSegment(200, 500)
+                .AddPartEvent(150, 12345, 0, "solidBooster")
+                .WithVesselSnapshot(VesselSnapshotBuilder.ProbeShip("Test"));
+
+            var v3Node = builder.BuildV3Metadata();
+
+            // Has metadata
+            Assert.Equal("Test Vessel", v3Node.GetValue("vesselName"));
+            Assert.Equal("abc123", v3Node.GetValue("recordingId"));
+            Assert.Equal("3", v3Node.GetValue("recordingFormatVersion"));
+            Assert.Equal("2", v3Node.GetValue("pointCount"));
+
+            // No inline bulk data
+            Assert.Empty(v3Node.GetNodes("POINT"));
+            Assert.Empty(v3Node.GetNodes("ORBIT_SEGMENT"));
+            Assert.Empty(v3Node.GetNodes("PART_EVENT"));
+            Assert.Null(v3Node.GetNode("VESSEL_SNAPSHOT"));
+            Assert.Null(v3Node.GetNode("GHOST_VISUAL_SNAPSHOT"));
+        }
+
+        [Fact]
+        public void RecordingBuilder_BuildTrajectoryNode_HasBulkData()
+        {
+            var builder = new RecordingBuilder("Test Vessel")
+                .WithRecordingId("abc123")
+                .AddPoint(100, 0, 0, 0)
+                .AddPoint(103, 0.1, 0.1, 100)
+                .AddOrbitSegment(200, 500)
+                .AddPartEvent(150, 12345, 0, "solidBooster");
+
+            var trajNode = builder.BuildTrajectoryNode();
+
+            Assert.Equal("PARSEK_RECORDING", trajNode.name);
+            Assert.Equal("3", trajNode.GetValue("version"));
+            Assert.Equal("abc123", trajNode.GetValue("recordingId"));
+            Assert.Equal(2, trajNode.GetNodes("POINT").Length);
+            Assert.Single(trajNode.GetNodes("ORBIT_SEGMENT"));
+            Assert.Single(trajNode.GetNodes("PART_EVENT"));
+        }
+
+        [Fact]
+        public void ScenarioWriter_V3Format_ProducesMetadataOnlyNodes()
+        {
+            var writer = new ScenarioWriter().WithV3Format();
+            writer.AddRecording(KscHopper());
+
+            var scenarioNode = writer.BuildScenarioNode();
+            var recNode = scenarioNode.GetNodes("RECORDING")[0];
+
+            Assert.Equal("3", recNode.GetValue("recordingFormatVersion"));
+            Assert.Equal("KSC Hopper", recNode.GetValue("vesselName"));
+            Assert.Empty(recNode.GetNodes("POINT"));
+            Assert.Null(recNode.GetNode("VESSEL_SNAPSHOT"));
+        }
+
+        [Fact]
+        public void ScenarioWriter_V3Format_WritesSidecarFiles()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "parsek_sidecar_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                var writer = new ScenarioWriter().WithV3Format();
+                var hopper = KscHopper();
+                writer.AddRecording(hopper);
+
+                writer.WriteSidecarFiles(tempDir);
+
+                string id = hopper.GetRecordingId();
+                string recDir = Path.Combine(tempDir, "Parsek", "Recordings");
+
+                // .prec file exists and has correct content
+                string precPath = Path.Combine(recDir, $"{id}.prec");
+                Assert.True(File.Exists(precPath), $"Expected .prec file at {precPath}");
+                string precContent = File.ReadAllText(precPath);
+                Assert.Contains($"recordingId = {id}", precContent);
+                Assert.Contains("POINT", precContent);
+
+                // _vessel.craft file exists and has vessel data
+                string vesselPath = Path.Combine(recDir, $"{id}_vessel.craft");
+                Assert.True(File.Exists(vesselPath), $"Expected _vessel.craft at {vesselPath}");
+                string vesselContent = File.ReadAllText(vesselPath);
+                Assert.Contains("name = KSC Hopper", vesselContent);
+
+                // _ghost.craft file exists (same as vessel for hopper)
+                string ghostPath = Path.Combine(recDir, $"{id}_ghost.craft");
+                Assert.True(File.Exists(ghostPath), $"Expected _ghost.craft at {ghostPath}");
+            }
+            finally
+            {
+                Directory.Delete(tempDir, true);
+            }
+        }
+
+        [Fact]
+        public void RecordingPaths_ValidateRecordingId_RejectsInvalidIds()
+        {
+            Assert.False(RecordingPaths.ValidateRecordingId(null));
+            Assert.False(RecordingPaths.ValidateRecordingId(""));
+            Assert.False(RecordingPaths.ValidateRecordingId("abc/def"));
+            Assert.False(RecordingPaths.ValidateRecordingId("abc\\def"));
+            Assert.False(RecordingPaths.ValidateRecordingId("abc..def"));
+            Assert.True(RecordingPaths.ValidateRecordingId("abc123def"));
+            Assert.True(RecordingPaths.ValidateRecordingId("a1b2c3d4e5f6"));
+        }
+
+        [Fact]
+        public void RecordingPaths_BuildPaths_CorrectFormat()
+        {
+            string id = "testid123";
+            Assert.Contains("testid123.prec", RecordingPaths.BuildTrajectoryRelativePath(id));
+            Assert.Contains("testid123_vessel.craft", RecordingPaths.BuildVesselSnapshotRelativePath(id));
+            Assert.Contains("testid123_ghost.craft", RecordingPaths.BuildGhostSnapshotRelativePath(id));
+            Assert.Contains("testid123.pcrf", RecordingPaths.BuildGhostGeometryRelativePath(id));
+
+            // All paths are under Parsek/Recordings/
+            Assert.StartsWith("Parsek", RecordingPaths.BuildTrajectoryRelativePath(id));
+            Assert.StartsWith("Parsek", RecordingPaths.BuildVesselSnapshotRelativePath(id));
+            Assert.StartsWith("Parsek", RecordingPaths.BuildGhostSnapshotRelativePath(id));
+        }
+
+        #endregion
+
         #region Save File Injection (manual — requires save file)
 
         /// <summary>
@@ -768,7 +1037,7 @@ namespace Parsek.Tests
 
             double baseUT = ReadUTFromSave(targetPath);
 
-            var writer = new ScenarioWriter();
+            var writer = new ScenarioWriter().WithV3Format();
             writer.AddRecording(KscHopper(baseUT));
             writer.AddRecording(SuborbitalArc(baseUT));
             writer.AddRecording(Orbit1(baseUT));
@@ -804,6 +1073,12 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Close Spawn Conflict", content);
                     Assert.Contains("FLIGHTSTATE", content);
 
+                    // v3: no inline POINT data in .sfs
+                    Assert.Contains("recordingFormatVersion = 3", content);
+                    Assert.DoesNotContain("POINT", content.Substring(
+                        content.IndexOf("name = ParsekScenario"),
+                        content.IndexOf("FLIGHTSTATE") - content.IndexOf("name = ParsekScenario")));
+
                     File.Copy(tempPath, savePath, overwrite: true);
                 }
                 finally
@@ -811,6 +1086,19 @@ namespace Parsek.Tests
                     if (File.Exists(tempPath))
                         File.Delete(tempPath);
                 }
+            }
+
+            // Verify sidecar files were written alongside first target
+            string firstSavePath = Path.Combine(saveDir, targets[0]);
+            if (File.Exists(firstSavePath))
+            {
+                string recordingsDir = Path.Combine(saveDir, "Parsek", "Recordings");
+                Assert.True(Directory.Exists(recordingsDir),
+                    $"Expected Parsek/Recordings directory at {recordingsDir}");
+
+                string[] precFiles = Directory.GetFiles(recordingsDir, "*.prec");
+                Assert.True(precFiles.Length >= 7,
+                    $"Expected at least 7 .prec files (one per recording with points), found {precFiles.Length}");
             }
         }
 

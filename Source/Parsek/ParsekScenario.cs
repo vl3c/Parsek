@@ -37,59 +37,15 @@ namespace Parsek
             {
                 var rec = recordings[r];
                 ConfigNode recNode = node.AddNode("RECORDING");
+
+                // Write bulk data to external files
+                rec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+                if (!RecordingStore.SaveRecordingFiles(rec))
+                    Debug.Log($"[Parsek Scenario] WARNING: File write failed for '{rec.VesselName}'");
+
                 SaveRecordingMetadata(recNode, rec);
                 recNode.AddValue("vesselName", rec.VesselName);
                 recNode.AddValue("pointCount", rec.Points.Count);
-
-                for (int i = 0; i < rec.Points.Count; i++)
-                {
-                    var pt = rec.Points[i];
-                    ConfigNode ptNode = recNode.AddNode("POINT");
-                    ptNode.AddValue("ut", pt.ut.ToString("R"));
-                    ptNode.AddValue("lat", pt.latitude.ToString("R"));
-                    ptNode.AddValue("lon", pt.longitude.ToString("R"));
-                    ptNode.AddValue("alt", pt.altitude.ToString("R"));
-                    ptNode.AddValue("rotX", pt.rotation.x.ToString("R"));
-                    ptNode.AddValue("rotY", pt.rotation.y.ToString("R"));
-                    ptNode.AddValue("rotZ", pt.rotation.z.ToString("R"));
-                    ptNode.AddValue("rotW", pt.rotation.w.ToString("R"));
-                    ptNode.AddValue("body", pt.bodyName);
-                    ptNode.AddValue("velX", pt.velocity.x.ToString("R"));
-                    ptNode.AddValue("velY", pt.velocity.y.ToString("R"));
-                    ptNode.AddValue("velZ", pt.velocity.z.ToString("R"));
-                    ptNode.AddValue("funds", pt.funds.ToString("R"));
-                    ptNode.AddValue("science", pt.science.ToString("R"));
-                    ptNode.AddValue("rep", pt.reputation.ToString("R"));
-                }
-
-                // Persist orbit segments
-                var ic = CultureInfo.InvariantCulture;
-                for (int s = 0; s < rec.OrbitSegments.Count; s++)
-                {
-                    var seg = rec.OrbitSegments[s];
-                    ConfigNode segNode = recNode.AddNode("ORBIT_SEGMENT");
-                    segNode.AddValue("startUT", seg.startUT.ToString("R", ic));
-                    segNode.AddValue("endUT", seg.endUT.ToString("R", ic));
-                    segNode.AddValue("inc", seg.inclination.ToString("R", ic));
-                    segNode.AddValue("ecc", seg.eccentricity.ToString("R", ic));
-                    segNode.AddValue("sma", seg.semiMajorAxis.ToString("R", ic));
-                    segNode.AddValue("lan", seg.longitudeOfAscendingNode.ToString("R", ic));
-                    segNode.AddValue("argPe", seg.argumentOfPeriapsis.ToString("R", ic));
-                    segNode.AddValue("mna", seg.meanAnomalyAtEpoch.ToString("R", ic));
-                    segNode.AddValue("epoch", seg.epoch.ToString("R", ic));
-                    segNode.AddValue("body", seg.bodyName);
-                }
-
-                // Persist part events
-                for (int pe = 0; pe < rec.PartEvents.Count; pe++)
-                {
-                    var evt = rec.PartEvents[pe];
-                    ConfigNode evtNode = recNode.AddNode("PART_EVENT");
-                    evtNode.AddValue("ut", evt.ut.ToString("R", ic));
-                    evtNode.AddValue("pid", evt.partPersistentId.ToString(ic));
-                    evtNode.AddValue("type", ((int)evt.eventType).ToString(ic));
-                    evtNode.AddValue("part", evt.partName ?? "");
-                }
 
                 // Persist EVA child recording linkage
                 if (!string.IsNullOrEmpty(rec.ParentRecordingId))
@@ -97,13 +53,9 @@ namespace Parsek
                 if (!string.IsNullOrEmpty(rec.EvaCrewName))
                     recNode.AddValue("evaCrewName", rec.EvaCrewName);
 
-                SaveSnapshotNodes(recNode, rec);
-
                 // Persist spawned vessel pid so we can detect duplicates after scene changes
                 if (rec.SpawnedVesselPersistentId != 0)
-                {
                     recNode.AddValue("spawnedPid", rec.SpawnedVesselPersistentId);
-                }
 
                 if (rec.VesselDestroyed)
                     recNode.AddValue("vesselDestroyed", rec.VesselDestroyed.ToString());
@@ -193,115 +145,12 @@ namespace Parsek
                 };
                 LoadRecordingMetadata(recNode, rec);
 
-                ConfigNode[] ptNodes = recNode.GetNodes("POINT");
-                for (int i = 0; i < ptNodes.Length; i++)
-                {
-                    var ptNode = ptNodes[i];
-                    var pt = new TrajectoryPoint();
-
-                    var inv = NumberStyles.Float;
-                    var ic = CultureInfo.InvariantCulture;
-
-                    double.TryParse(ptNode.GetValue("ut"), inv, ic, out pt.ut);
-                    double.TryParse(ptNode.GetValue("lat"), inv, ic, out pt.latitude);
-                    double.TryParse(ptNode.GetValue("lon"), inv, ic, out pt.longitude);
-                    double.TryParse(ptNode.GetValue("alt"), inv, ic, out pt.altitude);
-
-                    float rx, ry, rz, rw;
-                    float.TryParse(ptNode.GetValue("rotX"), inv, ic, out rx);
-                    float.TryParse(ptNode.GetValue("rotY"), inv, ic, out ry);
-                    float.TryParse(ptNode.GetValue("rotZ"), inv, ic, out rz);
-                    float.TryParse(ptNode.GetValue("rotW"), inv, ic, out rw);
-                    pt.rotation = new Quaternion(rx, ry, rz, rw);
-
-                    pt.bodyName = ptNode.GetValue("body") ?? "Kerbin";
-
-                    float velX, velY, velZ;
-                    float.TryParse(ptNode.GetValue("velX"), inv, ic, out velX);
-                    float.TryParse(ptNode.GetValue("velY"), inv, ic, out velY);
-                    float.TryParse(ptNode.GetValue("velZ"), inv, ic, out velZ);
-                    pt.velocity = new Vector3(velX, velY, velZ);
-
-                    double funds;
-                    double.TryParse(ptNode.GetValue("funds"), inv, ic, out funds);
-                    pt.funds = funds;
-
-                    float science, rep;
-                    float.TryParse(ptNode.GetValue("science"), inv, ic, out science);
-                    float.TryParse(ptNode.GetValue("rep"), inv, ic, out rep);
-                    pt.science = science;
-                    pt.reputation = rep;
-
-                    rec.Points.Add(pt);
-                }
-
-                // Restore orbit segments
-                ConfigNode[] segNodes = recNode.GetNodes("ORBIT_SEGMENT");
-                for (int s = 0; s < segNodes.Length; s++)
-                {
-                    var segNode = segNodes[s];
-                    var seg = new OrbitSegment();
-                    var inv = NumberStyles.Float;
-                    var ic = CultureInfo.InvariantCulture;
-
-                    double.TryParse(segNode.GetValue("startUT"), inv, ic, out seg.startUT);
-                    double.TryParse(segNode.GetValue("endUT"), inv, ic, out seg.endUT);
-                    double.TryParse(segNode.GetValue("inc"), inv, ic, out seg.inclination);
-                    double.TryParse(segNode.GetValue("ecc"), inv, ic, out seg.eccentricity);
-                    double.TryParse(segNode.GetValue("sma"), inv, ic, out seg.semiMajorAxis);
-                    double.TryParse(segNode.GetValue("lan"), inv, ic, out seg.longitudeOfAscendingNode);
-                    double.TryParse(segNode.GetValue("argPe"), inv, ic, out seg.argumentOfPeriapsis);
-                    double.TryParse(segNode.GetValue("mna"), inv, ic, out seg.meanAnomalyAtEpoch);
-                    double.TryParse(segNode.GetValue("epoch"), inv, ic, out seg.epoch);
-                    seg.bodyName = segNode.GetValue("body") ?? "Kerbin";
-
-                    rec.OrbitSegments.Add(seg);
-                }
-
-                // Restore part events
-                ConfigNode[] peNodes = recNode.GetNodes("PART_EVENT");
-                for (int pe = 0; pe < peNodes.Length; pe++)
-                {
-                    var peNode = peNodes[pe];
-                    var evt = new PartEvent();
-                    var inv = NumberStyles.Float;
-                    var icPe = CultureInfo.InvariantCulture;
-
-                    double.TryParse(peNode.GetValue("ut"), inv, icPe, out evt.ut);
-                    uint pid;
-                    if (uint.TryParse(peNode.GetValue("pid"), NumberStyles.Integer, icPe, out pid))
-                        evt.partPersistentId = pid;
-                    int typeInt;
-                    if (int.TryParse(peNode.GetValue("type"), NumberStyles.Integer, icPe, out typeInt))
-                        evt.eventType = (PartEventType)typeInt;
-                    evt.partName = peNode.GetValue("part") ?? "";
-
-                    rec.PartEvents.Add(evt);
-                }
+                // Load bulk data from external files
+                RecordingStore.LoadRecordingFiles(rec);
 
                 // Restore EVA child recording linkage
                 rec.ParentRecordingId = recNode.GetValue("parentRecordingId");
                 rec.EvaCrewName = recNode.GetValue("evaCrewName");
-
-                // Restore vessel snapshot if saved
-                ConfigNode snapshotNode = recNode.GetNode("VESSEL_SNAPSHOT");
-                if (snapshotNode != null)
-                {
-                    rec.VesselSnapshot = snapshotNode;
-                }
-
-                ConfigNode ghostSnapshotNode = recNode.GetNode("GHOST_VISUAL_SNAPSHOT");
-                if (ghostSnapshotNode != null)
-                {
-                    rec.GhostVisualSnapshot = ghostSnapshotNode;
-                }
-                else
-                {
-                    // Backward compatibility: old saves only have VESSEL_SNAPSHOT.
-                    rec.GhostVisualSnapshot = rec.VesselSnapshot != null
-                        ? rec.VesselSnapshot.CreateCopy()
-                        : null;
-                }
 
                 // Restore spawned vessel pid for duplicate spawn detection
                 string pidStr = recNode.GetValue("spawnedPid");
@@ -339,17 +188,16 @@ namespace Parsek
                         rec.LastAppliedResourceIndex = resIdx;
                 }
 
-                if (rec.Points.Count > 0)
-                {
-                    recordings.Add(rec);
-                    Debug.Log($"[Parsek Scenario] Loaded recording: {rec.VesselName}, " +
-                        $"{rec.Points.Count} points, {rec.OrbitSegments.Count} orbit segments, " +
-                        $"UT {rec.StartUT:F0}-{rec.EndUT:F0}" +
-                        ((rec.GhostVisualSnapshot != null || rec.VesselSnapshot != null) ? " (has vessel snapshot)" : "") +
-                        (!string.IsNullOrEmpty(rec.GhostGeometryRelativePath)
-                            ? $" (ghost geometry: {(rec.GhostGeometryAvailable ? "ready" : "fallback")})"
-                            : ""));
-                }
+                // Always add — even degraded recordings (missing .prec → 0 points)
+                // must occupy their slot to preserve index-based revert mapping.
+                recordings.Add(rec);
+                Debug.Log($"[Parsek Scenario] Loaded recording: {rec.VesselName}, " +
+                    $"{rec.Points.Count} points, {rec.OrbitSegments.Count} orbit segments" +
+                    (rec.Points.Count > 0 ? $", UT {rec.StartUT:F0}-{rec.EndUT:F0}" : ", degraded (0 points)") +
+                    ((rec.GhostVisualSnapshot != null || rec.VesselSnapshot != null) ? " (has vessel snapshot)" : "") +
+                    (!string.IsNullOrEmpty(rec.GhostGeometryRelativePath)
+                        ? $" (ghost geometry: {(rec.GhostGeometryAvailable ? "ready" : "fallback")})"
+                        : ""));
             }
 
             ReserveSnapshotCrew();
@@ -429,21 +277,6 @@ namespace Parsek
             recNode.AddValue("ghostGeometryAvailable", rec.GhostGeometryAvailable);
             if (!string.IsNullOrEmpty(rec.GhostGeometryCaptureError))
                 recNode.AddValue("ghostGeometryError", rec.GhostGeometryCaptureError);
-        }
-
-        internal static void SaveSnapshotNodes(ConfigNode recNode, RecordingStore.Recording rec)
-        {
-            if (recNode == null || rec == null) return;
-
-            if (rec.VesselSnapshot != null)
-            {
-                recNode.AddNode("VESSEL_SNAPSHOT", rec.VesselSnapshot.CreateCopy());
-            }
-
-            if (rec.GhostVisualSnapshot != null)
-            {
-                recNode.AddNode("GHOST_VISUAL_SNAPSHOT", rec.GhostVisualSnapshot.CreateCopy());
-            }
         }
 
         /// <summary>

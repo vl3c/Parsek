@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using UnityEngine;
 
 namespace Parsek
 {
@@ -10,7 +13,7 @@ namespace Parsek
     /// </summary>
     public static class RecordingStore
     {
-        public const int CurrentRecordingFormatVersion = 2;
+        public const int CurrentRecordingFormatVersion = 3;
         public const int CurrentGhostGeometryVersion = 1;
 
         // When true, suppresses Debug.Log calls (for unit testing outside Unity)
@@ -179,7 +182,7 @@ namespace Parsek
         {
             if (pendingRecording == null) return;
 
-            DeleteGhostGeometryArtifact(pendingRecording);
+            DeleteRecordingFiles(pendingRecording);
             Log($"[Parsek] Discarded pending recording from {pendingRecording.VesselName}");
             pendingRecording = null;
         }
@@ -187,14 +190,14 @@ namespace Parsek
         public static void ClearCommitted()
         {
             for (int i = 0; i < committedRecordings.Count; i++)
-                DeleteGhostGeometryArtifact(committedRecordings[i]);
+                DeleteRecordingFiles(committedRecordings[i]);
             committedRecordings.Clear();
         }
 
         public static void Clear()
         {
             if (pendingRecording != null)
-                DeleteGhostGeometryArtifact(pendingRecording);
+                DeleteRecordingFiles(pendingRecording);
             pendingRecording = null;
             ClearCommitted();
             Log("[Parsek] All recordings cleared");
@@ -209,23 +212,295 @@ namespace Parsek
             committedRecordings.Clear();
         }
 
-        internal static bool DeleteGhostGeometryArtifact(Recording rec)
+        internal static void DeleteRecordingFiles(Recording rec)
         {
-            if (rec == null) return false;
-            if (string.IsNullOrEmpty(rec.GhostGeometryRelativePath)) return false;
+            if (rec == null) return;
+            if (!RecordingPaths.ValidateRecordingId(rec.RecordingId)) return;
+
+            DeleteFileIfExists(RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
+            DeleteFileIfExists(RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
+            DeleteFileIfExists(RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
+            DeleteFileIfExists(RecordingPaths.BuildGhostGeometryRelativePath(rec.RecordingId));
+        }
+
+        private static void DeleteFileIfExists(string relativePath)
+        {
+            try
+            {
+                string absolutePath = RecordingPaths.ResolveSaveScopedPath(relativePath);
+                if (!string.IsNullOrEmpty(absolutePath) && File.Exists(absolutePath))
+                    File.Delete(absolutePath);
+            }
+            catch { }
+        }
+
+        #region Trajectory Serialization
+
+        internal static void SerializeTrajectoryInto(ConfigNode targetNode, Recording rec)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            for (int i = 0; i < rec.Points.Count; i++)
+            {
+                var pt = rec.Points[i];
+                ConfigNode ptNode = targetNode.AddNode("POINT");
+                ptNode.AddValue("ut", pt.ut.ToString("R", ic));
+                ptNode.AddValue("lat", pt.latitude.ToString("R", ic));
+                ptNode.AddValue("lon", pt.longitude.ToString("R", ic));
+                ptNode.AddValue("alt", pt.altitude.ToString("R", ic));
+                ptNode.AddValue("rotX", pt.rotation.x.ToString("R", ic));
+                ptNode.AddValue("rotY", pt.rotation.y.ToString("R", ic));
+                ptNode.AddValue("rotZ", pt.rotation.z.ToString("R", ic));
+                ptNode.AddValue("rotW", pt.rotation.w.ToString("R", ic));
+                ptNode.AddValue("body", pt.bodyName);
+                ptNode.AddValue("velX", pt.velocity.x.ToString("R", ic));
+                ptNode.AddValue("velY", pt.velocity.y.ToString("R", ic));
+                ptNode.AddValue("velZ", pt.velocity.z.ToString("R", ic));
+                ptNode.AddValue("funds", pt.funds.ToString("R", ic));
+                ptNode.AddValue("science", pt.science.ToString("R", ic));
+                ptNode.AddValue("rep", pt.reputation.ToString("R", ic));
+            }
+
+            for (int s = 0; s < rec.OrbitSegments.Count; s++)
+            {
+                var seg = rec.OrbitSegments[s];
+                ConfigNode segNode = targetNode.AddNode("ORBIT_SEGMENT");
+                segNode.AddValue("startUT", seg.startUT.ToString("R", ic));
+                segNode.AddValue("endUT", seg.endUT.ToString("R", ic));
+                segNode.AddValue("inc", seg.inclination.ToString("R", ic));
+                segNode.AddValue("ecc", seg.eccentricity.ToString("R", ic));
+                segNode.AddValue("sma", seg.semiMajorAxis.ToString("R", ic));
+                segNode.AddValue("lan", seg.longitudeOfAscendingNode.ToString("R", ic));
+                segNode.AddValue("argPe", seg.argumentOfPeriapsis.ToString("R", ic));
+                segNode.AddValue("mna", seg.meanAnomalyAtEpoch.ToString("R", ic));
+                segNode.AddValue("epoch", seg.epoch.ToString("R", ic));
+                segNode.AddValue("body", seg.bodyName);
+            }
+
+            for (int pe = 0; pe < rec.PartEvents.Count; pe++)
+            {
+                var evt = rec.PartEvents[pe];
+                ConfigNode evtNode = targetNode.AddNode("PART_EVENT");
+                evtNode.AddValue("ut", evt.ut.ToString("R", ic));
+                evtNode.AddValue("pid", evt.partPersistentId.ToString(ic));
+                evtNode.AddValue("type", ((int)evt.eventType).ToString(ic));
+                evtNode.AddValue("part", evt.partName ?? "");
+            }
+        }
+
+        internal static void DeserializeTrajectoryFrom(ConfigNode sourceNode, Recording rec)
+        {
+            var inv = NumberStyles.Float;
+            var ic = CultureInfo.InvariantCulture;
+
+            ConfigNode[] ptNodes = sourceNode.GetNodes("POINT");
+            for (int i = 0; i < ptNodes.Length; i++)
+            {
+                var ptNode = ptNodes[i];
+                var pt = new TrajectoryPoint();
+
+                double.TryParse(ptNode.GetValue("ut"), inv, ic, out pt.ut);
+                double.TryParse(ptNode.GetValue("lat"), inv, ic, out pt.latitude);
+                double.TryParse(ptNode.GetValue("lon"), inv, ic, out pt.longitude);
+                double.TryParse(ptNode.GetValue("alt"), inv, ic, out pt.altitude);
+
+                float rx, ry, rz, rw;
+                float.TryParse(ptNode.GetValue("rotX"), inv, ic, out rx);
+                float.TryParse(ptNode.GetValue("rotY"), inv, ic, out ry);
+                float.TryParse(ptNode.GetValue("rotZ"), inv, ic, out rz);
+                float.TryParse(ptNode.GetValue("rotW"), inv, ic, out rw);
+                pt.rotation = new Quaternion(rx, ry, rz, rw);
+
+                pt.bodyName = ptNode.GetValue("body") ?? "Kerbin";
+
+                float velX, velY, velZ;
+                float.TryParse(ptNode.GetValue("velX"), inv, ic, out velX);
+                float.TryParse(ptNode.GetValue("velY"), inv, ic, out velY);
+                float.TryParse(ptNode.GetValue("velZ"), inv, ic, out velZ);
+                pt.velocity = new Vector3(velX, velY, velZ);
+
+                double funds;
+                double.TryParse(ptNode.GetValue("funds"), inv, ic, out funds);
+                pt.funds = funds;
+
+                float science, rep;
+                float.TryParse(ptNode.GetValue("science"), inv, ic, out science);
+                float.TryParse(ptNode.GetValue("rep"), inv, ic, out rep);
+                pt.science = science;
+                pt.reputation = rep;
+
+                rec.Points.Add(pt);
+            }
+
+            ConfigNode[] segNodes = sourceNode.GetNodes("ORBIT_SEGMENT");
+            for (int s = 0; s < segNodes.Length; s++)
+            {
+                var segNode = segNodes[s];
+                var seg = new OrbitSegment();
+
+                double.TryParse(segNode.GetValue("startUT"), inv, ic, out seg.startUT);
+                double.TryParse(segNode.GetValue("endUT"), inv, ic, out seg.endUT);
+                double.TryParse(segNode.GetValue("inc"), inv, ic, out seg.inclination);
+                double.TryParse(segNode.GetValue("ecc"), inv, ic, out seg.eccentricity);
+                double.TryParse(segNode.GetValue("sma"), inv, ic, out seg.semiMajorAxis);
+                double.TryParse(segNode.GetValue("lan"), inv, ic, out seg.longitudeOfAscendingNode);
+                double.TryParse(segNode.GetValue("argPe"), inv, ic, out seg.argumentOfPeriapsis);
+                double.TryParse(segNode.GetValue("mna"), inv, ic, out seg.meanAnomalyAtEpoch);
+                double.TryParse(segNode.GetValue("epoch"), inv, ic, out seg.epoch);
+                seg.bodyName = segNode.GetValue("body") ?? "Kerbin";
+
+                rec.OrbitSegments.Add(seg);
+            }
+
+            ConfigNode[] peNodes = sourceNode.GetNodes("PART_EVENT");
+            for (int pe = 0; pe < peNodes.Length; pe++)
+            {
+                var peNode = peNodes[pe];
+                var evt = new PartEvent();
+
+                double.TryParse(peNode.GetValue("ut"), inv, ic, out evt.ut);
+                uint pid;
+                if (uint.TryParse(peNode.GetValue("pid"), NumberStyles.Integer, ic, out pid))
+                    evt.partPersistentId = pid;
+                int typeInt;
+                if (int.TryParse(peNode.GetValue("type"), NumberStyles.Integer, ic, out typeInt))
+                    evt.eventType = (PartEventType)typeInt;
+                evt.partName = peNode.GetValue("part") ?? "";
+
+                rec.PartEvents.Add(evt);
+            }
+        }
+
+        #endregion
+
+        #region Recording File I/O
+
+        internal static bool SaveRecordingFiles(Recording rec)
+        {
+            if (rec == null || !RecordingPaths.ValidateRecordingId(rec.RecordingId))
+                return false;
 
             try
             {
-                string absolutePath = RecordingPaths.ResolveSaveScopedPath(rec.GhostGeometryRelativePath);
-                if (string.IsNullOrEmpty(absolutePath)) return false;
-                if (!System.IO.File.Exists(absolutePath)) return false;
-                System.IO.File.Delete(absolutePath);
+                string dir = RecordingPaths.EnsureRecordingsDirectory();
+                if (dir == null) return false;
+
+                // Save .prec trajectory file
+                var precNode = new ConfigNode("PARSEK_RECORDING");
+                precNode.AddValue("version", CurrentRecordingFormatVersion);
+                precNode.AddValue("recordingId", rec.RecordingId);
+                SerializeTrajectoryInto(precNode, rec);
+
+                string precPath = RecordingPaths.ResolveSaveScopedPath(
+                    RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
+                SafeWriteConfigNode(precNode, precPath);
+
+                // Save _vessel.craft (always rewrite — snapshot can be mutated by spawn offset)
+                string vesselPath = RecordingPaths.ResolveSaveScopedPath(
+                    RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
+                if (rec.VesselSnapshot != null)
+                {
+                    SafeWriteConfigNode(rec.VesselSnapshot, vesselPath);
+                }
+                else if (File.Exists(vesselPath))
+                {
+                    File.Delete(vesselPath);
+                }
+
+                // Save _ghost.craft (write once — immutable after creation)
+                if (rec.GhostVisualSnapshot != null)
+                {
+                    string ghostPath = RecordingPaths.ResolveSaveScopedPath(
+                        RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
+                    if (!File.Exists(ghostPath))
+                        SafeWriteConfigNode(rec.GhostVisualSnapshot, ghostPath);
+                }
+
                 return true;
             }
-            catch
+            catch (Exception ex)
             {
+                Log($"[Parsek] Failed to save recording files for {rec.RecordingId}: {ex.Message}");
                 return false;
             }
         }
+
+        internal static bool LoadRecordingFiles(Recording rec)
+        {
+            if (rec == null || !RecordingPaths.ValidateRecordingId(rec.RecordingId))
+                return false;
+
+            try
+            {
+                // Load .prec trajectory file
+                // ConfigNode.Save writes the node's contents (values + children),
+                // and ConfigNode.Load returns a node containing those contents directly.
+                string precPath = RecordingPaths.ResolveSaveScopedPath(
+                    RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
+                if (string.IsNullOrEmpty(precPath) || !File.Exists(precPath))
+                {
+                    Log($"[Parsek] Trajectory file missing for {rec.RecordingId} — recording degraded (0 points)");
+                    return false;
+                }
+
+                var precNode = ConfigNode.Load(precPath);
+                if (precNode == null)
+                {
+                    Log($"[Parsek] Invalid trajectory file for {rec.RecordingId} — failed to parse");
+                    return false;
+                }
+
+                // Validate recordingId inside file matches
+                string fileId = precNode.GetValue("recordingId");
+                if (fileId != null && fileId != rec.RecordingId)
+                {
+                    Log($"[Parsek] Recording ID mismatch in {rec.RecordingId}.prec: file says '{fileId}' — skipping");
+                    return false;
+                }
+
+                DeserializeTrajectoryFrom(precNode, rec);
+
+                // Load _vessel.craft — ConfigNode.Load returns the snapshot directly
+                string vesselPath = RecordingPaths.ResolveSaveScopedPath(
+                    RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
+                if (!string.IsNullOrEmpty(vesselPath) && File.Exists(vesselPath))
+                {
+                    var vesselNode = ConfigNode.Load(vesselPath);
+                    if (vesselNode != null)
+                        rec.VesselSnapshot = vesselNode;
+                }
+
+                // Load _ghost.craft
+                string ghostPath = RecordingPaths.ResolveSaveScopedPath(
+                    RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
+                if (!string.IsNullOrEmpty(ghostPath) && File.Exists(ghostPath))
+                {
+                    var ghostNode = ConfigNode.Load(ghostPath);
+                    if (ghostNode != null)
+                        rec.GhostVisualSnapshot = ghostNode;
+                }
+
+                // Backward compat: if no ghost snapshot, fall back to vessel snapshot
+                if (rec.GhostVisualSnapshot == null && rec.VesselSnapshot != null)
+                    rec.GhostVisualSnapshot = rec.VesselSnapshot.CreateCopy();
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log($"[Parsek] Failed to load recording files for {rec.RecordingId}: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static void SafeWriteConfigNode(ConfigNode node, string path)
+        {
+            string tmpPath = path + ".tmp";
+            node.Save(tmpPath);
+            if (File.Exists(path))
+                File.Delete(path);
+            File.Move(tmpPath, path);
+        }
+
+        #endregion
     }
 }

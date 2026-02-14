@@ -8,8 +8,10 @@ namespace Parsek.Tests.Generators
     public class ScenarioWriter
     {
         private readonly List<ConfigNode> recordings = new List<ConfigNode>();
+        private readonly List<RecordingBuilder> v3Builders = new List<RecordingBuilder>();
         private readonly List<(string original, string replacement)> crewReplacements
             = new List<(string, string)>();
+        private bool useV3Format;
 
         public ScenarioWriter AddRecording(ConfigNode recNode)
         {
@@ -19,7 +21,21 @@ namespace Parsek.Tests.Generators
 
         public ScenarioWriter AddRecording(RecordingBuilder builder)
         {
-            recordings.Add(builder.Build());
+            if (useV3Format)
+            {
+                recordings.Add(builder.BuildV3Metadata());
+                v3Builders.Add(builder);
+            }
+            else
+            {
+                recordings.Add(builder.Build());
+            }
+            return this;
+        }
+
+        public ScenarioWriter WithV3Format(bool v3 = true)
+        {
+            useV3Format = v3;
             return this;
         }
 
@@ -99,6 +115,44 @@ namespace Parsek.Tests.Generators
             string content = File.ReadAllText(inputPath);
             string modified = InjectIntoSave(content);
             File.WriteAllText(outputPath, modified);
+
+            // If v3 format, write sidecar files alongside the save
+            if (useV3Format)
+            {
+                string saveDir = Path.GetDirectoryName(outputPath);
+                WriteSidecarFiles(saveDir);
+            }
+        }
+
+        /// <summary>
+        /// Writes .prec, _vessel.craft, and _ghost.craft sidecar files
+        /// for all v3 recordings to the Parsek/Recordings/ subdirectory
+        /// relative to the given save directory.
+        /// </summary>
+        public void WriteSidecarFiles(string saveDir)
+        {
+            string recordingsDir = Path.Combine(saveDir, "Parsek", "Recordings");
+            if (!Directory.Exists(recordingsDir))
+                Directory.CreateDirectory(recordingsDir);
+
+            foreach (var builder in v3Builders)
+            {
+                string id = builder.GetRecordingId();
+
+                // Write .prec trajectory file
+                var trajNode = builder.BuildTrajectoryNode();
+                trajNode.Save(Path.Combine(recordingsDir, $"{id}.prec"));
+
+                // Write _vessel.craft
+                var vesselSnapshot = builder.GetVesselSnapshot();
+                if (vesselSnapshot != null)
+                    vesselSnapshot.Save(Path.Combine(recordingsDir, $"{id}_vessel.craft"));
+
+                // Write _ghost.craft
+                var ghostSnapshot = builder.GetGhostVisualSnapshot();
+                if (ghostSnapshot != null)
+                    ghostSnapshot.Save(Path.Combine(recordingsDir, $"{id}_ghost.craft"));
+            }
         }
 
         private static string RemoveExistingScenario(string content)

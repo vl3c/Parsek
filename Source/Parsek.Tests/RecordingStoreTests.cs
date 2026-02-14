@@ -386,39 +386,21 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SaveSnapshotNodes_WhenSnapshotsAlias_WritesDistinctSnapshotNodes()
-        {
-            var snapshot = new ConfigNode("VESSEL");
-            snapshot.AddValue("name", "AliasShip");
-            var rec = new RecordingStore.Recording
-            {
-                VesselSnapshot = snapshot,
-                GhostVisualSnapshot = snapshot
-            };
-            var recNode = new ConfigNode("RECORDING");
-
-            ParsekScenario.SaveSnapshotNodes(recNode, rec);
-
-            Assert.Single(recNode.GetNodes("VESSEL_SNAPSHOT"));
-            Assert.Single(recNode.GetNodes("GHOST_VISUAL_SNAPSHOT"));
-        }
-
-        [Fact]
-        public void DeleteGhostGeometryArtifact_NoPath_ReturnsFalse()
+        public void DeleteRecordingFiles_NoId_DoesNotThrow()
         {
             var rec = new RecordingStore.Recording();
-            rec.GhostGeometryRelativePath = null;
-            Assert.False(RecordingStore.DeleteGhostGeometryArtifact(rec));
+            rec.RecordingId = null;
+            RecordingStore.DeleteRecordingFiles(rec);
         }
 
         [Fact]
-        public void DeleteGhostGeometryArtifact_NoSaveContext_ReturnsFalse()
+        public void DeleteRecordingFiles_NoSaveContext_DoesNotThrow()
         {
             var rec = new RecordingStore.Recording
             {
-                GhostGeometryRelativePath = "Parsek/Recordings/test.pcrf"
+                RecordingId = "test123"
             };
-            Assert.False(RecordingStore.DeleteGhostGeometryArtifact(rec));
+            RecordingStore.DeleteRecordingFiles(rec);
         }
 
         [Fact]
