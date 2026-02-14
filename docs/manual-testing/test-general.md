@@ -13,7 +13,7 @@ Use career mode for all tests (resource tracking requires it).
 5. Revert to Launch (Esc → Revert to Launch)
 6. Merge dialog appears — pick any option
 7. Wait on the pad until UT reaches the recording's timestamps
-8. Verify: green-cyan ghost sphere appears and replays the flight
+8. Verify: opaque ghost vessel appears (original part meshes/textures) and replays the flight
 9. Verify: funds/science/reputation deltas are applied at the correct UT
 
 ## Merge Dialog Options

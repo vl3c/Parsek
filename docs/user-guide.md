@@ -54,8 +54,10 @@ After reverting, a dialog appears with context-aware options:
 
 After merging, wait on the pad (or time warp) until UT reaches the recording's timestamps:
 
-- A ghost vessel appears and replays the recorded flight using the original part meshes and textures
+- A ghost vessel appears (opaque replica with original part meshes and textures) and replays the recorded flight
 - Parts that were decoupled or destroyed during the recording disappear from the ghost at the correct time
+- Parachute canopies deploy on the ghost at the correct time (real canopy mesh, not a placeholder)
+- Engine shrouds are jettisoned on the ghost when staging occurs
 - Funds, science, and reputation changes from the recording are applied at the correct time
 - When the ghost finishes, the vessel appears at its final position (if "Keep Vessel" was chosen)
 
@@ -95,7 +97,7 @@ Parsek handles several edge cases automatically. These are logged to `KSP.log` (
 - **Auto-start on launch** — Recording begins automatically when a vessel leaves the pad or runway (transitions out of PRELAUNCH). A screen message confirms "Recording STARTED (auto)".
 - **Auto-start on EVA from pad** — Going EVA from a vessel sitting on the pad/runway also auto-starts recording on the EVA kerbal.
 - **Mid-recording EVA** — Going EVA during an active recording auto-stops the parent recording, commits it, and starts a linked child recording on the EVA kerbal.
-- **Part events** — Staging, decoupling, and parachute events are recorded with timestamps. During ghost playback, decoupled parts (and their subtrees) disappear from the ghost at the correct time.
+- **Part events** — Staging, decoupling, and parachute events are recorded with timestamps. During ghost playback, decoupled parts (and their subtrees) disappear from the ghost at the correct time. Parachute canopies deploy with the real mesh, and engine shrouds are jettisoned.
 - **Paused game** — Recording cannot start while the game is paused.
 - **Vessel change** — If the active vessel changes during recording (docking, switching with `[`/`]`), the recording stops automatically with a screen message.
 - **Very short recordings** — Recordings with fewer than 2 sample points are silently dropped on revert (nothing to play back).

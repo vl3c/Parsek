@@ -48,7 +48,7 @@ After injecting, launch KSP and load **test career**. The save UT is read dynami
 1. Go to any flight (launch a vessel or switch to an existing one)
 2. Open Map View (M) or stay in flight view
 3. Time warp forward — warp auto-stops at recording start (vessel snapshot present)
-4. At UT ~127000, a semi-transparent ghost vessel appears near the launchpad
+4. At UT ~127000, an opaque ghost vessel appears near the launchpad
 5. The ghost rises to ~500m, drifts east ~1km, then descends near the VAB
 6. Ghost disappears at UT 127056
 7. At EndUT, a probe vessel named **KSC Hopper** spawns at the landing point
@@ -56,7 +56,7 @@ After injecting, launch KSP and load **test career**. The save UT is read dynami
 ### 2. Suborbital Arc (UT 128000-128300)
 
 1. Continue time warping past 127056
-2. At UT ~128000, a semi-transparent ghost appears at the launchpad
+2. At UT ~128000, an opaque ghost appears at the launchpad
 3. Switch to **Map View** (M) to see the trajectory climb
 4. The ghost follows a gravity turn east, reaching ~71km apex
 5. It descends and splashes down at UT 128300
@@ -125,7 +125,7 @@ Three builder classes in `Source/Parsek.Tests/Generators/`:
 
 ### RecordingBuilder
 
-Fluent API that produces a `ConfigNode("RECORDING")` matching `ParsekScenario.OnSave()` format exactly.
+Fluent API that produces a `ConfigNode("RECORDING")` matching `ParsekScenario.OnSave()` format exactly. Supports both v2 (inline) and v3 (external files) formats.
 
 ```csharp
 var rec = new RecordingBuilder("My Recording")
@@ -136,7 +136,14 @@ var rec = new RecordingBuilder("My Recording")
     .WithParentRecordingId("abc123")        // EVA child linkage
     .WithEvaCrewName("Jebediah Kerman")     // EVA child linkage
     .WithVesselSnapshot(vesselBuilder)
-    .Build();   // returns ConfigNode
+    .Build();   // returns ConfigNode (v2 inline format)
+
+// For v3 external files:
+rec.WithRecordingId("my-id");
+rec.BuildV3Metadata();       // metadata-only RECORDING node for .sfs
+rec.BuildTrajectoryNode();   // PARSEK_RECORDING node for .prec file
+rec.GetVesselSnapshot();     // vessel snapshot ConfigNode
+rec.GetGhostVisualSnapshot(); // ghost snapshot ConfigNode
 ```
 
 **AddPoint** parameters: `(ut, lat, lon, alt, body, rotX/Y/Z/W, funds, science, rep)` — all optional after alt, defaults to Kerbin with identity rotation and zero resources.
@@ -177,10 +184,12 @@ Assembles recordings into a `SCENARIO` node and injects into `.sfs` save files.
 
 ```csharp
 var writer = new ScenarioWriter();
+writer.WithV3Format();  // enables external sidecar file writing
 writer.AddRecording(rec1);
 writer.AddRecording(rec2);
 writer.AddCrewReplacement("Jeb Kerman", "Bob Kerman");  // optional
 writer.InjectIntoSaveFile("input.sfs", "output.sfs");
+// v3: also writes .prec + .craft sidecar files alongside the save
 ```
 
 **Injection algorithm:**

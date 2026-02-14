@@ -474,67 +474,27 @@ Time advances
 
 ### Save Game Integration
 
-Using KSP's `ScenarioModule` system:
+Using KSP's `ScenarioModule` system (`ParsekScenario`). Lightweight metadata + mutable playback state stored in the `.sfs` save file; bulk data stored in external per-recording sidecar files (format version 3).
 
-```csharp
-[KSPScenario(ScenarioCreationOptions.AddToAllGames, GameScenes.FLIGHT, 
-             GameScenes.TRACKINGSTATION, GameScenes.SPACECENTER)]
-public class ParsekScenario : ScenarioModule
-{
-    public override void OnSave(ConfigNode node)
-    {
-        // Save timeline state
-        ConfigNode timelineNode = node.AddNode("TIMELINE");
-        MainTimeline.Instance.Save(timelineNode);
-        
-        // Save pending recordings
-        ConfigNode recordingsNode = node.AddNode("RECORDINGS");
-        foreach (var rec in pendingRecordings)
-            rec.Save(recordingsNode.AddNode("RECORDING"));
-    }
-    
-    public override void OnLoad(ConfigNode node)
-    {
-        // Restore timeline
-        MainTimeline.Instance.Load(node.GetNode("TIMELINE"));
-        
-        // Restore recordings
-        // ...
-    }
-}
-```
+**In .sfs (per RECORDING node):** `recordingId`, `vesselName`, `pointCount`, `recordingFormatVersion = 3`, mutable state (`vesselDestroyed`, `takenControl`, `spawnedPid`, `lastResIdx`), EVA linkage, ghost geometry metadata.
 
-### Recording File Format
+**No inline POINT, ORBIT_SEGMENT, PART_EVENT, or snapshot nodes** — all bulk data lives in external files.
 
-External files for large recordings (optional):
+### External Recording Files (v3)
 
 ```
-GameData/Parsek/Recordings/
-├── {save-name}/
-│   ├── recording-{guid}.parsek
-│   ├── recording-{guid}.parsek
-│   └── index.json
+saves/<save-name>/Parsek/Recordings/
+├── <recordingId>.prec          # Trajectory (POINT, ORBIT_SEGMENT, PART_EVENT nodes)
+├── <recordingId>_vessel.craft  # Vessel snapshot (ProtoVessel ConfigNode)
+├── <recordingId>_ghost.craft   # Ghost visual snapshot (ProtoVessel ConfigNode)
+└── <recordingId>.pcrf          # Ghost geometry artifact
 ```
 
-**.parsek format:**
-```json
-{
-  "version": "1.0",
-  "recordingId": "guid",
-  "vesselName": "Duna Explorer",
-  "startUT": 12345.67,
-  "endUT": 98765.43,
-  "vesselSnapshot": "<ConfigNode as string>",
-  "trajectory": [
-    {"ut": 12345.67, "lat": -0.0972, "lon": -74.5575, "alt": 77.3, "rot": [x,y,z,w], "vel": [x,y,z], "body": "Kerbin"},
-    ...
-  ],
-  "events": [
-    {"type": "Staging", "ut": 12350.00, "stage": 1},
-    ...
-  ]
-}
-```
+- `.prec` = Parsek Recording (ConfigNode format with version + recordingId header)
+- `.craft` = KSP-standard ConfigNode for vessel snapshots
+- Safe-write via `.tmp` + rename to prevent corruption
+- Stale vessel snapshots cleaned up on save when in-memory snapshot is null
+- `RecordingPaths.ValidateRecordingId` rejects path-traversal and invalid filename characters
 
 ---
 
@@ -789,11 +749,22 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 - [ ] `GameParameters.CustomParameterNode` for settings
 - [ ] Localization infrastructure (en-us.cfg)
 
+**Ghost visual fidelity (done):**
+- [x] Opaque ghost vessels from prefab meshes with original materials
+- [x] Part event playback (decoupled subtrees hidden, destroyed parts hidden)
+- [x] Real parachute canopy deploy on ghost (semi-deployed animation sampled from prefab)
+- [x] Event-driven shroud jettison for ghost engine parts
+- [x] External recording files (v3) — bulk data in sidecar files, lightweight .sfs
+
 ### Phase 2: Core Features
 
 **Features:**
 - [ ] Multiple concurrent recordings (timeline playback already supports multiple)
 - [x] Event-based recording (part events: decoupled, destroyed, parachute deployed/cut)
+- [x] Real parachute canopy on ghost vessels (Phase 2 canopy)
+- [x] Event-driven shroud jettison for ghost vessels
+- [x] External recording files (v3 format)
+- [ ] Two-phase parachute deploy (SEMIDEPLOYED streamer vs DEPLOYED full canopy — currently fires at SEMIDEPLOYED only)
 - [ ] Timeline viewer UI
 - [ ] Conflict detection
 - [ ] KAC integration
@@ -807,6 +778,7 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 - [ ] Graceful degradation on interaction
 - [ ] Construction time integration
 - [ ] AI agency recordings (space race mode)
+- [ ] Ghost geometry capture (full mesh serialization for offline playback)
 
 ### Phase 4: Multiplayer Foundation (Future)
 
@@ -839,7 +811,7 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 1. **Trajectory interpolation:** Linear (`Vector3.Lerp`, `Quaternion.Lerp`) is sufficient for MVP. Proven by PersistentTrails — cubic adds complexity with negligible visual improvement at typical sample rates.
 2. **Ghost vessel rendering:** Opaque replica built from prefab meshes using VesselSnapshot part data. No shader modification — uses original part materials for realistic appearance.
 3. **SOI transitions:** Store body name (`string BodyName`) per TrajectoryFrame. Record body change as a discrete `SOIChangeEvent`. This naturally handles multi-body trajectories.
-4. **Recording file size:** Hybrid approach — metadata and event list stored in save game via ScenarioModule; large trajectory data stored in external `.parsek` files under `GameData/Parsek/Recordings/`.
+4. **Recording file size:** External sidecar files (v3) — bulk data (trajectory, snapshots) stored in `.prec` and `.craft` files under `saves/<save>/Parsek/Recordings/`. Only lightweight metadata stays in `.sfs`.
 5. **Multiplayer architecture:** Deferred to Phase 4. Recording export/import is the foundation — design for file-based sharing first, network layer later.
 
 ---
@@ -867,7 +839,7 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
    - Map view ghost markers
    - 17 edge cases resolved
 
-5. **Complete MVP for release**
+5. ~~**Complete MVP for release**~~ (DONE)
    - ~~Orbital/time-warp recording strategy~~ (DONE — hybrid OrbitSegment recording)
    - ~~Take control of playback vessel~~ (DONE — spawn at ghost position with velocity, crew cleanup)
    - ~~Ghost as vessel model (replace sphere)~~ (DONE — opaque prefab mesh replica)
@@ -875,6 +847,12 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
    - ~~Adaptive sampling for maneuvers~~ (DONE — velocity/speed thresholds with max-interval backstop)
    - ~~Architecture cleanup~~ (DONE — decomposed god class into focused files)
 
+6. ~~**Ghost visual fidelity**~~ (DONE)
+   - ~~Part event playback on ghost~~ (DONE — decoupled subtrees hidden, destroyed parts hidden)
+   - ~~Real parachute canopy on ghost~~ (DONE — semi-deployed animation sampled from prefab clone)
+   - ~~Shroud jettison on ghost~~ (DONE — event-driven via ModuleJettison detection)
+   - ~~External recording files (v3)~~ (DONE — sidecar files, safe-write, stale cleanup)
+
 ---
 
-*Document version: 0.8 — Take control, opaque ghost visuals, velocity persistence*
+*Document version: 0.9 — External recording files (v3), ghost parachute canopy, shroud jettison*
