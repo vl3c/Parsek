@@ -41,7 +41,7 @@ Advanced: the manual injector test also respects environment variables:
 
 ## In-Game Walkthrough
 
-After injecting, launch KSP and load **test career**. The save UT is read dynamically from `1.sfs`, so all recordings are scheduled starting ~30s after loading. Enter any flight and time warp forward to see ghosts appear.
+After injecting, launch KSP and load **test career**. The save UT is set to 17000 (KSC mid-morning, good lighting) during clean-start, and all recordings are scheduled starting 30s after that. Enter any flight and time warp forward to see ghosts appear.
 
 All crewed recordings use the **FleaRocket** craft (mk1pod.v2 + solidBooster.sm.v2 + parachuteSingle) unless noted otherwise.
 
@@ -49,31 +49,31 @@ All crewed recordings use the **FleaRocket** craft (mk1pod.v2 + solidBooster.sm.
 
 Jeb walks ~200m east from the launchpad at ground level. Ghost-only (EVA type, no vessel spawn). Tests EVA ghost rendering.
 
-### 2. KSC Hopper (+70 to +126) — Ghost Ship
+### 2. KSC Hopper (+60 to +116) — Ghost Ship
 
-Val's FleaRocket hops to ~500m, drifts east ~1km, then descends near the VAB. Ghost-only (no vessel spawn). Part events: SRB decouple + parachute deploy.
+Val's FleaRocket hops to ~500m, drifts east ~600m, then descends under parachute. Ghost-only (no vessel spawn). Part events: SRB decouple + parachute deploy.
 
-### 3. Flea Flight (+140 to +230) — Vessel Spawn
+### 3. Flea Flight (+90 to +180) — Vessel Spawn
 
-Bob's FleaRocket launches to 620m apex, deploys parachute, lands. Based on real flight data with resource deltas (funds +5760, rep +1.2). **Vessel spawns** at EndUT. Part events: SRB decouple + parachute deploy.
+Bob's FleaRocket launches to 620m apex, deploys parachute, lands ~2km east of the pad. Based on real flight data with resource deltas (funds +5760, rep +1.2). **Vessel spawns** at EndUT. Part events: SRB decouple + parachute deploy.
 
-### 4. Suborbital Arc (+240 to +540) — Ghost Ship
+### 4. Suborbital Arc (+120 to +420) — Ghost Ship
 
-Bill's FleaRocket follows a gravity turn east, reaching ~71km apex, then descends under parachute. Ghost-only (no vessel spawn). Part event: SRB decouple.
+Bill's FleaRocket follows a gravity turn east, reaching ~71km apex, then descends under parachute. Ghost-only (no vessel spawn). Uses explicit per-point rotation (gravity turn pitch-over). Part event: SRB decouple.
 
-### 5. KSC Pad Destroyed (+250 to +262) — Ghost Sphere
+### 5. KSC Pad Destroyed (+150 to +162) — Ghost Sphere
 
 Vessel destroyed near KSC. No snapshot — exercises the destroyed/no-snapshot fallback path. Ghost sphere appears briefly.
 
-### 6. Orbit-1 (+560 to +3560) — Vessel Spawn (orbit)
+### 6. Orbit-1 (+180 to +3180) — Vessel Spawn (orbit)
 
-Bill's crewed vessel (pod+tank+engine) ascends to orbit. At +1060, the ghost transitions to the **orbital segment** — position computed analytically from Keplerian parameters. **Vessel spawns** in orbit at EndUT. Bill is marked Assigned in Astronaut Complex until spawn.
+Bill's crewed vessel (pod+tank+engine) ascends to orbit. At +680, the ghost transitions to the **orbital segment** — position computed analytically from Keplerian parameters. **Vessel spawns** in orbit at EndUT. Bill is marked Assigned in Astronaut Complex until spawn.
 
-### 7. Close Spawn Conflict (+580 to +592) — Vessel Spawn (landed)
+### 7. Close Spawn Conflict (+210 to +222) — Vessel Spawn (landed)
 
 Jeb's FleaRocket landed very near KSC. **Vessel spawns** at EndUT, offset ~250m from nearest vessel to prevent physics collisions.
 
-### 8. Island Probe (+3610 to +3790) — Vessel Spawn (landed)
+### 8. Island Probe (+240 to +420) — Vessel Spawn (landed)
 
 Val's FleaRocket flies southeast to the island airfield, cruising at ~1000m. **Vessel spawns** landed at the island (lat=-1.52, lon=-71.97).
 
@@ -86,22 +86,19 @@ Val's FleaRocket flies southeast to the island airfield, cruising at ~1000m. **V
 
 ```
 UT base+30    ─── Pad Walk ghost starts (EVA) ──────────
-UT base+60    ─── Pad Walk ghost ends ──────────────────
-UT base+70    ─── KSC Hopper ghost starts ──────────────
-UT base+126   ─── KSC Hopper ghost ends ────────────────
-UT base+140   ─── Flea Flight ghost starts ─────────────
-UT base+230   ─── Flea Flight vessel spawns (Bob) ──────
-UT base+240   ─── Suborbital Arc ghost starts ──────────
-UT base+250   ─── KSC Pad Destroyed ghost starts ───────
-UT base+262   ─── KSC Pad Destroyed ghost ends ─────────
-UT base+540   ─── Suborbital Arc ghost ends ────────────
-UT base+560   ─── Orbit-1 ghost starts ─────────────────
-UT base+580   ─── Close Spawn Conflict ghost starts ────
-UT base+592   ─── Close Spawn Conflict spawns (Jeb) ────
-UT base+1060  ─── Orbit-1 enters orbital segment ───────
-UT base+3560  ─── Orbit-1 vessel spawns (Bill) ─────────
-UT base+3610  ─── Island Probe ghost starts ────────────
-UT base+3790  ─── Island Probe vessel spawns (Val) ─────
+UT base+60    ─── Pad Walk ghost ends / KSC Hopper starts
+UT base+90    ─── Flea Flight ghost starts ─────────────
+UT base+116   ─── KSC Hopper ghost ends ────────────────
+UT base+120   ─── Suborbital Arc ghost starts ──────────
+UT base+150   ─── KSC Pad Destroyed ghost starts ───────
+UT base+162   ─── KSC Pad Destroyed ghost ends ─────────
+UT base+180   ─── Flea Flight vessel spawns (Bob) / Orbit-1 starts
+UT base+210   ─── Close Spawn Conflict ghost starts ────
+UT base+222   ─── Close Spawn Conflict spawns (Jeb) ────
+UT base+240   ─── Island Probe ghost starts ────────────
+UT base+420   ─── Suborbital Arc ends / Island Probe spawns (Val)
+UT base+680   ─── Orbit-1 enters orbital segment ───────
+UT base+3180  ─── Orbit-1 vessel spawns (Bill) ─────────
 ```
 
 ## Architecture
@@ -114,6 +111,7 @@ Fluent API that produces a `ConfigNode("RECORDING")` matching `ParsekScenario.On
 
 ```csharp
 var rec = new RecordingBuilder("My Recording")
+    .WithDefaultRotation(0.33f, -0.63f, -0.63f, -0.33f)  // upright at KSC
     .AddPoint(127000, -0.0972, -74.5575, 77)
     .AddPoint(127010, -0.0972, -74.5575, 500)
     .AddOrbitSegment(129500, 132000, sma: 700000, ecc: 0.001, inc: 28.5)
@@ -131,7 +129,9 @@ rec.GetVesselSnapshot();     // vessel snapshot ConfigNode
 rec.GetGhostVisualSnapshot(); // ghost snapshot ConfigNode
 ```
 
-**AddPoint** parameters: `(ut, lat, lon, alt, body, rotX/Y/Z/W, funds, science, rep)` — all optional after alt, defaults to Kerbin with identity rotation and zero resources.
+**WithDefaultRotation(x, y, z, w)** — sets a default rotation quaternion applied to all subsequent `AddPoint` calls that don't specify an explicit rotation. Use this for surface-aligned recordings (e.g. KSC upright ≈ 0.33, -0.63, -0.63, -0.33). Points with explicit non-identity rotation are unaffected.
+
+**AddPoint** parameters: `(ut, lat, lon, alt, body, rotX/Y/Z/W, funds, science, rep)` — all optional after alt, defaults to Kerbin with identity rotation (or default rotation if set) and zero resources.
 
 **AddOrbitSegment** parameters: `(startUT, endUT, inc, ecc, sma, lan, argPe, mna, epoch, body)` — Keplerian elements matching OrbitSegment struct.
 
@@ -162,7 +162,7 @@ VesselSnapshotBuilder.ProbeShip("Island Probe", pid: 87654321)
     .Build();
 ```
 
-Static factories: `FleaRocket` (3-part crewed rocket), `CrewedShip` (single pod with crew), `ProbeShip` (single probe core). Use `.AddPart(name, crew)` to add more parts.
+Static factories: `FleaRocket` (3-part crewed rocket with real KSP part positions and attachment nodes), `CrewedShip` (single pod with crew), `ProbeShip` (single probe core). Use `.AddPart(name, crew, position, parentIndex)` to add more parts — `position` is a Y-up vessel-local coordinate string (e.g. `"0,-1.163,0"`).
 
 The VESSEL `pid` field is deterministically derived from `persistentId` (hex-encoded, zero-padded to 32 chars). This means repeated builds with the same persistentId produce identical output, making the injection content-stable for diffing and debugging.
 
@@ -194,13 +194,14 @@ This makes the operation idempotent — safe to run repeatedly.
 To add a new recording, create a builder method in `SyntheticRecordingTests.cs`:
 
 ```csharp
-internal static RecordingBuilder MyNewRecording()
+internal static RecordingBuilder MyNewRecording(double baseUT = 0)
 {
+    double t = baseUT + 300;  // offset from save UT (30s apart from other recordings)
     var b = new RecordingBuilder("My New Recording");
-    // Add trajectory points (UT must be after save's UT of ~126682)
-    b.AddPoint(140000, -0.0972, -74.5575, 77);
-    b.AddPoint(140060, -0.0972, -74.5575, 500);
-    // Optionally add orbit segments and vessel snapshots
+    b.WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW);  // upright at KSC
+    b.AddPoint(t,    -0.0972, -74.5575, 77);
+    b.AddPoint(t+60, -0.0972, -74.5575, 500);
+    // Optionally add orbit segments, part events, and vessel/ghost snapshots
     return b;
 }
 ```

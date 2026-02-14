@@ -98,17 +98,21 @@ cd Source/Parsek.Tests
 dotnet test --filter InjectAllRecordings
 ```
 
-Injects 4 pre-built recordings into `saves/test career/` (both `persistent.sfs` and `1.sfs`):
-- **KSC Hopper** — 56s suborbital hop, ghost-only (no vessel spawn)
-- **Suborbital Arc** — 300s arc, ghost-only
-- **Orbit-1** — 3000s with orbit segment, crewed vessel spawns in orbit
-- **Island Probe** — 180s probe landing, vessel spawns on island airstrip
+Injects 8 synthetic recordings into `saves/test career/` (both `persistent.sfs` and `1.sfs`):
+- **Pad Walk** — 30s EVA ghost (Jeb walks near launchpad)
+- **KSC Hopper** — 56s ghost ship (Val hops east ~600m)
+- **Flea Flight** — 90s vessel spawn (Bob, lands ~2km east, real flight data)
+- **Suborbital Arc** — 300s ghost ship (Bill, gravity turn to 71km)
+- **KSC Pad Destroyed** — 12s sphere ghost (no snapshot, destroyed vessel)
+- **Orbit-1** — 3000s vessel spawn (Bill, orbit with Keplerian segment)
+- **Close Spawn Conflict** — 12s vessel spawn (Jeb, tests proximity offset)
+- **Island Probe** — 180s vessel spawn (Val, flies to island airfield)
 
 **How it works:**
-- Auto-reads UT from the save file's FLIGHTSTATE node
-- Recording UTs are offset from save UT (first ghost appears ~2 min after load)
+- Save UT is set to 17000 (KSC mid-morning) during `--clean-start` for consistent daytime lighting
+- Recording offsets are 30s apart from that base UT (first ghost at +30s)
 - Injected into both `persistent.sfs` and `1.sfs` (KSP's `initialLoadDone` guard skips reload if only one is patched)
-- Uses career-appropriate parts: `mk1pod.v2` (command pod), `probeCoreSphere` (Stayputnik)
+- All crewed recordings use the FleaRocket craft (mk1pod.v2 + solidBooster.sm.v2 + parachuteSingle) with real part positions
 
 **Reproducible end-to-end test workflow:**
 1. `dotnet test --filter InjectAllRecordings` — inject recordings
