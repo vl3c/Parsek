@@ -283,6 +283,18 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Walk from descendant up to find the immediate child of ancestor.
+        /// Returns null if descendant is not under ancestor.
+        /// </summary>
+        private static Transform FindImmediateChildOf(Transform descendant, Transform ancestor)
+        {
+            Transform cur = descendant;
+            while (cur != null && cur.parent != ancestor)
+                cur = cur.parent;
+            return (cur != null && cur.parent == ancestor) ? cur : null;
+        }
+
+        /// <summary>
         /// Mirror the transform hierarchy from modelRoot down to a renderer's transform,
         /// creating intermediate GameObjects under partRoot with matching local transforms.
         /// Uses cloneMap to deduplicate shared parent nodes.
@@ -869,10 +881,63 @@ namespace Parsek
                 Transform srcCap = !string.IsNullOrEmpty(capName)
                     ? prefab.FindModelTransform(capName) : null;
 
+                // If canopy exists on the prefab but wasn't cloned (e.g. EVA kerbals where
+                // canopy lives under "model" but FindModelRoot returned "model01"), lazily
+                // clone the canopy's visual root subtree so it enters cloneMap.
+                if (srcCanopy != null && !cloneMap.ContainsKey(srcCanopy))
+                {
+                    Transform canopyVisualRoot = FindImmediateChildOf(srcCanopy, prefab.transform);
+                    if (canopyVisualRoot != null && canopyVisualRoot != modelRoot)
+                    {
+                        ParsekLog.Log($"    Canopy '{canopyName}' is outside modelRoot '{modelRoot.name}'" +
+                            $" — cloning subtree '{canopyVisualRoot.name}'");
+
+                        GameObject subNode = new GameObject(canopyVisualRoot.name);
+                        subNode.transform.SetParent(partRoot.transform, false);
+                        subNode.transform.localPosition = canopyVisualRoot.localPosition;
+                        subNode.transform.localRotation = canopyVisualRoot.localRotation;
+                        subNode.transform.localScale = canopyVisualRoot.localScale;
+                        cloneMap[canopyVisualRoot] = subNode.transform;
+
+                        var subMR = canopyVisualRoot.GetComponentsInChildren<MeshRenderer>(true);
+                        for (int r = 0; r < subMR.Length; r++)
+                        {
+                            var mr = subMR[r];
+                            if (mr == null) continue;
+                            var mf = mr.GetComponent<MeshFilter>();
+                            if (mf == null || mf.sharedMesh == null) continue;
+
+                            Transform leaf = MirrorTransformChain(mr.transform, canopyVisualRoot,
+                                subNode.transform, cloneMap);
+                            leaf.gameObject.AddComponent<MeshFilter>().sharedMesh = mf.sharedMesh;
+                            leaf.gameObject.AddComponent<MeshRenderer>().sharedMaterials = mr.sharedMaterials;
+                            meshCount++;
+                            added = true;
+                            ParsekLog.Log($"      CANOPY-SUB MR[{r}] '{mr.gameObject.name}' " +
+                                $"mesh={mf.sharedMesh.name}");
+                        }
+
+                        var subSMR = canopyVisualRoot.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+                        for (int r = 0; r < subSMR.Length; r++)
+                        {
+                            var smr = subSMR[r];
+                            if (smr == null || smr.sharedMesh == null) continue;
+
+                            Transform leaf = MirrorTransformChain(smr.transform, canopyVisualRoot,
+                                subNode.transform, cloneMap);
+                            leaf.gameObject.AddComponent<MeshFilter>().sharedMesh = smr.sharedMesh;
+                            leaf.gameObject.AddComponent<MeshRenderer>().sharedMaterials = smr.sharedMaterials;
+                            meshCount++;
+                            added = true;
+                            ParsekLog.Log($"      CANOPY-SUB SMR[{r}] '{smr.gameObject.name}' " +
+                                $"mesh={smr.sharedMesh.name}");
+                        }
+                    }
+                }
+
                 // Look up ghost clones via cloneMap (deterministic, no name collisions).
-                // NOTE: For EVA kerbals, FindModelRoot uses "model01" (body) but canopy is
-                // under "model" (accessories), so srcCanopy won't be in cloneMap.
-                // This is expected — EVA falls through to fake sphere fallback.
+                // For EVA kerbals, canopy subtree was lazily cloned above when detected
+                // outside modelRoot, so both body and canopy now appear in cloneMap.
                 Transform ghostCanopy = null, ghostCap = null;
                 if (srcCanopy != null) cloneMap.TryGetValue(srcCanopy, out ghostCanopy);
                 if (srcCap != null) cloneMap.TryGetValue(srcCap, out ghostCap);
@@ -893,7 +958,8 @@ namespace Parsek
                 }
                 else if (srcCanopy != null)
                 {
-                    ParsekLog.Log($"    Parachute '{canopyName}' found on prefab but not in cloneMap — will use fake canopy");
+                    ParsekLog.Log($"    Parachute '{canopyName}' found on prefab but not in cloneMap " +
+                        $"— will use fake canopy");
                 }
             }
 
