@@ -755,6 +755,7 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 - [x] Real parachute canopy deploy on ghost (semi-deployed animation sampled from prefab)
 - [x] Event-driven shroud jettison for ghost engine parts
 - [x] External recording files (v3) — bulk data in sidecar files, lightweight .sfs
+- [x] Engine FX on ghost vessels (modern EFFECTS + legacy fx_* prefab fallback)
 
 ### Phase 2: Core Features
 
@@ -852,7 +853,8 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
    - ~~Real parachute canopy on ghost~~ (DONE — semi-deployed animation sampled from prefab clone)
    - ~~Shroud jettison on ghost~~ (DONE — event-driven via ModuleJettison detection)
    - ~~External recording files (v3)~~ (DONE — sidecar files, safe-write, stale cleanup)
+   - ~~Engine FX on ghost vessels~~ (DONE — modern EFFECTS cloning + legacy fx_* prefab fallback for stock early-career parts)
 
 ---
 
-*Document version: 0.9 — External recording files (v3), ghost parachute canopy, shroud jettison*
+*Document version: 1.0 — Engine FX on ghosts, external recording files (v3), ghost parachute canopy, shroud jettison*

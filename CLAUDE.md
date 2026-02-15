@@ -141,8 +141,9 @@ See `docs/synthetic-recordings.md` for builder API docs.
    - **Vessel intact, moved far:** "Merge + Keep Vessel" (default), "Merge + Recover", "Discard"
 7. Wait on the pad until UT reaches original recording timestamps
 8. Ghost vessel appears (opaque replica with original part textures) and replays previous flight
-9. Decoupled/destroyed parts disappear from ghost at the correct time
-10. Funds/science/reputation deltas are applied at the correct UT
+9. Engine flames and smoke appear on the ghost during burn phases
+10. Decoupled/destroyed parts disappear from ghost at the correct time
+11. Funds/science/reputation deltas are applied at the correct UT
 
 **Vessel persistence test:**
 1. Launch to orbit → F9 record → revert → "Merge + Keep Vessel"
@@ -214,6 +215,7 @@ These happen silently to keep gameplay smooth. All are logged to `KSP.log` with 
 **Ghost playback:**
 - Ghost built from vessel snapshot using prefab meshes with original materials (fully opaque, realistic appearance)
 - Falls back to green sphere if no vessel snapshot available
+- Engine FX (flames, smoke) displayed during burn phases — modern EFFECTS engines use cloned MODEL_MULTI_PARTICLE prefabs; legacy stock parts (Flea SRB, LV-T30) use cloned fx_* prefab children with SmokeTrailControl stripped
 - Part events applied during playback: decoupled subtrees hidden, destroyed parts hidden, parachute events logged
 - Ghost part tree (persistentId-based) enables O(1) part lookup and recursive subtree hiding on decouple
 - Time warp is stopped once when UT first enters a recording's range (only if the recording has an unspawned vessel). Time warp during active ghost playback is allowed.
