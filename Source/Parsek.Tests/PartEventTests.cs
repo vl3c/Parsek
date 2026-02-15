@@ -506,6 +506,79 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Deployable state tracking
+
+        [Fact]
+        public void DeployableTransition_RetractedToExtended_EmitsExtendedEvent()
+        {
+            var extended = new HashSet<uint>();
+            var evt = FlightRecorder.CheckDeployableTransition(
+                42, "solarPanel", isExtended: true, extended, 100.0);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.DeployableExtended, evt.Value.eventType);
+            Assert.Equal(42u, evt.Value.partPersistentId);
+            Assert.Equal(100.0, evt.Value.ut);
+            Assert.Equal("solarPanel", evt.Value.partName);
+            Assert.Contains(42u, extended);
+        }
+
+        [Fact]
+        public void DeployableTransition_ExtendedToRetracted_EmitsRetractedEvent()
+        {
+            var extended = new HashSet<uint> { 42 };
+            var evt = FlightRecorder.CheckDeployableTransition(
+                42, "solarPanel", isExtended: false, extended, 120.0);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.DeployableRetracted, evt.Value.eventType);
+            Assert.Equal(42u, evt.Value.partPersistentId);
+            Assert.Equal(120.0, evt.Value.ut);
+            Assert.DoesNotContain(42u, extended);
+        }
+
+        [Fact]
+        public void DeployableTransition_NoChange_ReturnsNull()
+        {
+            var extended = new HashSet<uint>();
+            var evt = FlightRecorder.CheckDeployableTransition(
+                42, "solarPanel", isExtended: false, extended, 100.0);
+
+            Assert.Null(evt);
+        }
+
+        [Fact]
+        public void DeployableTransition_AlreadyExtended_ReturnsNull()
+        {
+            var extended = new HashSet<uint> { 42 };
+            var evt = FlightRecorder.CheckDeployableTransition(
+                42, "solarPanel", isExtended: true, extended, 100.0);
+
+            Assert.Null(evt);
+        }
+
+        [Fact]
+        public void PartEvents_SerializationRoundtrip_DeployableExtended()
+        {
+            var recNode = new RecordingBuilder("TestVessel")
+                .AddPoint(100, 0, 0, 100)
+                .AddPoint(110, 0, 0, 200)
+                .AddPartEvent(105, 12345, (int)PartEventType.DeployableExtended, "solarPanels5")
+                .Build();
+
+            var peNodes = recNode.GetNodes("PART_EVENT");
+            Assert.Single(peNodes);
+
+            int typeInt;
+            int.TryParse(peNodes[0].GetValue("type"),
+                System.Globalization.NumberStyles.Integer,
+                CultureInfo.InvariantCulture, out typeInt);
+            Assert.Equal((int)PartEventType.DeployableExtended, typeInt);
+            Assert.Equal("solarPanels5", peNodes[0].GetValue("part"));
+        }
+
+        #endregion
+
         #region Engine event serialization
 
         [Fact]

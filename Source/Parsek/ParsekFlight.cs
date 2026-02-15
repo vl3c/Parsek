@@ -46,6 +46,7 @@ namespace Parsek
             public Dictionary<uint, ParachuteGhostInfo> parachuteInfos;
             public Dictionary<uint, JettisonGhostInfo> jettisonInfos;
             public Dictionary<ulong, EngineGhostInfo> engineInfos; // key = EncodeEngineKey(pid, moduleIndex)
+            public Dictionary<uint, DeployableGhostInfo> deployableInfos;
             public Dictionary<uint, GameObject> fakeCanopies;
         }
 
@@ -366,6 +367,7 @@ namespace Parsek
             StopPlayback();
             DestroyAllTimelineGhosts();
             GhostVisualBuilder.ClearDeployedCanopyCache();
+            GhostVisualBuilder.ClearDeployableCache();
         }
 
         void OnVesselWillDestroy(Vessel v)
@@ -996,9 +998,10 @@ namespace Parsek
             List<ParachuteGhostInfo> parachuteInfoList;
             List<JettisonGhostInfo> jettisonInfoList;
             List<EngineGhostInfo> engineInfoList;
+            List<DeployableGhostInfo> deployableInfoList;
             GameObject ghost = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
                 rec, $"Parsek_Timeline_{index}", out parachuteInfoList, out jettisonInfoList,
-                out engineInfoList);
+                out engineInfoList, out deployableInfoList);
             bool builtFromSnapshot = ghost != null;
             if (ghost == null)
             {
@@ -1054,6 +1057,13 @@ namespace Parsek
                         engineInfoList[i].partPersistentId, engineInfoList[i].moduleIndex);
                     state.engineInfos[key] = engineInfoList[i];
                 }
+            }
+
+            if (deployableInfoList != null)
+            {
+                state.deployableInfos = new Dictionary<uint, DeployableGhostInfo>();
+                for (int i = 0; i < deployableInfoList.Count; i++)
+                    state.deployableInfos[deployableInfoList[i].partPersistentId] = deployableInfoList[i];
             }
 
             ghostStates[index] = state;
@@ -1213,6 +1223,14 @@ namespace Parsek
                     case PartEventType.EngineThrottle:
                         SetEngineEmission(state, evt, evt.value);
                         break;
+                    case PartEventType.DeployableExtended:
+                        ApplyDeployableState(state, evt, deployed: true);
+                        Log($"Part event applied: DeployableExtended '{evt.partName}' pid={evt.partPersistentId}");
+                        break;
+                    case PartEventType.DeployableRetracted:
+                        ApplyDeployableState(state, evt, deployed: false);
+                        Log($"Part event applied: DeployableRetracted '{evt.partName}' pid={evt.partPersistentId}");
+                        break;
                 }
                 evtIdx++;
             }
@@ -1291,6 +1309,32 @@ namespace Parsek
                 {
                     emission.rateOverTimeMultiplier = 0;
                     ps.Stop();
+                }
+            }
+        }
+
+        static void ApplyDeployableState(GhostPlaybackState state, PartEvent evt, bool deployed)
+        {
+            if (state.deployableInfos == null) return;
+
+            DeployableGhostInfo info;
+            if (!state.deployableInfos.TryGetValue(evt.partPersistentId, out info)) return;
+
+            for (int i = 0; i < info.transforms.Count; i++)
+            {
+                var ts = info.transforms[i];
+                if (ts.t == null) continue;
+                if (deployed)
+                {
+                    ts.t.localPosition = ts.deployedPos;
+                    ts.t.localRotation = ts.deployedRot;
+                    ts.t.localScale = ts.deployedScale;
+                }
+                else
+                {
+                    ts.t.localPosition = ts.stowedPos;
+                    ts.t.localRotation = ts.stowedRot;
+                    ts.t.localScale = ts.stowedScale;
                 }
             }
         }

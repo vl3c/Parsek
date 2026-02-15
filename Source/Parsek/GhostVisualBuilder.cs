@@ -29,6 +29,23 @@ namespace Parsek
         public FloatCurve speedCurve;
     }
 
+    internal struct DeployableTransformState
+    {
+        public Transform t;
+        public Vector3 stowedPos;
+        public Quaternion stowedRot;
+        public Vector3 stowedScale;
+        public Vector3 deployedPos;
+        public Quaternion deployedRot;
+        public Vector3 deployedScale;
+    }
+
+    internal class DeployableGhostInfo
+    {
+        public uint partPersistentId;
+        public List<DeployableTransformState> transforms;
+    }
+
     internal static class GhostVisualBuilder
     {
         private static readonly Regex trailingNumericSuffixRegex =
@@ -38,11 +55,13 @@ namespace Parsek
             RecordingStore.Recording rec, string rootName,
             out List<ParachuteGhostInfo> parachuteInfos,
             out List<JettisonGhostInfo> jettisonInfos,
-            out List<EngineGhostInfo> engineInfos)
+            out List<EngineGhostInfo> engineInfos,
+            out List<DeployableGhostInfo> deployableInfos)
         {
             parachuteInfos = null;
             jettisonInfos = null;
             engineInfos = null;
+            deployableInfos = null;
             ConfigNode snapshotNode = GetGhostSnapshot(rec);
             if (snapshotNode == null)
                 return null;
@@ -60,6 +79,7 @@ namespace Parsek
             var collectedParachuteInfos = new List<ParachuteGhostInfo>();
             var collectedJettisonInfos = new List<JettisonGhostInfo>();
             var collectedEngineInfos = new List<EngineGhostInfo>();
+            var collectedDeployableInfos = new List<DeployableGhostInfo>();
 
             for (int i = 0; i < partNodes.Length; i++)
             {
@@ -93,9 +113,10 @@ namespace Parsek
                 ParachuteGhostInfo parachuteInfo;
                 JettisonGhostInfo jettisonInfo;
                 List<EngineGhostInfo> partEngineInfos;
+                DeployableGhostInfo deployableInfo;
                 bool partVisualAdded = AddPartVisuals(root.transform, partNode, ap.partPrefab,
                     persistentId, partName, out meshCount, out parachuteInfo, out jettisonInfo,
-                    out partEngineInfos);
+                    out partEngineInfos, out deployableInfo);
                 if (partVisualAdded)
                     visualCount++;
                 else
@@ -111,6 +132,8 @@ namespace Parsek
                     collectedJettisonInfos.Add(jettisonInfo);
                 if (partEngineInfos != null)
                     collectedEngineInfos.AddRange(partEngineInfos);
+                if (deployableInfo != null)
+                    collectedDeployableInfos.Add(deployableInfo);
             }
 
             ParsekLog.Log($"Ghost built: {visualCount}/{partNodes.Length} parts with visuals" +
@@ -127,7 +150,19 @@ namespace Parsek
             parachuteInfos = collectedParachuteInfos.Count > 0 ? collectedParachuteInfos : null;
             jettisonInfos = collectedJettisonInfos.Count > 0 ? collectedJettisonInfos : null;
             engineInfos = collectedEngineInfos.Count > 0 ? collectedEngineInfos : null;
+            deployableInfos = collectedDeployableInfos.Count > 0 ? collectedDeployableInfos : null;
             return root;
+        }
+
+        // Backward-compat overload without deployable infos
+        internal static GameObject BuildTimelineGhostFromSnapshot(
+            RecordingStore.Recording rec, string rootName,
+            out List<ParachuteGhostInfo> parachuteInfos,
+            out List<JettisonGhostInfo> jettisonInfos,
+            out List<EngineGhostInfo> engineInfos)
+        {
+            return BuildTimelineGhostFromSnapshot(rec, rootName,
+                out parachuteInfos, out jettisonInfos, out engineInfos, out _);
         }
 
         // Overload without info outputs for callers that don't need them (preview ghost)
@@ -463,6 +498,123 @@ namespace Parsek
             return result;
         }
 
+        // Cache: partName → list of (path, stowed state, deployed state) — sample once per part type
+        private static readonly Dictionary<string, List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
+            Vector3 dPos, Quaternion dRot, Vector3 dScale)>> deployableCache =
+            new Dictionary<string, List<(string, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3)>>();
+
+        internal static void ClearDeployableCache()
+        {
+            deployableCache.Clear();
+        }
+
+        /// <summary>
+        /// Sample stowed (time=0) and deployed (time=1) transform states from a deployable part's animation.
+        /// Returns a list of (path, stowed, deployed) tuples for transforms that actually change.
+        /// Returns null if the part has no animationName or no animation component.
+        /// </summary>
+        private static List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
+            Vector3 dPos, Quaternion dRot, Vector3 dScale)> SampleDeployableStates(
+            Part prefab, ModuleDeployablePart deployable)
+        {
+            string key = prefab.partInfo?.name ?? prefab.name;
+            if (deployableCache.TryGetValue(key, out var cached))
+                return cached;
+
+            string animName = deployable.animationName;
+            if (string.IsNullOrEmpty(animName))
+            {
+                ParsekLog.Log($"  Deployable '{key}': no animationName — skipping animation sampling");
+                deployableCache[key] = null;
+                return null;
+            }
+
+            Transform modelRoot = FindModelRoot(prefab);
+            GameObject tempClone = Object.Instantiate(modelRoot.gameObject);
+
+            List<(string, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3)> result = null;
+
+            try
+            {
+                Animation anim = tempClone.GetComponentInChildren<Animation>(true);
+                if (anim == null)
+                {
+                    ParsekLog.Log($"  Deployable '{key}': no Animation component on model clone");
+                    deployableCache[key] = null;
+                    return null;
+                }
+
+                AnimationState state = anim[animName];
+                if (state == null)
+                {
+                    ParsekLog.Log($"  Deployable '{key}': animation '{animName}' not found on clone");
+                    deployableCache[key] = null;
+                    return null;
+                }
+
+                // Sample stowed state (time=0)
+                state.enabled = true;
+                state.speed = 0f;
+                state.normalizedTime = 0f;
+                state.weight = 1f;
+                anim.Play(animName);
+                anim.Sample();
+
+                // Capture all child transforms at stowed
+                var allTransforms = tempClone.GetComponentsInChildren<Transform>(true);
+                var stowedStates = new Dictionary<string, (Vector3 pos, Quaternion rot, Vector3 scale)>();
+                for (int i = 0; i < allTransforms.Length; i++)
+                {
+                    string path = GetTransformPath(allTransforms[i], tempClone.transform);
+                    stowedStates[path] = (allTransforms[i].localPosition, allTransforms[i].localRotation, allTransforms[i].localScale);
+                }
+
+                // Sample deployed state (time=1)
+                state.normalizedTime = 1f;
+                anim.Sample();
+
+                // Compare and collect transforms that differ
+                result = new List<(string, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3)>();
+                for (int i = 0; i < allTransforms.Length; i++)
+                {
+                    string path = GetTransformPath(allTransforms[i], tempClone.transform);
+                    if (!stowedStates.TryGetValue(path, out var stowed))
+                        continue;
+
+                    Vector3 dPos = allTransforms[i].localPosition;
+                    Quaternion dRot = allTransforms[i].localRotation;
+                    Vector3 dScale = allTransforms[i].localScale;
+
+                    // Delta filter: only include transforms that actually changed
+                    float posDelta = (dPos - stowed.pos).sqrMagnitude;
+                    float rotDelta = Quaternion.Angle(dRot, stowed.rot);
+                    float scaleDelta = (dScale - stowed.scale).sqrMagnitude;
+
+                    if (posDelta > 0.0001f || rotDelta > 0.01f || scaleDelta > 0.0001f)
+                    {
+                        result.Add((path, stowed.pos, stowed.rot, stowed.scale, dPos, dRot, dScale));
+                    }
+                }
+
+                if (result.Count == 0)
+                {
+                    ParsekLog.Log($"  Deployable '{key}': animation '{animName}' produced no transform deltas");
+                    result = null;
+                }
+                else
+                {
+                    ParsekLog.Log($"  Deployable '{key}': sampled {result.Count} animated transforms from '{animName}'");
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(tempClone);
+            }
+
+            deployableCache[key] = result;
+            return result;
+        }
+
         private static string GetTransformPath(Transform t, Transform root)
         {
             var parts = new List<string>();
@@ -474,6 +626,23 @@ namespace Parsek
             }
             parts.Reverse();
             return string.Join("/", parts);
+        }
+
+        /// <summary>
+        /// Find a transform by slash-separated path relative to a root.
+        /// e.g. "a/b/c" finds root → a → b → c.
+        /// </summary>
+        private static Transform FindTransformByPath(Transform root, string path)
+        {
+            if (string.IsNullOrEmpty(path)) return root;
+            string[] parts = path.Split('/');
+            Transform cur = root;
+            for (int i = 0; i < parts.Length; i++)
+            {
+                cur = cur.Find(parts[i]);
+                if (cur == null) return null;
+            }
+            return cur;
         }
 
         internal static Transform FindTransformRecursive(Transform parent, string name)
@@ -752,12 +921,13 @@ namespace Parsek
         private static bool AddPartVisuals(Transform root, ConfigNode partNode, Part prefab,
             uint persistentId, string partName, out int meshCount,
             out ParachuteGhostInfo parachuteInfo, out JettisonGhostInfo jettisonInfo,
-            out List<EngineGhostInfo> engineInfos)
+            out List<EngineGhostInfo> engineInfos, out DeployableGhostInfo deployableInfo)
         {
             meshCount = 0;
             parachuteInfo = null;
             jettisonInfo = null;
             engineInfos = null;
+            deployableInfo = null;
             Transform modelRoot = FindModelRoot(prefab);
 
             // Dump full hierarchy for engine parts to diagnose missing nozzle meshes.
@@ -994,6 +1164,52 @@ namespace Parsek
             // Detect engine parts and clone FX particle systems
             engineInfos = TryBuildEngineFX(prefab, persistentId, partName, modelRoot,
                 modelNode.transform, cloneMap);
+
+            // Detect deployable parts (solar panels, antennas, radiators) and pre-resolve transform states
+            ModuleDeployablePart deployable = prefab.FindModuleImplementing<ModuleDeployablePart>();
+            if (deployable != null)
+            {
+                var sampledStates = SampleDeployableStates(prefab, deployable);
+                if (sampledStates != null)
+                {
+                    var resolvedTransforms = new List<DeployableTransformState>();
+                    for (int s = 0; s < sampledStates.Count; s++)
+                    {
+                        var (path, sPos, sRot, sScale, dPos, dRot, dScale) = sampledStates[s];
+                        // Resolve path to ghost transform via cloneMap
+                        Transform ghostT = FindTransformByPath(modelNode.transform, path);
+                        if (ghostT != null)
+                        {
+                            resolvedTransforms.Add(new DeployableTransformState
+                            {
+                                t = ghostT,
+                                stowedPos = sPos,
+                                stowedRot = sRot,
+                                stowedScale = sScale,
+                                deployedPos = dPos,
+                                deployedRot = dRot,
+                                deployedScale = dScale
+                            });
+                        }
+                    }
+
+                    if (resolvedTransforms.Count > 0)
+                    {
+                        deployableInfo = new DeployableGhostInfo
+                        {
+                            partPersistentId = persistentId,
+                            transforms = resolvedTransforms
+                        };
+                        ParsekLog.Log($"    Deployable detected: '{partName}' pid={persistentId}, " +
+                            $"{resolvedTransforms.Count}/{sampledStates.Count} transforms resolved");
+                    }
+                    else
+                    {
+                        ParsekLog.Log($"    Deployable '{partName}' pid={persistentId}: " +
+                            $"sampled {sampledStates.Count} transforms but none resolved to ghost");
+                    }
+                }
+            }
 
             if (!added)
             {

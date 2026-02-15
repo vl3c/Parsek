@@ -27,6 +27,7 @@ namespace Parsek
         // Part event tracking
         private HashSet<uint> deployedParachutes = new HashSet<uint>();
         private HashSet<uint> jettisonedShrouds = new HashSet<uint>();
+        private HashSet<uint> extendedDeployables = new HashSet<uint>();
 
         // Engine state tracking (key = (ulong)pid << 8 | moduleIndex)
         private List<(Part part, ModuleEngines engine, int moduleIndex)> cachedEngines;
@@ -221,6 +222,70 @@ namespace Parsek
             }
         }
 
+        internal static PartEvent? CheckDeployableTransition(
+            uint partPersistentId, string partName, bool isExtended, HashSet<uint> extendedSet, double ut)
+        {
+            bool wasExtended = extendedSet.Contains(partPersistentId);
+
+            if (isExtended && !wasExtended)
+            {
+                extendedSet.Add(partPersistentId);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.DeployableExtended,
+                    partName = partName
+                };
+            }
+
+            if (!isExtended && wasExtended)
+            {
+                extendedSet.Remove(partPersistentId);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.DeployableRetracted,
+                    partName = partName
+                };
+            }
+
+            return null;
+        }
+
+        private void CheckDeployableState(Vessel v)
+        {
+            if (v == null || v.parts == null) return;
+
+            double ut = Planetarium.GetUniversalTime();
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                var deployable = p.FindModuleImplementing<ModuleDeployablePart>();
+                if (deployable == null) continue;
+
+                var ds = deployable.deployState;
+
+                // Skip broken and transitional states — only fire on completed transitions
+                if (ds == ModuleDeployablePart.DeployState.BROKEN) continue;
+                if (ds == ModuleDeployablePart.DeployState.EXTENDING) continue;
+                if (ds == ModuleDeployablePart.DeployState.RETRACTING) continue;
+
+                bool isExtended = ds == ModuleDeployablePart.DeployState.EXTENDED;
+
+                var evt = CheckDeployableTransition(
+                    p.persistentId, p.partInfo?.name ?? "unknown", isExtended, extendedDeployables, ut);
+                if (evt.HasValue)
+                {
+                    PartEvents.Add(evt.Value);
+                    ParsekLog.Log($"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
+                }
+            }
+        }
+
         internal static List<(Part part, ModuleEngines engine, int moduleIndex)> CacheEngineModules(Vessel v)
         {
             var result = new List<(Part, ModuleEngines, int)>();
@@ -362,6 +427,7 @@ namespace Parsek
             PartEvents.Clear();
             deployedParachutes.Clear();
             jettisonedShrouds.Clear();
+            extendedDeployables.Clear();
             cachedEngines = CacheEngineModules(v);
             activeEngineKeys = new HashSet<ulong>();
             lastThrottle = new Dictionary<ulong, float>();
@@ -542,10 +608,11 @@ namespace Parsek
                 return;
             }
 
-            // Poll parachute, jettison, and engine state every physics frame (before adaptive sampling skip)
+            // Poll parachute, jettison, engine, and deployable state every physics frame (before adaptive sampling skip)
             CheckParachuteState(v);
             CheckJettisonState(v);
             CheckEngineState(v);
+            CheckDeployableState(v);
 
             // Krakensbane-corrected true velocity
             Vector3 currentVelocity = (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity());
