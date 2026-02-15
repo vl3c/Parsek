@@ -54,11 +54,23 @@ namespace Parsek
         // Auto-record: EVA from pad triggers recording after vessel switch completes
         private bool pendingAutoRecord = false;
 
-        // EVA child recording state
-        private bool pendingEvaChildRecord;
-        private string pendingEvaCrewName;
-        private string activeChildParentId;
-        private string activeChildCrewName;
+        // Active chain being built (persists across segments)
+        private string activeChainId;          // null if not building a chain
+        private int activeChainNextIndex;      // next segment's ChainIndex
+        private string activeChainPrevId;      // previous segment's RecordingId (for ParentRecordingId)
+        private string activeChainCrewName;    // EVA crew name for current segment (null if vessel)
+
+        // Pending chain transition
+        private bool pendingChainContinuation; // true when a segment ended and next should start
+        private bool pendingChainIsBoarding;   // true = boarding (EVA→vessel), false = EVA exit
+        private string pendingChainEvaName;    // kerbal name for EVA transitions
+
+        // Boarding confirmation via onCrewBoardVessel
+        private uint pendingBoardingTargetPid; // vessel PID from onCrewBoardVessel, 0 = none
+        private int boardingConfirmFrames;     // frames since boarding event (auto-clear after 3)
+
+        // Boundary anchor for chain continuation (copied from previous segment's last point)
+        private TrajectoryPoint? pendingBoundaryAnchor;
 
         // Timeline warp protection — tracks previous frame's UT
         private double lastTimelineUT = -1;
@@ -110,6 +122,7 @@ namespace Parsek
             GameEvents.onVesselWillDestroy.Add(OnVesselWillDestroy);
             GameEvents.onVesselSituationChange.Add(OnVesselSituationChange);
             GameEvents.onCrewOnEva.Add(OnCrewOnEva);
+            GameEvents.onCrewBoardVessel.Add(OnCrewBoardVessel);
             GameEvents.onVesselGoOnRails.Add(OnVesselGoOnRails);
             GameEvents.onVesselGoOffRails.Add(OnVesselGoOffRails);
             GameEvents.onVesselSOIChanged.Add(OnVesselSOIChanged);
@@ -130,42 +143,63 @@ namespace Parsek
 
         void Update()
         {
-            // EVA child: auto-commit parent recording once vessel-switch auto-stop fires
-            if (pendingEvaChildRecord && recorder != null && !recorder.IsRecording && recorder.CaptureAtStop != null)
+            // Auto-clear stale boarding confirmation after 3 frames
+            if (pendingBoardingTargetPid != 0)
             {
-                string parentRecordingId = recorder.CaptureAtStop.RecordingId;
-                Log($"EVA child: auto-committing parent recording (id={parentRecordingId})");
-
-                RecordingStore.StashPending(
-                    recorder.Recording,
-                    recorder.CaptureAtStop.VesselName,
-                    recorder.OrbitSegments,
-                    recordingId: parentRecordingId,
-                    recordingFormatVersion: recorder.CaptureAtStop.RecordingFormatVersion,
-                    ghostGeometryVersion: recorder.CaptureAtStop.GhostGeometryVersion,
-                    partEvents: recorder.PartEvents);
-
-                if (RecordingStore.HasPending)
+                boardingConfirmFrames++;
+                if (boardingConfirmFrames > 3)
                 {
-                    RecordingStore.Pending.ApplyPersistenceArtifactsFrom(recorder.CaptureAtStop);
-                    RecordingStore.CommitPending();
-                    ParsekScenario.ReserveSnapshotCrew();
-                    ParsekScenario.SwapReservedCrewInFlight();
+                    pendingBoardingTargetPid = 0;
+                    boardingConfirmFrames = 0;
+                }
+            }
 
-                    activeChildParentId = parentRecordingId;
-                    activeChildCrewName = pendingEvaCrewName;
+            // Chain: auto-commit previous segment when recording stopped (EVA exit)
+            // Null VesselSnapshot — mid-chain segments are ghost-only. The vessel already
+            // exists in the scene; only the final segment (committed at revert) spawns.
+            if (pendingChainContinuation && !pendingChainIsBoarding &&
+                recorder != null && !recorder.IsRecording && recorder.CaptureAtStop != null)
+            {
+                CommitChainSegment(recorder, pendingChainEvaName);
+                recorder = null;
+                // pendingAutoRecord is still true — will start child EVA recording next
+            }
+
+            // Chain: auto-commit EVA segment when boarding detected (EVA→vessel)
+            if (recorder != null && recorder.ChainToVesselPending && !recorder.IsRecording && recorder.CaptureAtStop != null)
+            {
+                // Only continue the chain if we're already in one AND the boarding event confirmed
+                if (activeChainId != null &&
+                    pendingBoardingTargetPid != 0 &&
+                    FlightGlobals.ActiveVessel != null &&
+                    FlightGlobals.ActiveVessel.persistentId == pendingBoardingTargetPid)
+                {
+                    Log($"Chain boarding confirmed: EVA→vessel pid={pendingBoardingTargetPid}");
+                    pendingBoardingTargetPid = 0;
+                    boardingConfirmFrames = 0;
+
+                    CommitChainSegment(recorder, activeChainCrewName);
+                    recorder = null;
+
+                    // Start new vessel recording on the boarded vessel
+                    activeChainCrewName = null; // vessel segment, not EVA
+                    StartRecording();
+                    if (IsRecording)
+                    {
+                        Log($"Chain vessel recording started (chain={activeChainId}, idx={activeChainNextIndex})");
+                        ScreenMessage("Recording STARTED (boarded vessel)", 2f);
+                    }
                 }
                 else
                 {
-                    // Parent recording too short — abort child flow
-                    Log("EVA child: parent recording too short to stash — aborting child");
-                    pendingEvaChildRecord = false;
-                    pendingEvaCrewName = null;
-                    pendingAutoRecord = false;
+                    // Not in a chain or boarding not confirmed — treat as normal stop
+                    recorder.ChainToVesselPending = false;
+                    pendingBoardingTargetPid = 0;
+                    boardingConfirmFrames = 0;
+                    Log("ChainToVessel without active chain or boarding confirmation — treating as normal stop");
+                    ParsekLog.ScreenMessage("Recording stopped — vessel changed", 3f);
+                    // Leave CaptureAtStop intact for normal revert/merge handling
                 }
-
-                recorder = null;
-                // pendingAutoRecord is still true — will start child recording next
             }
 
             // Complete deferred auto-record for EVA (vessel switch may take a frame)
@@ -178,13 +212,12 @@ namespace Parsek
                 {
                     pendingAutoRecord = false;
 
-                    // Tag child recording with parent linkage
-                    if (pendingEvaChildRecord)
+                    if (pendingChainContinuation)
                     {
-                        pendingEvaChildRecord = false;
-                        pendingEvaCrewName = null;
-                        Log($"EVA child recording started (parent={activeChildParentId}, crew={activeChildCrewName})");
-                        ScreenMessage("Recording STARTED (EVA child)", 2f);
+                        pendingChainContinuation = false;
+                        pendingChainEvaName = null;
+                        Log($"Chain EVA recording started (chain={activeChainId}, idx={activeChainNextIndex}, crew={activeChainCrewName})");
+                        ScreenMessage("Recording STARTED (EVA chain)", 2f);
                     }
                     else
                     {
@@ -239,6 +272,7 @@ namespace Parsek
             GameEvents.onVesselWillDestroy.Remove(OnVesselWillDestroy);
             GameEvents.onVesselSituationChange.Remove(OnVesselSituationChange);
             GameEvents.onCrewOnEva.Remove(OnCrewOnEva);
+            GameEvents.onCrewBoardVessel.Remove(OnCrewBoardVessel);
             GameEvents.onVesselGoOnRails.Remove(OnVesselGoOnRails);
             GameEvents.onVesselGoOffRails.Remove(OnVesselGoOffRails);
             GameEvents.onVesselSOIChanged.Remove(OnVesselSOIChanged);
@@ -286,7 +320,7 @@ namespace Parsek
                     partEvents: recorder.PartEvents);
 
                 // Use stop-time atomic capture when available; fallback to scene-change capture.
-                // ApplyPersistenceArtifactsFrom copies ParentRecordingId/EvaCrewName from
+                // ApplyPersistenceArtifactsFrom copies chain/ParentRecordingId/EvaCrewName from
                 // CaptureAtStop on the normal path (StopRecording tagged them there).
                 if (captured != null)
                 {
@@ -308,18 +342,22 @@ namespace Parsek
                             : null);
 
                     // Fallback path (ForceStop): CaptureAtStop is null, so
-                    // ApplyPersistenceArtifactsFrom didn't run. Apply child
+                    // ApplyPersistenceArtifactsFrom didn't run. Apply chain
                     // metadata directly from the active fields.
-                    if (RecordingStore.HasPending && !string.IsNullOrEmpty(activeChildParentId))
+                    if (RecordingStore.HasPending && activeChainId != null)
                     {
-                        RecordingStore.Pending.ParentRecordingId = activeChildParentId;
-                        RecordingStore.Pending.EvaCrewName = activeChildCrewName;
+                        RecordingStore.Pending.ChainId = activeChainId;
+                        RecordingStore.Pending.ChainIndex = activeChainNextIndex;
+                        RecordingStore.Pending.ParentRecordingId = activeChainPrevId;
+                        RecordingStore.Pending.EvaCrewName = activeChainCrewName;
                     }
                 }
 
-                // Clear child fields after both paths have consumed them
-                activeChildParentId = null;
-                activeChildCrewName = null;
+                // Clear chain fields after both paths have consumed them
+                activeChainId = null;
+                activeChainNextIndex = 0;
+                activeChainPrevId = null;
+                activeChainCrewName = null;
 
                 recorder = null;
                 lastPlaybackIndex = 0;
@@ -347,12 +385,84 @@ namespace Parsek
             ScreenMessage("Recording STARTED (auto)", 2f);
         }
 
+        void OnCrewBoardVessel(GameEvents.FromToAction<Part, Part> data)
+        {
+            if (activeChainId == null) return;
+            if (data.to?.vessel == null) return;
+
+            pendingBoardingTargetPid = data.to.vessel.persistentId;
+            boardingConfirmFrames = 0;
+            Log($"onCrewBoardVessel: target vessel pid={pendingBoardingTargetPid}");
+        }
+
+        /// <summary>
+        /// Commits the current chain segment and advances chain state.
+        /// Sets up boundary anchor for the next segment.
+        /// Mid-chain segments are always ghost-only (VesselSnapshot nulled) — only the
+        /// final segment (committed at revert via merge dialog) spawns a vessel.
+        /// </summary>
+        void CommitChainSegment(FlightRecorder segmentRecorder, string evaCrewName)
+        {
+            string segmentId = segmentRecorder.CaptureAtStop.RecordingId;
+            Log($"Chain: committing segment (id={segmentId}, chainIdx={activeChainNextIndex})");
+
+            RecordingStore.StashPending(
+                segmentRecorder.Recording,
+                segmentRecorder.CaptureAtStop.VesselName,
+                segmentRecorder.OrbitSegments,
+                recordingId: segmentId,
+                recordingFormatVersion: segmentRecorder.CaptureAtStop.RecordingFormatVersion,
+                ghostGeometryVersion: segmentRecorder.CaptureAtStop.GhostGeometryVersion,
+                partEvents: segmentRecorder.PartEvents);
+
+            if (!RecordingStore.HasPending)
+            {
+                Log("Chain: segment too short to stash — aborting chain continuation");
+                pendingChainContinuation = false;
+                pendingChainEvaName = null;
+                pendingAutoRecord = false;
+                return;
+            }
+
+            RecordingStore.Pending.ApplyPersistenceArtifactsFrom(segmentRecorder.CaptureAtStop);
+
+            // Mid-chain segments are ghost-only — null VesselSnapshot so they don't spawn.
+            // GhostVisualSnapshot is kept for ghost rendering.
+            RecordingStore.Pending.VesselSnapshot = null;
+
+            // First transition: initialize chain
+            if (activeChainId == null)
+            {
+                activeChainId = System.Guid.NewGuid().ToString("N");
+                activeChainNextIndex = 0;
+                Log($"Chain: started new chain (id={activeChainId})");
+            }
+
+            // Tag segment with chain metadata
+            RecordingStore.Pending.ChainId = activeChainId;
+            RecordingStore.Pending.ChainIndex = activeChainNextIndex;
+            RecordingStore.Pending.ParentRecordingId = activeChainPrevId;
+            RecordingStore.Pending.EvaCrewName = evaCrewName;
+
+            RecordingStore.CommitPending();
+            ParsekScenario.ReserveSnapshotCrew();
+            ParsekScenario.SwapReservedCrewInFlight();
+
+            // Prepare boundary anchor from last point of committed segment
+            if (segmentRecorder.Recording.Count > 0)
+                pendingBoundaryAnchor = segmentRecorder.Recording[segmentRecorder.Recording.Count - 1];
+
+            // Advance chain state
+            activeChainNextIndex++;
+            activeChainPrevId = segmentId;
+        }
+
         void OnCrewOnEva(GameEvents.FromToAction<Part, Part> data)
         {
-            // Mid-recording EVA: auto-stop parent, start child for EVA kerbal
+            // Mid-recording EVA: auto-stop parent, start chain child for EVA kerbal
             if (IsRecording)
             {
-                // Only trigger child flow if EVA is from the vessel we're recording
+                // Only trigger chain flow if EVA is from the vessel we're recording
                 if (data.from?.vessel == null ||
                     data.from.vessel.persistentId != recorder.RecordingVesselId)
                 {
@@ -366,10 +476,12 @@ namespace Parsek
                     return;
                 }
 
-                pendingEvaChildRecord = true;
-                pendingEvaCrewName = kerbalName;
+                pendingChainContinuation = true;
+                pendingChainIsBoarding = false;
+                pendingChainEvaName = kerbalName;
+                activeChainCrewName = kerbalName;
                 pendingAutoRecord = true;
-                Log($"Mid-recording EVA detected: '{kerbalName}' — pending child record");
+                Log($"Mid-recording EVA detected: '{kerbalName}' — pending chain continuation");
                 return;
             }
 
@@ -409,13 +521,34 @@ namespace Parsek
         {
             Log("Flight ready. Checking for pending recordings...");
 
+            // Clear chain state on flight ready (revert resets everything)
+            activeChainId = null;
+            activeChainNextIndex = 0;
+            activeChainPrevId = null;
+            activeChainCrewName = null;
+            pendingChainContinuation = false;
+            pendingChainIsBoarding = false;
+            pendingChainEvaName = null;
+            pendingBoardingTargetPid = 0;
+            pendingBoundaryAnchor = null;
+
             if (RecordingStore.HasPending)
             {
                 var pending = RecordingStore.Pending;
 
-                // Auto-commit EVA child recordings (skip merge dialog)
-                if (!string.IsNullOrEmpty(pending.ParentRecordingId))
+                // Check if this is part of a chain with committed siblings
+                bool hasChainSiblings = !string.IsNullOrEmpty(pending.ChainId) &&
+                    RecordingStore.GetChainRecordings(pending.ChainId) != null;
+
+                if (hasChainSiblings)
                 {
+                    // Chain-level merge dialog (covers all segments)
+                    Log($"Found pending chain recording (chain={pending.ChainId}, idx={pending.ChainIndex})");
+                    MergeDialog.Show(pending);
+                }
+                else if (!string.IsNullOrEmpty(pending.ParentRecordingId))
+                {
+                    // Legacy: auto-commit EVA child recordings (skip merge dialog)
                     bool parentFound = false;
                     foreach (var rec in RecordingStore.CommittedRecordings)
                     {
@@ -505,6 +638,11 @@ namespace Parsek
         public void StartRecording()
         {
             recorder = new FlightRecorder();
+            if (pendingBoundaryAnchor.HasValue)
+            {
+                recorder.BoundaryAnchor = pendingBoundaryAnchor;
+                pendingBoundaryAnchor = null;
+            }
             recorder.StartRecording();
         }
 
@@ -512,15 +650,13 @@ namespace Parsek
         {
             recorder?.StopRecording();
 
-            // Tag child recording if this was an EVA child.
-            // Do NOT clear activeChild* here — OnSceneChangeRequested needs them
-            // as a fallback when CaptureAtStop is unavailable (ForceStop path).
-            // ApplyPersistenceArtifactsFrom copies them from CaptureAtStop on the
-            // normal path; the activeChild* fields cover the ForceStop fallback.
-            if (recorder?.CaptureAtStop != null && !string.IsNullOrEmpty(activeChildParentId))
+            // Tag the final segment with chain metadata if in a chain
+            if (recorder?.CaptureAtStop != null && activeChainId != null)
             {
-                recorder.CaptureAtStop.ParentRecordingId = activeChildParentId;
-                recorder.CaptureAtStop.EvaCrewName = activeChildCrewName;
+                recorder.CaptureAtStop.ChainId = activeChainId;
+                recorder.CaptureAtStop.ChainIndex = activeChainNextIndex;
+                recorder.CaptureAtStop.ParentRecordingId = activeChainPrevId;
+                recorder.CaptureAtStop.EvaCrewName = activeChainCrewName;
             }
         }
 
@@ -638,7 +774,8 @@ namespace Parsek
                 {
                     var rec = committed[i];
                     if (rec.Points.Count < 2) continue;
-                    if (rec.VesselSnapshot == null || rec.VesselSpawned || rec.VesselDestroyed) continue;
+                    if (rec.VesselSnapshot == null || rec.VesselSpawned || rec.VesselDestroyed ||
+                        RecordingStore.IsChainMidSegment(rec)) continue;
 
                     bool crossedInto = lastTimelineUT < rec.StartUT && currentUT >= rec.StartUT;
                     bool approaching = currentUT < rec.StartUT &&
@@ -669,6 +806,9 @@ namespace Parsek
                 GhostPlaybackState state;
                 ghostStates.TryGetValue(i, out state);
                 bool ghostActive = state != null && state.ghost != null;
+                bool isMidChain = RecordingStore.IsChainMidSegment(rec);
+                double chainEndUT = isMidChain ? RecordingStore.GetChainEndUT(rec) : rec.EndUT;
+                bool pastChainEnd = currentUT > chainEndUT;
                 bool needsSpawn = rec.VesselSnapshot != null && !rec.VesselSpawned && !rec.VesselDestroyed && !rec.TakenControl;
 
                 // Guard: if vessel was spawned before but VesselSpawned got reset (scene change),
@@ -709,20 +849,27 @@ namespace Parsek
                     ApplyPartEvents(i, rec, currentUT, state);
                     ApplyResourceDeltas(rec, currentUT);
                 }
-                else if (pastEnd && needsSpawn && ghostActive)
+                else if (pastChainEnd && needsSpawn && ghostActive)
                 {
-                    // Ghost was playing, UT just crossed EndUT — hold at final pos, spawn, despawn ghost
+                    // Ghost was playing, UT crossed chain EndUT — spawn vessel, despawn ghost
                     Log($"Ghost EXITED range: #{i} \"{rec.VesselName}\" at UT {currentUT:F1} — spawning vessel");
                     PositionGhostAt(state.ghost, rec.Points[rec.Points.Count - 1]);
                     VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
                     DestroyTimelineGhost(i);
                     ApplyResourceDeltas(rec, currentUT);
                 }
-                else if (pastEnd && needsSpawn && !ghostActive)
+                else if (pastChainEnd && needsSpawn && !ghostActive)
                 {
-                    // UT already past EndUT on scene load — spawn immediately, no ghost
+                    // UT already past chain EndUT on scene load — spawn immediately, no ghost
                     VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
                     ApplyResourceDeltas(rec, currentUT);
+                }
+                else if (pastEnd && ghostActive && isMidChain && !pastChainEnd)
+                {
+                    // Mid-chain segment past its own EndUT but chain still playing — hold at final pos
+                    PositionGhostAt(state.ghost, rec.Points[rec.Points.Count - 1]);
+                    if (pastEnd)
+                        ApplyResourceDeltas(rec, currentUT);
                 }
                 else
                 {

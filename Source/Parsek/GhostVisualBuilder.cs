@@ -430,11 +430,13 @@ namespace Parsek
                 }
             }
 
-            // If animation didn't produce a usable scale, use a reasonable deployed-canopy default
-            if (sampled && scale.magnitude < 0.5f)
+            // If animation produced a near-zero scale, it failed to animate properly.
+            // Use a conservative fallback. Threshold is very low because stock parachutes
+            // (e.g. parachuteSingle) legitimately deploy at small scales like (0.1, 0.1, 0.1).
+            if (sampled && scale.magnitude < 0.01f)
             {
-                ParsekLog.Log($"  Animation produced unusable scale ({scale}), using deployed canopy fallback");
-                scale = Vector3.one * 30f;
+                ParsekLog.Log($"  Animation produced near-zero scale ({scale}), using deployed canopy fallback");
+                scale = Vector3.one;
                 pos = Vector3.zero;
             }
 

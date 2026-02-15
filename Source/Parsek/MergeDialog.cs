@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Parsek
@@ -8,6 +9,25 @@ namespace Parsek
     public static class MergeDialog
     {
         public static void Show(RecordingStore.Recording pending)
+        {
+            // Detect if this is a chain recording with committed siblings
+            bool isChain = !string.IsNullOrEmpty(pending.ChainId);
+            List<RecordingStore.Recording> chainSiblings = isChain
+                ? RecordingStore.GetChainRecordings(pending.ChainId)
+                : null;
+            int chainSegmentCount = (chainSiblings != null ? chainSiblings.Count : 0) + 1; // +1 for pending
+
+            if (isChain && chainSiblings != null)
+            {
+                ShowChainDialog(pending, chainSiblings, chainSegmentCount);
+                return;
+            }
+
+            // Non-chain: use existing dialog
+            ShowStandaloneDialog(pending);
+        }
+
+        static void ShowStandaloneDialog(RecordingStore.Recording pending)
         {
             double duration = pending.EndUT - pending.StartUT;
             var recommended = RecordingStore.GetRecommendedAction(
@@ -98,6 +118,125 @@ namespace Parsek
                 false,
                 HighLogic.UISkin
             );
+        }
+
+        static void ShowChainDialog(RecordingStore.Recording pending,
+            List<RecordingStore.Recording> chainSiblings, int totalSegments)
+        {
+            string chainId = pending.ChainId;
+            double duration = pending.EndUT - pending.StartUT;
+            var recommended = RecordingStore.GetRecommendedAction(
+                pending.DistanceFromLaunch, pending.VesselDestroyed,
+                pending.VesselSnapshot != null,
+                duration, pending.MaxDistanceFromLaunch);
+
+            ParsekLog.Log($"Chain merge dialog: chain={chainId}, segments={totalSegments}, " +
+                $"recommended={recommended}, hasSnapshot={pending.VesselSnapshot != null}");
+
+            DialogGUIButton[] buttons;
+
+            if (pending.VesselSnapshot != null && !pending.VesselDestroyed)
+            {
+                buttons = new[]
+                {
+                    new DialogGUIButton("Merge + Keep Vessel", () =>
+                    {
+                        RecordingStore.CommitPending();
+                        ParsekScenario.ReserveSnapshotCrew();
+                        ParsekScenario.SwapReservedCrewInFlight();
+                        ParsekLog.ScreenMessage($"Mission chain ({totalSegments} segments) merged — vessel will appear!", 3f);
+                        ParsekLog.Log($"User chose: Chain Merge + Keep Vessel ({totalSegments} segments)");
+                    }),
+                    new DialogGUIButton("Merge + Recover", () =>
+                    {
+                        RecordingStore.CommitPending();
+                        if (pending.VesselSnapshot != null)
+                        {
+                            ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
+                            VesselSpawner.RecoverVessel(pending.VesselSnapshot);
+                        }
+                        pending.VesselSnapshot = null;
+                        ParsekLog.ScreenMessage($"Mission chain ({totalSegments} segments) merged, vessel recovered!", 3f);
+                        ParsekLog.Log($"User chose: Chain Merge + Recover ({totalSegments} segments)");
+                    }),
+                    new DialogGUIButton("Discard All", () =>
+                    {
+                        DiscardChain(pending, chainId);
+                        ParsekLog.ScreenMessage($"Mission chain ({totalSegments} segments) discarded", 2f);
+                        ParsekLog.Log($"User chose: Chain Discard ({totalSegments} segments)");
+                    })
+                };
+            }
+            else
+            {
+                // No vessel to spawn (EVA final segment or destroyed)
+                buttons = new[]
+                {
+                    new DialogGUIButton("Merge to Timeline", () =>
+                    {
+                        if (pending.VesselSnapshot != null)
+                            ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
+                        pending.VesselSnapshot = null;
+                        RecordingStore.CommitPending();
+                        ParsekLog.ScreenMessage($"Mission chain ({totalSegments} segments) merged!", 3f);
+                        ParsekLog.Log($"User chose: Chain Merge to Timeline ({totalSegments} segments)");
+                    }),
+                    new DialogGUIButton("Discard All", () =>
+                    {
+                        DiscardChain(pending, chainId);
+                        ParsekLog.ScreenMessage($"Mission chain ({totalSegments} segments) discarded", 2f);
+                        ParsekLog.Log($"User chose: Chain Discard ({totalSegments} segments)");
+                    })
+                };
+            }
+
+            string message = $"Mission chain ({totalSegments} segments)\n" +
+                $"Vessel: {pending.VesselName}\n" +
+                $"Duration: {duration:F1}s\n" +
+                $"Distance: {pending.DistanceFromLaunch:F0}m\n\n";
+
+            if (pending.VesselSnapshot != null && !pending.VesselDestroyed)
+                message += "The final vessel will persist in the timeline.";
+            else if (pending.VesselDestroyed)
+                message += "The vessel was destroyed. All segments will replay as ghosts.";
+            else
+                message += "All segments will replay as ghosts.";
+
+            PopupDialog.SpawnPopupDialog(
+                new Vector2(0.5f, 0.5f),
+                new Vector2(0.5f, 0.5f),
+                new MultiOptionDialog(
+                    "ParsekMerge",
+                    message,
+                    "Parsek — Merge Mission Chain",
+                    HighLogic.UISkin,
+                    buttons
+                ),
+                false,
+                HighLogic.UISkin
+            );
+        }
+
+        static void DiscardChain(RecordingStore.Recording pending, string chainId)
+        {
+            // Unreserve crew from pending
+            if (pending.VesselSnapshot != null)
+                ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
+
+            // Unreserve crew from all committed chain siblings
+            var siblings = RecordingStore.GetChainRecordings(chainId);
+            if (siblings != null)
+            {
+                for (int i = 0; i < siblings.Count; i++)
+                {
+                    if (siblings[i].VesselSnapshot != null)
+                        ParsekScenario.UnreserveCrewInSnapshot(siblings[i].VesselSnapshot);
+                }
+            }
+
+            // Remove committed chain recordings and discard pending
+            RecordingStore.RemoveChainRecordings(chainId);
+            RecordingStore.DiscardPending();
         }
 
         internal static string BuildMergeMessage(RecordingStore.Recording pending, double duration,

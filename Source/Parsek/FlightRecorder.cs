@@ -15,7 +15,8 @@ namespace Parsek
         {
             None,
             ContinueOnEva,
-            Stop
+            Stop,
+            ChainToVessel   // EVA recording → boarded a vessel
         }
 
         // Recording output
@@ -36,6 +37,7 @@ namespace Parsek
         public uint RecordingVesselId { get; private set; }
         public bool RecordingStartedAsEva { get; private set; }
         public bool VesselDestroyedDuringRecording { get; set; }
+        public bool ChainToVesselPending { get; internal set; }
         public RecordingStore.Recording CaptureAtStop { get; private set; }
         public ConfigNode LastGoodVesselSnapshot => lastGoodVesselSnapshot;
         public ConfigNode InitialGhostVisualSnapshot => initialGhostVisualSnapshot;
@@ -51,6 +53,10 @@ namespace Parsek
         private ConfigNode lastGoodVesselSnapshot;
         private ConfigNode initialGhostVisualSnapshot;
         private double lastSnapshotRefreshUT = double.MinValue;
+
+        // Boundary anchor: if set, inserted as the first point when recording starts.
+        // Used for chain continuation to seamlessly stitch segments.
+        public TrajectoryPoint? BoundaryAnchor { get; set; }
 
         // On-rails state
         private bool isOnRails;
@@ -359,6 +365,7 @@ namespace Parsek
             cachedEngines = CacheEngineModules(v);
             activeEngineKeys = new HashSet<ulong>();
             lastThrottle = new Dictionary<ulong, float>();
+
             IsRecording = true;
             isOnRails = false;
             VesselDestroyedDuringRecording = false;
@@ -367,6 +374,23 @@ namespace Parsek
             RecordingStartedAsEva = v.isEVA;
             lastRecordedUT = -1;
             lastRecordedVelocity = Vector3.zero;
+
+            // Insert boundary anchor from previous chain segment if present.
+            // Must come AFTER the lastRecordedUT reset above so the anchor's
+            // UT is preserved (prevents duplicate-UT with the first live sample).
+            if (BoundaryAnchor.HasValue)
+            {
+                var anchor = BoundaryAnchor.Value;
+                // Nudge UT backward by a tiny epsilon to maintain strict monotonicity
+                // if the anchor UT would equal the first live sample's UT
+                double anchorUT = anchor.ut - 0.001;
+                anchor.ut = anchorUT;
+                Recording.Add(anchor);
+                lastRecordedUT = anchorUT;
+                lastRecordedVelocity = anchor.velocity;
+                BoundaryAnchor = null;
+                ParsekLog.Log($"Boundary anchor inserted at UT {anchorUT:F3}");
+            }
             RefreshBackupSnapshot(v, "record_start", force: true);
             initialGhostVisualSnapshot = lastGoodVesselSnapshot != null
                 ? lastGoodVesselSnapshot.CreateCopy()
@@ -503,6 +527,14 @@ namespace Parsek
                 Patches.PhysicsFramePatch.ActiveRecorder = null;
                 UnsubscribePartEvents();
                 IsRecording = false;
+
+                if (decision == VesselSwitchDecision.ChainToVessel)
+                {
+                    ChainToVesselPending = true;
+                    ParsekLog.Log($"EVA boarded vessel (was pid={RecordingVesselId}, now pid={v.persistentId}) — chain pending");
+                    return;
+                }
+
                 ParsekLog.Log($"Active vessel changed during recording (was pid={RecordingVesselId}, now pid={v.persistentId}) — auto-stopping");
                 ParsekLog.ScreenMessage("Recording stopped — vessel changed", 3f);
                 return;
@@ -745,6 +777,11 @@ namespace Parsek
             // Continue-on-EVA is only valid for recordings that started as EVA.
             if (currentIsEva && recordingStartedAsEva)
                 return VesselSwitchDecision.ContinueOnEva;
+            // EVA kerbal boarded a vessel — potential chain continuation.
+            // ParsekFlight checks activeChainId before actually continuing the chain;
+            // if not in a chain, this is treated as a normal stop.
+            if (!currentIsEva && recordingStartedAsEva)
+                return VesselSwitchDecision.ChainToVessel;
             return VesselSwitchDecision.Stop;
         }
     }

@@ -379,6 +379,53 @@ namespace Parsek
 
             HashSet<string> excludeCrew = null;
             var committed = RecordingStore.CommittedRecordings;
+
+            // Chain-aware: exclude EVA crew who are still on EVA at the end of the chain
+            // (no subsequent vessel segment). Crew who boarded back are NOT excluded.
+            // EVA segments themselves should never exclude their own crew.
+            if (!string.IsNullOrEmpty(rec.ChainId) && string.IsNullOrEmpty(rec.EvaCrewName))
+            {
+                // Find the highest ChainIndex of a non-EVA (vessel) segment
+                int highestVesselIndex = -1;
+                List<(string crew, int index)> evaSegments = null;
+
+                for (int c = 0; c < committed.Count; c++)
+                {
+                    var sibling = committed[c];
+                    if (sibling.ChainId != rec.ChainId) continue;
+
+                    if (!string.IsNullOrEmpty(sibling.EvaCrewName))
+                    {
+                        if (evaSegments == null) evaSegments = new List<(string, int)>();
+                        evaSegments.Add((sibling.EvaCrewName, sibling.ChainIndex));
+                    }
+                    else if (sibling.ChainIndex > highestVesselIndex)
+                    {
+                        highestVesselIndex = sibling.ChainIndex;
+                    }
+                }
+
+                // Exclude EVA crew whose EVA segment comes after all vessel segments
+                // (they're still on EVA — didn't board back)
+                if (evaSegments != null)
+                {
+                    for (int e = 0; e < evaSegments.Count; e++)
+                    {
+                        if (evaSegments[e].index > highestVesselIndex)
+                        {
+                            if (excludeCrew == null) excludeCrew = new HashSet<string>();
+                            excludeCrew.Add(evaSegments[e].crew);
+                        }
+                    }
+                }
+
+                if (excludeCrew != null)
+                    ParsekLog.Log($"Excluding EVA'd crew from chain vessel spawn: [{string.Join(", ", excludeCrew)}]");
+                return excludeCrew;
+            }
+
+            // Legacy fallback: also check single-level parent→child linkage
+            // (for old saves without chain fields)
             for (int c = 0; c < committed.Count; c++)
             {
                 var child = committed[c];
@@ -388,6 +435,7 @@ namespace Parsek
                     excludeCrew.Add(child.EvaCrewName);
                 }
             }
+
             if (excludeCrew != null)
                 ParsekLog.Log($"Excluding EVA'd crew from parent spawn: [{string.Join(", ", excludeCrew)}]");
             return excludeCrew;
