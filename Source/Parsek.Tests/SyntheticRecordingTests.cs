@@ -996,83 +996,20 @@ namespace Parsek.Tests
         /// KSP bounces to Space Center if FLIGHTSTATE has no vessels, which
         /// loads persistent.sfs — carrying over stale spawned vessels.
         /// </summary>
-        private static string EnsurePadVesselInFlightState(string content)
+        /// <summary>
+        /// Reset activeVessel to -1 so KSP loads directly into Space Center
+        /// instead of attempting Flight (which bounces to Space Center via
+        /// persistent.sfs when FLIGHTSTATE has no vessels).
+        /// </summary>
+        private static string ResetActiveVessel(string content)
         {
-            // Check if any VESSEL blocks exist inside FLIGHTSTATE
-            var lines = content.Split(new[] { "\r\n", "\n" }, System.StringSplitOptions.None);
-            bool inFlightState = false;
-            int depth = 0;
-            bool hasVessel = false;
-            int closingBraceIndex = -1;
-            for (int i = 0; i < lines.Length; i++)
-            {
-                string trimmed = lines[i].Trim();
-                if (!inFlightState && trimmed == "FLIGHTSTATE")
-                {
-                    inFlightState = true;
-                    depth = 0;
-                    continue;
-                }
-                if (inFlightState)
-                {
-                    if (trimmed == "{") depth++;
-                    else if (trimmed == "}")
-                    {
-                        depth--;
-                        if (depth <= 0)
-                        {
-                            closingBraceIndex = i;
-                            break;
-                        }
-                    }
-                    if (depth == 1 && trimmed == "VESSEL")
-                        hasVessel = true;
-                }
-            }
-
-            // Reset activeVessel to 0 (our pad vessel is the first/only vessel)
-            for (int j = 0; j < lines.Length; j++)
-            {
-                string t = lines[j].Trim();
-                if (t.StartsWith("activeVessel = ", System.StringComparison.Ordinal))
-                {
-                    string indent = lines[j].Substring(0, lines[j].Length - lines[j].TrimStart().Length);
-                    lines[j] = indent + "activeVessel = 0";
-                    break;
-                }
-            }
-
-            if (hasVessel || closingBraceIndex < 0)
-            {
-                string sep2 = content.Contains("\r\n") ? "\r\n" : "\n";
-                return string.Join(sep2, lines);
-            }
-
-            // Build a minimal pad vessel using VesselSnapshotBuilder
-            var vessel = VesselSnapshotBuilder.FleaRocket("Untitled Space Craft", "Jebediah Kerman", 999999)
-                .AsLanded(-0.0972, -74.5577, 67.6)
-                .WithSituation("PRELAUNCH");
-            var vesselNode = vessel.Build();
-
-            // Serialize and insert before the closing brace of FLIGHTSTATE
-            var writer = new ScenarioWriter();
-            string serialized = writer.SerializeConfigNode(vesselNode, "VESSEL", 2);
-
-            var result = new System.Collections.Generic.List<string>(lines.Length + 50);
-            for (int i = 0; i < lines.Length; i++)
-            {
-                if (i == closingBraceIndex)
-                {
-                    // Insert vessel text before the closing brace
-                    string sep = content.Contains("\r\n") ? "\r\n" : "\n";
-                    foreach (string vLine in serialized.Split(new[] { "\r\n", "\n" }, System.StringSplitOptions.RemoveEmptyEntries))
-                        result.Add(vLine);
-                }
-                result.Add(lines[i]);
-            }
-
-            string lineSep = content.Contains("\r\n") ? "\r\n" : "\n";
-            return string.Join(lineSep, result);
+            var m = Regex.Match(content,
+                @"(activeVessel\s*=\s*)(-?\d+)",
+                RegexOptions.None);
+            if (!m.Success) return content;
+            return content.Substring(0, m.Groups[2].Index)
+                 + "-1"
+                 + content.Substring(m.Groups[2].Index + m.Groups[2].Length);
         }
 
         /// <summary>
@@ -1338,7 +1275,7 @@ namespace Parsek.Tests
 
             string content = File.ReadAllText(savePath);
             content = RemoveVesselBlocksFromFlightState(content);
-            content = EnsurePadVesselInFlightState(content);
+            content = ResetActiveVessel(content);
             content = RemoveSpawnedPidLines(content);
             content = RemoveNonVeteranCrewFromRoster(content);
             content = ResetVeteranCrewStatus(content);
