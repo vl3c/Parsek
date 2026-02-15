@@ -48,6 +48,8 @@ packages/
 .DS_Store
 Thumbs.db
 
-# Temp / codex review artifacts
+# Temp files
+.tmp/
 tmp-*
 *tmp-codex-*
+nul

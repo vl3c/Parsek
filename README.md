@@ -1,8 +1,8 @@
 # Parsek
 
-**Time-rewind mission recording for KSP1.** Record missions, revert to launch, and watch them play out as ghost vessels while you fly new ones.
+*Record, rewind and merge your parallel-sekuential adventures.*
 
-Parsek transforms KSP from a mission simulator into a space program simulator. No more idle time warping through interplanetary transfers — launch your next mission while the last one flies itself.
+**Time-rewind mission recording for KSP1.** Record missions, revert to launch, and watch them play out as ghost vessels while you fly new ones. Parsek transforms KSP from a mission simulator into a space program simulator.
 
 ## How It Works
 
