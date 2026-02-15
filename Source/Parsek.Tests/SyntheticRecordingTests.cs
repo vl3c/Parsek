@@ -460,9 +460,12 @@ namespace Parsek.Tests
             seg0.AddPartEvent(t + 12, 101111, 0, "solidBooster.sm.v2"); // Decouple
             seg0.AddPartEvent(t + 40, 102222, 2, "parachuteSingle");    // ParachuteDeployed
 
-            // Ghost-only (mid-chain — holds at landing position during EVA)
+            // Continuation keeps VesselSnapshot — vessel spawns at landing position at chain end
             double landLat = baseLat - 0.0016;
             double landLon = baseLon + 0.0095;
+            seg0.WithVesselSnapshot(
+                VesselSnapshotBuilder.FleaRocket("Landing Craft", "Bill Kerman", pid: 88888888)
+                    .AsLanded(landLat, landLon, 55));
             seg0.WithGhostVisualSnapshot(
                 VesselSnapshotBuilder.FleaRocket("Landing Craft", "Bill Kerman", pid: 88888888)
                     .AsLanded(landLat, landLon, 55));

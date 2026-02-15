@@ -1264,8 +1264,9 @@ namespace Parsek.Tests
             Assert.Equal("0", nodes[0].GetValue("chainIndex"));
             Assert.Equal("1", nodes[1].GetValue("chainIndex"));
 
-            // Both are ghost-only (no VESSEL_SNAPSHOT — testing ghost playback path)
-            Assert.Null(nodes[0].GetNode("VESSEL_SNAPSHOT"));
+            // Segment 0 has VesselSnapshot (continuation extends trajectory — spawns at chain end)
+            Assert.NotNull(nodes[0].GetNode("VESSEL_SNAPSHOT"));
+            // Segment 1 is ghost-only (EVA — no vessel spawn)
             Assert.Null(nodes[1].GetNode("VESSEL_SNAPSHOT"));
 
             // Both have ghost visual snapshots
@@ -1301,14 +1302,15 @@ namespace Parsek.Tests
         #region Chain spawn safety
 
         [Fact]
-        public void MidChainSegment_VesselSnapshot_ShouldBeNull_WhenGhostOnly()
+        public void MidChainVesselSegment_WithSnapshot_SpawnDeferredByPastChainEnd()
         {
-            // Mid-chain vessel segments (recorded up to EVA) should have VesselSnapshot=null.
-            // This prevents spawning the vessel at the EVA point (wrong position).
+            // Mid-chain vessel segments can have VesselSnapshot when continuation
+            // sampling extends the trajectory. Spawning is deferred to pastChainEnd
+            // by the UpdateTimelinePlayback condition (pastChainEnd && needsSpawn).
             RecordingStore.StashPending(MakePoints(10, 100), "Vessel Seg");
             RecordingStore.Pending.ChainId = "spawn-test";
             RecordingStore.Pending.ChainIndex = 0;
-            RecordingStore.Pending.VesselSnapshot = new ConfigNode("VESSEL"); // simulate snapshot
+            RecordingStore.Pending.VesselSnapshot = new ConfigNode("VESSEL");
             RecordingStore.Pending.GhostVisualSnapshot = new ConfigNode("GHOST");
             RecordingStore.CommitPending();
 
@@ -1321,16 +1323,26 @@ namespace Parsek.Tests
             var vessel = RecordingStore.CommittedRecordings[0];
             var eva = RecordingStore.CommittedRecordings[1];
 
-            // After proper chain commit, vessel segment should be ghost-only.
-            // CommitChainSegment nulls VesselSnapshot. Here we verify the invariant:
-            // IsChainMidSegment=true means the segment should NOT spawn.
             Assert.True(RecordingStore.IsChainMidSegment(vessel));
             Assert.False(RecordingStore.IsChainMidSegment(eva));
 
-            // If VesselSnapshot were non-null on a mid-chain segment, it would create
-            // a duplicate vessel on top of the real one. The spawn decision is:
-            // needsSpawn = VesselSnapshot != null && !VesselSpawned && !VesselDestroyed
-            // For mid-chain segments, VesselSnapshot must be null to prevent spawn.
+            // With continuation, vessel segment keeps VesselSnapshot → needsSpawn = true
+            bool needsSpawn = vessel.VesselSnapshot != null && !vessel.VesselSpawned && !vessel.VesselDestroyed;
+            Assert.True(needsSpawn);
+
+            // But spawning only occurs when pastChainEnd is true (UT > chain's last segment EndUT)
+            double chainEndUT = RecordingStore.GetChainEndUT(vessel);
+            Assert.Equal(eva.EndUT, chainEndUT);
+
+            // Before chain end: UT 150 is within vessel's range but before chain end
+            double utBeforeChainEnd = 150;
+            Assert.True(utBeforeChainEnd < chainEndUT);
+            // → ghost plays, no spawn yet
+
+            // After chain end: UT 250 is past the EVA segment's EndUT
+            double utAfterChainEnd = 250;
+            Assert.True(utAfterChainEnd > chainEndUT);
+            // → vessel spawns at its final recorded position
         }
 
         [Fact]
@@ -1440,6 +1452,112 @@ namespace Parsek.Tests
                 needsSpawn = false;
 
             Assert.False(needsSpawn); // suppressed by guard
+        }
+
+        [Fact]
+        public void ContinuationStop_OnBoarding_NullsVesselSnapshot()
+        {
+            // Simulates the boarding flow: vessel segment committed with VesselSnapshot,
+            // then EVA segment committed → continuation nulls the vessel's VesselSnapshot.
+            // V(0) → EVA(1) → V(2) boarding case.
+            RecordingStore.StashPending(MakePoints(10, 100), "Vessel1");
+            RecordingStore.Pending.ChainId = "board-test";
+            RecordingStore.Pending.ChainIndex = 0;
+            RecordingStore.Pending.VesselSnapshot = new ConfigNode("VESSEL");
+            RecordingStore.CommitPending();
+
+            var vesselRec = RecordingStore.CommittedRecordings[0];
+            Assert.NotNull(vesselRec.VesselSnapshot); // present before boarding
+
+            // Simulate boarding: continuation nulls the vessel segment's VesselSnapshot
+            vesselRec.VesselSnapshot = null;
+            Assert.Null(vesselRec.VesselSnapshot);
+
+            // Spawn decision is now false for the vessel segment
+            bool needsSpawn = vesselRec.VesselSnapshot != null && !vesselRec.VesselSpawned && !vesselRec.VesselDestroyed;
+            Assert.False(needsSpawn);
+
+            // The new vessel segment (index 2) handles spawning instead
+            RecordingStore.StashPending(MakePoints(5, 150), "EVA");
+            RecordingStore.Pending.ChainId = "board-test";
+            RecordingStore.Pending.ChainIndex = 1;
+            RecordingStore.Pending.EvaCrewName = "Jeb";
+            RecordingStore.CommitPending();
+
+            RecordingStore.StashPending(MakePoints(5, 200), "Vessel2");
+            RecordingStore.Pending.ChainId = "board-test";
+            RecordingStore.Pending.ChainIndex = 2;
+            RecordingStore.Pending.VesselSnapshot = new ConfigNode("VESSEL");
+            RecordingStore.CommitPending();
+
+            var finalVessel = RecordingStore.CommittedRecordings[2];
+            Assert.False(RecordingStore.IsChainMidSegment(finalVessel));
+            bool finalNeedsSpawn = finalVessel.VesselSnapshot != null && !finalVessel.VesselSpawned && !finalVessel.VesselDestroyed;
+            Assert.True(finalNeedsSpawn);
+        }
+
+        [Fact]
+        public void MidChainVesselWithSnapshot_SpawnsAtChainEnd()
+        {
+            // V→EVA chain where vessel segment keeps VesselSnapshot (continuation).
+            // Spawn should be gated by pastChainEnd, not just pastEnd of the vessel segment.
+            RecordingStore.StashPending(MakePoints(10, 100), "Vessel");
+            RecordingStore.Pending.ChainId = "spawn-chain";
+            RecordingStore.Pending.ChainIndex = 0;
+            RecordingStore.Pending.VesselSnapshot = new ConfigNode("VESSEL");
+            RecordingStore.CommitPending();
+
+            RecordingStore.StashPending(MakePoints(5, 250), "EVA");
+            RecordingStore.Pending.ChainId = "spawn-chain";
+            RecordingStore.Pending.ChainIndex = 1;
+            RecordingStore.CommitPending();
+
+            var vessel = RecordingStore.CommittedRecordings[0];
+            double vesselEndUT = vessel.EndUT;   // 190 (100 + 9*10)
+            double chainEndUT = RecordingStore.GetChainEndUT(vessel); // EVA segment EndUT = 290
+
+            // needsSpawn is true because VesselSnapshot is present
+            bool needsSpawn = vessel.VesselSnapshot != null && !vessel.VesselSpawned && !vessel.VesselDestroyed;
+            Assert.True(needsSpawn);
+
+            // At UT 200: past vessel's own EndUT (190) but NOT past chain end (290)
+            // → ghost holds at final position, no spawn
+            bool pastEnd = 200 > vesselEndUT;
+            bool pastChainEnd = 200 > chainEndUT;
+            Assert.True(pastEnd);
+            Assert.False(pastChainEnd);
+
+            // At UT 300: past chain end (290) → vessel spawns
+            bool pastChainEnd2 = 300 > chainEndUT;
+            Assert.True(pastChainEnd2);
+        }
+
+        [Fact]
+        public void ContinuationAppendedPoints_ExtendEndUT()
+        {
+            // Appending trajectory points to a committed recording extends its EndUT
+            RecordingStore.StashPending(MakePoints(5, 100), "Test Vessel");
+            RecordingStore.CommitPending();
+
+            var rec = RecordingStore.CommittedRecordings[0];
+            double originalEndUT = rec.EndUT; // 140 (100 + 4*10)
+            Assert.Equal(140, originalEndUT);
+
+            // Simulate continuation: append points with later UTs
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 200, latitude = 0, longitude = 0, altitude = 100,
+                rotation = Quaternion.identity, velocity = Vector3.zero,
+                bodyName = "Kerbin"
+            });
+
+            Assert.Equal(200, rec.EndUT);
+            Assert.True(rec.EndUT > originalEndUT);
+
+            // Chain EndUT also updates (it reads EndUT from the recording)
+            rec.ChainId = "extend-test";
+            rec.ChainIndex = 0;
+            Assert.Equal(200, RecordingStore.GetChainEndUT(rec));
         }
 
         [Fact]

@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using ClickThroughFix;
 using KSP.UI.Screens;
 using ToolbarControl_NS;
@@ -72,6 +73,18 @@ namespace Parsek
 
         // Boundary anchor for chain continuation (copied from previous segment's last point)
         private TrajectoryPoint? pendingBoundaryAnchor;
+
+        // Continuation sampling: after a vessel chain segment commits (V→EVA),
+        // keeps tracking the original vessel so its trajectory extends beyond the EVA point.
+        private uint continuationVesselPid;        // 0 = not tracking
+        private int continuationRecordingIdx = -1; // index into CommittedRecordings
+        private Vector3 continuationLastVelocity;
+        private double continuationLastUT = -1;
+
+        // Continuation adaptive sampling thresholds (same as FlightRecorder)
+        private const float continuationMaxInterval = 3.0f;
+        private const float continuationVelDirThreshold = 2.0f;
+        private const float continuationSpeedThreshold = 0.05f;
 
         // Timeline warp protection — tracks previous frame's UT
         private double lastTimelineUT = -1;
@@ -230,6 +243,8 @@ namespace Parsek
                 // HandleInput/playback so they aren't starved.
             }
 
+            UpdateContinuationSampling();
+
             HandleInput();
 
             if (isPlaying)
@@ -295,6 +310,13 @@ namespace Parsek
         void OnSceneChangeRequested(GameScenes scene)
         {
             Log($"Scene change requested: {scene}");
+
+            // Finalize continuation sampling before anything else
+            if (continuationVesselPid != 0)
+            {
+                RefreshContinuationSnapshot();
+                StopContinuation("scene change");
+            }
 
             // If we have recording data and are leaving flight, stash it
             if (recorder != null && recorder.Recording.Count > 0)
@@ -373,6 +395,20 @@ namespace Parsek
         void OnVesselWillDestroy(Vessel v)
         {
             recorder?.OnVesselWillDestroy(v);
+
+            // If the continuation vessel is destroyed, mark the recording and stop tracking
+            if (continuationVesselPid != 0 && v.persistentId == continuationVesselPid)
+            {
+                if (continuationRecordingIdx >= 0 &&
+                    continuationRecordingIdx < RecordingStore.CommittedRecordings.Count)
+                {
+                    var rec = RecordingStore.CommittedRecordings[continuationRecordingIdx];
+                    rec.VesselDestroyed = true;
+                    rec.VesselSnapshot = null;
+                    Log($"Continuation vessel destroyed (pid={continuationVesselPid})");
+                }
+                StopContinuation("vessel destroyed");
+            }
         }
 
         void OnVesselSituationChange(GameEvents.HostedFromToAction<Vessel, Vessel.Situations> data)
@@ -429,12 +465,6 @@ namespace Parsek
             Log($"Chain: segment has VesselSnapshot={RecordingStore.Pending.VesselSnapshot != null}, " +
                 $"GhostVisualSnapshot={RecordingStore.Pending.GhostVisualSnapshot != null}");
 
-            // Mid-chain segments are ghost-only: null VesselSnapshot so they don't spawn.
-            // The vessel recording ends at EVA, not at the vessel's actual final position,
-            // so spawning it would place it at the wrong location (mid-air at EVA point).
-            // GhostVisualSnapshot is kept for ghost rendering.
-            RecordingStore.Pending.VesselSnapshot = null;
-
             // First transition: initialize chain
             if (activeChainId == null)
             {
@@ -460,6 +490,145 @@ namespace Parsek
             // Advance chain state
             activeChainNextIndex++;
             activeChainPrevId = segmentId;
+
+            // Continuation sampling: track the vessel after mid-chain commit
+            if (!segmentRecorder.RecordingStartedAsEva)
+            {
+                // Vessel segment committed (V→EVA): start continuation to extend trajectory
+                continuationVesselPid = segmentRecorder.RecordingVesselId;
+                continuationRecordingIdx = RecordingStore.CommittedRecordings.Count - 1;
+                var lastPoints = RecordingStore.CommittedRecordings[continuationRecordingIdx].Points;
+                if (lastPoints.Count > 0)
+                {
+                    continuationLastVelocity = lastPoints[lastPoints.Count - 1].velocity;
+                    continuationLastUT = lastPoints[lastPoints.Count - 1].ut;
+                }
+                else
+                {
+                    continuationLastVelocity = Vector3.zero;
+                    continuationLastUT = -1;
+                }
+                Log($"Continuation started: tracking vessel pid={continuationVesselPid} " +
+                    $"in recording #{continuationRecordingIdx}");
+            }
+            else if (continuationVesselPid != 0)
+            {
+                // EVA segment committed during boarding (EVA→V): stop continuation,
+                // null the vessel segment's VesselSnapshot (new vessel segment handles spawning)
+                var vesselRec = RecordingStore.CommittedRecordings[continuationRecordingIdx];
+                vesselRec.VesselSnapshot = null;
+                Log($"Continuation stopped (boarding): nulled VesselSnapshot " +
+                    $"on recording #{continuationRecordingIdx}");
+                StopContinuation("boarding");
+            }
+        }
+
+        /// <summary>
+        /// Samples the continuation vessel's position each frame (adaptive sampling).
+        /// Extends the committed recording's trajectory beyond the EVA point.
+        /// </summary>
+        void UpdateContinuationSampling()
+        {
+            if (continuationVesselPid == 0) return;
+
+            // Guard against stale index (e.g. user wiped recordings from UI)
+            if (continuationRecordingIdx < 0 ||
+                continuationRecordingIdx >= RecordingStore.CommittedRecordings.Count)
+            {
+                StopContinuation("stale index");
+                return;
+            }
+
+            Vessel v = FlightRecorder.FindVesselByPid(continuationVesselPid);
+            if (v == null)
+            {
+                StopContinuation("vessel null");
+                return;
+            }
+
+            double ut = Planetarium.GetUniversalTime();
+            Vector3 velocity = v.packed
+                ? (Vector3)v.obt_velocity
+                : (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity());
+
+            if (!TrajectoryMath.ShouldRecordPoint(velocity, continuationLastVelocity,
+                ut, continuationLastUT, continuationMaxInterval,
+                continuationVelDirThreshold, continuationSpeedThreshold))
+                return;
+
+            var rec = RecordingStore.CommittedRecordings[continuationRecordingIdx];
+
+            // Carry forward resource values from the last point (vessel doesn't earn
+            // resources while flying autonomously after EVA)
+            var lastPoint = rec.Points.Count > 0
+                ? rec.Points[rec.Points.Count - 1]
+                : default(TrajectoryPoint);
+
+            var point = new TrajectoryPoint
+            {
+                ut = ut,
+                latitude = v.latitude,
+                longitude = v.longitude,
+                altitude = v.altitude,
+                rotation = v.transform.rotation,
+                velocity = velocity,
+                bodyName = v.mainBody.name,
+                funds = lastPoint.funds,
+                science = lastPoint.science,
+                reputation = lastPoint.reputation
+            };
+
+            rec.Points.Add(point);
+            continuationLastUT = ut;
+            continuationLastVelocity = velocity;
+        }
+
+        void StopContinuation(string reason)
+        {
+            Log($"Continuation stopped ({reason}): was tracking pid={continuationVesselPid}, " +
+                $"recording #{continuationRecordingIdx}");
+            continuationVesselPid = 0;
+            continuationRecordingIdx = -1;
+        }
+
+        /// <summary>
+        /// Refreshes the continuation recording's VesselSnapshot before stopping.
+        /// If the vessel is loaded, takes a fresh snapshot. If unloaded/null,
+        /// updates the existing snapshot's position from the last trajectory point.
+        /// </summary>
+        void RefreshContinuationSnapshot()
+        {
+            if (continuationVesselPid == 0 || continuationRecordingIdx < 0) return;
+            if (continuationRecordingIdx >= RecordingStore.CommittedRecordings.Count)
+            {
+                StopContinuation("stale index in snapshot refresh");
+                return;
+            }
+
+            var rec = RecordingStore.CommittedRecordings[continuationRecordingIdx];
+            Vessel v = FlightRecorder.FindVesselByPid(continuationVesselPid);
+
+            if (v != null && v.loaded)
+            {
+                var snapshot = VesselSpawner.TryBackupSnapshot(v);
+                if (snapshot != null)
+                {
+                    rec.VesselSnapshot = snapshot;
+                    Log("Continuation: refreshed vessel snapshot from loaded vessel");
+                }
+            }
+            else if (rec.VesselSnapshot != null && rec.Points.Count > 0)
+            {
+                var last = rec.Points[rec.Points.Count - 1];
+                rec.VesselSnapshot.SetValue("lat",
+                    last.latitude.ToString("R", CultureInfo.InvariantCulture), true);
+                rec.VesselSnapshot.SetValue("lon",
+                    last.longitude.ToString("R", CultureInfo.InvariantCulture), true);
+                rec.VesselSnapshot.SetValue("alt",
+                    last.altitude.ToString("R", CultureInfo.InvariantCulture), true);
+                Log($"Continuation: updated snapshot position from last trajectory point " +
+                    $"(lat={last.latitude:F4})");
+            }
         }
 
         void OnCrewOnEva(GameEvents.FromToAction<Part, Part> data)
@@ -536,6 +705,8 @@ namespace Parsek
             pendingChainEvaName = null;
             pendingBoardingTargetPid = 0;
             pendingBoundaryAnchor = null;
+            continuationVesselPid = 0;
+            continuationRecordingIdx = -1;
 
             if (RecordingStore.HasPending)
             {

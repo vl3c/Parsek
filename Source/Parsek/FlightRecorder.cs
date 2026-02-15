@@ -791,7 +791,7 @@ namespace Parsek
             ParsekLog.Log("Auto-stopped recording due to scene change");
         }
 
-        private static Vessel FindVesselByPid(uint pid)
+        internal static Vessel FindVesselByPid(uint pid)
         {
             if (FlightGlobals.Vessels == null) return null;
             for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
