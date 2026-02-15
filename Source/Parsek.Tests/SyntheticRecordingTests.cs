@@ -928,9 +928,10 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Remove VESSEL blocks that are direct children of FLIGHTSTATE.
-        /// Only matches inside the FLIGHTSTATE scope so VESSEL nodes nested
-        /// elsewhere (e.g. inside SCENARIO modules) are left intact.
+        /// Remove ALL VESSEL blocks from FLIGHTSTATE. A fresh pad vessel is
+        /// injected afterward by EnsurePadVesselInFlightState so that KSP can
+        /// enter flight without bouncing to Space Center (which would load
+        /// persistent.sfs with stale vessels).
         /// </summary>
         private static string RemoveVesselBlocksFromFlightState(string content)
         {
@@ -962,7 +963,7 @@ namespace Parsek.Tests
                         if (flightStateDepth <= 0) inFlightState = false;
                     }
 
-                    // Only strip VESSEL blocks at depth 1 (direct children of FLIGHTSTATE)
+                    // Strip all VESSEL blocks at depth 1 (direct children of FLIGHTSTATE)
                     if (flightStateDepth == 1 && trimmed == "VESSEL")
                     {
                         i++;
@@ -988,6 +989,90 @@ namespace Parsek.Tests
 
             string sep = content.Contains("\r\n") ? "\r\n" : "\n";
             return string.Join(sep, result);
+        }
+
+        /// <summary>
+        /// Ensure FLIGHTSTATE has at least one VESSEL (a minimal pad rocket).
+        /// KSP bounces to Space Center if FLIGHTSTATE has no vessels, which
+        /// loads persistent.sfs — carrying over stale spawned vessels.
+        /// </summary>
+        private static string EnsurePadVesselInFlightState(string content)
+        {
+            // Check if any VESSEL blocks exist inside FLIGHTSTATE
+            var lines = content.Split(new[] { "\r\n", "\n" }, System.StringSplitOptions.None);
+            bool inFlightState = false;
+            int depth = 0;
+            bool hasVessel = false;
+            int closingBraceIndex = -1;
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string trimmed = lines[i].Trim();
+                if (!inFlightState && trimmed == "FLIGHTSTATE")
+                {
+                    inFlightState = true;
+                    depth = 0;
+                    continue;
+                }
+                if (inFlightState)
+                {
+                    if (trimmed == "{") depth++;
+                    else if (trimmed == "}")
+                    {
+                        depth--;
+                        if (depth <= 0)
+                        {
+                            closingBraceIndex = i;
+                            break;
+                        }
+                    }
+                    if (depth == 1 && trimmed == "VESSEL")
+                        hasVessel = true;
+                }
+            }
+
+            // Reset activeVessel to 0 (our pad vessel is the first/only vessel)
+            for (int j = 0; j < lines.Length; j++)
+            {
+                string t = lines[j].Trim();
+                if (t.StartsWith("activeVessel = ", System.StringComparison.Ordinal))
+                {
+                    string indent = lines[j].Substring(0, lines[j].Length - lines[j].TrimStart().Length);
+                    lines[j] = indent + "activeVessel = 0";
+                    break;
+                }
+            }
+
+            if (hasVessel || closingBraceIndex < 0)
+            {
+                string sep2 = content.Contains("\r\n") ? "\r\n" : "\n";
+                return string.Join(sep2, lines);
+            }
+
+            // Build a minimal pad vessel using VesselSnapshotBuilder
+            var vessel = VesselSnapshotBuilder.FleaRocket("Untitled Space Craft", "Jebediah Kerman", 999999)
+                .AsLanded(-0.0972, -74.5577, 67.6)
+                .WithSituation("PRELAUNCH");
+            var vesselNode = vessel.Build();
+
+            // Serialize and insert before the closing brace of FLIGHTSTATE
+            var writer = new ScenarioWriter();
+            string serialized = writer.SerializeConfigNode(vesselNode, "VESSEL", 2);
+
+            var result = new System.Collections.Generic.List<string>(lines.Length + 50);
+            for (int i = 0; i < lines.Length; i++)
+            {
+                if (i == closingBraceIndex)
+                {
+                    // Insert vessel text before the closing brace
+                    string sep = content.Contains("\r\n") ? "\r\n" : "\n";
+                    foreach (string vLine in serialized.Split(new[] { "\r\n", "\n" }, System.StringSplitOptions.RemoveEmptyEntries))
+                        result.Add(vLine);
+                }
+                result.Add(lines[i]);
+            }
+
+            string lineSep = content.Contains("\r\n") ? "\r\n" : "\n";
+            return string.Join(lineSep, result);
         }
 
         /// <summary>
@@ -1253,6 +1338,7 @@ namespace Parsek.Tests
 
             string content = File.ReadAllText(savePath);
             content = RemoveVesselBlocksFromFlightState(content);
+            content = EnsurePadVesselInFlightState(content);
             content = RemoveSpawnedPidLines(content);
             content = RemoveNonVeteranCrewFromRoster(content);
             content = ResetVeteranCrewStatus(content);

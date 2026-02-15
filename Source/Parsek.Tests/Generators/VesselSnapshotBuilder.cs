@@ -66,6 +66,7 @@ namespace Parsek.Tests.Generators
         public VesselSnapshotBuilder WithName(string n) { name = n; return this; }
         public VesselSnapshotBuilder WithPersistentId(uint pid) { persistentId = pid; return this; }
         public VesselSnapshotBuilder WithType(string t) { type = t; return this; }
+        public VesselSnapshotBuilder WithSituation(string s) { sit = s; return this; }
 
         public VesselSnapshotBuilder AsLanded(double latitude, double longitude, double altitude)
         {
