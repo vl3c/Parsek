@@ -20,6 +20,15 @@ namespace Parsek
         public Vector3 deployedCanopyPos;
     }
 
+    internal class EngineGhostInfo
+    {
+        public uint partPersistentId;
+        public int moduleIndex;
+        public List<ParticleSystem> particleSystems = new List<ParticleSystem>();
+        public FloatCurve emissionCurve;
+        public FloatCurve speedCurve;
+    }
+
     internal static class GhostVisualBuilder
     {
         private static readonly Regex trailingNumericSuffixRegex =
@@ -28,10 +37,12 @@ namespace Parsek
         internal static GameObject BuildTimelineGhostFromSnapshot(
             RecordingStore.Recording rec, string rootName,
             out List<ParachuteGhostInfo> parachuteInfos,
-            out List<JettisonGhostInfo> jettisonInfos)
+            out List<JettisonGhostInfo> jettisonInfos,
+            out List<EngineGhostInfo> engineInfos)
         {
             parachuteInfos = null;
             jettisonInfos = null;
+            engineInfos = null;
             ConfigNode snapshotNode = GetGhostSnapshot(rec);
             if (snapshotNode == null)
                 return null;
@@ -48,6 +59,7 @@ namespace Parsek
             int skippedMesh = 0;
             var collectedParachuteInfos = new List<ParachuteGhostInfo>();
             var collectedJettisonInfos = new List<JettisonGhostInfo>();
+            var collectedEngineInfos = new List<EngineGhostInfo>();
 
             for (int i = 0; i < partNodes.Length; i++)
             {
@@ -78,8 +90,10 @@ namespace Parsek
                 int meshCount = 0;
                 ParachuteGhostInfo parachuteInfo;
                 JettisonGhostInfo jettisonInfo;
+                List<EngineGhostInfo> partEngineInfos;
                 bool partVisualAdded = AddPartVisuals(root.transform, partNode, ap.partPrefab,
-                    persistentId, partName, out meshCount, out parachuteInfo, out jettisonInfo);
+                    persistentId, partName, out meshCount, out parachuteInfo, out jettisonInfo,
+                    out partEngineInfos);
                 if (partVisualAdded)
                     visualCount++;
                 else
@@ -90,6 +104,8 @@ namespace Parsek
                     collectedParachuteInfos.Add(parachuteInfo);
                 if (jettisonInfo != null)
                     collectedJettisonInfos.Add(jettisonInfo);
+                if (partEngineInfos != null)
+                    collectedEngineInfos.AddRange(partEngineInfos);
             }
 
             ParsekLog.Log($"Ghost built: {visualCount}/{partNodes.Length} parts with visuals" +
@@ -105,13 +121,23 @@ namespace Parsek
 
             parachuteInfos = collectedParachuteInfos.Count > 0 ? collectedParachuteInfos : null;
             jettisonInfos = collectedJettisonInfos.Count > 0 ? collectedJettisonInfos : null;
+            engineInfos = collectedEngineInfos.Count > 0 ? collectedEngineInfos : null;
             return root;
         }
 
-        // Overload without parachute/jettison info for callers that don't need it (preview ghost)
+        // Overload without info outputs for callers that don't need them (preview ghost)
         internal static GameObject BuildTimelineGhostFromSnapshot(RecordingStore.Recording rec, string rootName)
         {
-            return BuildTimelineGhostFromSnapshot(rec, rootName, out _, out _);
+            return BuildTimelineGhostFromSnapshot(rec, rootName, out _, out _, out _);
+        }
+
+        // Overload with parachute + jettison info (backward compat)
+        internal static GameObject BuildTimelineGhostFromSnapshot(
+            RecordingStore.Recording rec, string rootName,
+            out List<ParachuteGhostInfo> parachuteInfos,
+            out List<JettisonGhostInfo> jettisonInfos)
+        {
+            return BuildTimelineGhostFromSnapshot(rec, rootName, out parachuteInfos, out jettisonInfos, out _);
         }
 
         // Overload with only parachute info for backward compat
@@ -119,7 +145,7 @@ namespace Parsek
             RecordingStore.Recording rec, string rootName,
             out List<ParachuteGhostInfo> parachuteInfos)
         {
-            return BuildTimelineGhostFromSnapshot(rec, rootName, out parachuteInfos, out _);
+            return BuildTimelineGhostFromSnapshot(rec, rootName, out parachuteInfos, out _, out _);
         }
 
         internal static ConfigNode GetGhostSnapshot(RecordingStore.Recording rec)
@@ -463,13 +489,205 @@ namespace Parsek
                 DumpTransformHierarchy(t.GetChild(i), depth + 1, partName);
         }
 
+        private static List<EngineGhostInfo> TryBuildEngineFX(
+            Part prefab, uint persistentId, string partName,
+            Transform modelRoot, Transform ghostModelNode,
+            Dictionary<Transform, Transform> cloneMap)
+        {
+            // Find all ModuleEngines on the part
+            int midx = 0;
+            var engineModules = new List<(ModuleEngines engine, int moduleIndex)>();
+            for (int m = 0; m < prefab.Modules.Count; m++)
+            {
+                var eng = prefab.Modules[m] as ModuleEngines;
+                if (eng != null)
+                {
+                    engineModules.Add((eng, midx));
+                    midx++;
+                }
+            }
+            if (engineModules.Count == 0) return null;
+
+            var result = new List<EngineGhostInfo>();
+
+            for (int e = 0; e < engineModules.Count; e++)
+            {
+                var (engine, moduleIndex) = engineModules[e];
+                var info = new EngineGhostInfo
+                {
+                    partPersistentId = persistentId,
+                    moduleIndex = moduleIndex
+                };
+
+                // Try to read EFFECTS config from the part config
+                ConfigNode partConfig = prefab.partInfo?.partConfig;
+                if (partConfig == null)
+                {
+                    ParsekLog.Log($"    Engine '{partName}' midx={moduleIndex}: no partConfig — skipping FX");
+                    continue;
+                }
+
+                ConfigNode effectsNode = partConfig.GetNode("EFFECTS");
+                if (effectsNode == null)
+                {
+                    ParsekLog.Log($"    Engine '{partName}' midx={moduleIndex}: no EFFECTS node — skipping FX");
+                    continue;
+                }
+
+                // Scan all effect groups for MODEL_MULTI_PARTICLE entries.
+                // We can't reliably filter by runningEffectName from a prefab context,
+                // so we collect all particle FX from the EFFECTS node.
+                var fxTransformNames = new List<string>();
+                var fxModelNames = new List<string>();
+                FloatCurve emissionCurve = null;
+                FloatCurve speedCurve = null;
+
+                ConfigNode[] effectGroups = effectsNode.GetNodes();
+
+                for (int g = 0; g < effectGroups.Length; g++)
+                {
+                    ConfigNode[] mmpNodes = effectGroups[g].GetNodes("MODEL_MULTI_PARTICLE_PERSIST");
+                    if (mmpNodes.Length == 0)
+                        mmpNodes = effectGroups[g].GetNodes("MODEL_MULTI_PARTICLE");
+
+                    for (int mp = 0; mp < mmpNodes.Length; mp++)
+                    {
+                        string transformName = mmpNodes[mp].GetValue("transformName");
+                        string modelName = mmpNodes[mp].GetValue("modelName");
+                        if (!string.IsNullOrEmpty(transformName))
+                        {
+                            fxTransformNames.Add(transformName);
+                            fxModelNames.Add(modelName ?? "");
+
+                            // Parse emission and speed curves from the first entry
+                            if (emissionCurve == null)
+                            {
+                                ConfigNode emNode = mmpNodes[mp].GetNode("emission");
+                                if (emNode != null)
+                                {
+                                    emissionCurve = new FloatCurve();
+                                    emissionCurve.Load(emNode);
+                                }
+                                ConfigNode spNode = mmpNodes[mp].GetNode("speed");
+                                if (spNode != null)
+                                {
+                                    speedCurve = new FloatCurve();
+                                    speedCurve.Load(spNode);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (fxTransformNames.Count == 0)
+                {
+                    ParsekLog.Log($"    Engine '{partName}' midx={moduleIndex}: no FX transforms found in EFFECTS");
+                    continue;
+                }
+
+                info.emissionCurve = emissionCurve;
+                info.speedCurve = speedCurve;
+
+                for (int f = 0; f < fxTransformNames.Count; f++)
+                {
+                    string transformName = fxTransformNames[f];
+                    string modelName = fxModelNames[f];
+
+                    // Find matching transform(s) in prefab — may be multiple (multi-nozzle engines)
+                    var fxTransforms = FindTransformsRecursive(prefab.transform, transformName);
+                    for (int t = 0; t < fxTransforms.Count; t++)
+                    {
+                        Transform srcFxTransform = fxTransforms[t];
+
+                        // Clone the FX transform chain into the ghost
+                        Transform ghostFxParent;
+                        // Check if the FX transform is under modelRoot (common case)
+                        bool isUnderModel = IsDescendantOf(srcFxTransform, modelRoot);
+                        if (isUnderModel)
+                        {
+                            ghostFxParent = MirrorTransformChain(srcFxTransform, modelRoot, ghostModelNode, cloneMap);
+                        }
+                        else
+                        {
+                            // FX transform is outside model subtree — create under ghost model node directly
+                            GameObject fxHolder = new GameObject(srcFxTransform.name);
+                            fxHolder.transform.SetParent(ghostModelNode, false);
+                            fxHolder.transform.localPosition = srcFxTransform.localPosition;
+                            fxHolder.transform.localRotation = srcFxTransform.localRotation;
+                            fxHolder.transform.localScale = srcFxTransform.localScale;
+                            ghostFxParent = fxHolder.transform;
+                        }
+
+                        // Instantiate FX model prefab if available
+                        if (!string.IsNullOrEmpty(modelName))
+                        {
+                            GameObject fxPrefab = GameDatabase.Instance.GetModelPrefab(modelName);
+                            if (fxPrefab != null)
+                            {
+                                GameObject fxInstance = Object.Instantiate(fxPrefab);
+                                fxInstance.transform.SetParent(ghostFxParent, false);
+                                fxInstance.transform.localPosition = Vector3.zero;
+                                fxInstance.transform.localRotation = Quaternion.identity;
+
+                                var ps = fxInstance.GetComponentInChildren<ParticleSystem>();
+                                if (ps != null)
+                                {
+                                    var emission = ps.emission;
+                                    emission.rateOverTimeMultiplier = 0;
+                                    info.particleSystems.Add(ps);
+                                    ParsekLog.Log($"    Engine FX cloned: '{partName}' midx={moduleIndex} " +
+                                        $"transform='{transformName}' model='{modelName}'");
+                                }
+                            }
+                            else
+                            {
+                                ParsekLog.Log($"    Engine FX model not found: '{modelName}' for '{partName}'");
+                            }
+                        }
+                    }
+                }
+
+                if (info.particleSystems.Count > 0)
+                    result.Add(info);
+            }
+
+            return result.Count > 0 ? result : null;
+        }
+
+        private static List<Transform> FindTransformsRecursive(Transform parent, string name)
+        {
+            var results = new List<Transform>();
+            FindTransformsRecursiveHelper(parent, name, results);
+            return results;
+        }
+
+        private static void FindTransformsRecursiveHelper(Transform parent, string name, List<Transform> results)
+        {
+            if (parent.name == name) results.Add(parent);
+            for (int i = 0; i < parent.childCount; i++)
+                FindTransformsRecursiveHelper(parent.GetChild(i), name, results);
+        }
+
+        private static bool IsDescendantOf(Transform child, Transform ancestor)
+        {
+            Transform cur = child;
+            while (cur != null)
+            {
+                if (cur == ancestor) return true;
+                cur = cur.parent;
+            }
+            return false;
+        }
+
         private static bool AddPartVisuals(Transform root, ConfigNode partNode, Part prefab,
             uint persistentId, string partName, out int meshCount,
-            out ParachuteGhostInfo parachuteInfo, out JettisonGhostInfo jettisonInfo)
+            out ParachuteGhostInfo parachuteInfo, out JettisonGhostInfo jettisonInfo,
+            out List<EngineGhostInfo> engineInfos)
         {
             meshCount = 0;
             parachuteInfo = null;
             jettisonInfo = null;
+            engineInfos = null;
             Transform modelRoot = FindModelRoot(prefab);
 
             // Dump full hierarchy for engine parts to diagnose missing nozzle meshes.
@@ -648,6 +866,10 @@ namespace Parsek
                     }
                 }
             }
+
+            // Detect engine parts and clone FX particle systems
+            engineInfos = TryBuildEngineFX(prefab, persistentId, partName, modelRoot,
+                modelNode.transform, cloneMap);
 
             if (!added)
             {

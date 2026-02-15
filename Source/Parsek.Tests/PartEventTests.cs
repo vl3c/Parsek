@@ -365,6 +365,211 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Engine state tracking
+
+        [Fact]
+        public void EngineTransition_Ignition_EmitsIgnitedEvent()
+        {
+            var active = new HashSet<ulong>();
+            var throttles = new Dictionary<ulong, float>();
+            ulong key = FlightRecorder.EncodeEngineKey(100, 0);
+            var events = FlightRecorder.CheckEngineTransition(
+                key, 100, 0, "liquidEngine", true, 0.8f, active, throttles, 200.0);
+
+            Assert.Single(events);
+            Assert.Equal(PartEventType.EngineIgnited, events[0].eventType);
+            Assert.Equal(100u, events[0].partPersistentId);
+            Assert.Equal(0, events[0].moduleIndex);
+            Assert.Equal(0.8f, events[0].value, 0.001f);
+            Assert.Equal(200.0, events[0].ut);
+            Assert.Contains(key, active);
+        }
+
+        [Fact]
+        public void EngineTransition_Shutdown_EmitsShutdownEvent()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(100, 0);
+            var active = new HashSet<ulong> { key };
+            var throttles = new Dictionary<ulong, float> { { key, 1.0f } };
+            var events = FlightRecorder.CheckEngineTransition(
+                key, 100, 0, "liquidEngine", false, 0f, active, throttles, 210.0);
+
+            Assert.Single(events);
+            Assert.Equal(PartEventType.EngineShutdown, events[0].eventType);
+            Assert.Equal(100u, events[0].partPersistentId);
+            Assert.DoesNotContain(key, active);
+            Assert.False(throttles.ContainsKey(key));
+        }
+
+        [Fact]
+        public void EngineTransition_ThrottleChange_EmitsThrottleEvent()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(100, 0);
+            var active = new HashSet<ulong> { key };
+            var throttles = new Dictionary<ulong, float> { { key, 0.5f } };
+            var events = FlightRecorder.CheckEngineTransition(
+                key, 100, 0, "liquidEngine", true, 0.9f, active, throttles, 215.0);
+
+            Assert.Single(events);
+            Assert.Equal(PartEventType.EngineThrottle, events[0].eventType);
+            Assert.Equal(0.9f, events[0].value, 0.001f);
+            Assert.Equal(0.9f, throttles[key], 0.001f);
+        }
+
+        [Fact]
+        public void EngineTransition_SmallThrottleChange_NoEvent()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(100, 0);
+            var active = new HashSet<ulong> { key };
+            var throttles = new Dictionary<ulong, float> { { key, 0.5f } };
+            var events = FlightRecorder.CheckEngineTransition(
+                key, 100, 0, "liquidEngine", true, 0.505f, active, throttles, 215.0);
+
+            Assert.Empty(events);
+        }
+
+        [Fact]
+        public void EngineTransition_NotIgnited_NoChange_NoEvent()
+        {
+            var active = new HashSet<ulong>();
+            var throttles = new Dictionary<ulong, float>();
+            ulong key = FlightRecorder.EncodeEngineKey(100, 0);
+            var events = FlightRecorder.CheckEngineTransition(
+                key, 100, 0, "liquidEngine", false, 0f, active, throttles, 200.0);
+
+            Assert.Empty(events);
+        }
+
+        [Fact]
+        public void EngineTransition_MultiEngine_DifferentModuleIndex()
+        {
+            var active = new HashSet<ulong>();
+            var throttles = new Dictionary<ulong, float>();
+
+            // First engine on part 200, midx=0
+            ulong key0 = FlightRecorder.EncodeEngineKey(200, 0);
+            var events0 = FlightRecorder.CheckEngineTransition(
+                key0, 200, 0, "rapier", true, 1.0f, active, throttles, 300.0);
+
+            // Second engine on same part 200, midx=1
+            ulong key1 = FlightRecorder.EncodeEngineKey(200, 1);
+            var events1 = FlightRecorder.CheckEngineTransition(
+                key1, 200, 1, "rapier", true, 0.5f, active, throttles, 300.0);
+
+            Assert.Single(events0);
+            Assert.Equal(0, events0[0].moduleIndex);
+            Assert.Single(events1);
+            Assert.Equal(1, events1[0].moduleIndex);
+            Assert.Contains(key0, active);
+            Assert.Contains(key1, active);
+        }
+
+        [Fact]
+        public void EncodeEngineKey_NoCollision_HighPid()
+        {
+            // Verify keys don't collide for large pid values
+            ulong key1 = FlightRecorder.EncodeEngineKey(uint.MaxValue, 0);
+            ulong key2 = FlightRecorder.EncodeEngineKey(uint.MaxValue - 1, 0);
+            ulong key3 = FlightRecorder.EncodeEngineKey(uint.MaxValue, 1);
+            Assert.NotEqual(key1, key2);
+            Assert.NotEqual(key1, key3);
+        }
+
+        #endregion
+
+        #region Engine event serialization
+
+        [Fact]
+        public void EngineEvent_SerializationRoundtrip_ValueAndModuleIndex()
+        {
+            var rec = new RecordingStore.Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 110, bodyName = "Kerbin" });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 105,
+                partPersistentId = 42,
+                eventType = PartEventType.EngineIgnited,
+                partName = "liquidEngine",
+                value = 0.75f,
+                moduleIndex = 1
+            });
+
+            var node = new ConfigNode("TEST");
+            RecordingStore.SerializeTrajectoryInto(node, rec);
+
+            var loaded = new RecordingStore.Recording();
+            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+
+            Assert.Single(loaded.PartEvents);
+            Assert.Equal(PartEventType.EngineIgnited, loaded.PartEvents[0].eventType);
+            Assert.Equal(0.75f, loaded.PartEvents[0].value, 0.001f);
+            Assert.Equal(1, loaded.PartEvents[0].moduleIndex);
+            Assert.Equal(42u, loaded.PartEvents[0].partPersistentId);
+            Assert.Equal("liquidEngine", loaded.PartEvents[0].partName);
+        }
+
+        [Fact]
+        public void EngineEvent_BackwardCompat_MissingValueAndMidx_DefaultsToZero()
+        {
+            // Simulate old-format PART_EVENT without value/midx keys
+            var node = new ConfigNode("TEST");
+            var evtNode = node.AddNode("PART_EVENT");
+            evtNode.AddValue("ut", "105");
+            evtNode.AddValue("pid", "42");
+            evtNode.AddValue("type", ((int)PartEventType.Decoupled).ToString());
+            evtNode.AddValue("part", "fuelTank");
+            // No "value" or "midx" keys
+
+            var rec = new RecordingStore.Recording();
+            RecordingStore.DeserializeTrajectoryFrom(node, rec);
+
+            Assert.Single(rec.PartEvents);
+            Assert.Equal(0f, rec.PartEvents[0].value);
+            Assert.Equal(0, rec.PartEvents[0].moduleIndex);
+            Assert.Equal(PartEventType.Decoupled, rec.PartEvents[0].eventType);
+        }
+
+        [Fact]
+        public void EngineThrottle_SerializationRoundtrip()
+        {
+            var rec = new RecordingStore.Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 120, bodyName = "Kerbin" });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 105,
+                partPersistentId = 99,
+                eventType = PartEventType.EngineThrottle,
+                partName = "engine",
+                value = 0.33f,
+                moduleIndex = 0
+            });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 110,
+                partPersistentId = 99,
+                eventType = PartEventType.EngineShutdown,
+                partName = "engine",
+                value = 0f,
+                moduleIndex = 0
+            });
+
+            var node = new ConfigNode("TEST");
+            RecordingStore.SerializeTrajectoryInto(node, rec);
+
+            var loaded = new RecordingStore.Recording();
+            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+
+            Assert.Equal(2, loaded.PartEvents.Count);
+            Assert.Equal(PartEventType.EngineThrottle, loaded.PartEvents[0].eventType);
+            Assert.Equal(0.33f, loaded.PartEvents[0].value, 0.01f);
+            Assert.Equal(PartEventType.EngineShutdown, loaded.PartEvents[1].eventType);
+            Assert.Equal(0f, loaded.PartEvents[1].value);
+        }
+
+        #endregion
+
         #region Helpers
 
         private static void AddTestPart(ConfigNode vessel, string name, uint persistentId, int parentIndex)

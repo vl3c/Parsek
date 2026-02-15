@@ -45,6 +45,7 @@ namespace Parsek
             public Dictionary<uint, List<uint>> partTree;
             public Dictionary<uint, ParachuteGhostInfo> parachuteInfos;
             public Dictionary<uint, JettisonGhostInfo> jettisonInfos;
+            public Dictionary<ulong, EngineGhostInfo> engineInfos; // key = EncodeEngineKey(pid, moduleIndex)
             public Dictionary<uint, GameObject> fakeCanopies;
         }
 
@@ -820,8 +821,10 @@ namespace Parsek
             Color ghostColor = new Color(0.2f, 1f, 0.4f, 0.8f); // bright green-cyan
             List<ParachuteGhostInfo> parachuteInfoList;
             List<JettisonGhostInfo> jettisonInfoList;
+            List<EngineGhostInfo> engineInfoList;
             GameObject ghost = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
-                rec, $"Parsek_Timeline_{index}", out parachuteInfoList, out jettisonInfoList);
+                rec, $"Parsek_Timeline_{index}", out parachuteInfoList, out jettisonInfoList,
+                out engineInfoList);
             bool builtFromSnapshot = ghost != null;
             if (ghost == null)
             {
@@ -868,6 +871,17 @@ namespace Parsek
                     state.jettisonInfos[jettisonInfoList[i].partPersistentId] = jettisonInfoList[i];
             }
 
+            if (engineInfoList != null)
+            {
+                state.engineInfos = new Dictionary<ulong, EngineGhostInfo>();
+                for (int i = 0; i < engineInfoList.Count; i++)
+                {
+                    ulong key = FlightRecorder.EncodeEngineKey(
+                        engineInfoList[i].partPersistentId, engineInfoList[i].moduleIndex);
+                    state.engineInfos[key] = engineInfoList[i];
+                }
+            }
+
             ghostStates[index] = state;
         }
 
@@ -886,6 +900,14 @@ namespace Parsek
                     if (state.materials[i] != null)
                         Destroy(state.materials[i]);
                 }
+            }
+
+            if (state.engineInfos != null)
+            {
+                foreach (var info in state.engineInfos.Values)
+                    for (int i = 0; i < info.particleSystems.Count; i++)
+                        if (info.particleSystems[i] != null)
+                            Destroy(info.particleSystems[i].gameObject);
             }
 
             if (state.ghost != null)
@@ -991,6 +1013,17 @@ namespace Parsek
                             }
                         }
                         break;
+                    case PartEventType.EngineIgnited:
+                        SetEngineEmission(state, evt, evt.value);
+                        Log($"Part event applied: EngineIgnited '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} throttle={evt.value:F2}");
+                        break;
+                    case PartEventType.EngineShutdown:
+                        SetEngineEmission(state, evt, 0f);
+                        Log($"Part event applied: EngineShutdown '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex}");
+                        break;
+                    case PartEventType.EngineThrottle:
+                        SetEngineEmission(state, evt, evt.value);
+                        break;
                 }
                 evtIdx++;
             }
@@ -1038,6 +1071,39 @@ namespace Parsek
             if (renderer != null && renderer.material != null)
                 Destroy(renderer.material);
             Destroy(canopy);
+        }
+
+        static void SetEngineEmission(GhostPlaybackState state, PartEvent evt, float power)
+        {
+            if (state.engineInfos == null) return;
+
+            ulong key = FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex);
+            EngineGhostInfo info;
+            if (!state.engineInfos.TryGetValue(key, out info)) return;
+
+            for (int i = 0; i < info.particleSystems.Count; i++)
+            {
+                var ps = info.particleSystems[i];
+                if (ps == null) continue;
+
+                var emission = ps.emission;
+                if (power > 0f)
+                {
+                    float emRate = info.emissionCurve != null ? info.emissionCurve.Evaluate(power) : power * 100f;
+                    emission.rateOverTimeMultiplier = emRate;
+
+                    var main = ps.main;
+                    float spd = info.speedCurve != null ? info.speedCurve.Evaluate(power) : power * 10f;
+                    main.startSpeedMultiplier = spd;
+
+                    if (!ps.isPlaying) ps.Play();
+                }
+                else
+                {
+                    emission.rateOverTimeMultiplier = 0;
+                    ps.Stop();
+                }
+            }
         }
 
         static void HidePartSubtree(GameObject ghost, uint rootPid, Dictionary<uint, List<uint>> tree)

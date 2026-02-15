@@ -13,7 +13,7 @@ namespace Parsek
     /// </summary>
     public static class RecordingStore
     {
-        public const int CurrentRecordingFormatVersion = 3;
+        public const int CurrentRecordingFormatVersion = 4;
         public const int CurrentGhostGeometryVersion = 1;
 
         // When true, suppresses Debug.Log calls (for unit testing outside Unity)
@@ -284,6 +284,8 @@ namespace Parsek
                 evtNode.AddValue("pid", evt.partPersistentId.ToString(ic));
                 evtNode.AddValue("type", ((int)evt.eventType).ToString(ic));
                 evtNode.AddValue("part", evt.partName ?? "");
+                evtNode.AddValue("value", evt.value.ToString("R", ic));
+                evtNode.AddValue("midx", evt.moduleIndex.ToString(ic));
             }
         }
 
@@ -365,6 +367,13 @@ namespace Parsek
                 if (int.TryParse(peNode.GetValue("type"), NumberStyles.Integer, ic, out typeInt))
                     evt.eventType = (PartEventType)typeInt;
                 evt.partName = peNode.GetValue("part") ?? "";
+
+                float val;
+                if (float.TryParse(peNode.GetValue("value"), inv, ic, out val))
+                    evt.value = val;
+                int midx;
+                if (int.TryParse(peNode.GetValue("midx"), NumberStyles.Integer, ic, out midx))
+                    evt.moduleIndex = midx;
 
                 rec.PartEvents.Add(evt);
             }

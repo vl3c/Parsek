@@ -26,6 +26,11 @@ namespace Parsek
         // Part event tracking
         private HashSet<uint> deployedParachutes = new HashSet<uint>();
         private HashSet<uint> jettisonedShrouds = new HashSet<uint>();
+
+        // Engine state tracking (key = (ulong)pid << 8 | moduleIndex)
+        private List<(Part part, ModuleEngines engine, int moduleIndex)> cachedEngines;
+        private HashSet<ulong> activeEngineKeys;
+        private Dictionary<ulong, float> lastThrottle;
         internal bool partEventsSubscribed;
         public bool IsRecording { get; private set; }
         public uint RecordingVesselId { get; private set; }
@@ -199,6 +204,124 @@ namespace Parsek
             }
         }
 
+        internal static List<(Part part, ModuleEngines engine, int moduleIndex)> CacheEngineModules(Vessel v)
+        {
+            var result = new List<(Part, ModuleEngines, int)>();
+            if (v == null || v.parts == null) return result;
+
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                int midx = 0;
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    var eng = p.Modules[m] as ModuleEngines;
+                    if (eng != null)
+                    {
+                        result.Add((p, eng, midx));
+                        midx++;
+                    }
+                }
+            }
+            return result;
+        }
+
+        internal static ulong EncodeEngineKey(uint pid, int moduleIndex)
+        {
+            return ((ulong)pid << 8) | (uint)moduleIndex;
+        }
+
+        internal static List<PartEvent> CheckEngineTransition(
+            ulong key, uint pid, int moduleIndex, string partName,
+            bool ignited, float throttle,
+            HashSet<ulong> activeSet, Dictionary<ulong, float> lastThrottleMap, double ut)
+        {
+            var events = new List<PartEvent>();
+            bool wasActive = activeSet.Contains(key);
+
+            if (ignited && !wasActive)
+            {
+                activeSet.Add(key);
+                events.Add(new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = pid,
+                    eventType = PartEventType.EngineIgnited,
+                    partName = partName,
+                    value = throttle,
+                    moduleIndex = moduleIndex
+                });
+                lastThrottleMap[key] = throttle;
+            }
+            else if (!ignited && wasActive)
+            {
+                activeSet.Remove(key);
+                lastThrottleMap.Remove(key);
+                events.Add(new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = pid,
+                    eventType = PartEventType.EngineShutdown,
+                    partName = partName,
+                    moduleIndex = moduleIndex
+                });
+            }
+            else if (ignited && wasActive)
+            {
+                float lastT;
+                if (!lastThrottleMap.TryGetValue(key, out lastT))
+                    lastT = 0f;
+
+                float delta = throttle - lastT;
+                if (delta > 0.01f || delta < -0.01f)
+                {
+                    lastThrottleMap[key] = throttle;
+                    events.Add(new PartEvent
+                    {
+                        ut = ut,
+                        partPersistentId = pid,
+                        eventType = PartEventType.EngineThrottle,
+                        partName = partName,
+                        value = throttle,
+                        moduleIndex = moduleIndex
+                    });
+                }
+            }
+
+            return events;
+        }
+
+        private void CheckEngineState(Vessel v)
+        {
+            if (cachedEngines == null) return;
+
+            double ut = Planetarium.GetUniversalTime();
+            for (int i = 0; i < cachedEngines.Count; i++)
+            {
+                var (part, engine, moduleIndex) = cachedEngines[i];
+                if (part == null || engine == null) continue;
+
+                ulong key = EncodeEngineKey(part.persistentId, moduleIndex);
+                bool ignited = engine.EngineIgnited && engine.isOperational;
+                float throttle = engine.currentThrottle;
+
+                var events = CheckEngineTransition(
+                    key, part.persistentId, moduleIndex,
+                    part.partInfo?.name ?? "unknown",
+                    ignited, throttle,
+                    activeEngineKeys, lastThrottle, ut);
+
+                for (int e = 0; e < events.Count; e++)
+                {
+                    PartEvents.Add(events[e]);
+                    ParsekLog.Log($"Part event: {events[e].eventType} '{events[e].partName}' " +
+                        $"pid={events[e].partPersistentId} midx={events[e].moduleIndex} val={events[e].value:F2}");
+                }
+            }
+        }
+
         #endregion
 
         public void StartRecording()
@@ -222,6 +345,9 @@ namespace Parsek
             PartEvents.Clear();
             deployedParachutes.Clear();
             jettisonedShrouds.Clear();
+            cachedEngines = CacheEngineModules(v);
+            activeEngineKeys = new HashSet<ulong>();
+            lastThrottle = new Dictionary<ulong, float>();
             IsRecording = true;
             isOnRails = false;
             VesselDestroyedDuringRecording = false;
@@ -284,6 +410,9 @@ namespace Parsek
             Patches.PhysicsFramePatch.ActiveRecorder = null;
             UnsubscribePartEvents();
             IsRecording = false;
+
+            // Sort part events chronologically (mixed event sources may produce non-chronological order)
+            PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
 
             // Capture persistence artifacts at stop-time so later scene changes
             // don't depend on whatever vessel is currently active.
@@ -368,9 +497,10 @@ namespace Parsek
                 return;
             }
 
-            // Poll parachute and jettison state every physics frame (before adaptive sampling skip)
+            // Poll parachute, jettison, and engine state every physics frame (before adaptive sampling skip)
             CheckParachuteState(v);
             CheckJettisonState(v);
+            CheckEngineState(v);
 
             // Krakensbane-corrected true velocity
             Vector3 currentVelocity = (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity());
