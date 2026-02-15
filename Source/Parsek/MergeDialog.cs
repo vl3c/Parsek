@@ -157,7 +157,7 @@ namespace Parsek
                             VesselSpawner.RecoverVessel(pending.VesselSnapshot);
                         }
                         pending.VesselSnapshot = null;
-                        NullChainSiblingSnapshots(chainSiblings);
+                        RecoverChainSiblingSnapshots(chainSiblings);
                         ParsekLog.ScreenMessage($"Mission chain ({totalSegments} segments) merged, vessel recovered!", 3f);
                         ParsekLog.Log($"User chose: Chain Merge + Recover ({totalSegments} segments)");
                     }),
@@ -221,10 +221,10 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Unreserves crew and nulls VesselSnapshot on all committed chain siblings.
-        /// Used by Recover and Merge-to-Timeline to prevent mid-chain segments from spawning.
+        /// Unreserves crew, recovers vessels for funds, and nulls VesselSnapshot on siblings.
+        /// Used by the Recover path where the user expects funds back.
         /// </summary>
-        static void NullChainSiblingSnapshots(List<RecordingStore.Recording> siblings)
+        static void RecoverChainSiblingSnapshots(List<RecordingStore.Recording> siblings)
         {
             if (siblings == null) return;
             for (int i = 0; i < siblings.Count; i++)
@@ -234,7 +234,25 @@ namespace Parsek
                     ParsekScenario.UnreserveCrewInSnapshot(siblings[i].VesselSnapshot);
                     VesselSpawner.RecoverVessel(siblings[i].VesselSnapshot);
                     siblings[i].VesselSnapshot = null;
-                    ParsekLog.Log($"Chain sibling #{i} snapshot nulled + recovered");
+                    ParsekLog.Log($"Chain sibling #{i} snapshot recovered + nulled");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Unreserves crew and nulls VesselSnapshot on siblings without granting recovery funds.
+        /// Used by the Merge-to-Timeline path (ghost-only, no vessel persistence).
+        /// </summary>
+        static void NullChainSiblingSnapshots(List<RecordingStore.Recording> siblings)
+        {
+            if (siblings == null) return;
+            for (int i = 0; i < siblings.Count; i++)
+            {
+                if (siblings[i].VesselSnapshot != null)
+                {
+                    ParsekScenario.UnreserveCrewInSnapshot(siblings[i].VesselSnapshot);
+                    siblings[i].VesselSnapshot = null;
+                    ParsekLog.Log($"Chain sibling #{i} snapshot nulled (no recovery)");
                 }
             }
         }
