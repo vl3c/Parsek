@@ -53,6 +53,12 @@ namespace Parsek
                 if (!string.IsNullOrEmpty(rec.EvaCrewName))
                     recNode.AddValue("evaCrewName", rec.EvaCrewName);
 
+                // Persist chain linkage
+                if (!string.IsNullOrEmpty(rec.ChainId))
+                    recNode.AddValue("chainId", rec.ChainId);
+                if (rec.ChainIndex >= 0)
+                    recNode.AddValue("chainIndex", rec.ChainIndex);
+
                 // Persist spawned vessel pid so we can detect duplicates after scene changes
                 if (rec.SpawnedVesselPersistentId != 0)
                     recNode.AddValue("spawnedPid", rec.SpawnedVesselPersistentId);
@@ -164,6 +170,16 @@ namespace Parsek
                 rec.ParentRecordingId = recNode.GetValue("parentRecordingId");
                 rec.EvaCrewName = recNode.GetValue("evaCrewName");
 
+                // Restore chain linkage
+                rec.ChainId = recNode.GetValue("chainId");
+                string chainIdxStr = recNode.GetValue("chainIndex");
+                if (chainIdxStr != null)
+                {
+                    int ci;
+                    if (int.TryParse(chainIdxStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out ci))
+                        rec.ChainIndex = ci;
+                }
+
                 // Restore spawned vessel pid for duplicate spawn detection
                 string pidStr = recNode.GetValue("spawnedPid");
                 if (pidStr != null)
@@ -212,6 +228,9 @@ namespace Parsek
                         ? $" (ghost geometry: {(rec.GhostGeometryAvailable ? "ready" : "fallback")})"
                         : ""));
             }
+
+            // Validate chain integrity before any playback
+            RecordingStore.ValidateChains();
 
             ReserveSnapshotCrew();
 

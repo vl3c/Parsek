@@ -47,6 +47,10 @@ namespace Parsek
             // EVA child recording linkage
             public string ParentRecordingId;
             public string EvaCrewName;
+
+            // Chain linkage (multi-segment recording chains)
+            public string ChainId;       // null = standalone; shared GUID for chain members
+            public int ChainIndex = -1;  // -1 = not chained; 0-based position within chain
             public string VesselName = "";
             public string GhostGeometryRelativePath;
             public bool GhostGeometryAvailable;
@@ -102,6 +106,8 @@ namespace Parsek
                 GhostGeometryVersion = source.GhostGeometryVersion;
                 ParentRecordingId = source.ParentRecordingId;
                 EvaCrewName = source.EvaCrewName;
+                ChainId = source.ChainId;
+                ChainIndex = source.ChainIndex;
             }
         }
 
@@ -201,6 +207,149 @@ namespace Parsek
             pendingRecording = null;
             ClearCommitted();
             Log("[Parsek] All recordings cleared");
+        }
+
+        /// <summary>
+        /// Returns true if this recording is a mid-chain segment (not the last in its chain).
+        /// Mid-chain ghosts should hold at their final position instead of being despawned.
+        /// </summary>
+        internal static bool IsChainMidSegment(Recording rec)
+        {
+            if (string.IsNullOrEmpty(rec.ChainId) || rec.ChainIndex < 0) return false;
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                var other = committedRecordings[i];
+                if (other.ChainId == rec.ChainId && other.ChainIndex > rec.ChainIndex)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Returns the EndUT of the last segment in this recording's chain.
+        /// Returns rec.EndUT if the recording is not part of a chain.
+        /// </summary>
+        internal static double GetChainEndUT(Recording rec)
+        {
+            if (string.IsNullOrEmpty(rec.ChainId) || rec.ChainIndex < 0) return rec.EndUT;
+            double maxEnd = rec.EndUT;
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                var other = committedRecordings[i];
+                if (other.ChainId == rec.ChainId && other.EndUT > maxEnd)
+                    maxEnd = other.EndUT;
+            }
+            return maxEnd;
+        }
+
+        /// <summary>
+        /// Returns all committed recordings with the given chainId, sorted by ChainIndex.
+        /// Returns null if chainId is null/empty or no matches found.
+        /// </summary>
+        internal static List<Recording> GetChainRecordings(string chainId)
+        {
+            if (string.IsNullOrEmpty(chainId)) return null;
+
+            List<Recording> chain = null;
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                if (committedRecordings[i].ChainId == chainId)
+                {
+                    if (chain == null) chain = new List<Recording>();
+                    chain.Add(committedRecordings[i]);
+                }
+            }
+
+            if (chain != null && chain.Count > 1)
+                chain.Sort((a, b) => a.ChainIndex.CompareTo(b.ChainIndex));
+
+            return chain;
+        }
+
+        /// <summary>
+        /// Removes all committed recordings with the given chainId, deleting their files.
+        /// Call only when no timeline ghosts are active (e.g. from merge dialog before playback).
+        /// </summary>
+        internal static void RemoveChainRecordings(string chainId)
+        {
+            if (string.IsNullOrEmpty(chainId)) return;
+
+            for (int i = committedRecordings.Count - 1; i >= 0; i--)
+            {
+                if (committedRecordings[i].ChainId == chainId)
+                {
+                    DeleteRecordingFiles(committedRecordings[i]);
+                    Log($"[Parsek] Removed chain recording: {committedRecordings[i].VesselName} (chain={chainId}, idx={committedRecordings[i].ChainIndex})");
+                    committedRecordings.RemoveAt(i);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Validates chain integrity among committed recordings.
+        /// Chains with gaps, duplicate indices, or non-monotonic StartUT are degraded
+        /// to standalone recordings (ChainId/ChainIndex cleared).
+        /// </summary>
+        internal static void ValidateChains()
+        {
+            // Group by ChainId
+            var chains = new Dictionary<string, List<Recording>>();
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                var rec = committedRecordings[i];
+                if (string.IsNullOrEmpty(rec.ChainId)) continue;
+                List<Recording> list;
+                if (!chains.TryGetValue(rec.ChainId, out list))
+                {
+                    list = new List<Recording>();
+                    chains[rec.ChainId] = list;
+                }
+                list.Add(rec);
+            }
+
+            foreach (var kvp in chains)
+            {
+                var list = kvp.Value;
+                list.Sort((a, b) => a.ChainIndex.CompareTo(b.ChainIndex));
+
+                bool valid = true;
+
+                // Check indices are 0..N-1 with no gaps or duplicates
+                for (int i = 0; i < list.Count; i++)
+                {
+                    if (list[i].ChainIndex != i)
+                    {
+                        valid = false;
+                        Log($"[Parsek] Chain validation FAILED for chain={kvp.Key}: expected index {i}, got {list[i].ChainIndex}");
+                        break;
+                    }
+                }
+
+                // Check StartUT is monotonically non-decreasing
+                if (valid)
+                {
+                    for (int i = 1; i < list.Count; i++)
+                    {
+                        if (list[i].StartUT < list[i - 1].StartUT)
+                        {
+                            valid = false;
+                            Log($"[Parsek] Chain validation FAILED for chain={kvp.Key}: non-monotonic StartUT at index {i}");
+                            break;
+                        }
+                    }
+                }
+
+                if (!valid)
+                {
+                    // Degrade: clear chain fields so they become standalone recordings
+                    for (int i = 0; i < list.Count; i++)
+                    {
+                        list[i].ChainId = null;
+                        list[i].ChainIndex = -1;
+                    }
+                    Log($"[Parsek] Degraded invalid chain {kvp.Key} ({list.Count} recordings) to standalone");
+                }
+            }
         }
 
         /// <summary>
