@@ -673,7 +673,36 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 - [ ] Seamless ghost handoff between chained segments (vessel ghost ends, EVA ghost begins, vessel ghost resumes)
 - [ ] Verify and fix edge cases: crew continuity, vessel state across chain boundaries, merge dialog for chained missions
 
-### Phase 2: Polish & UX
+### Phase 2: Ghost Visual Fidelity — New Events
+
+Expand the event recording system to capture more visually significant part state changes. See `docs/research/event-recording-analysis.md` for full analysis.
+
+**Currently recorded (9 event types):**
+- [x] Decoupled (subtree hide via `onPartJointBreak`)
+- [x] Destroyed (part hide via `onPartDie`)
+- [x] ParachuteDeployed / ParachuteCut / ParachuteDestroyed (polled `ModuleParachute`)
+- [x] ShroudJettisoned (polled `ModuleJettison`)
+- [x] EngineIgnited / EngineShutdown / EngineThrottle (polled `ModuleEngines`, particle FX)
+
+**Tier 1 — High impact, common (priority order):**
+- [ ] Deployable parts: solar panel / antenna / radiator deploy & retract (`ModuleDeployablePart` base class — one implementation covers all three)
+- [ ] Landing gear deploy / retract (`ModuleWheelDeployment`)
+- [ ] Lights on / off (`ModuleLight` — simple bool toggle, emissive material on ghost)
+- [ ] Cargo bay / service bay open & close (`ModuleCargoBay` + `ModuleAnimateGeneric` — also unlocks airbrakes and other animated parts)
+- [ ] Procedural fairing jettison (`ModuleProceduralFairing` — hard for ghost visuals since geometry is runtime-generated)
+
+**Tier 2 — Moderate impact, situational:**
+- [ ] Airbrake deploy (uses `ModuleAnimateGeneric` — free if cargo bays are done)
+- [ ] RCS thruster fire (`ModuleRCSFX` — high event frequency, needs throttling)
+
+**Deferred (too complex or low value):**
+- Control surface deflection — continuous float, thousands of events per flight, skip
+- Docking/undocking — vessel topology change, needs multi-vessel recording
+- Robotics (Breaking Ground DLC) — continuous motion, DLC-dependent
+- Science experiment deploy — subtle visual, inconsistent across experiments
+- Ladder / intake / wheel steering — minimal visual change
+
+### Phase 3: Polish & UX
 
 **Timeline & navigation:**
 - [ ] Timeline viewer UI (list recordings, delete individual ones, visual timeline)
@@ -692,10 +721,10 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 - [x] External recording files (v3 format)
 - [x] Engine FX on ghost vessels (modern EFFECTS + legacy fx_* prefab fallback)
 
-### Phase 3: Recording Stats & Export
+### Phase 4: Recording Stats & Export
 
 - [ ] Recording stats — distance travelled, final destination, duration, max altitude, max speed
-- [ ] Stats display in timeline viewer (extends Phase 2 timeline UI)
+- [ ] Stats display in timeline viewer (extends Phase 3 timeline UI)
 - [ ] Recording export/import — share recordings as standalone files
 
 ---
