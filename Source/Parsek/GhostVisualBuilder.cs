@@ -533,6 +533,138 @@ namespace Parsek
             deployableCache.Clear();
         }
 
+        // Cache: partName → list of gear animation transform states — sample once per part type
+        private static readonly Dictionary<string, List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
+            Vector3 dPos, Quaternion dRot, Vector3 dScale)>> gearCache =
+            new Dictionary<string, List<(string, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3)>>();
+
+        internal static void ClearGearCache()
+        {
+            gearCache.Clear();
+        }
+
+        /// <summary>
+        /// Sample stowed and deployed transform states from a landing gear's animation.
+        /// Uses animationTrfName to resolve the correct Animation component (avoids binding spotlight
+        /// animation on parts like GearSmall that have multiple Animation components).
+        /// deployedPosition determines which animation endpoint is "deployed" (1 for most gear, 0 for rover wheels).
+        /// Returns null if no animation or no transform deltas.
+        /// </summary>
+        private static List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
+            Vector3 dPos, Quaternion dRot, Vector3 dScale)> SampleGearStates(
+            Part prefab, string animationStateName, string animationTrfName, float deployedPosition)
+        {
+            string key = prefab.partInfo?.name ?? prefab.name;
+            if (gearCache.TryGetValue(key, out var cached))
+                return cached;
+
+            if (string.IsNullOrEmpty(animationStateName))
+            {
+                ParsekLog.Log($"  Gear '{key}': no animationStateName — skipping animation sampling");
+                gearCache[key] = null;
+                return null;
+            }
+
+            Transform modelRoot = FindModelRoot(prefab);
+            GameObject tempClone = Object.Instantiate(modelRoot.gameObject);
+
+            List<(string, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3)> result = null;
+
+            try
+            {
+                // Resolve Animation via animationTrfName first (prevents binding wrong animation)
+                Animation anim = null;
+                if (!string.IsNullOrEmpty(animationTrfName))
+                {
+                    Transform animTrf = FindTransformRecursive(tempClone.transform, animationTrfName);
+                    if (animTrf != null)
+                        anim = animTrf.GetComponent<Animation>();
+                }
+                // Fallback to any Animation on the clone
+                if (anim == null)
+                    anim = tempClone.GetComponentInChildren<Animation>(true);
+
+                if (anim == null)
+                {
+                    ParsekLog.Log($"  Gear '{key}': no Animation component on model clone");
+                    gearCache[key] = null;
+                    return null;
+                }
+
+                AnimationState state = anim[animationStateName];
+                if (state == null)
+                {
+                    ParsekLog.Log($"  Gear '{key}': animation '{animationStateName}' not found on clone");
+                    gearCache[key] = null;
+                    return null;
+                }
+
+                // Determine animation endpoints based on deployedPosition.
+                // Most gear: deployedPosition=1 → stowed at time=0, deployed at time=1
+                // Rover wheel: deployedPosition=0 → stowed at time=1, deployed at time=0
+                float stowedTime = deployedPosition >= 0.5f ? 0f : 1f;
+                float deployedTime = deployedPosition >= 0.5f ? 1f : 0f;
+
+                // Sample stowed state
+                state.enabled = true;
+                state.speed = 0f;
+                state.normalizedTime = stowedTime;
+                state.weight = 1f;
+                anim.Play(animationStateName);
+                anim.Sample();
+
+                var allTransforms = tempClone.GetComponentsInChildren<Transform>(true);
+                var stowedStates = new Dictionary<string, (Vector3 pos, Quaternion rot, Vector3 scale)>();
+                for (int i = 0; i < allTransforms.Length; i++)
+                {
+                    string path = GetTransformPath(allTransforms[i], tempClone.transform);
+                    stowedStates[path] = (allTransforms[i].localPosition, allTransforms[i].localRotation, allTransforms[i].localScale);
+                }
+
+                // Sample deployed state
+                state.normalizedTime = deployedTime;
+                anim.Sample();
+
+                result = new List<(string, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3)>();
+                for (int i = 0; i < allTransforms.Length; i++)
+                {
+                    string path = GetTransformPath(allTransforms[i], tempClone.transform);
+                    if (!stowedStates.TryGetValue(path, out var stowed))
+                        continue;
+
+                    Vector3 dPos = allTransforms[i].localPosition;
+                    Quaternion dRot = allTransforms[i].localRotation;
+                    Vector3 dScale = allTransforms[i].localScale;
+
+                    float posDelta = (dPos - stowed.pos).sqrMagnitude;
+                    float rotDelta = Quaternion.Angle(dRot, stowed.rot);
+                    float scaleDelta = (dScale - stowed.scale).sqrMagnitude;
+
+                    if (posDelta > 0.0001f || rotDelta > 0.01f || scaleDelta > 0.0001f)
+                    {
+                        result.Add((path, stowed.pos, stowed.rot, stowed.scale, dPos, dRot, dScale));
+                    }
+                }
+
+                if (result.Count == 0)
+                {
+                    ParsekLog.Log($"  Gear '{key}': animation '{animationStateName}' produced no transform deltas");
+                    result = null;
+                }
+                else
+                {
+                    ParsekLog.Log($"  Gear '{key}': sampled {result.Count} animated transforms from '{animationStateName}'");
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(tempClone);
+            }
+
+            gearCache[key] = result;
+            return result;
+        }
+
         /// <summary>
         /// Sample stowed (time=0) and deployed (time=1) transform states from a deployable part's animation.
         /// Returns a list of (path, stowed, deployed) tuples for transforms that actually change.
@@ -1236,6 +1368,60 @@ namespace Parsek
                             $"sampled {sampledStates.Count} transforms but none resolved to ghost");
                     }
                 }
+            }
+
+            // Detect landing gear / legs (ModuleWheels.ModuleWheelDeployment) — reuses DeployableGhostInfo
+            if (deployableInfo == null)
+            {
+                for (int m = 0; m < prefab.Modules.Count; m++)
+                {
+                    var wheel = prefab.Modules[m] as ModuleWheels.ModuleWheelDeployment;
+                    if (wheel == null) continue;
+
+                    string animStateName = wheel.animationStateName;
+                    string animTrfName = wheel.animationTrfName;
+                    float depPos = wheel.deployedPosition;
+                    var sampledStates = SampleGearStates(prefab, animStateName, animTrfName, depPos);
+                    if (sampledStates != null)
+                    {
+                        var resolvedTransforms = new List<DeployableTransformState>();
+                        for (int s = 0; s < sampledStates.Count; s++)
+                        {
+                            var (path, sPos, sRot, sScale, dPos, dRot, dScale) = sampledStates[s];
+                            Transform ghostT = FindTransformByPath(modelNode.transform, path);
+                            if (ghostT != null)
+                            {
+                                resolvedTransforms.Add(new DeployableTransformState
+                                {
+                                    t = ghostT,
+                                    stowedPos = sPos,
+                                    stowedRot = sRot,
+                                    stowedScale = sScale,
+                                    deployedPos = dPos,
+                                    deployedRot = dRot,
+                                    deployedScale = dScale
+                                });
+                            }
+                        }
+
+                        if (resolvedTransforms.Count > 0)
+                        {
+                            deployableInfo = new DeployableGhostInfo
+                            {
+                                partPersistentId = persistentId,
+                                transforms = resolvedTransforms
+                            };
+                            ParsekLog.Log($"    Gear detected: '{partName}' pid={persistentId}, " +
+                                $"{resolvedTransforms.Count}/{sampledStates.Count} transforms resolved");
+                        }
+                    }
+                    break; // one deployment module per part
+                }
+            }
+            else if (prefab.FindModuleImplementing<ModuleWheels.ModuleWheelDeployment>() != null)
+            {
+                ParsekLog.Log($"    WARNING: '{partName}' pid={persistentId} has both " +
+                    $"ModuleDeployablePart and ModuleWheels.ModuleWheelDeployment — gear visuals skipped");
             }
 
             // Detect light parts and clone Light components for ghost playback

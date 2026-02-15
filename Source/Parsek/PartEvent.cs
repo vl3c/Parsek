@@ -14,7 +14,9 @@ namespace Parsek
         DeployableExtended,   // 9 — solar panel / antenna / radiator fully deployed
         DeployableRetracted,  // 10 — solar panel / antenna / radiator fully retracted
         LightOn,              // 11 — light turned on
-        LightOff              // 12 — light turned off
+        LightOff,             // 12 — light turned off
+        GearDeployed,         // 13 — landing gear / leg fully deployed
+        GearRetracted         // 14 — landing gear / leg fully retracted
     }
 
     public struct PartEvent

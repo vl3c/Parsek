@@ -659,6 +659,144 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Gear state tracking
+
+        [Fact]
+        public void GearTransition_RetractedToDeployed_EmitsDeployedEvent()
+        {
+            var deployed = new HashSet<uint>();
+            var evt = FlightRecorder.CheckGearTransition(
+                42, "GearSmall", isDeployed: true, deployed, 100.0);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.GearDeployed, evt.Value.eventType);
+            Assert.Equal(42u, evt.Value.partPersistentId);
+            Assert.Equal(100.0, evt.Value.ut);
+            Assert.Equal("GearSmall", evt.Value.partName);
+            Assert.Contains(42u, deployed);
+        }
+
+        [Fact]
+        public void GearTransition_DeployedToRetracted_EmitsRetractedEvent()
+        {
+            var deployed = new HashSet<uint> { 42 };
+            var evt = FlightRecorder.CheckGearTransition(
+                42, "GearSmall", isDeployed: false, deployed, 120.0);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.GearRetracted, evt.Value.eventType);
+            Assert.Equal(42u, evt.Value.partPersistentId);
+            Assert.Equal(120.0, evt.Value.ut);
+            Assert.DoesNotContain(42u, deployed);
+        }
+
+        [Fact]
+        public void GearTransition_NoChange_ReturnsNull()
+        {
+            var deployed = new HashSet<uint>();
+            var evt = FlightRecorder.CheckGearTransition(
+                42, "GearSmall", isDeployed: false, deployed, 100.0);
+
+            Assert.Null(evt);
+        }
+
+        [Fact]
+        public void GearTransition_AlreadyDeployed_ReturnsNull()
+        {
+            var deployed = new HashSet<uint> { 42 };
+            var evt = FlightRecorder.CheckGearTransition(
+                42, "GearSmall", isDeployed: true, deployed, 100.0);
+
+            Assert.Null(evt);
+        }
+
+        [Fact]
+        public void PartEvents_SerializationRoundtrip_GearDeployed()
+        {
+            var rec = new RecordingStore.Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 110, bodyName = "Kerbin" });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 105,
+                partPersistentId = 42,
+                eventType = PartEventType.GearDeployed,
+                partName = "GearSmall"
+            });
+
+            var node = new ConfigNode("TEST");
+            RecordingStore.SerializeTrajectoryInto(node, rec);
+
+            var loaded = new RecordingStore.Recording();
+            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+
+            Assert.Single(loaded.PartEvents);
+            Assert.Equal(PartEventType.GearDeployed, loaded.PartEvents[0].eventType);
+            Assert.Equal(42u, loaded.PartEvents[0].partPersistentId);
+            Assert.Equal("GearSmall", loaded.PartEvents[0].partName);
+            Assert.Equal(105.0, loaded.PartEvents[0].ut);
+        }
+
+        [Fact]
+        public void PartEvents_SerializationRoundtrip_GearRetracted()
+        {
+            var rec = new RecordingStore.Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 110, bodyName = "Kerbin" });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 105,
+                partPersistentId = 42,
+                eventType = PartEventType.GearRetracted,
+                partName = "GearSmall"
+            });
+
+            var node = new ConfigNode("TEST");
+            RecordingStore.SerializeTrajectoryInto(node, rec);
+
+            var loaded = new RecordingStore.Recording();
+            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+
+            Assert.Single(loaded.PartEvents);
+            Assert.Equal(PartEventType.GearRetracted, loaded.PartEvents[0].eventType);
+            Assert.Equal(42u, loaded.PartEvents[0].partPersistentId);
+            Assert.Equal("GearSmall", loaded.PartEvents[0].partName);
+        }
+
+        [Fact]
+        public void ClassifyGearState_Deployed_IsDeployed()
+        {
+            FlightRecorder.ClassifyGearState("Deployed", out bool isDeployed, out bool isRetracted);
+            Assert.True(isDeployed);
+            Assert.False(isRetracted);
+        }
+
+        [Fact]
+        public void ClassifyGearState_Retracted_IsRetracted()
+        {
+            FlightRecorder.ClassifyGearState("Retracted", out bool isDeployed, out bool isRetracted);
+            Assert.False(isDeployed);
+            Assert.True(isRetracted);
+        }
+
+        [Fact]
+        public void ClassifyGearState_Deploying_NeitherEndpoint()
+        {
+            FlightRecorder.ClassifyGearState("Deploying", out bool isDeployed, out bool isRetracted);
+            Assert.False(isDeployed);
+            Assert.False(isRetracted);
+        }
+
+        [Fact]
+        public void ClassifyGearState_Retracting_NeitherEndpoint()
+        {
+            FlightRecorder.ClassifyGearState("Retracting", out bool isDeployed, out bool isRetracted);
+            Assert.False(isDeployed);
+            Assert.False(isRetracted);
+        }
+
+        #endregion
+
         #region Engine event serialization
 
         [Fact]

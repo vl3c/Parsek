@@ -29,6 +29,7 @@ namespace Parsek
         private HashSet<uint> jettisonedShrouds = new HashSet<uint>();
         private HashSet<uint> extendedDeployables = new HashSet<uint>();
         private HashSet<uint> lightsOn = new HashSet<uint>();
+        private HashSet<uint> deployedGear = new HashSet<uint>();
 
         // Engine state tracking (key = (ulong)pid << 8 | moduleIndex)
         private List<(Part part, ModuleEngines engine, int moduleIndex)> cachedEngines;
@@ -342,6 +343,76 @@ namespace Parsek
             }
         }
 
+        internal static void ClassifyGearState(string stateString, out bool isDeployed, out bool isRetracted)
+        {
+            isDeployed = stateString == "Deployed";
+            isRetracted = stateString == "Retracted";
+        }
+
+        internal static PartEvent? CheckGearTransition(
+            uint partPersistentId, string partName, bool isDeployed, HashSet<uint> deployedSet, double ut)
+        {
+            bool wasDeployed = deployedSet.Contains(partPersistentId);
+
+            if (isDeployed && !wasDeployed)
+            {
+                deployedSet.Add(partPersistentId);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.GearDeployed,
+                    partName = partName
+                };
+            }
+
+            if (!isDeployed && wasDeployed)
+            {
+                deployedSet.Remove(partPersistentId);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.GearRetracted,
+                    partName = partName
+                };
+            }
+
+            return null;
+        }
+
+        private void CheckGearState(Vessel v)
+        {
+            if (v == null || v.parts == null) return;
+
+            double ut = Planetarium.GetUniversalTime();
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    var wheel = p.Modules[m] as ModuleWheels.ModuleWheelDeployment;
+                    if (wheel == null) continue;
+
+                    ClassifyGearState(wheel.stateString, out bool isDeployed, out bool isRetracted);
+
+                    // Skip transitional states ("Deploying"/"Retracting") — only fire on endpoints
+                    if (!isDeployed && !isRetracted) continue;
+
+                    var evt = CheckGearTransition(
+                        p.persistentId, p.partInfo?.name ?? "unknown", isDeployed, deployedGear, ut);
+                    if (evt.HasValue)
+                    {
+                        PartEvents.Add(evt.Value);
+                        ParsekLog.Log($"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
+                    }
+                    break; // one deployment module per part
+                }
+            }
+        }
+
         internal static List<(Part part, ModuleEngines engine, int moduleIndex)> CacheEngineModules(Vessel v)
         {
             var result = new List<(Part, ModuleEngines, int)>();
@@ -485,6 +556,7 @@ namespace Parsek
             jettisonedShrouds.Clear();
             extendedDeployables.Clear();
             lightsOn.Clear();
+            deployedGear.Clear();
             cachedEngines = CacheEngineModules(v);
             activeEngineKeys = new HashSet<ulong>();
             lastThrottle = new Dictionary<ulong, float>();
@@ -671,6 +743,7 @@ namespace Parsek
             CheckEngineState(v);
             CheckDeployableState(v);
             CheckLightState(v);
+            CheckGearState(v);
 
             // Krakensbane-corrected true velocity
             Vector3 currentVelocity = (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity());

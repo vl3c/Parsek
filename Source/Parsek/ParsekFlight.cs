@@ -391,6 +391,7 @@ namespace Parsek
             DestroyAllTimelineGhosts();
             GhostVisualBuilder.ClearDeployedCanopyCache();
             GhostVisualBuilder.ClearDeployableCache();
+            GhostVisualBuilder.ClearGearCache();
         }
 
         void OnVesselWillDestroy(Vessel v)
@@ -1418,6 +1419,14 @@ namespace Parsek
                     case PartEventType.LightOff:
                         SetLightState(state, evt.partPersistentId, false);
                         Log($"Part event applied: LightOff '{evt.partName}' pid={evt.partPersistentId}");
+                        break;
+                    case PartEventType.GearDeployed:
+                        ApplyDeployableState(state, evt, deployed: true);
+                        Log($"Part event applied: GearDeployed '{evt.partName}' pid={evt.partPersistentId}");
+                        break;
+                    case PartEventType.GearRetracted:
+                        ApplyDeployableState(state, evt, deployed: false);
+                        Log($"Part event applied: GearRetracted '{evt.partName}' pid={evt.partPersistentId}");
                         break;
                 }
                 evtIdx++;
