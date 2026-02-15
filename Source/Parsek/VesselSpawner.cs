@@ -10,6 +10,12 @@ namespace Parsek
     /// </summary>
     public static class VesselSpawner
     {
+        /// <summary>
+        /// When false, vessels always spawn at the exact recorded end position
+        /// (no proximity offset). Set true to re-enable the 200m/250m offset logic.
+        /// </summary>
+        public static bool ProximityOffsetEnabled = false;
+
         public static ConfigNode TryBackupSnapshot(Vessel vessel)
         {
             if (vessel == null) return null;
@@ -153,7 +159,7 @@ namespace Parsek
                     }
                 }
 
-                if (closestDist < 200.0)
+                if (ProximityOffsetEnabled && closestDist < 100.0)
                 {
                     Vector3d diff = spawnPos - closestPos;
                     Vector3d normal = body.GetSurfaceNVector(lat, lon).normalized;
@@ -307,7 +313,7 @@ namespace Parsek
             // Skip proximity offset for EVA kerbals — let them spawn where recorded
             bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
 
-            if (closestDist < 200.0 && !isEva)
+            if (ProximityOffsetEnabled && closestDist < 100.0 && !isEva)
             {
                 // Offset away from the closest vessel along the body surface to avoid
                 // injecting vertical error that can produce hovering landed spawns.
