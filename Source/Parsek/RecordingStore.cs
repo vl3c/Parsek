@@ -151,7 +151,7 @@ namespace Parsek
         {
             if (points == null || points.Count < 2)
             {
-                Log("[Parsek] Recording too short (< 2 points) — discarded");
+                Log($"[Parsek] Recording too short for '{vesselName}' ({points?.Count ?? 0} points, need >= 2) — discarded");
                 return;
             }
 
@@ -344,6 +344,8 @@ namespace Parsek
                     // Degrade: clear chain fields so they become standalone recordings
                     for (int i = 0; i < list.Count; i++)
                     {
+                        Log($"[Parsek]   Degrading recording '{list[i].VesselName}' " +
+                            $"(id={list[i].RecordingId}, idx={list[i].ChainIndex}) to standalone");
                         list[i].ChainId = null;
                         list[i].ChainIndex = -1;
                     }

@@ -534,7 +534,11 @@ namespace Parsek
             crewReplacements.Clear();
 
             ConfigNode replacementsNode = node.GetNode("CREW_REPLACEMENTS");
-            if (replacementsNode == null) return;
+            if (replacementsNode == null)
+            {
+                Debug.Log("[Parsek Scenario] Loaded 0 crew replacements (no CREW_REPLACEMENTS node)");
+                return;
+            }
 
             ConfigNode[] entries = replacementsNode.GetNodes("ENTRY");
             for (int i = 0; i < entries.Length; i++)
@@ -555,15 +559,16 @@ namespace Parsek
         /// with their hired replacements. Prevents the player from recording
         /// with a reserved kerbal again after revert.
         /// </summary>
-        public static void SwapReservedCrewInFlight()
+        public static int SwapReservedCrewInFlight()
         {
-            if (FlightGlobals.ActiveVessel == null) return;
-            if (crewReplacements.Count == 0) return;
+            if (FlightGlobals.ActiveVessel == null) return 0;
+            if (crewReplacements.Count == 0) return 0;
 
             var roster = HighLogic.CurrentGame?.CrewRoster;
-            if (roster == null) return;
+            if (roster == null) return 0;
 
-            bool anySwapped = false;
+            int swapCount = 0;
+            int failCount = 0;
 
             foreach (Part part in FlightGlobals.ActiveVessel.parts)
             {
@@ -589,6 +594,7 @@ namespace Parsek
                     if (replacement == null)
                     {
                         Debug.Log($"[Parsek Scenario] Cannot swap '{original.name}': replacement '{replacementName}' not in roster");
+                        failCount++;
                         continue;
                     }
 
@@ -596,21 +602,30 @@ namespace Parsek
                     if (seatIndex < 0)
                     {
                         Debug.Log($"[Parsek Scenario] Cannot swap '{original.name}': not found in part crew list");
+                        failCount++;
                         continue;
                     }
                     part.RemoveCrewmember(original);
                     part.AddCrewmemberAt(replacement, seatIndex);
-                    anySwapped = true;
+                    swapCount++;
                     Debug.Log($"[Parsek Scenario] Swapped '{original.name}' → '{replacement.name}' in part '{part.partInfo.title}'");
                 }
             }
 
-            if (anySwapped)
+            if (swapCount > 0)
             {
                 FlightGlobals.ActiveVessel.SpawnCrew();
                 GameEvents.onVesselCrewWasModified.Fire(FlightGlobals.ActiveVessel);
-                Debug.Log("[Parsek Scenario] Crew swap complete — refreshed vessel crew display");
+                Debug.Log($"[Parsek Scenario] Crew swap complete: {swapCount} succeeded" +
+                    (failCount > 0 ? $", {failCount} failed" : "") +
+                    " — refreshed vessel crew display");
             }
+            else if (failCount > 0)
+            {
+                Debug.Log($"[Parsek Scenario] Crew swap: 0 succeeded, {failCount} failed");
+            }
+
+            return swapCount;
         }
 
         /// <summary>

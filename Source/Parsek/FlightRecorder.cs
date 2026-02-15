@@ -535,7 +535,9 @@ namespace Parsek
                     return;
                 }
 
-                ParsekLog.Log($"Active vessel changed during recording (was pid={RecordingVesselId}, now pid={v.persistentId}) — auto-stopping");
+                ParsekLog.Log($"Active vessel changed during recording — auto-stopping " +
+                    $"(decision={decision}, was pid={RecordingVesselId}, now pid={v.persistentId}, " +
+                    $"nowIsEva={v.isEVA}, startedAsEva={RecordingStartedAsEva})");
                 ParsekLog.ScreenMessage("Recording stopped — vessel changed", 3f);
                 return;
             }
@@ -750,6 +752,11 @@ namespace Parsek
             {
                 lastGoodVesselSnapshot = snapshot;
                 lastSnapshotRefreshUT = ut;
+            }
+            else
+            {
+                ParsekLog.Log($"Snapshot backup FAILED ({reason}): pid={vessel.persistentId}, " +
+                    $"loaded={vessel.loaded}, packed={vessel.packed} — using previous snapshot");
             }
 
             if (elapsedMs >= snapshotPerfLogThresholdMs)

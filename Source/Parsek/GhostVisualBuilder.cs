@@ -71,6 +71,7 @@ namespace Parsek
                 if (string.IsNullOrEmpty(partName))
                 {
                     skippedName++;
+                    ParsekLog.Log($"  Ghost part SKIPPED (no name): raw='{rawPart ?? "null"}' index={i}");
                     continue;
                 }
 
@@ -84,6 +85,7 @@ namespace Parsek
                 if (ap == null || ap.partPrefab == null)
                 {
                     skippedPrefab++;
+                    ParsekLog.Log($"  Ghost part SKIPPED (no prefab): '{partName}' pid={persistentId}");
                     continue;
                 }
 
@@ -97,7 +99,10 @@ namespace Parsek
                 if (partVisualAdded)
                     visualCount++;
                 else
+                {
                     skippedMesh++;
+                    ParsekLog.Log($"  Ghost part SKIPPED (no mesh): '{partName}' pid={persistentId}");
+                }
                 addedAnyVisual = addedAnyVisual || partVisualAdded;
 
                 if (parachuteInfo != null)

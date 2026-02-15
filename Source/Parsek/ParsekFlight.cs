@@ -582,7 +582,11 @@ namespace Parsek
 
             // Swap reserved crew out of the active vessel so the player
             // can't record with them again (they belong to deferred-spawn vessels)
-            ParsekScenario.SwapReservedCrewInFlight();
+            int swapResult = ParsekScenario.SwapReservedCrewInFlight();
+            if (swapResult > 0)
+                Log($"Crew swap on flight ready: {swapResult} crew swapped out of active vessel");
+            else if (ParsekScenario.CrewReplacements.Count > 0)
+                Log($"Crew swap on flight ready: 0 swapped ({ParsekScenario.CrewReplacements.Count} reservations exist but no matches on active vessel)");
 
             var committed = RecordingStore.CommittedRecordings;
             Log($"Timeline has {committed.Count} committed recording(s)");
@@ -873,6 +877,8 @@ namespace Parsek
                 else if (pastChainEnd && needsSpawn && !ghostActive)
                 {
                     // UT already past chain EndUT on scene load — spawn immediately, no ghost
+                    Log($"Ghost SKIPPED (UT already past EndUT): #{i} \"{rec.VesselName}\" at UT {currentUT:F1} " +
+                        $"(EndUT={rec.EndUT:F1}) — spawning vessel immediately");
                     VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
                     ApplyResourceDeltas(rec, currentUT);
                 }
@@ -1431,7 +1437,10 @@ namespace Parsek
 
             if (body == null)
             {
-                Log($"Take control: could not determine body for recording #{index}");
+                string searchedBody = seg.HasValue ? seg.Value.bodyName
+                    : (rec.Points.Count > 0 ? rec.Points[rec.Points.Count - 1].bodyName : "none");
+                Log($"Take control: could not determine body for recording #{index} — " +
+                    $"searched for '{searchedBody}', Bodies={FlightGlobals.Bodies?.Count ?? 0}");
                 return;
             }
 

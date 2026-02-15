@@ -255,6 +255,8 @@ namespace Parsek
             CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == lastPt.bodyName);
             if (body == null)
             {
+                ParsekLog.Log($"Body lookup failed for spawn: bodyName='{lastPt.bodyName}' not found — " +
+                    $"falling back to RespawnVessel without position");
                 LogSpawnContext(rec, double.MaxValue);
                 rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot, excludeCrew);
                 rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
@@ -512,6 +514,7 @@ namespace Parsek
             if (roster == null) return;
 
             var reserved = ParsekScenario.CrewReplacements;
+            int removedCount = 0;
 
             foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
             {
@@ -542,6 +545,7 @@ namespace Parsek
                         {
                             isDead = true;
                             ParsekLog.Log($"Removed dead/missing crew '{name}' from vessel snapshot");
+                            removedCount++;
                             break;
                         }
                     }
@@ -558,6 +562,9 @@ namespace Parsek
                         partNode.AddValue("crew", name);
                 }
             }
+
+            if (removedCount > 0)
+                ParsekLog.Log($"Spawn prep: removed {removedCount} dead/missing crew from snapshot");
         }
 
         /// <summary>
@@ -570,6 +577,7 @@ namespace Parsek
             var roster = HighLogic.CurrentGame?.CrewRoster;
             if (roster == null) return;
 
+            int createdCount = 0;
             foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
             {
                 var crewNames = partNode.GetValues("crew");
@@ -596,9 +604,13 @@ namespace Parsek
                         newCrew.ChangeName(name);
                         newCrew.rosterStatus = ProtoCrewMember.RosterStatus.Assigned;
                         ParsekLog.Log($"Created missing crew '{name}' in roster for vessel spawn");
+                        createdCount++;
                     }
                 }
             }
+
+            if (createdCount > 0)
+                ParsekLog.Log($"Spawn prep: created {createdCount} missing crew in roster");
         }
 
         public static bool VesselExistsByPid(uint pid)
@@ -810,6 +822,8 @@ namespace Parsek
 
         private static void EnsureSpawnReadiness(ConfigNode spawnNode)
         {
+            int fixCount = 0;
+
             // Discovery info — use DiscoveryLevels.Owned enum to avoid hardcoded magic numbers
             string ownedState = ((int)DiscoveryLevels.Owned).ToString();
             ConfigNode disc = spawnNode.GetNode("DISCOVERY");
@@ -821,6 +835,7 @@ namespace Parsek
                 disc.AddValue("lifetime", "Infinity");
                 disc.AddValue("refTime", "0");
                 disc.AddValue("size", "2");
+                fixCount++;
             }
             else
             {
@@ -830,13 +845,16 @@ namespace Parsek
             // Defensive: ensure required sub-nodes exist (snapshots from BackupVessel
             // should have these, but synthetic recordings or edge cases might not)
             if (spawnNode.GetNode("ACTIONGROUPS") == null)
-                spawnNode.AddNode("ACTIONGROUPS");
+            { spawnNode.AddNode("ACTIONGROUPS"); fixCount++; }
             if (spawnNode.GetNode("FLIGHTPLAN") == null)
-                spawnNode.AddNode("FLIGHTPLAN");
+            { spawnNode.AddNode("FLIGHTPLAN"); fixCount++; }
             if (spawnNode.GetNode("CTRLSTATE") == null)
-                spawnNode.AddNode("CTRLSTATE");
+            { spawnNode.AddNode("CTRLSTATE"); fixCount++; }
             if (spawnNode.GetNode("VESSELMODULES") == null)
-                spawnNode.AddNode("VESSELMODULES");
+            { spawnNode.AddNode("VESSELMODULES"); fixCount++; }
+
+            if (fixCount > 0)
+                ParsekLog.Log($"Spawn prep: added {fixCount} missing node(s) to snapshot");
         }
 
         internal static double SelectRelocatedAltitude(
