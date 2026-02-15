@@ -2,7 +2,7 @@
 
 ## Document Status
 **Version:** 0.3
-**Phase:** MVP Implementation
+**Phase:** MVP (recording chaining)
 **Last Updated:** February 2026
 
 ---
@@ -21,10 +21,10 @@
 │  │   events     │  │ - Single     │  │ - Kinematic replay   │  │
 │  │ - Buffers    │  │   source of  │  │ - Ghost vessels      │  │
 │  │   recording  │  │   truth      │  │ - Event execution    │  │
-│  │ - Handles    │  │ - Merges     │  │ - Milestone pursuit  │  │
-│  │   commit/    │  │   recordings │  │   (future)           │  │
-│  │   discard    │  │ - Resolves   │  │                      │  │
-│  │              │  │   conflicts  │  │                      │  │
+│  │ - Handles    │  │ - Merges     │  │ - Vessel spawning    │  │
+│  │   commit/    │  │   recordings │  │ - Engine FX          │  │
+│  │   discard    │  │              │  │                      │  │
+│  │              │  │              │  │                      │  │
 │  └──────┬───────┘  └──────┬───────┘  └──────────┬───────────┘  │
 │         │                 │                      │              │
 │         └────────────────┼──────────────────────┘              │
@@ -134,16 +134,11 @@ public class MissionRecorder : VesselModule
 - Primary: Harmony postfix on `VesselPrecalculate.CalculatePhysicsStats()` for per-physics-frame data (source: KSPCommunityFixes)
 - Fallback: `FixedUpdate()` polling for compatibility
 
-**Sampling Strategy (MVP):**
+**Sampling Strategy:**
 - Adaptive threshold-based: record frame if orientation changes > 2deg, velocity direction changes > 2deg, or speed changes > 5% (source: PersistentTrails)
 - Staging events: On occurrence (with 0.2s delay for state to settle — source: FMRS)
 - SOI changes: On occurrence
 - Event detection: GameEvents + polling hybrid for redundant reliable detection (source: StageRecovery)
-
-**Sampling Strategy (Full Vision):**
-- Milestone events (orbit achieved, landing, etc.)
-- Maneuver node executions
-- Resource states at key moments
 
 ---
 
@@ -252,28 +247,6 @@ public class SOIChangeEvent : TimelineEvent
 }
 ```
 
-**Event Types (Full Vision):**
-
-```csharp
-public class MilestoneEvent : TimelineEvent
-{
-    public MilestoneType Type { get; }  // Orbit, Landing, Rendezvous, etc.
-    public MilestoneParameters Parameters { get; }
-}
-
-public class ManeuverEvent : TimelineEvent
-{
-    public Vector3d DeltaV { get; }
-    public double BurnDuration { get; }
-}
-
-public class InteractionEvent : TimelineEvent
-{
-    // When player takes control
-    public bool PlayerTookControl { get; }
-}
-```
-
 ---
 
 ### 5. PlaybackEngine
@@ -330,11 +303,10 @@ public class PlaybackEngine : MonoBehaviour
 
 **Playback Modes:**
 
-| Mode | Description | MVP | Full |
-|------|-------------|-----|------|
-| Kinematic | Direct position/rotation setting | ✓ | ✓ |
-| On-Rails | KSP orbital mechanics | | ✓ |
-| Adaptive | Milestone pursuit with MechJeb | | ✓ |
+| Mode | Description | Status |
+|------|-------------|--------|
+| Kinematic | Direct position/rotation setting | Done |
+| On-Rails | Analytical Keplerian orbit during time warp segments | Done |
 
 ---
 
@@ -391,7 +363,6 @@ public class PlaybackVessel
     
     // Control
     public void TakeControl();  // Player assumes control
-    public void ReleaseControl();  // Return to playback (future feature)
 }
 ```
 
@@ -497,60 +468,6 @@ saves/<save-name>/Parsek/Recordings/
 - `RecordingPaths.ValidateRecordingId` rejects path-traversal and invalid filename characters
 
 ---
-
-## Conflict Resolution
-
-### Resource Conflicts
-
-When two recordings need the same resource:
-
-```csharp
-public class ConflictResolver
-{
-    public ConflictResolution Resolve(
-        MissionRecording existing,
-        MissionRecording incoming)
-    {
-        // Check launchpad conflicts
-        if (SharesLaunchpad(existing, incoming))
-        {
-            if (existing.StartUT < incoming.StartUT)
-                return ConflictResolution.DelayIncoming;
-            else
-                return ConflictResolution.RejectIncoming;
-        }
-        
-        // Check resource conflicts
-        // (future: funds, parts, kerbals)
-        
-        return ConflictResolution.NoConflict;
-    }
-}
-```
-
-### Interaction Handling
-
-When player takes control of playback vessel:
-
-```csharp
-public void OnPlayerTakesControl(PlaybackVessel pv)
-{
-    // 1. Stop playback for this vessel
-    pv.StopPlayback();
-    
-    // 2. Convert to normal vessel
-    pv.KSPVessel.vesselType = VesselType.Ship;
-    
-    // 3. Remove future events for this vessel
-    MainTimeline.Instance.RemoveFutureEvents(
-        pv.RecordingId, 
-        Planetarium.GetUniversalTime()
-    );
-    
-    // 4. Player now responsible for vessel
-    FlightGlobals.SetActiveVessel(pv.KSPVessel);
-}
-```
 
 ---
 
@@ -704,9 +621,7 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 
 | Mod | Integration |
 |-----|-------------|
-| Kerbal Alarm Clock | Auto-create alarms for events |
-| MechJeb | Adaptive playback execution |
-| kOS | Script-based milestone definition |
+| Kerbal Alarm Clock | Auto-create alarms for ghost playback windows |
 
 ---
 
@@ -725,7 +640,7 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 - [x] Auto-recording on launch and EVA from pad
 - [x] SOI change handling during recording and playback
 
-**Vessel persistence (done, beyond original MVP scope):**
+**Vessel persistence (done):**
 - [x] Vessel snapshot + deferred spawn at EndUT
 - [x] Crew reservation and replacement system
 - [x] Resource delta tracking (funds, science, reputation)
@@ -734,20 +649,15 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 - [x] Dead crew removal from snapshots
 - [x] 17 edge cases identified and resolved (see TODO-edge-cases.md)
 
-**Remaining for MVP release:**
+**Recording & playback mechanics (done):**
 - [x] Take control of playback vessel (spawn at ghost position with velocity, crew cleanup)
 - [x] Orbital/time-warp recording (save orbit params instead of sampling)
 - [x] Ghost as actual vessel model (opaque replica from prefab meshes)
 - [x] Adaptive threshold sampling (velocity direction >2deg, speed >5%, 3s backstop)
 - [x] ClickThroughBlocker for UI windows
 - [x] ToolbarControl for toolbar button
-
-**Deferred (nice-to-have, not blocking release):**
 - [x] Krakensbane velocity compensation (`rb_velocityD + Krakensbane.GetFrameVelocity()`)
 - [x] Harmony hook on `VesselPrecalculate.CalculatePhysicsStats()` (FlightRecorder + PhysicsFramePatch)
-- [ ] IgnoreGForces(240) positioning (needed when ghost becomes a vessel)
-- [ ] `GameParameters.CustomParameterNode` for settings
-- [ ] Localization infrastructure (en-us.cfg)
 
 **Ghost visual fidelity (done):**
 - [x] Opaque ghost vessels from prefab meshes with original materials
@@ -757,103 +667,51 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 - [x] External recording files (v3) — bulk data in sidecar files, lightweight .sfs
 - [x] Engine FX on ghost vessels (modern EFFECTS + legacy fx_* prefab fallback)
 
-### Phase 2: Core Features
+**Remaining for MVP:**
+- [ ] Fix spawned vessel not selectable in map view / tracking station (top priority)
+- [ ] Chained recordings — land → EVA → walk → board → fly again as a continuous mission replay
+- [ ] Seamless ghost handoff between chained segments (vessel ghost ends, EVA ghost begins, vessel ghost resumes)
+- [ ] Verify and fix edge cases: crew continuity, vessel state across chain boundaries, merge dialog for chained missions
 
-**Features:**
-- [ ] Multiple concurrent recordings (timeline playback already supports multiple)
-- [x] Event-based recording (part events: decoupled, destroyed, parachute deployed/cut)
-- [x] Real parachute canopy on ghost vessels (Phase 2 canopy)
+### Phase 2: Polish & UX
+
+**Timeline & navigation:**
+- [ ] Timeline viewer UI (list recordings, delete individual ones, visual timeline)
+- [ ] Timeline navigation — select a point in time to revert/return to
+- [ ] Multiple concurrent recordings (playback already supports multiple, needs recording flow + UI)
+
+**Quality of life:**
+- [ ] Settings panel (`GameParameters.CustomParameterNode` — toggle auto-record, adjust thresholds)
+- [ ] KAC integration (auto-create alarms for ghost playback windows)
+- [ ] Two-phase parachute deploy (SEMIDEPLOYED streamer vs DEPLOYED full canopy)
+
+**Already done (moved from earlier phases):**
+- [x] Event-based recording (part events: decoupled, destroyed, parachute deployed/cut, engine ignition/shutdown)
+- [x] Real parachute canopy on ghost vessels
 - [x] Event-driven shroud jettison for ghost vessels
 - [x] External recording files (v3 format)
-- [ ] Two-phase parachute deploy (SEMIDEPLOYED streamer vs DEPLOYED full canopy — currently fires at SEMIDEPLOYED only)
-- [ ] Timeline viewer UI
-- [ ] Conflict detection
-- [ ] KAC integration
-- [ ] Space racing — race against ghost recordings to reach orbit, the Mun, or any destination faster
+- [x] Engine FX on ghost vessels (modern EFFECTS + legacy fx_* prefab fallback)
 
-### Phase 3: Advanced
+### Phase 3: Recording Stats & Export
 
-**Features:**
-- [ ] Milestone-based recording
-- [ ] Adaptive playback (MechJeb integration)
-- [ ] Graceful degradation on interaction
-- [ ] Construction time integration
-- [ ] AI agency recordings (space race mode)
-- [ ] Ghost geometry capture (full mesh serialization for offline playback)
-
-### Phase 4: Multiplayer Foundation (Future)
-
-**Features:**
-- [ ] Recording export/import
-- [ ] Merge conflict resolution
-- [ ] Shared timeline support
+- [ ] Recording stats — distance travelled, final destination, duration, max altitude, max speed
+- [ ] Stats display in timeline viewer (extends Phase 2 timeline UI)
+- [ ] Recording export/import — share recordings as standalone files
 
 ---
 
-## Risk Assessment
+## Scope
 
-| Risk | Impact | Likelihood | Mitigation |
-|------|--------|------------|------------|
-| Performance with many playbacks | High | Medium | Spatial culling, LOD, on-rails when possible |
-| Save file corruption | Critical | Low | Backup systems, validation, separate files |
-| KSP version incompatibility | Medium | Medium | Abstract KSP APIs, Harmony patches |
-| Physics issues with ghost vessels | Medium | High | Use debris type, disable collisions by default |
-| Complex recording edge cases | Medium | High | Extensive testing, fail-safe defaults |
-| Krakensbane velocity drift | High | High | Record true velocity (`rb_velocityD` + frame shift) |
-| Packed vessel manipulation | Critical | Medium | Always check `vessel.packed` before `SetPosition` |
-| Scene transition memory leaks | Medium | High | Cleanup in `onGameSceneLoadRequested` |
-| Save/load race condition | Critical | Medium | Async coordination pattern (wait for `onGameStateSaved`) |
-| Time warp ghost desync | Medium | High | Pause/destroy ghosts during physics warp |
+Parsek is a **parallel mission replay** mod: record missions, revert, and have them play out as ghosts alongside new missions. The architecture naturally enables use cases like racing your own ghosts, but the mod does not include dedicated racing modes, AI playback, or multiplayer features. Those are gameplay possibilities that emerge from the core recording/playback system.
 
 ---
 
-## Open Questions (Resolved)
+## Design Decisions (Resolved)
 
-1. **Trajectory interpolation:** Linear (`Vector3.Lerp`, `Quaternion.Lerp`) is sufficient for MVP. Proven by PersistentTrails — cubic adds complexity with negligible visual improvement at typical sample rates.
-2. **Ghost vessel rendering:** Opaque replica built from prefab meshes using VesselSnapshot part data. No shader modification — uses original part materials for realistic appearance.
-3. **SOI transitions:** Store body name (`string BodyName`) per TrajectoryFrame. Record body change as a discrete `SOIChangeEvent`. This naturally handles multi-body trajectories.
-4. **Recording file size:** External sidecar files (v3) — bulk data (trajectory, snapshots) stored in `.prec` and `.craft` files under `saves/<save>/Parsek/Recordings/`. Only lightweight metadata stays in `.sfs`.
-5. **Multiplayer architecture:** Deferred to Phase 4. Recording export/import is the foundation — design for file-based sharing first, network layer later.
-
----
-
-## Next Steps
-
-1. ~~**Set up development environment**~~ (DONE)
-   - KSP 1.12.5 local instance configured
-   - dotnet SDK-style project with auto-deploy
-
-2. ~~**Create proof-of-concept**~~ (DONE)
-   - Proof-of-concept: recording vessel position + playback with green sphere
-   - Verified feasibility of kinematic replay
-
-3. ~~**Study reference mods**~~ (DONE)
-   - Analyzed 8 mods: FMRS, PersistentTrails, KSPCommunityFixes, ClickThroughBlocker, ToolbarControl, StageRecovery, VesselMover, KerbalAlarmClock
-   - Findings incorporated into this architecture document
-
-4. ~~**Implement core recording + playback**~~ (DONE)
-   - Geographic coordinate TrajectoryFrame with SOI support
-   - Timeline persistence via ScenarioModule
-   - Context-aware merge dialog with vessel persistence
-   - Crew reservation/replacement system
-   - Resource delta tracking
-   - Map view ghost markers
-   - 17 edge cases resolved
-
-5. ~~**Complete MVP for release**~~ (DONE)
-   - ~~Orbital/time-warp recording strategy~~ (DONE — hybrid OrbitSegment recording)
-   - ~~Take control of playback vessel~~ (DONE — spawn at ghost position with velocity, crew cleanup)
-   - ~~Ghost as vessel model (replace sphere)~~ (DONE — opaque prefab mesh replica)
-   - ~~ClickThroughBlocker + ToolbarControl integration~~ (DONE)
-   - ~~Adaptive sampling for maneuvers~~ (DONE — velocity/speed thresholds with max-interval backstop)
-   - ~~Architecture cleanup~~ (DONE — decomposed god class into focused files)
-
-6. ~~**Ghost visual fidelity**~~ (DONE)
-   - ~~Part event playback on ghost~~ (DONE — decoupled subtrees hidden, destroyed parts hidden)
-   - ~~Real parachute canopy on ghost~~ (DONE — semi-deployed animation sampled from prefab clone)
-   - ~~Shroud jettison on ghost~~ (DONE — event-driven via ModuleJettison detection)
-   - ~~External recording files (v3)~~ (DONE — sidecar files, safe-write, stale cleanup)
-   - ~~Engine FX on ghost vessels~~ (DONE — modern EFFECTS cloning + legacy fx_* prefab fallback for stock early-career parts)
+1. **Trajectory interpolation:** Linear (`Vector3.Lerp`, `Quaternion.Lerp`) — cubic adds complexity with negligible visual improvement at typical adaptive sample rates.
+2. **Ghost vessel rendering:** Opaque replica from prefab meshes with original materials. No shader modification.
+3. **SOI transitions:** Body name (`string BodyName`) per TrajectoryFrame. Naturally handles multi-body trajectories.
+4. **Recording file size:** External sidecar files (v3) — bulk data in `.prec` and `.craft` files, lightweight metadata in `.sfs`.
 
 ---
 
