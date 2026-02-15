@@ -2,7 +2,7 @@
 
 *Record, rewind and merge your parallel-sekuential adventures.*
 
-**Time-rewind mission recording for KSP1.** Record missions, revert to launch, and watch them play out as ghost vessels while you fly new ones. Parsek transforms KSP from a mission simulator into a space program simulator.
+**Time-rewind mission recording for KSP1.** Record missions, revert to launch, and watch them play out alongside you while you fly new ones. Parsek transforms KSP from a mission simulator into a space program simulator.
 
 ## How It Works
 
@@ -10,21 +10,21 @@
 2. **Recording starts automatically** when your vessel leaves the pad
 3. **Revert to launch** when you're done
 4. **Choose what happens** — keep the vessel for later, recover it for funds, or discard
-5. **Launch another mission** — your recorded flight replays as a ghost vessel alongside you
-6. **Vessel appears** at its final position when the ghost finishes
+5. **Launch another mission** — your recorded flight replays alongside you
+6. **Vessel spawns** at its final position with the original crew when playback finishes
 
-Ghost vessels are full visual replicas with engine flames, staging, parachutes, and part events playing back at the correct times. When the ghost finishes, a real vessel spawns at the final position with the original crew.
+Recorded vessels are full visual replicas — original part meshes, textures, engine flames, staging, and parachutes all play back at the correct times.
 
 ## Features
 
 - **Automatic recording** on launch and EVA from pad
-- **Ghost vessel replay** with original part meshes, textures, and engine FX
-- **Vessel persistence** — recorded vessels spawn at EndUT with crew, or get recovered for funds
+- **Visual replay** with original part meshes, textures, and engine FX
+- **Vessel persistence** — recorded vessels spawn with crew, or get recovered for funds
 - **Crew management** — reserved crew get temporary replacements so your roster stays full
 - **Orbital recording** — time warp segments use analytical Keplerian orbits
-- **Part events** — staging, decoupling, parachute deploy, engine ignition/shutdown all replay on the ghost
+- **Part events** — staging, decoupling, parachute deploy, engine ignition/shutdown all replay on the recording
 - **Resource tracking** — funds, science, and reputation deltas applied at the correct time
-- **Take control** — grab a ghost mid-playback and fly it yourself
+- **Take control** — grab a recording mid-playback and fly it yourself
 - **External recording files** — bulk trajectory data stored in sidecar files, keeping saves lightweight
 
 ## Controls
