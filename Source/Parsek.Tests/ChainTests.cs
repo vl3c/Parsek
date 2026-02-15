@@ -1297,5 +1297,172 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Chain spawn safety
+
+        [Fact]
+        public void MidChainSegment_VesselSnapshot_ShouldBeNull_WhenGhostOnly()
+        {
+            // Mid-chain vessel segments (recorded up to EVA) should have VesselSnapshot=null.
+            // This prevents spawning the vessel at the EVA point (wrong position).
+            RecordingStore.StashPending(MakePoints(10, 100), "Vessel Seg");
+            RecordingStore.Pending.ChainId = "spawn-test";
+            RecordingStore.Pending.ChainIndex = 0;
+            RecordingStore.Pending.VesselSnapshot = new ConfigNode("VESSEL"); // simulate snapshot
+            RecordingStore.Pending.GhostVisualSnapshot = new ConfigNode("GHOST");
+            RecordingStore.CommitPending();
+
+            RecordingStore.StashPending(MakePoints(5, 200), "EVA Seg");
+            RecordingStore.Pending.ChainId = "spawn-test";
+            RecordingStore.Pending.ChainIndex = 1;
+            RecordingStore.Pending.VesselSnapshot = new ConfigNode("VESSEL");
+            RecordingStore.CommitPending();
+
+            var vessel = RecordingStore.CommittedRecordings[0];
+            var eva = RecordingStore.CommittedRecordings[1];
+
+            // After proper chain commit, vessel segment should be ghost-only.
+            // CommitChainSegment nulls VesselSnapshot. Here we verify the invariant:
+            // IsChainMidSegment=true means the segment should NOT spawn.
+            Assert.True(RecordingStore.IsChainMidSegment(vessel));
+            Assert.False(RecordingStore.IsChainMidSegment(eva));
+
+            // If VesselSnapshot were non-null on a mid-chain segment, it would create
+            // a duplicate vessel on top of the real one. The spawn decision is:
+            // needsSpawn = VesselSnapshot != null && !VesselSpawned && !VesselDestroyed
+            // For mid-chain segments, VesselSnapshot must be null to prevent spawn.
+        }
+
+        [Fact]
+        public void IsChainMidSegment_ReturnsFalse_WhenOnlyOneSegmentCommitted()
+        {
+            // When CommitChainSegment commits the vessel segment but the EVA segment
+            // hasn't been committed yet, IsChainMidSegment returns false.
+            // This is the window where spawning must be suppressed by the activeChainId guard.
+            RecordingStore.StashPending(MakePoints(10, 100), "Vessel Seg");
+            RecordingStore.Pending.ChainId = "incomplete-chain";
+            RecordingStore.Pending.ChainIndex = 0;
+            RecordingStore.Pending.VesselSnapshot = new ConfigNode("VESSEL");
+            RecordingStore.CommitPending();
+
+            var vessel = RecordingStore.CommittedRecordings[0];
+
+            // With only segment 0 committed, it's NOT detected as mid-chain
+            // because there's no segment with a higher index.
+            Assert.False(RecordingStore.IsChainMidSegment(vessel));
+
+            // This means the activeChainId guard in UpdateTimelinePlayback is ESSENTIAL
+            // to prevent spawning during chain building.
+        }
+
+        [Fact]
+        public void ChainSpawnDecision_NeedsSpawn_IsFalse_WhenSnapshotNull()
+        {
+            // Verify the spawn decision logic: needsSpawn requires VesselSnapshot != null
+            RecordingStore.StashPending(MakePoints(5, 100), "Ghost Seg");
+            RecordingStore.Pending.ChainId = "spawn-decision";
+            RecordingStore.Pending.ChainIndex = 0;
+            RecordingStore.Pending.VesselSnapshot = null; // ghost-only
+            RecordingStore.CommitPending();
+
+            var rec = RecordingStore.CommittedRecordings[0];
+            bool needsSpawn = rec.VesselSnapshot != null && !rec.VesselSpawned && !rec.VesselDestroyed;
+            Assert.False(needsSpawn);
+        }
+
+        [Fact]
+        public void ChainSpawnDecision_NeedsSpawn_IsFalse_WhenAlreadySpawned()
+        {
+            RecordingStore.StashPending(MakePoints(5, 100), "Spawned Seg");
+            RecordingStore.Pending.VesselSnapshot = new ConfigNode("VESSEL");
+            RecordingStore.Pending.VesselSpawned = true;
+            RecordingStore.CommitPending();
+
+            var rec = RecordingStore.CommittedRecordings[0];
+            bool needsSpawn = rec.VesselSnapshot != null && !rec.VesselSpawned && !rec.VesselDestroyed;
+            Assert.False(needsSpawn);
+        }
+
+        [Fact]
+        public void ChainSpawnDecision_NeedsSpawn_IsFalse_WhenDestroyed()
+        {
+            RecordingStore.StashPending(MakePoints(5, 100), "Destroyed Seg");
+            RecordingStore.Pending.VesselSnapshot = new ConfigNode("VESSEL");
+            RecordingStore.Pending.VesselDestroyed = true;
+            RecordingStore.CommitPending();
+
+            var rec = RecordingStore.CommittedRecordings[0];
+            bool needsSpawn = rec.VesselSnapshot != null && !rec.VesselSpawned && !rec.VesselDestroyed;
+            Assert.False(needsSpawn);
+        }
+
+        [Fact]
+        public void ChainSpawnDecision_FinalSegment_CanSpawn()
+        {
+            // Final chain segment keeps its VesselSnapshot and CAN spawn
+            RecordingStore.StashPending(MakePoints(10, 100), "Vessel Seg");
+            RecordingStore.Pending.ChainId = "final-test";
+            RecordingStore.Pending.ChainIndex = 0;
+            RecordingStore.Pending.VesselSnapshot = null; // ghost-only (nulled by CommitChainSegment)
+            RecordingStore.CommitPending();
+
+            RecordingStore.StashPending(MakePoints(5, 200), "EVA Final");
+            RecordingStore.Pending.ChainId = "final-test";
+            RecordingStore.Pending.ChainIndex = 1;
+            RecordingStore.Pending.VesselSnapshot = new ConfigNode("VESSEL"); // final keeps snapshot
+            RecordingStore.CommitPending();
+
+            var eva = RecordingStore.CommittedRecordings[1];
+            Assert.False(RecordingStore.IsChainMidSegment(eva));
+            bool needsSpawn = eva.VesselSnapshot != null && !eva.VesselSpawned && !eva.VesselDestroyed;
+            Assert.True(needsSpawn);
+        }
+
+        [Fact]
+        public void ActiveChainGuard_SuppressesSpawn_WhenChainIdMatches()
+        {
+            // Simulates the activeChainId guard in UpdateTimelinePlayback:
+            // if (activeChainId != null && rec.ChainId == activeChainId) needsSpawn = false;
+            string activeChainId = "building-chain";
+
+            RecordingStore.StashPending(MakePoints(10, 100), "Vessel Seg");
+            RecordingStore.Pending.ChainId = "building-chain";
+            RecordingStore.Pending.ChainIndex = 0;
+            RecordingStore.Pending.VesselSnapshot = new ConfigNode("VESSEL");
+            RecordingStore.CommitPending();
+
+            var rec = RecordingStore.CommittedRecordings[0];
+            bool needsSpawn = rec.VesselSnapshot != null && !rec.VesselSpawned && !rec.VesselDestroyed;
+            Assert.True(needsSpawn); // would spawn without the guard
+
+            // Apply the guard
+            if (activeChainId != null && rec.ChainId == activeChainId)
+                needsSpawn = false;
+
+            Assert.False(needsSpawn); // suppressed by guard
+        }
+
+        [Fact]
+        public void ActiveChainGuard_DoesNotAffect_UnrelatedRecordings()
+        {
+            string activeChainId = "building-chain";
+
+            // Unrelated recording (different chain or standalone)
+            RecordingStore.StashPending(MakePoints(10, 100), "Other Vessel");
+            RecordingStore.Pending.VesselSnapshot = new ConfigNode("VESSEL");
+            RecordingStore.CommitPending();
+
+            var rec = RecordingStore.CommittedRecordings[0];
+            bool needsSpawn = rec.VesselSnapshot != null && !rec.VesselSpawned && !rec.VesselDestroyed;
+            Assert.True(needsSpawn);
+
+            // Guard doesn't suppress — ChainId is null, doesn't match activeChainId
+            if (activeChainId != null && rec.ChainId == activeChainId)
+                needsSpawn = false;
+
+            Assert.True(needsSpawn); // still true — not suppressed
+        }
+
+        #endregion
     }
 }

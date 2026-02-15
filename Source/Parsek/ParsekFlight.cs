@@ -155,8 +155,7 @@ namespace Parsek
             }
 
             // Chain: auto-commit previous segment when recording stopped (EVA exit)
-            // VesselSnapshot is kept — for V→EVA chains, the vessel should spawn at its
-            // final position alongside the EVA kerbal.
+            // VesselSnapshot nulled in CommitChainSegment — mid-chain segments are ghost-only.
             if (pendingChainContinuation && !pendingChainIsBoarding &&
                 recorder != null && !recorder.IsRecording && recorder.CaptureAtStop != null)
             {
@@ -398,8 +397,8 @@ namespace Parsek
         /// <summary>
         /// Commits the current chain segment and advances chain state.
         /// Sets up boundary anchor for the next segment.
-        /// Mid-chain segments keep their VesselSnapshot so they can spawn independently
-        /// (e.g. V→EVA: vessel spawns at landing, kerbal spawns at walk endpoint).
+        /// Mid-chain segments have VesselSnapshot nulled (ghost-only) because the recording
+        /// ends at EVA, not at the vessel's actual final position.
         /// </summary>
         void CommitChainSegment(FlightRecorder segmentRecorder, string evaCrewName)
         {
@@ -428,10 +427,11 @@ namespace Parsek
             Log($"Chain: segment has VesselSnapshot={RecordingStore.Pending.VesselSnapshot != null}, " +
                 $"GhostVisualSnapshot={RecordingStore.Pending.GhostVisualSnapshot != null}");
 
-            // Keep VesselSnapshot on mid-chain segments — for V→EVA chains, the vessel
-            // should still spawn at its final position. BuildExcludeCrewSet handles crew
-            // deduplication. When boarding is implemented, only EVA segments where the
-            // kerbal subsequently boards a vessel should have their snapshot nulled.
+            // Mid-chain segments are ghost-only: null VesselSnapshot so they don't spawn.
+            // The vessel recording ends at EVA, not at the vessel's actual final position,
+            // so spawning it would place it at the wrong location (mid-air at EVA point).
+            // GhostVisualSnapshot is kept for ghost rendering.
+            RecordingStore.Pending.VesselSnapshot = null;
 
             // First transition: initialize chain
             if (activeChainId == null)
@@ -820,6 +820,14 @@ namespace Parsek
                 double chainEndUT = isMidChain ? RecordingStore.GetChainEndUT(rec) : rec.EndUT;
                 bool pastChainEnd = currentUT > chainEndUT;
                 bool needsSpawn = rec.VesselSnapshot != null && !rec.VesselSpawned && !rec.VesselDestroyed && !rec.TakenControl;
+
+                // Suppress spawning for recordings belonging to a chain currently being built.
+                // Without this guard, CommitChainSegment commits the vessel segment mid-flight,
+                // and UpdateTimelinePlayback would spawn it immediately (on top of the real vessel).
+                if (needsSpawn && activeChainId != null && rec.ChainId == activeChainId)
+                {
+                    needsSpawn = false;
+                }
 
                 // One-time chain spawn diagnostics when entering the spawn window
                 if (pastChainEnd && !string.IsNullOrEmpty(rec.ChainId) && loggedGhostEnter.Add(i + 100000))
