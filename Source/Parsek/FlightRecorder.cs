@@ -33,10 +33,15 @@ namespace Parsek
         private HashSet<uint> openCargoBays = new HashSet<uint>();
         private HashSet<uint> deployedFairings = new HashSet<uint>();
 
-        // Engine state tracking (key = (ulong)pid << 8 | moduleIndex)
+        // Engine state tracking (key = EncodeEngineKey(pid, moduleIndex))
         private List<(Part part, ModuleEngines engine, int moduleIndex)> cachedEngines;
         private HashSet<ulong> activeEngineKeys;
         private Dictionary<ulong, float> lastThrottle;
+
+        // RCS state tracking (separate dicts from engines — keys can overlap for same part)
+        private List<(Part part, ModuleRCS rcs, int moduleIndex)> cachedRcsModules;
+        private HashSet<ulong> activeRcsKeys;
+        private Dictionary<ulong, float> lastRcsThrottle;
         internal bool partEventsSubscribed;
         public bool IsRecording { get; private set; }
         public uint RecordingVesselId { get; private set; }
@@ -678,6 +683,134 @@ namespace Parsek
             }
         }
 
+        internal static List<(Part part, ModuleRCS rcs, int moduleIndex)> CacheRcsModules(Vessel v)
+        {
+            var result = new List<(Part, ModuleRCS, int)>();
+            if (v == null || v.parts == null) return result;
+
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                int midx = 0;
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    var rcs = p.Modules[m] as ModuleRCS;
+                    if (rcs != null)
+                    {
+                        result.Add((p, rcs, midx));
+                        midx++;
+                    }
+                }
+            }
+            return result;
+        }
+
+        internal static float ComputeRcsPower(float[] thrustForces, float thrusterPower)
+        {
+            if (thrusterPower <= 0f || thrustForces == null || thrustForces.Length == 0)
+                return 0f;
+
+            float sum = 0f;
+            for (int i = 0; i < thrustForces.Length; i++)
+                sum += thrustForces[i];
+
+            float power = sum / (thrusterPower * thrustForces.Length);
+            if (power < 0f) power = 0f;
+            if (power > 1f) power = 1f;
+            return power;
+        }
+
+        internal static List<PartEvent> CheckRcsTransition(
+            ulong key, uint pid, int moduleIndex, string partName,
+            bool active, float power,
+            HashSet<ulong> activeSet, Dictionary<ulong, float> lastThrottleMap, double ut)
+        {
+            var events = new List<PartEvent>();
+            bool wasActive = activeSet.Contains(key);
+
+            if (active && !wasActive)
+            {
+                activeSet.Add(key);
+                events.Add(new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = pid,
+                    eventType = PartEventType.RCSActivated,
+                    partName = partName,
+                    value = power,
+                    moduleIndex = moduleIndex
+                });
+                lastThrottleMap[key] = power;
+            }
+            else if (!active && wasActive)
+            {
+                activeSet.Remove(key);
+                lastThrottleMap.Remove(key);
+                events.Add(new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = pid,
+                    eventType = PartEventType.RCSStopped,
+                    partName = partName,
+                    moduleIndex = moduleIndex
+                });
+            }
+            else if (active && wasActive)
+            {
+                float lastP;
+                if (!lastThrottleMap.TryGetValue(key, out lastP))
+                    lastP = 0f;
+
+                float delta = power - lastP;
+                if (delta > 0.01f || delta < -0.01f)
+                {
+                    lastThrottleMap[key] = power;
+                    events.Add(new PartEvent
+                    {
+                        ut = ut,
+                        partPersistentId = pid,
+                        eventType = PartEventType.RCSThrottle,
+                        partName = partName,
+                        value = power,
+                        moduleIndex = moduleIndex
+                    });
+                }
+            }
+
+            return events;
+        }
+
+        private void CheckRcsState(Vessel v)
+        {
+            if (cachedRcsModules == null) return;
+
+            double ut = Planetarium.GetUniversalTime();
+            for (int i = 0; i < cachedRcsModules.Count; i++)
+            {
+                var (part, rcs, moduleIndex) = cachedRcsModules[i];
+                if (part == null || rcs == null) continue;
+
+                ulong key = EncodeEngineKey(part.persistentId, moduleIndex);
+                bool active = rcs.rcs_active && rcs.rcsEnabled;
+                float power = active ? ComputeRcsPower(rcs.thrustForces, rcs.thrusterPower) : 0f;
+
+                var events = CheckRcsTransition(
+                    key, part.persistentId, moduleIndex,
+                    part.partInfo?.name ?? "unknown",
+                    active, power,
+                    activeRcsKeys, lastRcsThrottle, ut);
+
+                for (int e = 0; e < events.Count; e++)
+                {
+                    PartEvents.Add(events[e]);
+                    ParsekLog.Log($"Part event: {events[e].eventType} '{events[e].partName}' " +
+                        $"pid={events[e].partPersistentId} midx={events[e].moduleIndex} val={events[e].value:F2}");
+                }
+            }
+        }
+
         #endregion
 
         public void StartRecording()
@@ -709,6 +842,9 @@ namespace Parsek
             cachedEngines = CacheEngineModules(v);
             activeEngineKeys = new HashSet<ulong>();
             lastThrottle = new Dictionary<ulong, float>();
+            cachedRcsModules = CacheRcsModules(v);
+            activeRcsKeys = new HashSet<ulong>();
+            lastRcsThrottle = new Dictionary<ulong, float>();
 
             // Seed already-deployed fairings so we don't emit false events at first poll
             if (v != null && v.parts != null)
@@ -904,10 +1040,11 @@ namespace Parsek
                 return;
             }
 
-            // Poll parachute, jettison, engine, and deployable state every physics frame (before adaptive sampling skip)
+            // Poll parachute, jettison, engine, RCS, and deployable state every physics frame (before adaptive sampling skip)
             CheckParachuteState(v);
             CheckJettisonState(v);
             CheckEngineState(v);
+            CheckRcsState(v);
             CheckDeployableState(v);
             CheckLightState(v);
             CheckGearState(v);

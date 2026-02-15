@@ -1025,6 +1025,252 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region RCS state tracking
+
+        [Fact]
+        public void RcsTransition_Activation_EmitsRCSActivatedEvent()
+        {
+            var active = new HashSet<ulong>();
+            var throttles = new Dictionary<ulong, float>();
+            ulong key = FlightRecorder.EncodeEngineKey(100, 0);
+            var events = FlightRecorder.CheckRcsTransition(
+                key, 100, 0, "RCSBlock", true, 0.6f, active, throttles, 200.0);
+
+            Assert.Single(events);
+            Assert.Equal(PartEventType.RCSActivated, events[0].eventType);
+            Assert.Equal(100u, events[0].partPersistentId);
+            Assert.Equal(0, events[0].moduleIndex);
+            Assert.Equal(0.6f, events[0].value, 0.001f);
+            Assert.Equal(200.0, events[0].ut);
+            Assert.Contains(key, active);
+        }
+
+        [Fact]
+        public void RcsTransition_Deactivation_EmitsRCSStoppedEvent()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(100, 0);
+            var active = new HashSet<ulong> { key };
+            var throttles = new Dictionary<ulong, float> { { key, 0.5f } };
+            var events = FlightRecorder.CheckRcsTransition(
+                key, 100, 0, "RCSBlock", false, 0f, active, throttles, 210.0);
+
+            Assert.Single(events);
+            Assert.Equal(PartEventType.RCSStopped, events[0].eventType);
+            Assert.Equal(100u, events[0].partPersistentId);
+            Assert.DoesNotContain(key, active);
+            Assert.False(throttles.ContainsKey(key));
+        }
+
+        [Fact]
+        public void RcsTransition_PowerChange_EmitsRCSThrottleEvent()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(100, 0);
+            var active = new HashSet<ulong> { key };
+            var throttles = new Dictionary<ulong, float> { { key, 0.3f } };
+            var events = FlightRecorder.CheckRcsTransition(
+                key, 100, 0, "RCSBlock", true, 0.8f, active, throttles, 215.0);
+
+            Assert.Single(events);
+            Assert.Equal(PartEventType.RCSThrottle, events[0].eventType);
+            Assert.Equal(0.8f, events[0].value, 0.001f);
+            Assert.Equal(0.8f, throttles[key], 0.001f);
+        }
+
+        [Fact]
+        public void RcsTransition_SmallPowerChange_NoEvent()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(100, 0);
+            var active = new HashSet<ulong> { key };
+            var throttles = new Dictionary<ulong, float> { { key, 0.5f } };
+            var events = FlightRecorder.CheckRcsTransition(
+                key, 100, 0, "RCSBlock", true, 0.505f, active, throttles, 215.0);
+
+            Assert.Empty(events);
+        }
+
+        [Fact]
+        public void RcsTransition_NotActive_NoChange_NoEvent()
+        {
+            var active = new HashSet<ulong>();
+            var throttles = new Dictionary<ulong, float>();
+            ulong key = FlightRecorder.EncodeEngineKey(100, 0);
+            var events = FlightRecorder.CheckRcsTransition(
+                key, 100, 0, "RCSBlock", false, 0f, active, throttles, 200.0);
+
+            Assert.Empty(events);
+        }
+
+        [Fact]
+        public void RcsTransition_MultiModule_DifferentModuleIndex()
+        {
+            var active = new HashSet<ulong>();
+            var throttles = new Dictionary<ulong, float>();
+
+            ulong key0 = FlightRecorder.EncodeEngineKey(200, 0);
+            var events0 = FlightRecorder.CheckRcsTransition(
+                key0, 200, 0, "RCSBlock", true, 0.7f, active, throttles, 300.0);
+
+            ulong key1 = FlightRecorder.EncodeEngineKey(200, 1);
+            var events1 = FlightRecorder.CheckRcsTransition(
+                key1, 200, 1, "RCSBlock", true, 0.3f, active, throttles, 300.0);
+
+            Assert.Single(events0);
+            Assert.Equal(0, events0[0].moduleIndex);
+            Assert.Single(events1);
+            Assert.Equal(1, events1[0].moduleIndex);
+            Assert.Contains(key0, active);
+            Assert.Contains(key1, active);
+        }
+
+        [Fact]
+        public void ComputeRcsPower_NormalCase()
+        {
+            // 4 thrusters, thrusterPower=1.0, forces = [0.5, 0.5, 0.5, 0.5]
+            // sum=2.0, normalized = 2.0 / (1.0 * 4) = 0.5
+            float power = FlightRecorder.ComputeRcsPower(
+                new float[] { 0.5f, 0.5f, 0.5f, 0.5f }, 1.0f);
+            Assert.Equal(0.5f, power, 0.001f);
+        }
+
+        [Fact]
+        public void ComputeRcsPower_ZeroThrusterPower_ReturnsZero()
+        {
+            float power = FlightRecorder.ComputeRcsPower(
+                new float[] { 0.5f, 0.5f }, 0f);
+            Assert.Equal(0f, power);
+        }
+
+        [Fact]
+        public void ComputeRcsPower_EmptyForces_ReturnsZero()
+        {
+            float power = FlightRecorder.ComputeRcsPower(
+                new float[0], 1.0f);
+            Assert.Equal(0f, power);
+        }
+
+        [Fact]
+        public void ComputeRcsPower_NullForces_ReturnsZero()
+        {
+            float power = FlightRecorder.ComputeRcsPower(null, 1.0f);
+            Assert.Equal(0f, power);
+        }
+
+        [Fact]
+        public void ComputeRcsPower_ClampedToOne()
+        {
+            // Forces exceed thrusterPower — should clamp to 1.0
+            float power = FlightRecorder.ComputeRcsPower(
+                new float[] { 2.0f, 2.0f }, 1.0f);
+            Assert.Equal(1.0f, power, 0.001f);
+        }
+
+        [Fact]
+        public void ComputeRcsPower_PartialFiring()
+        {
+            // 4 thrusters, only 2 firing at full — sum=2.0, norm = 2.0 / (1.0 * 4) = 0.5
+            float power = FlightRecorder.ComputeRcsPower(
+                new float[] { 1.0f, 0f, 1.0f, 0f }, 1.0f);
+            Assert.Equal(0.5f, power, 0.001f);
+        }
+
+        #endregion
+
+        #region RCS event serialization
+
+        [Fact]
+        public void RCSActivated_SerializationRoundtrip()
+        {
+            var rec = new RecordingStore.Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 110, bodyName = "Kerbin" });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 105,
+                partPersistentId = 42,
+                eventType = PartEventType.RCSActivated,
+                partName = "RCSBlock",
+                value = 0.6f,
+                moduleIndex = 1
+            });
+
+            var node = new ConfigNode("TEST");
+            RecordingStore.SerializeTrajectoryInto(node, rec);
+
+            var loaded = new RecordingStore.Recording();
+            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+
+            Assert.Single(loaded.PartEvents);
+            Assert.Equal(PartEventType.RCSActivated, loaded.PartEvents[0].eventType);
+            Assert.Equal(0.6f, loaded.PartEvents[0].value, 0.001f);
+            Assert.Equal(1, loaded.PartEvents[0].moduleIndex);
+            Assert.Equal(42u, loaded.PartEvents[0].partPersistentId);
+            Assert.Equal("RCSBlock", loaded.PartEvents[0].partName);
+        }
+
+        [Fact]
+        public void RCSStopped_SerializationRoundtrip()
+        {
+            var rec = new RecordingStore.Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 110, bodyName = "Kerbin" });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 108,
+                partPersistentId = 42,
+                eventType = PartEventType.RCSStopped,
+                partName = "RCSBlock",
+                moduleIndex = 0
+            });
+
+            var node = new ConfigNode("TEST");
+            RecordingStore.SerializeTrajectoryInto(node, rec);
+
+            var loaded = new RecordingStore.Recording();
+            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+
+            Assert.Single(loaded.PartEvents);
+            Assert.Equal(PartEventType.RCSStopped, loaded.PartEvents[0].eventType);
+            Assert.Equal(42u, loaded.PartEvents[0].partPersistentId);
+        }
+
+        [Fact]
+        public void RCSThrottle_SerializationRoundtrip()
+        {
+            var rec = new RecordingStore.Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 120, bodyName = "Kerbin" });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 105,
+                partPersistentId = 99,
+                eventType = PartEventType.RCSThrottle,
+                partName = "RCSBlock",
+                value = 0.45f,
+                moduleIndex = 0
+            });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 110,
+                partPersistentId = 99,
+                eventType = PartEventType.RCSStopped,
+                partName = "RCSBlock",
+                moduleIndex = 0
+            });
+
+            var node = new ConfigNode("TEST");
+            RecordingStore.SerializeTrajectoryInto(node, rec);
+
+            var loaded = new RecordingStore.Recording();
+            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+
+            Assert.Equal(2, loaded.PartEvents.Count);
+            Assert.Equal(PartEventType.RCSThrottle, loaded.PartEvents[0].eventType);
+            Assert.Equal(0.45f, loaded.PartEvents[0].value, 0.01f);
+            Assert.Equal(PartEventType.RCSStopped, loaded.PartEvents[1].eventType);
+        }
+
+        #endregion
+
         #region Engine event serialization
 
         [Fact]

@@ -52,6 +52,15 @@ namespace Parsek
         public List<Light> lights;
     }
 
+    internal class RcsGhostInfo
+    {
+        public uint partPersistentId;
+        public int moduleIndex;
+        public List<ParticleSystem> particleSystems = new List<ParticleSystem>();
+        public FloatCurve emissionCurve;
+        public FloatCurve speedCurve;
+    }
+
     internal class FairingGhostInfo
     {
         public uint partPersistentId;
@@ -70,7 +79,8 @@ namespace Parsek
             out List<EngineGhostInfo> engineInfos,
             out List<DeployableGhostInfo> deployableInfos,
             out List<LightGhostInfo> lightInfos,
-            out List<FairingGhostInfo> fairingInfos)
+            out List<FairingGhostInfo> fairingInfos,
+            out List<RcsGhostInfo> rcsInfos)
         {
             parachuteInfos = null;
             jettisonInfos = null;
@@ -78,6 +88,7 @@ namespace Parsek
             deployableInfos = null;
             lightInfos = null;
             fairingInfos = null;
+            rcsInfos = null;
             ConfigNode snapshotNode = GetGhostSnapshot(rec);
             if (snapshotNode == null)
                 return null;
@@ -98,6 +109,7 @@ namespace Parsek
             var collectedDeployableInfos = new List<DeployableGhostInfo>();
             var collectedLightInfos = new List<LightGhostInfo>();
             var collectedFairingInfos = new List<FairingGhostInfo>();
+            var collectedRcsInfos = new List<RcsGhostInfo>();
 
             for (int i = 0; i < partNodes.Length; i++)
             {
@@ -134,9 +146,11 @@ namespace Parsek
                 DeployableGhostInfo deployableInfo;
                 LightGhostInfo lightInfo;
                 FairingGhostInfo fairingInfo;
+                List<RcsGhostInfo> partRcsInfos;
                 bool partVisualAdded = AddPartVisuals(root.transform, partNode, ap.partPrefab,
                     persistentId, partName, out meshCount, out parachuteInfo, out jettisonInfo,
-                    out partEngineInfos, out deployableInfo, out lightInfo, out fairingInfo);
+                    out partEngineInfos, out deployableInfo, out lightInfo, out fairingInfo,
+                    out partRcsInfos);
                 if (partVisualAdded)
                     visualCount++;
                 else
@@ -158,6 +172,8 @@ namespace Parsek
                     collectedLightInfos.Add(lightInfo);
                 if (fairingInfo != null)
                     collectedFairingInfos.Add(fairingInfo);
+                if (partRcsInfos != null)
+                    collectedRcsInfos.AddRange(partRcsInfos);
             }
 
             ParsekLog.Log($"Ghost built: {visualCount}/{partNodes.Length} parts with visuals" +
@@ -177,10 +193,26 @@ namespace Parsek
             deployableInfos = collectedDeployableInfos.Count > 0 ? collectedDeployableInfos : null;
             lightInfos = collectedLightInfos.Count > 0 ? collectedLightInfos : null;
             fairingInfos = collectedFairingInfos.Count > 0 ? collectedFairingInfos : null;
+            rcsInfos = collectedRcsInfos.Count > 0 ? collectedRcsInfos : null;
             return root;
         }
 
-        // Backward-compat overload without fairing infos
+        // Backward-compat overload without rcs infos
+        internal static GameObject BuildTimelineGhostFromSnapshot(
+            RecordingStore.Recording rec, string rootName,
+            out List<ParachuteGhostInfo> parachuteInfos,
+            out List<JettisonGhostInfo> jettisonInfos,
+            out List<EngineGhostInfo> engineInfos,
+            out List<DeployableGhostInfo> deployableInfos,
+            out List<LightGhostInfo> lightInfos,
+            out List<FairingGhostInfo> fairingInfos)
+        {
+            return BuildTimelineGhostFromSnapshot(rec, rootName,
+                out parachuteInfos, out jettisonInfos, out engineInfos, out deployableInfos,
+                out lightInfos, out fairingInfos, out _);
+        }
+
+        // Backward-compat overload without fairing/rcs infos
         internal static GameObject BuildTimelineGhostFromSnapshot(
             RecordingStore.Recording rec, string rootName,
             out List<ParachuteGhostInfo> parachuteInfos,
@@ -191,10 +223,10 @@ namespace Parsek
         {
             return BuildTimelineGhostFromSnapshot(rec, rootName,
                 out parachuteInfos, out jettisonInfos, out engineInfos, out deployableInfos,
-                out lightInfos, out _);
+                out lightInfos, out _, out _);
         }
 
-        // Backward-compat overload without light/fairing infos
+        // Backward-compat overload without light/fairing/rcs infos
         internal static GameObject BuildTimelineGhostFromSnapshot(
             RecordingStore.Recording rec, string rootName,
             out List<ParachuteGhostInfo> parachuteInfos,
@@ -203,10 +235,10 @@ namespace Parsek
             out List<DeployableGhostInfo> deployableInfos)
         {
             return BuildTimelineGhostFromSnapshot(rec, rootName,
-                out parachuteInfos, out jettisonInfos, out engineInfos, out deployableInfos, out _, out _);
+                out parachuteInfos, out jettisonInfos, out engineInfos, out deployableInfos, out _, out _, out _);
         }
 
-        // Backward-compat overload without deployable/light/fairing infos
+        // Backward-compat overload without deployable/light/fairing/rcs infos
         internal static GameObject BuildTimelineGhostFromSnapshot(
             RecordingStore.Recording rec, string rootName,
             out List<ParachuteGhostInfo> parachuteInfos,
@@ -214,13 +246,13 @@ namespace Parsek
             out List<EngineGhostInfo> engineInfos)
         {
             return BuildTimelineGhostFromSnapshot(rec, rootName,
-                out parachuteInfos, out jettisonInfos, out engineInfos, out _, out _, out _);
+                out parachuteInfos, out jettisonInfos, out engineInfos, out _, out _, out _, out _);
         }
 
         // Overload without info outputs for callers that don't need them (preview ghost)
         internal static GameObject BuildTimelineGhostFromSnapshot(RecordingStore.Recording rec, string rootName)
         {
-            return BuildTimelineGhostFromSnapshot(rec, rootName, out _, out _, out _, out _, out _, out _);
+            return BuildTimelineGhostFromSnapshot(rec, rootName, out _, out _, out _, out _, out _, out _, out _);
         }
 
         // Overload with parachute + jettison info (backward compat)
@@ -229,7 +261,7 @@ namespace Parsek
             out List<ParachuteGhostInfo> parachuteInfos,
             out List<JettisonGhostInfo> jettisonInfos)
         {
-            return BuildTimelineGhostFromSnapshot(rec, rootName, out parachuteInfos, out jettisonInfos, out _, out _, out _, out _);
+            return BuildTimelineGhostFromSnapshot(rec, rootName, out parachuteInfos, out jettisonInfos, out _, out _, out _, out _, out _);
         }
 
         // Overload with only parachute info for backward compat
@@ -237,7 +269,7 @@ namespace Parsek
             RecordingStore.Recording rec, string rootName,
             out List<ParachuteGhostInfo> parachuteInfos)
         {
-            return BuildTimelineGhostFromSnapshot(rec, rootName, out parachuteInfos, out _, out _, out _, out _, out _);
+            return BuildTimelineGhostFromSnapshot(rec, rootName, out parachuteInfos, out _, out _, out _, out _, out _, out _);
         }
 
         internal static ConfigNode GetGhostSnapshot(RecordingStore.Recording rec)
@@ -1225,6 +1257,172 @@ namespace Parsek
             return result.Count > 0 ? result : null;
         }
 
+        private static List<RcsGhostInfo> TryBuildRcsFX(
+            Part prefab, uint persistentId, string partName,
+            Transform modelRoot, Transform ghostModelNode,
+            Dictionary<Transform, Transform> cloneMap)
+        {
+            // Find all ModuleRCS on the part (catches both ModuleRCS and ModuleRCSFX)
+            int midx = 0;
+            var rcsModules = new List<(ModuleRCS rcs, int moduleIndex)>();
+            for (int m = 0; m < prefab.Modules.Count; m++)
+            {
+                var rcs = prefab.Modules[m] as ModuleRCS;
+                if (rcs != null)
+                {
+                    rcsModules.Add((rcs, midx));
+                    midx++;
+                }
+            }
+            if (rcsModules.Count == 0) return null;
+
+            var result = new List<RcsGhostInfo>();
+
+            for (int r = 0; r < rcsModules.Count; r++)
+            {
+                var (rcs, moduleIndex) = rcsModules[r];
+                var info = new RcsGhostInfo
+                {
+                    partPersistentId = persistentId,
+                    moduleIndex = moduleIndex
+                };
+
+                ConfigNode partConfig = prefab.partInfo?.partConfig;
+                if (partConfig == null)
+                {
+                    ParsekLog.Log($"    RCS '{partName}' midx={moduleIndex}: no partConfig — skipping FX");
+                    continue;
+                }
+
+                ConfigNode effectsNode = partConfig.GetNode("EFFECTS");
+                if (effectsNode == null)
+                {
+                    ParsekLog.Log($"    RCS '{partName}' midx={moduleIndex}: no EFFECTS node — skipping FX");
+                    continue;
+                }
+
+                // Determine the running effect name from the module.
+                // ModuleRCSFX exposes runningEffectName; base ModuleRCS defaults to "running".
+                string runningEffect = "running";
+                var rcsFX = rcs as ModuleRCSFX;
+                if (rcsFX != null && !string.IsNullOrEmpty(rcsFX.runningEffectName))
+                    runningEffect = rcsFX.runningEffectName;
+
+                // Only scan the effect group matching runningEffectName
+                // (prevents picking up engine FX on mixed engine+RCS parts)
+                ConfigNode effectGroup = effectsNode.GetNode(runningEffect);
+                if (effectGroup == null)
+                {
+                    ParsekLog.Log($"    RCS '{partName}' midx={moduleIndex}: no '{runningEffect}' effect group");
+                    continue;
+                }
+
+                var fxTransformNames = new List<string>();
+                var fxModelNames = new List<string>();
+                FloatCurve emissionCurve = null;
+                FloatCurve speedCurve = null;
+
+                ConfigNode[] mmpNodes = effectGroup.GetNodes("MODEL_MULTI_PARTICLE_PERSIST");
+                if (mmpNodes.Length == 0)
+                    mmpNodes = effectGroup.GetNodes("MODEL_MULTI_PARTICLE");
+
+                for (int mp = 0; mp < mmpNodes.Length; mp++)
+                {
+                    string transformName = mmpNodes[mp].GetValue("transformName");
+                    string modelName = mmpNodes[mp].GetValue("modelName");
+                    if (!string.IsNullOrEmpty(transformName))
+                    {
+                        fxTransformNames.Add(transformName);
+                        fxModelNames.Add(modelName ?? "");
+
+                        if (emissionCurve == null)
+                        {
+                            ConfigNode emNode = mmpNodes[mp].GetNode("emission");
+                            if (emNode != null)
+                            {
+                                emissionCurve = new FloatCurve();
+                                emissionCurve.Load(emNode);
+                            }
+                            ConfigNode spNode = mmpNodes[mp].GetNode("speed");
+                            if (spNode != null)
+                            {
+                                speedCurve = new FloatCurve();
+                                speedCurve.Load(spNode);
+                            }
+                        }
+                    }
+                }
+
+                if (fxTransformNames.Count == 0)
+                {
+                    ParsekLog.Log($"    RCS '{partName}' midx={moduleIndex}: no FX transforms in '{runningEffect}' group");
+                    continue;
+                }
+
+                info.emissionCurve = emissionCurve;
+                info.speedCurve = speedCurve;
+
+                for (int f = 0; f < fxTransformNames.Count; f++)
+                {
+                    string transformName = fxTransformNames[f];
+                    string modelName = fxModelNames[f];
+
+                    var fxTransforms = FindTransformsRecursive(prefab.transform, transformName);
+                    for (int t = 0; t < fxTransforms.Count; t++)
+                    {
+                        Transform srcFxTransform = fxTransforms[t];
+
+                        Transform ghostFxParent;
+                        bool isUnderModel = IsDescendantOf(srcFxTransform, modelRoot);
+                        if (isUnderModel)
+                        {
+                            ghostFxParent = MirrorTransformChain(srcFxTransform, modelRoot, ghostModelNode, cloneMap);
+                        }
+                        else
+                        {
+                            GameObject fxHolder = new GameObject(srcFxTransform.name);
+                            fxHolder.transform.SetParent(ghostModelNode, false);
+                            fxHolder.transform.localPosition = srcFxTransform.localPosition;
+                            fxHolder.transform.localRotation = srcFxTransform.localRotation;
+                            fxHolder.transform.localScale = srcFxTransform.localScale;
+                            ghostFxParent = fxHolder.transform;
+                        }
+
+                        if (!string.IsNullOrEmpty(modelName))
+                        {
+                            GameObject fxPrefab = GameDatabase.Instance.GetModelPrefab(modelName);
+                            if (fxPrefab != null)
+                            {
+                                GameObject fxInstance = Object.Instantiate(fxPrefab);
+                                fxInstance.transform.SetParent(ghostFxParent, false);
+                                fxInstance.transform.localPosition = Vector3.zero;
+                                fxInstance.transform.localRotation = Quaternion.identity;
+
+                                var ps = fxInstance.GetComponentInChildren<ParticleSystem>();
+                                if (ps != null)
+                                {
+                                    var emission = ps.emission;
+                                    emission.rateOverTimeMultiplier = 0;
+                                    info.particleSystems.Add(ps);
+                                    ParsekLog.Log($"    RCS FX cloned: '{partName}' midx={moduleIndex} " +
+                                        $"transform='{transformName}' model='{modelName}'");
+                                }
+                            }
+                            else
+                            {
+                                ParsekLog.Log($"    RCS FX model not found: '{modelName}' for '{partName}'");
+                            }
+                        }
+                    }
+                }
+
+                if (info.particleSystems.Count > 0)
+                    result.Add(info);
+            }
+
+            return result.Count > 0 ? result : null;
+        }
+
         private static List<Transform> FindTransformsRecursive(Transform parent, string name)
         {
             var results = new List<Transform>();
@@ -1428,7 +1626,8 @@ namespace Parsek
             uint persistentId, string partName, out int meshCount,
             out ParachuteGhostInfo parachuteInfo, out JettisonGhostInfo jettisonInfo,
             out List<EngineGhostInfo> engineInfos, out DeployableGhostInfo deployableInfo,
-            out LightGhostInfo lightInfo, out FairingGhostInfo fairingInfo)
+            out LightGhostInfo lightInfo, out FairingGhostInfo fairingInfo,
+            out List<RcsGhostInfo> rcsInfos)
         {
             meshCount = 0;
             parachuteInfo = null;
@@ -1437,6 +1636,7 @@ namespace Parsek
             deployableInfo = null;
             lightInfo = null;
             fairingInfo = null;
+            rcsInfos = null;
             Transform modelRoot = FindModelRoot(prefab);
 
             // Dump full hierarchy for engine parts to diagnose missing nozzle meshes.
@@ -1672,6 +1872,10 @@ namespace Parsek
 
             // Detect engine parts and clone FX particle systems
             engineInfos = TryBuildEngineFX(prefab, persistentId, partName, modelRoot,
+                modelNode.transform, cloneMap);
+
+            // Detect RCS parts and clone FX particle systems
+            rcsInfos = TryBuildRcsFX(prefab, persistentId, partName, modelRoot,
                 modelNode.transform, cloneMap);
 
             // Detect deployable parts (solar panels, antennas, radiators) and pre-resolve transform states

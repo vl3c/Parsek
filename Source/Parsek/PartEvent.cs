@@ -19,7 +19,10 @@ namespace Parsek
         GearRetracted,        // 14 — landing gear / leg fully retracted
         CargoBayOpened,       // 15 — cargo bay / service bay doors opened
         CargoBayClosed,       // 16 — cargo bay / service bay doors closed
-        FairingJettisoned     // 17 — procedural fairing deployed/jettisoned
+        FairingJettisoned,    // 17 — procedural fairing deployed/jettisoned
+        RCSActivated,         // 18 — RCS module started firing (value = normalized power 0-1)
+        RCSStopped,           // 19 — RCS module stopped firing
+        RCSThrottle           // 20 — RCS aggregate power changed while firing
     }
 
     public struct PartEvent

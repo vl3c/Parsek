@@ -47,6 +47,7 @@ namespace Parsek
             public Dictionary<uint, ParachuteGhostInfo> parachuteInfos;
             public Dictionary<uint, JettisonGhostInfo> jettisonInfos;
             public Dictionary<ulong, EngineGhostInfo> engineInfos; // key = EncodeEngineKey(pid, moduleIndex)
+            public Dictionary<ulong, RcsGhostInfo> rcsInfos;   // separate from engineInfos — keys can overlap for same part
             public Dictionary<uint, DeployableGhostInfo> deployableInfos;
             public Dictionary<uint, LightGhostInfo> lightInfos;
             public Dictionary<uint, FairingGhostInfo> fairingInfos;
@@ -1176,9 +1177,11 @@ namespace Parsek
             List<DeployableGhostInfo> deployableInfoList;
             List<LightGhostInfo> lightInfoList;
             List<FairingGhostInfo> fairingInfoList;
+            List<RcsGhostInfo> rcsInfoList;
             GameObject ghost = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
                 rec, $"Parsek_Timeline_{index}", out parachuteInfoList, out jettisonInfoList,
-                out engineInfoList, out deployableInfoList, out lightInfoList, out fairingInfoList);
+                out engineInfoList, out deployableInfoList, out lightInfoList, out fairingInfoList,
+                out rcsInfoList);
             bool builtFromSnapshot = ghost != null;
             if (ghost == null)
             {
@@ -1257,6 +1260,17 @@ namespace Parsek
                     state.fairingInfos[fairingInfoList[i].partPersistentId] = fairingInfoList[i];
             }
 
+            if (rcsInfoList != null)
+            {
+                state.rcsInfos = new Dictionary<ulong, RcsGhostInfo>();
+                for (int i = 0; i < rcsInfoList.Count; i++)
+                {
+                    ulong key = FlightRecorder.EncodeEngineKey(
+                        rcsInfoList[i].partPersistentId, rcsInfoList[i].moduleIndex);
+                    state.rcsInfos[key] = rcsInfoList[i];
+                }
+            }
+
             ghostStates[index] = state;
         }
 
@@ -1280,6 +1294,14 @@ namespace Parsek
             if (state.engineInfos != null)
             {
                 foreach (var info in state.engineInfos.Values)
+                    for (int i = 0; i < info.particleSystems.Count; i++)
+                        if (info.particleSystems[i] != null)
+                            Destroy(info.particleSystems[i].gameObject);
+            }
+
+            if (state.rcsInfos != null)
+            {
+                foreach (var info in state.rcsInfos.Values)
                     for (int i = 0; i < info.particleSystems.Count; i++)
                         if (info.particleSystems[i] != null)
                             Destroy(info.particleSystems[i].gameObject);
@@ -1458,6 +1480,17 @@ namespace Parsek
                             }
                         }
                         break;
+                    case PartEventType.RCSActivated:
+                        SetRcsEmission(state, evt, evt.value);
+                        Log($"Part event applied: RCSActivated '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} power={evt.value:F2}");
+                        break;
+                    case PartEventType.RCSStopped:
+                        SetRcsEmission(state, evt, 0f);
+                        Log($"Part event applied: RCSStopped '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex}");
+                        break;
+                    case PartEventType.RCSThrottle:
+                        SetRcsEmission(state, evt, evt.value);
+                        break;
                 }
                 evtIdx++;
             }
@@ -1514,6 +1547,39 @@ namespace Parsek
             ulong key = FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex);
             EngineGhostInfo info;
             if (!state.engineInfos.TryGetValue(key, out info)) return;
+
+            for (int i = 0; i < info.particleSystems.Count; i++)
+            {
+                var ps = info.particleSystems[i];
+                if (ps == null) continue;
+
+                var emission = ps.emission;
+                if (power > 0f)
+                {
+                    float emRate = info.emissionCurve != null ? info.emissionCurve.Evaluate(power) : power * 100f;
+                    emission.rateOverTimeMultiplier = emRate;
+
+                    var main = ps.main;
+                    float spd = info.speedCurve != null ? info.speedCurve.Evaluate(power) : power * 10f;
+                    main.startSpeedMultiplier = spd;
+
+                    if (!ps.isPlaying) ps.Play();
+                }
+                else
+                {
+                    emission.rateOverTimeMultiplier = 0;
+                    ps.Stop();
+                }
+            }
+        }
+
+        static void SetRcsEmission(GhostPlaybackState state, PartEvent evt, float power)
+        {
+            if (state.rcsInfos == null) return;
+
+            ulong key = FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex);
+            RcsGhostInfo info;
+            if (!state.rcsInfos.TryGetValue(key, out info)) return;
 
             for (int i = 0; i < info.particleSystems.Count; i++)
             {
