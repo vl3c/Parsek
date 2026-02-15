@@ -18,7 +18,8 @@ namespace Parsek
         GearDeployed,         // 13 — landing gear / leg fully deployed
         GearRetracted,        // 14 — landing gear / leg fully retracted
         CargoBayOpened,       // 15 — cargo bay / service bay doors opened
-        CargoBayClosed        // 16 — cargo bay / service bay doors closed
+        CargoBayClosed,       // 16 — cargo bay / service bay doors closed
+        FairingJettisoned     // 17 — procedural fairing deployed/jettisoned
     }
 
     public struct PartEvent

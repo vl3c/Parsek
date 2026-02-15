@@ -52,6 +52,12 @@ namespace Parsek
         public List<Light> lights;
     }
 
+    internal class FairingGhostInfo
+    {
+        public uint partPersistentId;
+        public GameObject fairingMeshObject;
+    }
+
     internal static class GhostVisualBuilder
     {
         private static readonly Regex trailingNumericSuffixRegex =
@@ -63,13 +69,15 @@ namespace Parsek
             out List<JettisonGhostInfo> jettisonInfos,
             out List<EngineGhostInfo> engineInfos,
             out List<DeployableGhostInfo> deployableInfos,
-            out List<LightGhostInfo> lightInfos)
+            out List<LightGhostInfo> lightInfos,
+            out List<FairingGhostInfo> fairingInfos)
         {
             parachuteInfos = null;
             jettisonInfos = null;
             engineInfos = null;
             deployableInfos = null;
             lightInfos = null;
+            fairingInfos = null;
             ConfigNode snapshotNode = GetGhostSnapshot(rec);
             if (snapshotNode == null)
                 return null;
@@ -89,6 +97,7 @@ namespace Parsek
             var collectedEngineInfos = new List<EngineGhostInfo>();
             var collectedDeployableInfos = new List<DeployableGhostInfo>();
             var collectedLightInfos = new List<LightGhostInfo>();
+            var collectedFairingInfos = new List<FairingGhostInfo>();
 
             for (int i = 0; i < partNodes.Length; i++)
             {
@@ -124,9 +133,10 @@ namespace Parsek
                 List<EngineGhostInfo> partEngineInfos;
                 DeployableGhostInfo deployableInfo;
                 LightGhostInfo lightInfo;
+                FairingGhostInfo fairingInfo;
                 bool partVisualAdded = AddPartVisuals(root.transform, partNode, ap.partPrefab,
                     persistentId, partName, out meshCount, out parachuteInfo, out jettisonInfo,
-                    out partEngineInfos, out deployableInfo, out lightInfo);
+                    out partEngineInfos, out deployableInfo, out lightInfo, out fairingInfo);
                 if (partVisualAdded)
                     visualCount++;
                 else
@@ -146,6 +156,8 @@ namespace Parsek
                     collectedDeployableInfos.Add(deployableInfo);
                 if (lightInfo != null)
                     collectedLightInfos.Add(lightInfo);
+                if (fairingInfo != null)
+                    collectedFairingInfos.Add(fairingInfo);
             }
 
             ParsekLog.Log($"Ghost built: {visualCount}/{partNodes.Length} parts with visuals" +
@@ -164,10 +176,25 @@ namespace Parsek
             engineInfos = collectedEngineInfos.Count > 0 ? collectedEngineInfos : null;
             deployableInfos = collectedDeployableInfos.Count > 0 ? collectedDeployableInfos : null;
             lightInfos = collectedLightInfos.Count > 0 ? collectedLightInfos : null;
+            fairingInfos = collectedFairingInfos.Count > 0 ? collectedFairingInfos : null;
             return root;
         }
 
-        // Backward-compat overload without light infos
+        // Backward-compat overload without fairing infos
+        internal static GameObject BuildTimelineGhostFromSnapshot(
+            RecordingStore.Recording rec, string rootName,
+            out List<ParachuteGhostInfo> parachuteInfos,
+            out List<JettisonGhostInfo> jettisonInfos,
+            out List<EngineGhostInfo> engineInfos,
+            out List<DeployableGhostInfo> deployableInfos,
+            out List<LightGhostInfo> lightInfos)
+        {
+            return BuildTimelineGhostFromSnapshot(rec, rootName,
+                out parachuteInfos, out jettisonInfos, out engineInfos, out deployableInfos,
+                out lightInfos, out _);
+        }
+
+        // Backward-compat overload without light/fairing infos
         internal static GameObject BuildTimelineGhostFromSnapshot(
             RecordingStore.Recording rec, string rootName,
             out List<ParachuteGhostInfo> parachuteInfos,
@@ -176,10 +203,10 @@ namespace Parsek
             out List<DeployableGhostInfo> deployableInfos)
         {
             return BuildTimelineGhostFromSnapshot(rec, rootName,
-                out parachuteInfos, out jettisonInfos, out engineInfos, out deployableInfos, out _);
+                out parachuteInfos, out jettisonInfos, out engineInfos, out deployableInfos, out _, out _);
         }
 
-        // Backward-compat overload without deployable/light infos
+        // Backward-compat overload without deployable/light/fairing infos
         internal static GameObject BuildTimelineGhostFromSnapshot(
             RecordingStore.Recording rec, string rootName,
             out List<ParachuteGhostInfo> parachuteInfos,
@@ -187,13 +214,13 @@ namespace Parsek
             out List<EngineGhostInfo> engineInfos)
         {
             return BuildTimelineGhostFromSnapshot(rec, rootName,
-                out parachuteInfos, out jettisonInfos, out engineInfos, out _, out _);
+                out parachuteInfos, out jettisonInfos, out engineInfos, out _, out _, out _);
         }
 
         // Overload without info outputs for callers that don't need them (preview ghost)
         internal static GameObject BuildTimelineGhostFromSnapshot(RecordingStore.Recording rec, string rootName)
         {
-            return BuildTimelineGhostFromSnapshot(rec, rootName, out _, out _, out _);
+            return BuildTimelineGhostFromSnapshot(rec, rootName, out _, out _, out _, out _, out _, out _);
         }
 
         // Overload with parachute + jettison info (backward compat)
@@ -202,7 +229,7 @@ namespace Parsek
             out List<ParachuteGhostInfo> parachuteInfos,
             out List<JettisonGhostInfo> jettisonInfos)
         {
-            return BuildTimelineGhostFromSnapshot(rec, rootName, out parachuteInfos, out jettisonInfos, out _);
+            return BuildTimelineGhostFromSnapshot(rec, rootName, out parachuteInfos, out jettisonInfos, out _, out _, out _, out _);
         }
 
         // Overload with only parachute info for backward compat
@@ -210,7 +237,7 @@ namespace Parsek
             RecordingStore.Recording rec, string rootName,
             out List<ParachuteGhostInfo> parachuteInfos)
         {
-            return BuildTimelineGhostFromSnapshot(rec, rootName, out parachuteInfos, out _, out _);
+            return BuildTimelineGhostFromSnapshot(rec, rootName, out parachuteInfos, out _, out _, out _, out _, out _);
         }
 
         internal static ConfigNode GetGhostSnapshot(RecordingStore.Recording rec)
@@ -1223,11 +1250,185 @@ namespace Parsek
             return false;
         }
 
+        private static ConfigNode FindModuleNode(ConfigNode partNode, string moduleName)
+        {
+            var modules = partNode.GetNodes("MODULE");
+            if (modules == null) return null;
+            for (int i = 0; i < modules.Length; i++)
+            {
+                if (modules[i].GetValue("name") == moduleName)
+                    return modules[i];
+            }
+            return null;
+        }
+
+        internal static Mesh GenerateFairingConeMesh(
+            List<(float h, float r)> sections, int nSides, Vector3 pivot, Vector3 axis)
+        {
+            // Sort sections by height
+            sections.Sort((a, b) => a.h.CompareTo(b.h));
+
+            nSides = Mathf.Min(nSides, 24);
+            if (nSides < 3) nSides = 3;
+
+            Quaternion axisRot = Quaternion.FromToRotation(Vector3.up, axis.normalized);
+
+            // Build vertices and UVs: (nSides+1) verts per ring (duplicated seam), plus apex if last r ≈ 0
+            int ringCount = sections.Count;
+            bool hasApex = sections[ringCount - 1].r < 0.01f;
+            int ringsToGenerate = hasApex ? ringCount - 1 : ringCount;
+
+            var vertices = new List<Vector3>();
+            var uvs = new List<Vector2>();
+
+            for (int ring = 0; ring < ringsToGenerate; ring++)
+            {
+                float h = sections[ring].h;
+                float r = sections[ring].r;
+                float vCoord = ringCount > 1 ? (float)ring / (ringCount - 1) : 0f;
+
+                for (int s = 0; s <= nSides; s++)
+                {
+                    float angle = (float)s / nSides * Mathf.PI * 2f;
+                    float x = Mathf.Cos(angle) * r;
+                    float z = Mathf.Sin(angle) * r;
+
+                    Vector3 localPos = new Vector3(x, h, z);
+                    Vector3 rotatedPos = axisRot * localPos + pivot;
+                    vertices.Add(rotatedPos);
+
+                    float uCoord = (float)s / nSides;
+                    uvs.Add(new Vector2(uCoord, vCoord));
+                }
+            }
+
+            // Apex vertex
+            int apexIndex = -1;
+            if (hasApex)
+            {
+                float apexH = sections[ringCount - 1].h;
+                Vector3 apexLocal = new Vector3(0f, apexH, 0f);
+                Vector3 apexPos = axisRot * apexLocal + pivot;
+                apexIndex = vertices.Count;
+                vertices.Add(apexPos);
+                uvs.Add(new Vector2(0.5f, 1f));
+            }
+
+            // Build triangles
+            var triangles = new List<int>();
+            int vertsPerRing = nSides + 1;
+
+            // Connect adjacent rings with triangle strips (CW winding for outward-facing normals)
+            for (int ring = 0; ring < ringsToGenerate - 1; ring++)
+            {
+                int ringBase = ring * vertsPerRing;
+                int nextBase = (ring + 1) * vertsPerRing;
+
+                for (int s = 0; s < nSides; s++)
+                {
+                    int bl = ringBase + s;
+                    int br = ringBase + s + 1;
+                    int tl = nextBase + s;
+                    int tr = nextBase + s + 1;
+
+                    // CW winding (outward-facing normals from outside)
+                    triangles.Add(bl);
+                    triangles.Add(tl);
+                    triangles.Add(br);
+
+                    triangles.Add(br);
+                    triangles.Add(tl);
+                    triangles.Add(tr);
+                }
+            }
+
+            // Connect last ring to apex
+            if (hasApex && ringsToGenerate > 0)
+            {
+                int lastRingBase = (ringsToGenerate - 1) * vertsPerRing;
+                for (int s = 0; s < nSides; s++)
+                {
+                    int bl = lastRingBase + s;
+                    int br = lastRingBase + s + 1;
+
+                    triangles.Add(bl);
+                    triangles.Add(apexIndex);
+                    triangles.Add(br);
+                }
+            }
+
+            Mesh mesh = new Mesh();
+            mesh.SetVertices(vertices);
+            mesh.SetUVs(0, uvs);
+            mesh.SetTriangles(triangles, 0);
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
+        private static FairingGhostInfo BuildFairingVisual(
+            ConfigNode partNode, Part prefab, Transform modelNode,
+            uint persistentId, string partName)
+        {
+            ConfigNode fairingModule = FindModuleNode(partNode, "ModuleProceduralFairing");
+            if (fairingModule == null) return null;
+
+            // Skip mesh for already-deployed fairings
+            string fsmState = fairingModule.GetValue("fsm");
+            if (fsmState == "st_flight_deployed") return null;
+
+            var xNodes = fairingModule.GetNodes("XSECTION");
+            if (xNodes == null || xNodes.Length < 2)
+            {
+                if (xNodes != null && xNodes.Length > 0)
+                    ParsekLog.Log($"    Fairing '{partName}': only {xNodes.Length} XSECTION(s) — skipping cone mesh");
+                return null;
+            }
+
+            var sections = new List<(float h, float r)>();
+            var ic = CultureInfo.InvariantCulture;
+            for (int i = 0; i < xNodes.Length; i++)
+            {
+                float h, r;
+                if (float.TryParse(xNodes[i].GetValue("h"), NumberStyles.Float, ic, out h) &&
+                    float.TryParse(xNodes[i].GetValue("r"), NumberStyles.Float, ic, out r))
+                    sections.Add((h, r));
+            }
+            if (sections.Count < 2) return null;
+
+            // Read geometry params from prefab module
+            var fairingPrefab = prefab.FindModuleImplementing<ModuleProceduralFairing>();
+            int nSides = fairingPrefab != null ? Mathf.Min(fairingPrefab.nSides, 24) : 24;
+            Vector3 pivot = fairingPrefab != null ? fairingPrefab.pivot : Vector3.zero;
+            Vector3 axis = fairingPrefab != null ? fairingPrefab.axis : Vector3.up;
+
+            Mesh mesh = GenerateFairingConeMesh(sections, nSides, pivot, axis);
+
+            GameObject go = new GameObject("fairing_panels");
+            go.transform.SetParent(modelNode, false);
+            go.AddComponent<MeshFilter>().mesh = mesh;
+
+            var mr = go.AddComponent<MeshRenderer>();
+            mr.material = new Material(Shader.Find("KSP/Diffuse"))
+            {
+                color = new Color(0.85f, 0.85f, 0.85f)
+            };
+
+            ParsekLog.Log($"    Fairing detected: '{partName}' pid={persistentId}, " +
+                $"cone mesh generated ({sections.Count} sections, {nSides} sides)");
+
+            return new FairingGhostInfo
+            {
+                partPersistentId = persistentId,
+                fairingMeshObject = go
+            };
+        }
+
         private static bool AddPartVisuals(Transform root, ConfigNode partNode, Part prefab,
             uint persistentId, string partName, out int meshCount,
             out ParachuteGhostInfo parachuteInfo, out JettisonGhostInfo jettisonInfo,
             out List<EngineGhostInfo> engineInfos, out DeployableGhostInfo deployableInfo,
-            out LightGhostInfo lightInfo)
+            out LightGhostInfo lightInfo, out FairingGhostInfo fairingInfo)
         {
             meshCount = 0;
             parachuteInfo = null;
@@ -1235,6 +1436,7 @@ namespace Parsek
             engineInfos = null;
             deployableInfo = null;
             lightInfo = null;
+            fairingInfo = null;
             Transform modelRoot = FindModelRoot(prefab);
 
             // Dump full hierarchy for engine parts to diagnose missing nozzle meshes.
@@ -1680,6 +1882,11 @@ namespace Parsek
                     }
                 }
             }
+
+            // Detect procedural fairings and generate simplified cone mesh
+            fairingInfo = BuildFairingVisual(partNode, prefab, modelNode.transform, persistentId, partName);
+            if (fairingInfo != null)
+                added = true;
 
             if (!added)
             {

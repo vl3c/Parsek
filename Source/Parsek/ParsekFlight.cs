@@ -49,6 +49,7 @@ namespace Parsek
             public Dictionary<ulong, EngineGhostInfo> engineInfos; // key = EncodeEngineKey(pid, moduleIndex)
             public Dictionary<uint, DeployableGhostInfo> deployableInfos;
             public Dictionary<uint, LightGhostInfo> lightInfos;
+            public Dictionary<uint, FairingGhostInfo> fairingInfos;
             public Dictionary<uint, GameObject> fakeCanopies;
         }
 
@@ -1174,9 +1175,10 @@ namespace Parsek
             List<EngineGhostInfo> engineInfoList;
             List<DeployableGhostInfo> deployableInfoList;
             List<LightGhostInfo> lightInfoList;
+            List<FairingGhostInfo> fairingInfoList;
             GameObject ghost = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
                 rec, $"Parsek_Timeline_{index}", out parachuteInfoList, out jettisonInfoList,
-                out engineInfoList, out deployableInfoList, out lightInfoList);
+                out engineInfoList, out deployableInfoList, out lightInfoList, out fairingInfoList);
             bool builtFromSnapshot = ghost != null;
             if (ghost == null)
             {
@@ -1246,6 +1248,13 @@ namespace Parsek
                 state.lightInfos = new Dictionary<uint, LightGhostInfo>();
                 for (int i = 0; i < lightInfoList.Count; i++)
                     state.lightInfos[lightInfoList[i].partPersistentId] = lightInfoList[i];
+            }
+
+            if (fairingInfoList != null)
+            {
+                state.fairingInfos = new Dictionary<uint, FairingGhostInfo>();
+                for (int i = 0; i < fairingInfoList.Count; i++)
+                    state.fairingInfos[fairingInfoList[i].partPersistentId] = fairingInfoList[i];
             }
 
             ghostStates[index] = state;
@@ -1436,6 +1445,18 @@ namespace Parsek
                     case PartEventType.CargoBayClosed:
                         ApplyDeployableState(state, evt, deployed: false);
                         Log($"Part event applied: CargoBayClosed '{evt.partName}' pid={evt.partPersistentId}");
+                        break;
+                    case PartEventType.FairingJettisoned:
+                        if (state.fairingInfos != null)
+                        {
+                            FairingGhostInfo fInfo;
+                            if (state.fairingInfos.TryGetValue(evt.partPersistentId, out fInfo)
+                                && fInfo.fairingMeshObject != null)
+                            {
+                                fInfo.fairingMeshObject.SetActive(false);
+                                Log($"Part event applied: FairingJettisoned '{evt.partName}' pid={evt.partPersistentId}");
+                            }
+                        }
                         break;
                 }
                 evtIdx++;

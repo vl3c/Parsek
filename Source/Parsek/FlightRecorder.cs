@@ -31,6 +31,7 @@ namespace Parsek
         private HashSet<uint> lightsOn = new HashSet<uint>();
         private HashSet<uint> deployedGear = new HashSet<uint>();
         private HashSet<uint> openCargoBays = new HashSet<uint>();
+        private HashSet<uint> deployedFairings = new HashSet<uint>();
 
         // Engine state tracking (key = (ulong)pid << 8 | moduleIndex)
         private List<(Part part, ModuleEngines engine, int moduleIndex)> cachedEngines;
@@ -507,6 +508,58 @@ namespace Parsek
             }
         }
 
+        internal static PartEvent? CheckFairingTransition(
+            uint partPersistentId, string partName, bool isDeployed,
+            HashSet<uint> deployedSet, double ut)
+        {
+            if (isDeployed && deployedSet.Add(partPersistentId))
+            {
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.FairingJettisoned,
+                    partName = partName
+                };
+            }
+            return null;
+        }
+
+        private void CheckFairingState(Vessel v)
+        {
+            if (v == null || v.parts == null) return;
+
+            double ut = Planetarium.GetUniversalTime();
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                var fairing = p.FindModuleImplementing<ModuleProceduralFairing>();
+                if (fairing == null) continue;
+
+                bool isDeployed;
+                try
+                {
+                    float scalar = fairing.GetScalar;
+                    if (float.IsNaN(scalar) || float.IsInfinity(scalar)) continue;
+                    isDeployed = scalar >= 0.5f;
+                }
+                catch
+                {
+                    continue;
+                }
+
+                var evt = CheckFairingTransition(
+                    p.persistentId, p.partInfo?.name ?? "unknown", isDeployed, deployedFairings, ut);
+                if (evt.HasValue)
+                {
+                    PartEvents.Add(evt.Value);
+                    ParsekLog.Log($"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
+                }
+            }
+        }
+
         internal static List<(Part part, ModuleEngines engine, int moduleIndex)> CacheEngineModules(Vessel v)
         {
             var result = new List<(Part, ModuleEngines, int)>();
@@ -652,9 +705,28 @@ namespace Parsek
             lightsOn.Clear();
             deployedGear.Clear();
             openCargoBays.Clear();
+            deployedFairings.Clear();
             cachedEngines = CacheEngineModules(v);
             activeEngineKeys = new HashSet<ulong>();
             lastThrottle = new Dictionary<ulong, float>();
+
+            // Seed already-deployed fairings so we don't emit false events at first poll
+            if (v != null && v.parts != null)
+            {
+                for (int i = 0; i < v.parts.Count; i++)
+                {
+                    Part p = v.parts[i];
+                    if (p == null) continue;
+                    var fairing = p.FindModuleImplementing<ModuleProceduralFairing>();
+                    if (fairing == null) continue;
+                    try
+                    {
+                        if (fairing.GetScalar >= 0.5f)
+                            deployedFairings.Add(p.persistentId);
+                    }
+                    catch { }
+                }
+            }
 
             IsRecording = true;
             isOnRails = false;
@@ -840,6 +912,7 @@ namespace Parsek
             CheckLightState(v);
             CheckGearState(v);
             CheckCargoBayState(v);
+            CheckFairingState(v);
 
             // Krakensbane-corrected true velocity
             Vector3 currentVelocity = (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity());

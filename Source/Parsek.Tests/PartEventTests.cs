@@ -959,6 +959,72 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Fairing state tracking
+
+        [Fact]
+        public void FairingTransition_IntactToDeployed_EmitsJettisonedEvent()
+        {
+            var deployed = new HashSet<uint>();
+            var evt = FlightRecorder.CheckFairingTransition(
+                42, "fairingSize1", isDeployed: true, deployed, 100.0);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.FairingJettisoned, evt.Value.eventType);
+            Assert.Equal(42u, evt.Value.partPersistentId);
+            Assert.Equal(100.0, evt.Value.ut);
+            Assert.Equal("fairingSize1", evt.Value.partName);
+            Assert.Contains(42u, deployed);
+        }
+
+        [Fact]
+        public void FairingTransition_AlreadyDeployed_ReturnsNull()
+        {
+            var deployed = new HashSet<uint> { 42 };
+            var evt = FlightRecorder.CheckFairingTransition(
+                42, "fairingSize1", isDeployed: true, deployed, 100.0);
+
+            Assert.Null(evt);
+        }
+
+        [Fact]
+        public void FairingTransition_NotDeployed_ReturnsNull()
+        {
+            var deployed = new HashSet<uint>();
+            var evt = FlightRecorder.CheckFairingTransition(
+                42, "fairingSize1", isDeployed: false, deployed, 100.0);
+
+            Assert.Null(evt);
+        }
+
+        [Fact]
+        public void FairingJettisoned_SerializationRoundtrip()
+        {
+            var rec = new RecordingStore.Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 110, bodyName = "Kerbin" });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 105,
+                partPersistentId = 42,
+                eventType = PartEventType.FairingJettisoned,
+                partName = "fairingSize1"
+            });
+
+            var node = new ConfigNode("TEST");
+            RecordingStore.SerializeTrajectoryInto(node, rec);
+
+            var loaded = new RecordingStore.Recording();
+            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+
+            Assert.Single(loaded.PartEvents);
+            Assert.Equal(PartEventType.FairingJettisoned, loaded.PartEvents[0].eventType);
+            Assert.Equal(42u, loaded.PartEvents[0].partPersistentId);
+            Assert.Equal("fairingSize1", loaded.PartEvents[0].partName);
+            Assert.Equal(105.0, loaded.PartEvents[0].ut);
+        }
+
+        #endregion
+
         #region Engine event serialization
 
         [Fact]
