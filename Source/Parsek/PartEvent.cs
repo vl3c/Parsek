@@ -16,7 +16,9 @@ namespace Parsek
         LightOn,              // 11 — light turned on
         LightOff,             // 12 — light turned off
         GearDeployed,         // 13 — landing gear / leg fully deployed
-        GearRetracted         // 14 — landing gear / leg fully retracted
+        GearRetracted,        // 14 — landing gear / leg fully retracted
+        CargoBayOpened,       // 15 — cargo bay / service bay doors opened
+        CargoBayClosed        // 16 — cargo bay / service bay doors closed
     }
 
     public struct PartEvent

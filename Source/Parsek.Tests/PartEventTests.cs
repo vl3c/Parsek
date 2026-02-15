@@ -797,6 +797,168 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Cargo bay state tracking
+
+        [Fact]
+        public void ClassifyCargoBayState_ClosedPos0_AnimTime0_IsClosed()
+        {
+            FlightRecorder.ClassifyCargoBayState(0f, 0f, out bool isOpen, out bool isClosed);
+            Assert.True(isClosed);
+            Assert.False(isOpen);
+        }
+
+        [Fact]
+        public void ClassifyCargoBayState_ClosedPos0_AnimTime1_IsOpen()
+        {
+            FlightRecorder.ClassifyCargoBayState(1f, 0f, out bool isOpen, out bool isClosed);
+            Assert.True(isOpen);
+            Assert.False(isClosed);
+        }
+
+        [Fact]
+        public void ClassifyCargoBayState_ClosedPos1_AnimTime0_IsOpen()
+        {
+            FlightRecorder.ClassifyCargoBayState(0f, 1f, out bool isOpen, out bool isClosed);
+            Assert.True(isOpen);
+            Assert.False(isClosed);
+        }
+
+        [Fact]
+        public void ClassifyCargoBayState_ClosedPos1_AnimTime1_IsClosed()
+        {
+            FlightRecorder.ClassifyCargoBayState(1f, 1f, out bool isOpen, out bool isClosed);
+            Assert.False(isOpen);
+            Assert.True(isClosed);
+        }
+
+        [Fact]
+        public void ClassifyCargoBayState_MidTransition_Neither()
+        {
+            FlightRecorder.ClassifyCargoBayState(0.5f, 0f, out bool isOpen, out bool isClosed);
+            Assert.False(isOpen);
+            Assert.False(isClosed);
+        }
+
+        [Fact]
+        public void ClassifyCargoBayState_DeployLimited_Neither()
+        {
+            FlightRecorder.ClassifyCargoBayState(0.3f, 0f, out bool isOpen, out bool isClosed);
+            Assert.False(isOpen);
+            Assert.False(isClosed);
+        }
+
+        [Fact]
+        public void ClassifyCargoBayState_NonStandardClosedPosition_Neither()
+        {
+            FlightRecorder.ClassifyCargoBayState(0f, 0.5f, out bool isOpen, out bool isClosed);
+            Assert.False(isOpen);
+            Assert.False(isClosed);
+        }
+
+        [Fact]
+        public void CargoBayTransition_ClosedToOpened_EmitsOpenedEvent()
+        {
+            var openSet = new HashSet<uint>();
+            var evt = FlightRecorder.CheckCargoBayTransition(
+                42, "cargoBayS", isOpen: true, openSet, 100.0);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.CargoBayOpened, evt.Value.eventType);
+            Assert.Equal(42u, evt.Value.partPersistentId);
+            Assert.Equal(100.0, evt.Value.ut);
+            Assert.Equal("cargoBayS", evt.Value.partName);
+            Assert.Contains(42u, openSet);
+        }
+
+        [Fact]
+        public void CargoBayTransition_OpenedToClosed_EmitsClosedEvent()
+        {
+            var openSet = new HashSet<uint> { 42 };
+            var evt = FlightRecorder.CheckCargoBayTransition(
+                42, "cargoBayS", isOpen: false, openSet, 120.0);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.CargoBayClosed, evt.Value.eventType);
+            Assert.Equal(42u, evt.Value.partPersistentId);
+            Assert.Equal(120.0, evt.Value.ut);
+            Assert.DoesNotContain(42u, openSet);
+        }
+
+        [Fact]
+        public void CargoBayTransition_NoChange_ReturnsNull()
+        {
+            var openSet = new HashSet<uint>();
+            var evt = FlightRecorder.CheckCargoBayTransition(
+                42, "cargoBayS", isOpen: false, openSet, 100.0);
+
+            Assert.Null(evt);
+        }
+
+        [Fact]
+        public void CargoBayTransition_AlreadyOpen_ReturnsNull()
+        {
+            var openSet = new HashSet<uint> { 42 };
+            var evt = FlightRecorder.CheckCargoBayTransition(
+                42, "cargoBayS", isOpen: true, openSet, 100.0);
+
+            Assert.Null(evt);
+        }
+
+        [Fact]
+        public void PartEvents_SerializationRoundtrip_CargoBayOpened()
+        {
+            var rec = new RecordingStore.Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 110, bodyName = "Kerbin" });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 105,
+                partPersistentId = 42,
+                eventType = PartEventType.CargoBayOpened,
+                partName = "cargoBayS"
+            });
+
+            var node = new ConfigNode("TEST");
+            RecordingStore.SerializeTrajectoryInto(node, rec);
+
+            var loaded = new RecordingStore.Recording();
+            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+
+            Assert.Single(loaded.PartEvents);
+            Assert.Equal(PartEventType.CargoBayOpened, loaded.PartEvents[0].eventType);
+            Assert.Equal(42u, loaded.PartEvents[0].partPersistentId);
+            Assert.Equal("cargoBayS", loaded.PartEvents[0].partName);
+            Assert.Equal(105.0, loaded.PartEvents[0].ut);
+        }
+
+        [Fact]
+        public void PartEvents_SerializationRoundtrip_CargoBayClosed()
+        {
+            var rec = new RecordingStore.Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 110, bodyName = "Kerbin" });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 105,
+                partPersistentId = 42,
+                eventType = PartEventType.CargoBayClosed,
+                partName = "ServiceBay_250_v2"
+            });
+
+            var node = new ConfigNode("TEST");
+            RecordingStore.SerializeTrajectoryInto(node, rec);
+
+            var loaded = new RecordingStore.Recording();
+            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+
+            Assert.Single(loaded.PartEvents);
+            Assert.Equal(PartEventType.CargoBayClosed, loaded.PartEvents[0].eventType);
+            Assert.Equal(42u, loaded.PartEvents[0].partPersistentId);
+            Assert.Equal("ServiceBay_250_v2", loaded.PartEvents[0].partName);
+        }
+
+        #endregion
+
         #region Engine event serialization
 
         [Fact]

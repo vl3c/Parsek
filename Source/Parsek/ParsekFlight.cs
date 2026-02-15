@@ -392,6 +392,7 @@ namespace Parsek
             GhostVisualBuilder.ClearDeployedCanopyCache();
             GhostVisualBuilder.ClearDeployableCache();
             GhostVisualBuilder.ClearGearCache();
+            GhostVisualBuilder.ClearCargoBayCache();
         }
 
         void OnVesselWillDestroy(Vessel v)
@@ -1427,6 +1428,14 @@ namespace Parsek
                     case PartEventType.GearRetracted:
                         ApplyDeployableState(state, evt, deployed: false);
                         Log($"Part event applied: GearRetracted '{evt.partName}' pid={evt.partPersistentId}");
+                        break;
+                    case PartEventType.CargoBayOpened:
+                        ApplyDeployableState(state, evt, deployed: true);
+                        Log($"Part event applied: CargoBayOpened '{evt.partName}' pid={evt.partPersistentId}");
+                        break;
+                    case PartEventType.CargoBayClosed:
+                        ApplyDeployableState(state, evt, deployed: false);
+                        Log($"Part event applied: CargoBayClosed '{evt.partName}' pid={evt.partPersistentId}");
                         break;
                 }
                 evtIdx++;

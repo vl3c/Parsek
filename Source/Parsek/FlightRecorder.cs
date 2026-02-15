@@ -30,6 +30,7 @@ namespace Parsek
         private HashSet<uint> extendedDeployables = new HashSet<uint>();
         private HashSet<uint> lightsOn = new HashSet<uint>();
         private HashSet<uint> deployedGear = new HashSet<uint>();
+        private HashSet<uint> openCargoBays = new HashSet<uint>();
 
         // Engine state tracking (key = (ulong)pid << 8 | moduleIndex)
         private List<(Part part, ModuleEngines engine, int moduleIndex)> cachedEngines;
@@ -413,6 +414,99 @@ namespace Parsek
             }
         }
 
+        internal static void ClassifyCargoBayState(
+            float animTime, float closedPosition, out bool isOpen, out bool isClosed)
+        {
+            bool atStart = animTime <= 0.01f;
+            bool atEnd = animTime >= 0.99f;
+
+            if (closedPosition > 0.9f)
+            {
+                // closedPosition near 1 → closed at animTime≈1, open at animTime≈0
+                isClosed = atEnd;
+                isOpen = atStart;
+            }
+            else if (closedPosition < 0.1f)
+            {
+                // closedPosition near 0 → closed at animTime≈0, open at animTime≈1
+                isClosed = atStart;
+                isOpen = atEnd;
+            }
+            else
+            {
+                // Non-standard closedPosition (modded part) — skip
+                isClosed = false;
+                isOpen = false;
+            }
+        }
+
+        internal static PartEvent? CheckCargoBayTransition(
+            uint partPersistentId, string partName, bool isOpen,
+            HashSet<uint> openSet, double ut)
+        {
+            bool wasOpen = openSet.Contains(partPersistentId);
+
+            if (isOpen && !wasOpen)
+            {
+                openSet.Add(partPersistentId);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.CargoBayOpened,
+                    partName = partName
+                };
+            }
+
+            if (!isOpen && wasOpen)
+            {
+                openSet.Remove(partPersistentId);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.CargoBayClosed,
+                    partName = partName
+                };
+            }
+
+            return null;
+        }
+
+        private void CheckCargoBayState(Vessel v)
+        {
+            if (v == null || v.parts == null) return;
+
+            double ut = Planetarium.GetUniversalTime();
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                var cargo = p.FindModuleImplementing<ModuleCargoBay>();
+                if (cargo == null) continue;
+
+                // Resolve the linked ModuleAnimateGeneric via DeployModuleIndex
+                int deployIdx = cargo.DeployModuleIndex;
+                if (deployIdx < 0 || deployIdx >= p.Modules.Count) continue;
+                var animModule = p.Modules[deployIdx] as ModuleAnimateGeneric;
+                if (animModule == null) continue;
+
+                ClassifyCargoBayState(animModule.animTime, cargo.closedPosition,
+                    out bool isOpen, out bool isClosed);
+
+                if (!isOpen && !isClosed) continue; // mid-transition or non-standard closedPosition
+
+                var evt = CheckCargoBayTransition(
+                    p.persistentId, p.partInfo?.name ?? "unknown", isOpen, openCargoBays, ut);
+                if (evt.HasValue)
+                {
+                    PartEvents.Add(evt.Value);
+                    ParsekLog.Log($"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
+                }
+            }
+        }
+
         internal static List<(Part part, ModuleEngines engine, int moduleIndex)> CacheEngineModules(Vessel v)
         {
             var result = new List<(Part, ModuleEngines, int)>();
@@ -557,6 +651,7 @@ namespace Parsek
             extendedDeployables.Clear();
             lightsOn.Clear();
             deployedGear.Clear();
+            openCargoBays.Clear();
             cachedEngines = CacheEngineModules(v);
             activeEngineKeys = new HashSet<ulong>();
             lastThrottle = new Dictionary<ulong, float>();
@@ -744,6 +839,7 @@ namespace Parsek
             CheckDeployableState(v);
             CheckLightState(v);
             CheckGearState(v);
+            CheckCargoBayState(v);
 
             // Krakensbane-corrected true velocity
             Vector3 currentVelocity = (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity());

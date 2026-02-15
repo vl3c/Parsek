@@ -543,6 +543,16 @@ namespace Parsek
             gearCache.Clear();
         }
 
+        // Cache: partName → list of cargo bay animation transform states — sample once per part type
+        private static readonly Dictionary<string, List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
+            Vector3 dPos, Quaternion dRot, Vector3 dScale)>> cargoBayCache =
+            new Dictionary<string, List<(string, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3)>>();
+
+        internal static void ClearCargoBayCache()
+        {
+            cargoBayCache.Clear();
+        }
+
         /// <summary>
         /// Sample stowed and deployed transform states from a landing gear's animation.
         /// Uses animationTrfName to resolve the correct Animation component (avoids binding spotlight
@@ -662,6 +672,144 @@ namespace Parsek
             }
 
             gearCache[key] = result;
+            return result;
+        }
+
+        /// <summary>
+        /// Sample closed and open transform states from a cargo bay's animation.
+        /// closedPosition determines which animation endpoint is "closed":
+        ///   near 0 → closed at time=0, open at time=1 (service bays)
+        ///   near 1 → closed at time=1, open at time=0 (Mk3/Mk2 cargo bays)
+        /// Returns stowed=closed, deployed=open (normalized for DeployableGhostInfo reuse).
+        /// Returns null if no animation or no transform deltas.
+        /// </summary>
+        private static List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
+            Vector3 dPos, Quaternion dRot, Vector3 dScale)> SampleCargoBayStates(
+            Part prefab, string animationName, float closedPosition)
+        {
+            string key = prefab.partInfo?.name ?? prefab.name;
+            if (cargoBayCache.TryGetValue(key, out var cached))
+                return cached;
+
+            if (string.IsNullOrEmpty(animationName))
+            {
+                ParsekLog.Log($"  CargoBay '{key}': no animationName — skipping animation sampling");
+                cargoBayCache[key] = null;
+                return null;
+            }
+
+            // Determine animation endpoints based on closedPosition
+            float closedTime, openTime;
+            if (closedPosition > 0.9f)
+            {
+                closedTime = 1f;
+                openTime = 0f;
+            }
+            else if (closedPosition < 0.1f)
+            {
+                closedTime = 0f;
+                openTime = 1f;
+            }
+            else
+            {
+                ParsekLog.Log($"  CargoBay '{key}': non-standard closedPosition={closedPosition} — skipping");
+                cargoBayCache[key] = null;
+                return null;
+            }
+
+            Transform modelRoot = FindModelRoot(prefab);
+            GameObject tempClone = Object.Instantiate(modelRoot.gameObject);
+
+            List<(string, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3)> result = null;
+
+            try
+            {
+                // Search all Animation components for one containing the specific animationName clip
+                Animation anim = null;
+                foreach (var candidate in tempClone.GetComponentsInChildren<Animation>(true))
+                {
+                    if (candidate[animationName] != null)
+                    {
+                        anim = candidate;
+                        break;
+                    }
+                }
+                // Fallback to any Animation on the clone
+                if (anim == null)
+                    anim = tempClone.GetComponentInChildren<Animation>(true);
+
+                if (anim == null)
+                {
+                    ParsekLog.Log($"  CargoBay '{key}': no Animation component on model clone");
+                    cargoBayCache[key] = null;
+                    return null;
+                }
+
+                AnimationState state = anim[animationName];
+                if (state == null)
+                {
+                    ParsekLog.Log($"  CargoBay '{key}': animation '{animationName}' not found on clone");
+                    cargoBayCache[key] = null;
+                    return null;
+                }
+
+                // Sample closed state (stowed)
+                state.enabled = true;
+                state.speed = 0f;
+                state.normalizedTime = closedTime;
+                state.weight = 1f;
+                anim.Play(animationName);
+                anim.Sample();
+
+                var allTransforms = tempClone.GetComponentsInChildren<Transform>(true);
+                var stowedStates = new Dictionary<string, (Vector3 pos, Quaternion rot, Vector3 scale)>();
+                for (int i = 0; i < allTransforms.Length; i++)
+                {
+                    string path = GetTransformPath(allTransforms[i], tempClone.transform);
+                    stowedStates[path] = (allTransforms[i].localPosition, allTransforms[i].localRotation, allTransforms[i].localScale);
+                }
+
+                // Sample open state (deployed)
+                state.normalizedTime = openTime;
+                anim.Sample();
+
+                result = new List<(string, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3)>();
+                for (int i = 0; i < allTransforms.Length; i++)
+                {
+                    string path = GetTransformPath(allTransforms[i], tempClone.transform);
+                    if (!stowedStates.TryGetValue(path, out var stowed))
+                        continue;
+
+                    Vector3 dPos = allTransforms[i].localPosition;
+                    Quaternion dRot = allTransforms[i].localRotation;
+                    Vector3 dScale = allTransforms[i].localScale;
+
+                    float posDelta = (dPos - stowed.pos).sqrMagnitude;
+                    float rotDelta = Quaternion.Angle(dRot, stowed.rot);
+                    float scaleDelta = (dScale - stowed.scale).sqrMagnitude;
+
+                    if (posDelta > 0.0001f || rotDelta > 0.01f || scaleDelta > 0.0001f)
+                    {
+                        result.Add((path, stowed.pos, stowed.rot, stowed.scale, dPos, dRot, dScale));
+                    }
+                }
+
+                if (result.Count == 0)
+                {
+                    ParsekLog.Log($"  CargoBay '{key}': animation '{animationName}' produced no transform deltas");
+                    result = null;
+                }
+                else
+                {
+                    ParsekLog.Log($"  CargoBay '{key}': sampled {result.Count} animated transforms from '{animationName}'");
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(tempClone);
+            }
+
+            cargoBayCache[key] = result;
             return result;
         }
 
@@ -1422,6 +1570,72 @@ namespace Parsek
             {
                 ParsekLog.Log($"    WARNING: '{partName}' pid={persistentId} has both " +
                     $"ModuleDeployablePart and ModuleWheels.ModuleWheelDeployment — gear visuals skipped");
+            }
+
+            // Detect cargo bays (ModuleCargoBay + linked ModuleAnimateGeneric) — reuses DeployableGhostInfo
+            if (deployableInfo == null)
+            {
+                ModuleCargoBay cargoBay = prefab.FindModuleImplementing<ModuleCargoBay>();
+                if (cargoBay != null)
+                {
+                    int deployIdx = cargoBay.DeployModuleIndex;
+                    ModuleAnimateGeneric animModule = (deployIdx >= 0 && deployIdx < prefab.Modules.Count)
+                        ? prefab.Modules[deployIdx] as ModuleAnimateGeneric
+                        : null;
+
+                    if (animModule != null && !string.IsNullOrEmpty(animModule.animationName))
+                    {
+                        var sampledStates = SampleCargoBayStates(
+                            prefab, animModule.animationName, cargoBay.closedPosition);
+                        if (sampledStates != null)
+                        {
+                            var resolvedTransforms = new List<DeployableTransformState>();
+                            for (int s = 0; s < sampledStates.Count; s++)
+                            {
+                                var (path, sPos, sRot, sScale, dPos, dRot, dScale) = sampledStates[s];
+                                Transform ghostT = FindTransformByPath(modelNode.transform, path);
+                                if (ghostT != null)
+                                {
+                                    resolvedTransforms.Add(new DeployableTransformState
+                                    {
+                                        t = ghostT,
+                                        stowedPos = sPos,
+                                        stowedRot = sRot,
+                                        stowedScale = sScale,
+                                        deployedPos = dPos,
+                                        deployedRot = dRot,
+                                        deployedScale = dScale
+                                    });
+                                }
+                            }
+
+                            if (resolvedTransforms.Count > 0)
+                            {
+                                deployableInfo = new DeployableGhostInfo
+                                {
+                                    partPersistentId = persistentId,
+                                    transforms = resolvedTransforms
+                                };
+
+                                // Snap ghost to closed (stowed) state at build time.
+                                // Mk3 cargo bays have closedPosition=1 so prefab default (animTime=0) is OPEN.
+                                // Without this snap, the ghost would show open doors until the first event.
+                                for (int i = 0; i < resolvedTransforms.Count; i++)
+                                {
+                                    var ts = resolvedTransforms[i];
+                                    if (ts.t == null) continue;
+                                    ts.t.localPosition = ts.stowedPos;
+                                    ts.t.localRotation = ts.stowedRot;
+                                    ts.t.localScale = ts.stowedScale;
+                                }
+
+                                ParsekLog.Log($"    CargoBay detected: '{partName}' pid={persistentId}, " +
+                                    $"{resolvedTransforms.Count}/{sampledStates.Count} transforms resolved" +
+                                    $" (closedPosition={cargoBay.closedPosition})");
+                            }
+                        }
+                    }
+                }
             }
 
             // Detect light parts and clone Light components for ghost playback
