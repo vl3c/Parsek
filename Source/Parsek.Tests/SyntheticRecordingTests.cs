@@ -24,6 +24,8 @@ namespace Parsek.Tests
         // Orbit-1:           +180s to +3180s (3000s vessel spawn)
         // Close Spawn:       +210s to +222s  (12s vessel spawn)
         // Island Probe:      +240s to +420s  (180s vessel spawn)
+        // EVA Board Chain:   +270s to +340s  (3-segment chain, 70s total)
+        // EVA Walk Chain:    +350s to +450s  (2-segment V→EVA chain, 100s total)
 
         // Approximate "upright on surface" rotation at KSC for UT ~17000.
         // From real recording data at UT=17285. Close enough for synthetic visuals
@@ -332,6 +334,163 @@ namespace Parsek.Tests
                     .AsLanded(endLat, endLon, 40));
 
             return b;
+        }
+
+        internal static RecordingBuilder[] EvaBoardChain(double baseUT = 0)
+        {
+            string chainId = "chain-eva-board-test";
+            double t = baseUT + 270;
+            double baseLat = -0.0972;
+            double baseLon = -74.5575;
+
+            // Segment 0: Vessel launch, 30s — FleaRocket with Jeb
+            var seg0 = new RecordingBuilder("Flea Chain")
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
+                .WithRecordingId("chain-seg0")
+                .WithChainId(chainId)
+                .WithChainIndex(0);
+
+            seg0.AddPoint(t,    baseLat, baseLon,          77);
+            seg0.AddPoint(t+5,  baseLat, baseLon + 0.0003, 150);
+            seg0.AddPoint(t+10, baseLat, baseLon + 0.0008, 280);
+            seg0.AddPoint(t+15, baseLat, baseLon + 0.0014, 350);
+            seg0.AddPoint(t+20, baseLat, baseLon + 0.0020, 300);
+            seg0.AddPoint(t+25, baseLat, baseLon + 0.0025, 200);
+            seg0.AddPoint(t+30, baseLat, baseLon + 0.0028, 100);
+
+            // Engine events: SRB ignition and burnout
+            seg0.AddPartEvent(t, 101111, 5, "solidBooster.sm.v2", value: 1f);
+            seg0.AddPartEvent(t + 15, 101111, 6, "solidBooster.sm.v2");
+            seg0.AddPartEvent(t + 15, 101111, 0, "solidBooster.sm.v2"); // Decouple
+
+            // Ghost-only (mid-chain — no VesselSnapshot)
+            seg0.WithGhostVisualSnapshot(
+                VesselSnapshotBuilder.FleaRocket("Flea Chain", "Jebediah Kerman", pid: 66666666)
+                    .AsLanded(baseLat, baseLon + 0.0028, 100));
+
+            // Segment 1: EVA walk, 20s — Jeb walks from vessel landing point
+            double evaLon = baseLon + 0.0028;
+            var seg1 = new RecordingBuilder("Jebediah Kerman")
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
+                .WithRecordingId("chain-seg1")
+                .WithChainId(chainId)
+                .WithChainIndex(1)
+                .WithParentRecordingId("chain-seg0")
+                .WithEvaCrewName("Jebediah Kerman");
+
+            seg1.AddPoint(t + 30, baseLat, evaLon,          100); // boundary anchor
+            seg1.AddPoint(t + 35, baseLat, evaLon + 0.0002, 95);
+            seg1.AddPoint(t + 40, baseLat, evaLon + 0.0004, 85);
+            seg1.AddPoint(t + 45, baseLat, evaLon + 0.0006, 77);
+            seg1.AddPoint(t + 50, baseLat, evaLon + 0.0008, 70);
+
+            // Ghost-only (EVA mid-chain)
+            seg1.WithGhostVisualSnapshot(
+                VesselSnapshotBuilder.CrewedShip("Jebediah Kerman", "Jebediah Kerman", pid: 77777777)
+                    .WithType("EVA")
+                    .AsLanded(baseLat, evaLon + 0.0008, 70));
+
+            // Segment 2: Vessel resume, 20s — back on FleaRocket
+            double resumeLon = evaLon + 0.0008;
+            var seg2 = new RecordingBuilder("Flea Chain")
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
+                .WithRecordingId("chain-seg2")
+                .WithChainId(chainId)
+                .WithChainIndex(2)
+                .WithParentRecordingId("chain-seg1");
+
+            seg2.AddPoint(t + 50, baseLat, resumeLon,          70);  // boundary anchor
+            seg2.AddPoint(t + 55, baseLat, resumeLon + 0.0003, 150);
+            seg2.AddPoint(t + 60, baseLat, resumeLon + 0.0008, 250);
+            seg2.AddPoint(t + 65, baseLat, resumeLon + 0.0012, 200);
+            seg2.AddPoint(t + 70, baseLat, resumeLon + 0.0015, 100);
+
+            // Final segment: has VesselSnapshot (spawns!)
+            seg2.WithVesselSnapshot(
+                VesselSnapshotBuilder.FleaRocket("Flea Chain", "Jebediah Kerman", pid: 66666666)
+                    .AsLanded(baseLat, resumeLon + 0.0015, 100));
+
+            return new[] { seg0, seg1, seg2 };
+        }
+
+        /// <summary>
+        /// 2-segment V→EVA chain based on real test flight: FleaRocket launches,
+        /// arcs ~1km east, lands, then Bill goes EVA and walks ~25m.
+        /// Ghost-only (no VesselSnapshot) — tests chain ghost playback and holding.
+        /// </summary>
+        internal static RecordingBuilder[] EvaWalkChain(double baseUT = 0)
+        {
+            string chainId = "chain-eva-walk-test";
+            double t = baseUT + 350;
+            double baseLat = -0.0972;
+            double baseLon = -74.5575;
+
+            // Segment 0: Vessel flight — FleaRocket launch, arc east, land ~1km away (75s)
+            var seg0 = new RecordingBuilder("Landing Craft")
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
+                .WithRecordingId("chain-walk-seg0")
+                .WithChainId(chainId)
+                .WithChainIndex(0);
+
+            // Launch phase — vertical then tilting east
+            seg0.AddPoint(t,      baseLat, baseLon,            77);
+            seg0.AddPoint(t + 3,  baseLat, baseLon + 0.0002,   120);
+            seg0.AddPoint(t + 6,  baseLat, baseLon + 0.0006,   200);
+            seg0.AddPoint(t + 9,  baseLat, baseLon + 0.0012,   300);
+            seg0.AddPoint(t + 12, baseLat, baseLon + 0.0020,   390);
+            seg0.AddPoint(t + 15, baseLat, baseLon + 0.0030,   453); // apex
+            // Descent
+            seg0.AddPoint(t + 20, baseLat, baseLon + 0.0042,   420);
+            seg0.AddPoint(t + 25, baseLat, baseLon + 0.0054,   360);
+            seg0.AddPoint(t + 30, baseLat, baseLon + 0.0064,   290);
+            seg0.AddPoint(t + 35, baseLat, baseLon + 0.0072,   220);
+            seg0.AddPoint(t + 40, baseLat, baseLon + 0.0079,   160);
+            seg0.AddPoint(t + 45, baseLat, baseLon + 0.0084,   110);
+            seg0.AddPoint(t + 50, baseLat - 0.0005, baseLon + 0.0088, 80);
+            // Parachute descent — slow final approach
+            seg0.AddPoint(t + 55, baseLat - 0.0008, baseLon + 0.0091, 70);
+            seg0.AddPoint(t + 60, baseLat - 0.0012, baseLon + 0.0093, 62);
+            seg0.AddPoint(t + 65, baseLat - 0.0014, baseLon + 0.0094, 57);
+            seg0.AddPoint(t + 70, baseLat - 0.0016, baseLon + 0.0095, 55);
+            seg0.AddPoint(t + 75, baseLat - 0.0016, baseLon + 0.0095, 55); // landed
+
+            // Engine events: SRB ignition and burnout
+            seg0.AddPartEvent(t, 101111, 5, "solidBooster.sm.v2", value: 1f);
+            seg0.AddPartEvent(t + 12, 101111, 6, "solidBooster.sm.v2");
+            seg0.AddPartEvent(t + 12, 101111, 0, "solidBooster.sm.v2"); // Decouple
+            seg0.AddPartEvent(t + 40, 102222, 2, "parachuteSingle");    // ParachuteDeployed
+
+            // Ghost-only (mid-chain — holds at landing position during EVA)
+            double landLat = baseLat - 0.0016;
+            double landLon = baseLon + 0.0095;
+            seg0.WithGhostVisualSnapshot(
+                VesselSnapshotBuilder.FleaRocket("Landing Craft", "Bill Kerman", pid: 88888888)
+                    .AsLanded(landLat, landLon, 55));
+
+            // Segment 1: EVA walk — Bill walks ~25m from landing point (25s)
+            var seg1 = new RecordingBuilder("Bill Kerman")
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
+                .WithRecordingId("chain-walk-seg1")
+                .WithChainId(chainId)
+                .WithChainIndex(1)
+                .WithParentRecordingId("chain-walk-seg0")
+                .WithEvaCrewName("Bill Kerman");
+
+            // Boundary anchor — same position as vessel's final point
+            seg1.AddPoint(t + 75, landLat,           landLon,            55);
+            seg1.AddPoint(t + 80, landLat - 0.0001,  landLon + 0.0001,  55);
+            seg1.AddPoint(t + 85, landLat - 0.0002,  landLon + 0.0002,  55);
+            seg1.AddPoint(t + 90, landLat - 0.0003,  landLon + 0.0002,  55);
+            seg1.AddPoint(t + 95, landLat - 0.0003,  landLon + 0.0003,  55);
+            seg1.AddPoint(t + 100, landLat - 0.0004, landLon + 0.0003,  55);
+
+            // Ghost-only EVA snapshot
+            seg1.WithGhostVisualSnapshot(
+                VesselSnapshotBuilder.CrewedShip("Bill Kerman", "Bill Kerman", pid: 99999999)
+                    .WithType("EVA")
+                    .AsLanded(landLat - 0.0004, landLon + 0.0003, 55));
+
+            return new[] { seg0, seg1 };
         }
 
         #endregion
@@ -1337,6 +1496,12 @@ namespace Parsek.Tests
             writer.AddRecording(Orbit1(baseUT));
             writer.AddRecording(CloseSpawnConflict(baseUT));
             writer.AddRecording(IslandProbe(baseUT));
+            var chainSegments = EvaBoardChain(baseUT);
+            for (int i = 0; i < chainSegments.Length; i++)
+                writer.AddRecording(chainSegments[i]);
+            var walkChainSegments = EvaWalkChain(baseUT);
+            for (int i = 0; i < walkChainSegments.Length; i++)
+                writer.AddRecording(walkChainSegments[i]);
 
             foreach (string file in targets)
             {
@@ -1359,6 +1524,10 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Orbit-1", content);
                     Assert.Contains("vesselName = Close Spawn Conflict", content);
                     Assert.Contains("vesselName = Island Probe", content);
+                    Assert.Contains("vesselName = Flea Chain", content);
+                    Assert.Contains("chainId = chain-eva-board-test", content);
+                    Assert.Contains("vesselName = Landing Craft", content);
+                    Assert.Contains("chainId = chain-eva-walk-test", content);
                     Assert.Contains("FLIGHTSTATE", content);
 
                     // v3: no inline POINT data in .sfs
@@ -1385,8 +1554,8 @@ namespace Parsek.Tests
                     $"Expected Parsek/Recordings directory at {recordingsDir}");
 
                 string[] precFiles = Directory.GetFiles(recordingsDir, "*.prec");
-                Assert.True(precFiles.Length >= 7,
-                    $"Expected at least 7 .prec files (one per recording with points), found {precFiles.Length}");
+                Assert.True(precFiles.Length >= 13,
+                    $"Expected at least 13 .prec files (8 standalone + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
             }
         }
 
