@@ -1239,7 +1239,10 @@ namespace Parsek.Tests
                 ?? "test career";
             string targetSave = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_TARGET_SAVE")
                 ?? "1.sfs";
-            bool cleanStart = IsTruthy(System.Environment.GetEnvironmentVariable("PARSEK_INJECT_CLEAN_START"));
+            // Default to clean start (strip stale vessels from FLIGHTSTATE).
+            // Set PARSEK_INJECT_CLEAN_START=0 to keep existing vessels.
+            string cleanEnv = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_CLEAN_START");
+            bool cleanStart = cleanEnv == null || IsTruthy(cleanEnv);
 
             string saveDir = Path.Combine(ProjectRoot,
                 "Kerbal Space Program", "saves", saveName);
