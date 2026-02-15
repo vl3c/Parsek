@@ -195,7 +195,9 @@ namespace Parsek.Tests.Generators
             v.AddNode("ACTIONGROUPS");
 
             var disc = v.AddNode("DISCOVERY");
-            disc.AddValue("state", "31");
+            // Must match (int)DiscoveryLevels.Owned — VesselSpawner.EnsureSpawnReadiness
+            // overwrites this at spawn time, but tests that bypass spawning need a valid value
+            disc.AddValue("state", "29");
             disc.AddValue("lastObservedTime", "0");
             disc.AddValue("lifetime", "Infinity");
             disc.AddValue("refTime", "0");
@@ -203,6 +205,7 @@ namespace Parsek.Tests.Generators
 
             v.AddNode("FLIGHTPLAN");
             v.AddNode("CTRLSTATE");
+            v.AddNode("VESSELMODULES");
 
             return v;
         }

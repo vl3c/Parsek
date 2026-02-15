@@ -49,17 +49,25 @@ namespace Parsek
                 // Set reserved crew back to Available so KSP can assign them to this vessel
                 ParsekScenario.UnreserveCrewInSnapshot(spawnNode);
 
-                EnsureOwnedDiscovery(spawnNode);
+                RegenerateVesselIdentity(spawnNode);
+                EnsureSpawnReadiness(spawnNode);
 
                 ProtoVessel pv = new ProtoVessel(spawnNode, HighLogic.CurrentGame);
                 HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
                 pv.Load(HighLogic.CurrentGame.flightState);
 
-                if (pv.vesselRef != null)
-                    GameEvents.onNewVesselCreated.Fire(pv.vesselRef);
+                if (pv.vesselRef == null)
+                {
+                    ParsekLog.Log("CRITICAL: ProtoVessel.Load() produced null vesselRef — vessel will not appear");
+                    return 0;
+                }
+                if (pv.vesselRef.orbitDriver == null)
+                    ParsekLog.Log("WARNING: Spawned vessel has no orbitDriver — may not appear in map view");
 
-                ParsekLog.Log($"Vessel respawned with crew (sit={spawnNode.GetValue("sit")}, pid={pv.persistentId})");
-                return pv.persistentId;
+                GameEvents.onNewVesselCreated.Fire(pv.vesselRef);
+
+                ParsekLog.Log($"Vessel respawned (sit={spawnNode.GetValue("sit")}, pid={pv.vesselRef.persistentId})");
+                return pv.vesselRef.persistentId;
             }
             catch (System.Exception ex)
             {
@@ -184,18 +192,26 @@ namespace Parsek
                     RemoveSpecificCrewFromSnapshot(spawnNode, excludeCrew);
                 ParsekScenario.UnreserveCrewInSnapshot(spawnNode);
 
-                EnsureOwnedDiscovery(spawnNode);
+                RegenerateVesselIdentity(spawnNode);
+                EnsureSpawnReadiness(spawnNode);
 
                 ProtoVessel pv = new ProtoVessel(spawnNode, HighLogic.CurrentGame);
                 HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
                 pv.Load(HighLogic.CurrentGame.flightState);
 
-                if (pv.vesselRef != null)
-                    GameEvents.onNewVesselCreated.Fire(pv.vesselRef);
+                if (pv.vesselRef == null)
+                {
+                    ParsekLog.Log("CRITICAL: SpawnAtPosition — ProtoVessel.Load() produced null vesselRef");
+                    return 0;
+                }
+                if (pv.vesselRef.orbitDriver == null)
+                    ParsekLog.Log("WARNING: SpawnAtPosition — vessel has no orbitDriver — may not appear in map view");
 
-                ParsekLog.Log($"SpawnAtPosition: vessel spawned (sit={sit}, pid={pv.persistentId}, " +
+                GameEvents.onNewVesselCreated.Fire(pv.vesselRef);
+
+                ParsekLog.Log($"SpawnAtPosition: vessel spawned (sit={sit}, pid={pv.vesselRef.persistentId}, " +
                     $"body={body.name}, alt={alt:F0}m)");
-                return pv.persistentId;
+                return pv.vesselRef.persistentId;
             }
             catch (Exception ex)
             {
@@ -316,6 +332,18 @@ namespace Parsek
                 rec.VesselSnapshot.SetValue("lat", newLat.ToString("R"));
                 rec.VesselSnapshot.SetValue("lon", newLon.ToString("R"));
                 rec.VesselSnapshot.SetValue("alt", newAlt.ToString("R"));
+
+                // Rebuild ORBIT node for new position — map view uses ORBIT for icon placement.
+                // Use last recorded velocity (inertial frame) to preserve flight dynamics
+                // for any vessel situation, not just landed.
+                Vector3d newWorldPos = body.GetWorldSurfacePosition(newLat, newLon, newAlt);
+                Vector3d lastVel = new Vector3d(lastPt.velocity.x, lastPt.velocity.y, lastPt.velocity.z);
+                var relocOrbit = new Orbit();
+                relocOrbit.UpdateFromStateVectors(newWorldPos, lastVel, body, Planetarium.GetUniversalTime());
+                rec.VesselSnapshot.RemoveNode("ORBIT");
+                var relocOrbitNode = new ConfigNode("ORBIT");
+                SaveOrbitToNode(relocOrbit, relocOrbitNode, body);
+                rec.VesselSnapshot.AddNode(relocOrbitNode);
 
                 ParsekLog.Log($"Offset vessel #{index} ({rec.VesselName}) from {closestDist:F0}m to 250m from nearest vessel/recording");
             }
@@ -715,13 +743,26 @@ namespace Parsek
             node.AddValue("REF", FlightGlobals.Bodies.IndexOf(body).ToString(ic));
         }
 
-        private static void EnsureOwnedDiscovery(ConfigNode spawnNode)
+        /// <summary>
+        /// Regenerate vessel identity fields to avoid PID collisions with the original vessel.
+        /// After revert, the original vessel is back on the pad with the same PIDs.
+        /// Spawning a copy with identical PIDs causes map view / tracking station issues.
+        /// </summary>
+        private static void RegenerateVesselIdentity(ConfigNode spawnNode)
         {
+            spawnNode.SetValue("pid", Guid.NewGuid().ToString("N"), true);
+            spawnNode.SetValue("persistentId", "0", true);
+        }
+
+        private static void EnsureSpawnReadiness(ConfigNode spawnNode)
+        {
+            // Discovery info — use DiscoveryLevels.Owned enum to avoid hardcoded magic numbers
+            string ownedState = ((int)DiscoveryLevels.Owned).ToString();
             ConfigNode disc = spawnNode.GetNode("DISCOVERY");
             if (disc == null)
             {
                 disc = spawnNode.AddNode("DISCOVERY");
-                disc.AddValue("state", "31");
+                disc.AddValue("state", ownedState);
                 disc.AddValue("lastObservedTime", "0");
                 disc.AddValue("lifetime", "Infinity");
                 disc.AddValue("refTime", "0");
@@ -729,8 +770,19 @@ namespace Parsek
             }
             else
             {
-                disc.SetValue("state", "31", true);
+                disc.SetValue("state", ownedState, true);
             }
+
+            // Defensive: ensure required sub-nodes exist (snapshots from BackupVessel
+            // should have these, but synthetic recordings or edge cases might not)
+            if (spawnNode.GetNode("ACTIONGROUPS") == null)
+                spawnNode.AddNode("ACTIONGROUPS");
+            if (spawnNode.GetNode("FLIGHTPLAN") == null)
+                spawnNode.AddNode("FLIGHTPLAN");
+            if (spawnNode.GetNode("CTRLSTATE") == null)
+                spawnNode.AddNode("CTRLSTATE");
+            if (spawnNode.GetNode("VESSELMODULES") == null)
+                spawnNode.AddNode("VESSELMODULES");
         }
 
         internal static double SelectRelocatedAltitude(

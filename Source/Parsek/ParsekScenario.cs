@@ -105,23 +105,35 @@ namespace Parsek
 
             if (initialLoadDone)
             {
-                // Reset spawn state; restore resource index from save so quickload
-                // doesn't re-apply deltas that were already applied before the save.
-                // On revert, the launch quicksave has lastResIdx=-1, which is correct.
+                // Restore mutable state from save. On revert the launch quicksave has
+                // no spawnedPid / takenControl / lastResIdx, so they naturally reset.
+                // On non-revert scene changes (e.g. tracking station → flight) the
+                // save preserves these, preventing duplicate spawns and ghost replays.
                 ConfigNode[] savedRecNodes = node.GetNodes("RECORDING");
                 for (int i = 0; i < recordings.Count; i++)
                 {
                     recordings[i].VesselSpawned = false;
-                    recordings[i].TakenControl = false;
-                    recordings[i].SpawnedVesselPersistentId = 0;
                     recordings[i].SpawnAttempts = 0;
+
+                    uint savedPid = 0;
+                    bool savedTaken = false;
                     int resIdx = -1;
                     if (i < savedRecNodes.Length)
                     {
+                        string pidStr = savedRecNodes[i].GetValue("spawnedPid");
+                        if (pidStr != null)
+                            uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out savedPid);
+
+                        string takenStr = savedRecNodes[i].GetValue("takenControl");
+                        if (takenStr != null)
+                            bool.TryParse(takenStr, out savedTaken);
+
                         string resIdxStr = savedRecNodes[i].GetValue("lastResIdx");
                         if (resIdxStr != null)
                             int.TryParse(resIdxStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out resIdx);
                     }
+                    recordings[i].SpawnedVesselPersistentId = savedPid;
+                    recordings[i].TakenControl = savedTaken;
                     recordings[i].LastAppliedResourceIndex = resIdx;
                 }
 
