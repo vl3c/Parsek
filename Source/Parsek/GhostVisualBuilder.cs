@@ -397,8 +397,10 @@ namespace Parsek
                         if (state != null)
                         {
                             state.enabled = true;
+                            state.speed = 0f;
                             state.normalizedTime = 1f;
                             state.weight = 1f;
+                            anim.Play(animName);
                             anim.Sample();
 
                             string canopyName = chute.canopyName;
@@ -428,11 +430,11 @@ namespace Parsek
                 }
             }
 
-            // If animation was found but produced exactly zero, treat as failed sampling
-            if (sampled && scale == Vector3.zero)
+            // If animation didn't produce a usable scale, use a reasonable deployed-canopy default
+            if (sampled && scale.magnitude < 0.5f)
             {
-                ParsekLog.Log($"  Animation produced zero scale, using Vector3.one fallback");
-                scale = Vector3.one;
+                ParsekLog.Log($"  Animation produced unusable scale ({scale}), using deployed canopy fallback");
+                scale = Vector3.one * 30f;
                 pos = Vector3.zero;
             }
 

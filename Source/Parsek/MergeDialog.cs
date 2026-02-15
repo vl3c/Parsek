@@ -30,6 +30,9 @@ namespace Parsek
                     {
                         new DialogGUIButton("Merge to Timeline", () =>
                         {
+                            if (pending.VesselSnapshot != null)
+                                ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
+                            pending.VesselSnapshot = null;
                             RecordingStore.CommitPending();
                             ParsekLog.ScreenMessage("Recording merged to timeline!", 3f);
                             ParsekLog.Log("User chose: Merge to Timeline (vessel destroyed)");

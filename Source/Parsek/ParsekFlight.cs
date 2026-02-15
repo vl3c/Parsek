@@ -573,6 +573,8 @@ namespace Parsek
 
         public void StopPlayback()
         {
+            if (isPlaying)
+                Log("Manual playback stopped");
             isPlaying = false;
 
             if (previewGhostMaterials != null)
@@ -593,7 +595,6 @@ namespace Parsek
 
             orbitCache.Clear();
             loggedOrbitSegments.Clear();
-            Log("Manual playback stopped");
         }
 
         void UpdatePlayback()
@@ -637,7 +638,7 @@ namespace Parsek
                 {
                     var rec = committed[i];
                     if (rec.Points.Count < 2) continue;
-                    if (rec.VesselSnapshot == null || rec.VesselSpawned) continue;
+                    if (rec.VesselSnapshot == null || rec.VesselSpawned || rec.VesselDestroyed) continue;
 
                     bool crossedInto = lastTimelineUT < rec.StartUT && currentUT >= rec.StartUT;
                     bool approaching = currentUT < rec.StartUT &&
