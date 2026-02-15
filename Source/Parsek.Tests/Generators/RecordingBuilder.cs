@@ -125,7 +125,8 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
-        public RecordingBuilder AddPartEvent(double ut, uint pid, int type, string partName = "")
+        public RecordingBuilder AddPartEvent(double ut, uint pid, int type, string partName = "",
+            float value = 0f, int moduleIndex = 0)
         {
             var ic = CultureInfo.InvariantCulture;
             var node = new ConfigNode("PART_EVENT");
@@ -133,6 +134,8 @@ namespace Parsek.Tests.Generators
             node.AddValue("pid", pid.ToString(ic));
             node.AddValue("type", type.ToString(ic));
             node.AddValue("part", partName);
+            node.AddValue("value", value.ToString("R", ic));
+            node.AddValue("midx", moduleIndex.ToString(ic));
             partEvents.Add(node);
             return this;
         }
@@ -177,7 +180,7 @@ namespace Parsek.Tests.Generators
         public ConfigNode BuildTrajectoryNode()
         {
             var node = new ConfigNode("PARSEK_RECORDING");
-            node.AddValue("version", "3");
+            node.AddValue("version", "4");
             node.AddValue("recordingId", GetRecordingId());
 
             foreach (var pt in points)
@@ -199,7 +202,7 @@ namespace Parsek.Tests.Generators
             node.AddValue("vesselName", vesselName);
             node.AddValue("pointCount", points.Count);
             node.AddValue("recordingId", GetRecordingId());
-            node.AddValue("recordingFormatVersion", "3");
+            node.AddValue("recordingFormatVersion", "4");
 
             if (!string.IsNullOrEmpty(parentRecordingId))
                 node.AddValue("parentRecordingId", parentRecordingId);

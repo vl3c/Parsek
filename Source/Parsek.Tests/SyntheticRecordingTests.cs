@@ -83,6 +83,10 @@ namespace Parsek.Tests
             b.AddPoint(t+52, baseLat + 0.0007, baseLon + 0.0054, 88);
             b.AddPoint(t+56, baseLat + 0.0007, baseLon + 0.0054, 77);
 
+            // Engine events: SRB ignition at launch, shutdown at burnout
+            b.AddPartEvent(t, 101111, 5, "solidBooster.sm.v2", value: 1f);       // EngineIgnited
+            b.AddPartEvent(t + 8, 101111, 6, "solidBooster.sm.v2");              // EngineShutdown
+
             // Part events: SRB decouple + parachute deploy
             b.AddPartEvent(t + 8, 101111, 0, "solidBooster.sm.v2");    // Decoupled
             b.AddPartEvent(t + 40, 102222, 2, "parachuteSingle");      // ParachuteDeployed
@@ -134,6 +138,10 @@ namespace Parsek.Tests
             b.AddPoint(t+85,  baseLat, baseLon + 0.0174, 78,              funds: 48229, rep: 1.2f);
             b.AddPoint(t+90,  baseLat, baseLon + 0.0175, 77,              funds: 48229, rep: 1.2f);
 
+            // Engine events: SRB ignition at launch, shutdown at burnout
+            b.AddPartEvent(t, 101111, 5, "solidBooster.sm.v2", value: 1f);       // EngineIgnited
+            b.AddPartEvent(t + 20, 101111, 6, "solidBooster.sm.v2");             // EngineShutdown
+
             // Part events
             b.AddPartEvent(t + 20, 101111, 0, "solidBooster.sm.v2");   // Decoupled (SRB burnout)
             b.AddPartEvent(t + 50, 102222, 2, "parachuteSingle");      // ParachuteDeployed
@@ -182,6 +190,10 @@ namespace Parsek.Tests
             // Parachute deploy at t+240, descent under canopy
             b.AddPoint(t+270, lat + 0.029, lon + 0.70, 1500,            rotZ: 0f,     rotW: 1f);
             b.AddPoint(t+300, lat + 0.03, lon + 0.75, 0,                rotZ: 0f,     rotW: 1f);
+
+            // Engine events: SRB ignition at launch, shutdown at burnout
+            b.AddPartEvent(t, 101111, 5, "solidBooster.sm.v2", value: 1f);       // EngineIgnited
+            b.AddPartEvent(t + 30, 101111, 6, "solidBooster.sm.v2");             // EngineShutdown
 
             // Part event: SRB decouple after burnout
             b.AddPartEvent(t + 30, 101111, 0, "solidBooster.sm.v2");   // Decoupled
@@ -235,6 +247,10 @@ namespace Parsek.Tests
             b.AddPoint(t+450, lat + 0.04, lon + 0.55, 80000,            rotZ: 0.707f, rotW: 0.707f);
             // Engine staging at t+450 — orbit insertion burn complete
             b.AddPoint(t+500, lat + 0.045, lon + 0.60, 80000,           rotZ: 0.707f, rotW: 0.707f);
+
+            // Engine events: liquid engine ignition at launch, shutdown before staging
+            b.AddPartEvent(t, 102222, 5, "liquidEngine", value: 1f);             // EngineIgnited
+            b.AddPartEvent(t + 450, 102222, 6, "liquidEngine");                  // EngineShutdown
 
             // Part event: engine stage separation before orbit
             // VesselSnapshotBuilder part uids: 100000 (pod), 101111 (tank), 102222 (engine)
@@ -350,13 +366,13 @@ namespace Parsek.Tests
             Assert.NotNull(ghost);
             Assert.Equal(3, ghost.GetNodes("PART").Length);
 
-            // Part events: SRB decouple + parachute deploy
+            // Part events: engine ignited/shutdown + SRB decouple + parachute deploy
             var partEvents = node.GetNodes("PART_EVENT");
-            Assert.Equal(2, partEvents.Length);
-            Assert.Equal("solidBooster.sm.v2", partEvents[0].GetValue("part"));
-            Assert.Equal("0", partEvents[0].GetValue("type"));   // Decoupled
-            Assert.Equal("parachuteSingle", partEvents[1].GetValue("part"));
-            Assert.Equal("2", partEvents[1].GetValue("type"));   // ParachuteDeployed
+            Assert.Equal(4, partEvents.Length);
+            Assert.Equal("5", partEvents[0].GetValue("type"));   // EngineIgnited
+            Assert.Equal("6", partEvents[1].GetValue("type"));   // EngineShutdown
+            Assert.Equal("0", partEvents[2].GetValue("type"));   // Decoupled
+            Assert.Equal("2", partEvents[3].GetValue("type"));   // ParachuteDeployed
         }
 
         [Fact]
@@ -371,13 +387,13 @@ namespace Parsek.Tests
             Assert.Equal(3, snapshot.GetNodes("PART").Length);
             Assert.Equal("Bob Kerman", snapshot.GetNodes("PART")[0].GetValue("crew"));
 
-            // Part events: SRB decouple + parachute deploy
+            // Part events: engine ignited/shutdown + SRB decouple + parachute deploy
             var partEvents = node.GetNodes("PART_EVENT");
-            Assert.Equal(2, partEvents.Length);
-            Assert.Equal("solidBooster.sm.v2", partEvents[0].GetValue("part"));
-            Assert.Equal("0", partEvents[0].GetValue("type"));   // Decoupled
-            Assert.Equal("parachuteSingle", partEvents[1].GetValue("part"));
-            Assert.Equal("2", partEvents[1].GetValue("type"));   // ParachuteDeployed
+            Assert.Equal(4, partEvents.Length);
+            Assert.Equal("5", partEvents[0].GetValue("type"));   // EngineIgnited
+            Assert.Equal("6", partEvents[1].GetValue("type"));   // EngineShutdown
+            Assert.Equal("0", partEvents[2].GetValue("type"));   // Decoupled
+            Assert.Equal("2", partEvents[3].GetValue("type"));   // ParachuteDeployed
 
             // Resource transition: funds increase during flight
             var points = node.GetNodes("POINT");
@@ -409,11 +425,12 @@ namespace Parsek.Tests
                 prevUT = ut;
             }
 
-            // Part event: SRB decouple
+            // Part events: engine ignited/shutdown + SRB decouple
             var partEvents = node.GetNodes("PART_EVENT");
-            Assert.Single(partEvents);
-            Assert.Equal("solidBooster.sm.v2", partEvents[0].GetValue("part"));
-            Assert.Equal("0", partEvents[0].GetValue("type"));   // Decoupled
+            Assert.Equal(3, partEvents.Length);
+            Assert.Equal("5", partEvents[0].GetValue("type"));   // EngineIgnited
+            Assert.Equal("6", partEvents[1].GetValue("type"));   // EngineShutdown
+            Assert.Equal("0", partEvents[2].GetValue("type"));   // Decoupled
         }
 
         [Fact]
@@ -449,11 +466,12 @@ namespace Parsek.Tests
             Assert.Equal("fuelTank", parts[1].GetValue("name"));
             Assert.Equal("liquidEngine", parts[2].GetValue("name"));
 
-            // Part event: engine stage separation
+            // Part events: engine ignited/shutdown + stage separation
             var partEvents = node.GetNodes("PART_EVENT");
-            Assert.Single(partEvents);
-            Assert.Equal("liquidEngine", partEvents[0].GetValue("part"));
-            Assert.Equal("0", partEvents[0].GetValue("type"));  // Decoupled
+            Assert.Equal(3, partEvents.Length);
+            Assert.Equal("5", partEvents[0].GetValue("type"));   // EngineIgnited
+            Assert.Equal("6", partEvents[1].GetValue("type"));   // EngineShutdown
+            Assert.Equal("0", partEvents[2].GetValue("type"));   // Decoupled
         }
 
         [Fact]
@@ -659,7 +677,7 @@ namespace Parsek.Tests
 
                 // Serialize to ConfigNode
                 var node = new ConfigNode("PARSEK_RECORDING");
-                node.AddValue("version", "3");
+                node.AddValue("version", "4");
                 node.AddValue("recordingId", rec.RecordingId);
                 RecordingStore.SerializeTrajectoryInto(node, rec);
 
@@ -723,7 +741,7 @@ namespace Parsek.Tests
 
                 // Serialize to ConfigNode and save to file
                 var precNode = new ConfigNode("PARSEK_RECORDING");
-                precNode.AddValue("version", "3");
+                precNode.AddValue("version", "4");
                 precNode.AddValue("recordingId", "filetest");
                 RecordingStore.SerializeTrajectoryInto(precNode, rec);
 
@@ -734,7 +752,7 @@ namespace Parsek.Tests
                 Assert.True(File.Exists(precPath), "Expected .prec file to be written");
                 string content = File.ReadAllText(precPath);
                 Assert.Contains("recordingId = filetest", content);
-                Assert.Contains("version = 3", content);
+                Assert.Contains("version = 4", content);
                 Assert.Contains("POINT", content);
                 Assert.Contains("ut = 500", content);
                 Assert.Contains("ut = 503", content);
@@ -772,7 +790,7 @@ namespace Parsek.Tests
             // Has metadata
             Assert.Equal("Test Vessel", v3Node.GetValue("vesselName"));
             Assert.Equal("abc123", v3Node.GetValue("recordingId"));
-            Assert.Equal("3", v3Node.GetValue("recordingFormatVersion"));
+            Assert.Equal("4", v3Node.GetValue("recordingFormatVersion"));
             Assert.Equal("2", v3Node.GetValue("pointCount"));
 
             // No inline bulk data
@@ -796,7 +814,7 @@ namespace Parsek.Tests
             var trajNode = builder.BuildTrajectoryNode();
 
             Assert.Equal("PARSEK_RECORDING", trajNode.name);
-            Assert.Equal("3", trajNode.GetValue("version"));
+            Assert.Equal("4", trajNode.GetValue("version"));
             Assert.Equal("abc123", trajNode.GetValue("recordingId"));
             Assert.Equal(2, trajNode.GetNodes("POINT").Length);
             Assert.Single(trajNode.GetNodes("ORBIT_SEGMENT"));
@@ -812,7 +830,7 @@ namespace Parsek.Tests
             var scenarioNode = writer.BuildScenarioNode();
             var recNode = scenarioNode.GetNodes("RECORDING")[0];
 
-            Assert.Equal("3", recNode.GetValue("recordingFormatVersion"));
+            Assert.Equal("4", recNode.GetValue("recordingFormatVersion"));
             Assert.Equal("KSC Hopper", recNode.GetValue("vesselName"));
             Assert.Empty(recNode.GetNodes("POINT"));
             Assert.Null(recNode.GetNode("VESSEL_SNAPSHOT"));
@@ -1282,7 +1300,7 @@ namespace Parsek.Tests
                     Assert.Contains("FLIGHTSTATE", content);
 
                     // v3: no inline POINT data in .sfs
-                    Assert.Contains("recordingFormatVersion = 3", content);
+                    Assert.Contains("recordingFormatVersion = 4", content);
                     Assert.DoesNotContain("POINT", content.Substring(
                         content.IndexOf("name = ParsekScenario"),
                         content.IndexOf("FLIGHTSTATE") - content.IndexOf("name = ParsekScenario")));
