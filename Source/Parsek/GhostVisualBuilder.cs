@@ -530,7 +530,56 @@ namespace Parsek
                 ConfigNode effectsNode = partConfig.GetNode("EFFECTS");
                 if (effectsNode == null)
                 {
-                    ParsekLog.Log($"    Engine '{partName}' midx={moduleIndex}: no EFFECTS node — skipping FX");
+                    // Legacy FX fallback: stock early-career parts (Flea SRB, LV-T30, etc.)
+                    // use fx_* prefab children instead of modern EFFECTS configs.
+                    // Only process once per part — legacy FX are shared, not per-module.
+                    if (moduleIndex > 0)
+                    {
+                        ParsekLog.Log($"    Engine '{partName}' midx={moduleIndex}: legacy FX already handled by midx=0");
+                        continue;
+                    }
+
+                    for (int c = 0; c < prefab.transform.childCount; c++)
+                    {
+                        Transform child = prefab.transform.GetChild(c);
+                        string childName = child.name.ToLowerInvariant();
+                        if (!childName.StartsWith("fx_")) continue;
+
+                        // Whitelist: only continuous thrust FX (flame, exhaust, smoke)
+                        if (childName.Contains("flameout") || childName.Contains("sparks") || childName.Contains("debris"))
+                            continue;
+                        if (!childName.Contains("flame") && !childName.Contains("exhaust") && !childName.Contains("smoke"))
+                            continue;
+
+                        var ps = child.GetComponentInChildren<ParticleSystem>();
+                        if (ps == null) continue;
+
+                        GameObject fxClone = Object.Instantiate(child.gameObject);
+                        fxClone.transform.SetParent(ghostModelNode.parent, false);
+                        fxClone.transform.localPosition = child.localPosition;
+                        fxClone.transform.localRotation = child.localRotation;
+                        fxClone.transform.localScale = child.localScale;
+
+                        // SmokeTrailControl expects real vessel/part state — destroy it on the ghost
+                        var smokeTrail = fxClone.GetComponent("SmokeTrailControl");
+                        if (smokeTrail != null)
+                            Object.Destroy(smokeTrail);
+
+                        var clonedPs = fxClone.GetComponentInChildren<ParticleSystem>();
+                        if (clonedPs != null)
+                        {
+                            var emission = clonedPs.emission;
+                            emission.rateOverTimeMultiplier = 0;
+                            clonedPs.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                            info.particleSystems.Add(clonedPs);
+                            ParsekLog.Log($"    Engine FX (legacy): '{partName}' midx={moduleIndex} fx='{child.name}'");
+                        }
+                    }
+
+                    if (info.particleSystems.Count > 0)
+                        result.Add(info);
+                    else
+                        ParsekLog.Log($"    Engine '{partName}' midx={moduleIndex}: no legacy fx_* children found");
                     continue;
                 }
 
