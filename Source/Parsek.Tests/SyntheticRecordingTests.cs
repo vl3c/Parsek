@@ -990,6 +990,41 @@ namespace Parsek.Tests
             return string.Join(sep, result);
         }
 
+        /// <summary>
+        /// Upgrade all KSC facilities to max level (lvl = 2) so that
+        /// Tracking Station supports vessel switching from map view.
+        /// </summary>
+        private static string MaxFacilityLevels(string content)
+        {
+            var lines = content.Split(new[] { "\r\n", "\n" }, System.StringSplitOptions.None);
+            bool inFacilities = false;
+            int facDepth = 0;
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string trimmed = lines[i].Trim();
+                if (!inFacilities && trimmed == "name = ScenarioUpgradeableFacilities")
+                {
+                    inFacilities = true;
+                    continue;
+                }
+                if (inFacilities)
+                {
+                    if (trimmed == "{") facDepth++;
+                    else if (trimmed == "}")
+                    {
+                        facDepth--;
+                        if (facDepth < 0) inFacilities = false;
+                    }
+                    else if (trimmed.StartsWith("lvl = ", System.StringComparison.Ordinal))
+                    {
+                        lines[i] = lines[i].Replace(trimmed, "lvl = 2");
+                    }
+                }
+            }
+            string sep = content.Contains("\r\n") ? "\r\n" : "\n";
+            return string.Join(sep, lines);
+        }
+
         private static string RemoveSpawnedPidLines(string content)
         {
             var lines = content.Split(new[] { "\r\n", "\n" }, System.StringSplitOptions.None);
@@ -1222,6 +1257,7 @@ namespace Parsek.Tests
             content = RemoveNonVeteranCrewFromRoster(content);
             content = ResetVeteranCrewStatus(content);
             content = SetUT(content, KscMorningUT);
+            content = MaxFacilityLevels(content);
             File.WriteAllText(savePath, content);
 
             // Clean stale recording sidecar files
