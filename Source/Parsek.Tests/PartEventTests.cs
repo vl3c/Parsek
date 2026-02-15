@@ -579,6 +579,86 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Light state tracking
+
+        [Fact]
+        public void LightTransition_OffToOn_EmitsLightOnEvent()
+        {
+            var lightsOn = new HashSet<uint>();
+            var evt = FlightRecorder.CheckLightTransition(
+                42, "spotLight1", isOn: true, lightsOn, 100.0);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.LightOn, evt.Value.eventType);
+            Assert.Equal(42u, evt.Value.partPersistentId);
+            Assert.Equal(100.0, evt.Value.ut);
+            Assert.Equal("spotLight1", evt.Value.partName);
+            Assert.Contains(42u, lightsOn);
+        }
+
+        [Fact]
+        public void LightTransition_OnToOff_EmitsLightOffEvent()
+        {
+            var lightsOn = new HashSet<uint> { 42 };
+            var evt = FlightRecorder.CheckLightTransition(
+                42, "spotLight1", isOn: false, lightsOn, 120.0);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.LightOff, evt.Value.eventType);
+            Assert.Equal(42u, evt.Value.partPersistentId);
+            Assert.Equal(120.0, evt.Value.ut);
+            Assert.DoesNotContain(42u, lightsOn);
+        }
+
+        [Fact]
+        public void LightTransition_NoChange_ReturnsNull()
+        {
+            var lightsOn = new HashSet<uint>();
+            var evt = FlightRecorder.CheckLightTransition(
+                42, "spotLight1", isOn: false, lightsOn, 100.0);
+
+            Assert.Null(evt);
+        }
+
+        [Fact]
+        public void LightTransition_AlreadyOn_ReturnsNull()
+        {
+            var lightsOn = new HashSet<uint> { 42 };
+            var evt = FlightRecorder.CheckLightTransition(
+                42, "spotLight1", isOn: true, lightsOn, 100.0);
+
+            Assert.Null(evt);
+        }
+
+        [Fact]
+        public void PartEvents_SerializationRoundtrip_LightOn()
+        {
+            var rec = new RecordingStore.Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 110, bodyName = "Kerbin" });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 105,
+                partPersistentId = 42,
+                eventType = PartEventType.LightOn,
+                partName = "spotLight1"
+            });
+
+            var node = new ConfigNode("TEST");
+            RecordingStore.SerializeTrajectoryInto(node, rec);
+
+            var loaded = new RecordingStore.Recording();
+            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+
+            Assert.Single(loaded.PartEvents);
+            Assert.Equal(PartEventType.LightOn, loaded.PartEvents[0].eventType);
+            Assert.Equal(42u, loaded.PartEvents[0].partPersistentId);
+            Assert.Equal("spotLight1", loaded.PartEvents[0].partName);
+            Assert.Equal(105.0, loaded.PartEvents[0].ut);
+        }
+
+        #endregion
+
         #region Engine event serialization
 
         [Fact]

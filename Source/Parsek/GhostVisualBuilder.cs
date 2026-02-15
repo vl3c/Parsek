@@ -46,6 +46,12 @@ namespace Parsek
         public List<DeployableTransformState> transforms;
     }
 
+    internal class LightGhostInfo
+    {
+        public uint partPersistentId;
+        public List<Light> lights;
+    }
+
     internal static class GhostVisualBuilder
     {
         private static readonly Regex trailingNumericSuffixRegex =
@@ -56,12 +62,14 @@ namespace Parsek
             out List<ParachuteGhostInfo> parachuteInfos,
             out List<JettisonGhostInfo> jettisonInfos,
             out List<EngineGhostInfo> engineInfos,
-            out List<DeployableGhostInfo> deployableInfos)
+            out List<DeployableGhostInfo> deployableInfos,
+            out List<LightGhostInfo> lightInfos)
         {
             parachuteInfos = null;
             jettisonInfos = null;
             engineInfos = null;
             deployableInfos = null;
+            lightInfos = null;
             ConfigNode snapshotNode = GetGhostSnapshot(rec);
             if (snapshotNode == null)
                 return null;
@@ -80,6 +88,7 @@ namespace Parsek
             var collectedJettisonInfos = new List<JettisonGhostInfo>();
             var collectedEngineInfos = new List<EngineGhostInfo>();
             var collectedDeployableInfos = new List<DeployableGhostInfo>();
+            var collectedLightInfos = new List<LightGhostInfo>();
 
             for (int i = 0; i < partNodes.Length; i++)
             {
@@ -114,9 +123,10 @@ namespace Parsek
                 JettisonGhostInfo jettisonInfo;
                 List<EngineGhostInfo> partEngineInfos;
                 DeployableGhostInfo deployableInfo;
+                LightGhostInfo lightInfo;
                 bool partVisualAdded = AddPartVisuals(root.transform, partNode, ap.partPrefab,
                     persistentId, partName, out meshCount, out parachuteInfo, out jettisonInfo,
-                    out partEngineInfos, out deployableInfo);
+                    out partEngineInfos, out deployableInfo, out lightInfo);
                 if (partVisualAdded)
                     visualCount++;
                 else
@@ -134,6 +144,8 @@ namespace Parsek
                     collectedEngineInfos.AddRange(partEngineInfos);
                 if (deployableInfo != null)
                     collectedDeployableInfos.Add(deployableInfo);
+                if (lightInfo != null)
+                    collectedLightInfos.Add(lightInfo);
             }
 
             ParsekLog.Log($"Ghost built: {visualCount}/{partNodes.Length} parts with visuals" +
@@ -151,10 +163,23 @@ namespace Parsek
             jettisonInfos = collectedJettisonInfos.Count > 0 ? collectedJettisonInfos : null;
             engineInfos = collectedEngineInfos.Count > 0 ? collectedEngineInfos : null;
             deployableInfos = collectedDeployableInfos.Count > 0 ? collectedDeployableInfos : null;
+            lightInfos = collectedLightInfos.Count > 0 ? collectedLightInfos : null;
             return root;
         }
 
-        // Backward-compat overload without deployable infos
+        // Backward-compat overload without light infos
+        internal static GameObject BuildTimelineGhostFromSnapshot(
+            RecordingStore.Recording rec, string rootName,
+            out List<ParachuteGhostInfo> parachuteInfos,
+            out List<JettisonGhostInfo> jettisonInfos,
+            out List<EngineGhostInfo> engineInfos,
+            out List<DeployableGhostInfo> deployableInfos)
+        {
+            return BuildTimelineGhostFromSnapshot(rec, rootName,
+                out parachuteInfos, out jettisonInfos, out engineInfos, out deployableInfos, out _);
+        }
+
+        // Backward-compat overload without deployable/light infos
         internal static GameObject BuildTimelineGhostFromSnapshot(
             RecordingStore.Recording rec, string rootName,
             out List<ParachuteGhostInfo> parachuteInfos,
@@ -162,7 +187,7 @@ namespace Parsek
             out List<EngineGhostInfo> engineInfos)
         {
             return BuildTimelineGhostFromSnapshot(rec, rootName,
-                out parachuteInfos, out jettisonInfos, out engineInfos, out _);
+                out parachuteInfos, out jettisonInfos, out engineInfos, out _, out _);
         }
 
         // Overload without info outputs for callers that don't need them (preview ghost)
@@ -921,13 +946,15 @@ namespace Parsek
         private static bool AddPartVisuals(Transform root, ConfigNode partNode, Part prefab,
             uint persistentId, string partName, out int meshCount,
             out ParachuteGhostInfo parachuteInfo, out JettisonGhostInfo jettisonInfo,
-            out List<EngineGhostInfo> engineInfos, out DeployableGhostInfo deployableInfo)
+            out List<EngineGhostInfo> engineInfos, out DeployableGhostInfo deployableInfo,
+            out LightGhostInfo lightInfo)
         {
             meshCount = 0;
             parachuteInfo = null;
             jettisonInfo = null;
             engineInfos = null;
             deployableInfo = null;
+            lightInfo = null;
             Transform modelRoot = FindModelRoot(prefab);
 
             // Dump full hierarchy for engine parts to diagnose missing nozzle meshes.
@@ -1207,6 +1234,49 @@ namespace Parsek
                     {
                         ParsekLog.Log($"    Deployable '{partName}' pid={persistentId}: " +
                             $"sampled {sampledStates.Count} transforms but none resolved to ghost");
+                    }
+                }
+            }
+
+            // Detect light parts and clone Light components for ghost playback
+            ModuleLight lightModule = prefab.FindModuleImplementing<ModuleLight>();
+            if (lightModule != null)
+            {
+                var prefabLights = modelRoot.GetComponentsInChildren<Light>(true);
+                if (prefabLights != null && prefabLights.Length > 0)
+                {
+                    var clonedLights = new List<Light>();
+                    for (int li = 0; li < prefabLights.Length; li++)
+                    {
+                        Light srcLight = prefabLights[li];
+                        if (srcLight == null) continue;
+
+                        // Mirror the transform chain to find the correct ghost parent
+                        Transform ghostParent = MirrorTransformChain(
+                            srcLight.transform, modelRoot, modelNode.transform, cloneMap);
+
+                        // Create a new Light component on the ghost transform
+                        Light ghostLight = ghostParent.gameObject.AddComponent<Light>();
+                        ghostLight.type = srcLight.type;
+                        ghostLight.color = srcLight.color;
+                        ghostLight.intensity = srcLight.intensity;
+                        ghostLight.range = srcLight.range;
+                        ghostLight.spotAngle = srcLight.spotAngle;
+                        ghostLight.shadows = LightShadows.None;
+                        ghostLight.renderMode = LightRenderMode.ForceVertex;
+                        ghostLight.enabled = false;
+                        clonedLights.Add(ghostLight);
+                    }
+
+                    if (clonedLights.Count > 0)
+                    {
+                        lightInfo = new LightGhostInfo
+                        {
+                            partPersistentId = persistentId,
+                            lights = clonedLights
+                        };
+                        ParsekLog.Log($"    Light detected: '{partName}' pid={persistentId}, " +
+                            $"{clonedLights.Count} Light component(s) cloned");
                     }
                 }
             }

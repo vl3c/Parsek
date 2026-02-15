@@ -12,7 +12,9 @@ namespace Parsek
         EngineThrottle,       // 7
         ParachuteDestroyed,   // 8 — deployed chute destroyed (aero forces)
         DeployableExtended,   // 9 — solar panel / antenna / radiator fully deployed
-        DeployableRetracted   // 10 — solar panel / antenna / radiator fully retracted
+        DeployableRetracted,  // 10 — solar panel / antenna / radiator fully retracted
+        LightOn,              // 11 — light turned on
+        LightOff              // 12 — light turned off
     }
 
     public struct PartEvent

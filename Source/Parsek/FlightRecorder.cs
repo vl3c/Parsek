@@ -28,6 +28,7 @@ namespace Parsek
         private HashSet<uint> deployedParachutes = new HashSet<uint>();
         private HashSet<uint> jettisonedShrouds = new HashSet<uint>();
         private HashSet<uint> extendedDeployables = new HashSet<uint>();
+        private HashSet<uint> lightsOn = new HashSet<uint>();
 
         // Engine state tracking (key = (ulong)pid << 8 | moduleIndex)
         private List<(Part part, ModuleEngines engine, int moduleIndex)> cachedEngines;
@@ -286,6 +287,61 @@ namespace Parsek
             }
         }
 
+        internal static PartEvent? CheckLightTransition(
+            uint partPersistentId, string partName, bool isOn, HashSet<uint> lightsOnSet, double ut)
+        {
+            bool wasOn = lightsOnSet.Contains(partPersistentId);
+
+            if (isOn && !wasOn)
+            {
+                lightsOnSet.Add(partPersistentId);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.LightOn,
+                    partName = partName
+                };
+            }
+
+            if (!isOn && wasOn)
+            {
+                lightsOnSet.Remove(partPersistentId);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.LightOff,
+                    partName = partName
+                };
+            }
+
+            return null;
+        }
+
+        private void CheckLightState(Vessel v)
+        {
+            if (v == null || v.parts == null) return;
+
+            double ut = Planetarium.GetUniversalTime();
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                var light = p.FindModuleImplementing<ModuleLight>();
+                if (light == null) continue;
+
+                var evt = CheckLightTransition(
+                    p.persistentId, p.partInfo?.name ?? "unknown", light.isOn, lightsOn, ut);
+                if (evt.HasValue)
+                {
+                    PartEvents.Add(evt.Value);
+                    ParsekLog.Log($"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
+                }
+            }
+        }
+
         internal static List<(Part part, ModuleEngines engine, int moduleIndex)> CacheEngineModules(Vessel v)
         {
             var result = new List<(Part, ModuleEngines, int)>();
@@ -428,6 +484,7 @@ namespace Parsek
             deployedParachutes.Clear();
             jettisonedShrouds.Clear();
             extendedDeployables.Clear();
+            lightsOn.Clear();
             cachedEngines = CacheEngineModules(v);
             activeEngineKeys = new HashSet<ulong>();
             lastThrottle = new Dictionary<ulong, float>();
@@ -613,6 +670,7 @@ namespace Parsek
             CheckJettisonState(v);
             CheckEngineState(v);
             CheckDeployableState(v);
+            CheckLightState(v);
 
             // Krakensbane-corrected true velocity
             Vector3 currentVelocity = (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity());

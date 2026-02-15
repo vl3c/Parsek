@@ -48,6 +48,7 @@ namespace Parsek
             public Dictionary<uint, JettisonGhostInfo> jettisonInfos;
             public Dictionary<ulong, EngineGhostInfo> engineInfos; // key = EncodeEngineKey(pid, moduleIndex)
             public Dictionary<uint, DeployableGhostInfo> deployableInfos;
+            public Dictionary<uint, LightGhostInfo> lightInfos;
             public Dictionary<uint, GameObject> fakeCanopies;
         }
 
@@ -1170,9 +1171,10 @@ namespace Parsek
             List<JettisonGhostInfo> jettisonInfoList;
             List<EngineGhostInfo> engineInfoList;
             List<DeployableGhostInfo> deployableInfoList;
+            List<LightGhostInfo> lightInfoList;
             GameObject ghost = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
                 rec, $"Parsek_Timeline_{index}", out parachuteInfoList, out jettisonInfoList,
-                out engineInfoList, out deployableInfoList);
+                out engineInfoList, out deployableInfoList, out lightInfoList);
             bool builtFromSnapshot = ghost != null;
             if (ghost == null)
             {
@@ -1235,6 +1237,13 @@ namespace Parsek
                 state.deployableInfos = new Dictionary<uint, DeployableGhostInfo>();
                 for (int i = 0; i < deployableInfoList.Count; i++)
                     state.deployableInfos[deployableInfoList[i].partPersistentId] = deployableInfoList[i];
+            }
+
+            if (lightInfoList != null)
+            {
+                state.lightInfos = new Dictionary<uint, LightGhostInfo>();
+                for (int i = 0; i < lightInfoList.Count; i++)
+                    state.lightInfos[lightInfoList[i].partPersistentId] = lightInfoList[i];
             }
 
             ghostStates[index] = state;
@@ -1402,6 +1411,14 @@ namespace Parsek
                         ApplyDeployableState(state, evt, deployed: false);
                         Log($"Part event applied: DeployableRetracted '{evt.partName}' pid={evt.partPersistentId}");
                         break;
+                    case PartEventType.LightOn:
+                        SetLightState(state, evt.partPersistentId, true);
+                        Log($"Part event applied: LightOn '{evt.partName}' pid={evt.partPersistentId}");
+                        break;
+                    case PartEventType.LightOff:
+                        SetLightState(state, evt.partPersistentId, false);
+                        Log($"Part event applied: LightOff '{evt.partName}' pid={evt.partPersistentId}");
+                        break;
                 }
                 evtIdx++;
             }
@@ -1507,6 +1524,20 @@ namespace Parsek
                     ts.t.localRotation = ts.stowedRot;
                     ts.t.localScale = ts.stowedScale;
                 }
+            }
+        }
+
+        static void SetLightState(GhostPlaybackState state, uint partPersistentId, bool on)
+        {
+            if (state.lightInfos == null) return;
+
+            LightGhostInfo info;
+            if (!state.lightInfos.TryGetValue(partPersistentId, out info)) return;
+
+            for (int i = 0; i < info.lights.Count; i++)
+            {
+                if (info.lights[i] != null)
+                    info.lights[i].enabled = on;
             }
         }
 
