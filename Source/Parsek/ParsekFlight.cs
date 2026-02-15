@@ -982,6 +982,21 @@ namespace Parsek
                             }
                         }
                         break;
+                    case PartEventType.ParachuteDestroyed:
+                        // Clean up canopy visuals before hiding the part
+                        if (state.parachuteInfos != null)
+                        {
+                            ParachuteGhostInfo destroyedInfo;
+                            if (state.parachuteInfos.TryGetValue(evt.partPersistentId, out destroyedInfo))
+                            {
+                                if (destroyedInfo.canopyTransform != null)
+                                    destroyedInfo.canopyTransform.localScale = Vector3.zero;
+                            }
+                        }
+                        DestroyFakeCanopy(state, evt.partPersistentId);
+                        HideGhostPart(ghost, evt.partPersistentId);
+                        Log($"Part event applied: ParachuteDestroyed '{evt.partName}' pid={evt.partPersistentId}");
+                        break;
                     case PartEventType.ParachuteDeployed:
                         bool usedRealCanopy = false;
 

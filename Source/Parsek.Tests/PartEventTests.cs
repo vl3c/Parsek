@@ -237,6 +237,35 @@ namespace Parsek.Tests
             Assert.Null(evt);
         }
 
+        [Fact]
+        public void ParachuteDestroyed_DeployedChuteDeath_EmitsParachuteDestroyed()
+        {
+            var deployed = new HashSet<uint> { 42 };
+            var evtType = FlightRecorder.ClassifyPartDeath(42, hasParachuteModule: true, deployed);
+
+            Assert.Equal(PartEventType.ParachuteDestroyed, evtType);
+            Assert.DoesNotContain(42u, deployed);
+        }
+
+        [Fact]
+        public void ParachuteDestroyed_StowedChuteDeath_EmitsDestroyed()
+        {
+            var deployed = new HashSet<uint>();
+            var evtType = FlightRecorder.ClassifyPartDeath(42, hasParachuteModule: true, deployed);
+
+            Assert.Equal(PartEventType.Destroyed, evtType);
+        }
+
+        [Fact]
+        public void ParachuteDestroyed_NonChutePart_EmitsDestroyed()
+        {
+            var deployed = new HashSet<uint> { 42 };
+            var evtType = FlightRecorder.ClassifyPartDeath(99, hasParachuteModule: false, deployed);
+
+            Assert.Equal(PartEventType.Destroyed, evtType);
+            Assert.Contains(42u, deployed); // other entries untouched
+        }
+
         #endregion
 
         #region EVA child recording fields

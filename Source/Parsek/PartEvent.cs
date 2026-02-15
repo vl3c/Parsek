@@ -9,7 +9,8 @@ namespace Parsek
         ShroudJettisoned,     // 4
         EngineIgnited,        // 5
         EngineShutdown,       // 6
-        EngineThrottle        // 7
+        EngineThrottle,       // 7
+        ParachuteDestroyed    // 8 — deployed chute destroyed (aero forces)
     }
 
     public struct PartEvent

@@ -80,14 +80,25 @@ namespace Parsek
             if (p?.vessel == null) return;
             if (p.vessel.persistentId != RecordingVesselId) return;
 
+            bool hasChute = p.FindModuleImplementing<ModuleParachute>() != null;
+            var evtType = ClassifyPartDeath(p.persistentId, hasChute, deployedParachutes);
+
             PartEvents.Add(new PartEvent
             {
                 ut = Planetarium.GetUniversalTime(),
                 partPersistentId = p.persistentId,
-                eventType = PartEventType.Destroyed,
+                eventType = evtType,
                 partName = p.partInfo?.name ?? "unknown"
             });
-            ParsekLog.Log($"Part event: Destroyed '{p.partInfo?.name}' pid={p.persistentId}");
+            ParsekLog.Log($"Part event: {evtType} '{p.partInfo?.name}' pid={p.persistentId}");
+        }
+
+        internal static PartEventType ClassifyPartDeath(
+            uint partPersistentId, bool hasParachuteModule, HashSet<uint> deployedSet)
+        {
+            if (hasParachuteModule && deployedSet.Remove(partPersistentId))
+                return PartEventType.ParachuteDestroyed;
+            return PartEventType.Destroyed;
         }
 
         private void OnPartJointBreak(PartJoint joint, float breakForce)
