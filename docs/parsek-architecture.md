@@ -669,9 +669,9 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 
 **Remaining for MVP:**
 - [x] Fix spawned vessel not selectable in map view / tracking station (career mode limitation)
-- [ ] Chained recordings — land → EVA → walk → board → fly again as a continuous mission replay
-- [ ] Seamless ghost handoff between chained segments (vessel ghost ends, EVA ghost begins, vessel ghost resumes)
-- [ ] Verify and fix edge cases: crew continuity, vessel state across chain boundaries, merge dialog for chained missions
+- [x] Chained recordings — land → EVA → walk → board → fly again as a continuous mission replay
+- [x] Seamless ghost handoff between chained segments (vessel ghost ends, EVA ghost begins, vessel ghost resumes)
+- [x] Verify and fix edge cases: crew continuity, vessel state across chain boundaries, merge dialog for chained missions
 
 ### Phase 2: Ghost Visual Fidelity — New Events
 

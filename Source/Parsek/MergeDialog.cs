@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace Parsek
@@ -193,7 +194,14 @@ namespace Parsek
                 };
             }
 
-            string message = $"Mission chain ({totalSegments} segments)\n" +
+            int branchCount = 1 + (chainSiblings != null
+                ? new HashSet<int>(chainSiblings.Select(s => s.ChainBranch)).Count
+                : 0);
+            string segmentLabel = branchCount > 1
+                ? $"Mission chain ({totalSegments} segments, {branchCount} vessels tracked)"
+                : $"Mission chain ({totalSegments} segments)";
+
+            string message = $"{segmentLabel}\n" +
                 $"Vessel: {pending.VesselName}\n" +
                 $"Duration: {duration:F1}s\n" +
                 $"Distance: {pending.DistanceFromLaunch:F0}m\n\n";
