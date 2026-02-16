@@ -22,7 +22,9 @@ namespace Parsek
         FairingJettisoned,    // 17 — procedural fairing deployed/jettisoned
         RCSActivated,         // 18 — RCS module started firing (value = normalized power 0-1)
         RCSStopped,           // 19 — RCS module stopped firing
-        RCSThrottle           // 20 — RCS aggregate power changed while firing
+        RCSThrottle,          // 20 — RCS aggregate power changed while firing
+        Docked,               // 21 — docking port coupled (chain segment boundary)
+        Undocked              // 22 — docking port undocked (chain segment boundary)
     }
 
     public struct PartEvent
