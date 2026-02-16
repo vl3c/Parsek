@@ -58,6 +58,8 @@ namespace Parsek
                     recNode.AddValue("chainId", rec.ChainId);
                 if (rec.ChainIndex >= 0)
                     recNode.AddValue("chainIndex", rec.ChainIndex);
+                if (rec.ChainBranch > 0)
+                    recNode.AddValue("chainBranch", rec.ChainBranch);
 
                 // Persist spawned vessel pid so we can detect duplicates after scene changes
                 if (rec.SpawnedVesselPersistentId != 0)
@@ -178,6 +180,13 @@ namespace Parsek
                     int ci;
                     if (int.TryParse(chainIdxStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out ci))
                         rec.ChainIndex = ci;
+                }
+                string chainBranchStr = recNode.GetValue("chainBranch");
+                if (chainBranchStr != null)
+                {
+                    int cb;
+                    if (int.TryParse(chainBranchStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out cb))
+                        rec.ChainBranch = cb;
                 }
 
                 // Restore spawned vessel pid for duplicate spawn detection

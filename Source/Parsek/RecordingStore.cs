@@ -51,6 +51,7 @@ namespace Parsek
             // Chain linkage (multi-segment recording chains)
             public string ChainId;       // null = standalone; shared GUID for chain members
             public int ChainIndex = -1;  // -1 = not chained; 0-based position within chain
+            public int ChainBranch;      // 0 = primary path; >0 = parallel continuation (ghost-only, no spawn)
             public string VesselName = "";
             public string GhostGeometryRelativePath;
             public bool GhostGeometryAvailable;
@@ -108,6 +109,7 @@ namespace Parsek
                 EvaCrewName = source.EvaCrewName;
                 ChainId = source.ChainId;
                 ChainIndex = source.ChainIndex;
+                ChainBranch = source.ChainBranch;
             }
         }
 
@@ -216,10 +218,12 @@ namespace Parsek
         internal static bool IsChainMidSegment(Recording rec)
         {
             if (string.IsNullOrEmpty(rec.ChainId) || rec.ChainIndex < 0) return false;
+            // Branch > 0 segments are parallel continuations (ghost-only); they despawn normally
+            if (rec.ChainBranch > 0) return false;
             for (int i = 0; i < committedRecordings.Count; i++)
             {
                 var other = committedRecordings[i];
-                if (other.ChainId == rec.ChainId && other.ChainIndex > rec.ChainIndex)
+                if (other.ChainId == rec.ChainId && other.ChainBranch == 0 && other.ChainIndex > rec.ChainIndex)
                     return true;
             }
             return false;
@@ -236,7 +240,8 @@ namespace Parsek
             for (int i = 0; i < committedRecordings.Count; i++)
             {
                 var other = committedRecordings[i];
-                if (other.ChainId == rec.ChainId && other.EndUT > maxEnd)
+                // Only branch 0 determines the chain's end (primary path)
+                if (other.ChainId == rec.ChainId && other.ChainBranch == 0 && other.EndUT > maxEnd)
                     maxEnd = other.EndUT;
             }
             return maxEnd;
@@ -261,7 +266,13 @@ namespace Parsek
             }
 
             if (chain != null && chain.Count > 1)
-                chain.Sort((a, b) => a.ChainIndex.CompareTo(b.ChainIndex));
+            {
+                chain.Sort((a, b) =>
+                {
+                    int branchCmp = a.ChainBranch.CompareTo(b.ChainBranch);
+                    return branchCmp != 0 ? branchCmp : a.ChainIndex.CompareTo(b.ChainIndex);
+                });
+            }
 
             return chain;
         }
@@ -292,40 +303,62 @@ namespace Parsek
         /// </summary>
         internal static void ValidateChains()
         {
-            // Group by ChainId
-            var chains = new Dictionary<string, List<Recording>>();
+            // Group by (ChainId, ChainBranch)
+            var branches = new Dictionary<string, List<Recording>>();
             for (int i = 0; i < committedRecordings.Count; i++)
             {
                 var rec = committedRecordings[i];
                 if (string.IsNullOrEmpty(rec.ChainId)) continue;
+                string key = rec.ChainId + ":" + rec.ChainBranch;
                 List<Recording> list;
-                if (!chains.TryGetValue(rec.ChainId, out list))
+                if (!branches.TryGetValue(key, out list))
                 {
                     list = new List<Recording>();
-                    chains[rec.ChainId] = list;
+                    branches[key] = list;
                 }
                 list.Add(rec);
             }
 
-            foreach (var kvp in chains)
+            // Track which chainIds are invalid so we degrade all branches together
+            var invalidChains = new HashSet<string>();
+
+            foreach (var kvp in branches)
             {
                 var list = kvp.Value;
                 list.Sort((a, b) => a.ChainIndex.CompareTo(b.ChainIndex));
 
+                string chainId = list[0].ChainId;
+                int branch = list[0].ChainBranch;
                 bool valid = true;
 
-                // Check indices are 0..N-1 with no gaps or duplicates
-                for (int i = 0; i < list.Count; i++)
+                if (branch == 0)
                 {
-                    if (list[i].ChainIndex != i)
+                    // Branch 0: indices must be 0..N-1 with no gaps or duplicates
+                    for (int i = 0; i < list.Count; i++)
                     {
-                        valid = false;
-                        Log($"[Parsek] Chain validation FAILED for chain={kvp.Key}: expected index {i}, got {list[i].ChainIndex}");
-                        break;
+                        if (list[i].ChainIndex != i)
+                        {
+                            valid = false;
+                            Log($"[Parsek] Chain validation FAILED for chain={chainId} branch={branch}: expected index {i}, got {list[i].ChainIndex}");
+                            break;
+                        }
+                    }
+                }
+                else
+                {
+                    // Branch > 0: indices must be contiguous and non-decreasing (don't need to start at 0)
+                    for (int i = 1; i < list.Count; i++)
+                    {
+                        if (list[i].ChainIndex != list[i - 1].ChainIndex + 1)
+                        {
+                            valid = false;
+                            Log($"[Parsek] Chain validation FAILED for chain={chainId} branch={branch}: non-contiguous index at {list[i].ChainIndex}");
+                            break;
+                        }
                     }
                 }
 
-                // Check StartUT is monotonically non-decreasing
+                // Check StartUT is monotonically non-decreasing within branch
                 if (valid)
                 {
                     for (int i = 1; i < list.Count; i++)
@@ -333,24 +366,33 @@ namespace Parsek
                         if (list[i].StartUT < list[i - 1].StartUT)
                         {
                             valid = false;
-                            Log($"[Parsek] Chain validation FAILED for chain={kvp.Key}: non-monotonic StartUT at index {i}");
+                            Log($"[Parsek] Chain validation FAILED for chain={chainId} branch={branch}: non-monotonic StartUT at index {list[i].ChainIndex}");
                             break;
                         }
                     }
                 }
 
                 if (!valid)
+                    invalidChains.Add(chainId);
+            }
+
+            // Degrade all recordings belonging to invalid chains
+            if (invalidChains.Count > 0)
+            {
+                for (int i = 0; i < committedRecordings.Count; i++)
                 {
-                    // Degrade: clear chain fields so they become standalone recordings
-                    for (int i = 0; i < list.Count; i++)
+                    var rec = committedRecordings[i];
+                    if (!string.IsNullOrEmpty(rec.ChainId) && invalidChains.Contains(rec.ChainId))
                     {
-                        Log($"[Parsek]   Degrading recording '{list[i].VesselName}' " +
-                            $"(id={list[i].RecordingId}, idx={list[i].ChainIndex}) to standalone");
-                        list[i].ChainId = null;
-                        list[i].ChainIndex = -1;
+                        Log($"[Parsek]   Degrading recording '{rec.VesselName}' " +
+                            $"(id={rec.RecordingId}, idx={rec.ChainIndex}, branch={rec.ChainBranch}) to standalone");
+                        rec.ChainId = null;
+                        rec.ChainIndex = -1;
+                        rec.ChainBranch = 0;
                     }
-                    Log($"[Parsek] Degraded invalid chain {kvp.Key} ({list.Count} recordings) to standalone");
                 }
+                foreach (var chainId in invalidChains)
+                    Log($"[Parsek] Degraded invalid chain {chainId} to standalone");
             }
         }
 

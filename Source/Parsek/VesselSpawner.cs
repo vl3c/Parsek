@@ -387,7 +387,7 @@ namespace Parsek
             // EVA segments themselves should never exclude their own crew.
             if (!string.IsNullOrEmpty(rec.ChainId) && string.IsNullOrEmpty(rec.EvaCrewName))
             {
-                // Find the highest ChainIndex of a non-EVA (vessel) segment
+                // Find the highest ChainIndex of a non-EVA (vessel) segment on branch 0 only
                 int highestVesselIndex = -1;
                 List<(string crew, int index)> evaSegments = null;
 
@@ -395,6 +395,8 @@ namespace Parsek
                 {
                     var sibling = committed[c];
                     if (sibling.ChainId != rec.ChainId) continue;
+                    // Skip branch > 0 segments for crew exclusion logic
+                    if (sibling.ChainBranch != 0) continue;
 
                     if (!string.IsNullOrEmpty(sibling.EvaCrewName))
                     {
