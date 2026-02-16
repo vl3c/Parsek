@@ -18,6 +18,7 @@ namespace Parsek
         public Transform capTransform;
         public Vector3 deployedCanopyScale;
         public Vector3 deployedCanopyPos;
+        public Quaternion deployedCanopyRot;
     }
 
     internal class EngineGhostInfo
@@ -493,16 +494,16 @@ namespace Parsek
             return canopy;
         }
 
-        // Cache: partName → (scale, pos) — sample once per part type, reuse across ghosts
-        private static readonly Dictionary<string, (Vector3 scale, Vector3 pos)> deployedCanopyCache =
-            new Dictionary<string, (Vector3, Vector3)>();
+        // Cache: partName → (scale, pos, rot) — sample once per part type, reuse across ghosts
+        private static readonly Dictionary<string, (Vector3 scale, Vector3 pos, Quaternion rot)> deployedCanopyCache =
+            new Dictionary<string, (Vector3, Vector3, Quaternion)>();
 
         internal static void ClearDeployedCanopyCache()
         {
             deployedCanopyCache.Clear();
         }
 
-        private static (Vector3 scale, Vector3 pos) SampleDeployedCanopy(Part prefab, ModuleParachute chute)
+        private static (Vector3 scale, Vector3 pos, Quaternion rot) SampleDeployedCanopy(Part prefab, ModuleParachute chute)
         {
             string key = prefab.partInfo?.name ?? prefab.name;
             if (deployedCanopyCache.TryGetValue(key, out var cached))
@@ -516,6 +517,7 @@ namespace Parsek
 
             Vector3 scale = Vector3.one;
             Vector3 pos = Vector3.zero;
+            Quaternion rot = Quaternion.identity;
             bool sampled = false;
 
             if (!string.IsNullOrEmpty(animName))
@@ -545,9 +547,14 @@ namespace Parsek
                             if (canopy != null)
                             {
                                 scale = canopy.localScale;
-                                pos = canopy.localPosition;
+                                // Root-relative position/rotation accounts for animated
+                                // intermediate transforms (critical for EVA kerbals where
+                                // the deploy animation moves parent bones, not canopy itself)
+                                pos = tempClone.transform.InverseTransformPoint(canopy.position);
+                                rot = Quaternion.Inverse(tempClone.transform.rotation) * canopy.rotation;
                                 sampled = true;
-                                ParsekLog.Log($"  Animation '{animName}' sampled canopy: scale={scale} pos={pos}");
+                                ParsekLog.Log($"  Animation '{animName}' sampled canopy: scale={scale} " +
+                                    $"rootPos={pos} rootRot={rot.eulerAngles}");
                             }
                         }
                         else
@@ -574,11 +581,12 @@ namespace Parsek
                 ParsekLog.Log($"  Animation produced near-zero scale ({scale}), using deployed canopy fallback");
                 scale = Vector3.one;
                 pos = Vector3.zero;
+                rot = Quaternion.identity;
             }
 
-            var result = (scale, pos);
+            var result = (scale, pos, rot);
             deployedCanopyCache[key] = result;
-            ParsekLog.Log($"  Deployed canopy for '{key}': scale={scale} pos={pos}");
+            ParsekLog.Log($"  Deployed canopy for '{key}': scale={scale} pos={pos} rot={rot.eulerAngles}");
             return result;
         }
 
@@ -1762,14 +1770,17 @@ namespace Parsek
 
                 // If canopy exists on the prefab but wasn't cloned (e.g. EVA kerbals where
                 // canopy lives under "model" but FindModelRoot returned "model01"), lazily
-                // clone the canopy's visual root subtree so it enters cloneMap.
+                // clone only the canopy and cap transforms so they enter cloneMap.
+                // We intentionally skip all other meshes in the subtree (backpack, storage,
+                // parachute housing, etc.) — only the canopy/cap are needed for playback.
+                Transform canopySubtreeRoot = null;
                 if (srcCanopy != null && !cloneMap.ContainsKey(srcCanopy))
                 {
                     Transform canopyVisualRoot = FindImmediateChildOf(srcCanopy, prefab.transform);
                     if (canopyVisualRoot != null && canopyVisualRoot != modelRoot)
                     {
                         ParsekLog.Log($"    Canopy '{canopyName}' is outside modelRoot '{modelRoot.name}'" +
-                            $" — cloning subtree '{canopyVisualRoot.name}'");
+                            $" — cloning canopy/cap only from '{canopyVisualRoot.name}'");
 
                         GameObject subNode = new GameObject(canopyVisualRoot.name);
                         subNode.transform.SetParent(partRoot.transform, false);
@@ -1777,63 +1788,87 @@ namespace Parsek
                         subNode.transform.localRotation = canopyVisualRoot.localRotation;
                         subNode.transform.localScale = canopyVisualRoot.localScale;
                         cloneMap[canopyVisualRoot] = subNode.transform;
+                        canopySubtreeRoot = subNode.transform;
 
-                        var subMR = canopyVisualRoot.GetComponentsInChildren<MeshRenderer>(true);
-                        for (int r = 0; r < subMR.Length; r++)
+                        // Clone only the canopy and cap meshes, not the entire subtree
+                        Transform[] targets = srcCap != null
+                            ? new[] { srcCanopy, srcCap }
+                            : new[] { srcCanopy };
+                        foreach (var target in targets)
                         {
-                            var mr = subMR[r];
-                            if (mr == null) continue;
-                            var mf = mr.GetComponent<MeshFilter>();
-                            if (mf == null || mf.sharedMesh == null) continue;
-
-                            Transform leaf = MirrorTransformChain(mr.transform, canopyVisualRoot,
-                                subNode.transform, cloneMap);
-                            leaf.gameObject.AddComponent<MeshFilter>().sharedMesh = mf.sharedMesh;
-                            leaf.gameObject.AddComponent<MeshRenderer>().sharedMaterials = mr.sharedMaterials;
-                            meshCount++;
-                            added = true;
-                            ParsekLog.Log($"      CANOPY-SUB MR[{r}] '{mr.gameObject.name}' " +
-                                $"mesh={mf.sharedMesh.name}");
-                        }
-
-                        var subSMR = canopyVisualRoot.GetComponentsInChildren<SkinnedMeshRenderer>(true);
-                        for (int r = 0; r < subSMR.Length; r++)
-                        {
-                            var smr = subSMR[r];
-                            if (smr == null || smr.sharedMesh == null) continue;
-
-                            Transform leaf = MirrorTransformChain(smr.transform, canopyVisualRoot,
-                                subNode.transform, cloneMap);
-                            leaf.gameObject.AddComponent<MeshFilter>().sharedMesh = smr.sharedMesh;
-                            leaf.gameObject.AddComponent<MeshRenderer>().sharedMaterials = smr.sharedMaterials;
-                            meshCount++;
-                            added = true;
-                            ParsekLog.Log($"      CANOPY-SUB SMR[{r}] '{smr.gameObject.name}' " +
-                                $"mesh={smr.sharedMesh.name}");
+                            var mr = target.GetComponent<MeshRenderer>();
+                            var mf = target.GetComponent<MeshFilter>();
+                            if (mr != null && mf != null && mf.sharedMesh != null)
+                            {
+                                Transform leaf = MirrorTransformChain(target, canopyVisualRoot,
+                                    subNode.transform, cloneMap);
+                                leaf.gameObject.AddComponent<MeshFilter>().sharedMesh = mf.sharedMesh;
+                                leaf.gameObject.AddComponent<MeshRenderer>().sharedMaterials = mr.sharedMaterials;
+                                meshCount++;
+                                added = true;
+                                ParsekLog.Log($"      CANOPY-CLONE '{target.gameObject.name}' " +
+                                    $"mesh={mf.sharedMesh.name}");
+                            }
+                            else
+                            {
+                                // No mesh directly on the transform — still mirror the chain
+                                // so it enters cloneMap for lookup
+                                MirrorTransformChain(target, canopyVisualRoot,
+                                    subNode.transform, cloneMap);
+                                ParsekLog.Log($"      CANOPY-CLONE '{target.gameObject.name}' (no mesh, chain only)");
+                            }
                         }
                     }
                 }
 
                 // Look up ghost clones via cloneMap (deterministic, no name collisions).
-                // For EVA kerbals, canopy subtree was lazily cloned above when detected
-                // outside modelRoot, so both body and canopy now appear in cloneMap.
+                // If canopy was outside modelRoot, only canopy/cap were cloned above.
                 Transform ghostCanopy = null, ghostCap = null;
                 if (srcCanopy != null) cloneMap.TryGetValue(srcCanopy, out ghostCanopy);
                 if (srcCap != null) cloneMap.TryGetValue(srcCap, out ghostCap);
 
                 if (ghostCanopy != null)
                 {
-                    var (scale, pos) = SampleDeployedCanopy(prefab, chute);
+                    var (scale, pos, rot) = SampleDeployedCanopy(prefab, chute);
                     parachuteInfo = new ParachuteGhostInfo
                     {
                         partPersistentId = persistentId,
                         canopyTransform = ghostCanopy,
                         capTransform = ghostCap,
                         deployedCanopyScale = scale,
-                        deployedCanopyPos = pos
+                        deployedCanopyPos = pos,
+                        deployedCanopyRot = rot
                     };
+                    ghostCanopy.localScale = Vector3.zero;
+
+                    if (canopySubtreeRoot != null && partName.StartsWith("kerbalEVA"))
+                    {
+                        // EVA deploy animation (fullyDeploySmall) only captures chute-module
+                        // movement — the kerbal body pose change that swings the backpack
+                        // overhead is a separate animation we can't sample. Override with a
+                        // position above the kerbal's head and dome-down rotation.
+                        ghostCanopy.SetParent(partRoot.transform, false);
+                        ghostCanopy.localPosition = Vector3.zero;
+                        ghostCanopy.localRotation = Quaternion.identity;
+                        parachuteInfo.deployedCanopyPos = new Vector3(0f, 1f, 0f);
+                        parachuteInfo.deployedCanopyRot = Quaternion.Euler(270f, 0f, 0f);
+                        ParsekLog.Log($"    EVA parachute: overriding deployed pos=(0,1,0) rot=(270,0,0) " +
+                            $"(animation sampled pos={pos} rot={rot.eulerAngles})");
+                    }
+                    else if (canopySubtreeRoot != null)
+                    {
+                        // Non-EVA part with canopy outside modelRoot: reparent under
+                        // subtree root so root-relative deployed position works.
+                        ghostCanopy.SetParent(canopySubtreeRoot, false);
+                        ghostCanopy.localPosition = Vector3.zero;
+                        ghostCanopy.localRotation = Quaternion.identity;
+                    }
+
                     ParsekLog.Log($"    Parachute detected: canopy='{canopyName}' cap='{capName}' " +
-                        $"deployScale={scale}");
+                        $"deployScale={parachuteInfo.deployedCanopyScale} " +
+                        $"deployPos={parachuteInfo.deployedCanopyPos} " +
+                        $"deployRot={parachuteInfo.deployedCanopyRot.eulerAngles} " +
+                        $"parent='{ghostCanopy.parent.name}'");
                 }
                 else if (srcCanopy != null)
                 {

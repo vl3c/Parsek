@@ -1858,6 +1858,7 @@ namespace Parsek
                             {
                                 info.canopyTransform.localScale = info.deployedCanopyScale;
                                 info.canopyTransform.localPosition = info.deployedCanopyPos;
+                                info.canopyTransform.localRotation = info.deployedCanopyRot;
                                 if (info.capTransform != null)
                                     info.capTransform.gameObject.SetActive(false);
                                 usedRealCanopy = true;
