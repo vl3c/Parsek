@@ -16,7 +16,9 @@ namespace Parsek
             None,
             ContinueOnEva,
             Stop,
-            ChainToVessel   // EVA recording → boarded a vessel
+            ChainToVessel,  // EVA recording → boarded a vessel
+            DockMerge,      // Vessel absorbed into dock target (pid changed)
+            UndockSwitch    // Player switched to undocked sibling vessel
         }
 
         // Recording output
@@ -48,6 +50,10 @@ namespace Parsek
         public bool RecordingStartedAsEva { get; private set; }
         public bool VesselDestroyedDuringRecording { get; set; }
         public bool ChainToVesselPending { get; internal set; }
+        public bool DockMergePending { get; set; }
+        public bool UndockSwitchPending { get; set; }
+        // Set by ParsekFlight to enable sibling vessel switch detection in OnPhysicsFrame
+        public uint UndockSiblingPid { get; set; }
         public RecordingStore.Recording CaptureAtStop { get; private set; }
         public ConfigNode LastGoodVesselSnapshot => lastGoodVesselSnapshot;
         public ConfigNode InitialGhostVisualSnapshot => initialGhostVisualSnapshot;
@@ -978,6 +984,56 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Stops recording silently for a chain boundary (dock/undock/boarding).
+        /// Same as StopRecording but without the "STOPPED" screen message.
+        /// </summary>
+        public void StopRecordingForChainBoundary()
+        {
+            // Finalize in-progress orbit segment
+            if (isOnRails)
+            {
+                currentOrbitSegment.endUT = Planetarium.GetUniversalTime();
+                OrbitSegments.Add(currentOrbitSegment);
+                isOnRails = false;
+
+                Vessel v = FlightGlobals.ActiveVessel;
+                if (v != null) SamplePosition(v);
+            }
+
+            Patches.PhysicsFramePatch.ActiveRecorder = null;
+            UnsubscribePartEvents();
+            IsRecording = false;
+
+            PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+
+            CaptureAtStop = new RecordingStore.Recording
+            {
+                RecordingId = System.Guid.NewGuid().ToString("N"),
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                GhostGeometryVersion = RecordingStore.CurrentGhostGeometryVersion,
+                VesselName = FlightGlobals.ActiveVessel != null
+                    ? FlightGlobals.ActiveVessel.vesselName
+                    : "Unknown Vessel",
+                Points = new List<TrajectoryPoint>(Recording),
+                OrbitSegments = new List<OrbitSegment>(OrbitSegments),
+                PartEvents = new List<PartEvent>(PartEvents)
+            };
+            VesselSpawner.SnapshotVessel(
+                CaptureAtStop,
+                VesselDestroyedDuringRecording,
+                destroyedFallbackSnapshot: lastGoodVesselSnapshot);
+            CaptureAtStop.GhostVisualSnapshot = initialGhostVisualSnapshot != null
+                ? initialGhostVisualSnapshot.CreateCopy()
+                : (CaptureAtStop.VesselSnapshot != null ? CaptureAtStop.VesselSnapshot.CreateCopy() : null);
+
+            double duration = Recording.Count > 0
+                ? Recording[Recording.Count - 1].ut - Recording[0].ut
+                : 0;
+
+            ParsekLog.Log($"Recording stopped (chain boundary). {Recording.Count} points, {OrbitSegments.Count} orbit segments over {duration:F1}s");
+        }
+
+        /// <summary>
         /// Called by the Harmony postfix on each physics frame for the active vessel.
         /// </summary>
         public void OnPhysicsFrame(Vessel v)
@@ -988,7 +1044,8 @@ namespace Parsek
             if (v.persistentId != RecordingVesselId)
             {
                 VesselSwitchDecision decision = DecideOnVesselSwitch(
-                    RecordingVesselId, v.persistentId, v.isEVA, RecordingStartedAsEva);
+                    RecordingVesselId, v.persistentId, v.isEVA, RecordingStartedAsEva,
+                    UndockSiblingPid);
 
                 // Keep recording across switch to EVA. This preserves player intent for
                 // launch -> EVA sequences until multi-track replay lands.
@@ -1030,6 +1087,20 @@ namespace Parsek
                 {
                     ChainToVesselPending = true;
                     ParsekLog.Log($"EVA boarded vessel (was pid={RecordingVesselId}, now pid={v.persistentId}) — chain pending");
+                    return;
+                }
+
+                if (decision == VesselSwitchDecision.DockMerge)
+                {
+                    DockMergePending = true;
+                    ParsekLog.Log($"Dock merge detected (was pid={RecordingVesselId}, now pid={v.persistentId}) — dock pending");
+                    return;
+                }
+
+                if (decision == VesselSwitchDecision.UndockSwitch)
+                {
+                    UndockSwitchPending = true;
+                    ParsekLog.Log($"Undock sibling switch (was pid={RecordingVesselId}, now pid={v.persistentId}) — undock switch pending");
                     return;
                 }
 
@@ -1280,10 +1351,14 @@ namespace Parsek
         }
 
         internal static VesselSwitchDecision DecideOnVesselSwitch(
-            uint recordingVesselId, uint currentVesselId, bool currentIsEva, bool recordingStartedAsEva)
+            uint recordingVesselId, uint currentVesselId, bool currentIsEva,
+            bool recordingStartedAsEva, uint undockSiblingPid = 0)
         {
             if (currentVesselId == recordingVesselId)
                 return VesselSwitchDecision.None;
+            // Player switched to undocked sibling vessel
+            if (undockSiblingPid != 0 && currentVesselId == undockSiblingPid)
+                return VesselSwitchDecision.UndockSwitch;
             // Avoid mixed-mode tracks (ship trajectory followed by EVA walking).
             // Continue-on-EVA is only valid for recordings that started as EVA.
             if (currentIsEva && recordingStartedAsEva)
