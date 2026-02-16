@@ -77,6 +77,19 @@ namespace Parsek
         // Boundary anchor for chain continuation (copied from previous segment's last point)
         private TrajectoryPoint? pendingBoundaryAnchor;
 
+        // Pending dock/undock transitions (set by event handlers, consumed by Update)
+        private uint pendingDockMergedPid;          // merged vessel pid, 0 = no pending dock
+        private bool pendingDockAsTarget;           // true if our vessel was the dock target (no pid change)
+        private int dockConfirmFrames;              // frame counter for confirmation window (auto-clear after 5)
+        private uint pendingUndockOtherPid;         // pid of vessel that split off, 0 = no pending undock
+        private int undockConfirmFrames;            // frame counter for confirmation window
+
+        // Undock continuation (ghost-only recording for the other vessel)
+        private uint undockContinuationPid;         // 0 = not tracking
+        private int undockContinuationRecIdx = -1;
+        private Vector3 undockContinuationLastVel;
+        private double undockContinuationLastUT = -1;
+
         // Continuation sampling: after a vessel chain segment commits (V→EVA),
         // keeps tracking the original vessel so its trajectory extends beyond the EVA point.
         private uint continuationVesselPid;        // 0 = not tracking
@@ -143,6 +156,8 @@ namespace Parsek
             GameEvents.onVesselGoOnRails.Add(OnVesselGoOnRails);
             GameEvents.onVesselGoOffRails.Add(OnVesselGoOffRails);
             GameEvents.onVesselSOIChanged.Add(OnVesselSOIChanged);
+            GameEvents.onPartCouple.Add(OnPartCouple);
+            GameEvents.onPartUndock.Add(OnPartUndock);
 
             ui = new ParsekUI(this);
 
@@ -169,6 +184,108 @@ namespace Parsek
                     pendingBoardingTargetPid = 0;
                     boardingConfirmFrames = 0;
                 }
+            }
+
+            // Auto-clear stale dock/undock confirmation after 5 frames
+            if (pendingDockMergedPid != 0)
+            {
+                dockConfirmFrames++;
+                if (dockConfirmFrames > 5)
+                {
+                    pendingDockMergedPid = 0;
+                    pendingDockAsTarget = false;
+                    dockConfirmFrames = 0;
+                }
+            }
+            if (pendingUndockOtherPid != 0)
+            {
+                undockConfirmFrames++;
+                if (undockConfirmFrames > 5)
+                {
+                    pendingUndockOtherPid = 0;
+                    undockConfirmFrames = 0;
+                }
+            }
+
+            // Dock: initiator (pid changed, recorder already stopped by OnPhysicsFrame)
+            if (recorder != null && recorder.DockMergePending &&
+                !recorder.IsRecording && recorder.CaptureAtStop != null)
+            {
+                CommitDockUndockSegment(recorder, PartEventType.Docked, pendingDockMergedPid);
+                recorder = null;
+                StartRecording();
+                if (IsRecording)
+                {
+                    // Pass undock continuation pid so OnPhysicsFrame can detect sibling switch
+                    recorder.UndockSiblingPid = undockContinuationPid;
+                    Log($"Recording continues after dock (chain={activeChainId}, idx={activeChainNextIndex})");
+                    ScreenMessage("Recording continues (docked)", 2f);
+                }
+                pendingDockMergedPid = 0;
+                pendingDockAsTarget = false;
+                dockConfirmFrames = 0;
+            }
+
+            // Dock: target (pid unchanged, recorder already stopped by OnPartCouple)
+            if (pendingDockAsTarget && recorder != null &&
+                !recorder.IsRecording && recorder.CaptureAtStop != null)
+            {
+                CommitDockUndockSegment(recorder, PartEventType.Docked, pendingDockMergedPid);
+                recorder = null;
+                StartRecording();
+                if (IsRecording)
+                {
+                    recorder.UndockSiblingPid = undockContinuationPid;
+                    Log($"Recording continues after dock as target (chain={activeChainId}, idx={activeChainNextIndex})");
+                    ScreenMessage("Recording continues (docked)", 2f);
+                }
+                pendingDockAsTarget = false;
+                pendingDockMergedPid = 0;
+                dockConfirmFrames = 0;
+            }
+
+            // Undock: player stays on remaining vessel (same pid, recorder stopped by StopRecordingForChainBoundary)
+            if (pendingUndockOtherPid != 0 && recorder != null &&
+                !recorder.IsRecording && recorder.CaptureAtStop != null &&
+                !recorder.UndockSwitchPending)
+            {
+                CommitDockUndockSegment(recorder, PartEventType.Undocked, 0);
+                recorder = null;
+                StartRecording();
+                if (IsRecording)
+                {
+                    StartUndockContinuation(pendingUndockOtherPid);
+                    recorder.UndockSiblingPid = undockContinuationPid;
+                    Log($"Recording continues after undock (chain={activeChainId}, idx={activeChainNextIndex})");
+                    ScreenMessage("Recording continues (undocked)", 2f);
+                }
+                pendingUndockOtherPid = 0;
+                undockConfirmFrames = 0;
+            }
+
+            // Undock: player switched to undocked vessel (pid changed, recorder stopped by OnPhysicsFrame)
+            if (recorder != null && recorder.UndockSwitchPending &&
+                !recorder.IsRecording && recorder.CaptureAtStop != null)
+            {
+                uint oldPid = recorder.RecordingVesselId;
+                CommitDockUndockSegment(recorder, PartEventType.Undocked, 0);
+                recorder = null;
+
+                // Stop existing undock continuation (we're switching roles)
+                if (undockContinuationPid != 0)
+                    StopUndockContinuation("sibling switch");
+
+                StartRecording();
+                if (IsRecording)
+                {
+                    // The "old" vessel (remaining) becomes continuation
+                    StartUndockContinuation(oldPid);
+                    recorder.UndockSiblingPid = undockContinuationPid;
+                    Log($"Recording continues after undock switch (chain={activeChainId}, idx={activeChainNextIndex})");
+                    ScreenMessage("Recording continues (undocked)", 2f);
+                }
+                pendingUndockOtherPid = 0;
+                undockConfirmFrames = 0;
             }
 
             // Chain: auto-commit previous segment when recording stopped (EVA exit)
@@ -247,6 +364,7 @@ namespace Parsek
             }
 
             UpdateContinuationSampling();
+            UpdateUndockContinuationSampling();
 
             HandleInput();
 
@@ -294,6 +412,8 @@ namespace Parsek
             GameEvents.onVesselGoOnRails.Remove(OnVesselGoOnRails);
             GameEvents.onVesselGoOffRails.Remove(OnVesselGoOffRails);
             GameEvents.onVesselSOIChanged.Remove(OnVesselSOIChanged);
+            GameEvents.onPartCouple.Remove(OnPartCouple);
+            GameEvents.onPartUndock.Remove(OnPartUndock);
 
             // Clean up recording if active
             if (IsRecording)
@@ -320,6 +440,18 @@ namespace Parsek
                 RefreshContinuationSnapshot();
                 StopContinuation("scene change");
             }
+            if (undockContinuationPid != 0)
+            {
+                RefreshUndockContinuationSnapshot();
+                StopUndockContinuation("scene change");
+            }
+
+            // Clear dock/undock pending state
+            pendingDockMergedPid = 0;
+            pendingDockAsTarget = false;
+            dockConfirmFrames = 0;
+            pendingUndockOtherPid = 0;
+            undockConfirmFrames = 0;
 
             // If we have recording data and are leaving flight, stash it
             if (recorder != null && recorder.Recording.Count > 0)
@@ -413,6 +545,19 @@ namespace Parsek
                     Log($"Continuation vessel destroyed (pid={continuationVesselPid})");
                 }
                 StopContinuation("vessel destroyed");
+            }
+
+            // If the undock continuation vessel is destroyed, stop tracking
+            if (undockContinuationPid != 0 && v.persistentId == undockContinuationPid)
+            {
+                if (undockContinuationRecIdx >= 0 &&
+                    undockContinuationRecIdx < RecordingStore.CommittedRecordings.Count)
+                {
+                    var rec = RecordingStore.CommittedRecordings[undockContinuationRecIdx];
+                    rec.VesselDestroyed = true;
+                    Log($"Undock continuation vessel destroyed (pid={undockContinuationPid})");
+                }
+                StopUndockContinuation("vessel destroyed");
             }
         }
 
@@ -696,6 +841,301 @@ namespace Parsek
             recorder?.OnVesselSOIChanged(data);
         }
 
+        void OnPartCouple(GameEvents.FromToAction<Part, Part> data)
+        {
+            if (data.to?.vessel == null) return;
+            uint mergedPid = data.to.vessel.persistentId;
+
+            if (recorder != null && recorder.IsRecording)
+            {
+                // We're actively recording
+                if (mergedPid == recorder.RecordingVesselId)
+                {
+                    // We're the TARGET — no pid change will happen
+                    pendingDockAsTarget = true;
+                    pendingDockMergedPid = mergedPid;
+                    dockConfirmFrames = 0;
+                    // Stop recording silently — Update() will commit and restart
+                    recorder.StopRecordingForChainBoundary();
+                    Log($"onPartCouple: target dock detected (mergedPid={mergedPid})");
+                }
+                else
+                {
+                    // We're the INITIATOR — pid will change, OnPhysicsFrame will stop us
+                    recorder.DockMergePending = true;
+                    pendingDockMergedPid = mergedPid;
+                    dockConfirmFrames = 0;
+                    Log($"onPartCouple: initiator dock detected (mergedPid={mergedPid})");
+                }
+            }
+            else if (recorder != null && !recorder.IsRecording && recorder.CaptureAtStop != null)
+            {
+                // OnPhysicsFrame already stopped us (initiator, pid changed before event fired)
+                recorder.DockMergePending = true;
+                pendingDockMergedPid = mergedPid;
+                dockConfirmFrames = 0;
+                Log($"onPartCouple: retroactive initiator dock (mergedPid={mergedPid})");
+            }
+        }
+
+        void OnPartUndock(Part undockedPart)
+        {
+            if (recorder == null || !recorder.IsRecording) return;
+            if (undockedPart?.vessel == null) return;
+
+            uint newPid = undockedPart.vessel.persistentId;
+            if (newPid != recorder.RecordingVesselId)
+            {
+                // Something undocked FROM us — we stay, other vessel splits off
+                pendingUndockOtherPid = newPid;
+                undockConfirmFrames = 0;
+
+                // Stop recording silently — Update() will commit and restart
+                recorder.StopRecordingForChainBoundary();
+                Log($"onPartUndock: vessel split off (otherPid={newPid})");
+            }
+            // else: undocked part still on our vessel (transient state) — ignore.
+            // If the player follows the undocked vessel, OnPhysicsFrame detects
+            // the pid mismatch and UndockSiblingPid handles it.
+        }
+
+        /// <summary>
+        /// Commits the current segment as a dock/undock chain boundary.
+        /// Initializes the chain if needed, tags segment metadata, and advances chain state.
+        /// </summary>
+        void CommitDockUndockSegment(FlightRecorder segmentRecorder, PartEventType eventType, uint dockPortPid)
+        {
+            string segmentId = segmentRecorder.CaptureAtStop.RecordingId;
+            Log($"Dock/Undock chain: committing segment (id={segmentId}, event={eventType})");
+
+            RecordingStore.StashPending(
+                segmentRecorder.Recording,
+                segmentRecorder.CaptureAtStop.VesselName,
+                segmentRecorder.OrbitSegments,
+                recordingId: segmentId,
+                recordingFormatVersion: segmentRecorder.CaptureAtStop.RecordingFormatVersion,
+                ghostGeometryVersion: segmentRecorder.CaptureAtStop.GhostGeometryVersion,
+                partEvents: segmentRecorder.PartEvents);
+
+            if (!RecordingStore.HasPending)
+            {
+                Log("Dock/Undock chain: segment too short to stash — aborting");
+                pendingDockMergedPid = 0;
+                pendingDockAsTarget = false;
+                pendingUndockOtherPid = 0;
+                return;
+            }
+
+            RecordingStore.Pending.ApplyPersistenceArtifactsFrom(segmentRecorder.CaptureAtStop);
+
+            // Add dock/undock part event to the segment
+            if (segmentRecorder.Recording.Count > 0)
+            {
+                double lastUT = segmentRecorder.Recording[segmentRecorder.Recording.Count - 1].ut;
+                RecordingStore.Pending.PartEvents.Add(new PartEvent
+                {
+                    ut = lastUT,
+                    partPersistentId = dockPortPid,
+                    eventType = eventType,
+                    partName = eventType.ToString()
+                });
+            }
+
+            // First transition: initialize chain
+            if (activeChainId == null)
+            {
+                activeChainId = System.Guid.NewGuid().ToString("N");
+                activeChainNextIndex = 0;
+                Log($"Dock/Undock chain: started new chain (id={activeChainId})");
+            }
+
+            // Tag segment with chain metadata
+            RecordingStore.Pending.ChainId = activeChainId;
+            RecordingStore.Pending.ChainIndex = activeChainNextIndex;
+            RecordingStore.Pending.ChainBranch = 0; // always primary path
+            RecordingStore.Pending.ParentRecordingId = activeChainPrevId;
+            RecordingStore.Pending.EvaCrewName = null; // vessel segment, not EVA
+
+            // Mid-chain segments are ghost-only (VesselSnapshot nulled)
+            RecordingStore.Pending.VesselSnapshot = null;
+
+            RecordingStore.CommitPending();
+            ParsekScenario.ReserveSnapshotCrew();
+            ParsekScenario.SwapReservedCrewInFlight();
+
+            // Prepare boundary anchor from last point of committed segment
+            if (segmentRecorder.Recording.Count > 0)
+                pendingBoundaryAnchor = segmentRecorder.Recording[segmentRecorder.Recording.Count - 1];
+
+            // Advance chain state
+            activeChainNextIndex++;
+            activeChainPrevId = segmentId;
+        }
+
+        /// <summary>
+        /// Starts ghost-only continuation recording for the "other" vessel after undock.
+        /// This vessel gets ChainBranch = 1 so it plays back as a ghost but never spawns.
+        /// </summary>
+        void StartUndockContinuation(uint otherPid)
+        {
+            // Stop any existing continuation first
+            if (undockContinuationPid != 0)
+                StopUndockContinuation("replaced by new undock");
+
+            Vessel otherVessel = FlightRecorder.FindVesselByPid(otherPid);
+            if (otherVessel == null)
+            {
+                Log($"Undock continuation: cannot find vessel pid={otherPid} — skipping");
+                return;
+            }
+
+            // Take snapshot for ghost visuals
+            ConfigNode ghostSnapshot = VesselSpawner.TryBackupSnapshot(otherVessel);
+
+            // Create a committed recording for the continuation
+            double ut = Planetarium.GetUniversalTime();
+            Vector3 velocity = otherVessel.packed
+                ? (Vector3)otherVessel.obt_velocity
+                : (Vector3)(otherVessel.rb_velocityD + Krakensbane.GetFrameVelocity());
+
+            var seedPoint = new TrajectoryPoint
+            {
+                ut = ut,
+                latitude = otherVessel.latitude,
+                longitude = otherVessel.longitude,
+                altitude = otherVessel.altitude,
+                rotation = otherVessel.transform.rotation,
+                velocity = velocity,
+                bodyName = otherVessel.mainBody.name
+            };
+
+            var contRec = new RecordingStore.Recording
+            {
+                VesselName = otherVessel.vesselName + " (undock continuation)",
+                ChainId = activeChainId,
+                ChainIndex = activeChainNextIndex - 1, // same index as the player's new segment
+                ChainBranch = 1, // parallel branch — ghost-only, never spawns
+                GhostVisualSnapshot = ghostSnapshot,
+                RecordingId = System.Guid.NewGuid().ToString("N"),
+                RecordingFormatVersion = 4
+            };
+            contRec.Points.Add(seedPoint);
+
+            RecordingStore.CommittedRecordings.Add(contRec);
+            undockContinuationRecIdx = RecordingStore.CommittedRecordings.Count - 1;
+            undockContinuationPid = otherPid;
+            undockContinuationLastVel = velocity;
+            undockContinuationLastUT = ut;
+
+            Log($"Undock continuation started: tracking vessel pid={otherPid} " +
+                $"in recording #{undockContinuationRecIdx} (chain={activeChainId}, branch=1)");
+        }
+
+        /// <summary>
+        /// Samples the undock continuation vessel's position each frame (adaptive sampling).
+        /// Mirrors UpdateContinuationSampling but for the undocked sibling vessel.
+        /// </summary>
+        void UpdateUndockContinuationSampling()
+        {
+            if (undockContinuationPid == 0) return;
+
+            // Guard against stale index
+            if (undockContinuationRecIdx < 0 ||
+                undockContinuationRecIdx >= RecordingStore.CommittedRecordings.Count)
+            {
+                StopUndockContinuation("stale index");
+                return;
+            }
+
+            Vessel v = FlightRecorder.FindVesselByPid(undockContinuationPid);
+            if (v == null)
+            {
+                StopUndockContinuation("vessel null");
+                return;
+            }
+
+            double ut = Planetarium.GetUniversalTime();
+            Vector3 velocity = v.packed
+                ? (Vector3)v.obt_velocity
+                : (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity());
+
+            if (!TrajectoryMath.ShouldRecordPoint(velocity, undockContinuationLastVel,
+                ut, undockContinuationLastUT, continuationMaxInterval,
+                continuationVelDirThreshold, continuationSpeedThreshold))
+                return;
+
+            var rec = RecordingStore.CommittedRecordings[undockContinuationRecIdx];
+
+            // Carry forward resource values from the last point
+            var lastPoint = rec.Points.Count > 0
+                ? rec.Points[rec.Points.Count - 1]
+                : default(TrajectoryPoint);
+
+            var point = new TrajectoryPoint
+            {
+                ut = ut,
+                latitude = v.latitude,
+                longitude = v.longitude,
+                altitude = v.altitude,
+                rotation = v.transform.rotation,
+                velocity = velocity,
+                bodyName = v.mainBody.name,
+                funds = lastPoint.funds,
+                science = lastPoint.science,
+                reputation = lastPoint.reputation
+            };
+
+            rec.Points.Add(point);
+            undockContinuationLastUT = ut;
+            undockContinuationLastVel = velocity;
+        }
+
+        void StopUndockContinuation(string reason)
+        {
+            Log($"Undock continuation stopped ({reason}): was tracking pid={undockContinuationPid}, " +
+                $"recording #{undockContinuationRecIdx}");
+            undockContinuationPid = 0;
+            undockContinuationRecIdx = -1;
+            undockContinuationLastUT = -1;
+        }
+
+        /// <summary>
+        /// Refreshes the undock continuation recording's ghost snapshot before stopping.
+        /// </summary>
+        void RefreshUndockContinuationSnapshot()
+        {
+            if (undockContinuationPid == 0 || undockContinuationRecIdx < 0) return;
+            if (undockContinuationRecIdx >= RecordingStore.CommittedRecordings.Count)
+            {
+                StopUndockContinuation("stale index in snapshot refresh");
+                return;
+            }
+
+            var rec = RecordingStore.CommittedRecordings[undockContinuationRecIdx];
+            Vessel v = FlightRecorder.FindVesselByPid(undockContinuationPid);
+
+            if (v != null && v.loaded)
+            {
+                var snapshot = VesselSpawner.TryBackupSnapshot(v);
+                if (snapshot != null)
+                {
+                    rec.GhostVisualSnapshot = snapshot;
+                    Log("Undock continuation: refreshed ghost snapshot from loaded vessel");
+                }
+            }
+            else if (rec.GhostVisualSnapshot != null && rec.Points.Count > 0)
+            {
+                var last = rec.Points[rec.Points.Count - 1];
+                rec.GhostVisualSnapshot.SetValue("lat",
+                    last.latitude.ToString("R", CultureInfo.InvariantCulture), true);
+                rec.GhostVisualSnapshot.SetValue("lon",
+                    last.longitude.ToString("R", CultureInfo.InvariantCulture), true);
+                rec.GhostVisualSnapshot.SetValue("alt",
+                    last.altitude.ToString("R", CultureInfo.InvariantCulture), true);
+                Log($"Undock continuation: updated snapshot position from last trajectory point");
+            }
+        }
+
         void OnFlightReady()
         {
             Log("Flight ready. Checking for pending recordings...");
@@ -712,6 +1152,16 @@ namespace Parsek
             pendingBoundaryAnchor = null;
             continuationVesselPid = 0;
             continuationRecordingIdx = -1;
+
+            // Clear dock/undock state
+            pendingDockMergedPid = 0;
+            pendingDockAsTarget = false;
+            dockConfirmFrames = 0;
+            pendingUndockOtherPid = 0;
+            undockConfirmFrames = 0;
+            undockContinuationPid = 0;
+            undockContinuationRecIdx = -1;
+            undockContinuationLastUT = -1;
 
             if (RecordingStore.HasPending)
             {
@@ -998,6 +1448,10 @@ namespace Parsek
                 double chainEndUT = isMidChain ? RecordingStore.GetChainEndUT(rec) : rec.EndUT;
                 bool pastChainEnd = currentUT > chainEndUT;
                 bool needsSpawn = rec.VesselSnapshot != null && !rec.VesselSpawned && !rec.VesselDestroyed && !rec.TakenControl;
+
+                // Branch > 0 recordings are ghost-only (undock continuations) — never spawn
+                if (needsSpawn && rec.ChainBranch > 0)
+                    needsSpawn = false;
 
                 // Suppress spawning for recordings belonging to a chain currently being built.
                 // Without this guard, CommitChainSegment commits the vessel segment mid-flight,
