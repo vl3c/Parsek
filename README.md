@@ -1,5 +1,7 @@
 # Parsek
 
+![Parsek](img/ksp-parsek-stylized.jpg)
+
 *Record, rewind and merge your parallel-sekuential adventures.*
 
 **Time-rewind mission recording for KSP1.** Record missions, revert to launch, and watch them play out alongside you while you fly new ones. Parsek transforms KSP from a mission simulator into a space program simulator.
