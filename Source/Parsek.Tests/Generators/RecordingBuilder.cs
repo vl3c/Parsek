@@ -18,6 +18,7 @@ namespace Parsek.Tests.Generators
         private string recordingId;
         private string chainId;
         private int chainIndex = -1;
+        private int chainBranch = -1;
 
         // Default rotation for points that don't specify one explicitly
         private float defaultRotX, defaultRotY, defaultRotZ;
@@ -166,6 +167,12 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
+        public RecordingBuilder WithChainBranch(int branch)
+        {
+            chainBranch = branch;
+            return this;
+        }
+
         public RecordingBuilder WithGhostVisualSnapshot(ConfigNode snapshot)
         {
             ghostVisualSnapshot = snapshot;
@@ -227,6 +234,8 @@ namespace Parsek.Tests.Generators
                 node.AddValue("chainId", chainId);
             if (chainIndex >= 0)
                 node.AddValue("chainIndex", chainIndex);
+            if (chainBranch > 0)
+                node.AddValue("chainBranch", chainBranch);
 
             if (spawnedPid != 0)
                 node.AddValue("spawnedPid", spawnedPid);
@@ -269,6 +278,8 @@ namespace Parsek.Tests.Generators
                 node.AddValue("chainId", chainId);
             if (chainIndex >= 0)
                 node.AddValue("chainIndex", chainIndex);
+            if (chainBranch > 0)
+                node.AddValue("chainBranch", chainBranch);
 
             if (vesselSnapshot != null)
                 node.AddNode("VESSEL_SNAPSHOT", vesselSnapshot);
