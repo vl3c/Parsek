@@ -72,6 +72,14 @@ namespace Parsek
     {
         private static readonly Regex trailingNumericSuffixRegex =
             new Regex(@"^(.*)_\d+$", RegexOptions.Compiled);
+        private const string LightsShowcaseRecordingPrefix = "Part Showcase - Light";
+        private const float LightsShowcaseVisualYOffset = 2f;
+        private const float LightMinimumIntensity = 1f;
+        private const float LightMinimumRange = 8f;
+        private const float LightShowcaseIntensityScale = 2f;
+        private const float LightShowcaseRangeScale = 2f;
+        private const float LightShowcaseMinimumIntensity = 2f;
+        private const float LightShowcaseMinimumRange = 25f;
 
         internal static GameObject BuildTimelineGhostFromSnapshot(
             RecordingStore.Recording rec, string rootName,
@@ -148,10 +156,13 @@ namespace Parsek
                 LightGhostInfo lightInfo;
                 FairingGhostInfo fairingInfo;
                 List<RcsGhostInfo> partRcsInfos;
+                bool raiseLightVisualOnly =
+                    !string.IsNullOrEmpty(rec.VesselName) &&
+                    rec.VesselName.StartsWith(LightsShowcaseRecordingPrefix, System.StringComparison.Ordinal);
                 bool partVisualAdded = AddPartVisuals(root.transform, partNode, ap.partPrefab,
                     persistentId, partName, out meshCount, out parachuteInfo, out jettisonInfo,
                     out partEngineInfos, out deployableInfo, out lightInfo, out fairingInfo,
-                    out partRcsInfos);
+                    out partRcsInfos, raiseLightVisualOnly);
                 if (partVisualAdded)
                     visualCount++;
                 else
@@ -1635,7 +1646,7 @@ namespace Parsek
             out ParachuteGhostInfo parachuteInfo, out JettisonGhostInfo jettisonInfo,
             out List<EngineGhostInfo> engineInfos, out DeployableGhostInfo deployableInfo,
             out LightGhostInfo lightInfo, out FairingGhostInfo fairingInfo,
-            out List<RcsGhostInfo> rcsInfos)
+            out List<RcsGhostInfo> rcsInfos, bool raiseLightVisualOnly)
         {
             meshCount = 0;
             parachuteInfo = null;
@@ -1724,6 +1735,11 @@ namespace Parsek
             modelNode.transform.localRotation = modelRoot.localRotation;
             modelNode.transform.localScale = modelRoot.localScale;
             cloneMap[modelRoot] = modelNode.transform;
+
+            // For light showcase recordings, lift only light-part visuals so probes stay
+            // fixed while the lamp geometry sits clearly above the probe body.
+            if (raiseLightVisualOnly && prefab.FindModuleImplementing<ModuleLight>() != null)
+                modelNode.transform.localPosition += new Vector3(0f, LightsShowcaseVisualYOffset, 0f);
 
             for (int r = 0; r < meshRenderers.Length; r++)
             {
@@ -2096,17 +2112,42 @@ namespace Parsek
                         Transform ghostParent = MirrorTransformChain(
                             srcLight.transform, modelRoot, modelNode.transform, cloneMap);
 
+                        float clonedIntensity = srcLight.intensity;
+                        float clonedRange = srcLight.range;
+                        if (clonedIntensity <= 0.001f)
+                            clonedIntensity = LightMinimumIntensity;
+                        if (clonedRange <= 0.001f)
+                            clonedRange = LightMinimumRange;
+
+                        if (raiseLightVisualOnly)
+                        {
+                            clonedIntensity = Mathf.Max(
+                                clonedIntensity * LightShowcaseIntensityScale,
+                                LightShowcaseMinimumIntensity);
+                            clonedRange = Mathf.Max(
+                                clonedRange * LightShowcaseRangeScale,
+                                LightShowcaseMinimumRange);
+                        }
+
                         // Create a new Light component on the ghost transform
                         Light ghostLight = ghostParent.gameObject.AddComponent<Light>();
                         ghostLight.type = srcLight.type;
                         ghostLight.color = srcLight.color;
-                        ghostLight.intensity = srcLight.intensity;
-                        ghostLight.range = srcLight.range;
+                        ghostLight.intensity = clonedIntensity;
+                        ghostLight.range = clonedRange;
                         ghostLight.spotAngle = srcLight.spotAngle;
+                        ghostLight.cullingMask = srcLight.cullingMask;
                         ghostLight.shadows = LightShadows.None;
-                        ghostLight.renderMode = LightRenderMode.ForceVertex;
+                        ghostLight.renderMode = raiseLightVisualOnly
+                            ? LightRenderMode.ForcePixel
+                            : srcLight.renderMode;
                         ghostLight.enabled = false;
                         clonedLights.Add(ghostLight);
+                        ParsekLog.Log(
+                            $"      Light clone[{li}] '{srcLight.name}': " +
+                            $"srcI={srcLight.intensity:F2} srcR={srcLight.range:F1} " +
+                            $"-> ghostI={clonedIntensity:F2} ghostR={clonedRange:F1} " +
+                            $"mode={ghostLight.renderMode}");
                     }
 
                     if (clonedLights.Count > 0)
