@@ -31,9 +31,12 @@ namespace Parsek
         private HashSet<uint> jettisonedShrouds = new HashSet<uint>();
         private HashSet<uint> extendedDeployables = new HashSet<uint>();
         private HashSet<uint> lightsOn = new HashSet<uint>();
+        private HashSet<uint> blinkingLights = new HashSet<uint>();
+        private Dictionary<uint, float> lightBlinkRates = new Dictionary<uint, float>();
         private HashSet<uint> deployedGear = new HashSet<uint>();
         private HashSet<uint> openCargoBays = new HashSet<uint>();
         private HashSet<uint> deployedFairings = new HashSet<uint>();
+        private HashSet<ulong> deployedLadders = new HashSet<ulong>();
 
         // Engine state tracking (key = EncodeEngineKey(pid, moduleIndex))
         private List<(Part part, ModuleEngines engine, int moduleIndex)> cachedEngines;
@@ -333,6 +336,107 @@ namespace Parsek
             return null;
         }
 
+        internal static List<PartEvent> CheckLightBlinkTransition(
+            uint partPersistentId, string partName, bool isBlinking, float blinkRate,
+            HashSet<uint> blinkingSet, Dictionary<uint, float> blinkRateMap, double ut)
+        {
+            var events = new List<PartEvent>();
+            bool wasBlinking = blinkingSet.Contains(partPersistentId);
+            float safeBlinkRate = blinkRate > 0f ? blinkRate : 1f;
+
+            if (isBlinking && !wasBlinking)
+            {
+                blinkingSet.Add(partPersistentId);
+                blinkRateMap[partPersistentId] = safeBlinkRate;
+                events.Add(new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.LightBlinkEnabled,
+                    partName = partName,
+                    value = safeBlinkRate
+                });
+                return events;
+            }
+
+            if (!isBlinking && wasBlinking)
+            {
+                blinkingSet.Remove(partPersistentId);
+                blinkRateMap.Remove(partPersistentId);
+                events.Add(new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.LightBlinkDisabled,
+                    partName = partName
+                });
+                return events;
+            }
+
+            if (isBlinking && wasBlinking)
+            {
+                float lastRate;
+                if (!blinkRateMap.TryGetValue(partPersistentId, out lastRate))
+                    lastRate = safeBlinkRate;
+
+                if (Math.Abs(safeBlinkRate - lastRate) >= 0.01f)
+                {
+                    blinkRateMap[partPersistentId] = safeBlinkRate;
+                    events.Add(new PartEvent
+                    {
+                        ut = ut,
+                        partPersistentId = partPersistentId,
+                        eventType = PartEventType.LightBlinkRate,
+                        partName = partName,
+                        value = safeBlinkRate
+                    });
+                }
+            }
+
+            return events;
+        }
+
+        internal static void ClassifyLadderState(float animTime, out bool isExtended, out bool isRetracted)
+        {
+            isExtended = animTime >= 0.99f;
+            isRetracted = animTime <= 0.01f;
+        }
+
+        internal static PartEvent? CheckLadderTransition(
+            ulong key, uint partPersistentId, string partName, bool isExtended,
+            HashSet<ulong> deployedSet, double ut, int moduleIndex)
+        {
+            bool wasExtended = deployedSet.Contains(key);
+
+            if (isExtended && !wasExtended)
+            {
+                deployedSet.Add(key);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.DeployableExtended,
+                    partName = partName,
+                    moduleIndex = moduleIndex
+                };
+            }
+
+            if (!isExtended && wasExtended)
+            {
+                deployedSet.Remove(key);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.DeployableRetracted,
+                    partName = partName,
+                    moduleIndex = moduleIndex
+                };
+            }
+
+            return null;
+        }
+
         private void CheckLightState(Vessel v)
         {
             if (v == null || v.parts == null) return;
@@ -353,7 +457,148 @@ namespace Parsek
                     PartEvents.Add(evt.Value);
                     ParsekLog.Log($"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
                 }
+
+                var blinkEvents = CheckLightBlinkTransition(
+                    p.persistentId, p.partInfo?.name ?? "unknown",
+                    light.isBlinking, light.blinkRate,
+                    blinkingLights, lightBlinkRates, ut);
+                for (int e = 0; e < blinkEvents.Count; e++)
+                {
+                    PartEvents.Add(blinkEvents[e]);
+                    ParsekLog.Log($"Part event: {blinkEvents[e].eventType} '{blinkEvents[e].partName}' " +
+                        $"pid={blinkEvents[e].partPersistentId} val={blinkEvents[e].value:F2}");
+                }
             }
+        }
+
+        internal static bool TryClassifyLadderStateFromEventActivity(
+            bool canExtend, bool canRetract, out bool isDeployed, out bool isRetracted)
+        {
+            isDeployed = false;
+            isRetracted = false;
+
+            // For ladders, mutually-exclusive UI event activity indicates current state:
+            // - can retract => currently deployed
+            // - can extend  => currently retracted
+            if (canExtend == canRetract)
+                return false;
+
+            isDeployed = canRetract;
+            isRetracted = canExtend;
+            return true;
+        }
+
+        internal static bool TryClassifyRetractableLadderState(
+            PartModule ladderModule, out bool isDeployed, out bool isRetracted)
+        {
+            isDeployed = false;
+            isRetracted = false;
+            if (ladderModule == null) return false;
+
+            bool sawExtendEvent = false;
+            bool sawRetractEvent = false;
+            bool canExtend = false;
+            bool canRetract = false;
+
+            // Prefer event activity, which directly reflects action availability.
+            if (ladderModule.Events != null)
+            {
+                for (int i = 0; i < ladderModule.Events.Count; i++)
+                {
+                    BaseEvent evt = ladderModule.Events[i];
+                    if (evt == null) continue;
+
+                    string evtName = (evt.name ?? string.Empty).ToLowerInvariant();
+                    string guiName = (evt.guiName ?? string.Empty).ToLowerInvariant();
+
+                    bool isExtendEvent = evtName.Contains("extend") || guiName.Contains("extend");
+                    bool isRetractEvent = evtName.Contains("retract") || guiName.Contains("retract");
+
+                    if (isExtendEvent)
+                    {
+                        sawExtendEvent = true;
+                        canExtend = canExtend || evt.active;
+                    }
+
+                    if (isRetractEvent)
+                    {
+                        sawRetractEvent = true;
+                        canRetract = canRetract || evt.active;
+                    }
+                }
+            }
+
+            if ((sawExtendEvent || sawRetractEvent) &&
+                TryClassifyLadderStateFromEventActivity(
+                    canExtend, canRetract, out isDeployed, out isRetracted))
+                return true;
+
+            // Fallback: some module variants expose direct bool fields.
+            bool boolValue;
+            if (TryGetModuleBoolField(ladderModule, "isDeployed", out boolValue) ||
+                TryGetModuleBoolField(ladderModule, "deployed", out boolValue) ||
+                TryGetModuleBoolField(ladderModule, "isExtended", out boolValue) ||
+                TryGetModuleBoolField(ladderModule, "extended", out boolValue))
+            {
+                isDeployed = boolValue;
+                isRetracted = !boolValue;
+                return true;
+            }
+
+            if (TryGetModuleBoolField(ladderModule, "isRetracted", out boolValue) ||
+                TryGetModuleBoolField(ladderModule, "retracted", out boolValue))
+            {
+                isRetracted = boolValue;
+                isDeployed = !boolValue;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryGetModuleBoolField(PartModule module, string fieldName, out bool value)
+        {
+            value = false;
+            if (module == null || module.Fields == null || string.IsNullOrEmpty(fieldName))
+                return false;
+
+            try
+            {
+                BaseField field = module.Fields[fieldName];
+                if (field == null)
+                    return false;
+
+                object raw = field.GetValue(module);
+                if (raw == null)
+                    return false;
+
+                if (raw is bool)
+                {
+                    value = (bool)raw;
+                    return true;
+                }
+
+                string text = raw.ToString();
+                bool parsedBool;
+                if (bool.TryParse(text, out parsedBool))
+                {
+                    value = parsedBool;
+                    return true;
+                }
+
+                int parsedInt;
+                if (int.TryParse(text, out parsedInt))
+                {
+                    value = parsedInt != 0;
+                    return true;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+
+            return false;
         }
 
         internal static void ClassifyGearState(string stateString, out bool isDeployed, out bool isRetracted)
@@ -515,6 +760,44 @@ namespace Parsek
                 {
                     PartEvents.Add(evt.Value);
                     ParsekLog.Log($"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
+                }
+            }
+        }
+
+        private void CheckLadderState(Vessel v)
+        {
+            if (v == null || v.parts == null) return;
+
+            double ut = Planetarium.GetUniversalTime();
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    PartModule module = p.Modules[m];
+                    if (module == null) continue;
+                    if (!string.Equals(module.moduleName, "RetractableLadder", StringComparison.Ordinal))
+                        continue;
+
+                    ulong key = EncodeEngineKey(p.persistentId, m);
+                    bool isDeployed;
+                    bool isRetracted;
+                    if (!TryClassifyRetractableLadderState(module, out isDeployed, out isRetracted))
+                        continue;
+
+                    var evt = CheckLadderTransition(
+                        key, p.persistentId, p.partInfo?.name ?? "unknown",
+                        isDeployed, deployedLadders, ut, m);
+                    if (evt.HasValue)
+                    {
+                        PartEvents.Add(evt.Value);
+                        ParsekLog.Log($"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                            $"pid={evt.Value.partPersistentId} (ladder)");
+                    }
+
+                    break; // one RetractableLadder module per ladder part
                 }
             }
         }
@@ -842,9 +1125,12 @@ namespace Parsek
             jettisonedShrouds.Clear();
             extendedDeployables.Clear();
             lightsOn.Clear();
+            blinkingLights.Clear();
+            lightBlinkRates.Clear();
             deployedGear.Clear();
             openCargoBays.Clear();
             deployedFairings.Clear();
+            deployedLadders.Clear();
             cachedEngines = CacheEngineModules(v);
             activeEngineKeys = new HashSet<ulong>();
             lastThrottle = new Dictionary<ulong, float>();
@@ -1117,6 +1403,7 @@ namespace Parsek
             CheckEngineState(v);
             CheckRcsState(v);
             CheckDeployableState(v);
+            CheckLadderState(v);
             CheckLightState(v);
             CheckGearState(v);
             CheckCargoBayState(v);

@@ -577,6 +577,81 @@ namespace Parsek.Tests
             Assert.Equal("solarPanels5", peNodes[0].GetValue("part"));
         }
 
+        [Fact]
+        public void LadderTransition_RetractedToExtended_EmitsDeployableExtended()
+        {
+            var deployed = new HashSet<ulong>();
+            ulong key = FlightRecorder.EncodeEngineKey(42, 1);
+            var evt = FlightRecorder.CheckLadderTransition(
+                key, 42, "telescopicLadder", isExtended: true,
+                deployed, 100.0, moduleIndex: 1);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.DeployableExtended, evt.Value.eventType);
+            Assert.Equal(1, evt.Value.moduleIndex);
+            Assert.Contains(key, deployed);
+        }
+
+        [Fact]
+        public void LadderTransition_ExtendedToRetracted_EmitsDeployableRetracted()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(42, 1);
+            var deployed = new HashSet<ulong> { key };
+            var evt = FlightRecorder.CheckLadderTransition(
+                key, 42, "telescopicLadder", isExtended: false,
+                deployed, 110.0, moduleIndex: 1);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.DeployableRetracted, evt.Value.eventType);
+            Assert.DoesNotContain(key, deployed);
+        }
+
+        [Fact]
+        public void ClassifyLadderState_Endpoints_AreDetected()
+        {
+            FlightRecorder.ClassifyLadderState(1.0f, out bool isExtended, out bool isRetracted);
+            Assert.True(isExtended);
+            Assert.False(isRetracted);
+
+            FlightRecorder.ClassifyLadderState(0.0f, out isExtended, out isRetracted);
+            Assert.False(isExtended);
+            Assert.True(isRetracted);
+        }
+
+        [Fact]
+        public void LadderStateFromEvents_CanRetract_MarksDeployed()
+        {
+            bool ok = FlightRecorder.TryClassifyLadderStateFromEventActivity(
+                canExtend: false, canRetract: true, out bool isDeployed, out bool isRetracted);
+
+            Assert.True(ok);
+            Assert.True(isDeployed);
+            Assert.False(isRetracted);
+        }
+
+        [Fact]
+        public void LadderStateFromEvents_CanExtend_MarksRetracted()
+        {
+            bool ok = FlightRecorder.TryClassifyLadderStateFromEventActivity(
+                canExtend: true, canRetract: false, out bool isDeployed, out bool isRetracted);
+
+            Assert.True(ok);
+            Assert.False(isDeployed);
+            Assert.True(isRetracted);
+        }
+
+        [Fact]
+        public void LadderStateFromEvents_Ambiguous_ReturnsFalse()
+        {
+            bool okA = FlightRecorder.TryClassifyLadderStateFromEventActivity(
+                canExtend: true, canRetract: true, out _, out _);
+            bool okB = FlightRecorder.TryClassifyLadderStateFromEventActivity(
+                canExtend: false, canRetract: false, out _, out _);
+
+            Assert.False(okA);
+            Assert.False(okB);
+        }
+
         #endregion
 
         #region Light state tracking
@@ -631,6 +706,68 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void LightBlinkTransition_OffToBlinking_EmitsBlinkEnabledEvent()
+        {
+            var blinking = new HashSet<uint>();
+            var blinkRates = new Dictionary<uint, float>();
+
+            var events = FlightRecorder.CheckLightBlinkTransition(
+                42, "spotLight1", isBlinking: true, blinkRate: 2.5f,
+                blinking, blinkRates, 100.0);
+
+            Assert.Single(events);
+            Assert.Equal(PartEventType.LightBlinkEnabled, events[0].eventType);
+            Assert.Equal(2.5f, events[0].value, 0.001f);
+            Assert.Contains(42u, blinking);
+            Assert.Equal(2.5f, blinkRates[42], 0.001f);
+        }
+
+        [Fact]
+        public void LightBlinkTransition_BlinkingToSteady_EmitsBlinkDisabledEvent()
+        {
+            var blinking = new HashSet<uint> { 42 };
+            var blinkRates = new Dictionary<uint, float> { { 42, 1.2f } };
+
+            var events = FlightRecorder.CheckLightBlinkTransition(
+                42, "spotLight1", isBlinking: false, blinkRate: 1.2f,
+                blinking, blinkRates, 110.0);
+
+            Assert.Single(events);
+            Assert.Equal(PartEventType.LightBlinkDisabled, events[0].eventType);
+            Assert.DoesNotContain(42u, blinking);
+            Assert.False(blinkRates.ContainsKey(42));
+        }
+
+        [Fact]
+        public void LightBlinkTransition_RateChanged_EmitsBlinkRateEvent()
+        {
+            var blinking = new HashSet<uint> { 42 };
+            var blinkRates = new Dictionary<uint, float> { { 42, 1.0f } };
+
+            var events = FlightRecorder.CheckLightBlinkTransition(
+                42, "spotLight1", isBlinking: true, blinkRate: 3.0f,
+                blinking, blinkRates, 120.0);
+
+            Assert.Single(events);
+            Assert.Equal(PartEventType.LightBlinkRate, events[0].eventType);
+            Assert.Equal(3.0f, events[0].value, 0.001f);
+            Assert.Equal(3.0f, blinkRates[42], 0.001f);
+        }
+
+        [Fact]
+        public void LightBlinkTransition_SameRate_ReturnsNoEvent()
+        {
+            var blinking = new HashSet<uint> { 42 };
+            var blinkRates = new Dictionary<uint, float> { { 42, 2.0f } };
+
+            var events = FlightRecorder.CheckLightBlinkTransition(
+                42, "spotLight1", isBlinking: true, blinkRate: 2.005f,
+                blinking, blinkRates, 130.0);
+
+            Assert.Empty(events);
+        }
+
+        [Fact]
         public void PartEvents_SerializationRoundtrip_LightOn()
         {
             var rec = new RecordingStore.Recording();
@@ -655,6 +792,32 @@ namespace Parsek.Tests
             Assert.Equal(42u, loaded.PartEvents[0].partPersistentId);
             Assert.Equal("spotLight1", loaded.PartEvents[0].partName);
             Assert.Equal(105.0, loaded.PartEvents[0].ut);
+        }
+
+        [Fact]
+        public void PartEvents_SerializationRoundtrip_LightBlinkEnabled()
+        {
+            var rec = new RecordingStore.Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 110, bodyName = "Kerbin" });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 105,
+                partPersistentId = 42,
+                eventType = PartEventType.LightBlinkEnabled,
+                partName = "spotLight1",
+                value = 1.5f
+            });
+
+            var node = new ConfigNode("TEST");
+            RecordingStore.SerializeTrajectoryInto(node, rec);
+
+            var loaded = new RecordingStore.Recording();
+            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+
+            Assert.Single(loaded.PartEvents);
+            Assert.Equal(PartEventType.LightBlinkEnabled, loaded.PartEvents[0].eventType);
+            Assert.Equal(1.5f, loaded.PartEvents[0].value, 0.001f);
         }
 
         #endregion
