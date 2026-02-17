@@ -69,4 +69,11 @@ if ($LASTEXITCODE -ne 0) {
     throw "Injector test failed with exit code $LASTEXITCODE"
 }
 
+# Keep persistent in lockstep with the target save so KSP's initial load state
+# cannot diverge from the manually selected save slot.
+if ($TargetSave -ne "persistent.sfs") {
+    Copy-Item $targetPath $persistentPath -Force
+    Write-Host "Synchronized persistent.sfs from $TargetSave"
+}
+
 Write-Host "Injection complete."
