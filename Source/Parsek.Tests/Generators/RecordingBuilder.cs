@@ -19,6 +19,8 @@ namespace Parsek.Tests.Generators
         private string chainId;
         private int chainIndex = -1;
         private int chainBranch = -1;
+        private bool loopPlayback;
+        private double loopPauseSeconds = 10.0;
 
         // Default rotation for points that don't specify one explicitly
         private float defaultRotX, defaultRotY, defaultRotZ;
@@ -173,6 +175,13 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
+        public RecordingBuilder WithLoopPlayback(bool loop = true, double pauseSeconds = 10.0)
+        {
+            loopPlayback = loop;
+            loopPauseSeconds = pauseSeconds;
+            return this;
+        }
+
         public RecordingBuilder WithGhostVisualSnapshot(ConfigNode snapshot)
         {
             ghostVisualSnapshot = snapshot;
@@ -224,6 +233,8 @@ namespace Parsek.Tests.Generators
             node.AddValue("pointCount", points.Count);
             node.AddValue("recordingId", GetRecordingId());
             node.AddValue("recordingFormatVersion", "4");
+            node.AddValue("loopPlayback", loopPlayback.ToString());
+            node.AddValue("loopPauseSeconds", loopPauseSeconds.ToString("R", CultureInfo.InvariantCulture));
 
             if (!string.IsNullOrEmpty(parentRecordingId))
                 node.AddValue("parentRecordingId", parentRecordingId);
@@ -280,6 +291,9 @@ namespace Parsek.Tests.Generators
                 node.AddValue("chainIndex", chainIndex);
             if (chainBranch > 0)
                 node.AddValue("chainBranch", chainBranch);
+
+            node.AddValue("loopPlayback", loopPlayback.ToString());
+            node.AddValue("loopPauseSeconds", loopPauseSeconds.ToString("R", CultureInfo.InvariantCulture));
 
             if (vesselSnapshot != null)
                 node.AddNode("VESSEL_SNAPSHOT", vesselSnapshot);

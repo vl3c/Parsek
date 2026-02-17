@@ -340,6 +340,8 @@ namespace Parsek.Tests
                 RecordingId = "meta123",
                 RecordingFormatVersion = 12,
                 GhostGeometryVersion = 8,
+                LoopPlayback = true,
+                LoopPauseSeconds = 2.5,
                 GhostGeometryRelativePath = "Parsek/Recordings/meta123.pcrf",
                 GhostGeometryAvailable = true,
                 GhostGeometryCaptureError = "none",
@@ -356,6 +358,8 @@ namespace Parsek.Tests
             Assert.Equal("meta123", loaded.RecordingId);
             Assert.Equal(12, loaded.RecordingFormatVersion);
             Assert.Equal(8, loaded.GhostGeometryVersion);
+            Assert.True(loaded.LoopPlayback);
+            Assert.Equal(2.5, loaded.LoopPauseSeconds);
             Assert.Equal("Parsek/Recordings/meta123.pcrf", loaded.GhostGeometryRelativePath);
             Assert.True(loaded.GhostGeometryAvailable);
             Assert.Equal("none", loaded.GhostGeometryCaptureError);
@@ -378,6 +382,8 @@ namespace Parsek.Tests
             Assert.Equal(defaultId, loaded.RecordingId);
             Assert.Equal(defaultRecVer, loaded.RecordingFormatVersion);
             Assert.Equal(defaultGeomVer, loaded.GhostGeometryVersion);
+            Assert.False(loaded.LoopPlayback);
+            Assert.Equal(10.0, loaded.LoopPauseSeconds);
             Assert.Null(loaded.GhostGeometryRelativePath);
             Assert.False(loaded.GhostGeometryAvailable);
             Assert.Null(loaded.GhostGeometryCaptureError);

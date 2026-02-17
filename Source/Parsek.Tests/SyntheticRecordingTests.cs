@@ -496,6 +496,62 @@ namespace Parsek.Tests
             return new[] { seg0, seg1 };
         }
 
+        private static RecordingBuilder BuildLightShowcaseRecording(
+            double baseUT, string vesselName, string lightPartName, int rowIndex)
+        {
+            // Kerbin radius is 600km. Near KSC, 1 degree is ~10.47km.
+            const double metersPerDegree = (2.0 * Math.PI * 600000.0) / 360.0;
+            const double distanceFromPadMeters = 300.0;
+            const double spacingMeters = 5.0;
+
+            double t = baseUT + 30;
+            double baseLat = -0.0972;
+            double baseLon = -74.5575;
+            double lat = baseLat + (rowIndex * spacingMeters / metersPerDegree);
+            double lon = baseLon + (distanceFromPadMeters / metersPerDegree);
+            double alt = 66.0;
+
+            var b = new RecordingBuilder(vesselName)
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
+                .WithLoopPlayback(loop: true, pauseSeconds: 0.0);
+
+            // Static trajectory (24s) so the visual focus is part event playback.
+            for (int i = 0; i <= 8; i++)
+                b.AddPoint(t + (i * 3), lat, lon, alt);
+
+            // Light toggles every 3 seconds.
+            bool on = true;
+            for (int sec = 3; sec <= 24; sec += 3)
+            {
+                b.AddPartEvent(
+                    t + sec,
+                    pid: 101111,
+                    type: on ? (int)PartEventType.LightOn : (int)PartEventType.LightOff,
+                    partName: lightPartName);
+                on = !on;
+            }
+
+            b.WithGhostVisualSnapshot(
+                VesselSnapshotBuilder.ProbeShip(vesselName, pid: (uint)(88000000 + rowIndex))
+                    .AddPart(lightPartName, position: "0,2,0")
+                    .AsLanded(lat, lon, alt));
+
+            return b;
+        }
+
+        internal static RecordingBuilder[] LightShowcaseRecordings(double baseUT = 0)
+        {
+            return new[]
+            {
+                BuildLightShowcaseRecording(baseUT, "Part Showcase - Lights v1", "domeLight1", rowIndex: 0),
+                BuildLightShowcaseRecording(baseUT, "Part Showcase - Light - Nav v1", "navLight1", rowIndex: 1),
+                BuildLightShowcaseRecording(baseUT, "Part Showcase - Light - Strip v1", "stripLight1", rowIndex: 2),
+                BuildLightShowcaseRecording(baseUT, "Part Showcase - Light - Spot v1", "spotLight3", rowIndex: 3),
+                BuildLightShowcaseRecording(baseUT, "Part Showcase - Light - Ground Small v1", "groundLight1", rowIndex: 4),
+                BuildLightShowcaseRecording(baseUT, "Part Showcase - Light - Ground Stand v1", "groundLight2", rowIndex: 5)
+            };
+        }
+
         #endregion
 
         #region Unit Tests
@@ -964,6 +1020,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RecordingBuilder_WithLoopPlayback_WritesLoopMetadata()
+        {
+            var node = new RecordingBuilder("Loop Test")
+                .WithRecordingId("loop123")
+                .WithLoopPlayback(loop: true, pauseSeconds: 0.0)
+                .AddPoint(100, 0, 0, 0)
+                .AddPoint(103, 0, 0, 0)
+                .BuildV3Metadata();
+
+            Assert.Equal("True", node.GetValue("loopPlayback"));
+            Assert.Equal("0", node.GetValue("loopPauseSeconds"));
+        }
+
+        [Fact]
         public void RecordingBuilder_BuildTrajectoryNode_HasBulkData()
         {
             var builder = new RecordingBuilder("Test Vessel")
@@ -997,6 +1067,26 @@ namespace Parsek.Tests
             Assert.Empty(recNode.GetNodes("POINT"));
             Assert.Null(recNode.GetNode("VESSEL_SNAPSHOT"));
             Assert.Null(recNode.GetNode("GHOST_VISUAL_SNAPSHOT"));
+        }
+
+        [Fact]
+        public void LightShowcaseRecordings_BuildExpectedShape()
+        {
+            var recordings = LightShowcaseRecordings(baseUT: 17000);
+            Assert.Equal(6, recordings.Length);
+
+            var first = recordings[0].Build();
+            Assert.Equal("Part Showcase - Lights v1", first.GetValue("vesselName"));
+            Assert.Equal("9", first.GetValue("pointCount"));
+            Assert.Equal("True", first.GetValue("loopPlayback"));
+            Assert.Equal("0", first.GetValue("loopPauseSeconds"));
+            Assert.Equal(8, first.GetNodes("PART_EVENT").Length);
+
+            var ghost = first.GetNode("GHOST_VISUAL_SNAPSHOT");
+            Assert.NotNull(ghost);
+            var parts = ghost.GetNodes("PART");
+            Assert.True(parts.Length >= 2);
+            Assert.Equal("0,2,0", parts[1].GetValue("position"));
         }
 
         [Fact]
@@ -1491,20 +1581,25 @@ namespace Parsek.Tests
             double baseUT = ReadUTFromSave(targetPath);
 
             var writer = new ScenarioWriter().WithV3Format();
-            writer.AddRecording(PadWalk(baseUT));
-            writer.AddRecording(KscHopper(baseUT));
-            writer.AddRecording(FleaFlight(baseUT));
-            writer.AddRecording(SuborbitalArc(baseUT));
-            writer.AddRecording(KscPadDestroyed(baseUT));
-            writer.AddRecording(Orbit1(baseUT));
-            writer.AddRecording(CloseSpawnConflict(baseUT));
-            writer.AddRecording(IslandProbe(baseUT));
+            writer.AddRecording(PadWalk(baseUT).WithLoopPlayback());
+            writer.AddRecording(KscHopper(baseUT).WithLoopPlayback());
+            writer.AddRecording(FleaFlight(baseUT).WithLoopPlayback());
+            writer.AddRecording(SuborbitalArc(baseUT).WithLoopPlayback());
+            writer.AddRecording(KscPadDestroyed(baseUT).WithLoopPlayback());
+            writer.AddRecording(Orbit1(baseUT).WithLoopPlayback());
+            writer.AddRecording(CloseSpawnConflict(baseUT).WithLoopPlayback());
+            writer.AddRecording(IslandProbe(baseUT).WithLoopPlayback());
+
+            var lightShowcases = LightShowcaseRecordings(baseUT);
+            for (int i = 0; i < lightShowcases.Length; i++)
+                writer.AddRecording(lightShowcases[i]);
+
             var chainSegments = EvaBoardChain(baseUT);
             for (int i = 0; i < chainSegments.Length; i++)
-                writer.AddRecording(chainSegments[i]);
+                writer.AddRecording(chainSegments[i].WithLoopPlayback());
             var walkChainSegments = EvaWalkChain(baseUT);
             for (int i = 0; i < walkChainSegments.Length; i++)
-                writer.AddRecording(walkChainSegments[i]);
+                writer.AddRecording(walkChainSegments[i].WithLoopPlayback());
 
             foreach (string file in targets)
             {
@@ -1527,6 +1622,12 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Orbit-1", content);
                     Assert.Contains("vesselName = Close Spawn Conflict", content);
                     Assert.Contains("vesselName = Island Probe", content);
+                    Assert.Contains("vesselName = Part Showcase - Lights v1", content);
+                    Assert.Contains("vesselName = Part Showcase - Light - Nav v1", content);
+                    Assert.Contains("vesselName = Part Showcase - Light - Strip v1", content);
+                    Assert.Contains("vesselName = Part Showcase - Light - Spot v1", content);
+                    Assert.Contains("vesselName = Part Showcase - Light - Ground Small v1", content);
+                    Assert.Contains("vesselName = Part Showcase - Light - Ground Stand v1", content);
                     Assert.Contains("vesselName = Flea Chain", content);
                     Assert.Contains("chainId = chain-eva-board-test", content);
                     Assert.Contains("vesselName = Landing Craft", content);
@@ -1557,8 +1658,8 @@ namespace Parsek.Tests
                     $"Expected Parsek/Recordings directory at {recordingsDir}");
 
                 string[] precFiles = Directory.GetFiles(recordingsDir, "*.prec");
-                Assert.True(precFiles.Length >= 13,
-                    $"Expected at least 13 .prec files (8 standalone + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
+                Assert.True(precFiles.Length >= 19,
+                    $"Expected at least 19 .prec files (8 baseline + 6 lights + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
             }
         }
 

@@ -275,6 +275,7 @@ namespace Parsek
             for (int i = 0; i < recordings.Count; i++)
             {
                 var rec = recordings[i];
+                if (rec.LoopPlayback) continue;
                 if (rec.VesselSnapshot != null && !rec.VesselSpawned && currentUT > rec.EndUT)
                 {
                     UnreserveCrewInSnapshot(rec.VesselSnapshot);
@@ -311,6 +312,8 @@ namespace Parsek
             recNode.AddValue("recordingId", rec.RecordingId ?? "");
             recNode.AddValue("recordingFormatVersion", rec.RecordingFormatVersion);
             recNode.AddValue("ghostGeometryVersion", rec.GhostGeometryVersion);
+            recNode.AddValue("loopPlayback", rec.LoopPlayback);
+            recNode.AddValue("loopPauseSeconds", rec.LoopPauseSeconds.ToString("R", CultureInfo.InvariantCulture));
             recNode.AddValue("ghostGeometryStrategy", rec.GhostGeometryCaptureStrategy ?? "stub_v1");
             recNode.AddValue("ghostGeometryProbeStatus", rec.GhostGeometryProbeStatus ?? "unknown");
             if (!string.IsNullOrEmpty(rec.GhostGeometryRelativePath))
@@ -347,6 +350,22 @@ namespace Parsek
                     rec.GhostGeometryVersion = geomVersion;
             }
 
+            string loopPlaybackStr = recNode.GetValue("loopPlayback");
+            if (loopPlaybackStr != null)
+            {
+                bool loopPlayback;
+                if (bool.TryParse(loopPlaybackStr, out loopPlayback))
+                    rec.LoopPlayback = loopPlayback;
+            }
+
+            string loopPauseStr = recNode.GetValue("loopPauseSeconds");
+            if (loopPauseStr != null)
+            {
+                double loopPauseSeconds;
+                if (double.TryParse(loopPauseStr, NumberStyles.Float, CultureInfo.InvariantCulture, out loopPauseSeconds))
+                    rec.LoopPauseSeconds = loopPauseSeconds;
+            }
+
             rec.GhostGeometryRelativePath = recNode.GetValue("ghostGeometryPath");
             string strategy = recNode.GetValue("ghostGeometryStrategy");
             if (!string.IsNullOrEmpty(strategy))
@@ -374,7 +393,10 @@ namespace Parsek
             if (roster == null) return;
 
             foreach (var rec in RecordingStore.CommittedRecordings)
+            {
+                if (rec.LoopPlayback) continue;
                 ReserveCrewIn(rec.VesselSnapshot, rec.VesselSpawned, roster);
+            }
 
             if (RecordingStore.HasPending && RecordingStore.Pending.VesselSnapshot != null)
                 ReserveCrewIn(RecordingStore.Pending.VesselSnapshot, false, roster);
