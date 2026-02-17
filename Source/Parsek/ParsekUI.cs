@@ -40,6 +40,8 @@ namespace Parsek
             int committedCount = RecordingStore.CommittedRecordings.Count;
             int activeGhosts = flight.TimelineGhostCount;
             GUILayout.Label($"Timeline: {committedCount} recording(s), {activeGhosts} active ghost(s)");
+            if (GUILayout.Button($"Toggle Looping ({(flight.TimelineLoopingEnabled ? "On" : "Off")})"))
+                flight.ToggleTimelineLooping();
 
             // Active ghost controls — Take Control buttons
             var committed = RecordingStore.CommittedRecordings;

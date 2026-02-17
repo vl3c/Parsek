@@ -89,6 +89,17 @@ namespace Parsek.Tests
             Assert.Equal(expected, actual);
         }
 
+        [Theory]
+        [InlineData(true, true, true)]
+        [InlineData(true, false, false)]
+        [InlineData(false, true, false)]
+        public void ShouldLoopPlayback_RequiresGlobalAndRecordingFlags(
+            bool globalLoopingEnabled, bool recordingLoopPlayback, bool expected)
+        {
+            bool actual = ParsekFlight.ShouldLoopPlayback(globalLoopingEnabled, recordingLoopPlayback);
+            Assert.Equal(expected, actual);
+        }
+
         [Fact]
         public void ComputeTargetResourceIndex_FindsHighestPassedPoint()
         {
@@ -103,6 +114,31 @@ namespace Parsek.Tests
             var points = MakePoints(10, 20, 30, 40);
             int target = ParsekFlight.ComputeTargetResourceIndex(points, lastAppliedResourceIndex: 1, currentUT: 25);
             Assert.Equal(1, target);
+        }
+
+        [Theory]
+        [InlineData(99, false, 100, 0)]
+        [InlineData(100, true, 100, 0)]
+        [InlineData(119, true, 119, 0)]
+        [InlineData(120, true, 120, 0)]
+        [InlineData(125, false, 100, 0)]
+        [InlineData(130, true, 100, 1)]
+        [InlineData(134, true, 104, 1)]
+        [InlineData(151, false, 100, 1)]
+        public void TryComputeLoopPlaybackUT_RespectsPlaybackAndPauseWindows(
+            double currentUT, bool expectedInPlayback, double expectedLoopUT, int expectedCycle)
+        {
+            bool inPlayback = ParsekFlight.TryComputeLoopPlaybackUT(
+                currentUT,
+                startUT: 100,
+                endUT: 120,
+                pauseSeconds: 10,
+                out double loopUT,
+                out int cycleIndex);
+
+            Assert.Equal(expectedInPlayback, inPlayback);
+            Assert.Equal(expectedCycle, cycleIndex);
+            Assert.Equal(expectedLoopUT, loopUT, 6);
         }
 
         [Theory]

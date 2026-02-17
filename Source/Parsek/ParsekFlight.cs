@@ -37,12 +37,20 @@ namespace Parsek
         internal int lastPlaybackIndex = 0;
 
         // Per-ghost playback state (bundled to prevent dict-sync bugs)
+        private class LightPlaybackState
+        {
+            public bool isOn;
+            public bool blinkEnabled;
+            public float blinkRateHz = 1f;
+        }
+
         private class GhostPlaybackState
         {
             public GameObject ghost;
             public List<Material> materials;
             public int playbackIndex;
             public int partEventIndex;
+            public int loopCycleIndex = -1;
             public Dictionary<uint, List<uint>> partTree;
             public Dictionary<uint, ParachuteGhostInfo> parachuteInfos;
             public Dictionary<uint, JettisonGhostInfo> jettisonInfos;
@@ -50,6 +58,7 @@ namespace Parsek
             public Dictionary<ulong, RcsGhostInfo> rcsInfos;   // separate from engineInfos — keys can overlap for same part
             public Dictionary<uint, DeployableGhostInfo> deployableInfos;
             public Dictionary<uint, LightGhostInfo> lightInfos;
+            public Dictionary<uint, LightPlaybackState> lightPlaybackStates;
             public Dictionary<uint, FairingGhostInfo> fairingInfos;
             public Dictionary<uint, GameObject> fakeCanopies;
         }
@@ -112,6 +121,10 @@ namespace Parsek
         // Warp-stop guard: only stop time warp once per recording
         private HashSet<int> warpStoppedForRecording = new HashSet<int>();
         private bool timelineResourceReplayPausedLogged = false;
+        private bool timelineLoopingEnabled = true;
+
+        private const double DefaultLoopPauseSeconds = 10.0;
+        private const double MinLoopDurationSeconds = 0.001;
 
         // UI
         private Rect windowRect = new Rect(20, 100, 250, 250);
@@ -125,6 +138,7 @@ namespace Parsek
 
         public bool IsRecording => recorder?.IsRecording ?? false;
         public bool IsPlaying => isPlaying;
+        public bool TimelineLoopingEnabled => timelineLoopingEnabled;
         public int TimelineGhostCount => ghostStates.Count;
         public GameObject PreviewGhost => ghostObject;
         public Dictionary<int, GameObject> TimelineGhosts
@@ -136,6 +150,13 @@ namespace Parsek
                     result[kv.Key] = kv.Value.ghost;
                 return result;
             }
+        }
+
+        public void ToggleTimelineLooping()
+        {
+            timelineLoopingEnabled = !timelineLoopingEnabled;
+            ScreenMessage($"Timeline looping {(timelineLoopingEnabled ? "enabled" : "disabled")}", 2f);
+            Log($"Timeline looping {(timelineLoopingEnabled ? "enabled" : "disabled")} via UI");
         }
 
         #endregion
@@ -1412,6 +1433,7 @@ namespace Parsek
                 {
                     var rec = committed[i];
                     if (rec.Points.Count < 2) continue;
+                    if (ShouldLoopPlayback(rec)) continue;
                     if (rec.VesselSnapshot == null || rec.VesselSpawned || rec.VesselDestroyed ||
                         RecordingStore.IsChainMidSegment(rec)) continue;
 
@@ -1444,6 +1466,13 @@ namespace Parsek
                 GhostPlaybackState state;
                 ghostStates.TryGetValue(i, out state);
                 bool ghostActive = state != null && state.ghost != null;
+
+                if (ShouldLoopPlayback(rec))
+                {
+                    UpdateLoopingTimelinePlayback(i, rec, currentUT, state, ghostActive);
+                    continue;
+                }
+
                 bool isMidChain = RecordingStore.IsChainMidSegment(rec);
                 double chainEndUT = isMidChain ? RecordingStore.GetChainEndUT(rec) : rec.EndUT;
                 bool pastChainEnd = currentUT > chainEndUT;
@@ -1542,6 +1571,110 @@ namespace Parsek
                         ApplyResourceDeltas(rec, currentUT);
                 }
             }
+        }
+
+        private bool ShouldLoopPlayback(RecordingStore.Recording rec)
+        {
+            if (!timelineLoopingEnabled || rec == null || !rec.LoopPlayback || rec.Points == null || rec.Points.Count < 2)
+                return false;
+            return rec.EndUT - rec.StartUT > MinLoopDurationSeconds;
+        }
+
+        private double GetLoopPauseSeconds(RecordingStore.Recording rec)
+        {
+            if (rec == null) return DefaultLoopPauseSeconds;
+            if (double.IsNaN(rec.LoopPauseSeconds) || double.IsInfinity(rec.LoopPauseSeconds))
+                return DefaultLoopPauseSeconds;
+            return Math.Max(0.0, rec.LoopPauseSeconds);
+        }
+
+        private bool TryComputeLoopPlaybackUT(
+            RecordingStore.Recording rec,
+            double currentUT,
+            out double loopUT,
+            out int cycleIndex,
+            out bool inPauseWindow)
+        {
+            loopUT = rec != null ? rec.StartUT : 0;
+            cycleIndex = 0;
+            inPauseWindow = false;
+            if (rec == null || rec.Points == null || rec.Points.Count < 2) return false;
+            if (currentUT < rec.StartUT) return false;
+
+            double duration = rec.EndUT - rec.StartUT;
+            if (duration <= MinLoopDurationSeconds) return false;
+
+            double pauseSeconds = GetLoopPauseSeconds(rec);
+            double cycleDuration = duration + pauseSeconds;
+            if (cycleDuration <= MinLoopDurationSeconds)
+                cycleDuration = duration;
+
+            double elapsed = currentUT - rec.StartUT;
+            cycleIndex = (int)Math.Floor(elapsed / cycleDuration);
+            if (cycleIndex < 0) cycleIndex = 0;
+
+            double cycleTime = elapsed - (cycleIndex * cycleDuration);
+            if (pauseSeconds > 0 && cycleTime > duration)
+            {
+                inPauseWindow = true;
+                loopUT = rec.EndUT;
+                return true;
+            }
+
+            loopUT = rec.StartUT + Math.Min(cycleTime, duration);
+            return true;
+        }
+
+        private void UpdateLoopingTimelinePlayback(
+            int recIdx,
+            RecordingStore.Recording rec,
+            double currentUT,
+            GhostPlaybackState state,
+            bool ghostActive)
+        {
+            double loopUT;
+            int cycleIndex;
+            bool inPauseWindow;
+            if (!TryComputeLoopPlaybackUT(rec, currentUT, out loopUT, out cycleIndex, out inPauseWindow))
+            {
+                if (ghostActive)
+                    DestroyTimelineGhost(recIdx);
+                return;
+            }
+
+            // Rebuild once per loop cycle to guarantee clean visual state and event indices.
+            bool cycleChanged = !ghostActive || state == null || state.loopCycleIndex != cycleIndex;
+            if (cycleChanged && ghostActive)
+            {
+                DestroyTimelineGhost(recIdx);
+                ghostActive = false;
+                state = null;
+            }
+
+            if (!ghostActive)
+            {
+                SpawnTimelineGhost(recIdx, rec);
+                state = ghostStates[recIdx];
+                state.loopCycleIndex = cycleIndex;
+                if (loggedGhostEnter.Add(recIdx))
+                    Log($"Ghost ENTERED range: #{recIdx} \"{rec.VesselName}\" at UT {currentUT:F1} (loop)");
+            }
+
+            if (state == null || state.ghost == null)
+                return;
+
+            if (inPauseWindow)
+            {
+                PositionGhostAt(state.ghost, rec.Points[rec.Points.Count - 1]);
+                return;
+            }
+
+            int playbackIdx = state.playbackIndex;
+            InterpolateAndPosition(state.ghost, rec.Points, rec.OrbitSegments,
+                ref playbackIdx, loopUT, recIdx * 10000);
+            state.playbackIndex = playbackIdx;
+
+            ApplyPartEvents(recIdx, rec, loopUT, state);
         }
 
         /// <summary>
@@ -1703,8 +1836,12 @@ namespace Parsek
             if (lightInfoList != null)
             {
                 state.lightInfos = new Dictionary<uint, LightGhostInfo>();
+                state.lightPlaybackStates = new Dictionary<uint, LightPlaybackState>();
                 for (int i = 0; i < lightInfoList.Count; i++)
+                {
                     state.lightInfos[lightInfoList[i].partPersistentId] = lightInfoList[i];
+                    state.lightPlaybackStates[lightInfoList[i].partPersistentId] = new LightPlaybackState();
+                }
             }
 
             if (fairingInfoList != null)
@@ -1900,12 +2037,24 @@ namespace Parsek
                         Log($"Part event applied: DeployableRetracted '{evt.partName}' pid={evt.partPersistentId}");
                         break;
                     case PartEventType.LightOn:
-                        SetLightState(state, evt.partPersistentId, true);
+                        ApplyLightPowerEvent(state, evt.partPersistentId, true);
                         Log($"Part event applied: LightOn '{evt.partName}' pid={evt.partPersistentId}");
                         break;
                     case PartEventType.LightOff:
-                        SetLightState(state, evt.partPersistentId, false);
+                        ApplyLightPowerEvent(state, evt.partPersistentId, false);
                         Log($"Part event applied: LightOff '{evt.partName}' pid={evt.partPersistentId}");
+                        break;
+                    case PartEventType.LightBlinkEnabled:
+                        ApplyLightBlinkModeEvent(state, evt.partPersistentId, enabled: true, evt.value);
+                        Log($"Part event applied: LightBlinkEnabled '{evt.partName}' pid={evt.partPersistentId} rate={evt.value:F2}");
+                        break;
+                    case PartEventType.LightBlinkDisabled:
+                        ApplyLightBlinkModeEvent(state, evt.partPersistentId, enabled: false, evt.value);
+                        Log($"Part event applied: LightBlinkDisabled '{evt.partName}' pid={evt.partPersistentId}");
+                        break;
+                    case PartEventType.LightBlinkRate:
+                        ApplyLightBlinkRateEvent(state, evt.partPersistentId, evt.value);
+                        Log($"Part event applied: LightBlinkRate '{evt.partName}' pid={evt.partPersistentId} rate={evt.value:F2}");
                         break;
                     case PartEventType.GearDeployed:
                         ApplyDeployableState(state, evt, deployed: true);
@@ -1951,6 +2100,7 @@ namespace Parsek
             }
 
             state.partEventIndex = evtIdx;
+            UpdateBlinkingLights(state, currentUT);
         }
 
         static void HideGhostPart(GameObject ghost, uint persistentId)
@@ -2087,6 +2237,76 @@ namespace Parsek
             }
         }
 
+        private static LightPlaybackState GetOrCreateLightPlaybackState(
+            GhostPlaybackState state, uint partPersistentId)
+        {
+            if (state.lightPlaybackStates == null)
+                state.lightPlaybackStates = new Dictionary<uint, LightPlaybackState>();
+
+            LightPlaybackState playbackState;
+            if (!state.lightPlaybackStates.TryGetValue(partPersistentId, out playbackState))
+            {
+                playbackState = new LightPlaybackState();
+                state.lightPlaybackStates[partPersistentId] = playbackState;
+            }
+
+            return playbackState;
+        }
+
+        private void ApplyLightPowerEvent(GhostPlaybackState state, uint partPersistentId, bool on)
+        {
+            if (state == null) return;
+            LightPlaybackState playbackState = GetOrCreateLightPlaybackState(state, partPersistentId);
+            playbackState.isOn = on;
+            if (!on)
+                SetLightState(state, partPersistentId, false);
+            else if (!playbackState.blinkEnabled)
+                SetLightState(state, partPersistentId, true);
+        }
+
+        private void ApplyLightBlinkModeEvent(
+            GhostPlaybackState state, uint partPersistentId, bool enabled, float blinkRateHz)
+        {
+            if (state == null) return;
+            LightPlaybackState playbackState = GetOrCreateLightPlaybackState(state, partPersistentId);
+            playbackState.blinkEnabled = enabled;
+            if (blinkRateHz > 0f)
+                playbackState.blinkRateHz = blinkRateHz;
+        }
+
+        private void ApplyLightBlinkRateEvent(GhostPlaybackState state, uint partPersistentId, float blinkRateHz)
+        {
+            if (state == null) return;
+            LightPlaybackState playbackState = GetOrCreateLightPlaybackState(state, partPersistentId);
+            if (blinkRateHz > 0f)
+                playbackState.blinkRateHz = blinkRateHz;
+        }
+
+        private void UpdateBlinkingLights(GhostPlaybackState state, double currentUT)
+        {
+            if (state == null || state.lightPlaybackStates == null || state.lightPlaybackStates.Count == 0)
+                return;
+
+            foreach (var kv in state.lightPlaybackStates)
+            {
+                uint partPersistentId = kv.Key;
+                LightPlaybackState playbackState = kv.Value;
+                if (playbackState == null)
+                    continue;
+
+                bool shouldEnable = playbackState.isOn;
+                if (shouldEnable && playbackState.blinkEnabled)
+                {
+                    float rateHz = playbackState.blinkRateHz > 0f ? playbackState.blinkRateHz : 1f;
+                    double cycle = currentUT * rateHz;
+                    double frac = cycle - Math.Floor(cycle);
+                    shouldEnable = frac < 0.5;
+                }
+
+                SetLightState(state, partPersistentId, shouldEnable);
+            }
+        }
+
         static void SetLightState(GhostPlaybackState state, uint partPersistentId, bool on)
         {
             if (state.lightInfos == null) return;
@@ -2153,6 +2373,11 @@ namespace Parsek
             return isRecording;
         }
 
+        internal static bool ShouldLoopPlayback(bool loopingEnabled, bool recordingLoopPlayback)
+        {
+            return loopingEnabled && recordingLoopPlayback;
+        }
+
         internal static int ComputeTargetResourceIndex(
             List<TrajectoryPoint> points, int lastAppliedResourceIndex, double currentUT)
         {
@@ -2165,6 +2390,36 @@ namespace Parsek
                     break;
             }
             return targetIndex;
+        }
+
+        internal static bool TryComputeLoopPlaybackUT(
+            double currentUT, double startUT, double endUT, double pauseSeconds,
+            out double loopUT, out int cycleIndex)
+        {
+            loopUT = startUT;
+            cycleIndex = 0;
+
+            double duration = endUT - startUT;
+            if (duration <= 0 || pauseSeconds < 0 || currentUT < startUT)
+                return false;
+
+            double cycleDuration = duration + pauseSeconds;
+            if (cycleDuration <= 0)
+                return false;
+
+            double elapsed = currentUT - startUT;
+            cycleIndex = (int)Math.Floor(elapsed / cycleDuration);
+            double phase = elapsed - (cycleIndex * cycleDuration);
+
+            const double epsilon = 1e-6;
+            if (phase > duration + epsilon)
+                return false;
+
+            if (phase < 0) phase = 0;
+            if (phase > duration) phase = duration;
+
+            loopUT = startUT + phase;
+            return true;
         }
 
         internal static bool IsAnyWarpActive(int currentRateIndex, float currentRate)

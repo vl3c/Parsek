@@ -10,21 +10,24 @@ namespace Parsek
         EngineIgnited,        // 5
         EngineShutdown,       // 6
         EngineThrottle,       // 7
-        ParachuteDestroyed,   // 8 — deployed chute destroyed (aero forces)
-        DeployableExtended,   // 9 — solar panel / antenna / radiator fully deployed
-        DeployableRetracted,  // 10 — solar panel / antenna / radiator fully retracted
-        LightOn,              // 11 — light turned on
-        LightOff,             // 12 — light turned off
-        GearDeployed,         // 13 — landing gear / leg fully deployed
-        GearRetracted,        // 14 — landing gear / leg fully retracted
-        CargoBayOpened,       // 15 — cargo bay / service bay doors opened
-        CargoBayClosed,       // 16 — cargo bay / service bay doors closed
-        FairingJettisoned,    // 17 — procedural fairing deployed/jettisoned
-        RCSActivated,         // 18 — RCS module started firing (value = normalized power 0-1)
-        RCSStopped,           // 19 — RCS module stopped firing
-        RCSThrottle,          // 20 — RCS aggregate power changed while firing
-        Docked,               // 21 — docking port coupled (chain segment boundary)
-        Undocked              // 22 — docking port undocked (chain segment boundary)
+        ParachuteDestroyed,   // 8 - deployed chute destroyed (aero forces)
+        DeployableExtended,   // 9 - solar panel / antenna / radiator fully deployed
+        DeployableRetracted,  // 10 - solar panel / antenna / radiator fully retracted
+        LightOn,              // 11 - light turned on
+        LightOff,             // 12 - light turned off
+        GearDeployed,         // 13 - landing gear / leg fully deployed
+        GearRetracted,        // 14 - landing gear / leg fully retracted
+        CargoBayOpened,       // 15 - cargo bay / service bay doors opened
+        CargoBayClosed,       // 16 - cargo bay / service bay doors closed
+        FairingJettisoned,    // 17 - procedural fairing deployed/jettisoned
+        RCSActivated,         // 18 - RCS module started firing (value = normalized power 0-1)
+        RCSStopped,           // 19 - RCS module stopped firing
+        RCSThrottle,          // 20 - RCS aggregate power changed while firing
+        Docked,               // 21 - docking port coupled (chain segment boundary)
+        Undocked,             // 22 - docking port undocked (chain segment boundary)
+        LightBlinkEnabled,    // 23 - light blink mode enabled (value = blinkRate)
+        LightBlinkDisabled,   // 24 - light blink mode disabled
+        LightBlinkRate        // 25 - light blink rate changed (value = blinkRate)
     }
 
     public struct PartEvent

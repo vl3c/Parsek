@@ -22,7 +22,20 @@ namespace Parsek
         static void Log(string message)
         {
             if (!SuppressLogging)
-                UnityEngine.Debug.Log(message);
+            {
+                try
+                {
+                    UnityEngine.Debug.Log(message);
+                }
+                catch (System.Security.SecurityException)
+                {
+                    // Unit-test runtime can throw when Unity internals are unavailable.
+                }
+                catch (MethodAccessException)
+                {
+                    // Same fallback for some non-Unity execution environments.
+                }
+            }
         }
 
         /// <summary>
@@ -43,6 +56,8 @@ namespace Parsek
             public List<TrajectoryPoint> Points = new List<TrajectoryPoint>();
             public List<OrbitSegment> OrbitSegments = new List<OrbitSegment>();
             public List<PartEvent> PartEvents = new List<PartEvent>();
+            public bool LoopPlayback;
+            public double LoopPauseSeconds = 10.0;
 
             // EVA child recording linkage
             public string ParentRecordingId;
@@ -110,6 +125,8 @@ namespace Parsek
                 ChainId = source.ChainId;
                 ChainIndex = source.ChainIndex;
                 ChainBranch = source.ChainBranch;
+                LoopPlayback = source.LoopPlayback;
+                LoopPauseSeconds = source.LoopPauseSeconds;
             }
         }
 
