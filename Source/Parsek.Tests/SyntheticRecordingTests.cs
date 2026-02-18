@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text.RegularExpressions;
@@ -496,12 +497,17 @@ namespace Parsek.Tests
             return new[] { seg0, seg1 };
         }
 
-        private static RecordingBuilder BuildLightShowcaseRecording(
-            double baseUT, string vesselName, string lightPartName, int rowIndex)
+        /// <summary>
+        /// Generalized helper for building a static-trajectory, looping showcase recording
+        /// that toggles a pair of part events every 3 seconds. Used for lights, deployables,
+        /// gear, cargo bays, and engines.
+        /// </summary>
+        private static RecordingBuilder BuildPartShowcaseRecording(
+            double baseUT, string vesselName, string partName, int rowIndex,
+            double distanceFromPadMeters, PartEventType onEvent, PartEventType offEvent,
+            uint pidBase, uint evtPid, float eventValue = 0f, int moduleIndex = 0)
         {
-            // Kerbin radius is 600km. Near KSC, 1 degree is ~10.47km.
             const double metersPerDegree = (2.0 * Math.PI * 600000.0) / 360.0;
-            const double distanceFromPadMeters = 200.0;
             const double spacingMeters = 5.0;
 
             double t = baseUT + 30;
@@ -519,31 +525,41 @@ namespace Parsek.Tests
             for (int i = 0; i <= 8; i++)
                 b.AddPoint(t + (i * 3), lat, lon, alt);
 
-            // Light toggles every 3 seconds.
+            // Toggle events every 3 seconds.
             bool on = true;
             for (int sec = 3; sec <= 24; sec += 3)
             {
                 b.AddPartEvent(
                     t + sec,
-                    pid: 101111,
-                    type: on ? (int)PartEventType.LightOn : (int)PartEventType.LightOff,
-                    partName: lightPartName);
+                    pid: evtPid,
+                    type: on ? (int)onEvent : (int)offEvent,
+                    partName: partName,
+                    value: on ? eventValue : 0f,
+                    moduleIndex: moduleIndex);
                 on = !on;
             }
 
-            // rotY(-90°): upright fixture with beam pointing east (away from pad).
-            // KscRot maps vessel +Z → world up; rotY(-90°) rotates beam from
-            // north to east while preserving the vertical axis.
+            // rotY(-90°): upright fixture facing east (away from pad).
             var snap = new VesselSnapshotBuilder()
                 .WithName(vesselName)
-                .WithPersistentId((uint)(88000000 + rowIndex))
-                //                       quaternion: (x,  y,          z, w)
-                //                       rotY(-90°) = sin(-45°) on Y axis
-                .AddPart(lightPartName, rotation: "0,-0.7071068,0,0.7071068")
+                .WithPersistentId((uint)(pidBase + rowIndex))
+                .AddPart(partName, rotation: "0,-0.7071068,0,0.7071068")
                 .AsLanded(lat, lon, alt);
             b.WithGhostVisualSnapshot(snap);
 
             return b;
+        }
+
+        // The first part added by VesselSnapshotBuilder gets persistentId = 100000.
+        // Event PIDs must match this so the ghost visual builder can find the part.
+        private const uint SinglePartPid = 100000;
+
+        private static RecordingBuilder BuildLightShowcaseRecording(
+            double baseUT, string vesselName, string lightPartName, int rowIndex)
+        {
+            return BuildPartShowcaseRecording(baseUT, vesselName, lightPartName, rowIndex,
+                distanceFromPadMeters: 200.0, onEvent: PartEventType.LightOn,
+                offEvent: PartEventType.LightOff, pidBase: 88000000, evtPid: SinglePartPid);
         }
 
         internal static RecordingBuilder[] LightShowcaseRecordings(double baseUT = 0)
@@ -556,6 +572,68 @@ namespace Parsek.Tests
                 BuildLightShowcaseRecording(baseUT, "Part Showcase - Light - Spot v1", "spotLight3", rowIndex: 3),
                 BuildLightShowcaseRecording(baseUT, "Part Showcase - Light - Ground Small v1", "groundLight1", rowIndex: 4),
                 BuildLightShowcaseRecording(baseUT, "Part Showcase - Light - Ground Stand v1", "groundLight2", rowIndex: 5)
+            };
+        }
+
+        // Row indices continue from lights (0-5) so all showcases form one line at 200m east.
+        // Lights: 0-5, Deployables: 6-10, Gear: 11-13, Cargo: 14-16, Engines: 17-19.
+
+        internal static RecordingBuilder[] DeployableShowcaseRecordings(double baseUT = 0)
+        {
+            return new[]
+            {
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Solar Tracking", "solarPanels4", 6,
+                    200.0, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 89000000, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Solar Large", "largeSolarPanel", 7,
+                    200.0, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 89000000, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Antenna Comm", "longAntenna", 8,
+                    200.0, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 89000000, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Antenna Dish", "commDish", 9,
+                    200.0, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 89000000, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Radiator", "foldingRadSmall", 10,
+                    200.0, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 89000000, SinglePartPid)
+            };
+        }
+
+        internal static RecordingBuilder[] GearShowcaseRecordings(double baseUT = 0)
+        {
+            return new[]
+            {
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Gear Bay", "SmallGearBay", 11,
+                    200.0, PartEventType.GearDeployed, PartEventType.GearRetracted, 90000000, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Gear Small", "GearSmall", 12,
+                    200.0, PartEventType.GearDeployed, PartEventType.GearRetracted, 90000000, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Landing Leg", "landingLeg1", 13,
+                    200.0, PartEventType.GearDeployed, PartEventType.GearRetracted, 90000000, SinglePartPid)
+            };
+        }
+
+        internal static RecordingBuilder[] CargoBayShowcaseRecordings(double baseUT = 0)
+        {
+            return new[]
+            {
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Service Bay", "ServiceBay.125.v2", 14,
+                    200.0, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, 91000000, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Cargo Mk2", "mk2CargoBayS", 15,
+                    200.0, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, 91000000, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Cargo Mk3", "mk3CargoBayS", 16,
+                    200.0, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, 91000000, SinglePartPid)
+            };
+        }
+
+        internal static RecordingBuilder[] EngineShowcaseRecordings(double baseUT = 0)
+        {
+            return new[]
+            {
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - SRB", "solidBooster.v2", 17,
+                    200.0, PartEventType.EngineIgnited, PartEventType.EngineShutdown, 92000000, SinglePartPid,
+                    eventValue: 1.0f),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Liquid Engine", "liquidEngine.v2", 18,
+                    200.0, PartEventType.EngineIgnited, PartEventType.EngineShutdown, 92000000, SinglePartPid,
+                    eventValue: 1.0f),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Ion Engine", "ionEngine", 19,
+                    200.0, PartEventType.EngineIgnited, PartEventType.EngineShutdown, 92000000, SinglePartPid,
+                    eventValue: 1.0f)
             };
         }
 
@@ -1098,6 +1176,191 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DeployableShowcaseRecordings_BuildExpectedShape()
+        {
+            var recordings = DeployableShowcaseRecordings(baseUT: 17000);
+            Assert.Equal(5, recordings.Length);
+
+            var first = recordings[0].Build();
+            Assert.Equal("Part Showcase - Solar Tracking", first.GetValue("vesselName"));
+            Assert.Equal("9", first.GetValue("pointCount"));
+            Assert.Equal("True", first.GetValue("loopPlayback"));
+            Assert.Equal(8, first.GetNodes("PART_EVENT").Length);
+
+            // Verify event types alternate DeployableExtended / DeployableRetracted
+            var events = first.GetNodes("PART_EVENT");
+            Assert.Equal(((int)PartEventType.DeployableExtended).ToString(), events[0].GetValue("type"));
+            Assert.Equal(((int)PartEventType.DeployableRetracted).ToString(), events[1].GetValue("type"));
+
+            // Event PID must match the ghost part's persistentId for playback to find it
+            var ghost = first.GetNode("GHOST_VISUAL_SNAPSHOT");
+            Assert.NotNull(ghost);
+            Assert.Equal("solarPanels4", ghost.GetNodes("PART")[0].GetValue("name"));
+            string ghostPartPid = ghost.GetNodes("PART")[0].GetValue("persistentId");
+            Assert.Equal(ghostPartPid, events[0].GetValue("pid"));
+
+            // All 5 part names present
+            var names = new[] { "solarPanels4", "largeSolarPanel", "longAntenna", "commDish", "foldingRadSmall" };
+            for (int i = 0; i < recordings.Length; i++)
+            {
+                var g = recordings[i].Build().GetNode("GHOST_VISUAL_SNAPSHOT");
+                Assert.Equal(names[i], g.GetNodes("PART")[0].GetValue("name"));
+            }
+        }
+
+        [Fact]
+        public void GearShowcaseRecordings_BuildExpectedShape()
+        {
+            var recordings = GearShowcaseRecordings(baseUT: 17000);
+            Assert.Equal(3, recordings.Length);
+
+            var first = recordings[0].Build();
+            Assert.Equal("Part Showcase - Gear Bay", first.GetValue("vesselName"));
+            Assert.Equal("True", first.GetValue("loopPlayback"));
+            Assert.Equal(8, first.GetNodes("PART_EVENT").Length);
+
+            var events = first.GetNodes("PART_EVENT");
+            Assert.Equal(((int)PartEventType.GearDeployed).ToString(), events[0].GetValue("type"));
+            Assert.Equal(((int)PartEventType.GearRetracted).ToString(), events[1].GetValue("type"));
+
+            var ghost = first.GetNode("GHOST_VISUAL_SNAPSHOT");
+            Assert.NotNull(ghost);
+            Assert.Equal("SmallGearBay", ghost.GetNodes("PART")[0].GetValue("name"));
+            Assert.Equal(ghost.GetNodes("PART")[0].GetValue("persistentId"), events[0].GetValue("pid"));
+
+            var names = new[] { "SmallGearBay", "GearSmall", "landingLeg1" };
+            for (int i = 0; i < recordings.Length; i++)
+            {
+                var g = recordings[i].Build().GetNode("GHOST_VISUAL_SNAPSHOT");
+                Assert.Equal(names[i], g.GetNodes("PART")[0].GetValue("name"));
+            }
+        }
+
+        [Fact]
+        public void CargoBayShowcaseRecordings_BuildExpectedShape()
+        {
+            var recordings = CargoBayShowcaseRecordings(baseUT: 17000);
+            Assert.Equal(3, recordings.Length);
+
+            var first = recordings[0].Build();
+            Assert.Equal("Part Showcase - Service Bay", first.GetValue("vesselName"));
+            Assert.Equal("True", first.GetValue("loopPlayback"));
+            Assert.Equal(8, first.GetNodes("PART_EVENT").Length);
+
+            var events = first.GetNodes("PART_EVENT");
+            Assert.Equal(((int)PartEventType.CargoBayOpened).ToString(), events[0].GetValue("type"));
+            Assert.Equal(((int)PartEventType.CargoBayClosed).ToString(), events[1].GetValue("type"));
+
+            // Uses dot-form part name (KSP converts underscores to dots at runtime)
+            var ghost = first.GetNode("GHOST_VISUAL_SNAPSHOT");
+            Assert.NotNull(ghost);
+            Assert.Equal("ServiceBay.125.v2", ghost.GetNodes("PART")[0].GetValue("name"));
+            Assert.Equal(ghost.GetNodes("PART")[0].GetValue("persistentId"), events[0].GetValue("pid"));
+
+            var names = new[] { "ServiceBay.125.v2", "mk2CargoBayS", "mk3CargoBayS" };
+            for (int i = 0; i < recordings.Length; i++)
+            {
+                var g = recordings[i].Build().GetNode("GHOST_VISUAL_SNAPSHOT");
+                Assert.Equal(names[i], g.GetNodes("PART")[0].GetValue("name"));
+            }
+        }
+
+        [Fact]
+        public void EngineShowcaseRecordings_BuildExpectedShape()
+        {
+            var recordings = EngineShowcaseRecordings(baseUT: 17000);
+            Assert.Equal(3, recordings.Length);
+
+            var first = recordings[0].Build();
+            Assert.Equal("Part Showcase - SRB", first.GetValue("vesselName"));
+            Assert.Equal("True", first.GetValue("loopPlayback"));
+            Assert.Equal(8, first.GetNodes("PART_EVENT").Length);
+
+            // Verify engine events have value=1 for ignition, 0 for shutdown
+            var events = first.GetNodes("PART_EVENT");
+            Assert.Equal(((int)PartEventType.EngineIgnited).ToString(), events[0].GetValue("type"));
+            Assert.Equal("1", events[0].GetValue("value"));
+            Assert.Equal(((int)PartEventType.EngineShutdown).ToString(), events[1].GetValue("type"));
+            Assert.Equal("0", events[1].GetValue("value"));
+
+            // Uses dot-form part name
+            var ghost = first.GetNode("GHOST_VISUAL_SNAPSHOT");
+            Assert.NotNull(ghost);
+            Assert.Equal("solidBooster.v2", ghost.GetNodes("PART")[0].GetValue("name"));
+            Assert.Equal(ghost.GetNodes("PART")[0].GetValue("persistentId"), events[0].GetValue("pid"));
+
+            var names = new[] { "solidBooster.v2", "liquidEngine.v2", "ionEngine" };
+            for (int i = 0; i < recordings.Length; i++)
+            {
+                var g = recordings[i].Build().GetNode("GHOST_VISUAL_SNAPSHOT");
+                Assert.Equal(names[i], g.GetNodes("PART")[0].GetValue("name"));
+            }
+        }
+
+        [Fact]
+        public void AllShowcaseRecordings_EventPidMatchesGhostPartPid()
+        {
+            // Verify the critical invariant: every showcase recording's event PIDs
+            // match the ghost part's persistentId, so playback can find the part.
+            var allShowcases = new[]
+            {
+                LightShowcaseRecordings(17000),
+                DeployableShowcaseRecordings(17000),
+                GearShowcaseRecordings(17000),
+                CargoBayShowcaseRecordings(17000),
+                EngineShowcaseRecordings(17000)
+            };
+
+            foreach (var category in allShowcases)
+            {
+                foreach (var rb in category)
+                {
+                    var rec = rb.Build();
+                    var ghost = rec.GetNode("GHOST_VISUAL_SNAPSHOT");
+                    Assert.NotNull(ghost);
+                    string partPid = ghost.GetNodes("PART")[0].GetValue("persistentId");
+
+                    var events = rec.GetNodes("PART_EVENT");
+                    Assert.True(events.Length > 0, $"{rec.GetValue("vesselName")} has no events");
+                    foreach (var evt in events)
+                    {
+                        Assert.True(partPid == evt.GetValue("pid"),
+                            $"Event PID mismatch in '{rec.GetValue("vesselName")}': " +
+                            $"event pid={evt.GetValue("pid")} but ghost part pid={partPid}");
+                    }
+                }
+            }
+        }
+
+        [Fact]
+        public void AllShowcaseRecordings_HaveUniquePositions()
+        {
+            // Every showcase ghost must have a distinct (lat, lon) so they don't overlap.
+            var allShowcases = new[]
+            {
+                LightShowcaseRecordings(17000),
+                DeployableShowcaseRecordings(17000),
+                GearShowcaseRecordings(17000),
+                CargoBayShowcaseRecordings(17000),
+                EngineShowcaseRecordings(17000)
+            };
+
+            var positions = new HashSet<string>();
+            foreach (var category in allShowcases)
+            {
+                foreach (var rb in category)
+                {
+                    var rec = rb.Build();
+                    var pts = rec.GetNodes("POINT");
+                    string key = pts[0].GetValue("lat") + "," + pts[0].GetValue("lon");
+                    Assert.True(positions.Add(key),
+                        $"Duplicate position in '{rec.GetValue("vesselName")}': {key}");
+                }
+            }
+            Assert.Equal(20, positions.Count); // 6 + 5 + 3 + 3 + 3
+        }
+
+        [Fact]
         public void ScenarioWriter_V3Format_WritesSidecarFiles()
         {
             string tempDir = Path.Combine(Path.GetTempPath(), "parsek_sidecar_" + Guid.NewGuid().ToString("N"));
@@ -1602,6 +1865,22 @@ namespace Parsek.Tests
             for (int i = 0; i < lightShowcases.Length; i++)
                 writer.AddRecording(lightShowcases[i]);
 
+            var deployableShowcases = DeployableShowcaseRecordings(baseUT);
+            for (int i = 0; i < deployableShowcases.Length; i++)
+                writer.AddRecording(deployableShowcases[i]);
+
+            var gearShowcases = GearShowcaseRecordings(baseUT);
+            for (int i = 0; i < gearShowcases.Length; i++)
+                writer.AddRecording(gearShowcases[i]);
+
+            var cargoBayShowcases = CargoBayShowcaseRecordings(baseUT);
+            for (int i = 0; i < cargoBayShowcases.Length; i++)
+                writer.AddRecording(cargoBayShowcases[i]);
+
+            var engineShowcases = EngineShowcaseRecordings(baseUT);
+            for (int i = 0; i < engineShowcases.Length; i++)
+                writer.AddRecording(engineShowcases[i]);
+
             var chainSegments = EvaBoardChain(baseUT);
             for (int i = 0; i < chainSegments.Length; i++)
                 writer.AddRecording(chainSegments[i].WithLoopPlayback());
@@ -1636,6 +1915,20 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Part Showcase - Light - Spot v1", content);
                     Assert.Contains("vesselName = Part Showcase - Light - Ground Small v1", content);
                     Assert.Contains("vesselName = Part Showcase - Light - Ground Stand v1", content);
+                    Assert.Contains("vesselName = Part Showcase - Solar Tracking", content);
+                    Assert.Contains("vesselName = Part Showcase - Solar Large", content);
+                    Assert.Contains("vesselName = Part Showcase - Antenna Comm", content);
+                    Assert.Contains("vesselName = Part Showcase - Antenna Dish", content);
+                    Assert.Contains("vesselName = Part Showcase - Radiator", content);
+                    Assert.Contains("vesselName = Part Showcase - Gear Bay", content);
+                    Assert.Contains("vesselName = Part Showcase - Gear Small", content);
+                    Assert.Contains("vesselName = Part Showcase - Landing Leg", content);
+                    Assert.Contains("vesselName = Part Showcase - Service Bay", content);
+                    Assert.Contains("vesselName = Part Showcase - Cargo Mk2", content);
+                    Assert.Contains("vesselName = Part Showcase - Cargo Mk3", content);
+                    Assert.Contains("vesselName = Part Showcase - SRB", content);
+                    Assert.Contains("vesselName = Part Showcase - Liquid Engine", content);
+                    Assert.Contains("vesselName = Part Showcase - Ion Engine", content);
                     Assert.Contains("vesselName = Flea Chain", content);
                     Assert.Contains("chainId = chain-eva-board-test", content);
                     Assert.Contains("vesselName = Landing Craft", content);
@@ -1666,8 +1959,8 @@ namespace Parsek.Tests
                     $"Expected Parsek/Recordings directory at {recordingsDir}");
 
                 string[] precFiles = Directory.GetFiles(recordingsDir, "*.prec");
-                Assert.True(precFiles.Length >= 19,
-                    $"Expected at least 19 .prec files (8 baseline + 6 lights + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
+                Assert.True(precFiles.Length >= 33,
+                    $"Expected at least 33 .prec files (8 baseline + 6 lights + 5 deployables + 3 gear + 3 cargo + 3 engines + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
             }
         }
 
