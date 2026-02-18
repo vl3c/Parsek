@@ -514,7 +514,7 @@ namespace Parsek.Tests
             double baseLat = -0.0972;
             double baseLon = -74.5575;
             // Center 20-item row on the launchpad: shift south by half the row length
-            double rowCenterOffsetMeters = -50.0;
+            double rowCenterOffsetMeters = -60.0;
             double lat = baseLat + ((rowIndex * spacingMeters + rowCenterOffsetMeters) / metersPerDegree);
             double lon = baseLon + (distanceFromPadMeters / metersPerDegree);
             double alt = 66.0;
@@ -578,7 +578,7 @@ namespace Parsek.Tests
         }
 
         // Row indices continue from lights (0-5) so all showcases form one line at 200m east.
-        // Lights: 0-5, Deployables: 6-10, Landing Legs: 11-13, Cargo: 14-16, Engines: 17-19.
+        // Lights: 0-5, Deployables: 6-10, Airplane Gear: 11-13, Landing Legs: 14-16, Cargo: 17-19, Engines: 20-22, Ladders: 23-24.
 
         internal static RecordingBuilder[] DeployableShowcaseRecordings(double baseUT = 0)
         {
@@ -601,11 +601,17 @@ namespace Parsek.Tests
         {
             return new[]
             {
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Landing Leg LT-1", "landingLeg1", 11,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Gear Bay", "SmallGearBay", 11,
                     200.0, PartEventType.GearDeployed, PartEventType.GearRetracted, 90000000, SinglePartPid),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Landing Leg LT-2", "landingLeg1-2", 12,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Gear Small", "GearSmall", 12,
                     200.0, PartEventType.GearDeployed, PartEventType.GearRetracted, 90000000, SinglePartPid),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Landing Leg LT-05", "miniLandingLeg", 13,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Gear Medium", "GearMedium", 13,
+                    200.0, PartEventType.GearDeployed, PartEventType.GearRetracted, 90000000, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Landing Leg LT-1", "landingLeg1", 14,
+                    200.0, PartEventType.GearDeployed, PartEventType.GearRetracted, 90000000, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Landing Leg LT-2", "landingLeg1-2", 15,
+                    200.0, PartEventType.GearDeployed, PartEventType.GearRetracted, 90000000, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Landing Leg LT-05", "miniLandingLeg", 16,
                     200.0, PartEventType.GearDeployed, PartEventType.GearRetracted, 90000000, SinglePartPid)
             };
         }
@@ -614,11 +620,11 @@ namespace Parsek.Tests
         {
             return new[]
             {
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Service Bay", "ServiceBay.125.v2", 14,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Service Bay", "ServiceBay.125.v2", 17,
                     200.0, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, 91000000, SinglePartPid),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Cargo Mk2", "mk2CargoBayS", 15,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Cargo Mk2", "mk2CargoBayS", 18,
                     200.0, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, 91000000, SinglePartPid),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Cargo Mk3", "mk3CargoBayS", 16,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Cargo Mk3", "mk3CargoBayS", 19,
                     200.0, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, 91000000, SinglePartPid)
             };
         }
@@ -627,15 +633,26 @@ namespace Parsek.Tests
         {
             return new[]
             {
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Mainsail", "liquidEngineMainsail.v2", 17,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Mainsail", "liquidEngineMainsail.v2", 20,
                     200.0, PartEventType.EngineIgnited, PartEventType.EngineShutdown, 92000000, SinglePartPid,
                     eventValue: 1.0f),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Skipper", "engineLargeSkipper.v2", 18,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Skipper", "engineLargeSkipper.v2", 21,
                     200.0, PartEventType.EngineIgnited, PartEventType.EngineShutdown, 92000000, SinglePartPid,
                     eventValue: 1.0f),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - SSME", "SSME", 19,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - SSME", "SSME", 22,
                     200.0, PartEventType.EngineIgnited, PartEventType.EngineShutdown, 92000000, SinglePartPid,
                     eventValue: 1.0f)
+            };
+        }
+
+        internal static RecordingBuilder[] LadderShowcaseRecordings(double baseUT = 0)
+        {
+            return new[]
+            {
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Ladder Telescopic", "telescopicLadder", 23,
+                    200.0, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 93000000, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Ladder Bay", "telescopicLadderBay", 24,
+                    200.0, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 93000000, SinglePartPid)
             };
         }
 
@@ -1214,10 +1231,10 @@ namespace Parsek.Tests
         public void GearShowcaseRecordings_BuildExpectedShape()
         {
             var recordings = GearShowcaseRecordings(baseUT: 17000);
-            Assert.Equal(3, recordings.Length);
+            Assert.Equal(6, recordings.Length);
 
             var first = recordings[0].Build();
-            Assert.Equal("Part Showcase - Landing Leg LT-1", first.GetValue("vesselName"));
+            Assert.Equal("Part Showcase - Gear Bay", first.GetValue("vesselName"));
             Assert.Equal("True", first.GetValue("loopPlayback"));
             Assert.Equal(8, first.GetNodes("PART_EVENT").Length);
 
@@ -1227,10 +1244,11 @@ namespace Parsek.Tests
 
             var ghost = first.GetNode("GHOST_VISUAL_SNAPSHOT");
             Assert.NotNull(ghost);
-            Assert.Equal("landingLeg1", ghost.GetNodes("PART")[0].GetValue("name"));
+            Assert.Equal("SmallGearBay", ghost.GetNodes("PART")[0].GetValue("name"));
             Assert.Equal(ghost.GetNodes("PART")[0].GetValue("persistentId"), events[0].GetValue("pid"));
 
-            var names = new[] { "landingLeg1", "landingLeg1-2", "miniLandingLeg" };
+            var names = new[] { "SmallGearBay", "GearSmall", "GearMedium",
+                "landingLeg1", "landingLeg1-2", "miniLandingLeg" };
             for (int i = 0; i < recordings.Length; i++)
             {
                 var g = recordings[i].Build().GetNode("GHOST_VISUAL_SNAPSHOT");
@@ -1310,7 +1328,8 @@ namespace Parsek.Tests
                 DeployableShowcaseRecordings(17000),
                 GearShowcaseRecordings(17000),
                 CargoBayShowcaseRecordings(17000),
-                EngineShowcaseRecordings(17000)
+                EngineShowcaseRecordings(17000),
+                LadderShowcaseRecordings(17000)
             };
 
             foreach (var category in allShowcases)
@@ -1344,7 +1363,8 @@ namespace Parsek.Tests
                 DeployableShowcaseRecordings(17000),
                 GearShowcaseRecordings(17000),
                 CargoBayShowcaseRecordings(17000),
-                EngineShowcaseRecordings(17000)
+                EngineShowcaseRecordings(17000),
+                LadderShowcaseRecordings(17000)
             };
 
             var positions = new HashSet<string>();
@@ -1359,7 +1379,7 @@ namespace Parsek.Tests
                         $"Duplicate position in '{rec.GetValue("vesselName")}': {key}");
                 }
             }
-            Assert.Equal(20, positions.Count); // 6 + 5 + 3 + 3 + 3
+            Assert.Equal(25, positions.Count); // 6 + 5 + 6 + 3 + 3 + 2
         }
 
         [Fact]
@@ -1883,6 +1903,10 @@ namespace Parsek.Tests
             for (int i = 0; i < engineShowcases.Length; i++)
                 writer.AddRecording(engineShowcases[i]);
 
+            var ladderShowcases = LadderShowcaseRecordings(baseUT);
+            for (int i = 0; i < ladderShowcases.Length; i++)
+                writer.AddRecording(ladderShowcases[i]);
+
             var chainSegments = EvaBoardChain(baseUT);
             for (int i = 0; i < chainSegments.Length; i++)
                 writer.AddRecording(chainSegments[i].WithLoopPlayback());
@@ -1922,6 +1946,9 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Part Showcase - Antenna Comm", content);
                     Assert.Contains("vesselName = Part Showcase - Antenna Dish", content);
                     Assert.Contains("vesselName = Part Showcase - Radiator", content);
+                    Assert.Contains("vesselName = Part Showcase - Gear Bay", content);
+                    Assert.Contains("vesselName = Part Showcase - Gear Small", content);
+                    Assert.Contains("vesselName = Part Showcase - Gear Medium", content);
                     Assert.Contains("vesselName = Part Showcase - Landing Leg LT-1", content);
                     Assert.Contains("vesselName = Part Showcase - Landing Leg LT-2", content);
                     Assert.Contains("vesselName = Part Showcase - Landing Leg LT-05", content);
@@ -1931,6 +1958,8 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Part Showcase - Mainsail", content);
                     Assert.Contains("vesselName = Part Showcase - Skipper", content);
                     Assert.Contains("vesselName = Part Showcase - SSME", content);
+                    Assert.Contains("vesselName = Part Showcase - Ladder Telescopic", content);
+                    Assert.Contains("vesselName = Part Showcase - Ladder Bay", content);
                     Assert.Contains("vesselName = Flea Chain", content);
                     Assert.Contains("chainId = chain-eva-board-test", content);
                     Assert.Contains("vesselName = Landing Craft", content);
