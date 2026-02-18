@@ -1930,6 +1930,36 @@ namespace Parsek
             rcsInfos = TryBuildRcsFX(prefab, persistentId, partName, modelRoot,
                 modelNode.transform, cloneMap);
 
+            // If the part has any animated modules (deployable, gear, cargo bay), ensure
+            // the full model transform hierarchy is mirrored into the ghost.  The mesh-cloning
+            // phase above only creates transforms leading to MeshRenderers/SkinnedMeshRenderers.
+            // Animations often move intermediate non-mesh transforms that would otherwise be
+            // missing, causing FindTransformByPath to fail during deploy/retract playback.
+            bool needsFullHierarchy =
+                prefab.FindModuleImplementing<ModuleDeployablePart>() != null ||
+                prefab.FindModuleImplementing<ModuleWheels.ModuleWheelDeployment>() != null ||
+                prefab.FindModuleImplementing<ModuleCargoBay>() != null;
+
+            if (needsFullHierarchy)
+            {
+                var allModelTransforms = modelRoot.GetComponentsInChildren<Transform>(true);
+                int created = 0;
+                for (int t = 0; t < allModelTransforms.Length; t++)
+                {
+                    Transform src = allModelTransforms[t];
+                    if (src == modelRoot) continue;  // already mapped
+                    if (cloneMap.ContainsKey(src)) continue;  // already cloned
+
+                    // MirrorTransformChain walks from src up to modelRoot, creating
+                    // any missing intermediate nodes and registering them in cloneMap.
+                    MirrorTransformChain(src, modelRoot, modelNode.transform, cloneMap);
+                    created++;
+                }
+                if (created > 0)
+                    ParsekLog.Log($"    EnsureFullHierarchy '{partName}': created {created} " +
+                        $"missing intermediate transforms for animation support");
+            }
+
             // Detect deployable parts (solar panels, antennas, radiators) and pre-resolve transform states
             ModuleDeployablePart deployable = prefab.FindModuleImplementing<ModuleDeployablePart>();
             if (deployable != null)
@@ -2040,6 +2070,18 @@ namespace Parsek
                     ModuleAnimateGeneric animModule = (deployIdx >= 0 && deployIdx < prefab.Modules.Count)
                         ? prefab.Modules[deployIdx] as ModuleAnimateGeneric
                         : null;
+
+                    // Fallback: if DeployModuleIndex didn't resolve to ModuleAnimateGeneric
+                    // (common when KSP inserts internal modules that shift indices), search
+                    // for any ModuleAnimateGeneric on the part.
+                    if (animModule == null)
+                    {
+                        animModule = prefab.FindModuleImplementing<ModuleAnimateGeneric>();
+                        if (animModule != null)
+                            ParsekLog.Log($"    CargoBay '{partName}': DeployModuleIndex={deployIdx} " +
+                                $"didn't resolve to ModuleAnimateGeneric (Modules.Count={prefab.Modules.Count}), " +
+                                $"using fallback FindModuleImplementing");
+                    }
 
                     if (animModule != null && !string.IsNullOrEmpty(animModule.animationName))
                     {
