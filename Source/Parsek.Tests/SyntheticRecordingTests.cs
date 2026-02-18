@@ -501,7 +501,7 @@ namespace Parsek.Tests
         {
             // Kerbin radius is 600km. Near KSC, 1 degree is ~10.47km.
             const double metersPerDegree = (2.0 * Math.PI * 600000.0) / 360.0;
-            const double distanceFromPadMeters = 300.0;
+            const double distanceFromPadMeters = 200.0;
             const double spacingMeters = 5.0;
 
             double t = baseUT + 30;
@@ -531,10 +531,17 @@ namespace Parsek.Tests
                 on = !on;
             }
 
-            b.WithGhostVisualSnapshot(
-                VesselSnapshotBuilder.ProbeShip(vesselName, pid: (uint)(88000000 + rowIndex))
-                    .AddPart(lightPartName, position: "0,2,0")
-                    .AsLanded(lat, lon, alt));
+            // rotY(-90°): upright fixture with beam pointing east (away from pad).
+            // KscRot maps vessel +Z → world up; rotY(-90°) rotates beam from
+            // north to east while preserving the vertical axis.
+            var snap = new VesselSnapshotBuilder()
+                .WithName(vesselName)
+                .WithPersistentId((uint)(88000000 + rowIndex))
+                //                       quaternion: (x,  y,          z, w)
+                //                       rotY(-90°) = sin(-45°) on Y axis
+                .AddPart(lightPartName, rotation: "0,-0.7071068,0,0.7071068")
+                .AsLanded(lat, lon, alt);
+            b.WithGhostVisualSnapshot(snap);
 
             return b;
         }
@@ -1085,8 +1092,9 @@ namespace Parsek.Tests
             var ghost = first.GetNode("GHOST_VISUAL_SNAPSHOT");
             Assert.NotNull(ghost);
             var parts = ghost.GetNodes("PART");
-            Assert.True(parts.Length >= 2);
-            Assert.Equal("0,2,0", parts[1].GetValue("position"));
+            Assert.True(parts.Length >= 1);
+            Assert.Equal("domeLight1", parts[0].GetValue("name"));
+            Assert.Equal("0,-0.7071068,0,0.7071068", parts[0].GetValue("rotation"));
         }
 
         [Fact]

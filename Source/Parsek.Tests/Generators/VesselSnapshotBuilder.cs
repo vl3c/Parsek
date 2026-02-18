@@ -101,7 +101,7 @@ namespace Parsek.Tests.Generators
         }
 
         public VesselSnapshotBuilder AddPart(string partName, string crew = null,
-            string position = null, int parentIndex = 0)
+            string position = null, string rotation = null, int parentIndex = 0)
         {
             var part = new ConfigNode("PART");
             uint uid = (uint)(100000 + partsContainer.CountNodes * 1111);
@@ -113,7 +113,7 @@ namespace Parsek.Tests.Generators
             part.AddValue("launchID", "1");
             part.AddValue("parent", parentIndex.ToString(IC));
             part.AddValue("position", position ?? "0,0,0");
-            part.AddValue("rotation", "0,0,0,1");
+            part.AddValue("rotation", rotation ?? "0,0,0,1");
             part.AddValue("mirror", "1,1,1");
             part.AddValue("symMethod", "Radial");
             part.AddValue("istg", "0");

@@ -1734,6 +1734,7 @@ namespace Parsek
             modelNode.transform.localPosition = modelRoot.localPosition;
             modelNode.transform.localRotation = modelRoot.localRotation;
             modelNode.transform.localScale = modelRoot.localScale;
+            ParsekLog.Log($"  [DIAG] part '{partName}' modelRoot '{modelRoot.name}' localRot={modelRoot.localRotation} localPos={modelRoot.localPosition} localScale={modelRoot.localScale}");
             cloneMap[modelRoot] = modelNode.transform;
 
             // For light showcase recordings, lift only light-part visuals so probes stay
