@@ -998,6 +998,11 @@ namespace Parsek
             return result;
         }
 
+        // KSP model transforms can have names containing '/' (e.g.
+        // "Squad/Parts/Thermal/FoldingRadiators/foldingRadSmall(Clone)").
+        // Use \x01 as path separator so Split() doesn't break those names.
+        private const char PathSep = '\x01';
+
         private static string GetTransformPath(Transform t, Transform root)
         {
             var parts = new List<string>();
@@ -1008,22 +1013,33 @@ namespace Parsek
                 cur = cur.parent;
             }
             parts.Reverse();
-            return string.Join("/", parts);
+            return string.Join(PathSep.ToString(), parts);
         }
 
         /// <summary>
-        /// Find a transform by slash-separated path relative to a root.
-        /// e.g. "a/b/c" finds root → a → b → c.
+        /// Find a transform by PathSep-separated path relative to a root.
+        /// Each segment is a direct child name (may contain '/' in KSP models).
+        /// Uses manual child iteration instead of Transform.Find() because
+        /// Unity's Find() also treats '/' as a path separator.
         /// </summary>
         private static Transform FindTransformByPath(Transform root, string path)
         {
             if (string.IsNullOrEmpty(path)) return root;
-            string[] parts = path.Split('/');
+            string[] parts = path.Split(PathSep);
             Transform cur = root;
             for (int i = 0; i < parts.Length; i++)
             {
-                cur = cur.Find(parts[i]);
-                if (cur == null) return null;
+                Transform found = null;
+                for (int c = 0; c < cur.childCount; c++)
+                {
+                    if (cur.GetChild(c).name == parts[i])
+                    {
+                        found = cur.GetChild(c);
+                        break;
+                    }
+                }
+                if (found == null) return null;
+                cur = found;
             }
             return cur;
         }
@@ -1955,9 +1971,10 @@ namespace Parsek
                     MirrorTransformChain(src, modelRoot, modelNode.transform, cloneMap);
                     created++;
                 }
-                if (created > 0)
-                    ParsekLog.Log($"    EnsureFullHierarchy '{partName}': created {created} " +
-                        $"missing intermediate transforms for animation support");
+                ParsekLog.Log($"    EnsureFullHierarchy '{partName}': " +
+                    (created > 0
+                        ? $"created {created} missing intermediate transforms for animation support"
+                        : $"all {allModelTransforms.Length} model transforms already in cloneMap"));
             }
 
             // Detect deployable parts (solar panels, antennas, radiators) and pre-resolve transform states
@@ -1968,6 +1985,7 @@ namespace Parsek
                 if (sampledStates != null)
                 {
                     var resolvedTransforms = new List<DeployableTransformState>();
+                    int unresolved = 0;
                     for (int s = 0; s < sampledStates.Count; s++)
                     {
                         var (path, sPos, sRot, sScale, dPos, dRot, dScale) = sampledStates[s];
@@ -1985,6 +2003,12 @@ namespace Parsek
                                 deployedRot = dRot,
                                 deployedScale = dScale
                             });
+                        }
+                        else
+                        {
+                            unresolved++;
+                            if (unresolved <= 5)
+                                ParsekLog.Log($"    [DIAG] Deployable '{partName}': unresolved path '{path}'");
                         }
                     }
 
@@ -2106,6 +2130,10 @@ namespace Parsek
                                         deployedRot = dRot,
                                         deployedScale = dScale
                                     });
+                                }
+                                else if (s < 5)
+                                {
+                                    ParsekLog.Log($"    [DIAG] CargoBay '{partName}': unresolved path '{path}'");
                                 }
                             }
 
