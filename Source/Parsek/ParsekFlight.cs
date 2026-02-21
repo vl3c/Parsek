@@ -2187,36 +2187,84 @@ namespace Parsek
             RcsGhostInfo info;
             if (!state.rcsInfos.TryGetValue(key, out info)) return;
 
+            int configuredSystems = 0;
+            int enabledRenderers = 0;
+            int playingSystems = 0;
+            float sampleRate = 0f;
+            float sampleSpeed = 0f;
+            float sampleSize = 0f;
+            float sampleLifetime = 0f;
+
             for (int i = 0; i < info.particleSystems.Count; i++)
             {
                 var ps = info.particleSystems[i];
                 if (ps == null) continue;
 
+                configuredSystems++;
                 var emission = ps.emission;
                 if (power > 0f)
                 {
                     emission.enabled = true;
-                    float emRate = info.emissionCurve != null ? info.emissionCurve.Evaluate(power) : power * 100f;
-                    emRate *= info.emissionScale > 0f ? info.emissionScale : 1f;
-                    if (info.emissionScale > 1f)
-                        emRate = Math.Max(emRate, 60f);
+                    float emRate = ComputeScaledRcsEmissionRate(info.emissionCurve, power, info.emissionScale);
                     emission.rateOverTimeMultiplier = emRate;
 
                     var main = ps.main;
-                    float spd = info.speedCurve != null ? info.speedCurve.Evaluate(power) : power * 10f;
-                    spd *= info.speedScale > 0f ? info.speedScale : 1f;
-                    if (info.speedScale > 1f)
-                        spd = Math.Max(spd, 4f);
+                    float spd = ComputeScaledRcsSpeed(info.speedCurve, power, info.speedScale);
                     main.startSpeedMultiplier = spd;
 
                     if (!ps.isPlaying) ps.Play();
+
+                    if (sampleRate <= 0f)
+                    {
+                        sampleRate = emRate;
+                        sampleSpeed = spd;
+                        sampleSize = main.startSizeMultiplier;
+                        sampleLifetime = main.startLifetimeMultiplier;
+                    }
                 }
                 else
                 {
                     emission.rateOverTimeMultiplier = 0;
                     ps.Stop(true, ParticleSystemStopBehavior.StopEmitting);
                 }
+
+                if (ps.isPlaying) playingSystems++;
+                var renderer = ps.GetComponent<ParticleSystemRenderer>();
+                if (renderer != null && renderer.enabled) enabledRenderers++;
             }
+
+            if (info.emissionScale > 1f)
+            {
+                ParsekLog.Log($"RCS showcase diagnostics: part='{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} " +
+                    $"power={power:F2} systems={configuredSystems} playing={playingSystems} renderers={enabledRenderers} " +
+                    $"rate={sampleRate:F1} speed={sampleSpeed:F1} size={sampleSize:F2} life={sampleLifetime:F2}");
+            }
+        }
+
+        internal static float ComputeScaledRcsEmissionRate(
+            FloatCurve emissionCurve, float power, float emissionScale)
+        {
+            if (power <= 0f) return 0f;
+
+            float emRate = emissionCurve != null ? emissionCurve.Evaluate(power) : power * 100f;
+            emRate *= emissionScale > 0f ? emissionScale : 1f;
+            if (emissionScale > 1f)
+                emRate = Math.Max(emRate, 60f);
+
+            return emRate;
+        }
+
+        internal static float ComputeScaledRcsSpeed(
+            FloatCurve speedCurve, float power, float speedScale)
+        {
+            if (power <= 0f) return 0f;
+
+            float spd = speedCurve != null ? speedCurve.Evaluate(power) : power * 10f;
+            spd *= speedScale > 0f ? speedScale : 1f;
+            if (speedScale > 1f)
+                spd = Math.Max(spd, 4f);
+
+            return spd;
         }
 
         static void ApplyDeployableState(GhostPlaybackState state, PartEvent evt, bool deployed)

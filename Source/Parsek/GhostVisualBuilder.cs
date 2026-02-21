@@ -1641,6 +1641,12 @@ namespace Parsek
                     string modelName = fxDefinitions[f].modelName;
 
                     var fxTransforms = FindTransformsRecursive(prefab.transform, transformName);
+                    if (fxTransforms.Count == 0)
+                    {
+                        ParsekLog.Log($"    RCS '{partName}' midx={moduleIndex}: transform '{transformName}' not found on prefab");
+                        continue;
+                    }
+
                     for (int t = 0; t < fxTransforms.Count; t++)
                     {
                         Transform srcFxTransform = fxTransforms[t];
@@ -1667,6 +1673,7 @@ namespace Parsek
                             if (fxPrefab != null)
                             {
                                 GameObject fxInstance = Object.Instantiate(fxPrefab);
+                                fxInstance.SetActive(true);
                                 fxInstance.transform.SetParent(ghostFxParent, false);
                                 fxInstance.transform.localPosition = fxDefinitions[f].localOffset;
                                 fxInstance.transform.localRotation = fxDefinitions[f].localRotation;
@@ -1697,8 +1704,16 @@ namespace Parsek
                                         }
                                     }
                                     info.particleSystems.Add(ps);
+                                    var diagRenderer = ps.GetComponent<ParticleSystemRenderer>();
+                                    var diagMain = ps.main;
                                     ParsekLog.Log($"    RCS FX cloned: '{partName}' midx={moduleIndex} " +
-                                        $"transform='{transformName}' model='{modelName}'");
+                                        $"transform='{transformName}' model='{modelName}' " +
+                                        $"offset={fxDefinitions[f].localOffset} " +
+                                        $"rot={fxDefinitions[f].localRotation.eulerAngles} " +
+                                        $"scale={fxDefinitions[f].localScale} " +
+                                        $"active={ps.gameObject.activeInHierarchy} " +
+                                        $"sim={diagMain.simulationSpace} playOnAwake={diagMain.playOnAwake} " +
+                                        $"renderer={(diagRenderer != null && diagRenderer.enabled)}");
                                 }
                             }
                             else
@@ -1710,7 +1725,16 @@ namespace Parsek
                 }
 
                 if (info.particleSystems.Count > 0)
+                {
+                    ParsekLog.Log($"    RCS module ready: '{partName}' midx={moduleIndex} " +
+                        $"particles={info.particleSystems.Count} " +
+                        $"emissionScale={info.emissionScale:F1} speedScale={info.speedScale:F2}");
                     result.Add(info);
+                }
+                else
+                {
+                    ParsekLog.Log($"    RCS '{partName}' midx={moduleIndex}: no particle systems cloned");
+                }
             }
 
             return result.Count > 0 ? result : null;
