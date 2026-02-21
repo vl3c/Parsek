@@ -60,6 +60,17 @@ namespace Parsek
         public List<ParticleSystem> particleSystems = new List<ParticleSystem>();
         public FloatCurve emissionCurve;
         public FloatCurve speedCurve;
+        public float emissionScale = 1f;
+        public float speedScale = 1f;
+    }
+
+    internal struct FxModelDefinition
+    {
+        public string transformName;
+        public string modelName;
+        public Vector3 localOffset;
+        public Quaternion localRotation;
+        public Vector3 localScale;
     }
 
     internal class FairingGhostInfo
@@ -73,6 +84,7 @@ namespace Parsek
         private static readonly Regex trailingNumericSuffixRegex =
             new Regex(@"^(.*)_\d+$", RegexOptions.Compiled);
         private const string LightsShowcaseRecordingPrefix = "Part Showcase - Light";
+        private const string RcsShowcaseRecordingPrefix = "Part Showcase - RCS";
         private const float LightsShowcaseVisualYOffset = 2f;
         private const float LightMinimumIntensity = 1f;
         private const float LightMinimumRange = 8f;
@@ -80,6 +92,12 @@ namespace Parsek
         private const float LightShowcaseRangeScale = 2f;
         private const float LightShowcaseMinimumIntensity = 2f;
         private const float LightShowcaseMinimumRange = 25f;
+        private const float RcsShowcaseEmissionScale = 12f;
+        private const float RcsShowcaseSpeedScale = 1.75f;
+        private const float RcsShowcaseSizeScale = 2.2f;
+        private const float RcsShowcaseLifetimeScale = 1.8f;
+        private const float RcsShowcaseMinimumSize = 0.35f;
+        private const float RcsShowcaseMinimumLifetime = 0.22f;
 
         internal static GameObject BuildTimelineGhostFromSnapshot(
             RecordingStore.Recording rec, string rootName,
@@ -159,10 +177,13 @@ namespace Parsek
                 bool raiseLightVisualOnly =
                     !string.IsNullOrEmpty(rec.VesselName) &&
                     rec.VesselName.StartsWith(LightsShowcaseRecordingPrefix, System.StringComparison.Ordinal);
+                bool raiseRcsVisualOnly =
+                    !string.IsNullOrEmpty(rec.VesselName) &&
+                    rec.VesselName.StartsWith(RcsShowcaseRecordingPrefix, System.StringComparison.Ordinal);
                 bool partVisualAdded = AddPartVisuals(root.transform, partNode, ap.partPrefab,
                     persistentId, partName, out meshCount, out parachuteInfo, out jettisonInfo,
                     out partEngineInfos, out deployableInfo, out lightInfo, out fairingInfo,
-                    out partRcsInfos, raiseLightVisualOnly);
+                    out partRcsInfos, raiseLightVisualOnly, raiseRcsVisualOnly);
                 if (partVisualAdded)
                     visualCount++;
                 else
@@ -621,6 +642,16 @@ namespace Parsek
             gearCache.Clear();
         }
 
+        // Cache: partName(+anim) → list of ladder animation transform states — sample once per part type
+        private static readonly Dictionary<string, List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
+            Vector3 dPos, Quaternion dRot, Vector3 dScale)>> ladderCache =
+            new Dictionary<string, List<(string, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3)>>();
+
+        internal static void ClearLadderCache()
+        {
+            ladderCache.Clear();
+        }
+
         // Cache: partName → list of cargo bay animation transform states — sample once per part type
         private static readonly Dictionary<string, List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
             Vector3 dPos, Quaternion dRot, Vector3 dScale)>> cargoBayCache =
@@ -750,6 +781,194 @@ namespace Parsek
             }
 
             gearCache[key] = result;
+            return result;
+        }
+
+        private static bool TryGetRetractableLadderAnimation(
+            Part prefab, out string animationName, out string animationRootName)
+        {
+            animationName = null;
+            animationRootName = null;
+            if (prefab == null) return false;
+
+            ConfigNode partConfig = prefab.partInfo?.partConfig;
+            if (partConfig == null) return false;
+
+            ConfigNode ladderModule = FindModuleNode(partConfig, "RetractableLadder");
+            if (ladderModule == null) return false;
+
+            animationName = ladderModule.GetValue("ladderRetractAnimationName");
+            animationRootName = ladderModule.GetValue("ladderAnimationRootName");
+            return !string.IsNullOrEmpty(animationName);
+        }
+
+        private static bool TryGetAnimationGroupDeployAnimation(
+            Part prefab, out string animationName)
+        {
+            animationName = null;
+            if (prefab == null) return false;
+
+            ConfigNode partConfig = prefab.partInfo?.partConfig;
+            if (partConfig == null) return false;
+
+            ConfigNode animationGroupModule = FindModuleNode(partConfig, "ModuleAnimationGroup");
+            if (animationGroupModule == null) return false;
+
+            animationName = animationGroupModule.GetValue("deployAnimationName");
+            return !string.IsNullOrEmpty(animationName);
+        }
+
+        /// <summary>
+        /// Sample stowed and deployed transform states for stock RetractableLadder modules.
+        /// Ladders expose "ladderRetractAnimationName" rather than ModuleDeployablePart, and
+        /// clip direction is not guaranteed, so stowed endpoint is inferred from prefab defaults.
+        /// </summary>
+        private static List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
+            Vector3 dPos, Quaternion dRot, Vector3 dScale)> SampleLadderStates(
+            Part prefab, string animationName, string animationRootName)
+        {
+            string partKey = prefab.partInfo?.name ?? prefab.name;
+            string cacheKey = partKey + "|" + (animationName ?? string.Empty) + "|" + (animationRootName ?? string.Empty);
+            if (ladderCache.TryGetValue(cacheKey, out var cached))
+                return cached;
+
+            if (string.IsNullOrEmpty(animationName))
+            {
+                ParsekLog.Log($"  Ladder '{partKey}': no ladderRetractAnimationName — skipping animation sampling");
+                ladderCache[cacheKey] = null;
+                return null;
+            }
+
+            Transform modelRoot = FindModelRoot(prefab);
+            GameObject tempClone = Object.Instantiate(modelRoot.gameObject);
+            List<(string, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3)> result = null;
+
+            try
+            {
+                Animation anim = null;
+                if (!string.IsNullOrEmpty(animationRootName))
+                {
+                    Transform animRoot = FindTransformRecursive(tempClone.transform, animationRootName);
+                    if (animRoot != null)
+                        anim = animRoot.GetComponent<Animation>();
+                    else
+                        ParsekLog.Log($"  Ladder '{partKey}': animation root '{animationRootName}' not found on clone");
+                }
+
+                if (anim == null)
+                {
+                    foreach (var candidate in tempClone.GetComponentsInChildren<Animation>(true))
+                    {
+                        if (candidate[animationName] != null)
+                        {
+                            anim = candidate;
+                            break;
+                        }
+                    }
+                }
+
+                if (anim == null)
+                {
+                    ParsekLog.Log($"  Ladder '{partKey}': no Animation component on model clone");
+                    ladderCache[cacheKey] = null;
+                    return null;
+                }
+
+                AnimationState state = anim[animationName];
+                if (state == null)
+                {
+                    ParsekLog.Log($"  Ladder '{partKey}': animation '{animationName}' not found on clone");
+                    ladderCache[cacheKey] = null;
+                    return null;
+                }
+
+                var allTransforms = tempClone.GetComponentsInChildren<Transform>(true);
+                var defaultStates = new Dictionary<string, (Vector3 pos, Quaternion rot, Vector3 scale)>();
+                for (int i = 0; i < allTransforms.Length; i++)
+                {
+                    string path = GetTransformPath(allTransforms[i], tempClone.transform);
+                    defaultStates[path] = (allTransforms[i].localPosition, allTransforms[i].localRotation, allTransforms[i].localScale);
+                }
+
+                state.enabled = true;
+                state.speed = 0f;
+                state.weight = 1f;
+
+                state.normalizedTime = 0f;
+                anim.Play(animationName);
+                anim.Sample();
+                var time0States = new Dictionary<string, (Vector3 pos, Quaternion rot, Vector3 scale)>();
+                for (int i = 0; i < allTransforms.Length; i++)
+                {
+                    string path = GetTransformPath(allTransforms[i], tempClone.transform);
+                    time0States[path] = (allTransforms[i].localPosition, allTransforms[i].localRotation, allTransforms[i].localScale);
+                }
+
+                state.normalizedTime = 1f;
+                anim.Sample();
+                var time1States = new Dictionary<string, (Vector3 pos, Quaternion rot, Vector3 scale)>();
+                for (int i = 0; i < allTransforms.Length; i++)
+                {
+                    string path = GetTransformPath(allTransforms[i], tempClone.transform);
+                    time1States[path] = (allTransforms[i].localPosition, allTransforms[i].localRotation, allTransforms[i].localScale);
+                }
+
+                float score0 = 0f;
+                float score1 = 0f;
+                foreach (var kv in defaultStates)
+                {
+                    if (!time0States.TryGetValue(kv.Key, out var t0) ||
+                        !time1States.TryGetValue(kv.Key, out var t1))
+                        continue;
+
+                    float rot0 = Quaternion.Angle(kv.Value.rot, t0.rot);
+                    float rot1 = Quaternion.Angle(kv.Value.rot, t1.rot);
+                    score0 += (t0.pos - kv.Value.pos).sqrMagnitude +
+                        (t0.scale - kv.Value.scale).sqrMagnitude + (rot0 * rot0 * 0.0001f);
+                    score1 += (t1.pos - kv.Value.pos).sqrMagnitude +
+                        (t1.scale - kv.Value.scale).sqrMagnitude + (rot1 * rot1 * 0.0001f);
+                }
+
+                bool stowedIsTime0 = score0 <= score1;
+                var stowedStates = stowedIsTime0 ? time0States : time1States;
+                var deployedStates = stowedIsTime0 ? time1States : time0States;
+
+                result = new List<(string, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3)>();
+                for (int i = 0; i < allTransforms.Length; i++)
+                {
+                    string path = GetTransformPath(allTransforms[i], tempClone.transform);
+                    if (!stowedStates.TryGetValue(path, out var stowed) ||
+                        !deployedStates.TryGetValue(path, out var deployed))
+                        continue;
+
+                    float posDelta = (deployed.pos - stowed.pos).sqrMagnitude;
+                    float rotDelta = Quaternion.Angle(deployed.rot, stowed.rot);
+                    float scaleDelta = (deployed.scale - stowed.scale).sqrMagnitude;
+
+                    if (posDelta > 0.0001f || rotDelta > 0.01f || scaleDelta > 0.0001f)
+                    {
+                        result.Add((path, stowed.pos, stowed.rot, stowed.scale,
+                            deployed.pos, deployed.rot, deployed.scale));
+                    }
+                }
+
+                if (result.Count == 0)
+                {
+                    ParsekLog.Log($"  Ladder '{partKey}': animation '{animationName}' produced no transform deltas");
+                    result = null;
+                }
+                else
+                {
+                    ParsekLog.Log($"  Ladder '{partKey}': sampled {result.Count} animated transforms from '{animationName}' " +
+                        $"(stowed=time{(stowedIsTime0 ? "0" : "1")})");
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(tempClone);
+            }
+
+            ladderCache[cacheKey] = result;
             return result;
         }
 
@@ -1295,7 +1514,8 @@ namespace Parsek
         private static List<RcsGhostInfo> TryBuildRcsFX(
             Part prefab, uint persistentId, string partName,
             Transform modelRoot, Transform ghostModelNode,
-            Dictionary<Transform, Transform> cloneMap)
+            Dictionary<Transform, Transform> cloneMap,
+            bool raiseRcsVisualOnly)
         {
             // Find all ModuleRCS on the part (catches both ModuleRCS and ModuleRCSFX)
             int midx = 0;
@@ -1319,7 +1539,9 @@ namespace Parsek
                 var info = new RcsGhostInfo
                 {
                     partPersistentId = persistentId,
-                    moduleIndex = moduleIndex
+                    moduleIndex = moduleIndex,
+                    emissionScale = raiseRcsVisualOnly ? RcsShowcaseEmissionScale : 1f,
+                    speedScale = raiseRcsVisualOnly ? RcsShowcaseSpeedScale : 1f
                 };
 
                 ConfigNode partConfig = prefab.partInfo?.partConfig;
@@ -1352,8 +1574,7 @@ namespace Parsek
                     continue;
                 }
 
-                var fxTransformNames = new List<string>();
-                var fxModelNames = new List<string>();
+                var fxDefinitions = new List<FxModelDefinition>();
                 FloatCurve emissionCurve = null;
                 FloatCurve speedCurve = null;
 
@@ -1367,8 +1588,25 @@ namespace Parsek
                     string modelName = mmpNodes[mp].GetValue("modelName");
                     if (!string.IsNullOrEmpty(transformName))
                     {
-                        fxTransformNames.Add(transformName);
-                        fxModelNames.Add(modelName ?? "");
+                        Vector3 localOffset = Vector3.zero;
+                        Vector3 localScale = Vector3.one;
+                        Quaternion localRotation = Quaternion.identity;
+                        Vector3 parsedVector;
+                        if (TryParseVector3(mmpNodes[mp].GetValue("localOffset"), out parsedVector))
+                            localOffset = parsedVector;
+                        if (TryParseVector3(mmpNodes[mp].GetValue("localScale"), out parsedVector))
+                            localScale = parsedVector;
+                        if (TryParseVector3(mmpNodes[mp].GetValue("localRotation"), out parsedVector))
+                            localRotation = Quaternion.Euler(parsedVector);
+
+                        fxDefinitions.Add(new FxModelDefinition
+                        {
+                            transformName = transformName,
+                            modelName = modelName ?? "",
+                            localOffset = localOffset,
+                            localRotation = localRotation,
+                            localScale = localScale
+                        });
 
                         if (emissionCurve == null)
                         {
@@ -1388,7 +1626,7 @@ namespace Parsek
                     }
                 }
 
-                if (fxTransformNames.Count == 0)
+                if (fxDefinitions.Count == 0)
                 {
                     ParsekLog.Log($"    RCS '{partName}' midx={moduleIndex}: no FX transforms in '{runningEffect}' group");
                     continue;
@@ -1397,10 +1635,10 @@ namespace Parsek
                 info.emissionCurve = emissionCurve;
                 info.speedCurve = speedCurve;
 
-                for (int f = 0; f < fxTransformNames.Count; f++)
+                for (int f = 0; f < fxDefinitions.Count; f++)
                 {
-                    string transformName = fxTransformNames[f];
-                    string modelName = fxModelNames[f];
+                    string transformName = fxDefinitions[f].transformName;
+                    string modelName = fxDefinitions[f].modelName;
 
                     var fxTransforms = FindTransformsRecursive(prefab.transform, transformName);
                     for (int t = 0; t < fxTransforms.Count; t++)
@@ -1430,14 +1668,25 @@ namespace Parsek
                             {
                                 GameObject fxInstance = Object.Instantiate(fxPrefab);
                                 fxInstance.transform.SetParent(ghostFxParent, false);
-                                fxInstance.transform.localPosition = Vector3.zero;
-                                fxInstance.transform.localRotation = Quaternion.identity;
+                                fxInstance.transform.localPosition = fxDefinitions[f].localOffset;
+                                fxInstance.transform.localRotation = fxDefinitions[f].localRotation;
+                                fxInstance.transform.localScale = fxDefinitions[f].localScale;
 
                                 var ps = fxInstance.GetComponentInChildren<ParticleSystem>();
                                 if (ps != null)
                                 {
                                     var emission = ps.emission;
                                     emission.rateOverTimeMultiplier = 0;
+                                    if (raiseRcsVisualOnly)
+                                    {
+                                        var main = ps.main;
+                                        main.startSizeMultiplier = Mathf.Max(
+                                            main.startSizeMultiplier * RcsShowcaseSizeScale,
+                                            RcsShowcaseMinimumSize);
+                                        main.startLifetimeMultiplier = Mathf.Max(
+                                            main.startLifetimeMultiplier * RcsShowcaseLifetimeScale,
+                                            RcsShowcaseMinimumLifetime);
+                                    }
                                     info.particleSystems.Add(ps);
                                     ParsekLog.Log($"    RCS FX cloned: '{partName}' midx={moduleIndex} " +
                                         $"transform='{transformName}' model='{modelName}'");
@@ -1662,7 +1911,7 @@ namespace Parsek
             out ParachuteGhostInfo parachuteInfo, out JettisonGhostInfo jettisonInfo,
             out List<EngineGhostInfo> engineInfos, out DeployableGhostInfo deployableInfo,
             out LightGhostInfo lightInfo, out FairingGhostInfo fairingInfo,
-            out List<RcsGhostInfo> rcsInfos, bool raiseLightVisualOnly)
+            out List<RcsGhostInfo> rcsInfos, bool raiseLightVisualOnly, bool raiseRcsVisualOnly)
         {
             meshCount = 0;
             parachuteInfo = null;
@@ -1780,12 +2029,51 @@ namespace Parsek
                 if (smr == null || smr.sharedMesh == null) continue;
 
                 Transform leaf = MirrorTransformChain(smr.transform, modelRoot, modelNode.transform, cloneMap);
-                // Use shared bind-pose mesh as a static ghost visual.
-                leaf.gameObject.AddComponent<MeshFilter>().sharedMesh = smr.sharedMesh;
-                leaf.gameObject.AddComponent<MeshRenderer>().sharedMaterials = smr.sharedMaterials;
+
+                // Preserve skinned meshes as skinned renderers so bone-driven animations
+                // (e.g. drills) still articulate on ghosts.
+                Transform[] ghostBones = null;
+                int resolvedBones = 0;
+                if (smr.bones != null && smr.bones.Length > 0)
+                {
+                    ghostBones = new Transform[smr.bones.Length];
+                    for (int b = 0; b < smr.bones.Length; b++)
+                    {
+                        Transform srcBone = smr.bones[b];
+                        if (srcBone == null) continue;
+
+                        Transform ghostBone;
+                        if (!cloneMap.TryGetValue(srcBone, out ghostBone) && IsDescendantOf(srcBone, modelRoot))
+                            ghostBone = MirrorTransformChain(srcBone, modelRoot, modelNode.transform, cloneMap);
+
+                        ghostBones[b] = ghostBone;
+                        if (ghostBone != null)
+                            resolvedBones++;
+                    }
+                }
+
+                Transform ghostRootBone = null;
+                Transform srcRootBone = smr.rootBone;
+                if (srcRootBone != null)
+                {
+                    if (!cloneMap.TryGetValue(srcRootBone, out ghostRootBone) && IsDescendantOf(srcRootBone, modelRoot))
+                        ghostRootBone = MirrorTransformChain(srcRootBone, modelRoot, modelNode.transform, cloneMap);
+                }
+
+                var ghostSmr = leaf.gameObject.AddComponent<SkinnedMeshRenderer>();
+                ghostSmr.sharedMesh = smr.sharedMesh;
+                ghostSmr.sharedMaterials = smr.sharedMaterials;
+                ghostSmr.bones = ghostBones ?? new Transform[0];
+                ghostSmr.rootBone = ghostRootBone != null ? ghostRootBone : leaf;
+                ghostSmr.quality = smr.quality;
+                ghostSmr.updateWhenOffscreen = true;
+                ghostSmr.localBounds = smr.localBounds;
+                ghostSmr.shadowCastingMode = smr.shadowCastingMode;
+                ghostSmr.receiveShadows = smr.receiveShadows;
                 meshCount++;
                 ParsekLog.Log($"    SMR[{r}] '{smr.gameObject.name}' mesh={smr.sharedMesh.name} " +
-                    $"localPos={leaf.localPosition} localScale={leaf.localScale}");
+                    $"localPos={leaf.localPosition} localScale={leaf.localScale} " +
+                    $"bones={resolvedBones}/{(smr.bones != null ? smr.bones.Length : 0)}");
                 added = true;
             }
 
@@ -1944,9 +2232,17 @@ namespace Parsek
 
             // Detect RCS parts and clone FX particle systems
             rcsInfos = TryBuildRcsFX(prefab, persistentId, partName, modelRoot,
-                modelNode.transform, cloneMap);
+                modelNode.transform, cloneMap, raiseRcsVisualOnly);
 
-            // If the part has any animated modules (deployable, gear, cargo bay), ensure
+            string ladderAnimName;
+            string ladderAnimRootName;
+            bool hasRetractableLadder = TryGetRetractableLadderAnimation(
+                prefab, out ladderAnimName, out ladderAnimRootName);
+            string animationGroupDeployAnimName;
+            bool hasAnimationGroupDeploy = TryGetAnimationGroupDeployAnimation(
+                prefab, out animationGroupDeployAnimName);
+
+            // If the part has any animated modules (deployable, gear, ladder, animation-group, cargo bay), ensure
             // the full model transform hierarchy is mirrored into the ghost.  The mesh-cloning
             // phase above only creates transforms leading to MeshRenderers/SkinnedMeshRenderers.
             // Animations often move intermediate non-mesh transforms that would otherwise be
@@ -1954,7 +2250,9 @@ namespace Parsek
             bool needsFullHierarchy =
                 prefab.FindModuleImplementing<ModuleDeployablePart>() != null ||
                 prefab.FindModuleImplementing<ModuleWheels.ModuleWheelDeployment>() != null ||
-                prefab.FindModuleImplementing<ModuleCargoBay>() != null;
+                prefab.FindModuleImplementing<ModuleCargoBay>() != null ||
+                hasRetractableLadder ||
+                hasAnimationGroupDeploy;
 
             if (needsFullHierarchy)
             {
@@ -2082,6 +2380,103 @@ namespace Parsek
             {
                 ParsekLog.Log($"    WARNING: '{partName}' pid={persistentId} has both " +
                     $"ModuleDeployablePart and ModuleWheels.ModuleWheelDeployment — gear visuals skipped");
+            }
+
+            // Detect stock retractable ladders (RetractableLadder module) — reuses DeployableGhostInfo
+            if (deployableInfo == null && hasRetractableLadder)
+            {
+                var sampledStates = SampleLadderStates(prefab, ladderAnimName, ladderAnimRootName);
+                if (sampledStates != null)
+                {
+                    var resolvedTransforms = new List<DeployableTransformState>();
+                    int unresolved = 0;
+                    for (int s = 0; s < sampledStates.Count; s++)
+                    {
+                        var (path, sPos, sRot, sScale, dPos, dRot, dScale) = sampledStates[s];
+                        Transform ghostT = FindTransformByPath(modelNode.transform, path);
+                        if (ghostT != null)
+                        {
+                            resolvedTransforms.Add(new DeployableTransformState
+                            {
+                                t = ghostT,
+                                stowedPos = sPos,
+                                stowedRot = sRot,
+                                stowedScale = sScale,
+                                deployedPos = dPos,
+                                deployedRot = dRot,
+                                deployedScale = dScale
+                            });
+                        }
+                        else
+                        {
+                            unresolved++;
+                            if (unresolved <= 5)
+                                ParsekLog.Log($"    [DIAG] Ladder '{partName}': unresolved path '{path}'");
+                        }
+                    }
+
+                    if (resolvedTransforms.Count > 0)
+                    {
+                        deployableInfo = new DeployableGhostInfo
+                        {
+                            partPersistentId = persistentId,
+                            transforms = resolvedTransforms
+                        };
+                        ParsekLog.Log($"    Ladder detected: '{partName}' pid={persistentId}, " +
+                            $"{resolvedTransforms.Count}/{sampledStates.Count} transforms resolved");
+                    }
+                    else
+                    {
+                        ParsekLog.Log($"    Ladder '{partName}' pid={persistentId}: " +
+                            $"sampled {sampledStates.Count} transforms but none resolved to ghost");
+                    }
+                }
+            }
+
+            // Detect ModuleAnimationGroup deploy animations (e.g. drills) — reuses DeployableGhostInfo
+            if (deployableInfo == null && hasAnimationGroupDeploy)
+            {
+                var sampledStates = SampleLadderStates(prefab, animationGroupDeployAnimName, null);
+                if (sampledStates != null)
+                {
+                    var resolvedTransforms = new List<DeployableTransformState>();
+                    int unresolved = 0;
+                    for (int s = 0; s < sampledStates.Count; s++)
+                    {
+                        var (path, sPos, sRot, sScale, dPos, dRot, dScale) = sampledStates[s];
+                        Transform ghostT = FindTransformByPath(modelNode.transform, path);
+                        if (ghostT != null)
+                        {
+                            resolvedTransforms.Add(new DeployableTransformState
+                            {
+                                t = ghostT,
+                                stowedPos = sPos,
+                                stowedRot = sRot,
+                                stowedScale = sScale,
+                                deployedPos = dPos,
+                                deployedRot = dRot,
+                                deployedScale = dScale
+                            });
+                        }
+                        else
+                        {
+                            unresolved++;
+                            if (unresolved <= 5)
+                                ParsekLog.Log($"    [DIAG] AnimationGroup '{partName}': unresolved path '{path}'");
+                        }
+                    }
+
+                    if (resolvedTransforms.Count > 0)
+                    {
+                        deployableInfo = new DeployableGhostInfo
+                        {
+                            partPersistentId = persistentId,
+                            transforms = resolvedTransforms
+                        };
+                        ParsekLog.Log($"    AnimationGroup deployable detected: '{partName}' pid={persistentId}, " +
+                            $"{resolvedTransforms.Count}/{sampledStates.Count} transforms resolved");
+                    }
+                }
             }
 
             // Detect cargo bays (ModuleCargoBay + linked ModuleAnimateGeneric) — reuses DeployableGhostInfo

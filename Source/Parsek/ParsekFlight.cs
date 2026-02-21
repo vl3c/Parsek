@@ -547,6 +547,7 @@ namespace Parsek
             GhostVisualBuilder.ClearDeployedCanopyCache();
             GhostVisualBuilder.ClearDeployableCache();
             GhostVisualBuilder.ClearGearCache();
+            GhostVisualBuilder.ClearLadderCache();
             GhostVisualBuilder.ClearCargoBayCache();
         }
 
@@ -2195,10 +2196,12 @@ namespace Parsek
                 if (power > 0f)
                 {
                     float emRate = info.emissionCurve != null ? info.emissionCurve.Evaluate(power) : power * 100f;
+                    emRate *= info.emissionScale > 0f ? info.emissionScale : 1f;
                     emission.rateOverTimeMultiplier = emRate;
 
                     var main = ps.main;
                     float spd = info.speedCurve != null ? info.speedCurve.Evaluate(power) : power * 10f;
+                    spd *= info.speedScale > 0f ? info.speedScale : 1f;
                     main.startSpeedMultiplier = spd;
 
                     if (!ps.isPlaying) ps.Play();
