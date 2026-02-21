@@ -505,7 +505,11 @@ namespace Parsek.Tests
         private static RecordingBuilder BuildPartShowcaseRecording(
             double baseUT, string vesselName, string partName, int rowIndex,
             double distanceFromPadMeters, PartEventType onEvent, PartEventType offEvent,
-            uint pidBase, uint evtPid, float eventValue = 0f, int moduleIndex = 0)
+            uint pidBase, uint evtPid, float eventValue = 0f, int moduleIndex = 0,
+            Action<ConfigNode> configureGhostPartNode = null,
+            double firstEventOffsetSeconds = 3.0,
+            double onDurationSeconds = 3.0,
+            double offDurationSeconds = 3.0)
         {
             const double metersPerDegree = (2.0 * Math.PI * 600000.0) / 360.0;
             const double spacingMeters = 5.0;
@@ -513,8 +517,8 @@ namespace Parsek.Tests
             double t = baseUT + 30;
             double baseLat = -0.0972;
             double baseLon = -74.5575;
-            // Center 20-item row on the launchpad: shift south by half the row length
-            double rowCenterOffsetMeters = -60.0;
+            // Center 35-item row on the launchpad: shift south by half the row length.
+            double rowCenterOffsetMeters = -85.0;
             double lat = baseLat + ((rowIndex * spacingMeters + rowCenterOffsetMeters) / metersPerDegree);
             double lon = baseLon + (distanceFromPadMeters / metersPerDegree);
             double alt = 66.0;
@@ -527,17 +531,21 @@ namespace Parsek.Tests
             for (int i = 0; i <= 8; i++)
                 b.AddPoint(t + (i * 3), lat, lon, alt);
 
-            // Toggle events every 3 seconds.
+            // Toggle events across the clip. Category builders can bias on/off timing.
+            double eventOffset = firstEventOffsetSeconds;
+            double onStep = onDurationSeconds > 0 ? onDurationSeconds : 3.0;
+            double offStep = offDurationSeconds > 0 ? offDurationSeconds : 3.0;
             bool on = true;
-            for (int sec = 3; sec <= 24; sec += 3)
+            for (int evtIndex = 0; evtIndex < 8; evtIndex++)
             {
                 b.AddPartEvent(
-                    t + sec,
+                    t + eventOffset,
                     pid: evtPid,
                     type: on ? (int)onEvent : (int)offEvent,
                     partName: partName,
                     value: on ? eventValue : 0f,
                     moduleIndex: moduleIndex);
+                eventOffset += on ? onStep : offStep;
                 on = !on;
             }
 
@@ -546,7 +554,16 @@ namespace Parsek.Tests
                 .WithName(vesselName)
                 .WithPersistentId((uint)(pidBase + rowIndex))
                 .AddPart(partName, rotation: "0,-0.7071068,0,0.7071068")
-                .AsLanded(lat, lon, alt);
+                .AsLanded(lat, lon, alt)
+                .Build();
+
+            if (configureGhostPartNode != null)
+            {
+                var partNodes = snap.GetNodes("PART");
+                if (partNodes != null && partNodes.Length > 0)
+                    configureGhostPartNode(partNodes[0]);
+            }
+
             b.WithGhostVisualSnapshot(snap);
 
             return b;
@@ -578,7 +595,9 @@ namespace Parsek.Tests
         }
 
         // Row indices continue from lights (0-5) so all showcases form one line at 200m east.
-        // Lights: 0-5, Deployables: 6-10, Airplane Gear: 11-13, Landing Legs: 14-16, Cargo: 17-19, Engines: 20-22, Ladders: 23-24.
+        // Lights: 0-5, Deployables: 6-10, Airplane Gear: 11-13, Landing Legs: 14-16,
+        // Cargo: 17-19, Engines: 20-22, Ladders: 23-24, RCS: 25-27, Fairings: 28-30,
+        // Extra Radiators: 31-32, Drills: 33-34.
 
         internal static RecordingBuilder[] DeployableShowcaseRecordings(double baseUT = 0)
         {
@@ -653,6 +672,88 @@ namespace Parsek.Tests
                     200.0, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 93000000, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Ladder Bay", "telescopicLadderBay", 24,
                     200.0, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 93000000, SinglePartPid)
+            };
+        }
+
+        internal static RecordingBuilder[] RcsShowcaseRecordings(double baseUT = 0)
+        {
+            return new[]
+            {
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - RCS RV-105", "RCSBlock.v2", 25,
+                    200.0, PartEventType.RCSActivated, PartEventType.RCSStopped, 94000000, SinglePartPid,
+                    eventValue: 1.0f, moduleIndex: 0,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - RCS RV-1X", "RCSblock.01.small", 26,
+                    200.0, PartEventType.RCSActivated, PartEventType.RCSStopped, 94000000, SinglePartPid,
+                    eventValue: 1.0f, moduleIndex: 0,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - RCS Linear", "RCSLinearSmall", 27,
+                    200.0, PartEventType.RCSActivated, PartEventType.RCSStopped, 94000000, SinglePartPid,
+                    eventValue: 1.0f, moduleIndex: 0,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
+            };
+        }
+
+        private static void AddProceduralFairingModule(
+            ConfigNode partNode, float baseRadius, float topHeight)
+        {
+            if (partNode == null) return;
+
+            var module = new ConfigNode("MODULE");
+            module.AddValue("name", "ModuleProceduralFairing");
+            module.AddValue("fsm", "st_proc");
+
+            // Minimal cross-section profile for synthetic fairing shell generation.
+            var sec0 = new ConfigNode("XSECTION");
+            sec0.AddValue("h", "0");
+            sec0.AddValue("r", baseRadius.ToString("R", CultureInfo.InvariantCulture));
+            module.AddNode(sec0);
+
+            var sec1 = new ConfigNode("XSECTION");
+            sec1.AddValue("h", topHeight.ToString("R", CultureInfo.InvariantCulture));
+            sec1.AddValue("r", "0");
+            module.AddNode(sec1);
+
+            partNode.AddNode(module);
+        }
+
+        internal static RecordingBuilder[] FairingShowcaseRecordings(double baseUT = 0)
+        {
+            return new[]
+            {
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Fairing Size 1", "fairingSize1", 28,
+                    200.0, PartEventType.FairingJettisoned, PartEventType.FairingJettisoned, 95000000, SinglePartPid,
+                    configureGhostPartNode: part => AddProceduralFairingModule(part, baseRadius: 0.625f, topHeight: 2.0f)),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Fairing Size 2", "fairingSize2", 29,
+                    200.0, PartEventType.FairingJettisoned, PartEventType.FairingJettisoned, 95000000, SinglePartPid,
+                    configureGhostPartNode: part => AddProceduralFairingModule(part, baseRadius: 1.25f, topHeight: 3.2f)),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Fairing Size 3", "fairingSize3", 30,
+                    200.0, PartEventType.FairingJettisoned, PartEventType.FairingJettisoned, 95000000, SinglePartPid,
+                    configureGhostPartNode: part => AddProceduralFairingModule(part, baseRadius: 1.875f, topHeight: 4.5f))
+            };
+        }
+
+        internal static RecordingBuilder[] RadiatorShowcaseRecordings(double baseUT = 0)
+        {
+            return new[]
+            {
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Radiator Medium", "foldingRadMed", 31,
+                    200.0, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 96000000, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Radiator Large", "foldingRadLarge", 32,
+                    200.0, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 96000000, SinglePartPid)
+            };
+        }
+
+        internal static RecordingBuilder[] DrillShowcaseRecordings(double baseUT = 0)
+        {
+            return new[]
+            {
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Drill Junior", "MiniDrill", 33,
+                    200.0, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 97000000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Drill-O-Matic", "RadialDrill", 34,
+                    200.0, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 97000000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
             };
         }
 
@@ -1318,6 +1419,112 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RcsShowcaseRecordings_BuildExpectedShape()
+        {
+            var recordings = RcsShowcaseRecordings(baseUT: 17000);
+            Assert.Equal(3, recordings.Length);
+
+            var first = recordings[0].Build();
+            Assert.Equal("Part Showcase - RCS RV-105", first.GetValue("vesselName"));
+            Assert.Equal("True", first.GetValue("loopPlayback"));
+            Assert.Equal(8, first.GetNodes("PART_EVENT").Length);
+
+            var events = first.GetNodes("PART_EVENT");
+            Assert.Equal(((int)PartEventType.RCSActivated).ToString(), events[0].GetValue("type"));
+            Assert.Equal("1", events[0].GetValue("value"));
+            Assert.Equal("0", events[0].GetValue("midx"));
+            Assert.Equal(((int)PartEventType.RCSStopped).ToString(), events[1].GetValue("type"));
+            Assert.Equal("0", events[1].GetValue("value"));
+
+            var ghost = first.GetNode("GHOST_VISUAL_SNAPSHOT");
+            Assert.NotNull(ghost);
+            Assert.Equal("RCSBlock.v2", ghost.GetNodes("PART")[0].GetValue("name"));
+            Assert.Equal(ghost.GetNodes("PART")[0].GetValue("persistentId"), events[0].GetValue("pid"));
+
+            var names = new[] { "RCSBlock.v2", "RCSblock.01.small", "RCSLinearSmall" };
+            for (int i = 0; i < recordings.Length; i++)
+            {
+                var g = recordings[i].Build().GetNode("GHOST_VISUAL_SNAPSHOT");
+                Assert.Equal(names[i], g.GetNodes("PART")[0].GetValue("name"));
+            }
+        }
+
+        [Fact]
+        public void FairingShowcaseRecordings_BuildExpectedShape()
+        {
+            var recordings = FairingShowcaseRecordings(baseUT: 17000);
+            Assert.Equal(3, recordings.Length);
+
+            var first = recordings[0].Build();
+            Assert.Equal("Part Showcase - Fairing Size 1", first.GetValue("vesselName"));
+            Assert.Equal("True", first.GetValue("loopPlayback"));
+            Assert.Equal(8, first.GetNodes("PART_EVENT").Length);
+
+            var events = first.GetNodes("PART_EVENT");
+            Assert.Equal(((int)PartEventType.FairingJettisoned).ToString(), events[0].GetValue("type"));
+            Assert.Equal(((int)PartEventType.FairingJettisoned).ToString(), events[1].GetValue("type"));
+
+            var ghost = first.GetNode("GHOST_VISUAL_SNAPSHOT");
+            Assert.NotNull(ghost);
+            Assert.Equal("fairingSize1", ghost.GetNodes("PART")[0].GetValue("name"));
+            Assert.Equal(ghost.GetNodes("PART")[0].GetValue("persistentId"), events[0].GetValue("pid"));
+            Assert.NotNull(ghost.GetNodes("PART")[0].GetNode("MODULE"));
+
+            var names = new[] { "fairingSize1", "fairingSize2", "fairingSize3" };
+            for (int i = 0; i < recordings.Length; i++)
+            {
+                var g = recordings[i].Build().GetNode("GHOST_VISUAL_SNAPSHOT");
+                Assert.Equal(names[i], g.GetNodes("PART")[0].GetValue("name"));
+            }
+        }
+
+        [Fact]
+        public void RadiatorShowcaseRecordings_BuildExpectedShape()
+        {
+            var recordings = RadiatorShowcaseRecordings(baseUT: 17000);
+            Assert.Equal(2, recordings.Length);
+
+            var first = recordings[0].Build();
+            Assert.Equal("Part Showcase - Radiator Medium", first.GetValue("vesselName"));
+            Assert.Equal("True", first.GetValue("loopPlayback"));
+            Assert.Equal(8, first.GetNodes("PART_EVENT").Length);
+
+            var events = first.GetNodes("PART_EVENT");
+            Assert.Equal(((int)PartEventType.DeployableExtended).ToString(), events[0].GetValue("type"));
+            Assert.Equal(((int)PartEventType.DeployableRetracted).ToString(), events[1].GetValue("type"));
+
+            var names = new[] { "foldingRadMed", "foldingRadLarge" };
+            for (int i = 0; i < recordings.Length; i++)
+            {
+                var g = recordings[i].Build().GetNode("GHOST_VISUAL_SNAPSHOT");
+                Assert.Equal(names[i], g.GetNodes("PART")[0].GetValue("name"));
+            }
+        }
+
+        [Fact]
+        public void DrillShowcaseRecordings_BuildExpectedShape()
+        {
+            var recordings = DrillShowcaseRecordings(baseUT: 17000);
+            Assert.Equal(2, recordings.Length);
+
+            var first = recordings[0].Build();
+            Assert.Equal("Part Showcase - Drill Junior", first.GetValue("vesselName"));
+            Assert.Equal("True", first.GetValue("loopPlayback"));
+            Assert.Equal(8, first.GetNodes("PART_EVENT").Length);
+
+            var events = first.GetNodes("PART_EVENT");
+            Assert.Equal(((int)PartEventType.DeployableExtended).ToString(), events[0].GetValue("type"));
+            Assert.Equal(((int)PartEventType.DeployableRetracted).ToString(), events[1].GetValue("type"));
+
+            var names = new[] { "MiniDrill", "RadialDrill" };
+            for (int i = 0; i < recordings.Length; i++)
+            {
+                var g = recordings[i].Build().GetNode("GHOST_VISUAL_SNAPSHOT");
+                Assert.Equal(names[i], g.GetNodes("PART")[0].GetValue("name"));
+            }
+        }
+
+        [Fact]
         public void AllShowcaseRecordings_EventPidMatchesGhostPartPid()
         {
             // Verify the critical invariant: every showcase recording's event PIDs
@@ -1329,7 +1536,11 @@ namespace Parsek.Tests
                 GearShowcaseRecordings(17000),
                 CargoBayShowcaseRecordings(17000),
                 EngineShowcaseRecordings(17000),
-                LadderShowcaseRecordings(17000)
+                LadderShowcaseRecordings(17000),
+                RcsShowcaseRecordings(17000),
+                FairingShowcaseRecordings(17000),
+                RadiatorShowcaseRecordings(17000),
+                DrillShowcaseRecordings(17000)
             };
 
             foreach (var category in allShowcases)
@@ -1364,7 +1575,11 @@ namespace Parsek.Tests
                 GearShowcaseRecordings(17000),
                 CargoBayShowcaseRecordings(17000),
                 EngineShowcaseRecordings(17000),
-                LadderShowcaseRecordings(17000)
+                LadderShowcaseRecordings(17000),
+                RcsShowcaseRecordings(17000),
+                FairingShowcaseRecordings(17000),
+                RadiatorShowcaseRecordings(17000),
+                DrillShowcaseRecordings(17000)
             };
 
             var positions = new HashSet<string>();
@@ -1379,7 +1594,7 @@ namespace Parsek.Tests
                         $"Duplicate position in '{rec.GetValue("vesselName")}': {key}");
                 }
             }
-            Assert.Equal(25, positions.Count); // 6 + 5 + 6 + 3 + 3 + 2
+            Assert.Equal(35, positions.Count); // 6 + 5 + 6 + 3 + 3 + 2 + 3 + 3 + 2 + 2
         }
 
         [Fact]
@@ -1907,6 +2122,22 @@ namespace Parsek.Tests
             for (int i = 0; i < ladderShowcases.Length; i++)
                 writer.AddRecording(ladderShowcases[i]);
 
+            var rcsShowcases = RcsShowcaseRecordings(baseUT);
+            for (int i = 0; i < rcsShowcases.Length; i++)
+                writer.AddRecording(rcsShowcases[i]);
+
+            var fairingShowcases = FairingShowcaseRecordings(baseUT);
+            for (int i = 0; i < fairingShowcases.Length; i++)
+                writer.AddRecording(fairingShowcases[i]);
+
+            var radiatorShowcases = RadiatorShowcaseRecordings(baseUT);
+            for (int i = 0; i < radiatorShowcases.Length; i++)
+                writer.AddRecording(radiatorShowcases[i]);
+
+            var drillShowcases = DrillShowcaseRecordings(baseUT);
+            for (int i = 0; i < drillShowcases.Length; i++)
+                writer.AddRecording(drillShowcases[i]);
+
             var chainSegments = EvaBoardChain(baseUT);
             for (int i = 0; i < chainSegments.Length; i++)
                 writer.AddRecording(chainSegments[i].WithLoopPlayback());
@@ -1960,6 +2191,16 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Part Showcase - SSME", content);
                     Assert.Contains("vesselName = Part Showcase - Ladder Telescopic", content);
                     Assert.Contains("vesselName = Part Showcase - Ladder Bay", content);
+                    Assert.Contains("vesselName = Part Showcase - RCS RV-105", content);
+                    Assert.Contains("vesselName = Part Showcase - RCS RV-1X", content);
+                    Assert.Contains("vesselName = Part Showcase - RCS Linear", content);
+                    Assert.Contains("vesselName = Part Showcase - Fairing Size 1", content);
+                    Assert.Contains("vesselName = Part Showcase - Fairing Size 2", content);
+                    Assert.Contains("vesselName = Part Showcase - Fairing Size 3", content);
+                    Assert.Contains("vesselName = Part Showcase - Radiator Medium", content);
+                    Assert.Contains("vesselName = Part Showcase - Radiator Large", content);
+                    Assert.Contains("vesselName = Part Showcase - Drill Junior", content);
+                    Assert.Contains("vesselName = Part Showcase - Drill-O-Matic", content);
                     Assert.Contains("vesselName = Flea Chain", content);
                     Assert.Contains("chainId = chain-eva-board-test", content);
                     Assert.Contains("vesselName = Landing Craft", content);
@@ -1990,8 +2231,8 @@ namespace Parsek.Tests
                     $"Expected Parsek/Recordings directory at {recordingsDir}");
 
                 string[] precFiles = Directory.GetFiles(recordingsDir, "*.prec");
-                Assert.True(precFiles.Length >= 33,
-                    $"Expected at least 33 .prec files (8 baseline + 6 lights + 5 deployables + 3 gear + 3 cargo + 3 engines + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
+                Assert.True(precFiles.Length >= 48,
+                    $"Expected at least 48 .prec files (8 baseline + 6 lights + 5 deployables + 6 gear + 3 cargo + 3 engines + 2 ladders + 3 RCS + 3 fairings + 2 extra radiators + 2 drills + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
             }
         }
 

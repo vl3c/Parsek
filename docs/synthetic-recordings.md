@@ -256,4 +256,4 @@ dotnet test
 | ScenarioWriter_InjectIntoSave_Idempotent | Double-injection produces single block |
 | ScenarioWriter_InjectIntoSave_HandlesVariousWhitespace | CRLF, nested nodes, extra values |
 | VesselSnapshotBuilder_DeterministicPid | Same pid across builds with same persistentId |
-| InjectAllRecordings | End-to-end injection of 8 recordings into real save file (Manual) |
+| InjectAllRecordings | End-to-end injection of 48 recordings (baseline + expanded showcase row + chain segments) into a real save file (Manual) |
