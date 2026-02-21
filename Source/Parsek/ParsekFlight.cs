@@ -179,6 +179,8 @@ namespace Parsek
             GameEvents.onVesselSOIChanged.Add(OnVesselSOIChanged);
             GameEvents.onPartCouple.Add(OnPartCouple);
             GameEvents.onPartUndock.Add(OnPartUndock);
+            GameEvents.onGroundSciencePartDeployed.Add(OnGroundSciencePartDeployed);
+            GameEvents.onGroundSciencePartRemoved.Add(OnGroundSciencePartRemoved);
 
             ui = new ParsekUI(this);
 
@@ -435,6 +437,8 @@ namespace Parsek
             GameEvents.onVesselSOIChanged.Remove(OnVesselSOIChanged);
             GameEvents.onPartCouple.Remove(OnPartCouple);
             GameEvents.onPartUndock.Remove(OnPartUndock);
+            GameEvents.onGroundSciencePartDeployed.Remove(OnGroundSciencePartDeployed);
+            GameEvents.onGroundSciencePartRemoved.Remove(OnGroundSciencePartRemoved);
 
             // Clean up recording if active
             if (IsRecording)
@@ -919,6 +923,44 @@ namespace Parsek
             // else: undocked part still on our vessel (transient state) — ignore.
             // If the player follows the undocked vessel, OnPhysicsFrame detects
             // the pid mismatch and UndockSiblingPid handles it.
+        }
+
+        void OnGroundSciencePartDeployed(ModuleGroundSciencePart deployedPart)
+        {
+            RecordInventoryPlacementEvent(
+                deployedPart,
+                PartEventType.InventoryPartPlaced,
+                "onGroundSciencePartDeployed");
+        }
+
+        void OnGroundSciencePartRemoved(ModuleGroundSciencePart removedPart)
+        {
+            RecordInventoryPlacementEvent(
+                removedPart,
+                PartEventType.InventoryPartRemoved,
+                "onGroundSciencePartRemoved");
+        }
+
+        void RecordInventoryPlacementEvent(
+            ModuleGroundSciencePart module,
+            PartEventType eventType,
+            string sourceEvent)
+        {
+            if (recorder == null || !recorder.IsRecording) return;
+            Part p = module?.part;
+            if (p == null) return;
+
+            var evt = new PartEvent
+            {
+                ut = Planetarium.GetUniversalTime(),
+                partPersistentId = p.persistentId,
+                eventType = eventType,
+                partName = p.partInfo?.name ?? "unknown",
+                moduleIndex = 0
+            };
+            recorder.PartEvents.Add(evt);
+
+            Log($"Part event captured: {eventType} '{evt.partName}' pid={evt.partPersistentId} via {sourceEvent}");
         }
 
         /// <summary>
