@@ -27,7 +27,9 @@ namespace Parsek
         Undocked,             // 22 - docking port undocked (chain segment boundary)
         LightBlinkEnabled,    // 23 - light blink mode enabled (value = blinkRate)
         LightBlinkDisabled,   // 24 - light blink mode disabled
-        LightBlinkRate        // 25 - light blink rate changed (value = blinkRate)
+        LightBlinkRate,       // 25 - light blink rate changed (value = blinkRate)
+        InventoryPartPlaced,  // 26 - inventory deployable placed into the world
+        InventoryPartRemoved  // 27 - inventory deployable removed from the world
     }
 
     public struct PartEvent

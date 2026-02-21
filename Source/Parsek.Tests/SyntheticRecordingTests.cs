@@ -814,6 +814,51 @@ namespace Parsek.Tests
             };
         }
 
+        internal static RecordingBuilder InventoryPlacementShowcaseRecording(double baseUT = 0)
+        {
+            const double metersPerDegree = (2.0 * Math.PI * 600000.0) / 360.0;
+            const double spacingMeters = 5.0;
+
+            // Continue one slot after the current row tail.
+            const int rowIndex = 43;
+            double t = baseUT + 30;
+            double baseLat = -0.0972;
+            double baseLon = -74.5575;
+            double rowCenterOffsetMeters = -((ShowcaseRowCount - 1) * spacingMeters * 0.5);
+            double lat = baseLat + ((rowIndex * spacingMeters + rowCenterOffsetMeters) / metersPerDegree);
+            double lon = baseLon + (200.0 / metersPerDegree);
+            double alt = 66.0;
+
+            const string partName = "DeployedWeatherStn";
+            var b = new RecordingBuilder("Part Showcase - Inventory Placement")
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
+                .WithLoopPlayback(loop: true, pauseSeconds: 0.0);
+
+            for (int i = 0; i <= 8; i++)
+                b.AddPoint(t + (i * 3), lat, lon, alt);
+
+            // 24s loop: place -> deploy -> retract -> remove, then repeat once.
+            b.AddPartEvent(t + 0.5, SinglePartPid, (int)PartEventType.InventoryPartPlaced, partName);
+            b.AddPartEvent(t + 1.0, SinglePartPid, (int)PartEventType.DeployableExtended, partName);
+            b.AddPartEvent(t + 4.0, SinglePartPid, (int)PartEventType.DeployableRetracted, partName);
+            b.AddPartEvent(t + 4.5, SinglePartPid, (int)PartEventType.InventoryPartRemoved, partName);
+            b.AddPartEvent(t + 12.5, SinglePartPid, (int)PartEventType.InventoryPartPlaced, partName);
+            b.AddPartEvent(t + 13.0, SinglePartPid, (int)PartEventType.DeployableExtended, partName);
+            b.AddPartEvent(t + 16.0, SinglePartPid, (int)PartEventType.DeployableRetracted, partName);
+            b.AddPartEvent(t + 16.5, SinglePartPid, (int)PartEventType.InventoryPartRemoved, partName);
+
+            var snap = new VesselSnapshotBuilder()
+                .WithName("Part Showcase - Inventory Placement")
+                .WithPersistentId(98100000)
+                .AddPart(partName, rotation: "0,-0.7071068,0,0.7071068")
+                .AddPart("kerbalEVA", position: "2.25,0,0", rotation: "0,0.7071068,0,0.7071068", parentIndex: 0)
+                .AsLanded(lat, lon, alt)
+                .Build();
+
+            b.WithGhostVisualSnapshot(snap);
+            return b;
+        }
+
         #endregion
 
         #region Unit Tests
@@ -1645,6 +1690,29 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void InventoryPlacementShowcaseRecording_BuildExpectedShape()
+        {
+            var rec = InventoryPlacementShowcaseRecording(baseUT: 17000).Build();
+            Assert.Equal("Part Showcase - Inventory Placement", rec.GetValue("vesselName"));
+            Assert.Equal("True", rec.GetValue("loopPlayback"));
+            Assert.Equal(8, rec.GetNodes("PART_EVENT").Length);
+
+            var events = rec.GetNodes("PART_EVENT");
+            Assert.Equal(((int)PartEventType.InventoryPartPlaced).ToString(), events[0].GetValue("type"));
+            Assert.Equal(((int)PartEventType.DeployableExtended).ToString(), events[1].GetValue("type"));
+            Assert.Equal(((int)PartEventType.DeployableRetracted).ToString(), events[2].GetValue("type"));
+            Assert.Equal(((int)PartEventType.InventoryPartRemoved).ToString(), events[3].GetValue("type"));
+
+            var ghost = rec.GetNode("GHOST_VISUAL_SNAPSHOT");
+            Assert.NotNull(ghost);
+            var parts = ghost.GetNodes("PART");
+            Assert.Equal(2, parts.Length);
+            Assert.Equal("DeployedWeatherStn", parts[0].GetValue("name"));
+            Assert.Equal("kerbalEVA", parts[1].GetValue("name"));
+            Assert.Equal(parts[0].GetValue("persistentId"), events[0].GetValue("pid"));
+        }
+
+        [Fact]
         public void AllShowcaseRecordings_EventPidMatchesGhostPartPid()
         {
             // Verify the critical invariant: every showcase recording's event PIDs
@@ -2263,6 +2331,7 @@ namespace Parsek.Tests
             var deployedScienceShowcases = DeployedScienceShowcaseRecordings(baseUT);
             for (int i = 0; i < deployedScienceShowcases.Length; i++)
                 writer.AddRecording(deployedScienceShowcases[i]);
+            writer.AddRecording(InventoryPlacementShowcaseRecording(baseUT));
 
             var chainSegments = EvaBoardChain(baseUT);
             for (int i = 0; i < chainSegments.Length; i++)
@@ -2335,6 +2404,7 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Part Showcase - Deployed Seismic Sensor", content);
                     Assert.Contains("vesselName = Part Showcase - Deployed Solar Panel", content);
                     Assert.Contains("vesselName = Part Showcase - Deployed Weather Station", content);
+                    Assert.Contains("vesselName = Part Showcase - Inventory Placement", content);
                     Assert.Contains("vesselName = Flea Chain", content);
                     Assert.Contains("chainId = chain-eva-board-test", content);
                     Assert.Contains("vesselName = Landing Craft", content);
@@ -2365,8 +2435,8 @@ namespace Parsek.Tests
                     $"Expected Parsek/Recordings directory at {recordingsDir}");
 
                 string[] precFiles = Directory.GetFiles(recordingsDir, "*.prec");
-                Assert.True(precFiles.Length >= 56,
-                    $"Expected at least 56 .prec files (8 baseline + 6 lights + 5 deployables + 6 gear + 3 cargo + 3 engines + 2 ladders + 3 RCS + 3 fairings + 2 extra radiators + 2 drills + 8 deployed science + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
+                Assert.True(precFiles.Length >= 57,
+                    $"Expected at least 57 .prec files (8 baseline + 6 lights + 5 deployables + 6 gear + 3 cargo + 3 engines + 2 ladders + 3 RCS + 3 fairings + 2 extra radiators + 2 drills + 8 deployed science + 1 inventory-placement + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
             }
         }
 

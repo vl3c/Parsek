@@ -1863,6 +1863,7 @@ namespace Parsek
                 }
             }
 
+            InitializeInventoryPlacementVisibility(rec, state);
             ghostStates[index] = state;
         }
 
@@ -2096,6 +2097,14 @@ namespace Parsek
                     case PartEventType.RCSThrottle:
                         SetRcsEmission(state, evt, evt.value);
                         break;
+                    case PartEventType.InventoryPartPlaced:
+                        SetGhostPartActive(ghost, evt.partPersistentId, true);
+                        Log($"Part event applied: InventoryPartPlaced '{evt.partName}' pid={evt.partPersistentId}");
+                        break;
+                    case PartEventType.InventoryPartRemoved:
+                        SetGhostPartActive(ghost, evt.partPersistentId, false);
+                        Log($"Part event applied: InventoryPartRemoved '{evt.partName}' pid={evt.partPersistentId}");
+                        break;
                 }
                 evtIdx++;
             }
@@ -2108,6 +2117,40 @@ namespace Parsek
         {
             var t = ghost.transform.Find($"ghost_part_{persistentId}");
             if (t != null) t.gameObject.SetActive(false);
+        }
+
+        static void SetGhostPartActive(GameObject ghost, uint persistentId, bool active)
+        {
+            if (ghost == null) return;
+            var t = ghost.transform.Find($"ghost_part_{persistentId}");
+            if (t != null) t.gameObject.SetActive(active);
+        }
+
+        static void InitializeInventoryPlacementVisibility(
+            RecordingStore.Recording rec, GhostPlaybackState state)
+        {
+            if (rec == null || rec.PartEvents == null || rec.PartEvents.Count == 0) return;
+            if (state == null || state.ghost == null) return;
+
+            // If a part's first placement-related event is "placed", start hidden so it
+            // visibly appears only when the event fires.
+            var initialized = new HashSet<uint>();
+            for (int i = 0; i < rec.PartEvents.Count; i++)
+            {
+                var evt = rec.PartEvents[i];
+                if (initialized.Contains(evt.partPersistentId)) continue;
+
+                if (evt.eventType == PartEventType.InventoryPartPlaced)
+                {
+                    SetGhostPartActive(state.ghost, evt.partPersistentId, false);
+                    initialized.Add(evt.partPersistentId);
+                }
+                else if (evt.eventType == PartEventType.InventoryPartRemoved)
+                {
+                    SetGhostPartActive(state.ghost, evt.partPersistentId, true);
+                    initialized.Add(evt.partPersistentId);
+                }
+            }
         }
 
         void TrackFakeCanopy(GhostPlaybackState state, uint partPid, GameObject canopy)
