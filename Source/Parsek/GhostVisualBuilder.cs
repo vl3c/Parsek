@@ -2062,6 +2062,7 @@ namespace Parsek
                 // (e.g. drills) still articulate on ghosts.
                 Transform[] ghostBones = null;
                 int resolvedBones = 0;
+                bool usedPartRootFallbackForBones = false;
                 if (smr.bones != null && smr.bones.Length > 0)
                 {
                     ghostBones = new Transform[smr.bones.Length];
@@ -2071,8 +2072,20 @@ namespace Parsek
                         if (srcBone == null) continue;
 
                         Transform ghostBone;
-                        if (!cloneMap.TryGetValue(srcBone, out ghostBone) && IsDescendantOf(srcBone, modelRoot))
-                            ghostBone = MirrorTransformChain(srcBone, modelRoot, modelNode.transform, cloneMap);
+                        if (!cloneMap.TryGetValue(srcBone, out ghostBone))
+                        {
+                            if (IsDescendantOf(srcBone, modelRoot))
+                            {
+                                ghostBone = MirrorTransformChain(srcBone, modelRoot, modelNode.transform, cloneMap);
+                            }
+                            else if (IsDescendantOf(srcBone, prefab.transform))
+                            {
+                                // EVA rigs can keep bones outside modelRoot (e.g. model01).
+                                // Fall back to cloning from the full part hierarchy.
+                                ghostBone = MirrorTransformChain(srcBone, prefab.transform, partRoot.transform, cloneMap);
+                                usedPartRootFallbackForBones = true;
+                            }
+                        }
 
                         ghostBones[b] = ghostBone;
                         if (ghostBone != null)
@@ -2084,8 +2097,18 @@ namespace Parsek
                 Transform srcRootBone = smr.rootBone;
                 if (srcRootBone != null)
                 {
-                    if (!cloneMap.TryGetValue(srcRootBone, out ghostRootBone) && IsDescendantOf(srcRootBone, modelRoot))
-                        ghostRootBone = MirrorTransformChain(srcRootBone, modelRoot, modelNode.transform, cloneMap);
+                    if (!cloneMap.TryGetValue(srcRootBone, out ghostRootBone))
+                    {
+                        if (IsDescendantOf(srcRootBone, modelRoot))
+                        {
+                            ghostRootBone = MirrorTransformChain(srcRootBone, modelRoot, modelNode.transform, cloneMap);
+                        }
+                        else if (IsDescendantOf(srcRootBone, prefab.transform))
+                        {
+                            ghostRootBone = MirrorTransformChain(srcRootBone, prefab.transform, partRoot.transform, cloneMap);
+                            usedPartRootFallbackForBones = true;
+                        }
+                    }
                 }
 
                 var ghostSmr = leaf.gameObject.AddComponent<SkinnedMeshRenderer>();
@@ -2102,6 +2125,10 @@ namespace Parsek
                 ParsekLog.Log($"    SMR[{r}] '{smr.gameObject.name}' mesh={smr.sharedMesh.name} " +
                     $"localPos={leaf.localPosition} localScale={leaf.localScale} " +
                     $"bones={resolvedBones}/{(smr.bones != null ? smr.bones.Length : 0)}");
+                if (usedPartRootFallbackForBones)
+                {
+                    ParsekLog.Log($"      SMR[{r}] '{smr.gameObject.name}': used part-root fallback for external bone transforms");
+                }
                 added = true;
             }
 

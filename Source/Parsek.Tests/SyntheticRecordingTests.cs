@@ -587,7 +587,6 @@ namespace Parsek.Tests
         // Event PIDs must match this so the ghost visual builder can find the part.
         private const uint SinglePartPid = 100000;
         // Optional companion part (e.g., kerbal actor) receives the second slot.
-        private const uint CompanionPartPid = 101111;
         // Total showcase row entries (indices 0-42).
         private const int ShowcaseRowCount = 43;
 
@@ -781,36 +780,28 @@ namespace Parsek.Tests
             {
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Central Station", "DeployedCentralStation", 35,
                     200.0, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
-                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5,
-                    companionPartName: "kerbalEVA"),
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Goo Observation", "DeployedGoExOb", 36,
                     200.0, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
-                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5,
-                    companionPartName: "kerbalEVA"),
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Ion Collector", "DeployedIONExp", 37,
                     200.0, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
-                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5,
-                    companionPartName: "kerbalEVA"),
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed RTG", "DeployedRTG", 38,
                     200.0, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
-                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5,
-                    companionPartName: "kerbalEVA"),
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Sat Dish", "DeployedSatDish", 39,
                     200.0, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
-                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5,
-                    companionPartName: "kerbalEVA"),
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Seismic Sensor", "DeployedSeismicSensor", 40,
                     200.0, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
-                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5,
-                    companionPartName: "kerbalEVA"),
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Solar Panel", "DeployedSolarPanel", 41,
                     200.0, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
-                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5,
-                    companionPartName: "kerbalEVA"),
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Weather Station", "DeployedWeatherStn", 42,
                     200.0, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
-                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5,
-                    companionPartName: "kerbalEVA")
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
             };
         }
 
@@ -1670,10 +1661,8 @@ namespace Parsek.Tests
             var ghost = first.GetNode("GHOST_VISUAL_SNAPSHOT");
             Assert.NotNull(ghost);
             var parts = ghost.GetNodes("PART");
-            Assert.Equal(2, parts.Length);
+            Assert.Single(parts);
             Assert.Equal("DeployedCentralStation", parts[0].GetValue("name"));
-            Assert.Equal("kerbalEVA", parts[1].GetValue("name"));
-            Assert.Equal(CompanionPartPid.ToString(), parts[1].GetValue("persistentId"));
             Assert.Equal(parts[0].GetValue("persistentId"), events[0].GetValue("pid"));
 
             var names = new[]
@@ -1684,8 +1673,9 @@ namespace Parsek.Tests
             for (int i = 0; i < recordings.Length; i++)
             {
                 var g = recordings[i].Build().GetNode("GHOST_VISUAL_SNAPSHOT");
-                Assert.Equal(names[i], g.GetNodes("PART")[0].GetValue("name"));
-                Assert.Equal("kerbalEVA", g.GetNodes("PART")[1].GetValue("name"));
+                var gParts = g.GetNodes("PART");
+                Assert.Single(gParts);
+                Assert.Equal(names[i], gParts[0].GetValue("name"));
             }
         }
 
