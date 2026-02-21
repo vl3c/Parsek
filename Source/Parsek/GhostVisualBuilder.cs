@@ -1678,9 +1678,18 @@ namespace Parsek
                                 var ps = fxInstance.GetComponentInChildren<ParticleSystem>();
                                 if (ps != null)
                                 {
+                                    var main = ps.main;
+                                    // Keep showcase/startup visuals deterministic: cloned FX must not
+                                    // auto-emit before the first explicit RCS event is applied.
+                                    main.playOnAwake = false;
+                                    main.prewarm = false;
+
                                     var emission = ps.emission;
                                     emission.enabled = true;
                                     emission.rateOverTimeMultiplier = 0;
+                                    ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                                    ps.Clear(true);
+
                                     if (raiseRcsVisualOnly)
                                     {
                                         var psRenderer = ps.GetComponent<ParticleSystemRenderer>();
@@ -1698,7 +1707,7 @@ namespace Parsek
                                         $"rot={fxDefinitions[f].localRotation.eulerAngles} " +
                                         $"scale={fxDefinitions[f].localScale} " +
                                         $"active={ps.gameObject.activeInHierarchy} " +
-                                        $"sim={diagMain.simulationSpace} playOnAwake={diagMain.playOnAwake} " +
+                                        $"sim={diagMain.simulationSpace} playOnAwake={diagMain.playOnAwake} prewarm={diagMain.prewarm} " +
                                         $"renderer={(diagRenderer != null && diagRenderer.enabled)}");
                                 }
                             }

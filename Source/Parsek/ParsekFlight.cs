@@ -2225,7 +2225,8 @@ namespace Parsek
                 else
                 {
                     emission.rateOverTimeMultiplier = 0;
-                    ps.Stop(true, ParticleSystemStopBehavior.StopEmitting);
+                    ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                    ps.Clear(true);
                 }
 
                 if (ps.isPlaying) playingSystems++;
