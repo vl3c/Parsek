@@ -116,6 +116,36 @@ namespace Parsek.Tests
             Assert.Equal(1, target);
         }
 
+        [Fact]
+        public void ComputeScaledRcsEmissionRate_ShowcaseEnforcesVisibilityFloor()
+        {
+            float rate = ParsekFlight.ComputeScaledRcsEmissionRate(
+                emissionCurve: null, power: 0.01f, emissionScale: 120f);
+
+            Assert.True(rate >= 60f, $"Expected showcase emission >= 60, got {rate}");
+        }
+
+        [Fact]
+        public void ComputeScaledRcsSpeed_ShowcaseEnforcesVisibilityFloor()
+        {
+            float speed = ParsekFlight.ComputeScaledRcsSpeed(
+                speedCurve: null, power: 0.01f, speedScale: 2.5f);
+
+            Assert.True(speed >= 4f, $"Expected showcase speed >= 4, got {speed}");
+        }
+
+        [Fact]
+        public void ComputeScaledRcsRates_NonShowcaseDoesNotApplyFloors()
+        {
+            float rate = ParsekFlight.ComputeScaledRcsEmissionRate(
+                emissionCurve: null, power: 0.25f, emissionScale: 1f);
+            float speed = ParsekFlight.ComputeScaledRcsSpeed(
+                speedCurve: null, power: 0.25f, speedScale: 1f);
+
+            Assert.Equal(25f, rate);
+            Assert.Equal(2.5f, speed);
+        }
+
         [Theory]
         [InlineData(99, false, 100, 0)]
         [InlineData(100, true, 100, 0)]

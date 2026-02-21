@@ -1450,6 +1450,32 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RcsShowcaseRecordings_UseVisibilityBiasedCadence()
+        {
+            var first = RcsShowcaseRecordings(baseUT: 17000)[0].Build();
+            var events = first.GetNodes("PART_EVENT");
+            Assert.Equal(8, events.Length);
+
+            double[] uts = new double[events.Length];
+            for (int i = 0; i < events.Length; i++)
+                uts[i] = double.Parse(events[i].GetValue("ut"), CultureInfo.InvariantCulture);
+
+            // Starts ON at recording start and keeps a long ON / short OFF duty cycle.
+            Assert.Equal(17030.0, uts[0], 3);
+            Assert.Equal(4.5, uts[1] - uts[0], 3);
+            Assert.Equal(1.5, uts[2] - uts[1], 3);
+            Assert.Equal(4.5, uts[3] - uts[2], 3);
+            Assert.Equal(1.5, uts[4] - uts[3], 3);
+            Assert.Equal(4.5, uts[5] - uts[4], 3);
+            Assert.Equal(1.5, uts[6] - uts[5], 3);
+            Assert.Equal(4.5, uts[7] - uts[6], 3);
+
+            Assert.Equal(((int)PartEventType.RCSActivated).ToString(), events[0].GetValue("type"));
+            Assert.Equal(((int)PartEventType.RCSActivated).ToString(), events[6].GetValue("type"));
+            Assert.Equal(((int)PartEventType.RCSStopped).ToString(), events[7].GetValue("type"));
+        }
+
+        [Fact]
         public void FairingShowcaseRecordings_BuildExpectedShape()
         {
             var recordings = FairingShowcaseRecordings(baseUT: 17000);
