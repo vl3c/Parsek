@@ -500,7 +500,7 @@ namespace Parsek.Tests
         /// <summary>
         /// Generalized helper for building a static-trajectory, looping showcase recording
         /// that toggles a pair of part events every 3 seconds. Used for lights, deployables,
-        /// gear, cargo bays, and engines.
+        /// gear, cargo bays, engines, and deployed science fixtures.
         /// </summary>
         private static RecordingBuilder BuildPartShowcaseRecording(
             double baseUT, string vesselName, string partName, int rowIndex,
@@ -509,7 +509,10 @@ namespace Parsek.Tests
             Action<ConfigNode> configureGhostPartNode = null,
             double firstEventOffsetSeconds = 3.0,
             double onDurationSeconds = 3.0,
-            double offDurationSeconds = 3.0)
+            double offDurationSeconds = 3.0,
+            string companionPartName = null,
+            string companionPartPosition = null,
+            string companionPartRotation = null)
         {
             const double metersPerDegree = (2.0 * Math.PI * 600000.0) / 360.0;
             const double spacingMeters = 5.0;
@@ -517,8 +520,8 @@ namespace Parsek.Tests
             double t = baseUT + 30;
             double baseLat = -0.0972;
             double baseLon = -74.5575;
-            // Center 35-item row on the launchpad: shift south by half the row length.
-            double rowCenterOffsetMeters = -85.0;
+            // Keep the row centered on the launchpad as we expand showcase coverage.
+            double rowCenterOffsetMeters = -((ShowcaseRowCount - 1) * spacingMeters * 0.5);
             double lat = baseLat + ((rowIndex * spacingMeters + rowCenterOffsetMeters) / metersPerDegree);
             double lon = baseLon + (distanceFromPadMeters / metersPerDegree);
             double alt = 66.0;
@@ -550,10 +553,21 @@ namespace Parsek.Tests
             }
 
             // rotY(-90°): upright fixture facing east (away from pad).
-            var snap = new VesselSnapshotBuilder()
+            var snapshotBuilder = new VesselSnapshotBuilder()
                 .WithName(vesselName)
                 .WithPersistentId((uint)(pidBase + rowIndex))
-                .AddPart(partName, rotation: "0,-0.7071068,0,0.7071068")
+                .AddPart(partName, rotation: "0,-0.7071068,0,0.7071068");
+
+            if (!string.IsNullOrEmpty(companionPartName))
+            {
+                snapshotBuilder.AddPart(
+                    companionPartName,
+                    position: companionPartPosition ?? "2.25,0,0",
+                    rotation: companionPartRotation ?? "0,0.7071068,0,0.7071068",
+                    parentIndex: 0);
+            }
+
+            var snap = snapshotBuilder
                 .AsLanded(lat, lon, alt)
                 .Build();
 
@@ -572,6 +586,10 @@ namespace Parsek.Tests
         // The first part added by VesselSnapshotBuilder gets persistentId = 100000.
         // Event PIDs must match this so the ghost visual builder can find the part.
         private const uint SinglePartPid = 100000;
+        // Optional companion part (e.g., kerbal actor) receives the second slot.
+        private const uint CompanionPartPid = 101111;
+        // Total showcase row entries (indices 0-42).
+        private const int ShowcaseRowCount = 43;
 
         private static RecordingBuilder BuildLightShowcaseRecording(
             double baseUT, string vesselName, string lightPartName, int rowIndex)
@@ -597,7 +615,7 @@ namespace Parsek.Tests
         // Row indices continue from lights (0-5) so all showcases form one line at 200m east.
         // Lights: 0-5, Deployables: 6-10, Airplane Gear: 11-13, Landing Legs: 14-16,
         // Cargo: 17-19, Engines: 20-22, Ladders: 23-24, RCS: 25-27, Fairings: 28-30,
-        // Extra Radiators: 31-32, Drills: 33-34.
+        // Extra Radiators: 31-32, Drills: 33-34, Deployed Science: 35-42.
 
         internal static RecordingBuilder[] DeployableShowcaseRecordings(double baseUT = 0)
         {
@@ -754,6 +772,45 @@ namespace Parsek.Tests
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Drill-O-Matic", "RadialDrill", 34,
                     200.0, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 97000000, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
+            };
+        }
+
+        internal static RecordingBuilder[] DeployedScienceShowcaseRecordings(double baseUT = 0)
+        {
+            return new[]
+            {
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Central Station", "DeployedCentralStation", 35,
+                    200.0, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5,
+                    companionPartName: "kerbalEVA"),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Goo Observation", "DeployedGoExOb", 36,
+                    200.0, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5,
+                    companionPartName: "kerbalEVA"),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Ion Collector", "DeployedIONExp", 37,
+                    200.0, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5,
+                    companionPartName: "kerbalEVA"),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed RTG", "DeployedRTG", 38,
+                    200.0, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5,
+                    companionPartName: "kerbalEVA"),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Sat Dish", "DeployedSatDish", 39,
+                    200.0, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5,
+                    companionPartName: "kerbalEVA"),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Seismic Sensor", "DeployedSeismicSensor", 40,
+                    200.0, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5,
+                    companionPartName: "kerbalEVA"),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Solar Panel", "DeployedSolarPanel", 41,
+                    200.0, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5,
+                    companionPartName: "kerbalEVA"),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Weather Station", "DeployedWeatherStn", 42,
+                    200.0, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5,
+                    companionPartName: "kerbalEVA")
             };
         }
 
@@ -1551,6 +1608,43 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DeployedScienceShowcaseRecordings_BuildExpectedShape()
+        {
+            var recordings = DeployedScienceShowcaseRecordings(baseUT: 17000);
+            Assert.Equal(8, recordings.Length);
+
+            var first = recordings[0].Build();
+            Assert.Equal("Part Showcase - Deployed Central Station", first.GetValue("vesselName"));
+            Assert.Equal("True", first.GetValue("loopPlayback"));
+            Assert.Equal(8, first.GetNodes("PART_EVENT").Length);
+
+            var events = first.GetNodes("PART_EVENT");
+            Assert.Equal(((int)PartEventType.DeployableExtended).ToString(), events[0].GetValue("type"));
+            Assert.Equal(((int)PartEventType.DeployableRetracted).ToString(), events[1].GetValue("type"));
+
+            var ghost = first.GetNode("GHOST_VISUAL_SNAPSHOT");
+            Assert.NotNull(ghost);
+            var parts = ghost.GetNodes("PART");
+            Assert.Equal(2, parts.Length);
+            Assert.Equal("DeployedCentralStation", parts[0].GetValue("name"));
+            Assert.Equal("kerbalEVA", parts[1].GetValue("name"));
+            Assert.Equal(CompanionPartPid.ToString(), parts[1].GetValue("persistentId"));
+            Assert.Equal(parts[0].GetValue("persistentId"), events[0].GetValue("pid"));
+
+            var names = new[]
+            {
+                "DeployedCentralStation", "DeployedGoExOb", "DeployedIONExp", "DeployedRTG",
+                "DeployedSatDish", "DeployedSeismicSensor", "DeployedSolarPanel", "DeployedWeatherStn"
+            };
+            for (int i = 0; i < recordings.Length; i++)
+            {
+                var g = recordings[i].Build().GetNode("GHOST_VISUAL_SNAPSHOT");
+                Assert.Equal(names[i], g.GetNodes("PART")[0].GetValue("name"));
+                Assert.Equal("kerbalEVA", g.GetNodes("PART")[1].GetValue("name"));
+            }
+        }
+
+        [Fact]
         public void AllShowcaseRecordings_EventPidMatchesGhostPartPid()
         {
             // Verify the critical invariant: every showcase recording's event PIDs
@@ -1566,7 +1660,8 @@ namespace Parsek.Tests
                 RcsShowcaseRecordings(17000),
                 FairingShowcaseRecordings(17000),
                 RadiatorShowcaseRecordings(17000),
-                DrillShowcaseRecordings(17000)
+                DrillShowcaseRecordings(17000),
+                DeployedScienceShowcaseRecordings(17000)
             };
 
             foreach (var category in allShowcases)
@@ -1605,7 +1700,8 @@ namespace Parsek.Tests
                 RcsShowcaseRecordings(17000),
                 FairingShowcaseRecordings(17000),
                 RadiatorShowcaseRecordings(17000),
-                DrillShowcaseRecordings(17000)
+                DrillShowcaseRecordings(17000),
+                DeployedScienceShowcaseRecordings(17000)
             };
 
             var positions = new HashSet<string>();
@@ -1620,7 +1716,7 @@ namespace Parsek.Tests
                         $"Duplicate position in '{rec.GetValue("vesselName")}': {key}");
                 }
             }
-            Assert.Equal(35, positions.Count); // 6 + 5 + 6 + 3 + 3 + 2 + 3 + 3 + 2 + 2
+            Assert.Equal(43, positions.Count); // 6 + 5 + 6 + 3 + 3 + 2 + 3 + 3 + 2 + 2 + 8
         }
 
         [Fact]
@@ -2164,6 +2260,10 @@ namespace Parsek.Tests
             for (int i = 0; i < drillShowcases.Length; i++)
                 writer.AddRecording(drillShowcases[i]);
 
+            var deployedScienceShowcases = DeployedScienceShowcaseRecordings(baseUT);
+            for (int i = 0; i < deployedScienceShowcases.Length; i++)
+                writer.AddRecording(deployedScienceShowcases[i]);
+
             var chainSegments = EvaBoardChain(baseUT);
             for (int i = 0; i < chainSegments.Length; i++)
                 writer.AddRecording(chainSegments[i].WithLoopPlayback());
@@ -2227,6 +2327,14 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Part Showcase - Radiator Large", content);
                     Assert.Contains("vesselName = Part Showcase - Drill Junior", content);
                     Assert.Contains("vesselName = Part Showcase - Drill-O-Matic", content);
+                    Assert.Contains("vesselName = Part Showcase - Deployed Central Station", content);
+                    Assert.Contains("vesselName = Part Showcase - Deployed Goo Observation", content);
+                    Assert.Contains("vesselName = Part Showcase - Deployed Ion Collector", content);
+                    Assert.Contains("vesselName = Part Showcase - Deployed RTG", content);
+                    Assert.Contains("vesselName = Part Showcase - Deployed Sat Dish", content);
+                    Assert.Contains("vesselName = Part Showcase - Deployed Seismic Sensor", content);
+                    Assert.Contains("vesselName = Part Showcase - Deployed Solar Panel", content);
+                    Assert.Contains("vesselName = Part Showcase - Deployed Weather Station", content);
                     Assert.Contains("vesselName = Flea Chain", content);
                     Assert.Contains("chainId = chain-eva-board-test", content);
                     Assert.Contains("vesselName = Landing Craft", content);
@@ -2257,8 +2365,8 @@ namespace Parsek.Tests
                     $"Expected Parsek/Recordings directory at {recordingsDir}");
 
                 string[] precFiles = Directory.GetFiles(recordingsDir, "*.prec");
-                Assert.True(precFiles.Length >= 48,
-                    $"Expected at least 48 .prec files (8 baseline + 6 lights + 5 deployables + 6 gear + 3 cargo + 3 engines + 2 ladders + 3 RCS + 3 fairings + 2 extra radiators + 2 drills + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
+                Assert.True(precFiles.Length >= 56,
+                    $"Expected at least 56 .prec files (8 baseline + 6 lights + 5 deployables + 6 gear + 3 cargo + 3 engines + 2 ladders + 3 RCS + 3 fairings + 2 extra radiators + 2 drills + 8 deployed science + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
             }
         }
 
