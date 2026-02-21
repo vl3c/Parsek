@@ -37,6 +37,7 @@ namespace Parsek
         private HashSet<uint> openCargoBays = new HashSet<uint>();
         private HashSet<uint> deployedFairings = new HashSet<uint>();
         private HashSet<ulong> deployedLadders = new HashSet<ulong>();
+        private HashSet<ulong> deployedAnimationGroups = new HashSet<ulong>();
 
         // Engine state tracking (key = EncodeEngineKey(pid, moduleIndex))
         private List<(Part part, ModuleEngines engine, int moduleIndex)> cachedEngines;
@@ -437,6 +438,41 @@ namespace Parsek
             return null;
         }
 
+        internal static PartEvent? CheckAnimationGroupTransition(
+            ulong key, uint partPersistentId, string partName, bool isDeployed,
+            HashSet<ulong> deployedSet, double ut, int moduleIndex)
+        {
+            bool wasDeployed = deployedSet.Contains(key);
+
+            if (isDeployed && !wasDeployed)
+            {
+                deployedSet.Add(key);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.DeployableExtended,
+                    partName = partName,
+                    moduleIndex = moduleIndex
+                };
+            }
+
+            if (!isDeployed && wasDeployed)
+            {
+                deployedSet.Remove(key);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.DeployableRetracted,
+                    partName = partName,
+                    moduleIndex = moduleIndex
+                };
+            }
+
+            return null;
+        }
+
         private void CheckLightState(Vessel v)
         {
             if (v == null || v.parts == null) return;
@@ -547,6 +583,79 @@ namespace Parsek
 
             if (TryGetModuleBoolField(ladderModule, "isRetracted", out boolValue) ||
                 TryGetModuleBoolField(ladderModule, "retracted", out boolValue))
+            {
+                isRetracted = boolValue;
+                isDeployed = !boolValue;
+                return true;
+            }
+
+            return false;
+        }
+
+        internal static bool TryClassifyAnimationGroupState(
+            PartModule animationGroupModule, out bool isDeployed, out bool isRetracted)
+        {
+            isDeployed = false;
+            isRetracted = false;
+            if (animationGroupModule == null) return false;
+
+            bool sawDeployEvent = false;
+            bool sawRetractEvent = false;
+            bool canDeploy = false;
+            bool canRetract = false;
+
+            // Prefer event activity: for ModuleAnimationGroup this directly tracks whether
+            // the opposite action is currently available (deploy vs retract).
+            if (animationGroupModule.Events != null)
+            {
+                for (int i = 0; i < animationGroupModule.Events.Count; i++)
+                {
+                    BaseEvent evt = animationGroupModule.Events[i];
+                    if (evt == null) continue;
+
+                    string evtName = (evt.name ?? string.Empty).ToLowerInvariant();
+                    string guiName = (evt.guiName ?? string.Empty).ToLowerInvariant();
+
+                    bool isDeployEvent =
+                        evtName.Contains("deploy") || guiName.Contains("deploy") ||
+                        evtName.Contains("extend") || guiName.Contains("extend");
+                    bool isRetractEvent =
+                        evtName.Contains("retract") || guiName.Contains("retract");
+
+                    if (isDeployEvent)
+                    {
+                        sawDeployEvent = true;
+                        canDeploy = canDeploy || evt.active;
+                    }
+
+                    if (isRetractEvent)
+                    {
+                        sawRetractEvent = true;
+                        canRetract = canRetract || evt.active;
+                    }
+                }
+            }
+
+            if ((sawDeployEvent || sawRetractEvent) &&
+                TryClassifyLadderStateFromEventActivity(
+                    canExtend: canDeploy, canRetract: canRetract,
+                    out isDeployed, out isRetracted))
+                return true;
+
+            // Fallback: some variants expose direct bool fields.
+            bool boolValue;
+            if (TryGetModuleBoolField(animationGroupModule, "isDeployed", out boolValue) ||
+                TryGetModuleBoolField(animationGroupModule, "deployed", out boolValue) ||
+                TryGetModuleBoolField(animationGroupModule, "isExtended", out boolValue) ||
+                TryGetModuleBoolField(animationGroupModule, "extended", out boolValue))
+            {
+                isDeployed = boolValue;
+                isRetracted = !boolValue;
+                return true;
+            }
+
+            if (TryGetModuleBoolField(animationGroupModule, "isRetracted", out boolValue) ||
+                TryGetModuleBoolField(animationGroupModule, "retracted", out boolValue))
             {
                 isRetracted = boolValue;
                 isDeployed = !boolValue;
@@ -798,6 +907,42 @@ namespace Parsek
                     }
 
                     break; // one RetractableLadder module per ladder part
+                }
+            }
+        }
+
+        private void CheckAnimationGroupState(Vessel v)
+        {
+            if (v == null || v.parts == null) return;
+
+            double ut = Planetarium.GetUniversalTime();
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    PartModule module = p.Modules[m];
+                    if (module == null) continue;
+                    if (!string.Equals(module.moduleName, "ModuleAnimationGroup", StringComparison.Ordinal))
+                        continue;
+
+                    bool isDeployed;
+                    bool isRetracted;
+                    if (!TryClassifyAnimationGroupState(module, out isDeployed, out isRetracted))
+                        continue;
+
+                    ulong key = EncodeEngineKey(p.persistentId, m);
+                    var evt = CheckAnimationGroupTransition(
+                        key, p.persistentId, p.partInfo?.name ?? "unknown",
+                        isDeployed, deployedAnimationGroups, ut, m);
+                    if (evt.HasValue)
+                    {
+                        PartEvents.Add(evt.Value);
+                        ParsekLog.Log($"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                            $"pid={evt.Value.partPersistentId} midx={evt.Value.moduleIndex} (animation-group)");
+                    }
                 }
             }
         }
@@ -1131,6 +1276,7 @@ namespace Parsek
             openCargoBays.Clear();
             deployedFairings.Clear();
             deployedLadders.Clear();
+            deployedAnimationGroups.Clear();
             cachedEngines = CacheEngineModules(v);
             activeEngineKeys = new HashSet<ulong>();
             lastThrottle = new Dictionary<ulong, float>();
@@ -1404,6 +1550,7 @@ namespace Parsek
             CheckRcsState(v);
             CheckDeployableState(v);
             CheckLadderState(v);
+            CheckAnimationGroupState(v);
             CheckLightState(v);
             CheckGearState(v);
             CheckCargoBayState(v);

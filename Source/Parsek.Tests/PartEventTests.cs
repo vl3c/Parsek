@@ -607,6 +607,47 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void AnimationGroupTransition_RetractedToDeployed_EmitsDeployableExtended()
+        {
+            var deployed = new HashSet<ulong>();
+            ulong key = FlightRecorder.EncodeEngineKey(84, 2);
+            var evt = FlightRecorder.CheckAnimationGroupTransition(
+                key, 84, "ISRU", isDeployed: true,
+                deployed, 200.0, moduleIndex: 2);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.DeployableExtended, evt.Value.eventType);
+            Assert.Equal(2, evt.Value.moduleIndex);
+            Assert.Contains(key, deployed);
+        }
+
+        [Fact]
+        public void AnimationGroupTransition_DeployedToRetracted_EmitsDeployableRetracted()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(84, 2);
+            var deployed = new HashSet<ulong> { key };
+            var evt = FlightRecorder.CheckAnimationGroupTransition(
+                key, 84, "ISRU", isDeployed: false,
+                deployed, 210.0, moduleIndex: 2);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.DeployableRetracted, evt.Value.eventType);
+            Assert.DoesNotContain(key, deployed);
+        }
+
+        [Fact]
+        public void AnimationGroupTransition_NoChange_ReturnsNull()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(84, 2);
+            var deployed = new HashSet<ulong>();
+            var evt = FlightRecorder.CheckAnimationGroupTransition(
+                key, 84, "ISRU", isDeployed: false,
+                deployed, 220.0, moduleIndex: 2);
+
+            Assert.Null(evt);
+        }
+
+        [Fact]
         public void ClassifyLadderState_Endpoints_AreDetected()
         {
             FlightRecorder.ClassifyLadderState(1.0f, out bool isExtended, out bool isRetracted);
