@@ -92,12 +92,8 @@ namespace Parsek
         private const float LightShowcaseRangeScale = 2f;
         private const float LightShowcaseMinimumIntensity = 2f;
         private const float LightShowcaseMinimumRange = 25f;
-        private const float RcsShowcaseEmissionScale = 120f;
-        private const float RcsShowcaseSpeedScale = 2.5f;
-        private const float RcsShowcaseSizeScale = 6f;
-        private const float RcsShowcaseLifetimeScale = 4f;
-        private const float RcsShowcaseMinimumSize = 1.0f;
-        private const float RcsShowcaseMinimumLifetime = 0.8f;
+        private const float RcsShowcaseEmissionScale = 1f;
+        private const float RcsShowcaseSpeedScale = 1f;
 
         internal static GameObject BuildTimelineGhostFromSnapshot(
             RecordingStore.Recording rec, string rootName,
@@ -1687,20 +1683,10 @@ namespace Parsek
                                     emission.rateOverTimeMultiplier = 0;
                                     if (raiseRcsVisualOnly)
                                     {
-                                        var main = ps.main;
-                                        main.startSizeMultiplier = Mathf.Max(
-                                            main.startSizeMultiplier * RcsShowcaseSizeScale,
-                                            RcsShowcaseMinimumSize);
-                                        main.startLifetimeMultiplier = Mathf.Max(
-                                            main.startLifetimeMultiplier * RcsShowcaseLifetimeScale,
-                                            RcsShowcaseMinimumLifetime);
-                                        main.startColor = new Color(0.95f, 0.95f, 1f, 1f);
-
                                         var psRenderer = ps.GetComponent<ParticleSystemRenderer>();
                                         if (psRenderer != null)
                                         {
                                             psRenderer.enabled = true;
-                                            psRenderer.renderMode = ParticleSystemRenderMode.Billboard;
                                         }
                                     }
                                     info.particleSystems.Add(ps);
