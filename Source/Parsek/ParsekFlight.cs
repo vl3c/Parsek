@@ -2195,13 +2195,18 @@ namespace Parsek
                 var emission = ps.emission;
                 if (power > 0f)
                 {
+                    emission.enabled = true;
                     float emRate = info.emissionCurve != null ? info.emissionCurve.Evaluate(power) : power * 100f;
                     emRate *= info.emissionScale > 0f ? info.emissionScale : 1f;
+                    if (info.emissionScale > 1f)
+                        emRate = Math.Max(emRate, 60f);
                     emission.rateOverTimeMultiplier = emRate;
 
                     var main = ps.main;
                     float spd = info.speedCurve != null ? info.speedCurve.Evaluate(power) : power * 10f;
                     spd *= info.speedScale > 0f ? info.speedScale : 1f;
+                    if (info.speedScale > 1f)
+                        spd = Math.Max(spd, 4f);
                     main.startSpeedMultiplier = spd;
 
                     if (!ps.isPlaying) ps.Play();
@@ -2209,7 +2214,7 @@ namespace Parsek
                 else
                 {
                     emission.rateOverTimeMultiplier = 0;
-                    ps.Stop();
+                    ps.Stop(true, ParticleSystemStopBehavior.StopEmitting);
                 }
             }
         }
