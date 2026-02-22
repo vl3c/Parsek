@@ -146,6 +146,19 @@ namespace Parsek.Tests
         }
 
         [Theory]
+        [InlineData(60f, 1.0, 360f)]
+        [InlineData(-120f, 0.5, -360f)]
+        [InlineData(240f, 0.25, 360f)]
+        [InlineData(300f, 0.0, 0f)]
+        [InlineData(300f, -1.0, 0f)]
+        public void ComputeRotorDeltaDegrees_UsesRpmAndDeltaTime(
+            float rpm, double deltaSeconds, float expectedDegrees)
+        {
+            float actual = ParsekFlight.ComputeRotorDeltaDegrees(rpm, deltaSeconds);
+            Assert.Equal(expectedDegrees, actual, 0.001f);
+        }
+
+        [Theory]
         [InlineData(99, false, 100, 0)]
         [InlineData(100, true, 100, 0)]
         [InlineData(119, true, 119, 0)]

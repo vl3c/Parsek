@@ -56,6 +56,7 @@ namespace Parsek
             public Dictionary<uint, JettisonGhostInfo> jettisonInfos;
             public Dictionary<ulong, EngineGhostInfo> engineInfos; // key = EncodeEngineKey(pid, moduleIndex)
             public Dictionary<ulong, RcsGhostInfo> rcsInfos;   // separate from engineInfos — keys can overlap for same part
+            public Dictionary<ulong, RoboticGhostInfo> roboticInfos; // key = EncodeEngineKey(pid, moduleIndex)
             public Dictionary<uint, DeployableGhostInfo> deployableInfos;
             public Dictionary<uint, LightGhostInfo> lightInfos;
             public Dictionary<uint, LightPlaybackState> lightPlaybackStates;
@@ -1799,10 +1800,11 @@ namespace Parsek
             List<LightGhostInfo> lightInfoList;
             List<FairingGhostInfo> fairingInfoList;
             List<RcsGhostInfo> rcsInfoList;
+            List<RoboticGhostInfo> roboticInfoList;
             GameObject ghost = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
                 rec, $"Parsek_Timeline_{index}", out parachuteInfoList, out jettisonInfoList,
                 out engineInfoList, out deployableInfoList, out lightInfoList, out fairingInfoList,
-                out rcsInfoList);
+                out rcsInfoList, out roboticInfoList);
             bool builtFromSnapshot = ghost != null;
             if (ghost == null)
             {
@@ -1893,6 +1895,17 @@ namespace Parsek
                     ulong key = FlightRecorder.EncodeEngineKey(
                         rcsInfoList[i].partPersistentId, rcsInfoList[i].moduleIndex);
                     state.rcsInfos[key] = rcsInfoList[i];
+                }
+            }
+
+            if (roboticInfoList != null)
+            {
+                state.roboticInfos = new Dictionary<ulong, RoboticGhostInfo>();
+                for (int i = 0; i < roboticInfoList.Count; i++)
+                {
+                    ulong key = FlightRecorder.EncodeEngineKey(
+                        roboticInfoList[i].partPersistentId, roboticInfoList[i].moduleIndex);
+                    state.roboticInfos[key] = roboticInfoList[i];
                 }
             }
 
@@ -2173,8 +2186,7 @@ namespace Parsek
                     case PartEventType.RoboticMotionStarted:
                     case PartEventType.RoboticPositionSample:
                     case PartEventType.RoboticMotionStopped:
-                        // Robotics playback interpolation is tracked separately from
-                        // event capture and is not yet applied to ghost visuals.
+                        ApplyRoboticEvent(state, evt, currentUT);
                         break;
                     case PartEventType.InventoryPartPlaced:
                         SetGhostPartActive(ghost, evt.partPersistentId, true);
@@ -2190,6 +2202,7 @@ namespace Parsek
 
             state.partEventIndex = evtIdx;
             UpdateBlinkingLights(state, currentUT);
+            UpdateActiveRobotics(state, currentUT);
         }
 
         static void HideGhostPart(GameObject ghost, uint persistentId)
@@ -2388,6 +2401,107 @@ namespace Parsek
                 spd = Math.Max(spd, 4f);
 
             return spd;
+        }
+
+        internal static float ComputeRotorDeltaDegrees(float rpm, double deltaSeconds)
+        {
+            if (double.IsNaN(deltaSeconds) || double.IsInfinity(deltaSeconds) || deltaSeconds <= 0)
+                return 0f;
+            if (float.IsNaN(rpm) || float.IsInfinity(rpm) || Mathf.Abs(rpm) <= 0.0001f)
+                return 0f;
+
+            // RPM * 360deg / 60s
+            return rpm * 6f * (float)deltaSeconds;
+        }
+
+        private static void ApplyRoboticPose(RoboticGhostInfo info, float value)
+        {
+            if (info == null || info.servoTransform == null)
+                return;
+
+            Vector3 axis = info.axisLocal.sqrMagnitude > 0.0001f
+                ? info.axisLocal.normalized
+                : Vector3.up;
+
+            if (info.visualMode == RoboticVisualMode.Linear)
+            {
+                info.servoTransform.localPosition = info.stowedPos + (axis * value);
+            }
+            else if (info.visualMode == RoboticVisualMode.Rotational)
+            {
+                info.servoTransform.localRotation =
+                    info.stowedRot * Quaternion.AngleAxis(value, axis);
+            }
+        }
+
+        private static void ApplyRoboticEvent(
+            GhostPlaybackState state, PartEvent evt, double currentUT)
+        {
+            if (state == null || state.roboticInfos == null)
+                return;
+
+            ulong key = FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex);
+            if (!state.roboticInfos.TryGetValue(key, out RoboticGhostInfo info) || info == null)
+                return;
+
+            info.currentValue = evt.value;
+
+            if (info.visualMode == RoboticVisualMode.RotorRpm)
+            {
+                info.active = evt.eventType != PartEventType.RoboticMotionStopped &&
+                    Mathf.Abs(evt.value) > 0.0001f;
+                info.lastUpdateUT = currentUT;
+            }
+            else
+            {
+                ApplyRoboticPose(info, evt.value);
+                info.active = evt.eventType != PartEventType.RoboticMotionStopped;
+                info.lastUpdateUT = currentUT;
+            }
+        }
+
+        private void UpdateActiveRobotics(GhostPlaybackState state, double currentUT)
+        {
+            if (state == null || state.roboticInfos == null || state.roboticInfos.Count == 0)
+                return;
+
+            foreach (var kv in state.roboticInfos)
+            {
+                RoboticGhostInfo info = kv.Value;
+                if (info == null || info.servoTransform == null)
+                    continue;
+
+                if (double.IsNaN(info.lastUpdateUT) || double.IsInfinity(info.lastUpdateUT))
+                {
+                    info.lastUpdateUT = currentUT;
+                    continue;
+                }
+
+                double deltaSeconds = currentUT - info.lastUpdateUT;
+                if (deltaSeconds <= 0)
+                {
+                    info.lastUpdateUT = currentUT;
+                    continue;
+                }
+
+                // Timeline jumps/loop boundaries rebuild ghosts, but guard large UT gaps anyway.
+                deltaSeconds = Math.Min(deltaSeconds, 1.0);
+
+                if (info.visualMode == RoboticVisualMode.RotorRpm && info.active)
+                {
+                    float deltaDegrees = ComputeRotorDeltaDegrees(info.currentValue, deltaSeconds);
+                    if (Mathf.Abs(deltaDegrees) > 0.0001f)
+                    {
+                        Vector3 axis = info.axisLocal.sqrMagnitude > 0.0001f
+                            ? info.axisLocal.normalized
+                            : Vector3.up;
+                        info.servoTransform.localRotation =
+                            info.servoTransform.localRotation * Quaternion.AngleAxis(deltaDegrees, axis);
+                    }
+                }
+
+                info.lastUpdateUT = currentUT;
+            }
         }
 
         static bool ApplyDeployableState(GhostPlaybackState state, PartEvent evt, bool deployed)

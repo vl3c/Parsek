@@ -64,6 +64,28 @@ namespace Parsek
         public float speedScale = 1f;
     }
 
+    internal enum RoboticVisualMode
+    {
+        Rotational,
+        Linear,
+        RotorRpm
+    }
+
+    internal class RoboticGhostInfo
+    {
+        public uint partPersistentId;
+        public int moduleIndex;
+        public string moduleName;
+        public Transform servoTransform;
+        public Vector3 axisLocal = Vector3.up;
+        public Vector3 stowedPos;
+        public Quaternion stowedRot;
+        public RoboticVisualMode visualMode;
+        public float currentValue;
+        public bool active;
+        public double lastUpdateUT = double.NaN;
+    }
+
     internal struct FxModelDefinition
     {
         public string transformName;
@@ -103,7 +125,8 @@ namespace Parsek
             out List<DeployableGhostInfo> deployableInfos,
             out List<LightGhostInfo> lightInfos,
             out List<FairingGhostInfo> fairingInfos,
-            out List<RcsGhostInfo> rcsInfos)
+            out List<RcsGhostInfo> rcsInfos,
+            out List<RoboticGhostInfo> roboticInfos)
         {
             parachuteInfos = null;
             jettisonInfos = null;
@@ -112,6 +135,7 @@ namespace Parsek
             lightInfos = null;
             fairingInfos = null;
             rcsInfos = null;
+            roboticInfos = null;
             ConfigNode snapshotNode = GetGhostSnapshot(rec);
             if (snapshotNode == null)
                 return null;
@@ -133,6 +157,7 @@ namespace Parsek
             var collectedLightInfos = new List<LightGhostInfo>();
             var collectedFairingInfos = new List<FairingGhostInfo>();
             var collectedRcsInfos = new List<RcsGhostInfo>();
+            var collectedRoboticInfos = new List<RoboticGhostInfo>();
 
             for (int i = 0; i < partNodes.Length; i++)
             {
@@ -176,6 +201,7 @@ namespace Parsek
                 LightGhostInfo lightInfo;
                 FairingGhostInfo fairingInfo;
                 List<RcsGhostInfo> partRcsInfos;
+                List<RoboticGhostInfo> partRoboticInfos;
                 bool raiseLightVisualOnly =
                     !string.IsNullOrEmpty(rec.VesselName) &&
                     rec.VesselName.StartsWith(LightsShowcaseRecordingPrefix, System.StringComparison.Ordinal);
@@ -185,7 +211,7 @@ namespace Parsek
                 bool partVisualAdded = AddPartVisuals(root.transform, partNode, ap.partPrefab,
                     persistentId, partName, out meshCount, out parachuteInfo, out jettisonInfo,
                     out partEngineInfos, out deployableInfo, out lightInfo, out fairingInfo,
-                    out partRcsInfos, raiseLightVisualOnly, raiseRcsVisualOnly);
+                    out partRcsInfos, out partRoboticInfos, raiseLightVisualOnly, raiseRcsVisualOnly);
                 if (partVisualAdded)
                     visualCount++;
                 else
@@ -209,6 +235,8 @@ namespace Parsek
                     collectedFairingInfos.Add(fairingInfo);
                 if (partRcsInfos != null)
                     collectedRcsInfos.AddRange(partRcsInfos);
+                if (partRoboticInfos != null)
+                    collectedRoboticInfos.AddRange(partRoboticInfos);
             }
 
             ParsekLog.Log($"Ghost built: {visualCount}/{partNodes.Length} parts with visuals" +
@@ -229,6 +257,7 @@ namespace Parsek
             lightInfos = collectedLightInfos.Count > 0 ? collectedLightInfos : null;
             fairingInfos = collectedFairingInfos.Count > 0 ? collectedFairingInfos : null;
             rcsInfos = collectedRcsInfos.Count > 0 ? collectedRcsInfos : null;
+            roboticInfos = collectedRoboticInfos.Count > 0 ? collectedRoboticInfos : null;
             return root;
         }
 
@@ -244,7 +273,7 @@ namespace Parsek
         {
             return BuildTimelineGhostFromSnapshot(rec, rootName,
                 out parachuteInfos, out jettisonInfos, out engineInfos, out deployableInfos,
-                out lightInfos, out fairingInfos, out _);
+                out lightInfos, out fairingInfos, out _, out _);
         }
 
         // Backward-compat overload without fairing/rcs infos
@@ -258,7 +287,7 @@ namespace Parsek
         {
             return BuildTimelineGhostFromSnapshot(rec, rootName,
                 out parachuteInfos, out jettisonInfos, out engineInfos, out deployableInfos,
-                out lightInfos, out _, out _);
+                out lightInfos, out _, out _, out _);
         }
 
         // Backward-compat overload without light/fairing/rcs infos
@@ -270,7 +299,7 @@ namespace Parsek
             out List<DeployableGhostInfo> deployableInfos)
         {
             return BuildTimelineGhostFromSnapshot(rec, rootName,
-                out parachuteInfos, out jettisonInfos, out engineInfos, out deployableInfos, out _, out _, out _);
+                out parachuteInfos, out jettisonInfos, out engineInfos, out deployableInfos, out _, out _, out _, out _);
         }
 
         // Backward-compat overload without deployable/light/fairing/rcs infos
@@ -281,13 +310,13 @@ namespace Parsek
             out List<EngineGhostInfo> engineInfos)
         {
             return BuildTimelineGhostFromSnapshot(rec, rootName,
-                out parachuteInfos, out jettisonInfos, out engineInfos, out _, out _, out _, out _);
+                out parachuteInfos, out jettisonInfos, out engineInfos, out _, out _, out _, out _, out _);
         }
 
         // Overload without info outputs for callers that don't need them (preview ghost)
         internal static GameObject BuildTimelineGhostFromSnapshot(RecordingStore.Recording rec, string rootName)
         {
-            return BuildTimelineGhostFromSnapshot(rec, rootName, out _, out _, out _, out _, out _, out _, out _);
+            return BuildTimelineGhostFromSnapshot(rec, rootName, out _, out _, out _, out _, out _, out _, out _, out _);
         }
 
         // Overload with parachute + jettison info (backward compat)
@@ -296,7 +325,7 @@ namespace Parsek
             out List<ParachuteGhostInfo> parachuteInfos,
             out List<JettisonGhostInfo> jettisonInfos)
         {
-            return BuildTimelineGhostFromSnapshot(rec, rootName, out parachuteInfos, out jettisonInfos, out _, out _, out _, out _, out _);
+            return BuildTimelineGhostFromSnapshot(rec, rootName, out parachuteInfos, out jettisonInfos, out _, out _, out _, out _, out _, out _);
         }
 
         // Overload with only parachute info for backward compat
@@ -304,7 +333,7 @@ namespace Parsek
             RecordingStore.Recording rec, string rootName,
             out List<ParachuteGhostInfo> parachuteInfos)
         {
-            return BuildTimelineGhostFromSnapshot(rec, rootName, out parachuteInfos, out _, out _, out _, out _, out _, out _);
+            return BuildTimelineGhostFromSnapshot(rec, rootName, out parachuteInfos, out _, out _, out _, out _, out _, out _, out _);
         }
 
         internal static ConfigNode GetGhostSnapshot(RecordingStore.Recording rec)
@@ -2060,12 +2089,258 @@ namespace Parsek
             };
         }
 
+        private static bool HasRoboticModules(Part prefab)
+        {
+            if (prefab == null || prefab.Modules == null)
+                return false;
+
+            for (int i = 0; i < prefab.Modules.Count; i++)
+            {
+                PartModule module = prefab.Modules[i];
+                if (module == null)
+                    continue;
+
+                if (FlightRecorder.IsRoboticModuleName(module.moduleName))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static object TryGetModuleFieldValue(PartModule module, string fieldName)
+        {
+            if (module == null || module.Fields == null || string.IsNullOrEmpty(fieldName))
+                return null;
+
+            try
+            {
+                BaseField field = module.Fields[fieldName];
+                return field != null ? field.GetValue(module) : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static bool TryGetModuleStringField(
+            PartModule module, string fieldName, out string value)
+        {
+            value = null;
+            object raw = TryGetModuleFieldValue(module, fieldName);
+            if (raw == null)
+                return false;
+
+            value = raw.ToString();
+            if (string.IsNullOrEmpty(value))
+                return false;
+
+            value = value.Trim();
+            return value.Length > 0;
+        }
+
+        private static bool TryGetModuleFloatField(
+            PartModule module, string fieldName, out float value)
+        {
+            value = 0f;
+            object raw = TryGetModuleFieldValue(module, fieldName);
+            if (raw == null)
+                return false;
+
+            if (raw is float f)
+            {
+                value = f;
+                return !float.IsNaN(value) && !float.IsInfinity(value);
+            }
+
+            if (raw is double d)
+            {
+                value = (float)d;
+                return !float.IsNaN(value) && !float.IsInfinity(value);
+            }
+
+            if (raw is int i)
+            {
+                value = i;
+                return true;
+            }
+
+            string text = raw.ToString();
+            if (string.IsNullOrEmpty(text))
+                return false;
+            text = text.Trim();
+
+            if (float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value))
+                return !float.IsNaN(value) && !float.IsInfinity(value);
+
+            string[] split = text.Split(',');
+            if (split.Length > 0 &&
+                float.TryParse(split[0], NumberStyles.Float, CultureInfo.InvariantCulture, out value))
+            {
+                return !float.IsNaN(value) && !float.IsInfinity(value);
+            }
+
+            return false;
+        }
+
+        private static bool TryParseRoboticAxis(string axisName, out Vector3 axisLocal)
+        {
+            axisLocal = Vector3.up;
+            if (string.IsNullOrEmpty(axisName))
+                return false;
+
+            string normalized = axisName.Trim().ToUpperInvariant();
+            if (normalized.Length == 0)
+                return false;
+
+            bool negative = normalized.StartsWith("-");
+            if (negative)
+                normalized = normalized.Substring(1);
+
+            switch (normalized)
+            {
+                case "X":
+                    axisLocal = negative ? -Vector3.right : Vector3.right;
+                    return true;
+                case "Y":
+                    axisLocal = negative ? -Vector3.up : Vector3.up;
+                    return true;
+                case "Z":
+                    axisLocal = negative ? -Vector3.forward : Vector3.forward;
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static RoboticVisualMode GetRoboticVisualMode(string moduleName)
+        {
+            if (string.Equals(moduleName, "ModuleRoboticServoPiston", System.StringComparison.Ordinal))
+                return RoboticVisualMode.Linear;
+
+            if (string.Equals(moduleName, "ModuleRoboticServoRotor", System.StringComparison.Ordinal))
+                return RoboticVisualMode.RotorRpm;
+
+            return RoboticVisualMode.Rotational;
+        }
+
+        private static bool TryGetRoboticCurrentValue(
+            PartModule module, string moduleName, out float value)
+        {
+            value = 0f;
+
+            string[] fieldNames;
+            if (string.Equals(moduleName, "ModuleRoboticServoPiston", System.StringComparison.Ordinal))
+            {
+                fieldNames = new[] { "currentPosition", "position", "targetPosition" };
+            }
+            else if (string.Equals(moduleName, "ModuleRoboticServoRotor", System.StringComparison.Ordinal))
+            {
+                fieldNames = new[] { "currentRPM", "rpm", "targetRPM", "rpmLimit" };
+            }
+            else
+            {
+                fieldNames = new[] { "currentAngle", "angle", "targetAngle" };
+            }
+
+            for (int i = 0; i < fieldNames.Length; i++)
+            {
+                if (TryGetModuleFloatField(module, fieldNames[i], out value))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static List<RoboticGhostInfo> TryBuildRoboticInfos(
+            Part prefab,
+            uint persistentId,
+            string partName,
+            Transform modelRoot,
+            Transform modelNode,
+            Dictionary<Transform, Transform> cloneMap)
+        {
+            if (prefab == null || prefab.Modules == null)
+                return null;
+
+            var infos = new List<RoboticGhostInfo>();
+            int roboticModuleIndex = 0;
+            for (int i = 0; i < prefab.Modules.Count; i++)
+            {
+                PartModule module = prefab.Modules[i];
+                if (module == null)
+                    continue;
+
+                string moduleName = module.moduleName;
+                if (!FlightRecorder.IsRoboticModuleName(moduleName))
+                    continue;
+
+                int moduleIndex = roboticModuleIndex;
+                roboticModuleIndex++;
+
+                if (!TryGetModuleStringField(module, "servoTransformName", out string servoTransformName))
+                {
+                    ParsekLog.Log($"    Robotics '{partName}' midx={moduleIndex}: missing servoTransformName on {moduleName}");
+                    continue;
+                }
+
+                Transform sourceServo = prefab.FindModelTransform(servoTransformName);
+                if (sourceServo == null)
+                {
+                    ParsekLog.Log($"    Robotics '{partName}' midx={moduleIndex}: servo transform '{servoTransformName}' not found");
+                    continue;
+                }
+
+                if (!cloneMap.TryGetValue(sourceServo, out Transform ghostServo) || ghostServo == null)
+                {
+                    if (IsDescendantOf(sourceServo, modelRoot))
+                    {
+                        ghostServo = MirrorTransformChain(
+                            sourceServo, modelRoot, modelNode, cloneMap);
+                    }
+                    else
+                    {
+                        ParsekLog.Log($"    Robotics '{partName}' midx={moduleIndex}: servo '{servoTransformName}' outside model root");
+                        continue;
+                    }
+                }
+
+                Vector3 axis = Vector3.up;
+                if (TryGetModuleStringField(module, "mainAxis", out string axisName))
+                    TryParseRoboticAxis(axisName, out axis);
+
+                float currentValue = 0f;
+                TryGetRoboticCurrentValue(module, moduleName, out currentValue);
+
+                var info = new RoboticGhostInfo
+                {
+                    partPersistentId = persistentId,
+                    moduleIndex = moduleIndex,
+                    moduleName = moduleName,
+                    servoTransform = ghostServo,
+                    axisLocal = axis.sqrMagnitude > 0.0001f ? axis.normalized : Vector3.up,
+                    stowedPos = ghostServo.localPosition,
+                    stowedRot = ghostServo.localRotation,
+                    visualMode = GetRoboticVisualMode(moduleName),
+                    currentValue = currentValue,
+                    active = false
+                };
+
+                infos.Add(info);
+                ParsekLog.Log($"    Robotics detected: '{partName}' pid={persistentId} midx={moduleIndex} " +
+                    $"module={moduleName} servo={servoTransformName} axis={info.axisLocal} seed={currentValue:F3}");
+            }
+
+            return infos.Count > 0 ? infos : null;
+        }
+
         private static bool AddPartVisuals(Transform root, ConfigNode partNode, Part prefab,
             uint persistentId, string partName, out int meshCount,
             out ParachuteGhostInfo parachuteInfo, out JettisonGhostInfo jettisonInfo,
             out List<EngineGhostInfo> engineInfos, out DeployableGhostInfo deployableInfo,
             out LightGhostInfo lightInfo, out FairingGhostInfo fairingInfo,
-            out List<RcsGhostInfo> rcsInfos, bool raiseLightVisualOnly, bool raiseRcsVisualOnly)
+            out List<RcsGhostInfo> rcsInfos, out List<RoboticGhostInfo> roboticInfos,
+            bool raiseLightVisualOnly, bool raiseRcsVisualOnly)
         {
             meshCount = 0;
             parachuteInfo = null;
@@ -2075,6 +2350,7 @@ namespace Parsek
             lightInfo = null;
             fairingInfo = null;
             rcsInfos = null;
+            roboticInfos = null;
             Transform modelRoot = FindModelRoot(prefab);
 
             // Dump full hierarchy for engine parts to diagnose missing nozzle meshes.
@@ -2447,6 +2723,7 @@ namespace Parsek
             string standaloneAnimateGenericAnimName;
             bool hasStandaloneAnimateGenericDeploy = TryGetStandaloneAnimateGenericDeployAnimation(
                 prefab, out standaloneAnimateGenericAnimName);
+            bool hasRoboticModules = HasRoboticModules(prefab);
 
             // If the part has any animated modules (deployable, gear, ladder, animation-group, cargo bay), ensure
             // the full model transform hierarchy is mirrored into the ghost.  The mesh-cloning
@@ -2459,7 +2736,8 @@ namespace Parsek
                 prefab.FindModuleImplementing<ModuleCargoBay>() != null ||
                 hasRetractableLadder ||
                 hasAnimationGroupDeploy ||
-                hasStandaloneAnimateGenericDeploy;
+                hasStandaloneAnimateGenericDeploy ||
+                hasRoboticModules;
 
             if (needsFullHierarchy)
             {
@@ -2481,6 +2759,10 @@ namespace Parsek
                         ? $"created {created} missing intermediate transforms for animation support"
                         : $"all {allModelTransforms.Length} model transforms already in cloneMap"));
             }
+
+            if (hasRoboticModules)
+                roboticInfos = TryBuildRoboticInfos(
+                    prefab, persistentId, partName, modelRoot, modelNode.transform, cloneMap);
 
             // Detect deployable parts (solar panels, antennas, radiators) and pre-resolve transform states
             ModuleDeployablePart deployable = prefab.FindModuleImplementing<ModuleDeployablePart>();
