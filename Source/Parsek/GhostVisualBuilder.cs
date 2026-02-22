@@ -1917,6 +1917,8 @@ namespace Parsek
 
         private static ConfigNode FindModuleNode(ConfigNode partNode, string moduleName)
         {
+            if (partNode == null || string.IsNullOrEmpty(moduleName))
+                return null;
             var modules = partNode.GetNodes("MODULE");
             if (modules == null) return null;
             for (int i = 0; i < modules.Length; i++)
@@ -1925,6 +1927,202 @@ namespace Parsek
                     return modules[i];
             }
             return null;
+        }
+
+        private static string FirstNonEmptyConfigValue(ConfigNode node, params string[] keys)
+        {
+            if (node == null || keys == null || keys.Length == 0)
+                return null;
+
+            for (int i = 0; i < keys.Length; i++)
+            {
+                string key = keys[i];
+                if (string.IsNullOrEmpty(key))
+                    continue;
+
+                string raw = node.GetValue(key);
+                if (string.IsNullOrEmpty(raw))
+                    continue;
+
+                string trimmed = raw.Trim();
+                if (!string.IsNullOrEmpty(trimmed))
+                    return trimmed;
+            }
+
+            return null;
+        }
+
+        private static bool TryParseLooseBool(string raw, out bool value)
+        {
+            value = false;
+            if (string.IsNullOrEmpty(raw))
+                return false;
+
+            string t = raw.Trim();
+            if (bool.TryParse(t, out value))
+                return true;
+
+            if (string.Equals(t, "1", System.StringComparison.Ordinal))
+            {
+                value = true;
+                return true;
+            }
+
+            if (string.Equals(t, "0", System.StringComparison.Ordinal))
+            {
+                value = false;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryGetSelectedVariantGameObjectStates(
+            Part prefab,
+            ConfigNode partNode,
+            out string selectedVariantName,
+            out Dictionary<string, bool> gameObjectStates)
+        {
+            selectedVariantName = null;
+            gameObjectStates = null;
+
+            if (prefab == null || prefab.partInfo == null || prefab.partInfo.partConfig == null)
+                return false;
+
+            ConfigNode variantModuleConfig = FindModuleNode(prefab.partInfo.partConfig, "ModulePartVariants");
+            if (variantModuleConfig == null)
+                return false;
+
+            string requestedVariantName = null;
+
+            // Prefer explicit variant saved on the part snapshot when present.
+            ConfigNode snapshotVariantModule = FindModuleNode(partNode, "ModulePartVariants");
+            requestedVariantName = FirstNonEmptyConfigValue(
+                snapshotVariantModule,
+                "currentVariant",
+                "selectedVariant",
+                "variantName",
+                "moduleVariantName");
+
+            // Fall back to runtime module fields if exposed.
+            if (string.IsNullOrEmpty(requestedVariantName))
+            {
+                var variantModule = prefab.FindModuleImplementing<ModulePartVariants>();
+                if (variantModule != null)
+                {
+                    TryGetModuleStringField(variantModule, "currentVariant", out requestedVariantName);
+                    if (string.IsNullOrEmpty(requestedVariantName))
+                        TryGetModuleStringField(variantModule, "selectedVariant", out requestedVariantName);
+                    if (string.IsNullOrEmpty(requestedVariantName))
+                        TryGetModuleStringField(variantModule, "variantName", out requestedVariantName);
+                }
+            }
+
+            string baseVariantName = FirstNonEmptyConfigValue(variantModuleConfig, "baseVariant");
+            ConfigNode[] variantNodes = variantModuleConfig.GetNodes("VARIANT");
+            if (variantNodes == null || variantNodes.Length == 0)
+                return false;
+
+            ConfigNode selectedVariantNode = null;
+            string selectedLower = !string.IsNullOrEmpty(requestedVariantName)
+                ? requestedVariantName.ToLowerInvariant()
+                : null;
+            string baseLower = !string.IsNullOrEmpty(baseVariantName)
+                ? baseVariantName.ToLowerInvariant()
+                : null;
+
+            for (int i = 0; i < variantNodes.Length; i++)
+            {
+                string name = FirstNonEmptyConfigValue(variantNodes[i], "name");
+                if (string.IsNullOrEmpty(name))
+                    continue;
+
+                string lower = name.ToLowerInvariant();
+                if (!string.IsNullOrEmpty(selectedLower) && lower == selectedLower)
+                {
+                    selectedVariantNode = variantNodes[i];
+                    break;
+                }
+            }
+
+            if (selectedVariantNode == null && !string.IsNullOrEmpty(baseLower))
+            {
+                for (int i = 0; i < variantNodes.Length; i++)
+                {
+                    string name = FirstNonEmptyConfigValue(variantNodes[i], "name");
+                    if (string.IsNullOrEmpty(name))
+                        continue;
+
+                    if (name.ToLowerInvariant() == baseLower)
+                    {
+                        selectedVariantNode = variantNodes[i];
+                        break;
+                    }
+                }
+            }
+
+            if (selectedVariantNode == null)
+                selectedVariantNode = variantNodes[0];
+
+            selectedVariantName = FirstNonEmptyConfigValue(selectedVariantNode, "name") ?? "<unnamed>";
+            ConfigNode gameObjectsNode = selectedVariantNode.GetNode("GAMEOBJECTS");
+            if (gameObjectsNode == null || gameObjectsNode.values == null || gameObjectsNode.values.Count == 0)
+                return false;
+
+            var states = new Dictionary<string, bool>(System.StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < gameObjectsNode.values.Count; i++)
+            {
+                var valueNode = gameObjectsNode.values[i];
+                if (valueNode == null || string.IsNullOrEmpty(valueNode.name))
+                    continue;
+
+                string key = valueNode.name.Trim();
+                if (key.Length == 0)
+                    continue;
+
+                if (!TryParseLooseBool(valueNode.value, out bool enabled))
+                    continue;
+
+                states[key] = enabled;
+            }
+
+            if (states.Count == 0)
+                return false;
+
+            gameObjectStates = states;
+            return true;
+        }
+
+        private static bool IsRendererEnabledByVariantRule(
+            Transform rendererTransform,
+            Transform modelRoot,
+            Dictionary<string, bool> gameObjectStates,
+            out string matchedRuleName,
+            out bool matchedRuleEnabled)
+        {
+            matchedRuleName = null;
+            matchedRuleEnabled = true;
+
+            if (rendererTransform == null || gameObjectStates == null || gameObjectStates.Count == 0)
+                return true;
+
+            Transform current = rendererTransform;
+            while (current != null)
+            {
+                if (gameObjectStates.TryGetValue(current.name, out bool enabled))
+                {
+                    matchedRuleName = current.name;
+                    matchedRuleEnabled = enabled;
+                    return enabled;
+                }
+
+                if (current == modelRoot)
+                    break;
+
+                current = current.parent;
+            }
+
+            return true;
         }
 
         internal static Mesh GenerateFairingConeMesh(
@@ -2389,11 +2587,10 @@ namespace Parsek
             }
 
             // Parts with ModulePartVariants have multiple visual variants where only
-            // one set of GameObjects is active at a time (e.g. Poodle v2: DoubleBell vs
-            // SingleBell). Prefer active renderers to avoid overlap from inactive
-            // non-selected variant objects. Some prefabs (notably a subset of robotics)
-            // expose all variant renderers inactive at this stage, so fall back to
-            // cloning inactive renderers to avoid green-sphere ghosts.
+            // one set of GameObjects should be visible (e.g. Poodle v2: DoubleBell vs
+            // SingleBell). Active-state alone is unreliable on some prefabs, so we use
+            // selected/default VARIANT GAMEOBJECT rules from part config when available,
+            // with active-state filtering as an additional safeguard.
             bool hasPartVariants = prefab.FindModuleImplementing<ModulePartVariants>() != null;
 
             var meshRenderers = modelRoot.GetComponentsInChildren<MeshRenderer>(true);
@@ -2404,6 +2601,17 @@ namespace Parsek
 
             int totalMR = meshRenderers != null ? meshRenderers.Length : 0;
             int totalSMR = skinnedRenderers != null ? skinnedRenderers.Length : 0;
+            bool hasVariantGameObjectRules = false;
+            string selectedVariantName = null;
+            Dictionary<string, bool> selectedVariantGameObjects = null;
+            if (hasPartVariants)
+            {
+                hasVariantGameObjectRules = TryGetSelectedVariantGameObjectStates(
+                    prefab,
+                    partNode,
+                    out selectedVariantName,
+                    out selectedVariantGameObjects);
+            }
             int activeMR = 0;
             int activeSMR = 0;
             if (meshRenderers != null)
@@ -2429,10 +2637,15 @@ namespace Parsek
                 $"modelScale={modelRoot.localScale}, " +
                 $"{totalMR} MeshRenderers, {totalSMR} SkinnedMeshRenderers" +
                 (hasPartVariants ? " (has ModulePartVariants)" : ""));
+            if (hasPartVariants && hasVariantGameObjectRules)
+            {
+                ParsekLog.Log($"  Variant selection: '{selectedVariantName}' with " +
+                    $"{selectedVariantGameObjects.Count} GAMEOBJECT rules");
+            }
             if (hasPartVariants && !filterInactiveVariantRenderers)
             {
-                ParsekLog.Log($"  Variant fallback: no active variant renderers found " +
-                    $"(active MR={activeMR}, active SMR={activeSMR}); including inactive renderers");
+                ParsekLog.Log($"  Variant active-state fallback: no active variant renderers found " +
+                    $"(active MR={activeMR}, active SMR={activeSMR})");
             }
 
             // Name by persistentId for O(1) lookup during playback; fall back to part name
@@ -2473,6 +2686,7 @@ namespace Parsek
                 modelNode.transform.localPosition += new Vector3(0f, LightsShowcaseVisualYOffset, 0f);
 
             int variantSkipped = 0;
+            int variantRuleSkipped = 0;
             for (int r = 0; r < meshRenderers.Length; r++)
             {
                 var mr = meshRenderers[r];
@@ -2480,6 +2694,14 @@ namespace Parsek
                 if (filterInactiveVariantRenderers && !mr.gameObject.activeInHierarchy)
                 {
                     variantSkipped++;
+                    continue;
+                }
+                if (hasVariantGameObjectRules &&
+                    !IsRendererEnabledByVariantRule(
+                        mr.transform, modelRoot, selectedVariantGameObjects,
+                        out string _, out bool _))
+                {
+                    variantRuleSkipped++;
                     continue;
                 }
                 var mf = mr.GetComponent<MeshFilter>();
@@ -2495,12 +2717,19 @@ namespace Parsek
             }
             if (variantSkipped > 0)
                 ParsekLog.Log($"  Skipped {variantSkipped} MeshRenderers on inactive variant objects");
+            if (variantRuleSkipped > 0)
+                ParsekLog.Log($"  Skipped {variantRuleSkipped} MeshRenderers by selected variant GAMEOBJECT rules");
 
             for (int r = 0; r < skinnedRenderers.Length; r++)
             {
                 var smr = skinnedRenderers[r];
                 if (smr == null || smr.sharedMesh == null) continue;
                 if (filterInactiveVariantRenderers && !smr.gameObject.activeInHierarchy) continue;
+                if (hasVariantGameObjectRules &&
+                    !IsRendererEnabledByVariantRule(
+                        smr.transform, modelRoot, selectedVariantGameObjects,
+                        out string _, out bool _))
+                    continue;
 
                 Transform leaf = MirrorTransformChain(smr.transform, modelRoot, modelNode.transform, cloneMap);
 
