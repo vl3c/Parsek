@@ -2040,15 +2040,8 @@ namespace Parsek
                         Log($"Part event: ParachuteCut '{evt.partName}' — canopy hidden, housing remains");
                         break;
                     case PartEventType.ShroudJettisoned:
-                        if (state.jettisonInfos != null)
-                        {
-                            JettisonGhostInfo jetInfo;
-                            if (state.jettisonInfos.TryGetValue(evt.partPersistentId, out jetInfo) && jetInfo.jettisonTransform != null)
-                            {
-                                jetInfo.jettisonTransform.gameObject.SetActive(false);
-                                Log($"Part event applied: ShroudJettisoned '{evt.partName}' pid={evt.partPersistentId}");
-                            }
-                        }
+                        ApplyJettisonPanelState(state, evt, jettisoned: true);
+                        Log($"Part event applied: ShroudJettisoned '{evt.partName}' pid={evt.partPersistentId}");
                         break;
                     case PartEventType.ParachuteDestroyed:
                         // Clean up canopy visuals before hiding the part
@@ -2145,11 +2138,13 @@ namespace Parsek
                         Log($"Part event applied: GearRetracted '{evt.partName}' pid={evt.partPersistentId}");
                         break;
                     case PartEventType.CargoBayOpened:
-                        ApplyDeployableState(state, evt, deployed: true);
+                        if (!ApplyDeployableState(state, evt, deployed: true))
+                            ApplyJettisonPanelState(state, evt, jettisoned: true);
                         Log($"Part event applied: CargoBayOpened '{evt.partName}' pid={evt.partPersistentId}");
                         break;
                     case PartEventType.CargoBayClosed:
-                        ApplyDeployableState(state, evt, deployed: false);
+                        if (!ApplyDeployableState(state, evt, deployed: false))
+                            ApplyJettisonPanelState(state, evt, jettisoned: false);
                         Log($"Part event applied: CargoBayClosed '{evt.partName}' pid={evt.partPersistentId}");
                         break;
                     case PartEventType.FairingJettisoned:
@@ -2389,17 +2384,20 @@ namespace Parsek
             return spd;
         }
 
-        static void ApplyDeployableState(GhostPlaybackState state, PartEvent evt, bool deployed)
+        static bool ApplyDeployableState(GhostPlaybackState state, PartEvent evt, bool deployed)
         {
-            if (state.deployableInfos == null) return;
+            if (state.deployableInfos == null) return false;
 
             DeployableGhostInfo info;
-            if (!state.deployableInfos.TryGetValue(evt.partPersistentId, out info)) return;
+            if (!state.deployableInfos.TryGetValue(evt.partPersistentId, out info)) return false;
+
+            bool applied = false;
 
             for (int i = 0; i < info.transforms.Count; i++)
             {
                 var ts = info.transforms[i];
                 if (ts.t == null) continue;
+                applied = true;
                 if (deployed)
                 {
                     ts.t.localPosition = ts.deployedPos;
@@ -2413,6 +2411,20 @@ namespace Parsek
                     ts.t.localScale = ts.stowedScale;
                 }
             }
+
+            return applied;
+        }
+
+        static bool ApplyJettisonPanelState(GhostPlaybackState state, PartEvent evt, bool jettisoned)
+        {
+            if (state.jettisonInfos == null) return false;
+
+            JettisonGhostInfo jetInfo;
+            if (!state.jettisonInfos.TryGetValue(evt.partPersistentId, out jetInfo) || jetInfo.jettisonTransform == null)
+                return false;
+
+            jetInfo.jettisonTransform.gameObject.SetActive(!jettisoned);
+            return true;
         }
 
         private static LightPlaybackState GetOrCreateLightPlaybackState(

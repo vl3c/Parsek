@@ -587,8 +587,8 @@ namespace Parsek.Tests
         // Event PIDs must match this so the ghost visual builder can find the part.
         private const uint SinglePartPid = 100000;
         // Optional companion part (e.g., kerbal actor) receives the second slot.
-        // Total showcase row entries (indices 0-65).
-        private const int ShowcaseRowCount = 66;
+        // Total showcase row entries (indices 0-73).
+        private const int ShowcaseRowCount = 74;
         // Keep showcases close to the launchpad centerline without overlapping pad geometry.
         private const double ShowcaseDistanceFromPadMeters = 200.0;
 
@@ -615,9 +615,9 @@ namespace Parsek.Tests
 
         // Row indices continue from lights (0-5) so all showcases form one line.
         // Lights: 0-5, Deployables: 6-23, Airplane Gear: 24-27, Landing Legs: 28-30,
-        // Cargo: 31-33, Engines: 34-36, Ladders: 37-38, RCS: 39-41, Fairings: 42-46,
-        // Extra Radiators: 47-48, Drills: 49-50, Deployed Science: 51-58,
-        // Animation Group: 59-60, Parachutes: 61-65.
+        // Cargo: 31-41, Engines: 42-44, Ladders: 45-46, RCS: 47-49, Fairings: 50-54,
+        // Extra Radiators: 55-56, Drills: 57-58, Deployed Science: 59-66,
+        // Animation Group: 67-68, Parachutes: 69-73.
 
         internal static RecordingBuilder[] DeployableShowcaseRecordings(double baseUT = 0)
         {
@@ -689,9 +689,25 @@ namespace Parsek.Tests
             {
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Service Bay", "ServiceBay.125.v2", 31,
                     ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, 91000000, SinglePartPid),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Cargo Mk2", "mk2CargoBayS", 32,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Service Bay 2.5", "ServiceBay.250.v2", 32,
                     ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, 91000000, SinglePartPid),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Cargo Mk3", "mk3CargoBayS", 33,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Service Module 1.8", "ServiceModule18", 33,
+                    ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, 91000000, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Service Module 2.5", "ServiceModule25", 34,
+                    ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, 91000000, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Service Module 1-0", "Size1to0ServiceModule", 35,
+                    ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, 91000000, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Cargo Mk2", "mk2CargoBayS", 36,
+                    ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, 91000000, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Cargo Mk2 Long", "mk2CargoBayL", 37,
+                    ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, 91000000, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Cargo Mk3", "mk3CargoBayS", 38,
+                    ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, 91000000, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Cargo Mk3 Medium", "mk3CargoBayM", 39,
+                    ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, 91000000, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Cargo Mk3 Long", "mk3CargoBayL", 40,
+                    ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, 91000000, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Cargo Mk3 Ramp", "mk3CargoRamp", 41,
                     ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, 91000000, SinglePartPid)
             };
         }
@@ -700,13 +716,13 @@ namespace Parsek.Tests
         {
             return new[]
             {
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Mainsail", "liquidEngineMainsail.v2", 34,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Mainsail", "liquidEngineMainsail.v2", 42,
                     ShowcaseDistanceFromPadMeters, PartEventType.EngineIgnited, PartEventType.EngineShutdown, 92000000, SinglePartPid,
                     eventValue: 1.0f),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Skipper", "engineLargeSkipper.v2", 35,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Skipper", "engineLargeSkipper.v2", 43,
                     ShowcaseDistanceFromPadMeters, PartEventType.EngineIgnited, PartEventType.EngineShutdown, 92000000, SinglePartPid,
                     eventValue: 1.0f),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - SSME", "SSME", 36,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - SSME", "SSME", 44,
                     ShowcaseDistanceFromPadMeters, PartEventType.EngineIgnited, PartEventType.EngineShutdown, 92000000, SinglePartPid,
                     eventValue: 1.0f)
             };
@@ -716,9 +732,9 @@ namespace Parsek.Tests
         {
             return new[]
             {
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Ladder Telescopic", "telescopicLadder", 37,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Ladder Telescopic", "telescopicLadder", 45,
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 93000000, SinglePartPid),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Ladder Bay", "telescopicLadderBay", 38,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Ladder Bay", "telescopicLadderBay", 46,
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 93000000, SinglePartPid)
             };
         }
@@ -727,15 +743,15 @@ namespace Parsek.Tests
         {
             return new[]
             {
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - RCS RV-105", "RCSBlock.v2", 39,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - RCS RV-105", "RCSBlock.v2", 47,
                     ShowcaseDistanceFromPadMeters, PartEventType.RCSActivated, PartEventType.RCSStopped, 94000000, SinglePartPid,
                     eventValue: 1.0f, moduleIndex: 0,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - RCS RV-1X", "RCSblock.01.small", 40,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - RCS RV-1X", "RCSblock.01.small", 48,
                     ShowcaseDistanceFromPadMeters, PartEventType.RCSActivated, PartEventType.RCSStopped, 94000000, SinglePartPid,
                     eventValue: 1.0f, moduleIndex: 0,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - RCS Linear", "RCSLinearSmall", 41,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - RCS Linear", "RCSLinearSmall", 49,
                     ShowcaseDistanceFromPadMeters, PartEventType.RCSActivated, PartEventType.RCSStopped, 94000000, SinglePartPid,
                     eventValue: 1.0f, moduleIndex: 0,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
@@ -769,19 +785,19 @@ namespace Parsek.Tests
         {
             return new[]
             {
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Fairing Size 1", "fairingSize1", 42,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Fairing Size 1", "fairingSize1", 50,
                     ShowcaseDistanceFromPadMeters, PartEventType.FairingJettisoned, PartEventType.FairingJettisoned, 95000000, SinglePartPid,
                     configureGhostPartNode: part => AddProceduralFairingModule(part, baseRadius: 0.625f, topHeight: 2.0f)),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Fairing Size 1.5", "fairingSize1p5", 43,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Fairing Size 1.5", "fairingSize1p5", 51,
                     ShowcaseDistanceFromPadMeters, PartEventType.FairingJettisoned, PartEventType.FairingJettisoned, 95000000, SinglePartPid,
                     configureGhostPartNode: part => AddProceduralFairingModule(part, baseRadius: 0.9375f, topHeight: 2.8f)),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Fairing Size 2", "fairingSize2", 44,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Fairing Size 2", "fairingSize2", 52,
                     ShowcaseDistanceFromPadMeters, PartEventType.FairingJettisoned, PartEventType.FairingJettisoned, 95000000, SinglePartPid,
                     configureGhostPartNode: part => AddProceduralFairingModule(part, baseRadius: 1.25f, topHeight: 3.2f)),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Fairing Size 3", "fairingSize3", 45,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Fairing Size 3", "fairingSize3", 53,
                     ShowcaseDistanceFromPadMeters, PartEventType.FairingJettisoned, PartEventType.FairingJettisoned, 95000000, SinglePartPid,
                     configureGhostPartNode: part => AddProceduralFairingModule(part, baseRadius: 1.875f, topHeight: 4.5f)),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Fairing Size 4", "fairingSize4", 46,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Fairing Size 4", "fairingSize4", 54,
                     ShowcaseDistanceFromPadMeters, PartEventType.FairingJettisoned, PartEventType.FairingJettisoned, 95000000, SinglePartPid,
                     configureGhostPartNode: part => AddProceduralFairingModule(part, baseRadius: 2.5f, topHeight: 6.0f))
             };
@@ -791,9 +807,9 @@ namespace Parsek.Tests
         {
             return new[]
             {
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Radiator Medium", "foldingRadMed", 47,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Radiator Medium", "foldingRadMed", 55,
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 96000000, SinglePartPid),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Radiator Large", "foldingRadLarge", 48,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Radiator Large", "foldingRadLarge", 56,
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 96000000, SinglePartPid)
             };
         }
@@ -802,10 +818,10 @@ namespace Parsek.Tests
         {
             return new[]
             {
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Drill Junior", "MiniDrill", 49,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Drill Junior", "MiniDrill", 57,
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 97000000, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Drill-O-Matic", "RadialDrill", 50,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Drill-O-Matic", "RadialDrill", 58,
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 97000000, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
             };
@@ -815,28 +831,28 @@ namespace Parsek.Tests
         {
             return new[]
             {
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Central Station", "DeployedCentralStation", 51,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Central Station", "DeployedCentralStation", 59,
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Goo Observation", "DeployedGoExOb", 52,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Goo Observation", "DeployedGoExOb", 60,
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Ion Collector", "DeployedIONExp", 53,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Ion Collector", "DeployedIONExp", 61,
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed RTG", "DeployedRTG", 54,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed RTG", "DeployedRTG", 62,
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Sat Dish", "DeployedSatDish", 55,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Sat Dish", "DeployedSatDish", 63,
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Seismic Sensor", "DeployedSeismicSensor", 56,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Seismic Sensor", "DeployedSeismicSensor", 64,
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Solar Panel", "DeployedSolarPanel", 57,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Solar Panel", "DeployedSolarPanel", 65,
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Weather Station", "DeployedWeatherStn", 58,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Weather Station", "DeployedWeatherStn", 66,
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
             };
@@ -846,10 +862,10 @@ namespace Parsek.Tests
         {
             return new[]
             {
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Ground Anchor", "groundAnchor", 59,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Ground Anchor", "groundAnchor", 67,
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98200000, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Survey Scanner", "SurveyScanner", 60,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Survey Scanner", "SurveyScanner", 68,
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98200000, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
             };
@@ -859,19 +875,19 @@ namespace Parsek.Tests
         {
             return new[]
             {
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Parachute Mk16", "parachuteSingle", 61,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Parachute Mk16", "parachuteSingle", 69,
                     ShowcaseDistanceFromPadMeters, PartEventType.ParachuteDeployed, PartEventType.ParachuteCut, 98300000, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Parachute Mk2-R", "parachuteRadial", 62,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Parachute Mk2-R", "parachuteRadial", 70,
                     ShowcaseDistanceFromPadMeters, PartEventType.ParachuteDeployed, PartEventType.ParachuteCut, 98300000, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Drogue Mk25", "parachuteDrogue", 63,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Drogue Mk25", "parachuteDrogue", 71,
                     ShowcaseDistanceFromPadMeters, PartEventType.ParachuteDeployed, PartEventType.ParachuteCut, 98300000, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Drogue Mk12-R", "radialDrogue", 64,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Drogue Mk12-R", "radialDrogue", 72,
                     ShowcaseDistanceFromPadMeters, PartEventType.ParachuteDeployed, PartEventType.ParachuteCut, 98300000, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Parachute Mk16-XL", "parachuteLarge", 65,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Parachute Mk16-XL", "parachuteLarge", 73,
                     ShowcaseDistanceFromPadMeters, PartEventType.ParachuteDeployed, PartEventType.ParachuteCut, 98300000, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
             };
@@ -883,7 +899,7 @@ namespace Parsek.Tests
             const double spacingMeters = 5.0;
 
             // Continue one slot after the current row tail.
-            const int rowIndex = 66;
+            const int rowIndex = 74;
             double t = baseUT + 30;
             double baseLat = -0.0972;
             double baseLon = -74.5575;
@@ -1531,7 +1547,7 @@ namespace Parsek.Tests
         public void CargoBayShowcaseRecordings_BuildExpectedShape()
         {
             var recordings = CargoBayShowcaseRecordings(baseUT: 17000);
-            Assert.Equal(3, recordings.Length);
+            Assert.Equal(11, recordings.Length);
 
             var first = recordings[0].Build();
             Assert.Equal("Part Showcase - Service Bay", first.GetValue("vesselName"));
@@ -1548,7 +1564,11 @@ namespace Parsek.Tests
             Assert.Equal("ServiceBay.125.v2", ghost.GetNodes("PART")[0].GetValue("name"));
             Assert.Equal(ghost.GetNodes("PART")[0].GetValue("persistentId"), events[0].GetValue("pid"));
 
-            var names = new[] { "ServiceBay.125.v2", "mk2CargoBayS", "mk3CargoBayS" };
+            var names = new[]
+            {
+                "ServiceBay.125.v2", "ServiceBay.250.v2", "ServiceModule18", "ServiceModule25", "Size1to0ServiceModule",
+                "mk2CargoBayS", "mk2CargoBayL", "mk3CargoBayS", "mk3CargoBayM", "mk3CargoBayL", "mk3CargoRamp"
+            };
             for (int i = 0; i < recordings.Length; i++)
             {
                 var g = recordings[i].Build().GetNode("GHOST_VISUAL_SNAPSHOT");
@@ -1901,7 +1921,7 @@ namespace Parsek.Tests
                         $"Duplicate position in '{rec.GetValue("vesselName")}': {key}");
                 }
             }
-            Assert.Equal(66, positions.Count); // 6 + 18 + 7 + 3 + 3 + 2 + 3 + 5 + 2 + 2 + 8 + 2 + 5
+            Assert.Equal(74, positions.Count); // 6 + 18 + 7 + 11 + 3 + 2 + 3 + 5 + 2 + 2 + 8 + 2 + 5
         }
 
         [Fact]
@@ -2516,8 +2536,16 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Part Showcase - Landing Leg LT-2", content);
                     Assert.Contains("vesselName = Part Showcase - Landing Leg LT-05", content);
                     Assert.Contains("vesselName = Part Showcase - Service Bay", content);
+                    Assert.Contains("vesselName = Part Showcase - Service Bay 2.5", content);
+                    Assert.Contains("vesselName = Part Showcase - Service Module 1.8", content);
+                    Assert.Contains("vesselName = Part Showcase - Service Module 2.5", content);
+                    Assert.Contains("vesselName = Part Showcase - Service Module 1-0", content);
                     Assert.Contains("vesselName = Part Showcase - Cargo Mk2", content);
+                    Assert.Contains("vesselName = Part Showcase - Cargo Mk2 Long", content);
                     Assert.Contains("vesselName = Part Showcase - Cargo Mk3", content);
+                    Assert.Contains("vesselName = Part Showcase - Cargo Mk3 Medium", content);
+                    Assert.Contains("vesselName = Part Showcase - Cargo Mk3 Long", content);
+                    Assert.Contains("vesselName = Part Showcase - Cargo Mk3 Ramp", content);
                     Assert.Contains("vesselName = Part Showcase - Mainsail", content);
                     Assert.Contains("vesselName = Part Showcase - Skipper", content);
                     Assert.Contains("vesselName = Part Showcase - SSME", content);
@@ -2581,8 +2609,8 @@ namespace Parsek.Tests
                     $"Expected Parsek/Recordings directory at {recordingsDir}");
 
                 string[] precFiles = Directory.GetFiles(recordingsDir, "*.prec");
-                Assert.True(precFiles.Length >= 80,
-                    $"Expected at least 80 .prec files (8 baseline + 6 lights + 18 deployables + 7 gear + 3 cargo + 3 engines + 2 ladders + 3 RCS + 5 fairings + 2 extra radiators + 2 drills + 8 deployed science + 2 animation-group + 5 parachutes + 1 inventory-placement + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
+                Assert.True(precFiles.Length >= 88,
+                    $"Expected at least 88 .prec files (8 baseline + 6 lights + 18 deployables + 7 gear + 11 cargo + 3 engines + 2 ladders + 3 RCS + 5 fairings + 2 extra radiators + 2 drills + 8 deployed science + 2 animation-group + 5 parachutes + 1 inventory-placement + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
             }
         }
 
