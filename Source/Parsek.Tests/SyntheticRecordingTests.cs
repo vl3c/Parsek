@@ -11,8 +11,64 @@ namespace Parsek.Tests
 {
     public class SyntheticRecordingTests
     {
-        private static string ProjectRoot => Path.GetFullPath(
-            Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "..", "..", ".."));
+        private static string ProjectRoot => ResolveProjectRoot();
+
+        private static string ResolveProjectRoot()
+        {
+            string current = Directory.GetCurrentDirectory();
+            for (int i = 0; i < 10; i++)
+            {
+                if (string.IsNullOrEmpty(current))
+                    break;
+
+                if (File.Exists(Path.Combine(current, "Source", "Parsek.sln")))
+                    return current;
+
+                var parent = Directory.GetParent(current);
+                if (parent == null)
+                    break;
+                current = parent.FullName;
+            }
+
+            // Fallback to previous relative behavior from test output directory.
+            return Path.GetFullPath(
+                Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "..", "..", ".."));
+        }
+
+        private static string ResolveKspRoot()
+        {
+            string envKsp = System.Environment.GetEnvironmentVariable("KSPDIR");
+            if (!string.IsNullOrWhiteSpace(envKsp))
+            {
+                string full = Path.GetFullPath(envKsp);
+                if (Directory.Exists(full))
+                    return full;
+            }
+
+            string envKspAlt = System.Environment.GetEnvironmentVariable("KSPDir");
+            if (!string.IsNullOrWhiteSpace(envKspAlt))
+            {
+                string full = Path.GetFullPath(envKspAlt);
+                if (Directory.Exists(full))
+                    return full;
+            }
+
+            string[] candidates =
+            {
+                Path.Combine(ProjectRoot, "Kerbal Space Program"),
+                Path.Combine(ProjectRoot, "..", "Kerbal Space Program")
+            };
+
+            for (int i = 0; i < candidates.Length; i++)
+            {
+                string candidate = Path.GetFullPath(candidates[i]);
+                if (Directory.Exists(candidate))
+                    return candidate;
+            }
+
+            // Keep previous behavior for CI-safe skip path when save is absent.
+            return Path.GetFullPath(Path.Combine(ProjectRoot, "Kerbal Space Program"));
+        }
 
         #region Recording Builders
 
@@ -3013,8 +3069,7 @@ namespace Parsek.Tests
             string cleanEnv = System.Environment.GetEnvironmentVariable("PARSEK_INJECT_CLEAN_START");
             bool cleanStart = cleanEnv == null || IsTruthy(cleanEnv);
 
-            string saveDir = Path.Combine(ProjectRoot,
-                "Kerbal Space Program", "saves", saveName);
+            string saveDir = Path.Combine(ResolveKspRoot(), "saves", saveName);
 
             // Inject into both persistent.sfs and the target save — KSP loads
             // persistent first (sets initialLoadDone), so it must have the recordings too.

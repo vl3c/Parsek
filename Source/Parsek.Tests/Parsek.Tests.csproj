@@ -21,6 +21,11 @@
   </ItemGroup>
 
   <PropertyGroup>
+    <KSPDir Condition="'$(KSPDir)' == '' and '$(KSPDIR)' != ''">$(KSPDIR)</KSPDir>
+    <KSPDir Condition="'$(KSPDir)' == '' and Exists('$(MSBuildProjectDirectory)\..\..\Kerbal Space Program')">$(MSBuildProjectDirectory)\..\..\Kerbal Space Program</KSPDir>
+    <KSPDir Condition="'$(KSPDir)' == '' and Exists('$(MSBuildProjectDirectory)\..\..\..\Kerbal Space Program')">$(MSBuildProjectDirectory)\..\..\..\Kerbal Space Program</KSPDir>
+    <KSPDir Condition="'$(KSPDir)' == '' and Exists('$(MSBuildProjectDirectory)\..\..\..\..\Kerbal Space Program')">$(MSBuildProjectDirectory)\..\..\..\..\Kerbal Space Program</KSPDir>
+    <KSPDir Condition="'$(KSPDir)' == '' and Exists('$(MSBuildProjectDirectory)\..\..\..\..\..\Kerbal Space Program')">$(MSBuildProjectDirectory)\..\..\..\..\..\Kerbal Space Program</KSPDir>
     <KSPDir Condition="'$(KSPDir)' == ''">$(MSBuildProjectDirectory)\..\..\Kerbal Space Program</KSPDir>
   </PropertyGroup>
 

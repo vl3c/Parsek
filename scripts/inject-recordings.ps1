@@ -7,6 +7,32 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Resolve-KspDir {
+    param([string]$RepoRoot)
+
+    $candidates = @()
+    if (-not [string]::IsNullOrWhiteSpace($env:KSPDIR)) { $candidates += $env:KSPDIR }
+    if (-not [string]::IsNullOrWhiteSpace($env:KSPDir)) { $candidates += $env:KSPDir }
+    $candidates += (Join-Path $RepoRoot "Kerbal Space Program")
+    $candidates += (Join-Path $RepoRoot "..\Kerbal Space Program")
+
+    foreach ($candidate in $candidates) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
+        try {
+            $resolved = (Resolve-Path $candidate -ErrorAction Stop).Path
+        } catch {
+            continue
+        }
+
+        if (Test-Path (Join-Path $resolved "KSP_x64_Data\Managed\Assembly-CSharp.dll")) {
+            return $resolved
+        }
+    }
+
+    # Preserve previous default behavior when no candidate resolves.
+    return (Join-Path $RepoRoot "Kerbal Space Program")
+}
+
 # GNU-style compatibility:
 #   --clean-start, --save-name "test career", --target-save 1.sfs, --build
 for ($i = 0; $i -lt $args.Count; $i++) {
@@ -27,12 +53,13 @@ for ($i = 0; $i -lt $args.Count; $i++) {
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Set-Location $repoRoot
 
-$saveDir = Join-Path $repoRoot "Kerbal Space Program\saves\$SaveName"
+$kspDir = Resolve-KspDir -RepoRoot $repoRoot
+$saveDir = Join-Path $kspDir "saves\$SaveName"
 $targetPath = Join-Path $saveDir $TargetSave
 $persistentPath = Join-Path $saveDir "persistent.sfs"
 
 if (!(Test-Path $saveDir)) {
-    throw "Save folder not found: $saveDir"
+    throw "Save folder not found: $saveDir (KSPDIR resolved to '$kspDir')"
 }
 
 if (!(Test-Path $persistentPath)) {
@@ -47,8 +74,10 @@ if (!(Test-Path $targetPath)) {
 $env:PARSEK_INJECT_SAVE_NAME = $SaveName
 $env:PARSEK_INJECT_TARGET_SAVE = $TargetSave
 $env:PARSEK_INJECT_CLEAN_START = if ($CleanStart) { "1" } else { "0" }
+$env:KSPDIR = $kspDir
 
 Write-Host "Injecting recordings into save '$SaveName' target '$TargetSave' (clean-start=$($CleanStart.IsPresent))"
+Write-Host "Resolved KSP dir: $kspDir"
 $testArgs = @(
     "test",
     "Source/Parsek.Tests/Parsek.Tests.csproj",
