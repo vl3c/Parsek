@@ -985,10 +985,12 @@ namespace Parsek.Tests
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Jet Engine", "JetEngine", 115,
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98400000, SinglePartPid,
-                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5,
+                    rowOffsetMeters: 2.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Turbofan Size 2", "turboFanSize2", 116,
                     ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0)
+                    firstEventOffsetSeconds: 3.0,
+                    rowOffsetMeters: 5.0)
             };
         }
 
@@ -1077,14 +1079,14 @@ namespace Parsek.Tests
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Bobcat", "LiquidEngineRE-I2", 112,
                     ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
                     firstEventOffsetSeconds: 3.0,
-                    distanceOffsetMeters: -6.0),
+                    rowOffsetMeters: -2.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Skiff", "LiquidEngineRE-J10", 113,
                     ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
                     firstEventOffsetSeconds: 3.0),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Mastodon", "LiquidEngineRK-7", 114,
                     ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
                     firstEventOffsetSeconds: 3.0,
-                    distanceOffsetMeters: 6.0)
+                    rowOffsetMeters: 2.5)
             };
         }
 
