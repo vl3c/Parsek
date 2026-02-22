@@ -636,8 +636,8 @@ namespace Parsek.Tests
         // Event PIDs must match this so the ghost visual builder can find the part.
         private const uint SinglePartPid = 100000;
         // Optional companion part (e.g., kerbal actor) receives the second slot.
-        // Total showcase row entries (indices 0-141).
-        private const int ShowcaseRowCount = 142;
+        // Total showcase row entries (indices 0-165).
+        private const int ShowcaseRowCount = 166;
         // Keep showcases close to the launchpad centerline without overlapping pad geometry.
         private const double ShowcaseDistanceFromPadMeters = 200.0;
         // Shroud-jettison showcase parts include tall engine plates and engines that clip at base altitude.
@@ -669,7 +669,8 @@ namespace Parsek.Tests
         // Cargo: 31-41, Engines: 42-44, Ladders: 45-46, RCS: 47-49, Fairings: 50-54,
         // Extra Radiators: 55-56, Drills: 57-58, Deployed Science: 59-66,
         // Animation Group: 67-68, Parachutes: 69-73, Special Deploy Animations: 74-85 and 115-116,
-        // Jettison Coverage: 86-114, Robotics: 117-137, AeroSurface: 138, Robot Arm Scanners: 139-141.
+        // Jettison Coverage: 86-114, Robotics: 117-137, AeroSurface: 138, Robot Arm Scanners: 139-141,
+        // Control Surfaces: 142-165.
 
         internal static RecordingBuilder[] DeployableShowcaseRecordings(double baseUT = 0)
         {
@@ -1084,6 +1085,85 @@ namespace Parsek.Tests
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Robot Arm Scanner S3", "RobotArmScanner_S3", 141,
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98800000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
+            };
+        }
+
+        internal static RecordingBuilder[] ControlSurfaceShowcaseRecordings(double baseUT = 0)
+        {
+            return new[]
+            {
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Advanced Canard", "AdvancedCanard", 142,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Airliner", "airlinerCtrlSrf", 143,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Airliner Tail", "airlinerTailFin", 144,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Canard", "CanardController", 145,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Elevon 2", "elevon2", 146,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Elevon 3", "elevon3", 147,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Elevon 5", "elevon5", 148,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Large Fan Blade", "largeFanBlade", 149,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Large Heli Blade", "largeHeliBlade", 150,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Large Propeller", "largePropeller", 151,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Medium Fan Blade", "mediumFanBlade", 152,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Medium Heli Blade", "mediumHeliBlade", 153,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Medium Propeller", "mediumPropeller", 154,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface R8 Winglet", "R8winglet", 155,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Small", "smallCtrlSrf", 156,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Small Fan Blade", "smallFanBlade", 157,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Small Heli Blade", "smallHeliBlade", 158,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Small Propeller", "smallPropeller", 159,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Standard", "StandardCtrlSrf", 160,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Tailfin", "tailfin", 161,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Winglet", "winglet3", 162,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Shuttle Elevon 1", "wingShuttleElevon1", 163,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Shuttle Elevon 2", "wingShuttleElevon2", 164,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Shuttle Rudder", "wingShuttleRudder", 165,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
             };
         }
@@ -2260,6 +2340,36 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ControlSurfaceShowcaseRecordings_BuildExpectedShape()
+        {
+            var recordings = ControlSurfaceShowcaseRecordings(baseUT: 17000);
+            Assert.Equal(24, recordings.Length);
+
+            var first = recordings[0].Build();
+            Assert.Equal("Part Showcase - Control Surface Advanced Canard", first.GetValue("vesselName"));
+            Assert.Equal("True", first.GetValue("loopPlayback"));
+            Assert.Equal(8, first.GetNodes("PART_EVENT").Length);
+
+            var events = first.GetNodes("PART_EVENT");
+            Assert.Equal(((int)PartEventType.DeployableExtended).ToString(), events[0].GetValue("type"));
+            Assert.Equal(((int)PartEventType.DeployableRetracted).ToString(), events[1].GetValue("type"));
+
+            var names = new[]
+            {
+                "AdvancedCanard", "airlinerCtrlSrf", "airlinerTailFin", "CanardController",
+                "elevon2", "elevon3", "elevon5", "largeFanBlade", "largeHeliBlade", "largePropeller",
+                "mediumFanBlade", "mediumHeliBlade", "mediumPropeller", "R8winglet", "smallCtrlSrf",
+                "smallFanBlade", "smallHeliBlade", "smallPropeller", "StandardCtrlSrf", "tailfin",
+                "winglet3", "wingShuttleElevon1", "wingShuttleElevon2", "wingShuttleRudder"
+            };
+            for (int i = 0; i < recordings.Length; i++)
+            {
+                var g = recordings[i].Build().GetNode("GHOST_VISUAL_SNAPSHOT");
+                Assert.Equal(names[i], g.GetNodes("PART")[0].GetValue("name"));
+            }
+        }
+
+        [Fact]
         public void InventoryPlacementShowcaseRecording_BuildExpectedShape()
         {
             var rec = InventoryPlacementShowcaseRecording(baseUT: 17000).Build();
@@ -2306,7 +2416,8 @@ namespace Parsek.Tests
                 JettisonShowcaseRecordings(17000),
                 RoboticsShowcaseRecordings(17000),
                 AeroSurfaceShowcaseRecordings(17000),
-                RobotArmScannerShowcaseRecordings(17000)
+                RobotArmScannerShowcaseRecordings(17000),
+                ControlSurfaceShowcaseRecordings(17000)
             };
 
             foreach (var category in allShowcases)
@@ -2353,7 +2464,8 @@ namespace Parsek.Tests
                 JettisonShowcaseRecordings(17000),
                 RoboticsShowcaseRecordings(17000),
                 AeroSurfaceShowcaseRecordings(17000),
-                RobotArmScannerShowcaseRecordings(17000)
+                RobotArmScannerShowcaseRecordings(17000),
+                ControlSurfaceShowcaseRecordings(17000)
             };
 
             var positions = new HashSet<string>();
@@ -2368,7 +2480,7 @@ namespace Parsek.Tests
                         $"Duplicate position in '{rec.GetValue("vesselName")}': {key}");
                 }
             }
-            Assert.Equal(142, positions.Count); // 6 + 18 + 7 + 11 + 3 + 2 + 3 + 5 + 2 + 2 + 8 + 2 + 5 + 14 + 29 + 21 + 1 + 3
+            Assert.Equal(166, positions.Count); // 6 + 18 + 7 + 11 + 3 + 2 + 3 + 5 + 2 + 2 + 8 + 2 + 5 + 14 + 29 + 21 + 1 + 3 + 24
         }
 
         [Fact]
@@ -2936,6 +3048,9 @@ namespace Parsek.Tests
             var robotArmScannerShowcases = RobotArmScannerShowcaseRecordings(baseUT);
             for (int i = 0; i < robotArmScannerShowcases.Length; i++)
                 writer.AddRecording(robotArmScannerShowcases[i]);
+            var controlSurfaceShowcases = ControlSurfaceShowcaseRecordings(baseUT);
+            for (int i = 0; i < controlSurfaceShowcases.Length; i++)
+                writer.AddRecording(controlSurfaceShowcases[i]);
             writer.AddRecording(InventoryPlacementShowcaseRecording(baseUT));
 
             var chainSegments = EvaBoardChain(baseUT);
@@ -3108,6 +3223,30 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Part Showcase - Robot Arm Scanner S1", content);
                     Assert.Contains("vesselName = Part Showcase - Robot Arm Scanner S2", content);
                     Assert.Contains("vesselName = Part Showcase - Robot Arm Scanner S3", content);
+                    Assert.Contains("vesselName = Part Showcase - Control Surface Advanced Canard", content);
+                    Assert.Contains("vesselName = Part Showcase - Control Surface Airliner", content);
+                    Assert.Contains("vesselName = Part Showcase - Control Surface Airliner Tail", content);
+                    Assert.Contains("vesselName = Part Showcase - Control Surface Canard", content);
+                    Assert.Contains("vesselName = Part Showcase - Control Surface Elevon 2", content);
+                    Assert.Contains("vesselName = Part Showcase - Control Surface Elevon 3", content);
+                    Assert.Contains("vesselName = Part Showcase - Control Surface Elevon 5", content);
+                    Assert.Contains("vesselName = Part Showcase - Control Surface Large Fan Blade", content);
+                    Assert.Contains("vesselName = Part Showcase - Control Surface Large Heli Blade", content);
+                    Assert.Contains("vesselName = Part Showcase - Control Surface Large Propeller", content);
+                    Assert.Contains("vesselName = Part Showcase - Control Surface Medium Fan Blade", content);
+                    Assert.Contains("vesselName = Part Showcase - Control Surface Medium Heli Blade", content);
+                    Assert.Contains("vesselName = Part Showcase - Control Surface Medium Propeller", content);
+                    Assert.Contains("vesselName = Part Showcase - Control Surface R8 Winglet", content);
+                    Assert.Contains("vesselName = Part Showcase - Control Surface Small", content);
+                    Assert.Contains("vesselName = Part Showcase - Control Surface Small Fan Blade", content);
+                    Assert.Contains("vesselName = Part Showcase - Control Surface Small Heli Blade", content);
+                    Assert.Contains("vesselName = Part Showcase - Control Surface Small Propeller", content);
+                    Assert.Contains("vesselName = Part Showcase - Control Surface Standard", content);
+                    Assert.Contains("vesselName = Part Showcase - Control Surface Tailfin", content);
+                    Assert.Contains("vesselName = Part Showcase - Control Surface Winglet", content);
+                    Assert.Contains("vesselName = Part Showcase - Control Surface Shuttle Elevon 1", content);
+                    Assert.Contains("vesselName = Part Showcase - Control Surface Shuttle Elevon 2", content);
+                    Assert.Contains("vesselName = Part Showcase - Control Surface Shuttle Rudder", content);
                     Assert.Contains("vesselName = Part Showcase - Inventory Placement", content);
                     Assert.Contains("vesselName = Flea Chain", content);
                     Assert.Contains("chainId = chain-eva-board-test", content);
@@ -3139,8 +3278,8 @@ namespace Parsek.Tests
                     $"Expected Parsek/Recordings directory at {recordingsDir}");
 
                 string[] precFiles = Directory.GetFiles(recordingsDir, "*.prec");
-                Assert.True(precFiles.Length >= 135,
-                    $"Expected at least 135 .prec files (8 baseline + 6 lights + 18 deployables + 7 gear + 11 cargo + 3 engines + 2 ladders + 3 RCS + 5 fairings + 2 extra radiators + 2 drills + 8 deployed science + 2 animation-group + 5 parachutes + 14 special deploy animations + 29 jettison showcases + 21 robotics + 1 aero-surface + 3 robot-arm-scanner + 1 inventory-placement + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
+                Assert.True(precFiles.Length >= 159,
+                    $"Expected at least 159 .prec files (8 baseline + 6 lights + 18 deployables + 7 gear + 11 cargo + 3 engines + 2 ladders + 3 RCS + 5 fairings + 2 extra radiators + 2 drills + 8 deployed science + 2 animation-group + 5 parachutes + 14 special deploy animations + 29 jettison showcases + 21 robotics + 1 aero-surface + 3 robot-arm-scanner + 24 control-surface + 1 inventory-placement + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
             }
         }
 
