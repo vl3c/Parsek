@@ -158,8 +158,10 @@ namespace Parsek
             {
                 RecordingPaths.EnsureGameStateDirectory();
 
-                // Sort events by UT before save
-                events.Sort((a, b) => a.ut.CompareTo(b.ut));
+                // Events are stored in insertion (capture) order, not UT order.
+                // After reverts, events from an abandoned future branch precede
+                // events from the new branch — UT-sorting would interleave them
+                // and corrupt facility/building cache seeding.
 
                 var rootNode = new ConfigNode("PARSEK_GAME_STATE");
                 rootNode.AddValue("version", 1);

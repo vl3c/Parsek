@@ -133,7 +133,7 @@ namespace Parsek
                 GameStateStore.LoadBaselines();
             }
             stateRecorder = new GameStateRecorder();
-            stateRecorder.SeedFacilityCacheFromHistory();
+            stateRecorder.SeedFacilityCacheFromCurrentState();
             stateRecorder.Subscribe();
 
             // Capture initial baseline if none exist yet

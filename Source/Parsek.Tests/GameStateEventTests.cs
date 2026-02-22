@@ -630,12 +630,29 @@ namespace Parsek.Tests
             Assert.False(GameStateRecorder.SuppressCrewEvents);
         }
 
-        #endregion
-
-        #region Event History Seeding
+        [Fact]
+        public void ResourceSuppression_FlagDefaultsFalse()
+        {
+            Assert.False(GameStateRecorder.SuppressResourceEvents);
+        }
 
         [Fact]
-        public void SeedFromHistory_FindsMostRecentFacilityState()
+        public void ResourceSuppression_FlagCanBeSet()
+        {
+            GameStateRecorder.SuppressResourceEvents = true;
+            Assert.True(GameStateRecorder.SuppressResourceEvents);
+
+            // Restore
+            GameStateRecorder.SuppressResourceEvents = false;
+            Assert.False(GameStateRecorder.SuppressResourceEvents);
+        }
+
+        #endregion
+
+        #region Event History
+
+        [Fact]
+        public void EventHistory_CanFindMostRecentFacilityState()
         {
             GameStateStore.ResetForTesting();
 

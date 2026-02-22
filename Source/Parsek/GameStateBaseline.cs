@@ -82,7 +82,8 @@ namespace Parsek
                 }
             }
 
-            // Building intact states — find all DestructibleBuilding instances in scene
+            // Building intact states — best-effort, only populated when DestructibleBuilding
+            // objects are loaded (KSC scene). Empty in Flight/Editor/Tracking Station.
             var destructibles = Object.FindObjectsOfType<DestructibleBuilding>();
             if (destructibles != null)
             {

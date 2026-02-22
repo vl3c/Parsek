@@ -18,6 +18,13 @@ namespace Parsek
         /// </summary>
         internal static bool SuppressCrewEvents = false;
 
+        /// <summary>
+        /// Set to true by ParsekFlight during timeline resource replay
+        /// (AddFunds/AddScience/AddReputation) to prevent recording replay
+        /// mechanics as real game state events.
+        /// </summary>
+        internal static bool SuppressResourceEvents = false;
+
         private bool subscribed = false;
 
         // Cached facility/building state for polling on scene change
@@ -327,6 +334,7 @@ namespace Parsek
             double oldFunds = lastFunds;
             lastFunds = newFunds;
 
+            if (SuppressResourceEvents) return;
             if (double.IsNaN(oldFunds)) return;
             double delta = newFunds - oldFunds;
             if (Math.Abs(delta) < FundsThreshold) return;
@@ -347,6 +355,7 @@ namespace Parsek
             double oldScience = lastScience;
             lastScience = newScience;
 
+            if (SuppressResourceEvents) return;
             if (double.IsNaN(oldScience)) return;
             double delta = newScience - oldScience;
             if (Math.Abs(delta) < ScienceThreshold) return;
@@ -367,6 +376,7 @@ namespace Parsek
             float oldReputation = lastReputation;
             lastReputation = newReputation;
 
+            if (SuppressResourceEvents) return;
             if (float.IsNaN(oldReputation)) return;
             float delta = newReputation - oldReputation;
             if (Math.Abs(delta) < ReputationThreshold) return;
@@ -387,51 +397,12 @@ namespace Parsek
         #region Facility Polling
 
         /// <summary>
-        /// Seeds the facility/building cache from the most recent events in loaded history.
-        /// Call after LoadEventFile() but before Subscribe()/PollFacilityState().
+        /// Seeds the facility/building cache from current game state.
+        /// Always uses live KSP state rather than event history to avoid
+        /// stale data from abandoned future branches after reverts.
+        /// Call before Subscribe()/PollFacilityState().
         /// </summary>
-        internal void SeedFacilityCacheFromHistory()
-        {
-            lastFacilityLevels.Clear();
-            lastBuildingIntact.Clear();
-
-            var events = GameStateStore.Events;
-            if (events == null || events.Count == 0)
-            {
-                SeedFacilityCacheFromCurrentState();
-                return;
-            }
-
-            // Scan backward to find most recent state per facility/building
-            for (int i = events.Count - 1; i >= 0; i--)
-            {
-                var e = events[i];
-                switch (e.eventType)
-                {
-                    case GameStateEventType.FacilityUpgraded:
-                    case GameStateEventType.FacilityDowngraded:
-                        if (!string.IsNullOrEmpty(e.key) && !lastFacilityLevels.ContainsKey(e.key))
-                            lastFacilityLevels[e.key] = (float)e.valueAfter;
-                        break;
-                    case GameStateEventType.BuildingDestroyed:
-                        if (!string.IsNullOrEmpty(e.key) && !lastBuildingIntact.ContainsKey(e.key))
-                            lastBuildingIntact[e.key] = false;
-                        break;
-                    case GameStateEventType.BuildingRepaired:
-                        if (!string.IsNullOrEmpty(e.key) && !lastBuildingIntact.ContainsKey(e.key))
-                            lastBuildingIntact[e.key] = true;
-                        break;
-                }
-            }
-
-            // Fill in any facilities/buildings not found in history from current state
-            SeedMissingFromCurrentState();
-
-            ParsekLog.Log($"Game state: Facility cache seeded from history " +
-                $"({lastFacilityLevels.Count} facilities, {lastBuildingIntact.Count} buildings)");
-        }
-
-        private void SeedFacilityCacheFromCurrentState()
+        internal void SeedFacilityCacheFromCurrentState()
         {
             // Facility levels
             if (ScenarioUpgradeableFacilities.protoUpgradeables != null)
@@ -458,39 +429,9 @@ namespace Parsek
                         lastBuildingIntact[db.id] = !db.IsDestroyed;
                 }
             }
-        }
 
-        private void SeedMissingFromCurrentState()
-        {
-            // Fill in facilities not found in event history
-            if (ScenarioUpgradeableFacilities.protoUpgradeables != null)
-            {
-                foreach (var kvp in ScenarioUpgradeableFacilities.protoUpgradeables)
-                {
-                    if (!lastFacilityLevels.ContainsKey(kvp.Key) &&
-                        kvp.Value != null && kvp.Value.facilityRefs != null &&
-                        kvp.Value.facilityRefs.Count > 0)
-                    {
-                        var facility = kvp.Value.facilityRefs[0];
-                        if (facility != null)
-                            lastFacilityLevels[kvp.Key] = facility.GetNormLevel();
-                    }
-                }
-            }
-
-            // Fill in buildings not found in event history
-            var destructibles = UnityEngine.Object.FindObjectsOfType<DestructibleBuilding>();
-            if (destructibles != null)
-            {
-                foreach (var db in destructibles)
-                {
-                    if (db != null && !string.IsNullOrEmpty(db.id) &&
-                        !lastBuildingIntact.ContainsKey(db.id))
-                    {
-                        lastBuildingIntact[db.id] = !db.IsDestroyed;
-                    }
-                }
-            }
+            ParsekLog.Log($"Game state: Facility cache seeded from current state " +
+                $"({lastFacilityLevels.Count} facilities, {lastBuildingIntact.Count} buildings)");
         }
 
         /// <summary>
