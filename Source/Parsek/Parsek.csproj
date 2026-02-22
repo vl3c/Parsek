@@ -8,7 +8,12 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
 
-    <!-- Local KSP instance for development -->
+    <!-- Local KSP instance for development (lookup order: explicit env, repo-local, parent-of-repo) -->
+    <KSPDir Condition="'$(KSPDir)' == '' and '$(KSPDIR)' != ''">$(KSPDIR)</KSPDir>
+    <KSPDir Condition="'$(KSPDir)' == '' and Exists('$(MSBuildProjectDirectory)\..\..\Kerbal Space Program')">$(MSBuildProjectDirectory)\..\..\Kerbal Space Program</KSPDir>
+    <KSPDir Condition="'$(KSPDir)' == '' and Exists('$(MSBuildProjectDirectory)\..\..\..\Kerbal Space Program')">$(MSBuildProjectDirectory)\..\..\..\Kerbal Space Program</KSPDir>
+    <KSPDir Condition="'$(KSPDir)' == '' and Exists('$(MSBuildProjectDirectory)\..\..\..\..\Kerbal Space Program')">$(MSBuildProjectDirectory)\..\..\..\..\Kerbal Space Program</KSPDir>
+    <KSPDir Condition="'$(KSPDir)' == '' and Exists('$(MSBuildProjectDirectory)\..\..\..\..\..\Kerbal Space Program')">$(MSBuildProjectDirectory)\..\..\..\..\..\Kerbal Space Program</KSPDir>
     <KSPDir Condition="'$(KSPDir)' == ''">$(MSBuildProjectDirectory)\..\..\Kerbal Space Program</KSPDir>
   </PropertyGroup>
 

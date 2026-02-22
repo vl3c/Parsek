@@ -4,11 +4,26 @@ setlocal
 :: Parsek Build Script
 :: Usage: build.bat [Debug|Release] [KSP_PATH]
 
-set CONFIG=%1
-if "%CONFIG%"=="" set CONFIG=Debug
+set "CONFIG=%~1"
+if "%CONFIG%"=="" set "CONFIG=Debug"
 
-set KSPDIR=%2
-if "%KSPDIR%"=="" set KSPDIR=%~dp0Kerbal Space Program
+set "KSPDIR_ARG=%~2"
+if not "%KSPDIR_ARG%"=="" (
+    set "KSPDIR=%KSPDIR_ARG%"
+) else (
+    if "%KSPDIR%"=="" (
+        if exist "%~dp0Kerbal Space Program\KSP_x64_Data\Managed\Assembly-CSharp.dll" (
+            set "KSPDIR=%~dp0Kerbal Space Program"
+        ) else (
+            if exist "%~dp0..\Kerbal Space Program\KSP_x64_Data\Managed\Assembly-CSharp.dll" (
+                set "KSPDIR=%~dp0..\Kerbal Space Program"
+            ) else (
+                set "KSPDIR=%~dp0Kerbal Space Program"
+            )
+        )
+    )
+)
+for %%I in ("%KSPDIR%") do set "KSPDIR=%%~fI"
 
 :: Find MSBuild
 set MSBUILD=
