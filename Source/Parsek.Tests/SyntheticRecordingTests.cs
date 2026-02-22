@@ -1436,6 +1436,7 @@ namespace Parsek.Tests
         public void SerializeTrajectory_RoundTrip_PreservesData()
         {
             RecordingStore.SuppressLogging = true;
+            GameStateStore.SuppressLogging = true;
             try
             {
                 // Build a recording with points, orbit segments, and part events
@@ -1513,6 +1514,7 @@ namespace Parsek.Tests
         public void SerializeTrajectory_SaveToFile_WritesExpectedContent()
         {
             RecordingStore.SuppressLogging = true;
+            GameStateStore.SuppressLogging = true;
             string tempDir = Path.Combine(Path.GetTempPath(), "parsek_test_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
             try

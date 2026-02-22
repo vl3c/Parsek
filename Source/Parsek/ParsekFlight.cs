@@ -1749,28 +1749,38 @@ namespace Parsek
                 float scienceDelta = toPoint.science - fromPoint.science;
                 float repDelta = toPoint.reputation - fromPoint.reputation;
 
-                if (fundsDelta != 0 && Funding.Instance != null)
+                // Suppress game state recording during replay — these are replayed
+                // deltas from a previous recording, not new player actions
+                GameStateRecorder.SuppressResourceEvents = true;
+                try
                 {
-                    if (fundsDelta < 0 && Funding.Instance.Funds + fundsDelta < 0)
-                        fundsDelta = -Funding.Instance.Funds;
-                    Funding.Instance.AddFunds(fundsDelta, TransactionReasons.None);
-                    Log($"Timeline resource: funds {fundsDelta:+0.0;-0.0}");
-                }
+                    if (fundsDelta != 0 && Funding.Instance != null)
+                    {
+                        if (fundsDelta < 0 && Funding.Instance.Funds + fundsDelta < 0)
+                            fundsDelta = -Funding.Instance.Funds;
+                        Funding.Instance.AddFunds(fundsDelta, TransactionReasons.None);
+                        Log($"Timeline resource: funds {fundsDelta:+0.0;-0.0}");
+                    }
 
-                if (scienceDelta != 0 && ResearchAndDevelopment.Instance != null)
-                {
-                    if (scienceDelta < 0 && ResearchAndDevelopment.Instance.Science + scienceDelta < 0)
-                        scienceDelta = -ResearchAndDevelopment.Instance.Science;
-                    ResearchAndDevelopment.Instance.AddScience(scienceDelta, TransactionReasons.None);
-                    Log($"Timeline resource: science {scienceDelta:+0.0;-0.0}");
-                }
+                    if (scienceDelta != 0 && ResearchAndDevelopment.Instance != null)
+                    {
+                        if (scienceDelta < 0 && ResearchAndDevelopment.Instance.Science + scienceDelta < 0)
+                            scienceDelta = -ResearchAndDevelopment.Instance.Science;
+                        ResearchAndDevelopment.Instance.AddScience(scienceDelta, TransactionReasons.None);
+                        Log($"Timeline resource: science {scienceDelta:+0.0;-0.0}");
+                    }
 
-                if (repDelta != 0 && Reputation.Instance != null)
+                    if (repDelta != 0 && Reputation.Instance != null)
+                    {
+                        if (repDelta < 0 && Reputation.CurrentRep + repDelta < 0)
+                            repDelta = -Reputation.CurrentRep;
+                        Reputation.Instance.AddReputation(repDelta, TransactionReasons.None);
+                        Log($"Timeline resource: reputation {repDelta:+0.0;-0.0}");
+                    }
+                }
+                finally
                 {
-                    if (repDelta < 0 && Reputation.CurrentRep + repDelta < 0)
-                        repDelta = -Reputation.CurrentRep;
-                    Reputation.Instance.AddReputation(repDelta, TransactionReasons.None);
-                    Log($"Timeline resource: reputation {repDelta:+0.0;-0.0}");
+                    GameStateRecorder.SuppressResourceEvents = false;
                 }
 
                 rec.LastAppliedResourceIndex = targetIndex;
