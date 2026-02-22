@@ -28,6 +28,12 @@ namespace Parsek
         private const float MinWindowWidth = 350f;
         private const float MinWindowHeight = 150f;
 
+        // Settings window
+        private bool showSettingsWindow;
+        private Rect settingsWindowRect;
+        private bool settingsWindowHasInputLock;
+        private const string SettingsInputLockId = "Parsek_SettingsWindow";
+
         // Column widths — shared between header and body for alignment
         private const float ColW_Index = 25f;
         private const float ColW_Launch = 110f;
@@ -78,8 +84,12 @@ namespace Parsek
             if (GameStateStore.EventCount > 0)
                 GUILayout.Label($"Events: {GameStateStore.EventCount}");
 
+            GUILayout.BeginHorizontal();
             if (GUILayout.Button($"Recordings ({committedCount})"))
                 showRecordingsWindow = !showRecordingsWindow;
+            if (GUILayout.Button("Settings"))
+                showSettingsWindow = !showSettingsWindow;
+            GUILayout.EndHorizontal();
 
             // Active ghost controls — Take Control buttons
             var committed = RecordingStore.CommittedRecordings;
@@ -511,6 +521,104 @@ namespace Parsek
             statusStylePast.normal.textColor = new Color(0.5f, 0.5f, 0.5f);
         }
 
+        public void DrawSettingsWindowIfOpen(Rect mainWindowRect)
+        {
+            if (!showSettingsWindow)
+            {
+                ReleaseSettingsInputLock();
+                return;
+            }
+
+            if (settingsWindowRect.width < 1f)
+            {
+                settingsWindowRect = new Rect(
+                    mainWindowRect.x + mainWindowRect.width + 10,
+                    mainWindowRect.y + 40,
+                    280, 10);
+            }
+
+            settingsWindowRect = ClickThruBlocker.GUILayoutWindow(
+                "ParsekSettings".GetHashCode(),
+                settingsWindowRect,
+                DrawSettingsWindow,
+                "Parsek \u2014 Settings",
+                GUILayout.Width(280)
+            );
+
+            if (settingsWindowRect.Contains(Event.current.mousePosition))
+            {
+                if (!settingsWindowHasInputLock)
+                {
+                    InputLockManager.SetControlLock(ControlTypes.CAMERACONTROLS, SettingsInputLockId);
+                    settingsWindowHasInputLock = true;
+                }
+            }
+            else
+            {
+                ReleaseSettingsInputLock();
+            }
+        }
+
+        private void ReleaseSettingsInputLock()
+        {
+            if (!settingsWindowHasInputLock) return;
+            InputLockManager.RemoveControlLock(SettingsInputLockId);
+            settingsWindowHasInputLock = false;
+        }
+
+        private void DrawSettingsWindow(int windowID)
+        {
+            var s = ParsekSettings.Current;
+            if (s == null)
+            {
+                GUILayout.Label("Settings unavailable (no active game).");
+                if (GUILayout.Button("Close"))
+                    showSettingsWindow = false;
+                GUI.DragWindow();
+                return;
+            }
+
+            GUILayout.Label("Recording", GUI.skin.box);
+            s.autoRecordOnLaunch = GUILayout.Toggle(s.autoRecordOnLaunch, "Auto-record on launch");
+            s.autoRecordOnEva = GUILayout.Toggle(s.autoRecordOnEva, "Auto-record on EVA");
+            s.autoWarpStop = GUILayout.Toggle(s.autoWarpStop, "Auto-stop time warp");
+
+            GUILayout.Space(5);
+            GUILayout.Label("Sampling", GUI.skin.box);
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label($"Max interval: {s.maxSampleInterval:F1}s", GUILayout.Width(140));
+            s.maxSampleInterval = GUILayout.HorizontalSlider(s.maxSampleInterval, 1f, 10f);
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label($"Direction: {s.velocityDirThreshold:F1}\u00b0", GUILayout.Width(140));
+            s.velocityDirThreshold = GUILayout.HorizontalSlider(s.velocityDirThreshold, 0.5f, 10f);
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label($"Speed: {s.speedChangeThreshold:F0}%", GUILayout.Width(140));
+            s.speedChangeThreshold = GUILayout.HorizontalSlider(s.speedChangeThreshold, 1f, 20f);
+            GUILayout.EndHorizontal();
+
+            GUILayout.Space(5);
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Defaults"))
+            {
+                s.autoRecordOnLaunch = true;
+                s.autoRecordOnEva = true;
+                s.autoWarpStop = true;
+                s.maxSampleInterval = 3.0f;
+                s.velocityDirThreshold = 2.0f;
+                s.speedChangeThreshold = 5.0f;
+            }
+            if (GUILayout.Button("Close"))
+                showSettingsWindow = false;
+            GUILayout.EndHorizontal();
+
+            GUI.DragWindow();
+        }
+
         public void DrawMapMarkers()
         {
             Camera cam = PlanetariumCamera.Camera;
@@ -546,6 +654,7 @@ namespace Parsek
         public void Cleanup()
         {
             ReleaseRecordingsInputLock();
+            ReleaseSettingsInputLock();
             if (mapMarkerTexture != null)
                 Object.Destroy(mapMarkerTexture);
         }
