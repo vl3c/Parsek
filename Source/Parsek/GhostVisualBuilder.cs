@@ -154,12 +154,18 @@ namespace Parsek
                 if (pidStr != null)
                     uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out persistentId);
 
-                AvailablePart ap = PartLoader.getPartInfoByName(partName);
+                AvailablePart ap = ResolveAvailablePart(partName);
                 if (ap == null || ap.partPrefab == null)
                 {
                     skippedPrefab++;
                     ParsekLog.Log($"  Ghost part SKIPPED (no prefab): '{partName}' pid={persistentId}");
                     continue;
+                }
+                string resolvedName = ap.partPrefab.partInfo?.name ?? ap.name;
+                if (!string.IsNullOrEmpty(resolvedName) &&
+                    !string.Equals(resolvedName, partName, System.StringComparison.OrdinalIgnoreCase))
+                {
+                    ParsekLog.Log($"  Ghost part lookup alias: '{partName}' -> '{resolvedName}'");
                 }
 
                 int meshCount = 0;
@@ -316,6 +322,90 @@ namespace Parsek
             // name unless there is a trailing numeric suffix.
             var match = trailingNumericSuffixRegex.Match(rawPart);
             return match.Success ? match.Groups[1].Value : rawPart;
+        }
+
+        internal static AvailablePart ResolveAvailablePart(string partName)
+        {
+            if (string.IsNullOrEmpty(partName))
+                return null;
+
+            string trimmed = partName.Trim();
+            if (trimmed.Length == 0)
+                return null;
+
+            AvailablePart ap = TryGetAvailablePartByName(trimmed);
+            if (ap != null)
+                return ap;
+
+            string dotted = trimmed.Replace('_', '.');
+            if (!string.Equals(dotted, trimmed, System.StringComparison.Ordinal))
+            {
+                ap = TryGetAvailablePartByName(dotted);
+                if (ap != null)
+                    return ap;
+            }
+
+            string underscored = trimmed.Replace('.', '_');
+            if (!string.Equals(underscored, trimmed, System.StringComparison.Ordinal))
+            {
+                ap = TryGetAvailablePartByName(underscored);
+                if (ap != null)
+                    return ap;
+            }
+
+            List<AvailablePart> loadedParts = PartLoader.LoadedPartsList;
+            if (loadedParts == null || loadedParts.Count == 0)
+                return null;
+
+            for (int i = 0; i < loadedParts.Count; i++)
+            {
+                AvailablePart candidate = loadedParts[i];
+                if (candidate == null || candidate.partPrefab == null)
+                    continue;
+
+                if (PartNameMatches(candidate, trimmed) ||
+                    PartNameMatches(candidate, dotted) ||
+                    PartNameMatches(candidate, underscored))
+                {
+                    return candidate;
+                }
+            }
+
+            return null;
+        }
+
+        private static AvailablePart TryGetAvailablePartByName(string lookupName)
+        {
+            if (string.IsNullOrEmpty(lookupName))
+                return null;
+
+            AvailablePart ap = PartLoader.getPartInfoByName(lookupName);
+            return (ap != null && ap.partPrefab != null) ? ap : null;
+        }
+
+        private static bool PartNameMatches(AvailablePart candidate, string lookupName)
+        {
+            if (candidate == null || string.IsNullOrEmpty(lookupName))
+                return false;
+
+            if (string.Equals(candidate.name, lookupName, System.StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            string infoName = candidate.partPrefab?.partInfo?.name;
+            if (!string.IsNullOrEmpty(infoName) &&
+                string.Equals(infoName, lookupName, System.StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            string prefabName = candidate.partPrefab?.name;
+            if (!string.IsNullOrEmpty(prefabName) &&
+                string.Equals(prefabName, lookupName, System.StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return false;
         }
 
         internal static bool TryParseVector3(string value, out Vector3 result)
@@ -812,6 +902,42 @@ namespace Parsek
 
             animationName = animationGroupModule.GetValue("deployAnimationName");
             return !string.IsNullOrEmpty(animationName);
+        }
+
+        private static bool TryGetStandaloneAnimateGenericDeployAnimation(
+            Part prefab, out string animationName)
+        {
+            animationName = null;
+            if (prefab == null || prefab.Modules == null) return false;
+
+            // Skip modules already handled by dedicated visual paths.
+            if (prefab.FindModuleImplementing<ModuleDeployablePart>() != null) return false;
+            if (prefab.FindModuleImplementing<ModuleWheels.ModuleWheelDeployment>() != null) return false;
+            if (prefab.FindModuleImplementing<ModuleCargoBay>() != null) return false;
+
+            bool hasAnimationGroup = false;
+            for (int m = 0; m < prefab.Modules.Count; m++)
+            {
+                PartModule module = prefab.Modules[m];
+                if (module == null) continue;
+                if (string.Equals(module.moduleName, "RetractableLadder", System.StringComparison.Ordinal))
+                    return false;
+                if (string.Equals(module.moduleName, "ModuleAnimationGroup", System.StringComparison.Ordinal))
+                    hasAnimationGroup = true;
+            }
+            if (hasAnimationGroup) return false;
+
+            for (int m = 0; m < prefab.Modules.Count; m++)
+            {
+                ModuleAnimateGeneric animateModule = prefab.Modules[m] as ModuleAnimateGeneric;
+                if (animateModule == null) continue;
+                if (string.IsNullOrEmpty(animateModule.animationName)) continue;
+
+                animationName = animateModule.animationName;
+                return true;
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -2296,6 +2422,9 @@ namespace Parsek
             string animationGroupDeployAnimName;
             bool hasAnimationGroupDeploy = TryGetAnimationGroupDeployAnimation(
                 prefab, out animationGroupDeployAnimName);
+            string standaloneAnimateGenericAnimName;
+            bool hasStandaloneAnimateGenericDeploy = TryGetStandaloneAnimateGenericDeployAnimation(
+                prefab, out standaloneAnimateGenericAnimName);
 
             // If the part has any animated modules (deployable, gear, ladder, animation-group, cargo bay), ensure
             // the full model transform hierarchy is mirrored into the ghost.  The mesh-cloning
@@ -2307,7 +2436,8 @@ namespace Parsek
                 prefab.FindModuleImplementing<ModuleWheels.ModuleWheelDeployment>() != null ||
                 prefab.FindModuleImplementing<ModuleCargoBay>() != null ||
                 hasRetractableLadder ||
-                hasAnimationGroupDeploy;
+                hasAnimationGroupDeploy ||
+                hasStandaloneAnimateGenericDeploy;
 
             if (needsFullHierarchy)
             {
@@ -2529,6 +2659,52 @@ namespace Parsek
                             transforms = resolvedTransforms
                         };
                         ParsekLog.Log($"    AnimationGroup deployable detected: '{partName}' pid={persistentId}, " +
+                            $"{resolvedTransforms.Count}/{sampledStates.Count} transforms resolved");
+                    }
+                }
+            }
+
+            // Detect standalone ModuleAnimateGeneric deploy animations (e.g. science/inflatable parts)
+            if (deployableInfo == null && hasStandaloneAnimateGenericDeploy)
+            {
+                var sampledStates = SampleLadderStates(prefab, standaloneAnimateGenericAnimName, null);
+                if (sampledStates != null)
+                {
+                    var resolvedTransforms = new List<DeployableTransformState>();
+                    int unresolved = 0;
+                    for (int s = 0; s < sampledStates.Count; s++)
+                    {
+                        var (path, sPos, sRot, sScale, dPos, dRot, dScale) = sampledStates[s];
+                        Transform ghostT = FindTransformByPath(modelNode.transform, path);
+                        if (ghostT != null)
+                        {
+                            resolvedTransforms.Add(new DeployableTransformState
+                            {
+                                t = ghostT,
+                                stowedPos = sPos,
+                                stowedRot = sRot,
+                                stowedScale = sScale,
+                                deployedPos = dPos,
+                                deployedRot = dRot,
+                                deployedScale = dScale
+                            });
+                        }
+                        else
+                        {
+                            unresolved++;
+                            if (unresolved <= 5)
+                                ParsekLog.Log($"    [DIAG] AnimateGeneric '{partName}': unresolved path '{path}'");
+                        }
+                    }
+
+                    if (resolvedTransforms.Count > 0)
+                    {
+                        deployableInfo = new DeployableGhostInfo
+                        {
+                            partPersistentId = persistentId,
+                            transforms = resolvedTransforms
+                        };
+                        ParsekLog.Log($"    AnimateGeneric deployable detected: '{partName}' pid={persistentId}, " +
                             $"{resolvedTransforms.Count}/{sampledStates.Count} transforms resolved");
                     }
                 }

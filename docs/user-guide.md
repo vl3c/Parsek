@@ -72,16 +72,16 @@ After merging, wait on the pad (or time warp) until UT reaches the recording's t
 
 When you choose "Merge + Keep Vessel", the recorded crew (e.g. Jeb) are reserved for the deferred vessel spawn. A replacement kerbal with the same trait is hired automatically so your available crew pool stays the same size. When the vessel spawns at EndUT, the original crew board it and the replacement is removed.
 
-### Take Control
+### Take Control (Experimental, Partial)
 
-While a ghost is actively playing back, you can take control of it from the Parsek UI window:
+Take Control is available in the UI, but it is still experimental and not fully supported for all recordings or vessel states.
 
+Current behavior:
 1. Open the Parsek window (toolbar button)
 2. Click "Take Control" next to an active ghost
-3. The ghost is replaced with a real vessel at its current position and velocity
-4. You are switched to the new vessel and can fly it normally
+3. Parsek attempts to replace the ghost with a real vessel at the ghost's current position/velocity
 
-The recording is marked as taken and the ghost will not reappear. Crew reservations are cleaned up as if the vessel had spawned normally at EndUT.
+This path is useful for testing, but expect edge cases. Use normal EndUT spawn flow for reliable timeline progression.
 
 ### Preview Playback
 
@@ -119,7 +119,7 @@ Parsek handles several edge cases automatically. These are logged to `KSP.log` (
 - **Auto-start on launch** — Recording begins automatically when a vessel leaves the pad or runway (transitions out of PRELAUNCH). A screen message confirms "Recording STARTED (auto)".
 - **Auto-start on EVA from pad** — Going EVA from a vessel sitting on the pad/runway also auto-starts recording on the EVA kerbal.
 - **Mid-recording EVA** — Going EVA during an active recording auto-stops the parent recording, commits it, and starts a linked child recording on the EVA kerbal.
-- **Part events** — 28 event types are recorded with timestamps, including staging, decoupling, engine ignition/shutdown/throttle, parachute deploy/cut, solar panel/antenna/radiator extend/retract, light on/off/blink, landing gear deploy/retract, cargo bay open/close, fairing jettison, RCS fire, docking/undocking, and inventory part placement. During ghost playback, decoupled parts (and their subtrees) disappear from the ghost at the correct time. Engines and RCS thrusters emit particle FX during burn phases. Parachute canopies deploy with the real mesh, engine shrouds are jettisoned, and deployable parts animate between stowed/deployed states.
+- **Part events** — 28 event types are recorded with timestamps, including staging, decoupling, engine ignition/shutdown/throttle, parachute deploy/cut, solar panel/antenna/radiator extend/retract, light on/off/blink, landing gear deploy/retract, cargo bay open/close, fairing jettison, RCS fire, docking/undocking, and inventory part placement/removal. During ghost playback, decoupled parts (and their subtrees) disappear from the ghost at the correct time. Engines and RCS thrusters emit particle FX during burn phases. Parachute canopies deploy with the real mesh, engine shrouds are jettisoned, and deployable parts animate between stowed/deployed states. Docking/undocking events are used as chain segment boundaries, not direct ghost mesh transforms.
 - **Paused game** — Recording cannot start while the game is paused.
 - **Vessel change** — If the active vessel changes during recording (docking, switching with `[`/`]`), the recording stops automatically with a screen message.
 - **Very short recordings** — Recordings with fewer than 2 sample points are silently dropped on revert (nothing to play back).

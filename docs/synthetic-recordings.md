@@ -107,7 +107,7 @@ Three builder classes in `Source/Parsek.Tests/Generators/`:
 
 ### RecordingBuilder
 
-Fluent API that produces a `ConfigNode("RECORDING")` matching `ParsekScenario.OnSave()` format exactly. Supports both v2 (inline) and v3 (external files) formats.
+Fluent API that produces a `ConfigNode("RECORDING")` matching `ParsekScenario.OnSave()` format exactly. Supports both v2 (inline) and external sidecar-file format (current `recordingFormatVersion = 4`) outputs.
 
 ```csharp
 var rec = new RecordingBuilder("My Recording")
@@ -121,7 +121,7 @@ var rec = new RecordingBuilder("My Recording")
     .WithVesselSnapshot(vesselBuilder)
     .Build();   // returns ConfigNode (v2 inline format)
 
-// For v3 external files:
+// For external sidecar files (helper names kept as "V3" for backward compatibility):
 rec.WithRecordingId("my-id");
 rec.BuildV3Metadata();       // metadata-only RECORDING node for .sfs
 rec.BuildTrajectoryNode();   // PARSEK_RECORDING node for .prec file
@@ -174,12 +174,12 @@ Assembles recordings into a `SCENARIO` node and injects into `.sfs` save files.
 
 ```csharp
 var writer = new ScenarioWriter();
-writer.WithV3Format();  // enables external sidecar file writing
+writer.WithV3Format();  // legacy helper name; enables external sidecar file writing (format v4)
 writer.AddRecording(rec1);
 writer.AddRecording(rec2);
 writer.AddCrewReplacement("Jeb Kerman", "Bob Kerman");  // optional
 writer.InjectIntoSaveFile("input.sfs", "output.sfs");
-// v3: also writes .prec + .craft sidecar files alongside the save
+// Also writes .prec + .craft sidecar files alongside the save
 ```
 
 **Injection algorithm:**
@@ -256,4 +256,4 @@ dotnet test
 | ScenarioWriter_InjectIntoSave_Idempotent | Double-injection produces single block |
 | ScenarioWriter_InjectIntoSave_HandlesVariousWhitespace | CRLF, nested nodes, extra values |
 | VesselSnapshotBuilder_DeterministicPid | Same pid across builds with same persistentId |
-| InjectAllRecordings | End-to-end injection of 48 recordings (baseline + expanded showcase row + chain segments) into a real save file (Manual) |
+| InjectAllRecordings | End-to-end injection of at least 100 recordings (baseline + expanded showcase row + chain segments) into a real save file (Manual) |
