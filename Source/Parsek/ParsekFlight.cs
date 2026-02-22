@@ -58,6 +58,7 @@ namespace Parsek
             public Dictionary<ulong, RcsGhostInfo> rcsInfos;   // separate from engineInfos — keys can overlap for same part
             public Dictionary<ulong, RoboticGhostInfo> roboticInfos; // key = EncodeEngineKey(pid, moduleIndex)
             public Dictionary<uint, DeployableGhostInfo> deployableInfos;
+            public Dictionary<uint, HeatGhostInfo> heatInfos;
             public Dictionary<uint, LightGhostInfo> lightInfos;
             public Dictionary<uint, LightPlaybackState> lightPlaybackStates;
             public Dictionary<uint, FairingGhostInfo> fairingInfos;
@@ -549,6 +550,7 @@ namespace Parsek
             GhostVisualBuilder.ClearGearCache();
             GhostVisualBuilder.ClearLadderCache();
             GhostVisualBuilder.ClearCargoBayCache();
+            GhostVisualBuilder.ClearAnimateHeatCache();
         }
 
         void OnVesselWillDestroy(Vessel v)
@@ -1814,13 +1816,14 @@ namespace Parsek
             List<JettisonGhostInfo> jettisonInfoList;
             List<EngineGhostInfo> engineInfoList;
             List<DeployableGhostInfo> deployableInfoList;
+            List<HeatGhostInfo> heatInfoList;
             List<LightGhostInfo> lightInfoList;
             List<FairingGhostInfo> fairingInfoList;
             List<RcsGhostInfo> rcsInfoList;
             List<RoboticGhostInfo> roboticInfoList;
             GameObject ghost = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
                 rec, $"Parsek_Timeline_{index}", out parachuteInfoList, out jettisonInfoList,
-                out engineInfoList, out deployableInfoList, out lightInfoList, out fairingInfoList,
+                out engineInfoList, out deployableInfoList, out heatInfoList, out lightInfoList, out fairingInfoList,
                 out rcsInfoList, out roboticInfoList);
             bool builtFromSnapshot = ghost != null;
             if (ghost == null)
@@ -1884,6 +1887,13 @@ namespace Parsek
                 state.deployableInfos = new Dictionary<uint, DeployableGhostInfo>();
                 for (int i = 0; i < deployableInfoList.Count; i++)
                     state.deployableInfos[deployableInfoList[i].partPersistentId] = deployableInfoList[i];
+            }
+
+            if (heatInfoList != null)
+            {
+                state.heatInfos = new Dictionary<uint, HeatGhostInfo>();
+                for (int i = 0; i < heatInfoList.Count; i++)
+                    state.heatInfos[heatInfoList[i].partPersistentId] = heatInfoList[i];
             }
 
             if (lightInfoList != null)
@@ -2138,6 +2148,14 @@ namespace Parsek
                     case PartEventType.DeployableRetracted:
                         ApplyDeployableState(state, evt, deployed: false);
                         Log($"Part event applied: DeployableRetracted '{evt.partName}' pid={evt.partPersistentId}");
+                        break;
+                    case PartEventType.ThermalAnimationHot:
+                        ApplyHeatState(state, evt, heated: true);
+                        Log($"Part event applied: ThermalAnimationHot '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} heat={evt.value:F2}");
+                        break;
+                    case PartEventType.ThermalAnimationCold:
+                        ApplyHeatState(state, evt, heated: false);
+                        Log($"Part event applied: ThermalAnimationCold '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} heat={evt.value:F2}");
                         break;
                     case PartEventType.LightOn:
                         ApplyLightPowerEvent(state, evt.partPersistentId, true);
@@ -2519,6 +2537,66 @@ namespace Parsek
 
                 info.lastUpdateUT = currentUT;
             }
+        }
+
+        static bool ApplyHeatState(GhostPlaybackState state, PartEvent evt, bool heated)
+        {
+            if (state == null || state.heatInfos == null) return false;
+
+            if (!state.heatInfos.TryGetValue(evt.partPersistentId, out HeatGhostInfo info) || info == null)
+                return false;
+
+            bool applied = false;
+
+            if (info.transforms != null)
+            {
+                for (int i = 0; i < info.transforms.Count; i++)
+                {
+                    var ts = info.transforms[i];
+                    if (ts.t == null) continue;
+
+                    if (heated)
+                    {
+                        ts.t.localPosition = ts.deployedPos;
+                        ts.t.localRotation = ts.deployedRot;
+                        ts.t.localScale = ts.deployedScale;
+                    }
+                    else
+                    {
+                        ts.t.localPosition = ts.stowedPos;
+                        ts.t.localRotation = ts.stowedRot;
+                        ts.t.localScale = ts.stowedScale;
+                    }
+                    applied = true;
+                }
+            }
+
+            if (info.materialStates != null)
+            {
+                for (int i = 0; i < info.materialStates.Count; i++)
+                {
+                    HeatMaterialState materialState = info.materialStates[i];
+                    if (materialState.material == null) continue;
+
+                    if (!string.IsNullOrEmpty(materialState.colorProperty))
+                    {
+                        materialState.material.SetColor(
+                            materialState.colorProperty,
+                            heated ? materialState.hotColor : materialState.coldColor);
+                    }
+
+                    if (!string.IsNullOrEmpty(materialState.emissiveProperty))
+                    {
+                        materialState.material.SetColor(
+                            materialState.emissiveProperty,
+                            heated ? materialState.hotEmission : materialState.coldEmission);
+                    }
+
+                    applied = true;
+                }
+            }
+
+            return applied;
         }
 
         static bool ApplyDeployableState(GhostPlaybackState state, PartEvent evt, bool deployed)

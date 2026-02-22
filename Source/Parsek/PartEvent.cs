@@ -32,7 +32,9 @@ namespace Parsek
         InventoryPartRemoved, // 27 - inventory deployable removed from the world
         RoboticMotionStarted, // 28 - robotic module started moving (value = sampled position)
         RoboticPositionSample, // 29 - robotic module motion sample (value = sampled position)
-        RoboticMotionStopped  // 30 - robotic module stopped moving (value = sampled position)
+        RoboticMotionStopped, // 30 - robotic module stopped moving (value = sampled position)
+        ThermalAnimationHot,  // 31 - ModuleAnimateHeat entered hot visual state
+        ThermalAnimationCold  // 32 - ModuleAnimateHeat returned to cold visual state
     }
 
     public struct PartEvent

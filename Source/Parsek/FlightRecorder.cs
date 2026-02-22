@@ -43,6 +43,7 @@ namespace Parsek
         private HashSet<ulong> deployedAeroSurfaceModules = new HashSet<ulong>();
         private HashSet<ulong> deployedControlSurfaceModules = new HashSet<ulong>();
         private HashSet<ulong> deployedRobotArmScannerModules = new HashSet<ulong>();
+        private HashSet<ulong> hotAnimateHeatModules = new HashSet<ulong>();
 
         // Engine state tracking (key = EncodeEngineKey(pid, moduleIndex))
         private List<(Part part, ModuleEngines engine, int moduleIndex)> cachedEngines;
@@ -67,6 +68,7 @@ namespace Parsek
         private HashSet<ulong> loggedAeroSurfaceClassificationMisses = new HashSet<ulong>();
         private HashSet<ulong> loggedControlSurfaceClassificationMisses = new HashSet<ulong>();
         private HashSet<ulong> loggedRobotArmScannerClassificationMisses = new HashSet<ulong>();
+        private HashSet<ulong> loggedAnimateHeatClassificationMisses = new HashSet<ulong>();
         private HashSet<uint> loggedCargoBayDeployIndexIssues = new HashSet<uint>();
         private HashSet<uint> loggedCargoBayAnimationIssues = new HashSet<uint>();
         private HashSet<uint> loggedCargoBayClosedPositionIssues = new HashSet<uint>();
@@ -97,6 +99,8 @@ namespace Parsek
         private const double roboticSampleIntervalSeconds = 0.25; // 4 Hz
         private const float roboticAngularDeadbandDegrees = 0.5f;
         private const float roboticLinearDeadbandMeters = 0.01f;
+        private const float animateHeatHotThreshold = 0.75f;
+        private const float animateHeatColdThreshold = 0.10f;
         private double lastRecordedUT = -1;
         private Vector3 lastRecordedVelocity;
         private ConfigNode lastGoodVesselSnapshot;
@@ -495,6 +499,44 @@ namespace Parsek
                     partPersistentId = partPersistentId,
                     eventType = PartEventType.DeployableRetracted,
                     partName = partName,
+                    moduleIndex = moduleIndex
+                };
+            }
+
+            return null;
+        }
+
+        internal static PartEvent? CheckAnimateHeatTransition(
+            ulong key, uint partPersistentId, string partName,
+            bool isHot, bool isCold, float normalizedHeat,
+            HashSet<ulong> hotSet, double ut, int moduleIndex)
+        {
+            bool wasHot = hotSet.Contains(key);
+
+            if (isHot && !wasHot)
+            {
+                hotSet.Add(key);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.ThermalAnimationHot,
+                    partName = partName,
+                    value = normalizedHeat,
+                    moduleIndex = moduleIndex
+                };
+            }
+
+            if (isCold && wasHot)
+            {
+                hotSet.Remove(key);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.ThermalAnimationCold,
+                    partName = partName,
+                    value = normalizedHeat,
                     moduleIndex = moduleIndex
                 };
             }
@@ -1011,6 +1053,45 @@ namespace Parsek
             return false;
         }
 
+        internal static bool TryClassifyAnimateHeatState(
+            PartModule animateHeatModule, out bool isHot, out bool isCold,
+            out float normalizedHeat, out string sourceField)
+        {
+            isHot = false;
+            isCold = false;
+            normalizedHeat = 0f;
+            sourceField = null;
+            if (animateHeatModule == null) return false;
+
+            string[] candidateFields =
+            {
+                "animTime",
+                "heatAnimTime",
+                "thermalAnimState",
+                "normalizedHeat",
+                "heat",
+                "heatValue",
+                "temperatureRatio",
+                "tempRatio"
+            };
+
+            for (int i = 0; i < candidateFields.Length; i++)
+            {
+                if (!TryReadModuleFloatField(animateHeatModule, candidateFields[i], out float raw))
+                    continue;
+                if (float.IsNaN(raw) || float.IsInfinity(raw))
+                    continue;
+
+                normalizedHeat = NormalizeAnimateHeatScalar(raw);
+                sourceField = candidateFields[i];
+                isHot = normalizedHeat >= animateHeatHotThreshold;
+                isCold = normalizedHeat <= animateHeatColdThreshold;
+                return true;
+            }
+
+            return false;
+        }
+
         private static bool TryGetModuleBoolField(PartModule module, string fieldName, out bool value)
         {
             value = false;
@@ -1494,6 +1575,7 @@ namespace Parsek
                 bool hasAeroSurface = false;
                 bool hasControlSurface = false;
                 bool hasRobotArmScanner = false;
+                bool hasAnimateHeat = false;
                 for (int m = 0; m < p.Modules.Count; m++)
                 {
                     PartModule module = p.Modules[m];
@@ -1508,12 +1590,14 @@ namespace Parsek
                         hasControlSurface = true;
                     if (string.Equals(module.moduleName, "ModuleRobotArmScanner", StringComparison.Ordinal))
                         hasRobotArmScanner = true;
+                    if (string.Equals(module.moduleName, "ModuleAnimateHeat", StringComparison.Ordinal))
+                        hasAnimateHeat = true;
                     if (hasRetractableLadder || hasAnimationGroup ||
-                        hasAeroSurface || hasControlSurface || hasRobotArmScanner)
+                        hasAeroSurface || hasControlSurface || hasRobotArmScanner || hasAnimateHeat)
                         break;
                 }
                 if (hasDedicatedHandler || hasRetractableLadder || hasAnimationGroup ||
-                    hasAeroSurface || hasControlSurface || hasRobotArmScanner) continue;
+                    hasAeroSurface || hasControlSurface || hasRobotArmScanner || hasAnimateHeat) continue;
 
                 for (int m = 0; m < p.Modules.Count; m++)
                 {
@@ -1545,6 +1629,51 @@ namespace Parsek
                         PartEvents.Add(evt.Value);
                         ParsekLog.Log($"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
                             $"pid={evt.Value.partPersistentId} midx={evt.Value.moduleIndex} (anim-generic)");
+                    }
+                }
+            }
+        }
+
+        private void CheckAnimateHeatState(Vessel v)
+        {
+            if (v == null || v.parts == null) return;
+
+            double ut = Planetarium.GetUniversalTime();
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    PartModule module = p.Modules[m];
+                    if (module == null) continue;
+                    if (!string.Equals(module.moduleName, "ModuleAnimateHeat", StringComparison.Ordinal))
+                        continue;
+
+                    if (!TryClassifyAnimateHeatState(
+                        module, out bool isHot, out bool isCold,
+                        out float normalizedHeat, out string sourceField))
+                    {
+                        ulong diagnosticKey = EncodeEngineKey(p.persistentId, m);
+                        if (loggedAnimateHeatClassificationMisses.Add(diagnosticKey))
+                        {
+                            ParsekLog.Log($"AnimateHeat: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
+                                $"midx={m}; fields=[{DescribeModuleFields(module)}]");
+                        }
+                        continue;
+                    }
+
+                    ulong key = EncodeEngineKey(p.persistentId, m);
+                    var evt = CheckAnimateHeatTransition(
+                        key, p.persistentId, p.partInfo?.name ?? "unknown",
+                        isHot, isCold, normalizedHeat, hotAnimateHeatModules, ut, m);
+                    if (evt.HasValue)
+                    {
+                        PartEvents.Add(evt.Value);
+                        ParsekLog.Log($"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                            $"pid={evt.Value.partPersistentId} midx={evt.Value.moduleIndex} " +
+                            $"heat={normalizedHeat:F2} src={sourceField ?? "<unknown>"}");
                     }
                 }
             }
@@ -1672,6 +1801,7 @@ namespace Parsek
             var aeroSurfaceModules = new List<string>();
             var controlSurfaceModules = new List<string>();
             var robotArmScannerModules = new List<string>();
+            var animateHeatModules = new List<string>();
             var engineModules = new List<string>();
             var rcsModules = new List<string>();
             var roboticModules = new List<string>();
@@ -1708,6 +1838,7 @@ namespace Parsek
                 bool hasAeroSurface = false;
                 bool hasControlSurface = false;
                 bool hasRobotArmScanner = false;
+                bool hasAnimateHeat = false;
                 bool hasDedicatedAnimateHandler =
                     deployable != null ||
                     p.FindModuleImplementing<ModuleWheels.ModuleWheelDeployment>() != null ||
@@ -1764,10 +1895,16 @@ namespace Parsek
                         robotArmScannerModules.Add($"{partRef}(midx={m})");
                         hasRobotArmScanner = true;
                     }
+
+                    if (string.Equals(moduleName, "ModuleAnimateHeat", StringComparison.Ordinal))
+                    {
+                        animateHeatModules.Add($"{partRef}(midx={m})");
+                        hasAnimateHeat = true;
+                    }
                 }
 
                 if (hasDedicatedAnimateHandler || hasRetractableLadder || hasAnimationGroup ||
-                    hasAeroSurface || hasControlSurface || hasRobotArmScanner)
+                    hasAeroSurface || hasControlSurface || hasRobotArmScanner || hasAnimateHeat)
                     continue;
 
                 for (int m = 0; m < p.Modules.Count; m++)
@@ -1828,7 +1965,7 @@ namespace Parsek
                 $"ladder={ladderModules.Count} animationGroup={animationGroupModules.Count} animateGeneric={animateGenericModules.Count} " +
                 $"lights={lightParts.Count} gear={gearModules.Count} cargoBay={cargoBayParts.Count} fairing={fairingParts.Count} " +
                 $"aeroSurface={aeroSurfaceModules.Count} controlSurface={controlSurfaceModules.Count} " +
-                $"robotArmScanner={robotArmScannerModules.Count} " +
+                $"robotArmScanner={robotArmScannerModules.Count} animateHeat={animateHeatModules.Count} " +
                 $"engine={engineModules.Count} rcs={rcsModules.Count} robotics={roboticModules.Count}");
 
             LogCoverageDetails("Parachute", parachuteParts);
@@ -1844,6 +1981,7 @@ namespace Parsek
             LogCoverageDetails("AeroSurface", aeroSurfaceModules);
             LogCoverageDetails("ControlSurface", controlSurfaceModules);
             LogCoverageDetails("RobotArmScanner", robotArmScannerModules);
+            LogCoverageDetails("AnimateHeat", animateHeatModules);
             LogCoverageDetails("Engine", engineModules);
             LogCoverageDetails("RCS", rcsModules);
             LogCoverageDetails("Robotics", roboticModules);
@@ -2291,6 +2429,26 @@ namespace Parsek
             return TryParseFloatValue(field.GetValue(module), out value);
         }
 
+        private static float NormalizeAnimateHeatScalar(float raw)
+        {
+            if (float.IsNaN(raw) || float.IsInfinity(raw))
+                return 0f;
+
+            // Common case: ModuleAnimateHeat animTime style 0..1 scalar.
+            if (raw >= -0.25f && raw <= 1.25f)
+                return Mathf.Clamp01(raw);
+
+            // Percent-like values.
+            if (raw >= 0f && raw <= 100f)
+                return Mathf.Clamp01(raw / 100f);
+
+            // Absolute-temperature fallback (ambient ~300K, hot ~1500K+).
+            if (raw >= 250f && raw <= 2500f)
+                return Mathf.Clamp01((raw - 300f) / 1200f);
+
+            return Mathf.Clamp01(raw);
+        }
+
         private static bool TryReadModuleBoolField(PartModule module, string fieldName, out bool value)
         {
             value = false;
@@ -2661,12 +2819,14 @@ namespace Parsek
             deployedAeroSurfaceModules.Clear();
             deployedControlSurfaceModules.Clear();
             deployedRobotArmScannerModules.Clear();
+            hotAnimateHeatModules.Clear();
             loggedLadderClassificationMisses.Clear();
             loggedAnimationGroupClassificationMisses.Clear();
             loggedAnimateGenericClassificationMisses.Clear();
             loggedAeroSurfaceClassificationMisses.Clear();
             loggedControlSurfaceClassificationMisses.Clear();
             loggedRobotArmScannerClassificationMisses.Clear();
+            loggedAnimateHeatClassificationMisses.Clear();
             loggedCargoBayDeployIndexIssues.Clear();
             loggedCargoBayAnimationIssues.Clear();
             loggedCargoBayClosedPositionIssues.Clear();
@@ -2957,6 +3117,7 @@ namespace Parsek
             CheckAeroSurfaceState(v);
             CheckControlSurfaceState(v);
             CheckRobotArmScannerState(v);
+            CheckAnimateHeatState(v);
             CheckAnimateGenericState(v);
             CheckLightState(v);
             CheckGearState(v);

@@ -47,6 +47,24 @@ namespace Parsek
         public List<DeployableTransformState> transforms;
     }
 
+    internal struct HeatMaterialState
+    {
+        public Material material;
+        public string colorProperty;
+        public Color coldColor;
+        public Color hotColor;
+        public string emissiveProperty;
+        public Color coldEmission;
+        public Color hotEmission;
+    }
+
+    internal class HeatGhostInfo
+    {
+        public uint partPersistentId;
+        public List<DeployableTransformState> transforms;
+        public List<HeatMaterialState> materialStates;
+    }
+
     internal class LightGhostInfo
     {
         public uint partPersistentId;
@@ -116,6 +134,8 @@ namespace Parsek
         private const float LightShowcaseMinimumRange = 25f;
         private const float RcsShowcaseEmissionScale = 1f;
         private const float RcsShowcaseSpeedScale = 1f;
+        private static readonly Color HeatTintColor = new Color(1f, 0.45f, 0.2f, 1f);
+        private static readonly Color HeatEmissionColor = new Color(1.5f, 0.6f, 0.15f, 1f);
 
         internal static GameObject BuildTimelineGhostFromSnapshot(
             RecordingStore.Recording rec, string rootName,
@@ -123,6 +143,7 @@ namespace Parsek
             out List<JettisonGhostInfo> jettisonInfos,
             out List<EngineGhostInfo> engineInfos,
             out List<DeployableGhostInfo> deployableInfos,
+            out List<HeatGhostInfo> heatInfos,
             out List<LightGhostInfo> lightInfos,
             out List<FairingGhostInfo> fairingInfos,
             out List<RcsGhostInfo> rcsInfos,
@@ -132,6 +153,7 @@ namespace Parsek
             jettisonInfos = null;
             engineInfos = null;
             deployableInfos = null;
+            heatInfos = null;
             lightInfos = null;
             fairingInfos = null;
             rcsInfos = null;
@@ -154,6 +176,7 @@ namespace Parsek
             var collectedJettisonInfos = new List<JettisonGhostInfo>();
             var collectedEngineInfos = new List<EngineGhostInfo>();
             var collectedDeployableInfos = new List<DeployableGhostInfo>();
+            var collectedHeatInfos = new List<HeatGhostInfo>();
             var collectedLightInfos = new List<LightGhostInfo>();
             var collectedFairingInfos = new List<FairingGhostInfo>();
             var collectedRcsInfos = new List<RcsGhostInfo>();
@@ -198,6 +221,7 @@ namespace Parsek
                 JettisonGhostInfo jettisonInfo;
                 List<EngineGhostInfo> partEngineInfos;
                 DeployableGhostInfo deployableInfo;
+                HeatGhostInfo heatInfo;
                 LightGhostInfo lightInfo;
                 FairingGhostInfo fairingInfo;
                 List<RcsGhostInfo> partRcsInfos;
@@ -210,7 +234,7 @@ namespace Parsek
                     rec.VesselName.StartsWith(RcsShowcaseRecordingPrefix, System.StringComparison.Ordinal);
                 bool partVisualAdded = AddPartVisuals(root.transform, partNode, ap.partPrefab,
                     persistentId, partName, out meshCount, out parachuteInfo, out jettisonInfo,
-                    out partEngineInfos, out deployableInfo, out lightInfo, out fairingInfo,
+                    out partEngineInfos, out deployableInfo, out heatInfo, out lightInfo, out fairingInfo,
                     out partRcsInfos, out partRoboticInfos, raiseLightVisualOnly, raiseRcsVisualOnly);
                 if (partVisualAdded)
                     visualCount++;
@@ -229,6 +253,8 @@ namespace Parsek
                     collectedEngineInfos.AddRange(partEngineInfos);
                 if (deployableInfo != null)
                     collectedDeployableInfos.Add(deployableInfo);
+                if (heatInfo != null)
+                    collectedHeatInfos.Add(heatInfo);
                 if (lightInfo != null)
                     collectedLightInfos.Add(lightInfo);
                 if (fairingInfo != null)
@@ -254,6 +280,7 @@ namespace Parsek
             jettisonInfos = collectedJettisonInfos.Count > 0 ? collectedJettisonInfos : null;
             engineInfos = collectedEngineInfos.Count > 0 ? collectedEngineInfos : null;
             deployableInfos = collectedDeployableInfos.Count > 0 ? collectedDeployableInfos : null;
+            heatInfos = collectedHeatInfos.Count > 0 ? collectedHeatInfos : null;
             lightInfos = collectedLightInfos.Count > 0 ? collectedLightInfos : null;
             fairingInfos = collectedFairingInfos.Count > 0 ? collectedFairingInfos : null;
             rcsInfos = collectedRcsInfos.Count > 0 ? collectedRcsInfos : null;
@@ -272,7 +299,7 @@ namespace Parsek
             out List<FairingGhostInfo> fairingInfos)
         {
             return BuildTimelineGhostFromSnapshot(rec, rootName,
-                out parachuteInfos, out jettisonInfos, out engineInfos, out deployableInfos,
+                out parachuteInfos, out jettisonInfos, out engineInfos, out deployableInfos, out _,
                 out lightInfos, out fairingInfos, out _, out _);
         }
 
@@ -286,7 +313,7 @@ namespace Parsek
             out List<LightGhostInfo> lightInfos)
         {
             return BuildTimelineGhostFromSnapshot(rec, rootName,
-                out parachuteInfos, out jettisonInfos, out engineInfos, out deployableInfos,
+                out parachuteInfos, out jettisonInfos, out engineInfos, out deployableInfos, out _,
                 out lightInfos, out _, out _, out _);
         }
 
@@ -299,7 +326,7 @@ namespace Parsek
             out List<DeployableGhostInfo> deployableInfos)
         {
             return BuildTimelineGhostFromSnapshot(rec, rootName,
-                out parachuteInfos, out jettisonInfos, out engineInfos, out deployableInfos, out _, out _, out _, out _);
+                out parachuteInfos, out jettisonInfos, out engineInfos, out deployableInfos, out _, out _, out _, out _, out _);
         }
 
         // Backward-compat overload without deployable/light/fairing/rcs infos
@@ -310,13 +337,13 @@ namespace Parsek
             out List<EngineGhostInfo> engineInfos)
         {
             return BuildTimelineGhostFromSnapshot(rec, rootName,
-                out parachuteInfos, out jettisonInfos, out engineInfos, out _, out _, out _, out _, out _);
+                out parachuteInfos, out jettisonInfos, out engineInfos, out _, out _, out _, out _, out _, out _);
         }
 
         // Overload without info outputs for callers that don't need them (preview ghost)
         internal static GameObject BuildTimelineGhostFromSnapshot(RecordingStore.Recording rec, string rootName)
         {
-            return BuildTimelineGhostFromSnapshot(rec, rootName, out _, out _, out _, out _, out _, out _, out _, out _);
+            return BuildTimelineGhostFromSnapshot(rec, rootName, out _, out _, out _, out _, out _, out _, out _, out _, out _);
         }
 
         // Overload with parachute + jettison info (backward compat)
@@ -325,7 +352,7 @@ namespace Parsek
             out List<ParachuteGhostInfo> parachuteInfos,
             out List<JettisonGhostInfo> jettisonInfos)
         {
-            return BuildTimelineGhostFromSnapshot(rec, rootName, out parachuteInfos, out jettisonInfos, out _, out _, out _, out _, out _, out _);
+            return BuildTimelineGhostFromSnapshot(rec, rootName, out parachuteInfos, out jettisonInfos, out _, out _, out _, out _, out _, out _, out _);
         }
 
         // Overload with only parachute info for backward compat
@@ -333,7 +360,7 @@ namespace Parsek
             RecordingStore.Recording rec, string rootName,
             out List<ParachuteGhostInfo> parachuteInfos)
         {
-            return BuildTimelineGhostFromSnapshot(rec, rootName, out parachuteInfos, out _, out _, out _, out _, out _, out _, out _);
+            return BuildTimelineGhostFromSnapshot(rec, rootName, out parachuteInfos, out _, out _, out _, out _, out _, out _, out _, out _);
         }
 
         internal static ConfigNode GetGhostSnapshot(RecordingStore.Recording rec)
@@ -777,6 +804,16 @@ namespace Parsek
             cargoBayCache.Clear();
         }
 
+        // Cache: partName(+anim) -> sampled ModuleAnimateHeat transform states
+        private static readonly Dictionary<string, List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
+            Vector3 dPos, Quaternion dRot, Vector3 dScale)>> animateHeatCache =
+            new Dictionary<string, List<(string, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3)>>();
+
+        internal static void ClearAnimateHeatCache()
+        {
+            animateHeatCache.Clear();
+        }
+
         /// <summary>
         /// Sample stowed and deployed transform states from a landing gear's animation.
         /// Uses animationTrfName to resolve the correct Animation component (avoids binding spotlight
@@ -967,6 +1004,44 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        private static bool TryGetAnimateHeatAnimation(
+            Part prefab, out string animationName)
+        {
+            animationName = null;
+            if (prefab == null) return false;
+
+            ConfigNode partConfig = prefab.partInfo?.partConfig;
+            if (partConfig == null) return false;
+
+            ConfigNode animateHeatModule = FindModuleNode(partConfig, "ModuleAnimateHeat");
+            if (animateHeatModule == null) return false;
+
+            animationName = FirstNonEmptyConfigValue(
+                animateHeatModule, "ThermalAnim", "thermalAnim", "animationName");
+
+            return !string.IsNullOrEmpty(animationName);
+        }
+
+        private static List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
+            Vector3 dPos, Quaternion dRot, Vector3 dScale)> SampleAnimateHeatStates(
+            Part prefab, string animationName)
+        {
+            string partKey = prefab.partInfo?.name ?? prefab.name;
+            string cacheKey = partKey + "|" + (animationName ?? string.Empty);
+            if (animateHeatCache.TryGetValue(cacheKey, out var cached))
+                return cached;
+
+            if (string.IsNullOrEmpty(animationName))
+            {
+                animateHeatCache[cacheKey] = null;
+                return null;
+            }
+
+            var sampledStates = SampleLadderStates(prefab, animationName, null);
+            animateHeatCache[cacheKey] = sampledStates;
+            return sampledStates;
         }
 
         /// <summary>
@@ -2813,10 +2888,127 @@ namespace Parsek
             return infos.Count > 0 ? infos : null;
         }
 
+        private static string TryGetHeatEmissiveProperty(Material material)
+        {
+            if (material == null)
+                return null;
+
+            string[] emissiveCandidates =
+            {
+                "_EmissiveColor",
+                "_EmissionColor",
+                "_Emissive"
+            };
+
+            for (int i = 0; i < emissiveCandidates.Length; i++)
+            {
+                string propertyName = emissiveCandidates[i];
+                if (material.HasProperty(propertyName))
+                    return propertyName;
+            }
+
+            return null;
+        }
+
+        private static List<HeatMaterialState> BuildHeatMaterialStates(
+            Transform modelNode, string partName, uint persistentId)
+        {
+            if (modelNode == null)
+                return null;
+
+            var renderers = modelNode.GetComponentsInChildren<Renderer>(true);
+            if (renderers == null || renderers.Length == 0)
+                return null;
+
+            var materialStates = new List<HeatMaterialState>();
+            int clonedMaterials = 0;
+            int trackedMaterials = 0;
+
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                Renderer renderer = renderers[i];
+                if (renderer == null) continue;
+
+                Material[] sourceMaterials = renderer.sharedMaterials;
+                if (sourceMaterials == null || sourceMaterials.Length == 0)
+                    continue;
+
+                var cloned = new Material[sourceMaterials.Length];
+                bool hasAnyMaterial = false;
+                for (int m = 0; m < sourceMaterials.Length; m++)
+                {
+                    Material source = sourceMaterials[m];
+                    if (source == null)
+                    {
+                        cloned[m] = null;
+                        continue;
+                    }
+
+                    Material materialClone = new Material(source);
+                    cloned[m] = materialClone;
+                    hasAnyMaterial = true;
+                    clonedMaterials++;
+
+                    string colorProperty = materialClone.HasProperty("_Color")
+                        ? "_Color"
+                        : null;
+                    string emissiveProperty = TryGetHeatEmissiveProperty(materialClone);
+
+                    if (colorProperty == null && emissiveProperty == null)
+                        continue;
+
+                    Color coldColor = colorProperty != null
+                        ? materialClone.GetColor(colorProperty)
+                        : Color.white;
+                    Color hotColor = colorProperty != null
+                        ? Color.Lerp(coldColor, HeatTintColor, 0.45f)
+                        : coldColor;
+
+                    Color coldEmission = emissiveProperty != null
+                        ? materialClone.GetColor(emissiveProperty)
+                        : Color.black;
+                    Color hotEmission = emissiveProperty != null
+                        ? coldEmission + HeatEmissionColor
+                        : coldEmission;
+
+                    materialStates.Add(new HeatMaterialState
+                    {
+                        material = materialClone,
+                        colorProperty = colorProperty,
+                        coldColor = coldColor,
+                        hotColor = hotColor,
+                        emissiveProperty = emissiveProperty,
+                        coldEmission = coldEmission,
+                        hotEmission = hotEmission
+                    });
+                    trackedMaterials++;
+                }
+
+                if (hasAnyMaterial)
+                    renderer.materials = cloned;
+            }
+
+            if (trackedMaterials > 0)
+            {
+                ParsekLog.Log($"    AnimateHeat materials detected: '{partName}' pid={persistentId}, " +
+                    $"tracked={trackedMaterials} cloned={clonedMaterials}");
+                return materialStates;
+            }
+
+            if (clonedMaterials > 0)
+            {
+                ParsekLog.Log($"    AnimateHeat '{partName}' pid={persistentId}: " +
+                    $"cloned {clonedMaterials} material(s) but no _Color/emissive properties found");
+            }
+
+            return null;
+        }
+
         private static bool AddPartVisuals(Transform root, ConfigNode partNode, Part prefab,
             uint persistentId, string partName, out int meshCount,
             out ParachuteGhostInfo parachuteInfo, out JettisonGhostInfo jettisonInfo,
             out List<EngineGhostInfo> engineInfos, out DeployableGhostInfo deployableInfo,
+            out HeatGhostInfo heatInfo,
             out LightGhostInfo lightInfo, out FairingGhostInfo fairingInfo,
             out List<RcsGhostInfo> rcsInfos, out List<RoboticGhostInfo> roboticInfos,
             bool raiseLightVisualOnly, bool raiseRcsVisualOnly)
@@ -2826,6 +3018,7 @@ namespace Parsek
             jettisonInfo = null;
             engineInfos = null;
             deployableInfo = null;
+            heatInfo = null;
             lightInfo = null;
             fairingInfo = null;
             rcsInfos = null;
@@ -3277,6 +3470,9 @@ namespace Parsek
             string standaloneAnimateGenericAnimName;
             bool hasStandaloneAnimateGenericDeploy = TryGetStandaloneAnimateGenericDeployAnimation(
                 prefab, out standaloneAnimateGenericAnimName);
+            string animateHeatAnimName;
+            bool hasAnimateHeat = TryGetAnimateHeatAnimation(
+                prefab, out animateHeatAnimName);
             string aeroSurfaceTransformName;
             float aeroSurfaceDeployAngle;
             bool hasAeroSurfaceDeploy = TryGetAeroSurfaceDeployInfo(
@@ -3302,6 +3498,7 @@ namespace Parsek
                 hasRetractableLadder ||
                 hasAnimationGroupDeploy ||
                 hasStandaloneAnimateGenericDeploy ||
+                hasAnimateHeat ||
                 hasAeroSurfaceDeploy ||
                 hasControlSurfaceDeploy ||
                 hasRobotArmScannerDeploy ||
@@ -3837,6 +4034,78 @@ namespace Parsek
                             }
                         }
                     }
+                }
+            }
+
+            // Detect ModuleAnimateHeat visual states (thermal glow / heat-driven animation).
+            if (hasAnimateHeat)
+            {
+                List<DeployableTransformState> resolvedHeatTransforms = null;
+                var sampledHeatStates = SampleAnimateHeatStates(prefab, animateHeatAnimName);
+                if (sampledHeatStates != null && sampledHeatStates.Count > 0)
+                {
+                    resolvedHeatTransforms = new List<DeployableTransformState>();
+                    int unresolved = 0;
+                    for (int s = 0; s < sampledHeatStates.Count; s++)
+                    {
+                        var (path, sPos, sRot, sScale, dPos, dRot, dScale) = sampledHeatStates[s];
+                        Transform ghostT = FindTransformByPath(modelNode.transform, path);
+                        if (ghostT != null)
+                        {
+                            resolvedHeatTransforms.Add(new DeployableTransformState
+                            {
+                                t = ghostT,
+                                stowedPos = sPos,
+                                stowedRot = sRot,
+                                stowedScale = sScale,
+                                deployedPos = dPos,
+                                deployedRot = dRot,
+                                deployedScale = dScale
+                            });
+                        }
+                        else
+                        {
+                            unresolved++;
+                            if (unresolved <= 5)
+                                ParsekLog.Log($"    [DIAG] AnimateHeat '{partName}': unresolved path '{path}'");
+                        }
+                    }
+                }
+
+                List<HeatMaterialState> heatMaterialStates =
+                    BuildHeatMaterialStates(modelNode.transform, partName, persistentId);
+
+                if ((resolvedHeatTransforms != null && resolvedHeatTransforms.Count > 0) ||
+                    (heatMaterialStates != null && heatMaterialStates.Count > 0))
+                {
+                    heatInfo = new HeatGhostInfo
+                    {
+                        partPersistentId = persistentId,
+                        transforms = resolvedHeatTransforms,
+                        materialStates = heatMaterialStates
+                    };
+
+                    if (heatMaterialStates != null)
+                    {
+                        for (int i = 0; i < heatMaterialStates.Count; i++)
+                        {
+                            HeatMaterialState materialState = heatMaterialStates[i];
+                            if (materialState.material == null) continue;
+
+                            if (!string.IsNullOrEmpty(materialState.colorProperty))
+                                materialState.material.SetColor(materialState.colorProperty, materialState.coldColor);
+                            if (!string.IsNullOrEmpty(materialState.emissiveProperty))
+                                materialState.material.SetColor(materialState.emissiveProperty, materialState.coldEmission);
+                        }
+                    }
+
+                    ParsekLog.Log($"    AnimateHeat detected: '{partName}' pid={persistentId}, anim='{animateHeatAnimName}' " +
+                        $"transforms={(resolvedHeatTransforms != null ? resolvedHeatTransforms.Count : 0)} " +
+                        $"materials={(heatMaterialStates != null ? heatMaterialStates.Count : 0)}");
+                }
+                else
+                {
+                    ParsekLog.Log($"    AnimateHeat '{partName}' pid={persistentId}: no transform/material deltas");
                 }
             }
 
