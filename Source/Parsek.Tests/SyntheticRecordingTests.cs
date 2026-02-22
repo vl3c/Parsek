@@ -636,8 +636,8 @@ namespace Parsek.Tests
         // Event PIDs must match this so the ghost visual builder can find the part.
         private const uint SinglePartPid = 100000;
         // Optional companion part (e.g., kerbal actor) receives the second slot.
-        // Total showcase row entries (indices 0-114).
-        private const int ShowcaseRowCount = 115;
+        // Total showcase row entries (indices 0-116).
+        private const int ShowcaseRowCount = 117;
         // Keep showcases close to the launchpad centerline without overlapping pad geometry.
         private const double ShowcaseDistanceFromPadMeters = 200.0;
         // Shroud-jettison showcase parts include tall engine plates and engines that clip at base altitude.
@@ -668,7 +668,7 @@ namespace Parsek.Tests
         // Lights: 0-5, Deployables: 6-23, Airplane Gear: 24-27, Landing Legs: 28-30,
         // Cargo: 31-41, Engines: 42-44, Ladders: 45-46, RCS: 47-49, Fairings: 50-54,
         // Extra Radiators: 55-56, Drills: 57-58, Deployed Science: 59-66,
-        // Animation Group: 67-68, Parachutes: 69-73, Special Deploy Animations: 74-85,
+        // Animation Group: 67-68, Parachutes: 69-73, Special Deploy Animations: 74-85 and 115-116,
         // Jettison Coverage: 86-114.
 
         internal static RecordingBuilder[] DeployableShowcaseRecordings(double baseUT = 0)
@@ -982,7 +982,13 @@ namespace Parsek.Tests
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Mk2 Lander Cabin", "mk2LanderCabin_v2", 85,
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98400000, SinglePartPid,
-                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Jet Engine", "JetEngine", 115,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98400000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Turbofan Size 2", "turboFanSize2", 116,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    firstEventOffsetSeconds: 3.0)
             };
         }
 
@@ -1088,7 +1094,7 @@ namespace Parsek.Tests
             const double spacingMeters = 5.0;
 
             // Continue one slot after the current row tail.
-            const int rowIndex = 115;
+            const int rowIndex = 117;
             double t = baseUT + 30;
             double baseLat = -0.0972;
             double baseLon = -74.5575;
@@ -2015,7 +2021,7 @@ namespace Parsek.Tests
         public void SpecialDeployAnimationShowcaseRecordings_BuildExpectedShape()
         {
             var recordings = SpecialDeployAnimationShowcaseRecordings(baseUT: 17000);
-            Assert.Equal(12, recordings.Length);
+            Assert.Equal(14, recordings.Length);
 
             var first = recordings[0].Build();
             Assert.Equal("Part Showcase - Rover Wheel M1-F", first.GetValue("vesselName"));
@@ -2038,7 +2044,8 @@ namespace Parsek.Tests
             var names = new[]
             {
                 "roverWheelM1-F", "GooExperiment", "science_module", "Magnetometer", "InflatableHeatShield", "InflatableAirlock",
-                "dockingPort1", "dockingPortLateral", "GrapplingDevice", "smallClaw", "mk2DockingPort", "mk2LanderCabin_v2"
+                "dockingPort1", "dockingPortLateral", "GrapplingDevice", "smallClaw", "mk2DockingPort", "mk2LanderCabin_v2",
+                "JetEngine", "turboFanSize2"
             };
             for (int i = 0; i < recordings.Length; i++)
             {
@@ -2184,7 +2191,7 @@ namespace Parsek.Tests
                         $"Duplicate position in '{rec.GetValue("vesselName")}': {key}");
                 }
             }
-            Assert.Equal(115, positions.Count); // 6 + 18 + 7 + 11 + 3 + 2 + 3 + 5 + 2 + 2 + 8 + 2 + 5 + 12 + 29
+            Assert.Equal(117, positions.Count); // 6 + 18 + 7 + 11 + 3 + 2 + 3 + 5 + 2 + 2 + 8 + 2 + 5 + 14 + 29
         }
 
         [Fact]
@@ -2859,6 +2866,8 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Part Showcase - Small Claw", content);
                     Assert.Contains("vesselName = Part Showcase - Mk2 Docking Port", content);
                     Assert.Contains("vesselName = Part Showcase - Mk2 Lander Cabin", content);
+                    Assert.Contains("vesselName = Part Showcase - Jet Engine", content);
+                    Assert.Contains("vesselName = Part Showcase - Turbofan Size 2", content);
                     Assert.Contains("vesselName = Part Showcase - Engine Plate 1.5", content);
                     Assert.Contains("vesselName = Part Showcase - Engine Plate 2", content);
                     Assert.Contains("vesselName = Part Showcase - Engine Plate 3", content);
@@ -2919,8 +2928,8 @@ namespace Parsek.Tests
                     $"Expected Parsek/Recordings directory at {recordingsDir}");
 
                 string[] precFiles = Directory.GetFiles(recordingsDir, "*.prec");
-                Assert.True(precFiles.Length >= 129,
-                    $"Expected at least 129 .prec files (8 baseline + 6 lights + 18 deployables + 7 gear + 11 cargo + 3 engines + 2 ladders + 3 RCS + 5 fairings + 2 extra radiators + 2 drills + 8 deployed science + 2 animation-group + 5 parachutes + 12 special deploy animations + 29 jettison showcases + 1 inventory-placement + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
+                Assert.True(precFiles.Length >= 131,
+                    $"Expected at least 131 .prec files (8 baseline + 6 lights + 18 deployables + 7 gear + 11 cargo + 3 engines + 2 ladders + 3 RCS + 5 fairings + 2 extra radiators + 2 drills + 8 deployed science + 2 animation-group + 5 parachutes + 14 special deploy animations + 29 jettison showcases + 1 inventory-placement + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
             }
         }
 
