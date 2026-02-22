@@ -696,16 +696,15 @@ All planned part event types are now implemented. 28 event types are recorded; m
 - Robotics (Breaking Ground DLC) — continuous motion, DLC-dependent
 - Additional part-template coverage and showcase breadth (tracked in `docs/research/next-parts-event-support-priority.md`)
 
-### Phase 3: Polish & UX
+### Phase 3: Polish & Usability
 
-**Timeline & navigation:**
+**Done:**
 - [x] Recordings Manager UI (list recordings, per-recording loop/delete, sortable columns, status indicators)
-- [ ] Timeline navigation — select a point in time to revert/return to
-- [ ] Multiple concurrent recordings (playback already supports multiple, needs recording flow + UI)
 
-**Quality of life:**
+**In progress:**
 - [ ] Settings panel (`GameParameters.CustomParameterNode` — toggle auto-record, adjust thresholds)
-- [ ] KAC integration (auto-create alarms for ghost playback windows)
+- [ ] Recording stats (max altitude, max speed, distance, final body — computed from trajectory data)
+- [ ] Non-revert recording commitment (commit current flight without reverting)
 - [ ] Two-phase parachute deploy (SEMIDEPLOYED streamer vs DEPLOYED full canopy)
 
 **Already done (moved from earlier phases):**
@@ -718,17 +717,20 @@ All planned part event types are now implemented. 28 event types are recorded; m
 - [x] Fairing cone mesh generation on ghost vessels
 - [x] Deployable animation state sampling on ghost vessels
 
-### Phase 4: Recording Stats & Export
+### Phase 4: Scale & Integration
 
-- [ ] Recording stats — distance travelled, final destination, duration, max altitude, max speed
-- [ ] Stats display in timeline viewer (extends Phase 3 timeline UI)
-- [ ] Recording export/import — share recordings as standalone files
+- [ ] Ghost performance at scale (LOD culling, mesh unloading, FX pooling)
+- [ ] KAC integration (auto-create alarms for ghost playback windows)
+- [ ] Recording export/import (share recordings as standalone `.parsek` files)
+- [ ] Recording file size optimization (compact keys, numeric encoding, optional compression)
 
 ---
 
 ## Scope
 
-Parsek is a **parallel mission replay** mod: record missions, revert, and have them play out as ghosts alongside new missions. The architecture naturally enables use cases like racing your own ghosts, but the mod does not include dedicated racing modes, AI playback, or multiplayer features. Those are gameplay possibilities that emerge from the core recording/playback system.
+Parsek is a **git-like recording system** for KSP missions. Players record flights sequentially, commit them to a single timeline, and they replay automatically as ghost vessels during future gameplay. Recordings are immutable — once committed, they play back exactly as flown. The game state always moves forward; there is no timeline branching, state reversal, or time travel.
+
+The architecture naturally enables use cases like racing your own ghosts, but the mod does not include dedicated racing modes, AI playback, or multiplayer features. Those are gameplay possibilities that emerge from the core recording/playback system.
 
 ---
 
@@ -741,4 +743,4 @@ Parsek is a **parallel mission replay** mod: record missions, revert, and have t
 
 ---
 
-*Document version: 1.1 — All 28 part event types, Recordings Manager window, RCS/fairing/deployable ghost visuals*
+*Document version: 1.2 — Updated roadmap phases, clarified scope as git-like recording system*
