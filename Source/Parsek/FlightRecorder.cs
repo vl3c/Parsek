@@ -70,10 +70,13 @@ namespace Parsek
         public ConfigNode LastGoodVesselSnapshot => lastGoodVesselSnapshot;
         public ConfigNode InitialGhostVisualSnapshot => initialGhostVisualSnapshot;
 
-        // Adaptive sampling thresholds
-        private const float maxSampleInterval = 3.0f;
-        private const float velocityDirThreshold = 2.0f;
-        private const float speedChangeThreshold = 0.05f;
+        // Adaptive sampling thresholds (read from settings, fallback to defaults)
+        private static float maxSampleInterval =>
+            ParsekSettings.Current?.maxSampleInterval ?? 3.0f;
+        private static float velocityDirThreshold =>
+            ParsekSettings.Current?.velocityDirThreshold ?? 2.0f;
+        private static float speedChangeThreshold =>
+            (ParsekSettings.Current?.speedChangeThreshold ?? 5.0f) / 100f;
         private const double snapshotRefreshIntervalUT = 10.0;
         private const float snapshotPerfLogThresholdMs = 25.0f;
         private const double roboticSampleIntervalSeconds = 0.25; // 4 Hz

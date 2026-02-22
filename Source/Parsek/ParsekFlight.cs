@@ -107,10 +107,13 @@ namespace Parsek
         private Vector3 continuationLastVelocity;
         private double continuationLastUT = -1;
 
-        // Continuation adaptive sampling thresholds (same as FlightRecorder)
-        private const float continuationMaxInterval = 3.0f;
-        private const float continuationVelDirThreshold = 2.0f;
-        private const float continuationSpeedThreshold = 0.05f;
+        // Continuation adaptive sampling thresholds (read from settings, same as FlightRecorder)
+        private static float continuationMaxInterval =>
+            ParsekSettings.Current?.maxSampleInterval ?? 3.0f;
+        private static float continuationVelDirThreshold =>
+            ParsekSettings.Current?.velocityDirThreshold ?? 2.0f;
+        private static float continuationSpeedThreshold =>
+            (ParsekSettings.Current?.speedChangeThreshold ?? 5.0f) / 100f;
 
         // Timeline warp protection — tracks previous frame's UT
         private double lastTimelineUT = -1;
@@ -405,6 +408,7 @@ namespace Parsek
                     GUILayout.Width(250)
                 );
                 ui.DrawRecordingsWindowIfOpen(windowRect);
+                ui.DrawSettingsWindowIfOpen(windowRect);
             }
         }
 
@@ -584,6 +588,7 @@ namespace Parsek
             if (IsRecording) return;
             if (data.host != FlightGlobals.ActiveVessel) return;
             if (data.from != Vessel.Situations.PRELAUNCH) return;
+            if (ParsekSettings.Current?.autoRecordOnLaunch == false) return;
 
             StartRecording();
             Log("Auto-record started (vessel left pad/runway)");
@@ -829,6 +834,7 @@ namespace Parsek
 
             if (data.from?.vessel == null) return;
             if (data.from.vessel.situation != Vessel.Situations.PRELAUNCH) return;
+            if (ParsekSettings.Current?.autoRecordOnEva == false) return;
 
             // The EVA kerbal may not yet be the active vessel, defer to Update()
             pendingAutoRecord = true;
@@ -1461,7 +1467,8 @@ namespace Parsek
             double currentUT = Planetarium.GetUniversalTime();
 
             // Prevent time warp from skipping ghost playback for vessel spawns
-            if (committed.Count > 0 && IsAnyWarpActive() && lastTimelineUT >= 0)
+            if (committed.Count > 0 && IsAnyWarpActive() && lastTimelineUT >= 0
+                && ParsekSettings.Current?.autoWarpStop != false)
             {
                 double timelineStep = System.Math.Max(0, currentUT - lastTimelineUT);
                 for (int i = 0; i < committed.Count; i++)
