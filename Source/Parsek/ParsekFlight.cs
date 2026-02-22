@@ -153,6 +153,7 @@ namespace Parsek
                 return result;
             }
         }
+        public bool HasActiveChain => activeChainId != null;
 
         #endregion
 
@@ -1367,6 +1368,106 @@ namespace Parsek
             recorder = null;
             lastPlaybackIndex = 0;
             Log("Recording cleared");
+        }
+
+        public void CommitFlight()
+        {
+            // Guard: no recording data
+            if (recorder == null || recorder.Recording.Count < 2)
+            {
+                ParsekLog.ScreenMessage("No recording to commit", 2f);
+                return;
+            }
+
+            // Guard: mid-chain recordings can't be committed standalone
+            if (activeChainId != null)
+            {
+                ParsekLog.ScreenMessage("Cannot commit mid-chain \u2014 finish or revert first", 2f);
+                Log("CommitFlight blocked: active chain in progress");
+                return;
+            }
+
+            // Stop recording if still active
+            if (recorder.IsRecording)
+                StopRecording();
+
+            // Stop any continuation sampling
+            if (continuationVesselPid != 0)
+            {
+                RefreshContinuationSnapshot();
+                StopContinuation("commit flight");
+            }
+            if (undockContinuationPid != 0)
+            {
+                RefreshUndockContinuationSnapshot();
+                StopUndockContinuation("commit flight");
+            }
+
+            string vesselName = FlightGlobals.ActiveVessel != null
+                ? FlightGlobals.ActiveVessel.vesselName
+                : "Unknown Vessel";
+
+            var captured = recorder.CaptureAtStop;
+
+            // Stash as pending recording (reuses OnSceneChangeRequested pattern)
+            RecordingStore.StashPending(
+                recorder.Recording,
+                vesselName,
+                recorder.OrbitSegments,
+                recordingId: captured != null ? captured.RecordingId : null,
+                recordingFormatVersion: captured != null ? (int?)captured.RecordingFormatVersion : null,
+                ghostGeometryVersion: captured != null ? (int?)captured.GhostGeometryVersion : null,
+                partEvents: recorder.PartEvents);
+
+            if (!RecordingStore.HasPending)
+            {
+                Log("CommitFlight: StashPending rejected recording (too short?)");
+                return;
+            }
+
+            // Apply snapshot/geometry artifacts from stop-time capture
+            if (captured != null)
+            {
+                RecordingStore.Pending.ApplyPersistenceArtifactsFrom(captured);
+                Log("CommitFlight: applied stop-time artifacts");
+            }
+            else
+            {
+                // Fallback: capture vessel now
+                bool wasDestroyed = recorder.VesselDestroyedDuringRecording;
+                VesselSpawner.SnapshotVessel(
+                    RecordingStore.Pending,
+                    wasDestroyed,
+                    destroyedFallbackSnapshot: recorder.InitialGhostVisualSnapshot
+                        ?? recorder.LastGoodVesselSnapshot);
+                RecordingStore.Pending.GhostVisualSnapshot =
+                    recorder.InitialGhostVisualSnapshot != null
+                        ? recorder.InitialGhostVisualSnapshot.CreateCopy()
+                        : (RecordingStore.Pending.VesselSnapshot != null
+                            ? RecordingStore.Pending.VesselSnapshot.CreateCopy()
+                            : null);
+                Log("CommitFlight: captured vessel snapshot (fallback path)");
+            }
+
+            // Mark as non-revert commit:
+            // - VesselSpawned=true prevents duplicate spawn while vessel is in-game
+            // - SpawnedVesselPersistentId enables duplicate detection on save/load
+            // - LastAppliedResourceIndex prevents double-applying deltas
+            // All three reset naturally on "Revert to Launch" (launch quicksave has no RECORDING nodes)
+            var pending = RecordingStore.Pending;
+            pending.VesselSpawned = true;
+            pending.SpawnedVesselPersistentId = recorder.RecordingVesselId;
+            pending.LastAppliedResourceIndex = pending.Points.Count - 1;
+
+            // Commit to timeline
+            RecordingStore.CommitPending();
+
+            // Clear recorder state
+            recorder = null;
+            lastPlaybackIndex = 0;
+
+            Log($"CommitFlight: committed \"{vesselName}\" to timeline");
+            ParsekLog.ScreenMessage("Flight committed to timeline!", 3f);
         }
 
         #endregion
