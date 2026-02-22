@@ -636,8 +636,8 @@ namespace Parsek.Tests
         // Event PIDs must match this so the ghost visual builder can find the part.
         private const uint SinglePartPid = 100000;
         // Optional companion part (e.g., kerbal actor) receives the second slot.
-        // Total showcase row entries (indices 0-120).
-        private const int ShowcaseRowCount = 121;
+        // Total showcase row entries (indices 0-137).
+        private const int ShowcaseRowCount = 138;
         // Keep showcases close to the launchpad centerline without overlapping pad geometry.
         private const double ShowcaseDistanceFromPadMeters = 200.0;
         // Shroud-jettison showcase parts include tall engine plates and engines that clip at base altitude.
@@ -669,7 +669,7 @@ namespace Parsek.Tests
         // Cargo: 31-41, Engines: 42-44, Ladders: 45-46, RCS: 47-49, Fairings: 50-54,
         // Extra Radiators: 55-56, Drills: 57-58, Deployed Science: 59-66,
         // Animation Group: 67-68, Parachutes: 69-73, Special Deploy Animations: 74-85 and 115-116,
-        // Jettison Coverage: 86-114, Robotics: 117-120.
+        // Jettison Coverage: 86-114, Robotics: 117-137.
 
         internal static RecordingBuilder[] DeployableShowcaseRecordings(double baseUT = 0)
         {
@@ -985,12 +985,10 @@ namespace Parsek.Tests
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Jet Engine", "JetEngine", 115,
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98400000, SinglePartPid,
-                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5,
-                    rowOffsetMeters: 2.5),
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Turbofan Size 2", "turboFanSize2", 116,
                     ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0,
-                    rowOffsetMeters: 2.5)
+                    firstEventOffsetSeconds: 3.0)
             };
         }
 
@@ -998,16 +996,67 @@ namespace Parsek.Tests
         {
             return new[]
             {
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Hinge", "hinge.01", 117,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Hinge G-11", "hinge.01", 117,
                     ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
                     eventValue: 45f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Piston", "piston.01", 118,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Hinge G-00", "hinge.01.s", 118,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    eventValue: 45f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Hinge M-12", "hinge.03", 119,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    eventValue: 45f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Hinge M-06", "hinge.03.s", 120,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    eventValue: 45f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Hinge XL", "hinge.04", 121,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    eventValue: 45f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Piston 3P6", "piston.01", 122,
                     ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
                     eventValue: 0.3f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Rotation Servo", "rotoServo.00", 119,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Piston 1P2", "piston.02", 123,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    eventValue: 0.2f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Piston 1P4", "piston.03", 124,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    eventValue: 0.4f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Piston 3P12", "piston.04", 125,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    eventValue: 0.9f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Rotation Servo M-06", "rotoServo.00", 126,
                     ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
                     eventValue: 90f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Rotor", "rotor.01", 120,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Rotation Servo M-12", "rotoServo.02", 127,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    eventValue: 90f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Rotation Servo F-12", "rotoServo.03", 128,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    eventValue: 90f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Rotation Servo F-33", "rotoServo.04", 129,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    eventValue: 90f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Rotor EM-16", "rotor.01", 130,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    eventValue: 240f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Rotor EM-16S", "rotor.01s", 131,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    eventValue: 240f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Rotor EM-32", "rotor.02", 132,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    eventValue: 240f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Rotor EM-32S", "rotor.02s", 133,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    eventValue: 240f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Rotor EM-64", "rotor.03", 134,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    eventValue: 240f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Rotor EM-64S", "rotor.03s", 135,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    eventValue: 240f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Rotor Motor R121", "RotorEngine.02", 136,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    eventValue: 240f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Rotor Motor R7000", "RotorEngine.03", 137,
                     ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
                     eventValue: 240f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
             };
@@ -1097,15 +1146,13 @@ namespace Parsek.Tests
                     firstEventOffsetSeconds: 3.0),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Bobcat", "LiquidEngineRE-I2", 112,
                     ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0,
-                    rowOffsetMeters: -2.5),
+                    firstEventOffsetSeconds: 3.0),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Skiff", "LiquidEngineRE-J10", 113,
                     ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
                     firstEventOffsetSeconds: 3.0),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Mastodon", "LiquidEngineRK-7", 114,
                     ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0,
-                    rowOffsetMeters: 2.5)
+                    firstEventOffsetSeconds: 3.0)
             };
         }
 
@@ -2081,10 +2128,10 @@ namespace Parsek.Tests
         public void RoboticsShowcaseRecordings_BuildExpectedShape()
         {
             var recordings = RoboticsShowcaseRecordings(baseUT: 17000);
-            Assert.Equal(4, recordings.Length);
+            Assert.Equal(21, recordings.Length);
 
             var first = recordings[0].Build();
-            Assert.Equal("Part Showcase - Robotics Hinge", first.GetValue("vesselName"));
+            Assert.Equal("Part Showcase - Robotics Hinge G-11", first.GetValue("vesselName"));
             Assert.Equal("True", first.GetValue("loopPlayback"));
             Assert.Equal(8, first.GetNodes("PART_EVENT").Length);
 
@@ -2092,7 +2139,14 @@ namespace Parsek.Tests
             Assert.Equal(((int)PartEventType.RoboticMotionStarted).ToString(), events[0].GetValue("type"));
             Assert.Equal(((int)PartEventType.RoboticMotionStopped).ToString(), events[1].GetValue("type"));
 
-            var names = new[] { "hinge.01", "piston.01", "rotoServo.00", "rotor.01" };
+            var names = new[]
+            {
+                "hinge.01", "hinge.01.s", "hinge.03", "hinge.03.s", "hinge.04",
+                "piston.01", "piston.02", "piston.03", "piston.04",
+                "rotoServo.00", "rotoServo.02", "rotoServo.03", "rotoServo.04",
+                "rotor.01", "rotor.01s", "rotor.02", "rotor.02s", "rotor.03", "rotor.03s",
+                "RotorEngine.02", "RotorEngine.03"
+            };
             for (int i = 0; i < recordings.Length; i++)
             {
                 var g = recordings[i].Build().GetNode("GHOST_VISUAL_SNAPSHOT");
@@ -2239,7 +2293,7 @@ namespace Parsek.Tests
                         $"Duplicate position in '{rec.GetValue("vesselName")}': {key}");
                 }
             }
-            Assert.Equal(121, positions.Count); // 6 + 18 + 7 + 11 + 3 + 2 + 3 + 5 + 2 + 2 + 8 + 2 + 5 + 14 + 29 + 4
+            Assert.Equal(138, positions.Count); // 6 + 18 + 7 + 11 + 3 + 2 + 3 + 5 + 2 + 2 + 8 + 2 + 5 + 14 + 29 + 21
         }
 
         [Fact]
@@ -2948,10 +3002,27 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Part Showcase - Bobcat", content);
                     Assert.Contains("vesselName = Part Showcase - Skiff", content);
                     Assert.Contains("vesselName = Part Showcase - Mastodon", content);
-                    Assert.Contains("vesselName = Part Showcase - Robotics Hinge", content);
-                    Assert.Contains("vesselName = Part Showcase - Robotics Piston", content);
-                    Assert.Contains("vesselName = Part Showcase - Robotics Rotation Servo", content);
-                    Assert.Contains("vesselName = Part Showcase - Robotics Rotor", content);
+                    Assert.Contains("vesselName = Part Showcase - Robotics Hinge G-11", content);
+                    Assert.Contains("vesselName = Part Showcase - Robotics Hinge G-00", content);
+                    Assert.Contains("vesselName = Part Showcase - Robotics Hinge M-12", content);
+                    Assert.Contains("vesselName = Part Showcase - Robotics Hinge M-06", content);
+                    Assert.Contains("vesselName = Part Showcase - Robotics Hinge XL", content);
+                    Assert.Contains("vesselName = Part Showcase - Robotics Piston 3P6", content);
+                    Assert.Contains("vesselName = Part Showcase - Robotics Piston 1P2", content);
+                    Assert.Contains("vesselName = Part Showcase - Robotics Piston 1P4", content);
+                    Assert.Contains("vesselName = Part Showcase - Robotics Piston 3P12", content);
+                    Assert.Contains("vesselName = Part Showcase - Robotics Rotation Servo M-06", content);
+                    Assert.Contains("vesselName = Part Showcase - Robotics Rotation Servo M-12", content);
+                    Assert.Contains("vesselName = Part Showcase - Robotics Rotation Servo F-12", content);
+                    Assert.Contains("vesselName = Part Showcase - Robotics Rotation Servo F-33", content);
+                    Assert.Contains("vesselName = Part Showcase - Robotics Rotor EM-16", content);
+                    Assert.Contains("vesselName = Part Showcase - Robotics Rotor EM-16S", content);
+                    Assert.Contains("vesselName = Part Showcase - Robotics Rotor EM-32", content);
+                    Assert.Contains("vesselName = Part Showcase - Robotics Rotor EM-32S", content);
+                    Assert.Contains("vesselName = Part Showcase - Robotics Rotor EM-64", content);
+                    Assert.Contains("vesselName = Part Showcase - Robotics Rotor EM-64S", content);
+                    Assert.Contains("vesselName = Part Showcase - Robotics Rotor Motor R121", content);
+                    Assert.Contains("vesselName = Part Showcase - Robotics Rotor Motor R7000", content);
                     Assert.Contains("vesselName = Part Showcase - Inventory Placement", content);
                     Assert.Contains("vesselName = Flea Chain", content);
                     Assert.Contains("chainId = chain-eva-board-test", content);
