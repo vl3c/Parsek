@@ -24,9 +24,10 @@ Recorded vessels are full visual replicas — original part meshes, textures, en
 - **Vessel persistence** — recorded vessels spawn with crew, or get recovered for funds
 - **Crew management** — reserved crew get temporary replacements so your roster stays full
 - **Orbital recording** — time warp segments use analytical Keplerian orbits
-- **Part events** — staging, decoupling, parachute deploy, engine ignition/shutdown all replay on the recording
+- **Part events** — staging, decoupling, parachutes, engines, solar panels, antennas, lights, landing gear, cargo bays, fairings, RCS, and docking all replay on the ghost
 - **Resource tracking** — funds, science, and reputation deltas applied at the correct time
 - **Take control** — grab a recording mid-playback and fly it yourself
+- **Recordings manager** — browse, sort, loop, and delete individual recordings
 - **External recording files** — bulk trajectory data stored in sidecar files, keeping saves lightweight
 
 ## Controls
@@ -80,4 +81,4 @@ Parsek was inspired by and learned from the KSP modding community. The following
 - **[Module Manager](https://github.com/sarbian/ModuleManager)** (sarbian) — essential config patching
 - **[Harmony (HarmonyKSP)](https://github.com/KSPModdingLibs/HarmonyKSP)** (KSPModdingLibs / pardeike) — runtime method patching
 
-Special thanks to **linuxgurugamer** for maintaining so many essential KSP mods, and to the KSP modding community for making this kind of project possible.
+Special thanks to **[linuxgurugamer](https://github.com/linuxgurugamer/)** for maintaining so many essential KSP mods, and to the KSP modding community for making this kind of project possible.

@@ -4,20 +4,47 @@
 
 ```
 Parsek/
-├── Parsek.csproj        # SDK-style project, targets .NET 4.7.2
-├── ParsekFlight.cs      # Main flight controller (recording, preview, timeline playback, UI)
-├── FlightRecorder.cs    # Physics-frame recording logic (Harmony-driven)
-├── Patches/PhysicsFramePatch.cs # Harmony postfix hook for per-frame sampling
-├── RecordingStore.cs    # Static storage for pending/committed recordings (survives scene changes)
-└── ParsekScenario.cs   # ScenarioModule — persists committed recordings to save games
+├── Parsek.csproj              # SDK-style project, targets .NET 4.7.2
+├── ParsekFlight.cs            # Main flight controller (timeline playback, ghost lifecycle, input)
+├── FlightRecorder.cs          # Physics-frame recording logic (Harmony-driven, part event polling)
+├── ParsekHarmony.cs           # Harmony patcher entry point (KSPAddon.Startup.Instantly)
+├── Patches/
+│   └── PhysicsFramePatch.cs   # Harmony postfix hook for per-frame sampling
+├── ParsekUI.cs                # UI windows (main window, recordings manager) and map view markers
+├── RecordingStore.cs          # Static storage for pending/committed recordings (survives scene changes)
+├── ParsekScenario.cs          # ScenarioModule — persists recordings to save games, crew reservation
+├── ParsekLog.cs               # Shared logging utilities
+├── TrajectoryPoint.cs         # Position/rotation/resource data struct
+├── TrajectoryMath.cs          # Pure static math (sampling, interpolation, orbit search)
+├── OrbitSegment.cs            # Keplerian orbit parameters for on-rails recording
+├── PartEvent.cs               # Part event enum + struct (28 event types)
+├── GhostVisualBuilder.cs      # Ghost mesh building from vessel snapshots (engine/RCS FX, fairings)
+├── GhostGeometryCapture.cs    # Ghost geometry baking for persistence
+├── VesselSpawner.cs           # Vessel spawn/recover/snapshot utilities
+├── MergeDialog.cs             # Post-revert merge dialog
+├── RecordingPaths.cs          # Save-scoped path resolution for external recording files
+└── ParsekToolbarRegistration.cs # ToolbarControl registration
 
 Parsek.Tests/
-├── WaypointSearchTests.cs          # FindWaypointIndex binary search tests
-├── InterpolationTests.cs           # Interpolation and edge case tests
-├── TrajectoryPointTests.cs         # TrajectoryPoint struct tests
-├── QuaternionSanitizationTests.cs  # Quaternion NaN/Infinity handling tests
-├── RecordingStoreTests.cs          # RecordingStore stash/commit/discard tests
-└── VesselPersistenceTests.cs       # Merge-decision logic tests
+├── Generators/
+│   ├── RecordingBuilder.cs          # Fluent RECORDING ConfigNode builder
+│   ├── VesselSnapshotBuilder.cs     # Minimal VESSEL ConfigNode builder
+│   └── ScenarioWriter.cs           # SCENARIO assembly + .sfs injection
+├── WaypointSearchTests.cs           # FindWaypointIndex binary search tests
+├── InterpolationTests.cs            # Interpolation and edge case tests
+├── TrajectoryPointTests.cs          # TrajectoryPoint struct tests
+├── QuaternionSanitizationTests.cs   # Quaternion NaN/Infinity handling tests
+├── AdaptiveSamplingTests.cs         # Adaptive threshold sampling tests
+├── OrbitSegmentTests.cs             # Orbit segment serialization tests
+├── RecordingStoreTests.cs           # RecordingStore stash/commit/discard tests
+├── VesselPersistenceTests.cs        # Merge-decision logic tests
+├── PartEventTests.cs                # Part event serialization, subtree, transition tests
+├── ChainTests.cs                    # Recording chain merge/handoff tests
+├── DockUndockChainTests.cs          # Docking/undocking chain tests
+├── DiagnosticLoggingTests.cs        # Regression tests for playback logging
+├── RuntimePolicyTests.cs            # Runtime decision logic tests
+├── RecordingsManagerTests.cs        # Recordings Manager UI logic tests
+└── SyntheticRecordingTests.cs       # Synthetic recording generation + save file injection
 ```
 
 ## Building
@@ -60,7 +87,7 @@ cd Source/Parsek.Tests
 dotnet test
 ```
 
-124 tests total: 123 pass, 1 skipped (QuaternionSlerp NaN edge case — Unity behavior).
+530 tests total: 529 pass, 1 skipped (QuaternionSlerp NaN edge case — Unity behavior).
 
 ## Testing In-Game
 
@@ -78,7 +105,7 @@ dotnet test
 1. Press F9, fly for 30-60s, press F9 to stop
 2. Revert to Launch (Esc > Revert to Launch)
 3. Context-aware merge dialog appears with recommended action
-4. Wait on the pad — when UT reaches the original timestamps, a green-cyan ghost sphere replays the flight
+4. Wait on the pad — when UT reaches the original timestamps, an opaque ghost vessel replays the flight
 5. Funds/science/reputation deltas are applied at the correct UT
 
 ### Vessel Persistence Tests
@@ -138,9 +165,16 @@ dotnet test
 
 - **RecordingStore** — static class holding pending + committed recordings. Static fields survive scene loads within a KSP session. Pending = just-finished recording awaiting merge/discard. Committed = merged to timeline for auto-playback. Also holds vessel persistence fields (snapshot, distance, destruction state) and the `GetRecommendedAction()` merge-decision logic.
 - **ParsekScenario** — KSP ScenarioModule that serializes committed recordings to ConfigNode for save/load persistence. Active in FLIGHT, SPACECENTER, TRACKSTATION, and EDITOR scenes. Manages crew reservation (marking snapshot crew as Assigned) and the crew replacement system (hiring/removing replacement kerbals to keep the available pool constant).
-- **ParsekFlight** — KSPAddon (Flight only). Handles manual preview playback (relative time), timeline auto-playback (absolute UT), scene change events, context-aware merge dialog, vessel snapshot/respawn/recovery, destruction tracking, and resource delta application.
-- **FlightRecorder + PhysicsFramePatch** — recording pipeline. `FlightRecorder` owns sampling state; Harmony postfix on `VesselPrecalculate.CalculatePhysicsStats()` provides per-physics-frame callbacks.
+- **ParsekFlight** — KSPAddon (Flight only). Handles timeline auto-playback (absolute UT), ghost lifecycle, scene change events, context-aware merge dialog, vessel snapshot/respawn/recovery, destruction tracking, resource delta application, and manual preview playback.
+- **FlightRecorder + PhysicsFramePatch** — recording pipeline. `FlightRecorder` owns sampling state and part event polling (engines, parachutes, deployables, lights, gear, cargo bays, fairings, RCS, docking); Harmony postfix on `VesselPrecalculate.CalculatePhysicsStats()` provides per-physics-frame callbacks.
+- **ParsekUI** — UI window drawing (main Parsek window + Recordings Manager window). Recordings Manager shows a sortable table of all committed recordings with per-recording loop toggle, status indicator, and delete button.
+- **GhostVisualBuilder** — builds ghost vessel meshes from vessel snapshots using prefab parts. Handles engine particle FX (cloned MODEL_MULTI_PARTICLE), RCS FX, fairing cone mesh generation, and deployable animation state sampling.
 - **TrajectoryPoint** — struct storing per-tick data: position (lat/lon/alt), rotation, velocity, body name, and career resources (funds, science, reputation). All timestamps use absolute UT.
+- **PartEvent** — struct + enum covering 28 event types: decoupled, destroyed, parachute deploy/cut/destroyed, shroud jettison, engine ignition/shutdown/throttle, deployable extend/retract, light on/off/blink, gear deploy/retract, cargo bay open/close, fairing jettison, RCS activate/stop/throttle, dock/undock, inventory place/remove.
+
+### External Recording Files (v3)
+
+Bulk data (trajectory points, orbit segments, part events, snapshots) is stored in external sidecar files under `saves/<save>/Parsek/Recordings/`, keeping the `.sfs` save file lightweight. File types: `.prec` (trajectory), `_vessel.craft` / `_ghost.craft` (vessel snapshots), `.pcrf` (ghost geometry). Safe-write via `.tmp` + rename.
 
 ### Vessel Persistence
 
@@ -152,7 +186,7 @@ On scene change (revert), the active vessel is snapshotted via `Vessel.BackupVes
 | Vessel moved >=100m AND destroyed | **Merge only** (trajectory captured) |
 | Vessel moved >=100m AND intact | **Persist** (respawn via ProtoVessel injection) |
 
-Vessel respawn uses `ProtoVessel` injection into `flightState.protoVessels`. Recovery uses `ShipConstruction.RecoverVesselFromFlight`. Snapshots are transient (not saved to disk).
+Vessel respawn uses `ProtoVessel` injection into `flightState.protoVessels`. Recovery uses `ShipConstruction.RecoverVesselFromFlight`. Vessel snapshots are persisted to external `.craft` sidecar files (v3 format).
 
 ### Crew Replacement System
 

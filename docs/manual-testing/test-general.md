@@ -165,6 +165,78 @@ Use career mode for all tests (resource tracking requires it).
 4. Timeline count and active ghosts count are accurate
 5. All buttons work: Start/Stop Recording, Preview/Stop Preview, Clear, Despawn Ghosts, Wipe
 
+## Recordings Manager
+
+### Open and close
+1. Click "Recordings" button in main Parsek window
+2. Verify: secondary window appears to the right with a table of committed recordings
+3. Click "Close" or the "Recordings" button again — window closes
+4. Reopen — window state (position, size) is preserved within the session
+
+### Table content
+1. Merge 2-3 recordings (mix of ghost-only and vessel-spawn)
+2. Open Recordings Manager
+3. Verify: each recording shows correct name, launch time (KSP calendar), duration, and status
+4. Verify: status updates in real time — `future` before ghost starts, `active` during, `past` after
+
+### Sorting
+1. Click "Name" column header — recordings sort alphabetically
+2. Click again — sort reverses
+3. Repeat for Launch Time, Duration, Status columns
+4. Verify: sort arrow indicator shows in the active column header
+
+### Per-recording loop
+1. Check the Loop checkbox for one recording
+2. Wait for ghost to finish — verify it restarts after a pause
+3. Uncheck — verify ghost plays once and stops
+4. Check the select-all checkbox in the Loop header — all recordings toggle on
+5. Uncheck one — header shows mixed state
+
+### Delete recording
+1. Click the "X" delete button on a recording
+2. Verify: recording disappears from the list, ghost despawns if active
+3. Verify: crew is unreserved (check Astronaut Complex)
+4. Delete a recording from the middle of the list — verify remaining ghosts still work
+5. Verify: delete buttons are disabled during active recording
+
+### Scroll and resize
+1. Merge many recordings (5+) to exceed the visible area
+2. Verify: scroll view appears, scrolling works without moving the camera
+3. Drag the bottom-right corner to resize the window
+4. Verify: table content reflows to new size
+
+## Part Event Playback
+
+### Deployables
+1. Build a vessel with solar panels and antennas
+2. Record: extend solar panels, extend antenna, retract, re-extend
+3. Revert, merge, watch ghost — verify panels/antennas animate at correct times
+
+### Lights
+1. Build a vessel with lights
+2. Record: toggle lights on, off, enable blink mode
+3. Revert, merge — verify ghost lights turn on/off at correct times
+
+### Landing gear
+1. Build a plane with retractable gear
+2. Record: retract gear after takeoff, deploy before landing
+3. Revert, merge — verify ghost gear retracts/deploys at correct times
+
+### Cargo bays
+1. Build a vessel with a cargo bay / service bay
+2. Record: open and close the bay doors
+3. Revert, merge — verify ghost bay doors animate at correct times
+
+### Fairings
+1. Build a vessel with a procedural fairing
+2. Record: jettison fairing during ascent
+3. Revert, merge — verify ghost has fairing cone that disappears at jettison time
+
+### RCS
+1. Build a vessel with RCS thrusters
+2. Record: fire RCS (translate/rotate)
+3. Revert, merge — verify ghost RCS emits particle FX during firing
+
 ## Log Verification
 
 Search `KSP.log` for `[Parsek]` and `[Parsek Scenario]`:

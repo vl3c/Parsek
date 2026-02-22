@@ -59,6 +59,12 @@ After merging, wait on the pad (or time warp) until UT reaches the recording's t
 - Parts that were decoupled or destroyed during the recording disappear from the ghost at the correct time
 - Parachute canopies deploy on the ghost at the correct time (real canopy mesh, not a placeholder)
 - Engine shrouds are jettisoned on the ghost when staging occurs
+- Solar panels, antennas, and radiators extend/retract on the ghost
+- Landing gear deploys and retracts on the ghost
+- Cargo bay and service bay doors open and close on the ghost
+- Lights turn on/off and blink on the ghost
+- Procedural fairings are displayed on the ghost and disappear when jettisoned
+- RCS thrusters emit particle FX when firing on the ghost
 - Funds, science, and reputation changes from the recording are applied at the correct time
 - When the ghost finishes, the vessel appears at its final position (if "Keep Vessel" was chosen)
 
@@ -85,6 +91,21 @@ You can preview a recording without reverting:
 2. Press **F10** — a ghost replays your flight in real time
 3. Press **F11** to stop the preview
 
+### Recordings Manager
+
+Click the "Recordings" button in the main Parsek window to open the Recordings Manager. This secondary window shows all committed recordings in a sortable table:
+
+- **Name** — vessel name
+- **Launch Time** — KSP calendar format
+- **Duration** — compact format (e.g. "56s", "2m 30s", "1h 15m")
+- **Status** — `future` (grey), `active` (green), or `past` (dim) based on current UT
+- **Loop** — per-recording loop toggle (ghost replays continuously with a pause between cycles)
+- **Delete** — remove individual recordings (with crew unreservation and ghost cleanup)
+
+Click any column header to sort by that column. Click again to reverse the sort order. The window is draggable and resizable.
+
+The select-all checkbox in the Loop column header toggles looping for all recordings at once.
+
 ### Wipe Recordings
 
 Click "Wipe Recordings" in the Parsek UI window to clear all committed recordings. This also frees any reserved crew and removes replacement kerbals.
@@ -98,7 +119,7 @@ Parsek handles several edge cases automatically. These are logged to `KSP.log` (
 - **Auto-start on launch** — Recording begins automatically when a vessel leaves the pad or runway (transitions out of PRELAUNCH). A screen message confirms "Recording STARTED (auto)".
 - **Auto-start on EVA from pad** — Going EVA from a vessel sitting on the pad/runway also auto-starts recording on the EVA kerbal.
 - **Mid-recording EVA** — Going EVA during an active recording auto-stops the parent recording, commits it, and starts a linked child recording on the EVA kerbal.
-- **Part events** — Staging, decoupling, engine ignition/shutdown, and parachute events are recorded with timestamps. During ghost playback, decoupled parts (and their subtrees) disappear from the ghost at the correct time. Engines emit flames and smoke during burn phases. Parachute canopies deploy with the real mesh, and engine shrouds are jettisoned.
+- **Part events** — 28 event types are recorded with timestamps, including staging, decoupling, engine ignition/shutdown/throttle, parachute deploy/cut, solar panel/antenna/radiator extend/retract, light on/off/blink, landing gear deploy/retract, cargo bay open/close, fairing jettison, RCS fire, docking/undocking, and inventory part placement. During ghost playback, decoupled parts (and their subtrees) disappear from the ghost at the correct time. Engines and RCS thrusters emit particle FX during burn phases. Parachute canopies deploy with the real mesh, engine shrouds are jettisoned, and deployable parts animate between stowed/deployed states.
 - **Paused game** — Recording cannot start while the game is paused.
 - **Vessel change** — If the active vessel changes during recording (docking, switching with `[`/`]`), the recording stops automatically with a screen message.
 - **Very short recordings** — Recordings with fewer than 2 sample points are silently dropped on revert (nothing to play back).

@@ -1,8 +1,8 @@
 # Parsek: Preliminary Architecture
 
 ## Document Status
-**Version:** 0.3
-**Phase:** MVP (recording chaining)
+**Version:** 0.4
+**Phase:** Post-Phase 2 (all part events implemented)
 **Last Updated:** February 2026
 
 ---
@@ -673,39 +673,33 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 - [x] Seamless ghost handoff between chained segments (vessel ghost ends, EVA ghost begins, vessel ghost resumes)
 - [x] Verify and fix edge cases: crew continuity, vessel state across chain boundaries, merge dialog for chained missions
 
-### Phase 2: Ghost Visual Fidelity — New Events
+### Phase 2: Ghost Visual Fidelity — New Events (Complete)
 
-Expand the event recording system to capture more visually significant part state changes. See `docs/research/event-recording-analysis.md` for full analysis.
+All planned part event types are now implemented. 28 event types total, covering the full visual state of ghost vessels.
 
-**Currently recorded (9 event types):**
-- [x] Decoupled (subtree hide via `onPartJointBreak`)
-- [x] Destroyed (part hide via `onPartDie`)
+**Recorded event types (28 total):**
+- [x] Decoupled / Destroyed (subtree hide via `onPartJointBreak` / `onPartDie`)
 - [x] ParachuteDeployed / ParachuteCut / ParachuteDestroyed (polled `ModuleParachute`)
 - [x] ShroudJettisoned (polled `ModuleJettison`)
 - [x] EngineIgnited / EngineShutdown / EngineThrottle (polled `ModuleEngines`, particle FX)
-
-**Tier 1 — High impact, common (priority order):**
-- [ ] Deployable parts: solar panel / antenna / radiator deploy & retract (`ModuleDeployablePart` base class — one implementation covers all three)
-- [ ] Landing gear deploy / retract (`ModuleWheelDeployment`)
-- [ ] Lights on / off (`ModuleLight` — simple bool toggle, emissive material on ghost)
-- [ ] Cargo bay / service bay open & close (`ModuleCargoBay` + `ModuleAnimateGeneric` — also unlocks airbrakes and other animated parts)
-- [ ] Procedural fairing jettison (`ModuleProceduralFairing` — hard for ghost visuals since geometry is runtime-generated)
-
-**Tier 2 — Moderate impact, situational:**
-- [ ] Airbrake deploy (uses `ModuleAnimateGeneric` — free if cargo bays are done)
-- [ ] RCS thruster fire (`ModuleRCSFX` — high event frequency, needs throttling)
+- [x] DeployableExtended / DeployableRetracted (polled `ModuleDeployablePart` — solar panels, antennas, radiators)
+- [x] GearDeployed / GearRetracted (polled `ModuleWheelDeployment`)
+- [x] LightOn / LightOff / LightBlinkEnabled / LightBlinkDisabled / LightBlinkRate (polled `ModuleLight`)
+- [x] CargoBayOpened / CargoBayClosed (polled `ModuleCargoBay` + `ModuleAnimateGeneric` — also covers airbrakes)
+- [x] FairingJettisoned (polled `ModuleProceduralFairing`, runtime-generated cone mesh on ghost)
+- [x] RCSActivated / RCSStopped / RCSThrottle (polled `ModuleRCS`, particle FX)
+- [x] Docked / Undocked (chain segment boundaries for docking/undocking)
+- [x] InventoryPartPlaced / InventoryPartRemoved (ground science deploy/remove)
 
 **Deferred (too complex or low value):**
-- Control surface deflection — continuous float, thousands of events per flight, skip
-- Docking/undocking — vessel topology change, needs multi-vessel recording
+- Control surface deflection — continuous float, thousands of events per flight
 - Robotics (Breaking Ground DLC) — continuous motion, DLC-dependent
-- Science experiment deploy — subtle visual, inconsistent across experiments
-- Ladder / intake / wheel steering — minimal visual change
+- Standalone `ModuleAnimateGeneric` (docking port shields, goo canisters) — see `docs/research/next-parts-event-support-priority.md`
 
 ### Phase 3: Polish & UX
 
 **Timeline & navigation:**
-- [ ] Timeline viewer UI (list recordings, delete individual ones, visual timeline)
+- [x] Recordings Manager UI (list recordings, per-recording loop/delete, sortable columns, status indicators)
 - [ ] Timeline navigation — select a point in time to revert/return to
 - [ ] Multiple concurrent recordings (playback already supports multiple, needs recording flow + UI)
 
@@ -715,11 +709,14 @@ Expand the event recording system to capture more visually significant part stat
 - [ ] Two-phase parachute deploy (SEMIDEPLOYED streamer vs DEPLOYED full canopy)
 
 **Already done (moved from earlier phases):**
-- [x] Event-based recording (part events: decoupled, destroyed, parachute deployed/cut, engine ignition/shutdown)
+- [x] Event-based recording (28 part event types — see Phase 2)
 - [x] Real parachute canopy on ghost vessels
 - [x] Event-driven shroud jettison for ghost vessels
 - [x] External recording files (v3 format)
 - [x] Engine FX on ghost vessels (modern EFFECTS + legacy fx_* prefab fallback)
+- [x] RCS FX on ghost vessels (particle systems from EFFECTS/MODEL_MULTI_PARTICLE)
+- [x] Fairing cone mesh generation on ghost vessels
+- [x] Deployable animation state sampling on ghost vessels
 
 ### Phase 4: Recording Stats & Export
 
@@ -744,4 +741,4 @@ Parsek is a **parallel mission replay** mod: record missions, revert, and have t
 
 ---
 
-*Document version: 1.0 — Engine FX on ghosts, external recording files (v3), ghost parachute canopy, shroud jettison*
+*Document version: 1.1 — All 28 part event types, Recordings Manager window, RCS/fairing/deployable ghost visuals*
