@@ -636,8 +636,8 @@ namespace Parsek.Tests
         // Event PIDs must match this so the ghost visual builder can find the part.
         private const uint SinglePartPid = 100000;
         // Optional companion part (e.g., kerbal actor) receives the second slot.
-        // Total showcase row entries (indices 0-137).
-        private const int ShowcaseRowCount = 138;
+        // Total showcase row entries (indices 0-141).
+        private const int ShowcaseRowCount = 142;
         // Keep showcases close to the launchpad centerline without overlapping pad geometry.
         private const double ShowcaseDistanceFromPadMeters = 200.0;
         // Shroud-jettison showcase parts include tall engine plates and engines that clip at base altitude.
@@ -669,7 +669,7 @@ namespace Parsek.Tests
         // Cargo: 31-41, Engines: 42-44, Ladders: 45-46, RCS: 47-49, Fairings: 50-54,
         // Extra Radiators: 55-56, Drills: 57-58, Deployed Science: 59-66,
         // Animation Group: 67-68, Parachutes: 69-73, Special Deploy Animations: 74-85 and 115-116,
-        // Jettison Coverage: 86-114, Robotics: 117-137.
+        // Jettison Coverage: 86-114, Robotics: 117-137, AeroSurface: 138, Robot Arm Scanners: 139-141.
 
         internal static RecordingBuilder[] DeployableShowcaseRecordings(double baseUT = 0)
         {
@@ -1059,6 +1059,32 @@ namespace Parsek.Tests
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Rotor Motor R7000", "RotorEngine.03", 137,
                     ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
                     eventValue: 240f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
+            };
+        }
+
+        internal static RecordingBuilder[] AeroSurfaceShowcaseRecordings(double baseUT = 0)
+        {
+            return new[]
+            {
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Airbrake", "airbrake1", 138,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98700000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
+            };
+        }
+
+        internal static RecordingBuilder[] RobotArmScannerShowcaseRecordings(double baseUT = 0)
+        {
+            return new[]
+            {
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Robot Arm Scanner S1", "RobotArmScanner_S1", 139,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98800000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Robot Arm Scanner S2", "RobotArmScanner_S2", 140,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98800000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Robot Arm Scanner S3", "RobotArmScanner_S3", 141,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98800000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
             };
         }
 
@@ -2189,6 +2215,51 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void AeroSurfaceShowcaseRecordings_BuildExpectedShape()
+        {
+            var recordings = AeroSurfaceShowcaseRecordings(baseUT: 17000);
+            Assert.Single(recordings);
+
+            var first = recordings[0].Build();
+            Assert.Equal("Part Showcase - Airbrake", first.GetValue("vesselName"));
+            Assert.Equal("True", first.GetValue("loopPlayback"));
+            Assert.Equal(8, first.GetNodes("PART_EVENT").Length);
+
+            var events = first.GetNodes("PART_EVENT");
+            Assert.Equal(((int)PartEventType.DeployableExtended).ToString(), events[0].GetValue("type"));
+            Assert.Equal(((int)PartEventType.DeployableRetracted).ToString(), events[1].GetValue("type"));
+
+            var ghost = first.GetNode("GHOST_VISUAL_SNAPSHOT");
+            Assert.NotNull(ghost);
+            var part = ghost.GetNodes("PART")[0];
+            Assert.Equal("airbrake1", part.GetValue("name"));
+            Assert.Equal(part.GetValue("persistentId"), events[0].GetValue("pid"));
+        }
+
+        [Fact]
+        public void RobotArmScannerShowcaseRecordings_BuildExpectedShape()
+        {
+            var recordings = RobotArmScannerShowcaseRecordings(baseUT: 17000);
+            Assert.Equal(3, recordings.Length);
+
+            var first = recordings[0].Build();
+            Assert.Equal("Part Showcase - Robot Arm Scanner S1", first.GetValue("vesselName"));
+            Assert.Equal("True", first.GetValue("loopPlayback"));
+            Assert.Equal(8, first.GetNodes("PART_EVENT").Length);
+
+            var events = first.GetNodes("PART_EVENT");
+            Assert.Equal(((int)PartEventType.DeployableExtended).ToString(), events[0].GetValue("type"));
+            Assert.Equal(((int)PartEventType.DeployableRetracted).ToString(), events[1].GetValue("type"));
+
+            var names = new[] { "RobotArmScanner_S1", "RobotArmScanner_S2", "RobotArmScanner_S3" };
+            for (int i = 0; i < recordings.Length; i++)
+            {
+                var g = recordings[i].Build().GetNode("GHOST_VISUAL_SNAPSHOT");
+                Assert.Equal(names[i], g.GetNodes("PART")[0].GetValue("name"));
+            }
+        }
+
+        [Fact]
         public void InventoryPlacementShowcaseRecording_BuildExpectedShape()
         {
             var rec = InventoryPlacementShowcaseRecording(baseUT: 17000).Build();
@@ -2233,7 +2304,9 @@ namespace Parsek.Tests
                 ParachuteShowcaseRecordings(17000),
                 SpecialDeployAnimationShowcaseRecordings(17000),
                 JettisonShowcaseRecordings(17000),
-                RoboticsShowcaseRecordings(17000)
+                RoboticsShowcaseRecordings(17000),
+                AeroSurfaceShowcaseRecordings(17000),
+                RobotArmScannerShowcaseRecordings(17000)
             };
 
             foreach (var category in allShowcases)
@@ -2278,7 +2351,9 @@ namespace Parsek.Tests
                 ParachuteShowcaseRecordings(17000),
                 SpecialDeployAnimationShowcaseRecordings(17000),
                 JettisonShowcaseRecordings(17000),
-                RoboticsShowcaseRecordings(17000)
+                RoboticsShowcaseRecordings(17000),
+                AeroSurfaceShowcaseRecordings(17000),
+                RobotArmScannerShowcaseRecordings(17000)
             };
 
             var positions = new HashSet<string>();
@@ -2293,7 +2368,7 @@ namespace Parsek.Tests
                         $"Duplicate position in '{rec.GetValue("vesselName")}': {key}");
                 }
             }
-            Assert.Equal(138, positions.Count); // 6 + 18 + 7 + 11 + 3 + 2 + 3 + 5 + 2 + 2 + 8 + 2 + 5 + 14 + 29 + 21
+            Assert.Equal(142, positions.Count); // 6 + 18 + 7 + 11 + 3 + 2 + 3 + 5 + 2 + 2 + 8 + 2 + 5 + 14 + 29 + 21 + 1 + 3
         }
 
         [Fact]
@@ -2855,6 +2930,12 @@ namespace Parsek.Tests
             var roboticsShowcases = RoboticsShowcaseRecordings(baseUT);
             for (int i = 0; i < roboticsShowcases.Length; i++)
                 writer.AddRecording(roboticsShowcases[i]);
+            var aeroSurfaceShowcases = AeroSurfaceShowcaseRecordings(baseUT);
+            for (int i = 0; i < aeroSurfaceShowcases.Length; i++)
+                writer.AddRecording(aeroSurfaceShowcases[i]);
+            var robotArmScannerShowcases = RobotArmScannerShowcaseRecordings(baseUT);
+            for (int i = 0; i < robotArmScannerShowcases.Length; i++)
+                writer.AddRecording(robotArmScannerShowcases[i]);
             writer.AddRecording(InventoryPlacementShowcaseRecording(baseUT));
 
             var chainSegments = EvaBoardChain(baseUT);
@@ -3023,6 +3104,10 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Part Showcase - Robotics Rotor EM-64S", content);
                     Assert.Contains("vesselName = Part Showcase - Robotics Rotor Motor R121", content);
                     Assert.Contains("vesselName = Part Showcase - Robotics Rotor Motor R7000", content);
+                    Assert.Contains("vesselName = Part Showcase - Airbrake", content);
+                    Assert.Contains("vesselName = Part Showcase - Robot Arm Scanner S1", content);
+                    Assert.Contains("vesselName = Part Showcase - Robot Arm Scanner S2", content);
+                    Assert.Contains("vesselName = Part Showcase - Robot Arm Scanner S3", content);
                     Assert.Contains("vesselName = Part Showcase - Inventory Placement", content);
                     Assert.Contains("vesselName = Flea Chain", content);
                     Assert.Contains("chainId = chain-eva-board-test", content);
@@ -3054,8 +3139,8 @@ namespace Parsek.Tests
                     $"Expected Parsek/Recordings directory at {recordingsDir}");
 
                 string[] precFiles = Directory.GetFiles(recordingsDir, "*.prec");
-                Assert.True(precFiles.Length >= 131,
-                    $"Expected at least 131 .prec files (8 baseline + 6 lights + 18 deployables + 7 gear + 11 cargo + 3 engines + 2 ladders + 3 RCS + 5 fairings + 2 extra radiators + 2 drills + 8 deployed science + 2 animation-group + 5 parachutes + 14 special deploy animations + 29 jettison showcases + 1 inventory-placement + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
+                Assert.True(precFiles.Length >= 135,
+                    $"Expected at least 135 .prec files (8 baseline + 6 lights + 18 deployables + 7 gear + 11 cargo + 3 engines + 2 ladders + 3 RCS + 5 fairings + 2 extra radiators + 2 drills + 8 deployed science + 2 animation-group + 5 parachutes + 14 special deploy animations + 29 jettison showcases + 21 robotics + 1 aero-surface + 3 robot-arm-scanner + 1 inventory-placement + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
             }
         }
 
