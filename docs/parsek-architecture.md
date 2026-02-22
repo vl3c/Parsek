@@ -724,11 +724,22 @@ All planned part event types are now implemented. 28 event types are recorded; m
 - [ ] Recording export/import (share recordings as standalone `.parsek` files)
 - [ ] Recording file size optimization (compact keys, numeric encoding, optional compression)
 
+### Phase 5: Going Back in Time
+
+- [ ] Auto-save restore points at recording commit points
+- [ ] "Go Back" UI — pick a restore point, load it, preserve recording state
+- [ ] Resource budgeting — committed recordings claim their costs, player can only spend what's available
+- [ ] `LastAppliedResourceIndex` reset for recordings after the restore point
+
+See `docs/design-going-back-in-time.md` for full design rationale. The mechanism is snapshot-based (like `git checkout`), not event-reversal-based. No timeline branching.
+
 ---
 
 ## Scope
 
-Parsek is a **git-like recording system** for KSP missions. Players record flights sequentially, commit them to a single timeline, and they replay automatically as ghost vessels during future gameplay. Recordings are immutable — once committed, they play back exactly as flown. The game state always moves forward; there is no timeline branching, state reversal, or time travel.
+Parsek is a **git-like recording system** for KSP missions. Players record flights sequentially, commit them to a single timeline, and they replay automatically as ghost vessels during future gameplay. Recordings are immutable — once committed, they play back exactly as flown.
+
+Like git, the player can go back to any earlier point and start new work. Existing recordings continue to play as ghosts. Conflicts are prevented through resource budgeting: committed recordings have already claimed their costs, so the player can only spend what's actually available. There is no timeline branching — one timeline, always.
 
 The architecture naturally enables use cases like racing your own ghosts, but the mod does not include dedicated racing modes, AI playback, or multiplayer features. Those are gameplay possibilities that emerge from the core recording/playback system.
 
@@ -743,4 +754,4 @@ The architecture naturally enables use cases like racing your own ghosts, but th
 
 ---
 
-*Document version: 1.2 — Updated roadmap phases, clarified scope as git-like recording system*
+*Document version: 1.3 — Added Phase 5 (going back in time), resource budgeting scope*

@@ -2,9 +2,9 @@
 
 ## Philosophy
 
-Parsek is a **git-like recording system** for KSP missions. You record flights sequentially, commit them to a timeline, and they play back automatically as ghost vessels while you fly new missions. There is one timeline, recordings are commits, and the game state progresses forward.
+Parsek is a **git-like recording system** for KSP missions. You record flights sequentially, commit them to a timeline, and they play back automatically as ghost vessels while you fly new missions. There is one timeline, recordings are immutable commits, and the game always moves forward.
 
-The mod does not attempt time travel, timeline branching, or state reversal. Recordings are immutable history — once committed, they play back exactly as flown. The player always moves forward.
+Like git, you can go back to any earlier point and start new work. Existing recordings don't change — they play out as ghosts alongside your new missions. There is no branching, no state reversal, and no paradoxes. Conflicts are prevented through resource budgeting: committed recordings have already claimed their costs, so the player can only spend what's actually available.
 
 ---
 
@@ -31,7 +31,7 @@ Recordings Manager UI with sortable columns, per-recording loop/delete, and stat
 
 ## Phase 3: Polish & Usability (Next)
 
-Make the existing loop frictionless and configure for different play styles.
+Make the existing loop frictionless and configurable for different play styles.
 
 ### Settings panel
 `GameParameters.CustomParameterNode` for in-game settings:
@@ -87,10 +87,35 @@ Reduce sidecar file sizes for long recordings:
 
 ---
 
+## Phase 5: Going Back in Time
+
+The headline feature: go back to any earlier point in time and launch new missions while existing recordings play out as ghosts.
+
+### How it works
+Like `git checkout` — the player picks a restore point, the game loads that earlier state, and all committed recordings remain on the timeline. Ghosts appear at their scheduled UTs as the player plays forward. No branching, no state reversal.
+
+### Restore points
+Parsek auto-saves at recording commit points, creating tagged restore points. A "Go Back" UI lets the player pick any restore point and load it. Recording data (all recordings, crew reservations, resource commitments) is preserved across the load.
+
+### Resource budgeting
+Committed recordings have already claimed their resource costs. When the player goes back in time, available funds/science/reputation = the game state at the restore point minus resources committed to future recordings. If a recording at UT 15000 costs 15,000 funds to launch, those funds are unavailable at UT 10000. The player cannot launch a mission they can't afford after accounting for future commitments.
+
+This prevents paradoxes through simple accounting: "you can't spend money you've already committed to future missions."
+
+### What doesn't need to change
+- Recordings are immutable — they play back exactly as flown
+- Crew reservation already prevents double-booking
+- Ghost playback and vessel spawning work at any UT
+- Resource deltas re-apply naturally during ghost playback (reset `LastAppliedResourceIndex` for recordings after the restore point)
+
+See `docs/design-going-back-in-time.md` for full design rationale.
+
+---
+
 ## Future
 
 ### Take Control stabilization
-Making "jump into a ghost and fly it" reliable is desirable but creates fundamental paradox problems: what happens to the recording's future events? What about crew that was reserved? What about resource deltas already applied? Each answer requires hard restrictions that may frustrate players (e.g. "you can only take control of the last recording" or "taking control discards all future recordings"). This needs careful design and should not be rushed.
+Making "jump into a ghost and fly it" reliable is desirable but creates paradox problems: what happens to the recording's future events, reserved crew, and applied resource deltas? Each answer requires hard restrictions that may frustrate players. This needs careful design and should not be rushed.
 
 Current status: experimental button exists in UI, not recommended for normal play.
 
@@ -109,10 +134,7 @@ Playback already supports multiple simultaneous ghosts. Recording is currently s
 
 ## Out of Scope
 
-These are not planned features. They may emerge naturally from the recording system but Parsek will not include dedicated support for them:
-
 - Racing modes or lap timing
 - AI playback or autopilot
 - Multiplayer synchronization
-- Timeline branching or state reversal
-- Career state rollback
+- Timeline branching or alternate histories
