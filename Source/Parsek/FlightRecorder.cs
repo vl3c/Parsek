@@ -45,17 +45,26 @@ namespace Parsek
         private List<(Part part, ModuleEngines engine, int moduleIndex)> cachedEngines;
         private HashSet<ulong> activeEngineKeys;
         private Dictionary<ulong, float> lastThrottle;
+        private HashSet<ulong> loggedEngineModuleKeys = new HashSet<ulong>();
 
         // RCS state tracking (separate dicts from engines — keys can overlap for same part)
         private List<(Part part, ModuleRCS rcs, int moduleIndex)> cachedRcsModules;
         private HashSet<ulong> activeRcsKeys;
         private Dictionary<ulong, float> lastRcsThrottle;
+        private HashSet<ulong> loggedRcsModuleKeys = new HashSet<ulong>();
         // Robotics state tracking (Breaking Ground; sparse sampling to limit event volume)
         private List<(Part part, PartModule module, int moduleIndex, string moduleName)> cachedRoboticModules;
         private HashSet<ulong> activeRoboticKeys;
         private Dictionary<ulong, float> lastRoboticPosition;
         private Dictionary<ulong, double> lastRoboticSampleUT;
         private HashSet<ulong> loggedRoboticModuleKeys;
+        private HashSet<ulong> loggedLadderClassificationMisses = new HashSet<ulong>();
+        private HashSet<ulong> loggedAnimationGroupClassificationMisses = new HashSet<ulong>();
+        private HashSet<ulong> loggedAnimateGenericClassificationMisses = new HashSet<ulong>();
+        private HashSet<uint> loggedCargoBayDeployIndexIssues = new HashSet<uint>();
+        private HashSet<uint> loggedCargoBayAnimationIssues = new HashSet<uint>();
+        private HashSet<uint> loggedCargoBayClosedPositionIssues = new HashSet<uint>();
+        private HashSet<uint> loggedFairingReadFailures = new HashSet<uint>();
         internal bool partEventsSubscribed;
         public bool IsRecording { get; private set; }
         public uint RecordingVesselId { get; private set; }
@@ -950,14 +959,41 @@ namespace Parsek
 
                 // Resolve the linked ModuleAnimateGeneric via DeployModuleIndex
                 int deployIdx = cargo.DeployModuleIndex;
-                if (deployIdx < 0 || deployIdx >= p.Modules.Count) continue;
+                if (deployIdx < 0 || deployIdx >= p.Modules.Count)
+                {
+                    if (loggedCargoBayDeployIndexIssues.Add(p.persistentId))
+                    {
+                        ParsekLog.Log($"CargoBay: invalid DeployModuleIndex for '{p.partInfo?.name}' " +
+                            $"pid={p.persistentId} deployIdx={deployIdx} modules={p.Modules.Count}");
+                    }
+                    continue;
+                }
                 var animModule = p.Modules[deployIdx] as ModuleAnimateGeneric;
-                if (animModule == null) continue;
+                if (animModule == null)
+                {
+                    if (loggedCargoBayAnimationIssues.Add(p.persistentId))
+                    {
+                        PartModule moduleAtIndex = p.Modules[deployIdx];
+                        string moduleName = moduleAtIndex?.moduleName ?? "<null>";
+                        ParsekLog.Log($"CargoBay: DeployModuleIndex did not resolve to ModuleAnimateGeneric for " +
+                            $"'{p.partInfo?.name}' pid={p.persistentId} deployIdx={deployIdx} module='{moduleName}'");
+                    }
+                    continue;
+                }
 
                 ClassifyCargoBayState(animModule.animTime, cargo.closedPosition,
                     out bool isOpen, out bool isClosed);
 
-                if (!isOpen && !isClosed) continue; // mid-transition or non-standard closedPosition
+                if (!isOpen && !isClosed)
+                {
+                    if (cargo.closedPosition >= 0.1f && cargo.closedPosition <= 0.9f &&
+                        loggedCargoBayClosedPositionIssues.Add(p.persistentId))
+                    {
+                        ParsekLog.Log($"CargoBay: unsupported closedPosition for '{p.partInfo?.name}' " +
+                            $"pid={p.persistentId} closedPosition={cargo.closedPosition:F3} animTime={animModule.animTime:F3}");
+                    }
+                    continue; // mid-transition or non-standard closedPosition
+                }
 
                 var evt = CheckCargoBayTransition(
                     p.persistentId, p.partInfo?.name ?? "unknown", isOpen, openCargoBays, ut);
@@ -990,7 +1026,14 @@ namespace Parsek
                     bool isDeployed;
                     bool isRetracted;
                     if (!TryClassifyRetractableLadderState(module, out isDeployed, out isRetracted))
+                    {
+                        if (loggedLadderClassificationMisses.Add(key))
+                        {
+                            ParsekLog.Log($"Ladder: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
+                                $"midx={m}; fields=[{DescribeModuleFields(module)}]");
+                        }
                         continue;
+                    }
 
                     var evt = CheckLadderTransition(
                         key, p.persistentId, p.partInfo?.name ?? "unknown",
@@ -1027,7 +1070,15 @@ namespace Parsek
                     bool isDeployed;
                     bool isRetracted;
                     if (!TryClassifyAnimationGroupState(module, out isDeployed, out isRetracted))
+                    {
+                        ulong diagnosticKey = EncodeEngineKey(p.persistentId, m);
+                        if (loggedAnimationGroupClassificationMisses.Add(diagnosticKey))
+                        {
+                            ParsekLog.Log($"AnimationGroup: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
+                                $"midx={m}; fields=[{DescribeModuleFields(module)}]");
+                        }
                         continue;
+                    }
 
                     ulong key = EncodeEngineKey(p.persistentId, m);
                     var evt = CheckAnimationGroupTransition(
@@ -1083,7 +1134,15 @@ namespace Parsek
                     bool isDeployed;
                     bool isRetracted;
                     if (!TryClassifyAnimateGenericState(animateModule, out isDeployed, out isRetracted))
+                    {
+                        ulong diagnosticKey = EncodeEngineKey(p.persistentId, m);
+                        if (loggedAnimateGenericClassificationMisses.Add(diagnosticKey))
+                        {
+                            ParsekLog.Log($"AnimateGeneric: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
+                                $"midx={m} anim='{animateModule.animationName}'; fields=[{DescribeModuleFields(animateModule)}]");
+                        }
                         continue;
+                    }
                     if (!isDeployed && !isRetracted)
                         continue;
 
@@ -1138,8 +1197,13 @@ namespace Parsek
                     if (float.IsNaN(scalar) || float.IsInfinity(scalar)) continue;
                     isDeployed = scalar >= 0.5f;
                 }
-                catch
+                catch (Exception ex)
                 {
+                    if (loggedFairingReadFailures.Add(p.persistentId))
+                    {
+                        ParsekLog.Log($"Fairing: unable to read GetScalar for '{p.partInfo?.name}' " +
+                            $"pid={p.persistentId} ({ex.GetType().Name}: {ex.Message})");
+                    }
                     continue;
                 }
 
@@ -1180,6 +1244,189 @@ namespace Parsek
         internal static ulong EncodeEngineKey(uint pid, int moduleIndex)
         {
             return ((ulong)pid << 8) | (uint)moduleIndex;
+        }
+
+        private static string FormatCoverageEntries(List<string> entries, int maxEntries = 8)
+        {
+            if (entries == null || entries.Count == 0)
+                return "<none>";
+
+            if (entries.Count <= maxEntries)
+                return string.Join(", ", entries.ToArray());
+
+            var preview = entries.GetRange(0, maxEntries);
+            return string.Join(", ", preview.ToArray()) + $", +{entries.Count - maxEntries} more";
+        }
+
+        private static void LogCoverageDetails(string label, List<string> entries)
+        {
+            ParsekLog.Log($"  Visual coverage [{label}] {entries.Count}: {FormatCoverageEntries(entries)}");
+        }
+
+        private void LogVisualRecordingCoverage(Vessel v)
+        {
+            if (v == null || v.parts == null)
+                return;
+
+            int moduleCount = 0;
+            var parachuteParts = new List<string>();
+            var jettisonModules = new List<string>();
+            var deployableParts = new List<string>();
+            var ladderModules = new List<string>();
+            var animationGroupModules = new List<string>();
+            var animateGenericModules = new List<string>();
+            var lightParts = new List<string>();
+            var gearModules = new List<string>();
+            var cargoBayParts = new List<string>();
+            var fairingParts = new List<string>();
+            var engineModules = new List<string>();
+            var rcsModules = new List<string>();
+            var roboticModules = new List<string>();
+
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                string partName = p.partInfo?.name ?? "unknown";
+                string partRef = $"{partName}[pid={p.persistentId}]";
+
+                if (p.FindModuleImplementing<ModuleParachute>() != null)
+                    parachuteParts.Add(partRef);
+
+                ModuleDeployablePart deployable = p.FindModuleImplementing<ModuleDeployablePart>();
+                if (deployable != null)
+                    deployableParts.Add(
+                        $"{partRef}(state={deployable.deployState})");
+
+                if (p.FindModuleImplementing<ModuleLight>() != null)
+                    lightParts.Add(partRef);
+
+                ModuleCargoBay cargoBay = p.FindModuleImplementing<ModuleCargoBay>();
+                if (cargoBay != null)
+                    cargoBayParts.Add(
+                        $"{partRef}(deployIdx={cargoBay.DeployModuleIndex},closed={cargoBay.closedPosition:F2})");
+
+                if (p.FindModuleImplementing<ModuleProceduralFairing>() != null)
+                    fairingParts.Add(partRef);
+
+                bool hasRetractableLadder = false;
+                bool hasAnimationGroup = false;
+                bool hasDedicatedAnimateHandler =
+                    deployable != null ||
+                    p.FindModuleImplementing<ModuleWheels.ModuleWheelDeployment>() != null ||
+                    cargoBay != null;
+
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    PartModule module = p.Modules[m];
+                    if (module == null) continue;
+                    moduleCount++;
+
+                    string moduleName = module.moduleName ?? string.Empty;
+
+                    var jettison = module as ModuleJettison;
+                    if (jettison != null && !string.IsNullOrWhiteSpace(jettison.jettisonName))
+                    {
+                        jettisonModules.Add(
+                            $"{partRef}(midx={m},names={jettison.jettisonName})");
+                    }
+
+                    var wheel = module as ModuleWheels.ModuleWheelDeployment;
+                    if (wheel != null)
+                    {
+                        gearModules.Add(
+                            $"{partRef}(midx={m},state='{wheel.stateString}')");
+                    }
+
+                    if (string.Equals(moduleName, "RetractableLadder", StringComparison.Ordinal))
+                    {
+                        ladderModules.Add($"{partRef}(midx={m})");
+                        hasRetractableLadder = true;
+                    }
+
+                    if (string.Equals(moduleName, "ModuleAnimationGroup", StringComparison.Ordinal))
+                    {
+                        animationGroupModules.Add($"{partRef}(midx={m})");
+                        hasAnimationGroup = true;
+                    }
+                }
+
+                if (hasDedicatedAnimateHandler || hasRetractableLadder || hasAnimationGroup)
+                    continue;
+
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    var animateModule = p.Modules[m] as ModuleAnimateGeneric;
+                    if (animateModule == null) continue;
+                    if (string.IsNullOrEmpty(animateModule.animationName)) continue;
+
+                    animateGenericModules.Add(
+                        $"{partRef}(midx={m},anim={animateModule.animationName})");
+                }
+            }
+
+            if (cachedEngines != null)
+            {
+                for (int i = 0; i < cachedEngines.Count; i++)
+                {
+                    var (part, engine, moduleIndex) = cachedEngines[i];
+                    if (part == null || engine == null) continue;
+                    string partName = part.partInfo?.name ?? "unknown";
+                    string engineId = string.IsNullOrEmpty(engine.engineID) ? "<none>" : engine.engineID;
+                    int thrustTransformCount = engine.thrustTransforms != null ? engine.thrustTransforms.Count : 0;
+                    engineModules.Add(
+                        $"{partName}[pid={part.persistentId}](midx={moduleIndex},id={engineId},thrust={thrustTransformCount})");
+                }
+            }
+
+            if (cachedRcsModules != null)
+            {
+                for (int i = 0; i < cachedRcsModules.Count; i++)
+                {
+                    var (part, rcs, moduleIndex) = cachedRcsModules[i];
+                    if (part == null || rcs == null) continue;
+                    string partName = part.partInfo?.name ?? "unknown";
+                    int thrusterCount = rcs.thrusterTransforms != null ? rcs.thrusterTransforms.Count : 0;
+                    int forceCount = rcs.thrustForces != null ? rcs.thrustForces.Length : 0;
+                    rcsModules.Add(
+                        $"{partName}[pid={part.persistentId}](midx={moduleIndex},thrusters={thrusterCount},forces={forceCount},power={rcs.thrusterPower:F1})");
+                }
+            }
+
+            if (cachedRoboticModules != null)
+            {
+                for (int i = 0; i < cachedRoboticModules.Count; i++)
+                {
+                    var (part, _, moduleIndex, moduleName) = cachedRoboticModules[i];
+                    if (part == null) continue;
+                    string partName = part.partInfo?.name ?? "unknown";
+                    roboticModules.Add(
+                        $"{partName}[pid={part.persistentId}](midx={moduleIndex},module={moduleName})");
+                }
+            }
+
+            ParsekLog.Log(
+                $"Visual recording coverage for '{v.vesselName}' pid={v.persistentId}: " +
+                $"parts={v.parts.Count} modules={moduleCount} " +
+                $"parachute={parachuteParts.Count} jettison={jettisonModules.Count} deployable={deployableParts.Count} " +
+                $"ladder={ladderModules.Count} animationGroup={animationGroupModules.Count} animateGeneric={animateGenericModules.Count} " +
+                $"lights={lightParts.Count} gear={gearModules.Count} cargoBay={cargoBayParts.Count} fairing={fairingParts.Count} " +
+                $"engine={engineModules.Count} rcs={rcsModules.Count} robotics={roboticModules.Count}");
+
+            LogCoverageDetails("Parachute", parachuteParts);
+            LogCoverageDetails("Jettison", jettisonModules);
+            LogCoverageDetails("Deployable", deployableParts);
+            LogCoverageDetails("Ladder", ladderModules);
+            LogCoverageDetails("AnimationGroup", animationGroupModules);
+            LogCoverageDetails("AnimateGeneric", animateGenericModules);
+            LogCoverageDetails("Light", lightParts);
+            LogCoverageDetails("Gear", gearModules);
+            LogCoverageDetails("CargoBay", cargoBayParts);
+            LogCoverageDetails("Fairing", fairingParts);
+            LogCoverageDetails("Engine", engineModules);
+            LogCoverageDetails("RCS", rcsModules);
+            LogCoverageDetails("Robotics", roboticModules);
         }
 
         internal static List<PartEvent> CheckEngineTransition(
@@ -1255,6 +1502,15 @@ namespace Parsek
                 ulong key = EncodeEngineKey(part.persistentId, moduleIndex);
                 bool ignited = engine.EngineIgnited && engine.isOperational;
                 float throttle = engine.currentThrottle;
+                if (loggedEngineModuleKeys.Add(key))
+                {
+                    int thrustTransformCount = engine.thrustTransforms != null
+                        ? engine.thrustTransforms.Count
+                        : 0;
+                    string engineId = string.IsNullOrEmpty(engine.engineID) ? "<none>" : engine.engineID;
+                    ParsekLog.Log($"Engine tracking: '{part.partInfo?.name}' pid={part.persistentId} " +
+                        $"midx={moduleIndex} id={engineId} thrustTransforms={thrustTransformCount}");
+                }
 
                 var events = CheckEngineTransition(
                     key, part.persistentId, moduleIndex,
@@ -1383,6 +1639,13 @@ namespace Parsek
                 ulong key = EncodeEngineKey(part.persistentId, moduleIndex);
                 bool active = rcs.rcs_active && rcs.rcsEnabled;
                 float power = active ? ComputeRcsPower(rcs.thrustForces, rcs.thrusterPower) : 0f;
+                if (loggedRcsModuleKeys.Add(key))
+                {
+                    int thrusterCount = rcs.thrusterTransforms != null ? rcs.thrusterTransforms.Count : 0;
+                    int forceCount = rcs.thrustForces != null ? rcs.thrustForces.Length : 0;
+                    ParsekLog.Log($"RCS tracking: '{part.partInfo?.name}' pid={part.persistentId} " +
+                        $"midx={moduleIndex} thrusters={thrusterCount} forces={forceCount} power={rcs.thrusterPower:F2}");
+                }
 
                 var events = CheckRcsTransition(
                     key, part.persistentId, moduleIndex,
@@ -1882,12 +2145,21 @@ namespace Parsek
             deployedLadders.Clear();
             deployedAnimationGroups.Clear();
             deployedAnimateGenericModules.Clear();
+            loggedLadderClassificationMisses.Clear();
+            loggedAnimationGroupClassificationMisses.Clear();
+            loggedAnimateGenericClassificationMisses.Clear();
+            loggedCargoBayDeployIndexIssues.Clear();
+            loggedCargoBayAnimationIssues.Clear();
+            loggedCargoBayClosedPositionIssues.Clear();
+            loggedFairingReadFailures.Clear();
             cachedEngines = CacheEngineModules(v);
             activeEngineKeys = new HashSet<ulong>();
             lastThrottle = new Dictionary<ulong, float>();
+            loggedEngineModuleKeys.Clear();
             cachedRcsModules = CacheRcsModules(v);
             activeRcsKeys = new HashSet<ulong>();
             lastRcsThrottle = new Dictionary<ulong, float>();
+            loggedRcsModuleKeys.Clear();
             cachedRoboticModules = CacheRoboticModules(v);
             activeRoboticKeys = new HashSet<ulong>();
             lastRoboticPosition = new Dictionary<ulong, float>();
@@ -1911,6 +2183,8 @@ namespace Parsek
                     catch { }
                 }
             }
+
+            LogVisualRecordingCoverage(v);
 
             IsRecording = true;
             isOnRails = false;

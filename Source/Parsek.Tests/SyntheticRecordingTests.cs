@@ -1146,10 +1146,10 @@ namespace Parsek.Tests
                     firstEventOffsetSeconds: 3.0),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Bobcat", "LiquidEngineRE-I2", 112,
                     ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0),
+                    firstEventOffsetSeconds: 3.0, rowOffsetMeters: -1.0),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Skiff", "LiquidEngineRE-J10", 113,
                     ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0),
+                    firstEventOffsetSeconds: 3.0, rowOffsetMeters: 1.0),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Mastodon", "LiquidEngineRK-7", 114,
                     ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
                     firstEventOffsetSeconds: 3.0)
