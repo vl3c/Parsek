@@ -587,8 +587,8 @@ namespace Parsek.Tests
         // Event PIDs must match this so the ghost visual builder can find the part.
         private const uint SinglePartPid = 100000;
         // Optional companion part (e.g., kerbal actor) receives the second slot.
-        // Total showcase row entries (indices 0-60).
-        private const int ShowcaseRowCount = 61;
+        // Total showcase row entries (indices 0-65).
+        private const int ShowcaseRowCount = 66;
         // Keep showcases close to the launchpad centerline without overlapping pad geometry.
         private const double ShowcaseDistanceFromPadMeters = 200.0;
 
@@ -617,7 +617,7 @@ namespace Parsek.Tests
         // Lights: 0-5, Deployables: 6-23, Airplane Gear: 24-27, Landing Legs: 28-30,
         // Cargo: 31-33, Engines: 34-36, Ladders: 37-38, RCS: 39-41, Fairings: 42-46,
         // Extra Radiators: 47-48, Drills: 49-50, Deployed Science: 51-58,
-        // Animation Group: 59-60.
+        // Animation Group: 59-60, Parachutes: 61-65.
 
         internal static RecordingBuilder[] DeployableShowcaseRecordings(double baseUT = 0)
         {
@@ -855,13 +855,35 @@ namespace Parsek.Tests
             };
         }
 
+        internal static RecordingBuilder[] ParachuteShowcaseRecordings(double baseUT = 0)
+        {
+            return new[]
+            {
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Parachute Mk16", "parachuteSingle", 61,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ParachuteDeployed, PartEventType.ParachuteCut, 98300000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Parachute Mk2-R", "parachuteRadial", 62,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ParachuteDeployed, PartEventType.ParachuteCut, 98300000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Drogue Mk25", "parachuteDrogue", 63,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ParachuteDeployed, PartEventType.ParachuteCut, 98300000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Drogue Mk12-R", "radialDrogue", 64,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ParachuteDeployed, PartEventType.ParachuteCut, 98300000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Parachute Mk16-XL", "parachuteLarge", 65,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ParachuteDeployed, PartEventType.ParachuteCut, 98300000, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
+            };
+        }
+
         internal static RecordingBuilder InventoryPlacementShowcaseRecording(double baseUT = 0)
         {
             const double metersPerDegree = (2.0 * Math.PI * 600000.0) / 360.0;
             const double spacingMeters = 5.0;
 
             // Continue one slot after the current row tail.
-            const int rowIndex = 61;
+            const int rowIndex = 66;
             double t = baseUT + 30;
             double baseLat = -0.0972;
             double baseLon = -74.5575;
@@ -1758,6 +1780,29 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ParachuteShowcaseRecordings_BuildExpectedShape()
+        {
+            var recordings = ParachuteShowcaseRecordings(baseUT: 17000);
+            Assert.Equal(5, recordings.Length);
+
+            var first = recordings[0].Build();
+            Assert.Equal("Part Showcase - Parachute Mk16", first.GetValue("vesselName"));
+            Assert.Equal("True", first.GetValue("loopPlayback"));
+            Assert.Equal(8, first.GetNodes("PART_EVENT").Length);
+
+            var events = first.GetNodes("PART_EVENT");
+            Assert.Equal(((int)PartEventType.ParachuteDeployed).ToString(), events[0].GetValue("type"));
+            Assert.Equal(((int)PartEventType.ParachuteCut).ToString(), events[1].GetValue("type"));
+
+            var names = new[] { "parachuteSingle", "parachuteRadial", "parachuteDrogue", "radialDrogue", "parachuteLarge" };
+            for (int i = 0; i < recordings.Length; i++)
+            {
+                var g = recordings[i].Build().GetNode("GHOST_VISUAL_SNAPSHOT");
+                Assert.Equal(names[i], g.GetNodes("PART")[0].GetValue("name"));
+            }
+        }
+
+        [Fact]
         public void InventoryPlacementShowcaseRecording_BuildExpectedShape()
         {
             var rec = InventoryPlacementShowcaseRecording(baseUT: 17000).Build();
@@ -1798,7 +1843,8 @@ namespace Parsek.Tests
                 RadiatorShowcaseRecordings(17000),
                 DrillShowcaseRecordings(17000),
                 DeployedScienceShowcaseRecordings(17000),
-                AnimationGroupShowcaseRecordings(17000)
+                AnimationGroupShowcaseRecordings(17000),
+                ParachuteShowcaseRecordings(17000)
             };
 
             foreach (var category in allShowcases)
@@ -1839,7 +1885,8 @@ namespace Parsek.Tests
                 RadiatorShowcaseRecordings(17000),
                 DrillShowcaseRecordings(17000),
                 DeployedScienceShowcaseRecordings(17000),
-                AnimationGroupShowcaseRecordings(17000)
+                AnimationGroupShowcaseRecordings(17000),
+                ParachuteShowcaseRecordings(17000)
             };
 
             var positions = new HashSet<string>();
@@ -1854,7 +1901,7 @@ namespace Parsek.Tests
                         $"Duplicate position in '{rec.GetValue("vesselName")}': {key}");
                 }
             }
-            Assert.Equal(61, positions.Count); // 6 + 18 + 7 + 3 + 3 + 2 + 3 + 5 + 2 + 2 + 8 + 2
+            Assert.Equal(66, positions.Count); // 6 + 18 + 7 + 3 + 3 + 2 + 3 + 5 + 2 + 2 + 8 + 2 + 5
         }
 
         [Fact]
@@ -2404,6 +2451,9 @@ namespace Parsek.Tests
             var animationGroupShowcases = AnimationGroupShowcaseRecordings(baseUT);
             for (int i = 0; i < animationGroupShowcases.Length; i++)
                 writer.AddRecording(animationGroupShowcases[i]);
+            var parachuteShowcases = ParachuteShowcaseRecordings(baseUT);
+            for (int i = 0; i < parachuteShowcases.Length; i++)
+                writer.AddRecording(parachuteShowcases[i]);
             writer.AddRecording(InventoryPlacementShowcaseRecording(baseUT));
 
             var chainSegments = EvaBoardChain(baseUT);
@@ -2495,6 +2545,11 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Part Showcase - Deployed Weather Station", content);
                     Assert.Contains("vesselName = Part Showcase - Ground Anchor", content);
                     Assert.Contains("vesselName = Part Showcase - Survey Scanner", content);
+                    Assert.Contains("vesselName = Part Showcase - Parachute Mk16", content);
+                    Assert.Contains("vesselName = Part Showcase - Parachute Mk2-R", content);
+                    Assert.Contains("vesselName = Part Showcase - Drogue Mk25", content);
+                    Assert.Contains("vesselName = Part Showcase - Drogue Mk12-R", content);
+                    Assert.Contains("vesselName = Part Showcase - Parachute Mk16-XL", content);
                     Assert.Contains("vesselName = Part Showcase - Inventory Placement", content);
                     Assert.Contains("vesselName = Flea Chain", content);
                     Assert.Contains("chainId = chain-eva-board-test", content);
@@ -2526,8 +2581,8 @@ namespace Parsek.Tests
                     $"Expected Parsek/Recordings directory at {recordingsDir}");
 
                 string[] precFiles = Directory.GetFiles(recordingsDir, "*.prec");
-                Assert.True(precFiles.Length >= 75,
-                    $"Expected at least 75 .prec files (8 baseline + 6 lights + 18 deployables + 7 gear + 3 cargo + 3 engines + 2 ladders + 3 RCS + 5 fairings + 2 extra radiators + 2 drills + 8 deployed science + 2 animation-group + 1 inventory-placement + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
+                Assert.True(precFiles.Length >= 80,
+                    $"Expected at least 80 .prec files (8 baseline + 6 lights + 18 deployables + 7 gear + 3 cargo + 3 engines + 2 ladders + 3 RCS + 5 fairings + 2 extra radiators + 2 drills + 8 deployed science + 2 animation-group + 5 parachutes + 1 inventory-placement + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
             }
         }
 
