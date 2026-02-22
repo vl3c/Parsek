@@ -189,18 +189,26 @@ namespace Parsek
                     {
                         double bodyRadius = bodyData[0];
 
-                        // Distance from previous point (same body only)
+                        // Distance from previous point (same body only).
+                        // Skip when both points fall inside an orbit segment
+                        // to avoid double-counting distance already covered
+                        // by the segment's mean-speed calculation.
                         if (i > 0 && (rec.Points[i - 1].bodyName ?? "Kerbin") == body)
                         {
                             var prev = rec.Points[i - 1];
-                            double avgAlt = (prev.altitude + pt.altitude) * 0.5;
-                            double surfaceDist = HaversineDistance(
-                                prev.latitude, prev.longitude,
-                                pt.latitude, pt.longitude,
-                                bodyRadius + avgAlt);
-                            double altDiff = System.Math.Abs(pt.altitude - prev.altitude);
-                            stats.distanceTravelled += System.Math.Sqrt(
-                                surfaceDist * surfaceDist + altDiff * altDiff);
+                            double midUT = (prev.ut + pt.ut) * 0.5;
+                            bool inOrbitSegment = FindOrbitSegment(rec.OrbitSegments, midUT) != null;
+                            if (!inOrbitSegment)
+                            {
+                                double avgAlt = (prev.altitude + pt.altitude) * 0.5;
+                                double surfaceDist = HaversineDistance(
+                                    prev.latitude, prev.longitude,
+                                    pt.latitude, pt.longitude,
+                                    bodyRadius + avgAlt);
+                                double altDiff = System.Math.Abs(pt.altitude - prev.altitude);
+                                stats.distanceTravelled += System.Math.Sqrt(
+                                    surfaceDist * surfaceDist + altDiff * altDiff);
+                            }
                         }
 
                         // Max range from first point (same body only)

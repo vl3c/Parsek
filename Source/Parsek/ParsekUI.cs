@@ -395,8 +395,11 @@ namespace Parsek
                         if (GUILayout.Button("?", GUILayout.Width(ColW_Delete)))
                         {
                             deleteConfirmIndex = -1;
+                            // Rebase period edit index after deletion
                             if (editingLoopPeriodIdx == ri)
                                 editingLoopPeriodIdx = -1;
+                            else if (editingLoopPeriodIdx > ri)
+                                editingLoopPeriodIdx--;
                             flight.DeleteRecording(ri);
                             InvalidateSort();
                             GUI.enabled = true;
@@ -611,7 +614,7 @@ namespace Parsek
 
         private RecordingStats GetOrComputeStats(RecordingStore.Recording rec)
         {
-            if (rec.CachedStats.HasValue)
+            if (rec.CachedStats.HasValue && rec.CachedStatsPointCount == rec.Points.Count)
                 return rec.CachedStats.Value;
 
             System.Func<string, double[]> bodyLookup = name =>
@@ -623,6 +626,7 @@ namespace Parsek
 
             var stats = TrajectoryMath.ComputeStats(rec, bodyLookup);
             rec.CachedStats = stats;
+            rec.CachedStatsPointCount = rec.Points.Count;
             return stats;
         }
 
