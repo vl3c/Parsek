@@ -1,8 +1,8 @@
 # Parsek: Preliminary Architecture
 
 ## Document Status
-**Version:** 0.4
-**Phase:** Post-Phase 2 (all part events implemented)
+**Version:** 0.5
+**Phase:** Post-Phase 2 (core part events implemented; some features are still experimental)
 **Last Updated:** February 2026
 
 ---
@@ -445,13 +445,13 @@ Time advances
 
 ### Save Game Integration
 
-Using KSP's `ScenarioModule` system (`ParsekScenario`). Lightweight metadata + mutable playback state stored in the `.sfs` save file; bulk data stored in external per-recording sidecar files (format version 3).
+Using KSP's `ScenarioModule` system (`ParsekScenario`). Lightweight metadata + mutable playback state stored in the `.sfs` save file; bulk data stored in external per-recording sidecar files (format version 4).
 
-**In .sfs (per RECORDING node):** `recordingId`, `vesselName`, `pointCount`, `recordingFormatVersion = 3`, mutable state (`vesselDestroyed`, `takenControl`, `spawnedPid`, `lastResIdx`), EVA linkage, ghost geometry metadata.
+**In .sfs (per RECORDING node):** `recordingId`, `vesselName`, `pointCount`, `recordingFormatVersion = 4`, mutable state (`vesselDestroyed`, `takenControl`, `spawnedPid`, `lastResIdx`), EVA linkage, ghost geometry metadata.
 
 **No inline POINT, ORBIT_SEGMENT, PART_EVENT, or snapshot nodes** — all bulk data lives in external files.
 
-### External Recording Files (v3)
+### External Recording Files (v4)
 
 ```
 saves/<save-name>/Parsek/Recordings/
@@ -650,7 +650,7 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 - [x] 17 edge cases identified and resolved (see TODO-edge-cases.md)
 
 **Recording & playback mechanics (done):**
-- [x] Take control of playback vessel (spawn at ghost position with velocity, crew cleanup)
+- [ ] Take control of playback vessel (experimental/partial; not fully supported yet)
 - [x] Orbital/time-warp recording (save orbit params instead of sampling)
 - [x] Ghost as actual vessel model (opaque replica from prefab meshes)
 - [x] Adaptive threshold sampling (velocity direction >2deg, speed >5%, 3s backstop)
@@ -664,7 +664,7 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 - [x] Part event playback (decoupled subtrees hidden, destroyed parts hidden)
 - [x] Real parachute canopy deploy on ghost (semi-deployed animation sampled from prefab)
 - [x] Event-driven shroud jettison for ghost engine parts
-- [x] External recording files (v3) — bulk data in sidecar files, lightweight .sfs
+- [x] External recording files (v4) — bulk data in sidecar files, lightweight .sfs
 - [x] Engine FX on ghost vessels (modern EFFECTS + legacy fx_* prefab fallback)
 
 **Remaining for MVP:**
@@ -675,7 +675,7 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 
 ### Phase 2: Ghost Visual Fidelity — New Events (Complete)
 
-All planned part event types are now implemented. 28 event types total, covering the full visual state of ghost vessels.
+All planned part event types are now implemented. 28 event types are recorded; most drive ghost visuals, while docking/undocking events are used for chain boundaries.
 
 **Recorded event types (28 total):**
 - [x] Decoupled / Destroyed (subtree hide via `onPartJointBreak` / `onPartDie`)
@@ -694,7 +694,7 @@ All planned part event types are now implemented. 28 event types total, covering
 **Deferred (too complex or low value):**
 - Control surface deflection — continuous float, thousands of events per flight
 - Robotics (Breaking Ground DLC) — continuous motion, DLC-dependent
-- Standalone `ModuleAnimateGeneric` (docking port shields, goo canisters) — see `docs/research/next-parts-event-support-priority.md`
+- Additional part-template coverage and showcase breadth (tracked in `docs/research/next-parts-event-support-priority.md`)
 
 ### Phase 3: Polish & UX
 
@@ -712,7 +712,7 @@ All planned part event types are now implemented. 28 event types total, covering
 - [x] Event-based recording (28 part event types — see Phase 2)
 - [x] Real parachute canopy on ghost vessels
 - [x] Event-driven shroud jettison for ghost vessels
-- [x] External recording files (v3 format)
+- [x] External recording files (v4 format)
 - [x] Engine FX on ghost vessels (modern EFFECTS + legacy fx_* prefab fallback)
 - [x] RCS FX on ghost vessels (particle systems from EFFECTS/MODEL_MULTI_PARTICLE)
 - [x] Fairing cone mesh generation on ghost vessels
@@ -737,7 +737,7 @@ Parsek is a **parallel mission replay** mod: record missions, revert, and have t
 1. **Trajectory interpolation:** Linear (`Vector3.Lerp`, `Quaternion.Lerp`) — cubic adds complexity with negligible visual improvement at typical adaptive sample rates.
 2. **Ghost vessel rendering:** Opaque replica from prefab meshes with original materials. No shader modification.
 3. **SOI transitions:** Body name (`string BodyName`) per TrajectoryFrame. Naturally handles multi-body trajectories.
-4. **Recording file size:** External sidecar files (v3) — bulk data in `.prec` and `.craft` files, lightweight metadata in `.sfs`.
+4. **Recording file size:** External sidecar files (v4) — bulk data in `.prec` and `.craft` files, lightweight metadata in `.sfs`.
 
 ---
 

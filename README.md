@@ -24,7 +24,7 @@ Recorded vessels are full visual replicas — original part meshes, textures, en
 - **Vessel persistence** — recorded vessels spawn with crew, or get recovered for funds
 - **Crew management** — reserved crew get temporary replacements so your roster stays full
 - **Orbital recording** — time warp segments use analytical Keplerian orbits
-- **Part events** — staging, decoupling, parachutes, engines, solar panels, antennas, lights, landing gear, cargo bays, fairings, RCS, and docking all replay on the ghost
+- **Part events** — staging, decoupling, parachutes, engines, solar panels, antennas, lights, landing gear, cargo bays, fairings, RCS, and inventory deployables replay on the ghost; docking/undocking are recorded as chain boundaries
 - **Resource tracking** — funds, science, and reputation deltas applied at the correct time
 - **Recordings manager** — browse, sort, loop, and delete individual recordings
 - **External recording files** — bulk trajectory data stored in sidecar files, keeping saves lightweight
