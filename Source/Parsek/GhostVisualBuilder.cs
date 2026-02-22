@@ -2390,8 +2390,10 @@ namespace Parsek
 
             // Parts with ModulePartVariants have multiple visual variants where only
             // one set of GameObjects is active at a time (e.g. Poodle v2: DoubleBell vs
-            // SingleBell). The prefab has the base variant applied, so inactive objects
-            // belong to non-selected variants and must be skipped to avoid overlap.
+            // SingleBell). Prefer active renderers to avoid overlap from inactive
+            // non-selected variant objects. Some prefabs (notably a subset of robotics)
+            // expose all variant renderers inactive at this stage, so fall back to
+            // cloning inactive renderers to avoid green-sphere ghosts.
             bool hasPartVariants = prefab.FindModuleImplementing<ModulePartVariants>() != null;
 
             var meshRenderers = modelRoot.GetComponentsInChildren<MeshRenderer>(true);
@@ -2402,10 +2404,36 @@ namespace Parsek
 
             int totalMR = meshRenderers != null ? meshRenderers.Length : 0;
             int totalSMR = skinnedRenderers != null ? skinnedRenderers.Length : 0;
+            int activeMR = 0;
+            int activeSMR = 0;
+            if (meshRenderers != null)
+            {
+                for (int i = 0; i < meshRenderers.Length; i++)
+                {
+                    var mr = meshRenderers[i];
+                    if (mr != null && mr.gameObject.activeInHierarchy)
+                        activeMR++;
+                }
+            }
+            if (skinnedRenderers != null)
+            {
+                for (int i = 0; i < skinnedRenderers.Length; i++)
+                {
+                    var smr = skinnedRenderers[i];
+                    if (smr != null && smr.gameObject.activeInHierarchy && smr.sharedMesh != null)
+                        activeSMR++;
+                }
+            }
+            bool filterInactiveVariantRenderers = hasPartVariants && (activeMR > 0 || activeSMR > 0);
             ParsekLog.Log($"  Part '{partName}' pid={persistentId}: modelRoot='{modelRoot.name}' " +
                 $"modelScale={modelRoot.localScale}, " +
                 $"{totalMR} MeshRenderers, {totalSMR} SkinnedMeshRenderers" +
                 (hasPartVariants ? " (has ModulePartVariants)" : ""));
+            if (hasPartVariants && !filterInactiveVariantRenderers)
+            {
+                ParsekLog.Log($"  Variant fallback: no active variant renderers found " +
+                    $"(active MR={activeMR}, active SMR={activeSMR}); including inactive renderers");
+            }
 
             // Name by persistentId for O(1) lookup during playback; fall back to part name
             string partLabel = persistentId != 0
@@ -2449,7 +2477,7 @@ namespace Parsek
             {
                 var mr = meshRenderers[r];
                 if (mr == null) continue;
-                if (hasPartVariants && !mr.gameObject.activeInHierarchy)
+                if (filterInactiveVariantRenderers && !mr.gameObject.activeInHierarchy)
                 {
                     variantSkipped++;
                     continue;
@@ -2472,7 +2500,7 @@ namespace Parsek
             {
                 var smr = skinnedRenderers[r];
                 if (smr == null || smr.sharedMesh == null) continue;
-                if (hasPartVariants && !smr.gameObject.activeInHierarchy) continue;
+                if (filterInactiveVariantRenderers && !smr.gameObject.activeInHierarchy) continue;
 
                 Transform leaf = MirrorTransformChain(smr.transform, modelRoot, modelNode.transform, cloneMap);
 
