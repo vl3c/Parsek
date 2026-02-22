@@ -692,8 +692,8 @@ namespace Parsek.Tests
         // Event PIDs must match this so the ghost visual builder can find the part.
         private const uint SinglePartPid = 100000;
         // Optional companion part (e.g., kerbal actor) receives the second slot.
-        // Total visible showcase row entries (indices 0-172, including inventory placement).
-        private const int ShowcaseRowCount = 173;
+        // Total visible showcase row entries (indices 0-185, including inventory placement).
+        private const int ShowcaseRowCount = 186;
         // Keep showcases close to the launchpad centerline without overlapping pad geometry.
         private const double ShowcaseDistanceFromPadMeters = 200.0;
         // Shroud-jettison showcase parts include tall engine plates and engines that clip at base altitude.
@@ -726,7 +726,7 @@ namespace Parsek.Tests
         // Extra Radiators: 55-56, Drills: 57-58, Deployed Science: 59-66,
         // Animation Group: 67-68, Parachutes: 69-73, Special Deploy Animations: 74-85 and 115-116,
         // Jettison Coverage: 86-114, Robotics: 117-137, AeroSurface: 138, Robot Arm Scanners: 139-141,
-        // Control Surfaces: 142-165, Wheel Dynamics: 166-171, Inventory Placement: 172.
+        // Control Surfaces: 142-165, Wheel Dynamics: 166-171, AnimateHeat: 172-184, Inventory Placement: 185.
 
         internal static RecordingBuilder[] DeployableShowcaseRecordings(double baseUT = 0)
         {
@@ -1252,6 +1252,52 @@ namespace Parsek.Tests
                     ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 99000000, SinglePartPid,
                     eventValue: 180f, moduleIndex: 2,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
+            };
+        }
+
+        internal static RecordingBuilder[] AnimateHeatShowcaseRecordings(double baseUT = 0)
+        {
+            return new[]
+            {
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Airplane Tail", "airplaneTail", 172,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, 99100000, SinglePartPid,
+                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Airplane Tail B", "airplaneTailB", 173,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, 99100000, SinglePartPid,
+                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Avionics Nose Cone", "avionicsNoseCone", 174,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, 99100000, SinglePartPid,
+                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Circular Intake", "CircularIntake", 175,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, 99100000, SinglePartPid,
+                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Mk1 Intake Fuselage", "MK1IntakeFuselage", 176,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, 99100000, SinglePartPid,
+                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Nacelle Body", "nacelleBody", 177,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, 99100000, SinglePartPid,
+                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Nose Cone Adapter", "noseConeAdapter", 178,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, 99100000, SinglePartPid,
+                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Pointy Nose Cone A", "pointyNoseConeA", 179,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, 99100000, SinglePartPid,
+                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Pointy Nose Cone B", "pointyNoseConeB", 180,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, 99100000, SinglePartPid,
+                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Radial Engine Body", "radialEngineBody", 181,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, 99100000, SinglePartPid,
+                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Ram Air Intake", "ramAirIntake", 182,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, 99100000, SinglePartPid,
+                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Shock Cone Intake", "shockConeIntake", 183,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, 99100000, SinglePartPid,
+                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Standard Nose Cone", "standardNoseCone", 184,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, 99100000, SinglePartPid,
+                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
             };
         }
 
@@ -2488,6 +2534,46 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void AnimateHeatShowcaseRecordings_BuildExpectedShape()
+        {
+            var recordings = AnimateHeatShowcaseRecordings(baseUT: 17000);
+            Assert.Equal(13, recordings.Length);
+
+            var first = recordings[0].Build();
+            Assert.Equal("Part Showcase - AnimateHeat Airplane Tail", first.GetValue("vesselName"));
+            Assert.Equal("True", first.GetValue("loopPlayback"));
+            Assert.Equal(8, first.GetNodes("PART_EVENT").Length);
+
+            var firstEvents = first.GetNodes("PART_EVENT");
+            Assert.Equal(((int)PartEventType.ThermalAnimationHot).ToString(), firstEvents[0].GetValue("type"));
+            Assert.Equal(((int)PartEventType.ThermalAnimationCold).ToString(), firstEvents[1].GetValue("type"));
+            Assert.Equal("1", firstEvents[0].GetValue("value"));
+
+            var names = new[]
+            {
+                "airplaneTail",
+                "airplaneTailB",
+                "avionicsNoseCone",
+                "CircularIntake",
+                "MK1IntakeFuselage",
+                "nacelleBody",
+                "noseConeAdapter",
+                "pointyNoseConeA",
+                "pointyNoseConeB",
+                "radialEngineBody",
+                "ramAirIntake",
+                "shockConeIntake",
+                "standardNoseCone"
+            };
+
+            for (int i = 0; i < recordings.Length; i++)
+            {
+                var ghost = recordings[i].Build().GetNode("GHOST_VISUAL_SNAPSHOT");
+                Assert.Equal(names[i], ghost.GetNodes("PART")[0].GetValue("name"));
+            }
+        }
+
+        [Fact]
         public void InventoryPlacementShowcaseRecording_BuildExpectedShape()
         {
             var rec = InventoryPlacementShowcaseRecording(baseUT: 17000).Build();
@@ -2536,7 +2622,8 @@ namespace Parsek.Tests
                 AeroSurfaceShowcaseRecordings(17000),
                 RobotArmScannerShowcaseRecordings(17000),
                 ControlSurfaceShowcaseRecordings(17000),
-                WheelDynamicsShowcaseRecordings(17000)
+                WheelDynamicsShowcaseRecordings(17000),
+                AnimateHeatShowcaseRecordings(17000)
             };
 
             foreach (var category in allShowcases)
@@ -2585,7 +2672,8 @@ namespace Parsek.Tests
                 AeroSurfaceShowcaseRecordings(17000),
                 RobotArmScannerShowcaseRecordings(17000),
                 ControlSurfaceShowcaseRecordings(17000),
-                WheelDynamicsShowcaseRecordings(17000)
+                WheelDynamicsShowcaseRecordings(17000),
+                AnimateHeatShowcaseRecordings(17000)
             };
 
             var positions = new HashSet<string>();
@@ -2600,7 +2688,7 @@ namespace Parsek.Tests
                         $"Duplicate position in '{rec.GetValue("vesselName")}': {key}");
                 }
             }
-            Assert.Equal(172, positions.Count); // 6 + 18 + 7 + 11 + 3 + 2 + 3 + 5 + 2 + 2 + 8 + 2 + 5 + 14 + 29 + 21 + 1 + 3 + 24 + 6
+            Assert.Equal(185, positions.Count); // 6 + 18 + 7 + 11 + 3 + 2 + 3 + 5 + 2 + 2 + 8 + 2 + 5 + 14 + 29 + 21 + 1 + 3 + 24 + 6 + 13
         }
 
         [Fact]
@@ -3173,6 +3261,9 @@ namespace Parsek.Tests
             var wheelDynamicsShowcases = WheelDynamicsShowcaseRecordings(baseUT);
             for (int i = 0; i < wheelDynamicsShowcases.Length; i++)
                 writer.AddRecording(wheelDynamicsShowcases[i]);
+            var animateHeatShowcases = AnimateHeatShowcaseRecordings(baseUT);
+            for (int i = 0; i < animateHeatShowcases.Length; i++)
+                writer.AddRecording(animateHeatShowcases[i]);
             writer.AddRecording(InventoryPlacementShowcaseRecording(baseUT));
 
             var chainSegments = EvaBoardChain(baseUT);
@@ -3375,6 +3466,19 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Part Showcase - Wheel Dynamics Rover S2", content);
                     Assert.Contains("vesselName = Part Showcase - Wheel Dynamics Rover XL3", content);
                     Assert.Contains("vesselName = Part Showcase - Wheel Dynamics TR-2L", content);
+                    Assert.Contains("vesselName = Part Showcase - AnimateHeat Airplane Tail", content);
+                    Assert.Contains("vesselName = Part Showcase - AnimateHeat Airplane Tail B", content);
+                    Assert.Contains("vesselName = Part Showcase - AnimateHeat Avionics Nose Cone", content);
+                    Assert.Contains("vesselName = Part Showcase - AnimateHeat Circular Intake", content);
+                    Assert.Contains("vesselName = Part Showcase - AnimateHeat Mk1 Intake Fuselage", content);
+                    Assert.Contains("vesselName = Part Showcase - AnimateHeat Nacelle Body", content);
+                    Assert.Contains("vesselName = Part Showcase - AnimateHeat Nose Cone Adapter", content);
+                    Assert.Contains("vesselName = Part Showcase - AnimateHeat Pointy Nose Cone A", content);
+                    Assert.Contains("vesselName = Part Showcase - AnimateHeat Pointy Nose Cone B", content);
+                    Assert.Contains("vesselName = Part Showcase - AnimateHeat Radial Engine Body", content);
+                    Assert.Contains("vesselName = Part Showcase - AnimateHeat Ram Air Intake", content);
+                    Assert.Contains("vesselName = Part Showcase - AnimateHeat Shock Cone Intake", content);
+                    Assert.Contains("vesselName = Part Showcase - AnimateHeat Standard Nose Cone", content);
                     Assert.Contains("vesselName = Part Showcase - Inventory Placement", content);
                     Assert.Contains("vesselName = Flea Chain", content);
                     Assert.Contains("chainId = chain-eva-board-test", content);
@@ -3406,8 +3510,8 @@ namespace Parsek.Tests
                     $"Expected Parsek/Recordings directory at {recordingsDir}");
 
                 string[] precFiles = Directory.GetFiles(recordingsDir, "*.prec");
-                Assert.True(precFiles.Length >= 165,
-                    $"Expected at least 165 .prec files (8 baseline + 6 lights + 18 deployables + 7 gear + 11 cargo + 3 engines + 2 ladders + 3 RCS + 5 fairings + 2 extra radiators + 2 drills + 8 deployed science + 2 animation-group + 5 parachutes + 14 special deploy animations + 29 jettison showcases + 21 robotics + 1 aero-surface + 3 robot-arm-scanner + 24 control-surface + 6 wheel-dynamics + 1 inventory-placement + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
+                Assert.True(precFiles.Length >= 178,
+                    $"Expected at least 178 .prec files (8 baseline + 6 lights + 18 deployables + 7 gear + 11 cargo + 3 engines + 2 ladders + 3 RCS + 5 fairings + 2 extra radiators + 2 drills + 8 deployed science + 2 animation-group + 5 parachutes + 14 special deploy animations + 29 jettison showcases + 21 robotics + 1 aero-surface + 3 robot-arm-scanner + 24 control-surface + 6 wheel-dynamics + 13 animate-heat + 1 inventory-placement + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
             }
         }
 

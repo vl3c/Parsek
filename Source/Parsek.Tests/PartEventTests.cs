@@ -1636,6 +1636,69 @@ namespace Parsek.Tests
             Assert.Equal(333u, loaded.PartEvents[0].partPersistentId);
         }
 
+        [Fact]
+        public void AnimateHeatTransition_ColdToHot_EmitsHotEvent()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(450, 0);
+            var hotSet = new HashSet<ulong>();
+
+            var evt = FlightRecorder.CheckAnimateHeatTransition(
+                key, 450, "shockConeIntake",
+                isHot: true, isCold: false, normalizedHeat: 0.85f,
+                hotSet, ut: 100.0, moduleIndex: 0);
+
+            Assert.True(evt.HasValue);
+            Assert.Equal(PartEventType.ThermalAnimationHot, evt.Value.eventType);
+            Assert.Equal(0.85f, evt.Value.value, 0.001f);
+            Assert.Contains(key, hotSet);
+        }
+
+        [Fact]
+        public void AnimateHeatTransition_HotToCold_EmitsColdEvent()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(450, 0);
+            var hotSet = new HashSet<ulong> { key };
+
+            var evt = FlightRecorder.CheckAnimateHeatTransition(
+                key, 450, "shockConeIntake",
+                isHot: false, isCold: true, normalizedHeat: 0.02f,
+                hotSet, ut: 120.0, moduleIndex: 0);
+
+            Assert.True(evt.HasValue);
+            Assert.Equal(PartEventType.ThermalAnimationCold, evt.Value.eventType);
+            Assert.Equal(0.02f, evt.Value.value, 0.001f);
+            Assert.DoesNotContain(key, hotSet);
+        }
+
+        [Fact]
+        public void AnimateHeatEvent_SerializationRoundtrip()
+        {
+            var rec = new RecordingStore.Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 120, bodyName = "Kerbin" });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 110,
+                partPersistentId = 451,
+                eventType = PartEventType.ThermalAnimationHot,
+                partName = "shockConeIntake",
+                value = 1f,
+                moduleIndex = 0
+            });
+
+            var node = new ConfigNode("TEST");
+            RecordingStore.SerializeTrajectoryInto(node, rec);
+
+            var loaded = new RecordingStore.Recording();
+            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+
+            Assert.Single(loaded.PartEvents);
+            Assert.Equal(PartEventType.ThermalAnimationHot, loaded.PartEvents[0].eventType);
+            Assert.Equal(1f, loaded.PartEvents[0].value, 0.001f);
+            Assert.Equal(0, loaded.PartEvents[0].moduleIndex);
+            Assert.Equal(451u, loaded.PartEvents[0].partPersistentId);
+        }
+
         #endregion
 
         #region Engine event serialization
