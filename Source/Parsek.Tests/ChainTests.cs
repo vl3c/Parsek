@@ -11,6 +11,7 @@ namespace Parsek.Tests
         public ChainTests()
         {
             RecordingStore.SuppressLogging = true;
+            GameStateStore.SuppressLogging = true;
             ParsekLog.SuppressLogging = true;
             RecordingStore.ResetForTesting();
         }

@@ -75,6 +75,8 @@ namespace Parsek
             int committedCount = RecordingStore.CommittedRecordings.Count;
             int activeGhosts = flight.TimelineGhostCount;
             GUILayout.Label($"Timeline: {committedCount} recording(s), {activeGhosts} active ghost(s)");
+            if (GameStateStore.EventCount > 0)
+                GUILayout.Label($"Events: {GameStateStore.EventCount}");
 
             if (GUILayout.Button($"Recordings ({committedCount})"))
                 showRecordingsWindow = !showRecordingsWindow;
