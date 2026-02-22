@@ -106,6 +106,21 @@ Click any column header to sort by that column. Click again to reverse the sort 
 
 The select-all checkbox in the Loop column header toggles looping for all recordings at once.
 
+### Settings
+
+Click the "Settings" button in the main Parsek window to open the Settings panel. Settings are saved per-save and can also be accessed from KSP's Difficulty Settings screen (Esc > Settings > Parsek).
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Auto-record on launch | On | Start recording when a vessel leaves the pad/runway |
+| Auto-record on EVA | On | Start recording when a kerbal goes EVA from the pad |
+| Auto-stop time warp | On | Stop time warp when a ghost playback is about to begin |
+| Max sample interval | 3.0s | Maximum seconds between trajectory samples (1-10s) |
+| Direction threshold | 2.0° | Velocity direction change that triggers a new sample (0.5-10°) |
+| Speed threshold | 5% | Speed change that triggers a new sample (1-20%) |
+
+The "Defaults" button resets all settings to their original values.
+
 ### Wipe Recordings
 
 Click "Wipe Recordings" in the Parsek UI window to clear all committed recordings. This also frees any reserved crew and removes replacement kerbals.
@@ -116,8 +131,8 @@ Parsek handles several edge cases automatically. These are logged to `KSP.log` (
 
 ### Recording
 
-- **Auto-start on launch** — Recording begins automatically when a vessel leaves the pad or runway (transitions out of PRELAUNCH). A screen message confirms "Recording STARTED (auto)".
-- **Auto-start on EVA from pad** — Going EVA from a vessel sitting on the pad/runway also auto-starts recording on the EVA kerbal.
+- **Auto-start on launch** — Recording begins automatically when a vessel leaves the pad or runway (transitions out of PRELAUNCH). A screen message confirms "Recording STARTED (auto)". Can be disabled in Settings.
+- **Auto-start on EVA from pad** — Going EVA from a vessel sitting on the pad/runway also auto-starts recording on the EVA kerbal. Can be disabled in Settings.
 - **Mid-recording EVA** — Going EVA during an active recording auto-stops the parent recording, commits it, and starts a linked child recording on the EVA kerbal.
 - **Part events** — 28 event types are recorded with timestamps, including staging, decoupling, engine ignition/shutdown/throttle, parachute deploy/cut, solar panel/antenna/radiator extend/retract, light on/off/blink, landing gear deploy/retract, cargo bay open/close, fairing jettison, RCS fire, docking/undocking, and inventory part placement/removal. During ghost playback, decoupled parts (and their subtrees) disappear from the ghost at the correct time. Engines and RCS thrusters emit particle FX during burn phases. Parachute canopies deploy with the real mesh, engine shrouds are jettisoned, and deployable parts animate between stowed/deployed states. Docking/undocking events are used as chain segment boundaries, not direct ghost mesh transforms.
 - **Paused game** — Recording cannot start while the game is paused.
@@ -126,7 +141,7 @@ Parsek handles several edge cases automatically. These are logged to `KSP.log` (
 
 ### Ghost Playback
 
-- **Time warp protection** — Time warp is stopped once when UT is about to enter a recording's time range, but only if the recording has an unspawned vessel. Time warp during active ghost playback is allowed.
+- **Time warp protection** — Time warp is stopped once when UT is about to enter a recording's time range, but only if the recording has an unspawned vessel. Time warp during active ghost playback is allowed. Can be disabled in Settings.
 - **SOI changes** — Recordings that cross SOI boundaries (e.g. Kerbin to Mun) play back correctly. Each trajectory point references its own celestial body.
 
 ### Vessel Spawning

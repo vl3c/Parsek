@@ -33,13 +33,8 @@ Recordings Manager UI with sortable columns, per-recording loop/delete, and stat
 
 Make the existing loop frictionless and configurable for different play styles.
 
-### Settings panel
-`GameParameters.CustomParameterNode` for in-game settings:
-- Toggle auto-record on/off (some players find it intrusive)
-- Adjust sampling thresholds (orientation, velocity, max interval)
-- Toggle auto-warp-stop on/off
-
-This is the single highest-impact QoL feature — players who dislike auto-record currently have no way to turn it off.
+### ~~Settings panel~~ (Done)
+`GameParameters.CustomParameterNode` with per-save persistence. Six settings: auto-record on launch, auto-record on EVA, auto-stop time warp, max sample interval, direction threshold, speed threshold. Accessible from both the Parsek UI window (Settings button) and KSP's Difficulty Settings screen (Esc > Settings > Parsek).
 
 ### Recording stats
 Compute from existing trajectory data (no new recording needed):
