@@ -201,6 +201,9 @@ namespace Parsek
             Log($"[Parsek] Committed recording from {pendingRecording.VesselName} " +
                 $"({pendingRecording.Points.Count} points). Total committed: {committedRecordings.Count}");
             pendingRecording = null;
+
+            // Capture a game state baseline at each commit (single funnel point)
+            GameStateStore.CaptureBaselineIfNeeded();
         }
 
         public static void DiscardPending()

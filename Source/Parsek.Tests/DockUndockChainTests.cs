@@ -11,6 +11,7 @@ namespace Parsek.Tests
         public DockUndockChainTests()
         {
             RecordingStore.SuppressLogging = true;
+            GameStateStore.SuppressLogging = true;
             ParsekLog.SuppressLogging = true;
             RecordingStore.ResetForTesting();
         }
