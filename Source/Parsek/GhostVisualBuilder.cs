@@ -814,6 +814,42 @@ namespace Parsek
             return !string.IsNullOrEmpty(animationName);
         }
 
+        private static bool TryGetStandaloneAnimateGenericDeployAnimation(
+            Part prefab, out string animationName)
+        {
+            animationName = null;
+            if (prefab == null || prefab.Modules == null) return false;
+
+            // Skip modules already handled by dedicated visual paths.
+            if (prefab.FindModuleImplementing<ModuleDeployablePart>() != null) return false;
+            if (prefab.FindModuleImplementing<ModuleWheels.ModuleWheelDeployment>() != null) return false;
+            if (prefab.FindModuleImplementing<ModuleCargoBay>() != null) return false;
+
+            bool hasAnimationGroup = false;
+            for (int m = 0; m < prefab.Modules.Count; m++)
+            {
+                PartModule module = prefab.Modules[m];
+                if (module == null) continue;
+                if (string.Equals(module.moduleName, "RetractableLadder", System.StringComparison.Ordinal))
+                    return false;
+                if (string.Equals(module.moduleName, "ModuleAnimationGroup", System.StringComparison.Ordinal))
+                    hasAnimationGroup = true;
+            }
+            if (hasAnimationGroup) return false;
+
+            for (int m = 0; m < prefab.Modules.Count; m++)
+            {
+                ModuleAnimateGeneric animateModule = prefab.Modules[m] as ModuleAnimateGeneric;
+                if (animateModule == null) continue;
+                if (string.IsNullOrEmpty(animateModule.animationName)) continue;
+
+                animationName = animateModule.animationName;
+                return true;
+            }
+
+            return false;
+        }
+
         /// <summary>
         /// Sample stowed and deployed transform states for stock RetractableLadder modules.
         /// Ladders expose "ladderRetractAnimationName" rather than ModuleDeployablePart, and
@@ -2296,6 +2332,9 @@ namespace Parsek
             string animationGroupDeployAnimName;
             bool hasAnimationGroupDeploy = TryGetAnimationGroupDeployAnimation(
                 prefab, out animationGroupDeployAnimName);
+            string standaloneAnimateGenericAnimName;
+            bool hasStandaloneAnimateGenericDeploy = TryGetStandaloneAnimateGenericDeployAnimation(
+                prefab, out standaloneAnimateGenericAnimName);
 
             // If the part has any animated modules (deployable, gear, ladder, animation-group, cargo bay), ensure
             // the full model transform hierarchy is mirrored into the ghost.  The mesh-cloning
@@ -2307,7 +2346,8 @@ namespace Parsek
                 prefab.FindModuleImplementing<ModuleWheels.ModuleWheelDeployment>() != null ||
                 prefab.FindModuleImplementing<ModuleCargoBay>() != null ||
                 hasRetractableLadder ||
-                hasAnimationGroupDeploy;
+                hasAnimationGroupDeploy ||
+                hasStandaloneAnimateGenericDeploy;
 
             if (needsFullHierarchy)
             {
@@ -2529,6 +2569,52 @@ namespace Parsek
                             transforms = resolvedTransforms
                         };
                         ParsekLog.Log($"    AnimationGroup deployable detected: '{partName}' pid={persistentId}, " +
+                            $"{resolvedTransforms.Count}/{sampledStates.Count} transforms resolved");
+                    }
+                }
+            }
+
+            // Detect standalone ModuleAnimateGeneric deploy animations (e.g. science/inflatable parts)
+            if (deployableInfo == null && hasStandaloneAnimateGenericDeploy)
+            {
+                var sampledStates = SampleLadderStates(prefab, standaloneAnimateGenericAnimName, null);
+                if (sampledStates != null)
+                {
+                    var resolvedTransforms = new List<DeployableTransformState>();
+                    int unresolved = 0;
+                    for (int s = 0; s < sampledStates.Count; s++)
+                    {
+                        var (path, sPos, sRot, sScale, dPos, dRot, dScale) = sampledStates[s];
+                        Transform ghostT = FindTransformByPath(modelNode.transform, path);
+                        if (ghostT != null)
+                        {
+                            resolvedTransforms.Add(new DeployableTransformState
+                            {
+                                t = ghostT,
+                                stowedPos = sPos,
+                                stowedRot = sRot,
+                                stowedScale = sScale,
+                                deployedPos = dPos,
+                                deployedRot = dRot,
+                                deployedScale = dScale
+                            });
+                        }
+                        else
+                        {
+                            unresolved++;
+                            if (unresolved <= 5)
+                                ParsekLog.Log($"    [DIAG] AnimateGeneric '{partName}': unresolved path '{path}'");
+                        }
+                    }
+
+                    if (resolvedTransforms.Count > 0)
+                    {
+                        deployableInfo = new DeployableGhostInfo
+                        {
+                            partPersistentId = persistentId,
+                            transforms = resolvedTransforms
+                        };
+                        ParsekLog.Log($"    AnimateGeneric deployable detected: '{partName}' pid={persistentId}, " +
                             $"{resolvedTransforms.Count}/{sampledStates.Count} transforms resolved");
                     }
                 }
