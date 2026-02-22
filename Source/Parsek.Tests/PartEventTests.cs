@@ -1485,6 +1485,10 @@ namespace Parsek.Tests
             Assert.True(FlightRecorder.IsRoboticModuleName("ModuleRoboticServoPiston"));
             Assert.True(FlightRecorder.IsRoboticModuleName("ModuleRoboticRotationServo"));
             Assert.True(FlightRecorder.IsRoboticModuleName("ModuleRoboticServoRotor"));
+            Assert.True(FlightRecorder.IsRoboticModuleName("ModuleWheelSuspension"));
+            Assert.True(FlightRecorder.IsRoboticModuleName("ModuleWheelSteering"));
+            Assert.True(FlightRecorder.IsRoboticModuleName("ModuleWheelMotor"));
+            Assert.True(FlightRecorder.IsRoboticModuleName("ModuleWheelMotorSteering"));
             Assert.False(FlightRecorder.IsRoboticModuleName("ModuleDeployablePart"));
         }
 

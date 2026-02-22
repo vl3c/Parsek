@@ -2082,12 +2082,21 @@ namespace Parsek
             }
         }
 
+        private static bool IsWheelRoboticModuleName(string moduleName)
+        {
+            return string.Equals(moduleName, "ModuleWheelSuspension", StringComparison.Ordinal) ||
+                   string.Equals(moduleName, "ModuleWheelSteering", StringComparison.Ordinal) ||
+                   string.Equals(moduleName, "ModuleWheelMotor", StringComparison.Ordinal) ||
+                   string.Equals(moduleName, "ModuleWheelMotorSteering", StringComparison.Ordinal);
+        }
+
         internal static bool IsRoboticModuleName(string moduleName)
         {
             return string.Equals(moduleName, "ModuleRoboticServoHinge", StringComparison.Ordinal) ||
                    string.Equals(moduleName, "ModuleRoboticServoPiston", StringComparison.Ordinal) ||
                    string.Equals(moduleName, "ModuleRoboticRotationServo", StringComparison.Ordinal) ||
-                   string.Equals(moduleName, "ModuleRoboticServoRotor", StringComparison.Ordinal);
+                   string.Equals(moduleName, "ModuleRoboticServoRotor", StringComparison.Ordinal) ||
+                   IsWheelRoboticModuleName(moduleName);
         }
 
         internal static List<(Part part, PartModule module, int moduleIndex, string moduleName)> CacheRoboticModules(Vessel v)
@@ -2327,6 +2336,86 @@ namespace Parsek
             return false;
         }
 
+        private static bool TryGetWheelRoboticPositionValue(
+            PartModule module,
+            string moduleName,
+            out float positionValue,
+            out float deadband,
+            out string sourceField)
+        {
+            positionValue = 0f;
+            sourceField = null;
+
+            string[] preferredScalarFields;
+            if (string.Equals(moduleName, "ModuleWheelSuspension", StringComparison.Ordinal))
+            {
+                deadband = 0.0025f;
+                preferredScalarFields = new[]
+                {
+                    "currentSuspensionOffset",
+                    "suspensionOffset",
+                    "compression",
+                    "suspensionCompression",
+                    "suspensionTravel"
+                };
+            }
+            else if (string.Equals(moduleName, "ModuleWheelSteering", StringComparison.Ordinal))
+            {
+                deadband = 0.25f;
+                preferredScalarFields = new[]
+                {
+                    "steeringAngle",
+                    "currentSteering",
+                    "steerAngle",
+                    "steeringInput"
+                };
+            }
+            else
+            {
+                deadband = 1f;
+                preferredScalarFields = new[]
+                {
+                    "currentRPM",
+                    "rpm",
+                    "wheelRPM",
+                    "motorRPM",
+                    "targetRPM",
+                    "driveOutput",
+                    "motorOutput",
+                    "wheelSpeed"
+                };
+            }
+
+            for (int i = 0; i < preferredScalarFields.Length; i++)
+            {
+                if (TryReadModuleFloatField(module, preferredScalarFields[i], out positionValue))
+                {
+                    sourceField = preferredScalarFields[i];
+                    return true;
+                }
+            }
+
+            if (string.Equals(moduleName, "ModuleWheelSuspension", StringComparison.Ordinal))
+            {
+                if (TryReadModuleVector3Field(module, "suspensionPos", out Vector3 suspensionPos))
+                {
+                    positionValue = suspensionPos.magnitude;
+                    sourceField = "suspensionPos";
+                    return true;
+                }
+            }
+
+            if (string.Equals(moduleName, "ModuleWheelMotorSteering", StringComparison.Ordinal) &&
+                TryReadModuleFloatField(module, "steeringAngle", out positionValue))
+            {
+                deadband = 0.25f;
+                sourceField = "steeringAngle";
+                return true;
+            }
+
+            return false;
+        }
+
         private static bool TryGetRoboticPositionValue(
             PartModule module, string moduleName, out float positionValue,
             out float deadband, out string sourceField)
@@ -2336,6 +2425,10 @@ namespace Parsek
             deadband = string.Equals(moduleName, "ModuleRoboticServoPiston", StringComparison.Ordinal)
                 ? roboticLinearDeadbandMeters
                 : roboticAngularDeadbandDegrees;
+
+            if (IsWheelRoboticModuleName(moduleName))
+                return TryGetWheelRoboticPositionValue(
+                    module, moduleName, out positionValue, out deadband, out sourceField);
 
             string[] preferredScalarFields;
             if (string.Equals(moduleName, "ModuleRoboticServoPiston", StringComparison.Ordinal))
