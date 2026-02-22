@@ -8,7 +8,7 @@ namespace Parsek
     internal class JettisonGhostInfo
     {
         public uint partPersistentId;
-        public Transform jettisonTransform;
+        public List<Transform> jettisonTransforms;
     }
 
     internal class ParachuteGhostInfo
@@ -2379,32 +2379,54 @@ namespace Parsek
                 }
             }
 
-            // Detect jettison parts (shrouds/fairings) via cloneMap
-            ModuleJettison jettison = prefab.FindModuleImplementing<ModuleJettison>();
-            if (jettison != null)
+            // Detect jettison parts (shrouds/fairings) via cloneMap.
+            // Some parts expose multiple ModuleJettison modules and/or comma-separated
+            // jettisonName values (e.g. fairingL,fairingR) that must all toggle together.
+            var ghostJettisonTransforms = new List<Transform>();
+            var resolvedJettisonNames = new List<string>();
+            for (int moduleIndex = 0; moduleIndex < prefab.Modules.Count; moduleIndex++)
             {
-                string jettisonName = jettison.jettisonName;
-                if (!string.IsNullOrEmpty(jettisonName))
-                {
-                    Transform srcJettison = prefab.FindModelTransform(jettisonName);
-                    Transform ghostJettison = null;
-                    if (srcJettison != null)
-                        cloneMap.TryGetValue(srcJettison, out ghostJettison);
+                var jettison = prefab.Modules[moduleIndex] as ModuleJettison;
+                if (jettison == null) continue;
 
-                    if (ghostJettison != null)
+                string jettisonNameList = jettison.jettisonName;
+                if (string.IsNullOrWhiteSpace(jettisonNameList)) continue;
+
+                string[] jettisonNames = jettisonNameList.Split(
+                    new[] { ',' }, System.StringSplitOptions.RemoveEmptyEntries);
+                for (int nameIndex = 0; nameIndex < jettisonNames.Length; nameIndex++)
+                {
+                    string jettisonName = jettisonNames[nameIndex].Trim();
+                    if (string.IsNullOrEmpty(jettisonName)) continue;
+
+                    Transform srcJettison = prefab.FindModelTransform(jettisonName);
+                    if (srcJettison == null)
                     {
-                        jettisonInfo = new JettisonGhostInfo
-                        {
-                            partPersistentId = persistentId,
-                            jettisonTransform = ghostJettison
-                        };
-                        ParsekLog.Log($"    Jettison detected: '{jettisonName}' pid={persistentId}");
+                        ParsekLog.Log($"    Jettison '{jettisonName}' not found on prefab for module {moduleIndex} ({partName})");
+                        continue;
                     }
-                    else if (srcJettison != null)
+
+                    Transform ghostJettison;
+                    if (!cloneMap.TryGetValue(srcJettison, out ghostJettison) || ghostJettison == null)
                     {
                         ParsekLog.Log($"    Jettison '{jettisonName}' found on prefab but not in cloneMap");
+                        continue;
                     }
+
+                    if (ghostJettisonTransforms.Contains(ghostJettison)) continue;
+                    ghostJettisonTransforms.Add(ghostJettison);
+                    resolvedJettisonNames.Add(jettisonName);
                 }
+            }
+
+            if (ghostJettisonTransforms.Count > 0)
+            {
+                jettisonInfo = new JettisonGhostInfo
+                {
+                    partPersistentId = persistentId,
+                    jettisonTransforms = ghostJettisonTransforms
+                };
+                ParsekLog.Log($"    Jettison detected: '{string.Join(", ", resolvedJettisonNames.ToArray())}' pid={persistentId}");
             }
 
             // Detect engine parts and clone FX particle systems

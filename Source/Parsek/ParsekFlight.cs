@@ -2420,11 +2420,21 @@ namespace Parsek
             if (state.jettisonInfos == null) return false;
 
             JettisonGhostInfo jetInfo;
-            if (!state.jettisonInfos.TryGetValue(evt.partPersistentId, out jetInfo) || jetInfo.jettisonTransform == null)
+            if (!state.jettisonInfos.TryGetValue(evt.partPersistentId, out jetInfo) ||
+                jetInfo.jettisonTransforms == null ||
+                jetInfo.jettisonTransforms.Count == 0)
                 return false;
 
-            jetInfo.jettisonTransform.gameObject.SetActive(!jettisoned);
-            return true;
+            bool applied = false;
+            for (int i = 0; i < jetInfo.jettisonTransforms.Count; i++)
+            {
+                Transform jettisonTransform = jetInfo.jettisonTransforms[i];
+                if (jettisonTransform == null) continue;
+                jettisonTransform.gameObject.SetActive(!jettisoned);
+                applied = true;
+            }
+
+            return applied;
         }
 
         private static LightPlaybackState GetOrCreateLightPlaybackState(

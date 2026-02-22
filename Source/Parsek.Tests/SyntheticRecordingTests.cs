@@ -512,7 +512,9 @@ namespace Parsek.Tests
             double offDurationSeconds = 3.0,
             string companionPartName = null,
             string companionPartPosition = null,
-            string companionPartRotation = null)
+            string companionPartRotation = null,
+            double rowOffsetMeters = 0.0,
+            double distanceOffsetMeters = 0.0)
         {
             const double metersPerDegree = (2.0 * Math.PI * 600000.0) / 360.0;
             const double spacingMeters = 5.0;
@@ -522,9 +524,11 @@ namespace Parsek.Tests
             double baseLon = -74.5575;
             // Keep the row centered on the launchpad as we expand showcase coverage.
             double rowCenterOffsetMeters = -((ShowcaseRowCount - 1) * spacingMeters * 0.5);
-            double lat = baseLat + ((rowIndex * spacingMeters + rowCenterOffsetMeters) / metersPerDegree);
-            double lon = baseLon + (distanceFromPadMeters / metersPerDegree);
+            double lat = baseLat + ((rowIndex * spacingMeters + rowCenterOffsetMeters + rowOffsetMeters) / metersPerDegree);
+            double lon = baseLon + ((distanceFromPadMeters + distanceOffsetMeters) / metersPerDegree);
             double alt = 66.0;
+            if (onEvent == PartEventType.ShroudJettisoned && offEvent == PartEventType.ShroudJettisoned)
+                alt += ShroudShowcaseAltitudeOffsetMeters;
 
             var b = new RecordingBuilder(vesselName)
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
@@ -632,10 +636,12 @@ namespace Parsek.Tests
         // Event PIDs must match this so the ghost visual builder can find the part.
         private const uint SinglePartPid = 100000;
         // Optional companion part (e.g., kerbal actor) receives the second slot.
-        // Total showcase row entries (indices 0-85).
-        private const int ShowcaseRowCount = 86;
+        // Total showcase row entries (indices 0-114).
+        private const int ShowcaseRowCount = 115;
         // Keep showcases close to the launchpad centerline without overlapping pad geometry.
         private const double ShowcaseDistanceFromPadMeters = 200.0;
+        // Shroud-jettison showcase parts include tall engine plates and engines that clip at base altitude.
+        private const double ShroudShowcaseAltitudeOffsetMeters = 12.0;
 
         private static RecordingBuilder BuildLightShowcaseRecording(
             double baseUT, string vesselName, string lightPartName, int rowIndex)
@@ -662,7 +668,8 @@ namespace Parsek.Tests
         // Lights: 0-5, Deployables: 6-23, Airplane Gear: 24-27, Landing Legs: 28-30,
         // Cargo: 31-41, Engines: 42-44, Ladders: 45-46, RCS: 47-49, Fairings: 50-54,
         // Extra Radiators: 55-56, Drills: 57-58, Deployed Science: 59-66,
-        // Animation Group: 67-68, Parachutes: 69-73, Special Deploy Animations: 74-85.
+        // Animation Group: 67-68, Parachutes: 69-73, Special Deploy Animations: 74-85,
+        // Jettison Coverage: 86-114.
 
         internal static RecordingBuilder[] DeployableShowcaseRecordings(double baseUT = 0)
         {
@@ -979,13 +986,109 @@ namespace Parsek.Tests
             };
         }
 
+        internal static RecordingBuilder[] JettisonShowcaseRecordings(double baseUT = 0)
+        {
+            return new[]
+            {
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Engine Plate 1.5", "EnginePlate1p5", 86,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    firstEventOffsetSeconds: 3.0),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Engine Plate 2", "EnginePlate2", 87,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    firstEventOffsetSeconds: 3.0),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Engine Plate 3", "EnginePlate3", 88,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    firstEventOffsetSeconds: 3.0),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Engine Plate 4", "EnginePlate4", 89,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    firstEventOffsetSeconds: 3.0),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Engine Plate 5", "EnginePlate5", 90,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    firstEventOffsetSeconds: 3.0),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Heat Shield 1", "HeatShield1", 91,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    firstEventOffsetSeconds: 3.0),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Heat Shield 2", "HeatShield2", 92,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    firstEventOffsetSeconds: 3.0),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Heat Shield 3", "HeatShield3", 93,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    firstEventOffsetSeconds: 3.0),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Heat Shield 1.5", "HeatShield1p5", 94,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    firstEventOffsetSeconds: 3.0),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - LV-T30", "liquidEngine", 95,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    firstEventOffsetSeconds: 3.0),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - LV-T30 v2", "liquidEngine.v2", 96,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    firstEventOffsetSeconds: 3.0),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - LV-T45", "liquidEngine2", 97,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    firstEventOffsetSeconds: 3.0),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - LV-T45 v2", "liquidEngine2.v2", 98,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    firstEventOffsetSeconds: 3.0),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Poodle v2", "liquidEngine2-2.v2", 99,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    firstEventOffsetSeconds: 3.0),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Terrier v2", "liquidEngine3.v2", 100,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    firstEventOffsetSeconds: 3.0),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Spark v2", "liquidEngineMini.v2", 101,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    firstEventOffsetSeconds: 3.0),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - NERV", "nuclearEngine", 102,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    firstEventOffsetSeconds: 3.0),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Aerospike", "toroidalAerospike", 103,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    firstEventOffsetSeconds: 3.0),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Thud Mite", "Mite", 104,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    firstEventOffsetSeconds: 3.0),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Shrimp", "Shrimp", 105,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    firstEventOffsetSeconds: 3.0),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Flea v2", "solidBooster.sm.v2", 106,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    firstEventOffsetSeconds: 3.0),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Hammer v2", "solidBooster.v2", 107,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    firstEventOffsetSeconds: 3.0),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Vector", "Size3AdvancedEngine", 108,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    firstEventOffsetSeconds: 3.0),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Kodiak", "LiquidEngineKE-1", 109,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    firstEventOffsetSeconds: 3.0),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Cheetah", "LiquidEngineLV-T91", 110,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    firstEventOffsetSeconds: 3.0),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Wolfhound", "LiquidEngineLV-TX87", 111,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    firstEventOffsetSeconds: 3.0),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Bobcat", "LiquidEngineRE-I2", 112,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    firstEventOffsetSeconds: 3.0,
+                    distanceOffsetMeters: -6.0),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Skiff", "LiquidEngineRE-J10", 113,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    firstEventOffsetSeconds: 3.0),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Mastodon", "LiquidEngineRK-7", 114,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    firstEventOffsetSeconds: 3.0,
+                    distanceOffsetMeters: 6.0)
+            };
+        }
+
         internal static RecordingBuilder InventoryPlacementShowcaseRecording(double baseUT = 0)
         {
             const double metersPerDegree = (2.0 * Math.PI * 600000.0) / 360.0;
             const double spacingMeters = 5.0;
 
             // Continue one slot after the current row tail.
-            const int rowIndex = 86;
+            const int rowIndex = 115;
             double t = baseUT + 30;
             double baseLat = -0.0972;
             double baseLon = -74.5575;
@@ -1945,6 +2048,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void JettisonShowcaseRecordings_BuildExpectedShape()
+        {
+            var recordings = JettisonShowcaseRecordings(baseUT: 17000);
+            Assert.Equal(29, recordings.Length);
+
+            var first = recordings[0].Build();
+            Assert.Equal("Part Showcase - Engine Plate 1.5", first.GetValue("vesselName"));
+            Assert.Equal("True", first.GetValue("loopPlayback"));
+            Assert.Equal(8, first.GetNodes("PART_EVENT").Length);
+
+            var events = first.GetNodes("PART_EVENT");
+            Assert.Equal(((int)PartEventType.ShroudJettisoned).ToString(), events[0].GetValue("type"));
+            Assert.Equal(((int)PartEventType.ShroudJettisoned).ToString(), events[1].GetValue("type"));
+
+            var names = new[]
+            {
+                "EnginePlate1p5", "EnginePlate2", "EnginePlate3", "EnginePlate4", "EnginePlate5",
+                "HeatShield1", "HeatShield2", "HeatShield3", "HeatShield1p5",
+                "liquidEngine", "liquidEngine.v2", "liquidEngine2", "liquidEngine2.v2",
+                "liquidEngine2-2.v2", "liquidEngine3.v2", "liquidEngineMini.v2",
+                "nuclearEngine", "toroidalAerospike",
+                "Mite", "Shrimp", "solidBooster.sm.v2", "solidBooster.v2",
+                "Size3AdvancedEngine",
+                "LiquidEngineKE-1", "LiquidEngineLV-T91", "LiquidEngineLV-TX87",
+                "LiquidEngineRE-I2", "LiquidEngineRE-J10", "LiquidEngineRK-7"
+            };
+            for (int i = 0; i < recordings.Length; i++)
+            {
+                var g = recordings[i].Build().GetNode("GHOST_VISUAL_SNAPSHOT");
+                Assert.Equal(names[i], g.GetNodes("PART")[0].GetValue("name"));
+            }
+        }
+
+        [Fact]
         public void InventoryPlacementShowcaseRecording_BuildExpectedShape()
         {
             var rec = InventoryPlacementShowcaseRecording(baseUT: 17000).Build();
@@ -1987,7 +2124,8 @@ namespace Parsek.Tests
                 DeployedScienceShowcaseRecordings(17000),
                 AnimationGroupShowcaseRecordings(17000),
                 ParachuteShowcaseRecordings(17000),
-                SpecialDeployAnimationShowcaseRecordings(17000)
+                SpecialDeployAnimationShowcaseRecordings(17000),
+                JettisonShowcaseRecordings(17000)
             };
 
             foreach (var category in allShowcases)
@@ -2030,7 +2168,8 @@ namespace Parsek.Tests
                 DeployedScienceShowcaseRecordings(17000),
                 AnimationGroupShowcaseRecordings(17000),
                 ParachuteShowcaseRecordings(17000),
-                SpecialDeployAnimationShowcaseRecordings(17000)
+                SpecialDeployAnimationShowcaseRecordings(17000),
+                JettisonShowcaseRecordings(17000)
             };
 
             var positions = new HashSet<string>();
@@ -2045,7 +2184,7 @@ namespace Parsek.Tests
                         $"Duplicate position in '{rec.GetValue("vesselName")}': {key}");
                 }
             }
-            Assert.Equal(86, positions.Count); // 6 + 18 + 7 + 11 + 3 + 2 + 3 + 5 + 2 + 2 + 8 + 2 + 5 + 12
+            Assert.Equal(115, positions.Count); // 6 + 18 + 7 + 11 + 3 + 2 + 3 + 5 + 2 + 2 + 8 + 2 + 5 + 12 + 29
         }
 
         [Fact]
@@ -2601,6 +2740,9 @@ namespace Parsek.Tests
             var specialDeployAnimationShowcases = SpecialDeployAnimationShowcaseRecordings(baseUT);
             for (int i = 0; i < specialDeployAnimationShowcases.Length; i++)
                 writer.AddRecording(specialDeployAnimationShowcases[i]);
+            var jettisonShowcases = JettisonShowcaseRecordings(baseUT);
+            for (int i = 0; i < jettisonShowcases.Length; i++)
+                writer.AddRecording(jettisonShowcases[i]);
             writer.AddRecording(InventoryPlacementShowcaseRecording(baseUT));
 
             var chainSegments = EvaBoardChain(baseUT);
@@ -2717,6 +2859,35 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Part Showcase - Small Claw", content);
                     Assert.Contains("vesselName = Part Showcase - Mk2 Docking Port", content);
                     Assert.Contains("vesselName = Part Showcase - Mk2 Lander Cabin", content);
+                    Assert.Contains("vesselName = Part Showcase - Engine Plate 1.5", content);
+                    Assert.Contains("vesselName = Part Showcase - Engine Plate 2", content);
+                    Assert.Contains("vesselName = Part Showcase - Engine Plate 3", content);
+                    Assert.Contains("vesselName = Part Showcase - Engine Plate 4", content);
+                    Assert.Contains("vesselName = Part Showcase - Engine Plate 5", content);
+                    Assert.Contains("vesselName = Part Showcase - Heat Shield 1", content);
+                    Assert.Contains("vesselName = Part Showcase - Heat Shield 2", content);
+                    Assert.Contains("vesselName = Part Showcase - Heat Shield 3", content);
+                    Assert.Contains("vesselName = Part Showcase - Heat Shield 1.5", content);
+                    Assert.Contains("vesselName = Part Showcase - LV-T30", content);
+                    Assert.Contains("vesselName = Part Showcase - LV-T30 v2", content);
+                    Assert.Contains("vesselName = Part Showcase - LV-T45", content);
+                    Assert.Contains("vesselName = Part Showcase - LV-T45 v2", content);
+                    Assert.Contains("vesselName = Part Showcase - Poodle v2", content);
+                    Assert.Contains("vesselName = Part Showcase - Terrier v2", content);
+                    Assert.Contains("vesselName = Part Showcase - Spark v2", content);
+                    Assert.Contains("vesselName = Part Showcase - NERV", content);
+                    Assert.Contains("vesselName = Part Showcase - Aerospike", content);
+                    Assert.Contains("vesselName = Part Showcase - Thud Mite", content);
+                    Assert.Contains("vesselName = Part Showcase - Shrimp", content);
+                    Assert.Contains("vesselName = Part Showcase - Flea v2", content);
+                    Assert.Contains("vesselName = Part Showcase - Hammer v2", content);
+                    Assert.Contains("vesselName = Part Showcase - Vector", content);
+                    Assert.Contains("vesselName = Part Showcase - Kodiak", content);
+                    Assert.Contains("vesselName = Part Showcase - Cheetah", content);
+                    Assert.Contains("vesselName = Part Showcase - Wolfhound", content);
+                    Assert.Contains("vesselName = Part Showcase - Bobcat", content);
+                    Assert.Contains("vesselName = Part Showcase - Skiff", content);
+                    Assert.Contains("vesselName = Part Showcase - Mastodon", content);
                     Assert.Contains("vesselName = Part Showcase - Inventory Placement", content);
                     Assert.Contains("vesselName = Flea Chain", content);
                     Assert.Contains("chainId = chain-eva-board-test", content);
@@ -2748,8 +2919,8 @@ namespace Parsek.Tests
                     $"Expected Parsek/Recordings directory at {recordingsDir}");
 
                 string[] precFiles = Directory.GetFiles(recordingsDir, "*.prec");
-                Assert.True(precFiles.Length >= 100,
-                    $"Expected at least 100 .prec files (8 baseline + 6 lights + 18 deployables + 7 gear + 11 cargo + 3 engines + 2 ladders + 3 RCS + 5 fairings + 2 extra radiators + 2 drills + 8 deployed science + 2 animation-group + 5 parachutes + 12 special deploy animations + 1 inventory-placement + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
+                Assert.True(precFiles.Length >= 129,
+                    $"Expected at least 129 .prec files (8 baseline + 6 lights + 18 deployables + 7 gear + 11 cargo + 3 engines + 2 ladders + 3 RCS + 5 fairings + 2 extra radiators + 2 drills + 8 deployed science + 2 animation-group + 5 parachutes + 12 special deploy animations + 29 jettison showcases + 1 inventory-placement + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
             }
         }
 
