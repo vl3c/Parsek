@@ -41,6 +41,7 @@ namespace Parsek
         private HashSet<ulong> deployedAnimationGroups = new HashSet<ulong>();
         private HashSet<ulong> deployedAnimateGenericModules = new HashSet<ulong>();
         private HashSet<ulong> deployedAeroSurfaceModules = new HashSet<ulong>();
+        private HashSet<ulong> deployedControlSurfaceModules = new HashSet<ulong>();
         private HashSet<ulong> deployedRobotArmScannerModules = new HashSet<ulong>();
 
         // Engine state tracking (key = EncodeEngineKey(pid, moduleIndex))
@@ -64,6 +65,7 @@ namespace Parsek
         private HashSet<ulong> loggedAnimationGroupClassificationMisses = new HashSet<ulong>();
         private HashSet<ulong> loggedAnimateGenericClassificationMisses = new HashSet<ulong>();
         private HashSet<ulong> loggedAeroSurfaceClassificationMisses = new HashSet<ulong>();
+        private HashSet<ulong> loggedControlSurfaceClassificationMisses = new HashSet<ulong>();
         private HashSet<ulong> loggedRobotArmScannerClassificationMisses = new HashSet<ulong>();
         private HashSet<uint> loggedCargoBayDeployIndexIssues = new HashSet<uint>();
         private HashSet<uint> loggedCargoBayAnimationIssues = new HashSet<uint>();
@@ -892,6 +894,13 @@ namespace Parsek
             return false;
         }
 
+        internal static bool TryClassifyControlSurfaceState(
+            PartModule controlSurfaceModule, out bool isDeployed, out bool isRetracted)
+        {
+            // ModuleControlSurface exposes similar fields/deflection semantics to ModuleAeroSurface.
+            return TryClassifyAeroSurfaceState(controlSurfaceModule, out isDeployed, out isRetracted);
+        }
+
         internal static bool TryClassifyRobotArmScannerState(
             PartModule robotArmScannerModule, out bool isDeployed, out bool isRetracted)
         {
@@ -1372,6 +1381,52 @@ namespace Parsek
             }
         }
 
+        private void CheckControlSurfaceState(Vessel v)
+        {
+            if (v == null || v.parts == null) return;
+
+            double ut = Planetarium.GetUniversalTime();
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    PartModule module = p.Modules[m];
+                    if (module == null) continue;
+                    if (!string.Equals(module.moduleName, "ModuleControlSurface", StringComparison.Ordinal))
+                        continue;
+
+                    bool isDeployed;
+                    bool isRetracted;
+                    if (!TryClassifyControlSurfaceState(module, out isDeployed, out isRetracted))
+                    {
+                        ulong diagnosticKey = EncodeEngineKey(p.persistentId, m);
+                        if (loggedControlSurfaceClassificationMisses.Add(diagnosticKey))
+                        {
+                            ParsekLog.Log($"ControlSurface: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
+                                $"midx={m}; fields=[{DescribeModuleFields(module)}]");
+                        }
+                        continue;
+                    }
+                    if (!isDeployed && !isRetracted)
+                        continue;
+
+                    ulong key = EncodeEngineKey(p.persistentId, m);
+                    var evt = CheckAnimationGroupTransition(
+                        key, p.persistentId, p.partInfo?.name ?? "unknown",
+                        isDeployed, deployedControlSurfaceModules, ut, m);
+                    if (evt.HasValue)
+                    {
+                        PartEvents.Add(evt.Value);
+                        ParsekLog.Log($"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                            $"pid={evt.Value.partPersistentId} midx={evt.Value.moduleIndex} (control-surface)");
+                    }
+                }
+            }
+        }
+
         private void CheckRobotArmScannerState(Vessel v)
         {
             if (v == null || v.parts == null) return;
@@ -1437,6 +1492,7 @@ namespace Parsek
                 bool hasRetractableLadder = false;
                 bool hasAnimationGroup = false;
                 bool hasAeroSurface = false;
+                bool hasControlSurface = false;
                 bool hasRobotArmScanner = false;
                 for (int m = 0; m < p.Modules.Count; m++)
                 {
@@ -1448,14 +1504,16 @@ namespace Parsek
                         hasAnimationGroup = true;
                     if (string.Equals(module.moduleName, "ModuleAeroSurface", StringComparison.Ordinal))
                         hasAeroSurface = true;
+                    if (string.Equals(module.moduleName, "ModuleControlSurface", StringComparison.Ordinal))
+                        hasControlSurface = true;
                     if (string.Equals(module.moduleName, "ModuleRobotArmScanner", StringComparison.Ordinal))
                         hasRobotArmScanner = true;
                     if (hasRetractableLadder || hasAnimationGroup ||
-                        hasAeroSurface || hasRobotArmScanner)
+                        hasAeroSurface || hasControlSurface || hasRobotArmScanner)
                         break;
                 }
                 if (hasDedicatedHandler || hasRetractableLadder || hasAnimationGroup ||
-                    hasAeroSurface || hasRobotArmScanner) continue;
+                    hasAeroSurface || hasControlSurface || hasRobotArmScanner) continue;
 
                 for (int m = 0; m < p.Modules.Count; m++)
                 {
@@ -1612,6 +1670,7 @@ namespace Parsek
             var cargoBayParts = new List<string>();
             var fairingParts = new List<string>();
             var aeroSurfaceModules = new List<string>();
+            var controlSurfaceModules = new List<string>();
             var robotArmScannerModules = new List<string>();
             var engineModules = new List<string>();
             var rcsModules = new List<string>();
@@ -1647,6 +1706,7 @@ namespace Parsek
                 bool hasRetractableLadder = false;
                 bool hasAnimationGroup = false;
                 bool hasAeroSurface = false;
+                bool hasControlSurface = false;
                 bool hasRobotArmScanner = false;
                 bool hasDedicatedAnimateHandler =
                     deployable != null ||
@@ -1693,6 +1753,12 @@ namespace Parsek
                         hasAeroSurface = true;
                     }
 
+                    if (string.Equals(moduleName, "ModuleControlSurface", StringComparison.Ordinal))
+                    {
+                        controlSurfaceModules.Add($"{partRef}(midx={m})");
+                        hasControlSurface = true;
+                    }
+
                     if (string.Equals(moduleName, "ModuleRobotArmScanner", StringComparison.Ordinal))
                     {
                         robotArmScannerModules.Add($"{partRef}(midx={m})");
@@ -1701,7 +1767,7 @@ namespace Parsek
                 }
 
                 if (hasDedicatedAnimateHandler || hasRetractableLadder || hasAnimationGroup ||
-                    hasAeroSurface || hasRobotArmScanner)
+                    hasAeroSurface || hasControlSurface || hasRobotArmScanner)
                     continue;
 
                 for (int m = 0; m < p.Modules.Count; m++)
@@ -1761,7 +1827,8 @@ namespace Parsek
                 $"parachute={parachuteParts.Count} jettison={jettisonModules.Count} deployable={deployableParts.Count} " +
                 $"ladder={ladderModules.Count} animationGroup={animationGroupModules.Count} animateGeneric={animateGenericModules.Count} " +
                 $"lights={lightParts.Count} gear={gearModules.Count} cargoBay={cargoBayParts.Count} fairing={fairingParts.Count} " +
-                $"aeroSurface={aeroSurfaceModules.Count} robotArmScanner={robotArmScannerModules.Count} " +
+                $"aeroSurface={aeroSurfaceModules.Count} controlSurface={controlSurfaceModules.Count} " +
+                $"robotArmScanner={robotArmScannerModules.Count} " +
                 $"engine={engineModules.Count} rcs={rcsModules.Count} robotics={roboticModules.Count}");
 
             LogCoverageDetails("Parachute", parachuteParts);
@@ -1775,6 +1842,7 @@ namespace Parsek
             LogCoverageDetails("CargoBay", cargoBayParts);
             LogCoverageDetails("Fairing", fairingParts);
             LogCoverageDetails("AeroSurface", aeroSurfaceModules);
+            LogCoverageDetails("ControlSurface", controlSurfaceModules);
             LogCoverageDetails("RobotArmScanner", robotArmScannerModules);
             LogCoverageDetails("Engine", engineModules);
             LogCoverageDetails("RCS", rcsModules);
@@ -2498,11 +2566,13 @@ namespace Parsek
             deployedAnimationGroups.Clear();
             deployedAnimateGenericModules.Clear();
             deployedAeroSurfaceModules.Clear();
+            deployedControlSurfaceModules.Clear();
             deployedRobotArmScannerModules.Clear();
             loggedLadderClassificationMisses.Clear();
             loggedAnimationGroupClassificationMisses.Clear();
             loggedAnimateGenericClassificationMisses.Clear();
             loggedAeroSurfaceClassificationMisses.Clear();
+            loggedControlSurfaceClassificationMisses.Clear();
             loggedRobotArmScannerClassificationMisses.Clear();
             loggedCargoBayDeployIndexIssues.Clear();
             loggedCargoBayAnimationIssues.Clear();
@@ -2792,6 +2862,7 @@ namespace Parsek
             CheckLadderState(v);
             CheckAnimationGroupState(v);
             CheckAeroSurfaceState(v);
+            CheckControlSurfaceState(v);
             CheckRobotArmScannerState(v);
             CheckAnimateGenericState(v);
             CheckLightState(v);

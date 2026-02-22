@@ -2007,6 +2007,36 @@ namespace Parsek
             return true;
         }
 
+        private static bool TryGetControlSurfaceDeployInfo(
+            Part prefab, out string transformName, out float deployAngleDegrees)
+        {
+            transformName = null;
+            deployAngleDegrees = 0f;
+            if (prefab == null) return false;
+
+            ConfigNode partConfig = prefab.partInfo?.partConfig;
+            if (partConfig == null) return false;
+
+            ConfigNode controlModule = FindModuleNode(partConfig, "ModuleControlSurface");
+            if (controlModule == null) return false;
+
+            transformName = controlModule.GetValue("transformName");
+            if (string.IsNullOrEmpty(transformName)) return false;
+
+            string angleRaw = controlModule.GetValue("ctrlSurfaceRange");
+            if (string.IsNullOrEmpty(angleRaw) ||
+                !float.TryParse(angleRaw, NumberStyles.Float, CultureInfo.InvariantCulture, out deployAngleDegrees))
+            {
+                deployAngleDegrees = 0f;
+            }
+
+            // Reasonable fallback for modules with missing/invalid range config.
+            if (Mathf.Abs(deployAngleDegrees) < 0.01f)
+                deployAngleDegrees = 20f;
+
+            return true;
+        }
+
         private static bool TryGetRobotArmScannerDeployAnimations(
             Part prefab, out List<string> animationNames)
         {
@@ -3074,6 +3104,10 @@ namespace Parsek
             float aeroSurfaceDeployAngle;
             bool hasAeroSurfaceDeploy = TryGetAeroSurfaceDeployInfo(
                 prefab, out aeroSurfaceTransformName, out aeroSurfaceDeployAngle);
+            string controlSurfaceTransformName;
+            float controlSurfaceDeployAngle;
+            bool hasControlSurfaceDeploy = TryGetControlSurfaceDeployInfo(
+                prefab, out controlSurfaceTransformName, out controlSurfaceDeployAngle);
             List<string> robotArmScannerAnimCandidates;
             bool hasRobotArmScannerDeploy = TryGetRobotArmScannerDeployAnimations(
                 prefab, out robotArmScannerAnimCandidates);
@@ -3092,6 +3126,7 @@ namespace Parsek
                 hasAnimationGroupDeploy ||
                 hasStandaloneAnimateGenericDeploy ||
                 hasAeroSurfaceDeploy ||
+                hasControlSurfaceDeploy ||
                 hasRobotArmScannerDeploy ||
                 hasRoboticModules;
 
@@ -3423,6 +3458,62 @@ namespace Parsek
                 {
                     ParsekLog.Log($"    AeroSurface '{partName}' pid={persistentId}: " +
                         $"transform '{aeroSurfaceTransformName}' not found under modelRoot");
+                }
+            }
+
+            // Detect ModuleControlSurface visual transforms (elevons/rudders/prop blades).
+            if (deployableInfo == null && hasControlSurfaceDeploy)
+            {
+                var sourceTransforms = FindTransformsRecursive(modelRoot, controlSurfaceTransformName);
+                if (sourceTransforms != null && sourceTransforms.Count > 0)
+                {
+                    var resolvedTransforms = new List<DeployableTransformState>();
+                    for (int i = 0; i < sourceTransforms.Count; i++)
+                    {
+                        Transform sourceTransform = sourceTransforms[i];
+                        if (sourceTransform == null) continue;
+
+                        Transform ghostT;
+                        if (!cloneMap.TryGetValue(sourceTransform, out ghostT) || ghostT == null)
+                        {
+                            string path = GetTransformPath(sourceTransform, modelRoot);
+                            ghostT = FindTransformByPath(modelNode.transform, path);
+                        }
+                        if (ghostT == null) continue;
+
+                        Vector3 stowedPos = ghostT.localPosition;
+                        Quaternion stowedRot = ghostT.localRotation;
+                        Vector3 stowedScale = ghostT.localScale;
+                        Quaternion deployedRot = stowedRot * Quaternion.AngleAxis(controlSurfaceDeployAngle, Vector3.right);
+
+                        resolvedTransforms.Add(new DeployableTransformState
+                        {
+                            t = ghostT,
+                            stowedPos = stowedPos,
+                            stowedRot = stowedRot,
+                            stowedScale = stowedScale,
+                            deployedPos = stowedPos,
+                            deployedRot = deployedRot,
+                            deployedScale = stowedScale
+                        });
+                    }
+
+                    if (resolvedTransforms.Count > 0)
+                    {
+                        deployableInfo = new DeployableGhostInfo
+                        {
+                            partPersistentId = persistentId,
+                            transforms = resolvedTransforms
+                        };
+                        ParsekLog.Log($"    ControlSurface deployable detected: '{partName}' pid={persistentId}, " +
+                            $"transform='{controlSurfaceTransformName}' angle={controlSurfaceDeployAngle:F1} " +
+                            $"resolved={resolvedTransforms.Count}");
+                    }
+                }
+                else
+                {
+                    ParsekLog.Log($"    ControlSurface '{partName}' pid={persistentId}: " +
+                        $"transform '{controlSurfaceTransformName}' not found under modelRoot");
                 }
             }
 
