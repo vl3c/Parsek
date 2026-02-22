@@ -72,16 +72,16 @@ After merging, wait on the pad (or time warp) until UT reaches the recording's t
 
 When you choose "Merge + Keep Vessel", the recorded crew (e.g. Jeb) are reserved for the deferred vessel spawn. A replacement kerbal with the same trait is hired automatically so your available crew pool stays the same size. When the vessel spawns at EndUT, the original crew board it and the replacement is removed.
 
-### Take Control (Experimental, Partial)
+### Take Control (Experimental)
 
-Take Control is available in the UI, but it is still experimental and not fully supported for all recordings or vessel states.
+Take Control is available in the UI but is experimental and not recommended for normal play. Taking control of a ghost creates paradoxes — what happens to the recording's remaining events, reserved crew, and already-applied resource deltas? Resolving these cleanly requires restrictions that are not yet implemented.
 
 Current behavior:
 1. Open the Parsek window (toolbar button)
 2. Click "Take Control" next to an active ghost
 3. Parsek attempts to replace the ghost with a real vessel at the ghost's current position/velocity
 
-This path is useful for testing, but expect edge cases. Use normal EndUT spawn flow for reliable timeline progression.
+Use the normal EndUT vessel spawn flow for reliable timeline progression.
 
 ### Preview Playback
 
