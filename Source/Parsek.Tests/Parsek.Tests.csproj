@@ -20,14 +20,18 @@
     <ProjectReference Include="..\Parsek\Parsek.csproj" />
   </ItemGroup>
 
+  <PropertyGroup>
+    <KSPDir Condition="'$(KSPDir)' == ''">$(MSBuildProjectDirectory)\..\..\Kerbal Space Program</KSPDir>
+  </PropertyGroup>
+
   <!-- Need UnityEngine for Vector3/Quaternion and Assembly-CSharp for ConfigNode in tests -->
   <ItemGroup>
     <Reference Include="UnityEngine.CoreModule">
-      <HintPath>$(MSBuildProjectDirectory)\..\..\Kerbal Space Program\KSP_x64_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
+      <HintPath>$(KSPDir)\KSP_x64_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
       <Private>true</Private>
     </Reference>
     <Reference Include="Assembly-CSharp">
-      <HintPath>$(MSBuildProjectDirectory)\..\..\Kerbal Space Program\KSP_x64_Data\Managed\Assembly-CSharp.dll</HintPath>
+      <HintPath>$(KSPDir)\KSP_x64_Data\Managed\Assembly-CSharp.dll</HintPath>
       <Private>true</Private>
     </Reference>
   </ItemGroup>

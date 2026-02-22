@@ -10,6 +10,7 @@ namespace Parsek.Tests
         public OrbitSegmentTests()
         {
             RecordingStore.SuppressLogging = true;
+            GameStateStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
         }
 
