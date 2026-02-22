@@ -47,6 +47,40 @@ namespace Parsek
             return dir;
         }
 
+        internal static string BuildGameStateEventsRelativePath()
+        {
+            return Path.Combine("Parsek", "GameState", "events.pgse");
+        }
+
+        internal static string BuildBaselineRelativePath(double ut)
+        {
+            return Path.Combine("Parsek", "GameState",
+                $"baseline_{ut.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}.pgsb");
+        }
+
+        internal static string EnsureGameStateDirectory()
+        {
+            string root = KSPUtil.ApplicationRootPath ?? "";
+            string saveFolder = HighLogic.SaveFolder ?? "";
+            if (string.IsNullOrEmpty(root) || string.IsNullOrEmpty(saveFolder))
+                return null;
+
+            string dir = Path.GetFullPath(Path.Combine(root, "saves", saveFolder, "Parsek", "GameState"));
+            if (!Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+            return dir;
+        }
+
+        internal static string ResolveGameStateDirectory()
+        {
+            string root = KSPUtil.ApplicationRootPath ?? "";
+            string saveFolder = HighLogic.SaveFolder ?? "";
+            if (string.IsNullOrEmpty(root) || string.IsNullOrEmpty(saveFolder))
+                return null;
+
+            return Path.GetFullPath(Path.Combine(root, "saves", saveFolder, "Parsek", "GameState"));
+        }
+
         internal static bool ValidateRecordingId(string id)
         {
             if (string.IsNullOrEmpty(id))

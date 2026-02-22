@@ -409,6 +409,7 @@ namespace Parsek.Tests
         public RemoveRecordingAtTests()
         {
             RecordingStore.SuppressLogging = true;
+            GameStateStore.SuppressLogging = true;
             ParsekLog.SuppressLogging = true;
             RecordingStore.ResetForTesting();
         }
