@@ -90,13 +90,12 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        [InlineData(true, true, true)]
-        [InlineData(true, false, false)]
-        [InlineData(false, true, false)]
-        public void ShouldLoopPlayback_RequiresGlobalAndRecordingFlags(
-            bool globalLoopingEnabled, bool recordingLoopPlayback, bool expected)
+        [InlineData(true, true)]
+        [InlineData(false, false)]
+        public void ShouldLoopPlayback_RespectsRecordingFlag(
+            bool recordingLoopPlayback, bool expected)
         {
-            bool actual = ParsekFlight.ShouldLoopPlayback(globalLoopingEnabled, recordingLoopPlayback);
+            bool actual = ParsekFlight.ShouldLoopPlayback(recordingLoopPlayback);
             Assert.Equal(expected, actual);
         }
 

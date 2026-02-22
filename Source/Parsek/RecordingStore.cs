@@ -414,6 +414,41 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Removes a single committed recording by index, deleting its external files.
+        /// If the recording is part of a chain, all remaining chain siblings are degraded to standalone.
+        /// Does NOT handle ghost cleanup or crew unreservation — caller must do that first.
+        /// </summary>
+        internal static void RemoveRecordingAt(int index)
+        {
+            if (index < 0 || index >= committedRecordings.Count) return;
+
+            var rec = committedRecordings[index];
+
+            // If part of a chain, degrade remaining chain siblings to standalone
+            if (!string.IsNullOrEmpty(rec.ChainId))
+            {
+                string chainId = rec.ChainId;
+                for (int i = 0; i < committedRecordings.Count; i++)
+                {
+                    if (i == index) continue;
+                    var other = committedRecordings[i];
+                    if (other.ChainId == chainId)
+                    {
+                        Log($"[Parsek]   Degrading recording '{other.VesselName}' " +
+                            $"(id={other.RecordingId}, idx={other.ChainIndex}, branch={other.ChainBranch}) to standalone");
+                        other.ChainId = null;
+                        other.ChainIndex = -1;
+                        other.ChainBranch = 0;
+                    }
+                }
+            }
+
+            DeleteRecordingFiles(rec);
+            committedRecordings.RemoveAt(index);
+            Log($"[Parsek] Removed recording '{rec.VesselName}' (id={rec.RecordingId}) at index {index}");
+        }
+
+        /// <summary>
         /// Resets state without Unity logging. For unit tests only.
         /// </summary>
         internal static void ResetForTesting()

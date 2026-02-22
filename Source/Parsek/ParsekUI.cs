@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using ClickThroughFix;
 using UnityEngine;
 
 namespace Parsek
@@ -14,6 +15,40 @@ namespace Parsek
         // Map view markers
         private GUIStyle mapMarkerStyle;
         private Texture2D mapMarkerTexture;
+
+        // Recordings window
+        private bool showRecordingsWindow;
+        private Rect recordingsWindowRect;
+        private Vector2 recordingsScrollPos;
+        private int deleteConfirmIndex = -1;
+        private bool isResizingRecordingsWindow;
+        private bool recordingsWindowHasInputLock;
+        private const string RecordingsInputLockId = "Parsek_RecordingsWindow";
+        private const float ResizeHandleSize = 16f;
+        private const float MinWindowWidth = 350f;
+        private const float MinWindowHeight = 150f;
+
+        // Column widths — shared between header and body for alignment
+        private const float ColW_Index = 25f;
+        private const float ColW_Launch = 110f;
+        private const float ColW_Dur = 55f;
+        private const float ColW_Status = 45f;
+        private const float ColW_LoopLabel = 30f;
+        private const float ColW_LoopToggle = 15f;
+        private const float ColW_Delete = 25f;
+        private const float ScrollbarWidth = 16f;
+
+        // Sort state
+        internal enum SortColumn { Index, Name, LaunchTime, Duration, Status }
+        private SortColumn sortColumn = SortColumn.Index;
+        private bool sortAscending = true;
+        private int[] sortedIndices; // maps display row → CommittedRecordings index
+        private int lastSortedCount = -1;
+
+        // Cached styles for status labels
+        private GUIStyle statusStyleFuture;
+        private GUIStyle statusStyleActive;
+        private GUIStyle statusStylePast;
 
         public ParsekUI(ParsekFlight flight)
         {
@@ -40,8 +75,9 @@ namespace Parsek
             int committedCount = RecordingStore.CommittedRecordings.Count;
             int activeGhosts = flight.TimelineGhostCount;
             GUILayout.Label($"Timeline: {committedCount} recording(s), {activeGhosts} active ghost(s)");
-            if (GUILayout.Button($"Toggle Looping ({(flight.TimelineLoopingEnabled ? "On" : "Off")})"))
-                flight.ToggleTimelineLooping();
+
+            if (GUILayout.Button($"Recordings ({committedCount})"))
+                showRecordingsWindow = !showRecordingsWindow;
 
             // Active ghost controls — Take Control buttons
             var committed = RecordingStore.CommittedRecordings;
@@ -134,6 +170,345 @@ namespace Parsek
             GUI.DragWindow();
         }
 
+        public void DrawRecordingsWindowIfOpen(Rect mainWindowRect)
+        {
+            if (!showRecordingsWindow)
+            {
+                ReleaseRecordingsInputLock();
+                return;
+            }
+
+            // Position to the right of main window on first open
+            if (recordingsWindowRect.width < 1f)
+            {
+                recordingsWindowRect = new Rect(
+                    mainWindowRect.x + mainWindowRect.width + 10,
+                    mainWindowRect.y,
+                    520, 350);
+            }
+
+            // Handle resize drag (must be outside the window function to track across frames)
+            if (isResizingRecordingsWindow)
+            {
+                if (Event.current.type == EventType.MouseDrag || Event.current.type == EventType.MouseUp)
+                {
+                    float newW = Mathf.Max(MinWindowWidth, Event.current.mousePosition.x - recordingsWindowRect.x);
+                    float newH = Mathf.Max(MinWindowHeight, Event.current.mousePosition.y - recordingsWindowRect.y);
+                    recordingsWindowRect.width = newW;
+                    recordingsWindowRect.height = newH;
+                }
+                if (Event.current.type == EventType.MouseUp)
+                    isResizingRecordingsWindow = false;
+                if (Event.current.type == EventType.MouseDrag)
+                    Event.current.Use();
+            }
+
+            recordingsWindowRect = ClickThruBlocker.GUILayoutWindow(
+                "ParsekRecordings".GetHashCode(),
+                recordingsWindowRect,
+                DrawRecordingsWindow,
+                "Parsek \u2014 Recordings",
+                GUILayout.Width(recordingsWindowRect.width),
+                GUILayout.Height(recordingsWindowRect.height)
+            );
+
+            // Lock camera controls (including scroll zoom) when mouse is over window.
+            // ClickThroughBlocker uses ALLBUTCAMERAS which intentionally leaves camera
+            // controls unlocked. We add our own lock for CAMERACONTROLS to block scroll zoom.
+            if (recordingsWindowRect.Contains(Event.current.mousePosition))
+            {
+                if (!recordingsWindowHasInputLock)
+                {
+                    InputLockManager.SetControlLock(ControlTypes.CAMERACONTROLS, RecordingsInputLockId);
+                    recordingsWindowHasInputLock = true;
+                }
+            }
+            else
+            {
+                ReleaseRecordingsInputLock();
+            }
+        }
+
+        private void ReleaseRecordingsInputLock()
+        {
+            if (!recordingsWindowHasInputLock) return;
+            InputLockManager.RemoveControlLock(RecordingsInputLockId);
+            recordingsWindowHasInputLock = false;
+        }
+
+        private void DrawRecordingsWindow(int windowID)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            double now = Planetarium.GetUniversalTime();
+
+            EnsureStatusStyles();
+            RebuildSortedIndices(committed, now);
+
+            if (committed.Count == 0)
+            {
+                GUILayout.Label("No recordings.");
+            }
+            else
+            {
+                // Header row with sortable columns
+                // Use same widths as body row cells to ensure alignment.
+                // Add scrollbar-width spacer at end so header spans the same
+                // content width as the scroll view body.
+                GUILayout.BeginHorizontal();
+                DrawSortableHeader("#", SortColumn.Index, ColW_Index);
+                DrawSortableHeader("Name", SortColumn.Name, 0, true);
+                DrawSortableHeader("Launch", SortColumn.LaunchTime, ColW_Launch);
+                DrawSortableHeader("Dur", SortColumn.Duration, ColW_Dur);
+                DrawSortableHeader("Status", SortColumn.Status, ColW_Status);
+
+                // Select-all loop header + checkbox
+                int loopCount = 0;
+                for (int i = 0; i < committed.Count; i++)
+                    if (committed[i].LoopPlayback) loopCount++;
+
+                bool allLoop = loopCount == committed.Count;
+                GUILayout.Label("Loop", GUILayout.Width(ColW_LoopLabel));
+                bool newAllLoop = GUILayout.Toggle(allLoop, "", GUILayout.Width(ColW_LoopToggle));
+                if (newAllLoop != allLoop)
+                {
+                    for (int i = 0; i < committed.Count; i++)
+                        committed[i].LoopPlayback = newAllLoop;
+                }
+
+                GUILayout.Button("", GUI.skin.label, GUILayout.Width(ColW_Delete)); // placeholder
+                GUILayout.Space(ScrollbarWidth); // account for scrollbar in body
+                GUILayout.EndHorizontal();
+
+                // Scrollable table body (expands to fill available window space)
+                recordingsScrollPos = GUILayout.BeginScrollView(
+                    recordingsScrollPos, GUILayout.ExpandHeight(true));
+
+                for (int row = 0; row < sortedIndices.Length; row++)
+                {
+                    int ri = sortedIndices[row];
+                    var rec = committed[ri];
+                    GUILayout.BeginHorizontal();
+
+                    // #
+                    GUILayout.Label((ri + 1).ToString(), GUILayout.Width(ColW_Index));
+
+                    // Name
+                    string name = string.IsNullOrEmpty(rec.VesselName) ? "Untitled" : rec.VesselName;
+                    GUILayout.Label(name, GUILayout.ExpandWidth(true));
+
+                    // Launch Time
+                    string launchTime = rec.Points.Count > 0
+                        ? KSPUtil.PrintDateCompact(rec.StartUT, true)
+                        : "-";
+                    GUILayout.Label(launchTime, GUILayout.Width(ColW_Launch));
+
+                    // Duration
+                    double dur = rec.EndUT - rec.StartUT;
+                    GUILayout.Label(FormatDuration(dur), GUILayout.Width(ColW_Dur));
+
+                    // Status
+                    GUIStyle statusStyle;
+                    string statusText;
+                    if (now < rec.StartUT)
+                    {
+                        statusStyle = statusStyleFuture;
+                        statusText = "future";
+                    }
+                    else if (now <= rec.EndUT)
+                    {
+                        statusStyle = statusStyleActive;
+                        statusText = "active";
+                    }
+                    else
+                    {
+                        statusStyle = statusStylePast;
+                        statusText = "past";
+                    }
+                    GUILayout.Label(statusText, statusStyle, GUILayout.Width(ColW_Status));
+
+                    // Loop checkbox
+                    GUILayout.Label("", GUILayout.Width(ColW_LoopLabel));
+                    bool loop = GUILayout.Toggle(rec.LoopPlayback, "", GUILayout.Width(ColW_LoopToggle));
+                    if (loop != rec.LoopPlayback)
+                        rec.LoopPlayback = loop;
+
+                    // Delete button (disabled during recording/continuation)
+                    GUI.enabled = flight.CanDeleteRecording;
+                    if (deleteConfirmIndex == ri)
+                    {
+                        if (GUILayout.Button("?", GUILayout.Width(ColW_Delete)))
+                        {
+                            deleteConfirmIndex = -1;
+                            flight.DeleteRecording(ri);
+                            InvalidateSort();
+                            GUI.enabled = true;
+                            GUILayout.EndHorizontal();
+                            break; // list changed, stop iterating
+                        }
+                    }
+                    else
+                    {
+                        if (GUILayout.Button("X", GUILayout.Width(ColW_Delete)))
+                            deleteConfirmIndex = ri;
+                    }
+                    GUI.enabled = true;
+
+                    GUILayout.EndHorizontal();
+                }
+
+                GUILayout.EndScrollView();
+            }
+
+            // Reset confirm state if index is now out of range
+            if (deleteConfirmIndex >= committed.Count)
+                deleteConfirmIndex = -1;
+
+            GUILayout.Space(5);
+            if (GUILayout.Button("Close"))
+                showRecordingsWindow = false;
+
+            // Resize handle (bottom-right corner)
+            Rect handleRect = new Rect(
+                recordingsWindowRect.width - ResizeHandleSize,
+                recordingsWindowRect.height - ResizeHandleSize,
+                ResizeHandleSize, ResizeHandleSize);
+            GUI.Label(handleRect, "\u25e2"); // triangle
+            if (Event.current.type == EventType.MouseDown && handleRect.Contains(Event.current.mousePosition))
+            {
+                isResizingRecordingsWindow = true;
+                Event.current.Use();
+            }
+
+            GUI.DragWindow();
+        }
+
+        private void DrawSortableHeader(string label, SortColumn col, float width, bool expand = false)
+        {
+            string arrow = sortColumn == col ? (sortAscending ? " \u25b2" : " \u25bc") : "";
+            bool clicked;
+            if (expand)
+                clicked = GUILayout.Button(label + arrow, GUI.skin.label, GUILayout.ExpandWidth(true));
+            else
+                clicked = GUILayout.Button(label + arrow, GUI.skin.label, GUILayout.Width(width));
+
+            if (clicked)
+            {
+                if (sortColumn == col)
+                    sortAscending = !sortAscending;
+                else
+                {
+                    sortColumn = col;
+                    sortAscending = true;
+                }
+                InvalidateSort();
+            }
+        }
+
+        private void InvalidateSort()
+        {
+            lastSortedCount = -1;
+            sortedIndices = null;
+        }
+
+        private void RebuildSortedIndices(List<RecordingStore.Recording> committed, double now)
+        {
+            if (sortedIndices != null && lastSortedCount == committed.Count)
+                return;
+
+            lastSortedCount = committed.Count;
+            sortedIndices = new int[committed.Count];
+            for (int i = 0; i < committed.Count; i++)
+                sortedIndices[i] = i;
+
+            if (sortColumn == SortColumn.Index)
+            {
+                if (!sortAscending)
+                    System.Array.Reverse(sortedIndices);
+                return;
+            }
+
+            var col = sortColumn;
+            var asc = sortAscending;
+            System.Array.Sort(sortedIndices, (a, b) =>
+                CompareRecordings(committed[a], committed[b], col, asc, now));
+        }
+
+        internal static int GetStatusOrder(RecordingStore.Recording rec, double now)
+        {
+            if (now < rec.StartUT) return 0;  // future
+            if (now <= rec.EndUT) return 1;    // active
+            return 2;                          // past
+        }
+
+        internal static int CompareRecordings(
+            RecordingStore.Recording ra, RecordingStore.Recording rb,
+            SortColumn column, bool ascending, double now)
+        {
+            int cmp = 0;
+            switch (column)
+            {
+                case SortColumn.Index:
+                    cmp = 0; // stable — Array.Sort preserves original order for equal elements
+                    break;
+                case SortColumn.Name:
+                    string na = string.IsNullOrEmpty(ra.VesselName) ? "Untitled" : ra.VesselName;
+                    string nb = string.IsNullOrEmpty(rb.VesselName) ? "Untitled" : rb.VesselName;
+                    cmp = string.Compare(na, nb, System.StringComparison.OrdinalIgnoreCase);
+                    break;
+                case SortColumn.LaunchTime:
+                    cmp = ra.StartUT.CompareTo(rb.StartUT);
+                    break;
+                case SortColumn.Duration:
+                    cmp = (ra.EndUT - ra.StartUT).CompareTo(rb.EndUT - rb.StartUT);
+                    break;
+                case SortColumn.Status:
+                    cmp = GetStatusOrder(ra, now).CompareTo(GetStatusOrder(rb, now));
+                    break;
+            }
+            return ascending ? cmp : -cmp;
+        }
+
+        internal static int[] BuildSortedIndices(
+            List<RecordingStore.Recording> committed, SortColumn column, bool ascending, double now)
+        {
+            var indices = new int[committed.Count];
+            for (int i = 0; i < committed.Count; i++)
+                indices[i] = i;
+
+            if (column == SortColumn.Index)
+            {
+                if (!ascending)
+                    System.Array.Reverse(indices);
+                return indices;
+            }
+
+            System.Array.Sort(indices, (a, b) =>
+                CompareRecordings(committed[a], committed[b], column, ascending, now));
+            return indices;
+        }
+
+        internal static string FormatDuration(double seconds)
+        {
+            int total = (int)seconds;
+            if (total < 60) return $"{total}s";
+            if (total < 3600) return $"{total / 60}m {total % 60}s";
+            return $"{total / 3600}h {(total % 3600) / 60}m";
+        }
+
+        private void EnsureStatusStyles()
+        {
+            if (statusStyleFuture != null) return;
+
+            statusStyleFuture = new GUIStyle(GUI.skin.label);
+            statusStyleFuture.normal.textColor = Color.gray;
+
+            statusStyleActive = new GUIStyle(GUI.skin.label);
+            statusStyleActive.normal.textColor = Color.green;
+
+            statusStylePast = new GUIStyle(GUI.skin.label);
+            statusStylePast.normal.textColor = new Color(0.5f, 0.5f, 0.5f);
+        }
+
         public void DrawMapMarkers()
         {
             Camera cam = PlanetariumCamera.Camera;
@@ -153,8 +528,8 @@ namespace Parsek
             foreach (var kvp in flight.TimelineGhosts)
             {
                 if (kvp.Value == null) continue;
-                string name = kvp.Key < committed.Count ? committed[kvp.Key].VesselName : "Ghost";
-                DrawMapMarkerAt(cam, kvp.Value.transform.position, name, ghostColor);
+                string ghostName = kvp.Key < committed.Count ? committed[kvp.Key].VesselName : "Ghost";
+                DrawMapMarkerAt(cam, kvp.Value.transform.position, ghostName, ghostColor);
             }
         }
 
@@ -168,6 +543,7 @@ namespace Parsek
 
         public void Cleanup()
         {
+            ReleaseRecordingsInputLock();
             if (mapMarkerTexture != null)
                 Object.Destroy(mapMarkerTexture);
         }

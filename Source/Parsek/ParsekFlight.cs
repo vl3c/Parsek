@@ -121,8 +121,6 @@ namespace Parsek
         // Warp-stop guard: only stop time warp once per recording
         private HashSet<int> warpStoppedForRecording = new HashSet<int>();
         private bool timelineResourceReplayPausedLogged = false;
-        private bool timelineLoopingEnabled = true;
-
         private const double DefaultLoopPauseSeconds = 10.0;
         private const double MinLoopDurationSeconds = 0.001;
 
@@ -138,7 +136,6 @@ namespace Parsek
 
         public bool IsRecording => recorder?.IsRecording ?? false;
         public bool IsPlaying => isPlaying;
-        public bool TimelineLoopingEnabled => timelineLoopingEnabled;
         public int TimelineGhostCount => ghostStates.Count;
         public GameObject PreviewGhost => ghostObject;
         public Dictionary<int, GameObject> TimelineGhosts
@@ -150,13 +147,6 @@ namespace Parsek
                     result[kv.Key] = kv.Value.ghost;
                 return result;
             }
-        }
-
-        public void ToggleTimelineLooping()
-        {
-            timelineLoopingEnabled = !timelineLoopingEnabled;
-            ScreenMessage($"Timeline looping {(timelineLoopingEnabled ? "enabled" : "disabled")}", 2f);
-            Log($"Timeline looping {(timelineLoopingEnabled ? "enabled" : "disabled")} via UI");
         }
 
         #endregion
@@ -413,6 +403,7 @@ namespace Parsek
                     "Parsek",
                     GUILayout.Width(250)
                 );
+                ui.DrawRecordingsWindowIfOpen(windowRect);
             }
         }
 
@@ -1618,7 +1609,7 @@ namespace Parsek
 
         private bool ShouldLoopPlayback(RecordingStore.Recording rec)
         {
-            if (!timelineLoopingEnabled || rec == null || !rec.LoopPlayback || rec.Points == null || rec.Points.Count < 2)
+            if (rec == null || !rec.LoopPlayback || rec.Points == null || rec.Points.Count < 2)
                 return false;
             return rec.EndUT - rec.StartUT > MinLoopDurationSeconds;
         }
@@ -1909,7 +1900,7 @@ namespace Parsek
             ghostStates[index] = state;
         }
 
-        void DestroyTimelineGhost(int index)
+        internal void DestroyTimelineGhost(int index)
         {
             Log($"Despawning timeline ghost #{index}");
 
@@ -1961,6 +1952,51 @@ namespace Parsek
             loggedGhostEnter.Clear();
             loggedOrbitSegments.Clear();
             warpStoppedForRecording.Clear();
+        }
+
+        public bool CanDeleteRecording =>
+            !IsRecording && continuationRecordingIdx < 0 && undockContinuationRecIdx < 0;
+
+        public void DeleteRecording(int index)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            if (index < 0 || index >= committed.Count) return;
+            if (!CanDeleteRecording) return;
+
+            var rec = committed[index];
+            Log($"Deleting recording '{rec.VesselName}' at index {index}");
+
+            // Unreserve crew
+            ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
+
+            // Destroy ghost if active
+            DestroyTimelineGhost(index);
+
+            // Remove from store (handles chain degradation + file deletion)
+            RecordingStore.RemoveRecordingAt(index);
+
+            // Rebuild ghost state keys — indices above the removed one shift down by 1
+            var oldStates = new Dictionary<int, GhostPlaybackState>(ghostStates);
+            ghostStates.Clear();
+            foreach (var kvp in oldStates)
+            {
+                if (kvp.Key < index)
+                    ghostStates[kvp.Key] = kvp.Value;
+                else if (kvp.Key > index)
+                    ghostStates[kvp.Key - 1] = kvp.Value;
+                // kvp.Key == index was already removed by DestroyTimelineGhost
+            }
+
+            // Clear orbit cache — keys are index-derived (i * 10000 + segIdx),
+            // so after reindexing they would map to wrong recordings
+            orbitCache.Clear();
+
+            // Clear diagnostic guards since indices shifted
+            loggedGhostEnter.Clear();
+            loggedOrbitSegments.Clear();
+            warpStoppedForRecording.Clear();
+
+            ParsekLog.ScreenMessage($"Recording '{rec.VesselName}' deleted", 2f);
         }
 
         void ApplyPartEvents(int recIdx, RecordingStore.Recording rec, double currentUT, GhostPlaybackState state)
@@ -2515,9 +2551,9 @@ namespace Parsek
             return isRecording;
         }
 
-        internal static bool ShouldLoopPlayback(bool loopingEnabled, bool recordingLoopPlayback)
+        internal static bool ShouldLoopPlayback(bool recordingLoopPlayback)
         {
-            return loopingEnabled && recordingLoopPlayback;
+            return recordingLoopPlayback;
         }
 
         internal static int ComputeTargetResourceIndex(
