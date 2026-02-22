@@ -42,6 +42,35 @@
 3. Ghost should play back correctly
 4. No regressions in crew replacement, vessel spawning, etc.
 
+## 8. Auto-record disabled via Settings
+1. Open Parsek UI → Settings → uncheck "Auto-record on launch"
+2. Launch from pad — verify recording does NOT auto-start
+3. Press F9 manually — verify manual recording still works
+4. Re-enable "Auto-record on launch" → launch again → verify auto-record works
+
+## 9. Auto-EVA-record disabled via Settings
+1. Open Parsek UI → Settings → uncheck "Auto-record on EVA"
+2. Sit on pad, EVA a kerbal — verify recording does NOT auto-start
+3. Re-enable → EVA again → verify auto-record works
+
+## 10. Auto-warp-stop disabled via Settings
+1. Record a flight, revert, merge with Keep Vessel
+2. Open Settings → uncheck "Auto-stop time warp"
+3. Time warp past the recording's StartUT — verify warp is NOT stopped
+4. Re-enable → time warp past another recording → verify warp stops
+
+## 11. Settings persistence
+1. Change some settings (uncheck toggles, move sliders)
+2. Save game (F5 or Esc → Save)
+3. Reload (F9 or Load)
+4. Open Settings → verify values persisted
+5. Also verify via Esc → Settings → Parsek (KSP difficulty screen)
+
+## 12. Defaults button
+1. Change all settings to non-default values
+2. Click "Defaults" in the Settings window
+3. Verify all values reset to defaults (auto-record on, 3.0s interval, 2.0° direction, 5% speed)
+
 ## Log verification
 - Search `KSP.log` for `[Parsek]` — look for:
   - `"Auto-record started (vessel left pad/runway)"` on launch

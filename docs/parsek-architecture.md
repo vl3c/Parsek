@@ -702,7 +702,7 @@ All planned part event types are now implemented. 28 event types are recorded; m
 - [x] Recordings Manager UI (list recordings, per-recording loop/delete, sortable columns, status indicators)
 
 **In progress:**
-- [ ] Settings panel (`GameParameters.CustomParameterNode` — toggle auto-record, adjust thresholds)
+- [x] Settings panel (`GameParameters.CustomParameterNode` — toggle auto-record, adjust thresholds, in-flight Settings window)
 - [ ] Recording stats (max altitude, max speed, distance, final body — computed from trajectory data)
 - [ ] Non-revert recording commitment (commit current flight without reverting)
 - [ ] Two-phase parachute deploy (SEMIDEPLOYED streamer vs DEPLOYED full canopy)
