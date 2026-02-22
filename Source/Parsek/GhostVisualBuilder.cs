@@ -1977,6 +1977,80 @@ namespace Parsek
             return false;
         }
 
+        private static bool TryGetAeroSurfaceDeployInfo(
+            Part prefab, out string transformName, out float deployAngleDegrees)
+        {
+            transformName = null;
+            deployAngleDegrees = 0f;
+            if (prefab == null) return false;
+
+            ConfigNode partConfig = prefab.partInfo?.partConfig;
+            if (partConfig == null) return false;
+
+            ConfigNode aeroModule = FindModuleNode(partConfig, "ModuleAeroSurface");
+            if (aeroModule == null) return false;
+
+            transformName = aeroModule.GetValue("transformName");
+            if (string.IsNullOrEmpty(transformName)) return false;
+
+            string angleRaw = aeroModule.GetValue("ctrlSurfaceRange");
+            if (string.IsNullOrEmpty(angleRaw) ||
+                !float.TryParse(angleRaw, NumberStyles.Float, CultureInfo.InvariantCulture, out deployAngleDegrees))
+            {
+                deployAngleDegrees = 0f;
+            }
+
+            // Reasonable fallback for modules with missing/invalid range config.
+            if (Mathf.Abs(deployAngleDegrees) < 0.01f)
+                deployAngleDegrees = 35f;
+
+            return true;
+        }
+
+        private static bool TryGetRobotArmScannerDeployAnimations(
+            Part prefab, out List<string> animationNames)
+        {
+            animationNames = null;
+            if (prefab == null) return false;
+
+            ConfigNode partConfig = prefab.partInfo?.partConfig;
+            if (partConfig == null) return false;
+
+            ConfigNode scannerModule = FindModuleNode(partConfig, "ModuleRobotArmScanner");
+            if (scannerModule == null) return false;
+
+            var candidates = new List<string>(3);
+
+            // Priority:
+            // 1) editorReachAnimationName often contains the full visible arm articulation preview
+            // 2) unpackAnimationName provides a clear stowed/deployed pair
+            // 3) animationName is the scan loop (fallback if others are unavailable)
+            string[] keys = { "editorReachAnimationName", "unpackAnimationName", "animationName" };
+            for (int i = 0; i < keys.Length; i++)
+            {
+                string name = scannerModule.GetValue(keys[i]);
+                if (string.IsNullOrEmpty(name)) continue;
+
+                bool exists = false;
+                for (int c = 0; c < candidates.Count; c++)
+                {
+                    if (string.Equals(candidates[c], name, System.StringComparison.Ordinal))
+                    {
+                        exists = true;
+                        break;
+                    }
+                }
+                if (!exists)
+                    candidates.Add(name);
+            }
+
+            if (candidates.Count == 0)
+                return false;
+
+            animationNames = candidates;
+            return true;
+        }
+
         private static bool TryGetSelectedVariantGameObjectStates(
             Part prefab,
             ConfigNode partNode,
@@ -2996,6 +3070,13 @@ namespace Parsek
             string standaloneAnimateGenericAnimName;
             bool hasStandaloneAnimateGenericDeploy = TryGetStandaloneAnimateGenericDeployAnimation(
                 prefab, out standaloneAnimateGenericAnimName);
+            string aeroSurfaceTransformName;
+            float aeroSurfaceDeployAngle;
+            bool hasAeroSurfaceDeploy = TryGetAeroSurfaceDeployInfo(
+                prefab, out aeroSurfaceTransformName, out aeroSurfaceDeployAngle);
+            List<string> robotArmScannerAnimCandidates;
+            bool hasRobotArmScannerDeploy = TryGetRobotArmScannerDeployAnimations(
+                prefab, out robotArmScannerAnimCandidates);
             bool hasRoboticModules = HasRoboticModules(prefab);
 
             // If the part has any animated modules (deployable, gear, ladder, animation-group, cargo bay), ensure
@@ -3010,6 +3091,8 @@ namespace Parsek
                 hasRetractableLadder ||
                 hasAnimationGroupDeploy ||
                 hasStandaloneAnimateGenericDeploy ||
+                hasAeroSurfaceDeploy ||
+                hasRobotArmScannerDeploy ||
                 hasRoboticModules;
 
             if (needsFullHierarchy)
@@ -3283,6 +3366,126 @@ namespace Parsek
                         };
                         ParsekLog.Log($"    AnimateGeneric deployable detected: '{partName}' pid={persistentId}, " +
                             $"{resolvedTransforms.Count}/{sampledStates.Count} transforms resolved");
+                    }
+                }
+            }
+
+            // Detect ModuleAeroSurface visual transforms (airbrakes/control surfaces).
+            if (deployableInfo == null && hasAeroSurfaceDeploy)
+            {
+                var sourceTransforms = FindTransformsRecursive(modelRoot, aeroSurfaceTransformName);
+                if (sourceTransforms != null && sourceTransforms.Count > 0)
+                {
+                    var resolvedTransforms = new List<DeployableTransformState>();
+                    for (int i = 0; i < sourceTransforms.Count; i++)
+                    {
+                        Transform sourceTransform = sourceTransforms[i];
+                        if (sourceTransform == null) continue;
+
+                        Transform ghostT;
+                        if (!cloneMap.TryGetValue(sourceTransform, out ghostT) || ghostT == null)
+                        {
+                            string path = GetTransformPath(sourceTransform, modelRoot);
+                            ghostT = FindTransformByPath(modelNode.transform, path);
+                        }
+                        if (ghostT == null) continue;
+
+                        Vector3 stowedPos = ghostT.localPosition;
+                        Quaternion stowedRot = ghostT.localRotation;
+                        Vector3 stowedScale = ghostT.localScale;
+                        Quaternion deployedRot = stowedRot * Quaternion.AngleAxis(aeroSurfaceDeployAngle, Vector3.right);
+
+                        resolvedTransforms.Add(new DeployableTransformState
+                        {
+                            t = ghostT,
+                            stowedPos = stowedPos,
+                            stowedRot = stowedRot,
+                            stowedScale = stowedScale,
+                            deployedPos = stowedPos,
+                            deployedRot = deployedRot,
+                            deployedScale = stowedScale
+                        });
+                    }
+
+                    if (resolvedTransforms.Count > 0)
+                    {
+                        deployableInfo = new DeployableGhostInfo
+                        {
+                            partPersistentId = persistentId,
+                            transforms = resolvedTransforms
+                        };
+                        ParsekLog.Log($"    AeroSurface deployable detected: '{partName}' pid={persistentId}, " +
+                            $"transform='{aeroSurfaceTransformName}' angle={aeroSurfaceDeployAngle:F1} " +
+                            $"resolved={resolvedTransforms.Count}");
+                    }
+                }
+                else
+                {
+                    ParsekLog.Log($"    AeroSurface '{partName}' pid={persistentId}: " +
+                        $"transform '{aeroSurfaceTransformName}' not found under modelRoot");
+                }
+            }
+
+            // Detect ModuleRobotArmScanner deploy/unpack animation (Breaking Ground ROC arms).
+            if (deployableInfo == null && hasRobotArmScannerDeploy)
+            {
+                string selectedAnimName = null;
+                List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
+                    Vector3 dPos, Quaternion dRot, Vector3 dScale)> sampledStates = null;
+                int bestCount = -1;
+
+                for (int i = 0; i < robotArmScannerAnimCandidates.Count; i++)
+                {
+                    string candidateAnim = robotArmScannerAnimCandidates[i];
+                    var candidateStates = SampleLadderStates(prefab, candidateAnim, null);
+                    int candidateCount = candidateStates != null ? candidateStates.Count : 0;
+                    ParsekLog.Log($"    RobotArmScanner '{partName}' candidate anim='{candidateAnim}' sampled={candidateCount}");
+                    if (candidateCount > bestCount)
+                    {
+                        bestCount = candidateCount;
+                        sampledStates = candidateStates;
+                        selectedAnimName = candidateAnim;
+                    }
+                }
+
+                if (sampledStates != null)
+                {
+                    var resolvedTransforms = new List<DeployableTransformState>();
+                    int unresolved = 0;
+                    for (int s = 0; s < sampledStates.Count; s++)
+                    {
+                        var (path, sPos, sRot, sScale, dPos, dRot, dScale) = sampledStates[s];
+                        Transform ghostT = FindTransformByPath(modelNode.transform, path);
+                        if (ghostT != null)
+                        {
+                            resolvedTransforms.Add(new DeployableTransformState
+                            {
+                                t = ghostT,
+                                stowedPos = sPos,
+                                stowedRot = sRot,
+                                stowedScale = sScale,
+                                deployedPos = dPos,
+                                deployedRot = dRot,
+                                deployedScale = dScale
+                            });
+                        }
+                        else
+                        {
+                            unresolved++;
+                            if (unresolved <= 5)
+                                ParsekLog.Log($"    [DIAG] RobotArmScanner '{partName}': unresolved path '{path}'");
+                        }
+                    }
+
+                    if (resolvedTransforms.Count > 0)
+                    {
+                        deployableInfo = new DeployableGhostInfo
+                        {
+                            partPersistentId = persistentId,
+                            transforms = resolvedTransforms
+                        };
+                        ParsekLog.Log($"    RobotArmScanner deployable detected: '{partName}' pid={persistentId}, " +
+                            $"anim='{selectedAnimName}' {resolvedTransforms.Count}/{sampledStates.Count} transforms resolved");
                     }
                 }
             }

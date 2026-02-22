@@ -40,6 +40,8 @@ namespace Parsek
         private HashSet<ulong> deployedLadders = new HashSet<ulong>();
         private HashSet<ulong> deployedAnimationGroups = new HashSet<ulong>();
         private HashSet<ulong> deployedAnimateGenericModules = new HashSet<ulong>();
+        private HashSet<ulong> deployedAeroSurfaceModules = new HashSet<ulong>();
+        private HashSet<ulong> deployedRobotArmScannerModules = new HashSet<ulong>();
 
         // Engine state tracking (key = EncodeEngineKey(pid, moduleIndex))
         private List<(Part part, ModuleEngines engine, int moduleIndex)> cachedEngines;
@@ -61,6 +63,8 @@ namespace Parsek
         private HashSet<ulong> loggedLadderClassificationMisses = new HashSet<ulong>();
         private HashSet<ulong> loggedAnimationGroupClassificationMisses = new HashSet<ulong>();
         private HashSet<ulong> loggedAnimateGenericClassificationMisses = new HashSet<ulong>();
+        private HashSet<ulong> loggedAeroSurfaceClassificationMisses = new HashSet<ulong>();
+        private HashSet<ulong> loggedRobotArmScannerClassificationMisses = new HashSet<ulong>();
         private HashSet<uint> loggedCargoBayDeployIndexIssues = new HashSet<uint>();
         private HashSet<uint> loggedCargoBayAnimationIssues = new HashSet<uint>();
         private HashSet<uint> loggedCargoBayClosedPositionIssues = new HashSet<uint>();
@@ -770,6 +774,234 @@ namespace Parsek
             return false;
         }
 
+        internal static bool TryClassifyAeroSurfaceState(
+            PartModule aeroSurfaceModule, out bool isDeployed, out bool isRetracted)
+        {
+            isDeployed = false;
+            isRetracted = false;
+            if (aeroSurfaceModule == null) return false;
+
+            bool sawDeployEvent = false;
+            bool sawRetractEvent = false;
+            bool canDeploy = false;
+            bool canRetract = false;
+
+            if (aeroSurfaceModule.Events != null)
+            {
+                for (int i = 0; i < aeroSurfaceModule.Events.Count; i++)
+                {
+                    BaseEvent evt = aeroSurfaceModule.Events[i];
+                    if (evt == null) continue;
+
+                    string evtName = (evt.name ?? string.Empty).ToLowerInvariant();
+                    string guiName = (evt.guiName ?? string.Empty).ToLowerInvariant();
+
+                    bool isDeployEvent =
+                        evtName.Contains("deploy") || guiName.Contains("deploy") ||
+                        evtName.Contains("extend") || guiName.Contains("extend") ||
+                        evtName.Contains("open") || guiName.Contains("open") ||
+                        evtName.Contains("brake") || guiName.Contains("brake") ||
+                        evtName.Contains("enable") || guiName.Contains("enable");
+                    bool isRetractEvent =
+                        evtName.Contains("retract") || guiName.Contains("retract") ||
+                        evtName.Contains("close") || guiName.Contains("close") ||
+                        evtName.Contains("stow") || guiName.Contains("stow") ||
+                        evtName.Contains("disable") || guiName.Contains("disable");
+
+                    if (isDeployEvent)
+                    {
+                        sawDeployEvent = true;
+                        canDeploy = canDeploy || evt.active;
+                    }
+
+                    if (isRetractEvent)
+                    {
+                        sawRetractEvent = true;
+                        canRetract = canRetract || evt.active;
+                    }
+                }
+            }
+
+            if ((sawDeployEvent || sawRetractEvent) &&
+                TryClassifyLadderStateFromEventActivity(
+                    canExtend: canDeploy, canRetract: canRetract,
+                    out isDeployed, out isRetracted))
+                return true;
+
+            bool boolValue;
+            string[] deployedFields =
+            {
+                "isDeployed",
+                "deployed",
+                "isExtended",
+                "extended",
+                "isBraking",
+                "brakesOn",
+                "isActivated",
+                "active"
+            };
+            for (int i = 0; i < deployedFields.Length; i++)
+            {
+                if (TryReadModuleBoolField(aeroSurfaceModule, deployedFields[i], out boolValue))
+                {
+                    isDeployed = boolValue;
+                    isRetracted = !boolValue;
+                    return true;
+                }
+            }
+
+            string[] retractedFields =
+            {
+                "isRetracted",
+                "retracted",
+                "isStowed",
+                "stowed",
+                "isPacked",
+                "packed"
+            };
+            for (int i = 0; i < retractedFields.Length; i++)
+            {
+                if (TryReadModuleBoolField(aeroSurfaceModule, retractedFields[i], out boolValue))
+                {
+                    isRetracted = boolValue;
+                    isDeployed = !boolValue;
+                    return true;
+                }
+            }
+
+            string[] deflectionFields =
+            {
+                "currentDeflection",
+                "deflection",
+                "deployPercent",
+                "position"
+            };
+            for (int i = 0; i < deflectionFields.Length; i++)
+            {
+                if (!TryReadModuleFloatField(aeroSurfaceModule, deflectionFields[i], out float deflection))
+                    continue;
+
+                if (float.IsNaN(deflection) || float.IsInfinity(deflection))
+                    continue;
+
+                isDeployed = Math.Abs(deflection) > 0.01f;
+                isRetracted = !isDeployed;
+                return true;
+            }
+
+            return false;
+        }
+
+        internal static bool TryClassifyRobotArmScannerState(
+            PartModule robotArmScannerModule, out bool isDeployed, out bool isRetracted)
+        {
+            isDeployed = false;
+            isRetracted = false;
+            if (robotArmScannerModule == null) return false;
+
+            bool sawDeployEvent = false;
+            bool sawRetractEvent = false;
+            bool canDeploy = false;
+            bool canRetract = false;
+
+            if (robotArmScannerModule.Events != null)
+            {
+                for (int i = 0; i < robotArmScannerModule.Events.Count; i++)
+                {
+                    BaseEvent evt = robotArmScannerModule.Events[i];
+                    if (evt == null) continue;
+
+                    string evtName = (evt.name ?? string.Empty).ToLowerInvariant();
+                    string guiName = (evt.guiName ?? string.Empty).ToLowerInvariant();
+
+                    bool isDeployEvent =
+                        evtName.Contains("deploy") || guiName.Contains("deploy") ||
+                        evtName.Contains("unpack") || guiName.Contains("unpack") ||
+                        evtName.Contains("extend") || guiName.Contains("extend") ||
+                        evtName.Contains("scan") || guiName.Contains("scan") ||
+                        evtName.Contains("start") || guiName.Contains("start");
+                    bool isRetractEvent =
+                        evtName.Contains("retract") || guiName.Contains("retract") ||
+                        ((evtName.Contains("pack") || guiName.Contains("pack")) &&
+                            !evtName.Contains("unpack") && !guiName.Contains("unpack")) ||
+                        evtName.Contains("stow") || guiName.Contains("stow") ||
+                        evtName.Contains("stop") || guiName.Contains("stop") ||
+                        evtName.Contains("cancel") || guiName.Contains("cancel");
+
+                    if (isDeployEvent)
+                    {
+                        sawDeployEvent = true;
+                        canDeploy = canDeploy || evt.active;
+                    }
+
+                    if (isRetractEvent)
+                    {
+                        sawRetractEvent = true;
+                        canRetract = canRetract || evt.active;
+                    }
+                }
+            }
+
+            if ((sawDeployEvent || sawRetractEvent) &&
+                TryClassifyLadderStateFromEventActivity(
+                    canExtend: canDeploy, canRetract: canRetract,
+                    out isDeployed, out isRetracted))
+                return true;
+
+            bool boolValue;
+            string[] deployedFields =
+            {
+                "isUnpacked",
+                "unpacked",
+                "isDeployed",
+                "deployed",
+                "isExtended",
+                "extended",
+                "isScanning",
+                "scanning",
+                "isWorking",
+                "working"
+            };
+            for (int i = 0; i < deployedFields.Length; i++)
+            {
+                if (TryReadModuleBoolField(robotArmScannerModule, deployedFields[i], out boolValue))
+                {
+                    isDeployed = boolValue;
+                    isRetracted = !boolValue;
+                    return true;
+                }
+            }
+
+            string[] retractedFields =
+            {
+                "isRetracted",
+                "retracted",
+                "isPacked",
+                "packed",
+                "isStowed",
+                "stowed"
+            };
+            for (int i = 0; i < retractedFields.Length; i++)
+            {
+                if (TryReadModuleBoolField(robotArmScannerModule, retractedFields[i], out boolValue))
+                {
+                    isRetracted = boolValue;
+                    isDeployed = !boolValue;
+                    return true;
+                }
+            }
+
+            if (TryReadModuleFloatField(robotArmScannerModule, "animTime", out float animTime) &&
+                !float.IsNaN(animTime) && !float.IsInfinity(animTime))
+            {
+                ClassifyLadderState(animTime, out isDeployed, out isRetracted);
+                if (isDeployed || isRetracted)
+                    return true;
+            }
+
+            return false;
+        }
+
         private static bool TryGetModuleBoolField(PartModule module, string fieldName, out bool value)
         {
             value = false;
@@ -1094,6 +1326,98 @@ namespace Parsek
             }
         }
 
+        private void CheckAeroSurfaceState(Vessel v)
+        {
+            if (v == null || v.parts == null) return;
+
+            double ut = Planetarium.GetUniversalTime();
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    PartModule module = p.Modules[m];
+                    if (module == null) continue;
+                    if (!string.Equals(module.moduleName, "ModuleAeroSurface", StringComparison.Ordinal))
+                        continue;
+
+                    bool isDeployed;
+                    bool isRetracted;
+                    if (!TryClassifyAeroSurfaceState(module, out isDeployed, out isRetracted))
+                    {
+                        ulong diagnosticKey = EncodeEngineKey(p.persistentId, m);
+                        if (loggedAeroSurfaceClassificationMisses.Add(diagnosticKey))
+                        {
+                            ParsekLog.Log($"AeroSurface: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
+                                $"midx={m}; fields=[{DescribeModuleFields(module)}]");
+                        }
+                        continue;
+                    }
+                    if (!isDeployed && !isRetracted)
+                        continue;
+
+                    ulong key = EncodeEngineKey(p.persistentId, m);
+                    var evt = CheckAnimationGroupTransition(
+                        key, p.persistentId, p.partInfo?.name ?? "unknown",
+                        isDeployed, deployedAeroSurfaceModules, ut, m);
+                    if (evt.HasValue)
+                    {
+                        PartEvents.Add(evt.Value);
+                        ParsekLog.Log($"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                            $"pid={evt.Value.partPersistentId} midx={evt.Value.moduleIndex} (aero-surface)");
+                    }
+                }
+            }
+        }
+
+        private void CheckRobotArmScannerState(Vessel v)
+        {
+            if (v == null || v.parts == null) return;
+
+            double ut = Planetarium.GetUniversalTime();
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    PartModule module = p.Modules[m];
+                    if (module == null) continue;
+                    if (!string.Equals(module.moduleName, "ModuleRobotArmScanner", StringComparison.Ordinal))
+                        continue;
+
+                    bool isDeployed;
+                    bool isRetracted;
+                    if (!TryClassifyRobotArmScannerState(module, out isDeployed, out isRetracted))
+                    {
+                        ulong diagnosticKey = EncodeEngineKey(p.persistentId, m);
+                        if (loggedRobotArmScannerClassificationMisses.Add(diagnosticKey))
+                        {
+                            ParsekLog.Log($"RobotArmScanner: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
+                                $"midx={m}; fields=[{DescribeModuleFields(module)}]");
+                        }
+                        continue;
+                    }
+                    if (!isDeployed && !isRetracted)
+                        continue;
+
+                    ulong key = EncodeEngineKey(p.persistentId, m);
+                    var evt = CheckAnimationGroupTransition(
+                        key, p.persistentId, p.partInfo?.name ?? "unknown",
+                        isDeployed, deployedRobotArmScannerModules, ut, m);
+                    if (evt.HasValue)
+                    {
+                        PartEvents.Add(evt.Value);
+                        ParsekLog.Log($"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                            $"pid={evt.Value.partPersistentId} midx={evt.Value.moduleIndex} (robot-arm-scanner)");
+                    }
+                }
+            }
+        }
+
         private void CheckAnimateGenericState(Vessel v)
         {
             if (v == null || v.parts == null) return;
@@ -1112,6 +1436,8 @@ namespace Parsek
 
                 bool hasRetractableLadder = false;
                 bool hasAnimationGroup = false;
+                bool hasAeroSurface = false;
+                bool hasRobotArmScanner = false;
                 for (int m = 0; m < p.Modules.Count; m++)
                 {
                     PartModule module = p.Modules[m];
@@ -1120,10 +1446,16 @@ namespace Parsek
                         hasRetractableLadder = true;
                     if (string.Equals(module.moduleName, "ModuleAnimationGroup", StringComparison.Ordinal))
                         hasAnimationGroup = true;
-                    if (hasRetractableLadder && hasAnimationGroup)
+                    if (string.Equals(module.moduleName, "ModuleAeroSurface", StringComparison.Ordinal))
+                        hasAeroSurface = true;
+                    if (string.Equals(module.moduleName, "ModuleRobotArmScanner", StringComparison.Ordinal))
+                        hasRobotArmScanner = true;
+                    if (hasRetractableLadder || hasAnimationGroup ||
+                        hasAeroSurface || hasRobotArmScanner)
                         break;
                 }
-                if (hasDedicatedHandler || hasRetractableLadder || hasAnimationGroup) continue;
+                if (hasDedicatedHandler || hasRetractableLadder || hasAnimationGroup ||
+                    hasAeroSurface || hasRobotArmScanner) continue;
 
                 for (int m = 0; m < p.Modules.Count; m++)
                 {
@@ -1279,6 +1611,8 @@ namespace Parsek
             var gearModules = new List<string>();
             var cargoBayParts = new List<string>();
             var fairingParts = new List<string>();
+            var aeroSurfaceModules = new List<string>();
+            var robotArmScannerModules = new List<string>();
             var engineModules = new List<string>();
             var rcsModules = new List<string>();
             var roboticModules = new List<string>();
@@ -1312,6 +1646,8 @@ namespace Parsek
 
                 bool hasRetractableLadder = false;
                 bool hasAnimationGroup = false;
+                bool hasAeroSurface = false;
+                bool hasRobotArmScanner = false;
                 bool hasDedicatedAnimateHandler =
                     deployable != null ||
                     p.FindModuleImplementing<ModuleWheels.ModuleWheelDeployment>() != null ||
@@ -1350,9 +1686,22 @@ namespace Parsek
                         animationGroupModules.Add($"{partRef}(midx={m})");
                         hasAnimationGroup = true;
                     }
+
+                    if (string.Equals(moduleName, "ModuleAeroSurface", StringComparison.Ordinal))
+                    {
+                        aeroSurfaceModules.Add($"{partRef}(midx={m})");
+                        hasAeroSurface = true;
+                    }
+
+                    if (string.Equals(moduleName, "ModuleRobotArmScanner", StringComparison.Ordinal))
+                    {
+                        robotArmScannerModules.Add($"{partRef}(midx={m})");
+                        hasRobotArmScanner = true;
+                    }
                 }
 
-                if (hasDedicatedAnimateHandler || hasRetractableLadder || hasAnimationGroup)
+                if (hasDedicatedAnimateHandler || hasRetractableLadder || hasAnimationGroup ||
+                    hasAeroSurface || hasRobotArmScanner)
                     continue;
 
                 for (int m = 0; m < p.Modules.Count; m++)
@@ -1412,6 +1761,7 @@ namespace Parsek
                 $"parachute={parachuteParts.Count} jettison={jettisonModules.Count} deployable={deployableParts.Count} " +
                 $"ladder={ladderModules.Count} animationGroup={animationGroupModules.Count} animateGeneric={animateGenericModules.Count} " +
                 $"lights={lightParts.Count} gear={gearModules.Count} cargoBay={cargoBayParts.Count} fairing={fairingParts.Count} " +
+                $"aeroSurface={aeroSurfaceModules.Count} robotArmScanner={robotArmScannerModules.Count} " +
                 $"engine={engineModules.Count} rcs={rcsModules.Count} robotics={roboticModules.Count}");
 
             LogCoverageDetails("Parachute", parachuteParts);
@@ -1424,6 +1774,8 @@ namespace Parsek
             LogCoverageDetails("Gear", gearModules);
             LogCoverageDetails("CargoBay", cargoBayParts);
             LogCoverageDetails("Fairing", fairingParts);
+            LogCoverageDetails("AeroSurface", aeroSurfaceModules);
+            LogCoverageDetails("RobotArmScanner", robotArmScannerModules);
             LogCoverageDetails("Engine", engineModules);
             LogCoverageDetails("RCS", rcsModules);
             LogCoverageDetails("Robotics", roboticModules);
@@ -2145,9 +2497,13 @@ namespace Parsek
             deployedLadders.Clear();
             deployedAnimationGroups.Clear();
             deployedAnimateGenericModules.Clear();
+            deployedAeroSurfaceModules.Clear();
+            deployedRobotArmScannerModules.Clear();
             loggedLadderClassificationMisses.Clear();
             loggedAnimationGroupClassificationMisses.Clear();
             loggedAnimateGenericClassificationMisses.Clear();
+            loggedAeroSurfaceClassificationMisses.Clear();
+            loggedRobotArmScannerClassificationMisses.Clear();
             loggedCargoBayDeployIndexIssues.Clear();
             loggedCargoBayAnimationIssues.Clear();
             loggedCargoBayClosedPositionIssues.Clear();
@@ -2435,6 +2791,8 @@ namespace Parsek
             CheckDeployableState(v);
             CheckLadderState(v);
             CheckAnimationGroupState(v);
+            CheckAeroSurfaceState(v);
+            CheckRobotArmScannerState(v);
             CheckAnimateGenericState(v);
             CheckLightState(v);
             CheckGearState(v);
