@@ -4,7 +4,7 @@
 
 *Record, rewind and merge your parallel-sekuential adventures.*
 
-**Time-rewind mission recording for KSP1.** Record missions, revert to launch, and watch them play out alongside you while you fly new ones. Parsek transforms KSP from a mission simulator into a space program simulator.
+**Time-rewind mission recording for KSP1.** Record missions sequentially, return to an earlier time, and watch them play out in parallel alongside you while you fly new ones.
 
 ## How It Works
 
@@ -31,11 +31,11 @@ Recorded vessels are full visual replicas — original part meshes, textures, en
 
 ## Controls
 
-| Key | Action |
-|-----|--------|
-| **F9** | Start / Stop recording |
+| Key     | Action                               |
+| ------- | ------------------------------------ |
+| **F9**  | Start / Stop recording               |
 | **F10** | Preview playback (current recording) |
-| **F11** | Stop preview |
+| **F11** | Stop preview                         |
 
 The Parsek window is available from the toolbar button in Flight and Map view.
 
@@ -44,6 +44,7 @@ The Parsek window is available from the toolbar button in Flight and Map view.
 Requires KSP 1.12.x.
 
 **Dependencies** (install these first):
+
 - [Module Manager](https://github.com/sarbian/ModuleManager)
 - [Harmony (HarmonyKSP)](https://github.com/KSPModdingLibs/HarmonyKSP)
 - [ClickThroughBlocker](https://github.com/linuxgurugamer/ClickThroughBlocker)
