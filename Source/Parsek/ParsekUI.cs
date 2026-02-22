@@ -51,6 +51,23 @@ namespace Parsek
         private int[] sortedIndices; // maps display row → CommittedRecordings index
         private int lastSortedCount = -1;
 
+        // Tooltip state
+        private int hoveredRecIdx = -1;
+        private GUIStyle tooltipLabelStyle;
+        private Rect scrollViewRect;
+
+        // Expanded stats columns
+        private bool showExpandedStats;
+        private const float ColW_MaxAlt = 65f;
+        private const float ColW_MaxSpd = 65f;
+        private const float ColW_Dist = 65f;
+        private const float ColW_Pts = 35f;
+
+        // Loop period editing
+        private int editingLoopPeriodIdx = -1;
+        private string editingLoopPeriodText = "";
+        private const float ColW_Period = 55f;
+
         // Cached styles for status labels
         private GUIStyle statusStyleFuture;
         private GUIStyle statusStyleActive;
@@ -256,21 +273,29 @@ namespace Parsek
             EnsureStatusStyles();
             RebuildSortedIndices(committed, now);
 
+            hoveredRecIdx = -1;
+
             if (committed.Count == 0)
             {
                 GUILayout.Label("No recordings.");
             }
             else
             {
-                // Header row with sortable columns
-                // Use same widths as body row cells to ensure alignment.
-                // Add scrollbar-width spacer at end so header spans the same
-                // content width as the scroll view body.
+                // Header row
                 GUILayout.BeginHorizontal();
                 DrawSortableHeader("#", SortColumn.Index, ColW_Index);
                 DrawSortableHeader("Name", SortColumn.Name, 0, true);
                 DrawSortableHeader("Launch", SortColumn.LaunchTime, ColW_Launch);
                 DrawSortableHeader("Dur", SortColumn.Duration, ColW_Dur);
+
+                if (showExpandedStats)
+                {
+                    GUILayout.Label("MaxAlt", GUILayout.Width(ColW_MaxAlt));
+                    GUILayout.Label("MaxSpd", GUILayout.Width(ColW_MaxSpd));
+                    GUILayout.Label("Dist", GUILayout.Width(ColW_Dist));
+                    GUILayout.Label("Pts", GUILayout.Width(ColW_Pts));
+                }
+
                 DrawSortableHeader("Status", SortColumn.Status, ColW_Status);
 
                 // Select-all loop header + checkbox
@@ -287,11 +312,13 @@ namespace Parsek
                         committed[i].LoopPlayback = newAllLoop;
                 }
 
+                GUILayout.Label("Period", GUILayout.Width(ColW_Period));
+
                 GUILayout.Button("", GUI.skin.label, GUILayout.Width(ColW_Delete)); // placeholder
                 GUILayout.Space(ScrollbarWidth); // account for scrollbar in body
                 GUILayout.EndHorizontal();
 
-                // Scrollable table body (expands to fill available window space)
+                // Scrollable table body
                 recordingsScrollPos = GUILayout.BeginScrollView(
                     recordingsScrollPos, GUILayout.ExpandHeight(true));
 
@@ -318,6 +345,16 @@ namespace Parsek
                     double dur = rec.EndUT - rec.StartUT;
                     GUILayout.Label(FormatDuration(dur), GUILayout.Width(ColW_Dur));
 
+                    // Expanded stats
+                    if (showExpandedStats)
+                    {
+                        var stats = GetOrComputeStats(rec);
+                        GUILayout.Label(FormatAltitude(stats.maxAltitude), GUILayout.Width(ColW_MaxAlt));
+                        GUILayout.Label(FormatSpeed(stats.maxSpeed), GUILayout.Width(ColW_MaxSpd));
+                        GUILayout.Label(FormatDistance(stats.distanceTravelled), GUILayout.Width(ColW_Dist));
+                        GUILayout.Label(stats.pointCount.ToString(), GUILayout.Width(ColW_Pts));
+                    }
+
                     // Status
                     GUIStyle statusStyle;
                     string statusText;
@@ -342,7 +379,14 @@ namespace Parsek
                     GUILayout.Label("", GUILayout.Width(ColW_LoopLabel));
                     bool loop = GUILayout.Toggle(rec.LoopPlayback, "", GUILayout.Width(ColW_LoopToggle));
                     if (loop != rec.LoopPlayback)
+                    {
                         rec.LoopPlayback = loop;
+                        if (!loop && editingLoopPeriodIdx == ri)
+                            editingLoopPeriodIdx = -1;
+                    }
+
+                    // Period
+                    DrawLoopPeriodCell(rec, ri, dur);
 
                     // Delete button (disabled during recording/continuation)
                     GUI.enabled = flight.CanDeleteRecording;
@@ -351,6 +395,11 @@ namespace Parsek
                         if (GUILayout.Button("?", GUILayout.Width(ColW_Delete)))
                         {
                             deleteConfirmIndex = -1;
+                            // Rebase period edit index after deletion
+                            if (editingLoopPeriodIdx == ri)
+                                editingLoopPeriodIdx = -1;
+                            else if (editingLoopPeriodIdx > ri)
+                                editingLoopPeriodIdx--;
                             flight.DeleteRecording(ri);
                             InvalidateSort();
                             GUI.enabled = true;
@@ -366,18 +415,54 @@ namespace Parsek
                     GUI.enabled = true;
 
                     GUILayout.EndHorizontal();
+
+                    // Hover detection
+                    if (Event.current.type == EventType.Repaint)
+                    {
+                        Rect rowRect = GUILayoutUtility.GetLastRect();
+                        if (rowRect.Contains(Event.current.mousePosition))
+                            hoveredRecIdx = ri;
+                    }
                 }
 
                 GUILayout.EndScrollView();
+
+                // Capture scroll view rect for tooltip visibility guard
+                if (Event.current.type == EventType.Repaint)
+                    scrollViewRect = GUILayoutUtility.GetLastRect();
             }
 
-            // Reset confirm state if index is now out of range
+            // Reset out-of-range state
             if (deleteConfirmIndex >= committed.Count)
                 deleteConfirmIndex = -1;
+            if (editingLoopPeriodIdx >= committed.Count)
+                editingLoopPeriodIdx = -1;
 
+            // Bottom button bar
             GUILayout.Space(5);
+            GUILayout.BeginHorizontal();
+
+            string statsLabel = showExpandedStats ? "Stats \u25c0" : "Stats \u25b6";
+            if (GUILayout.Button(statsLabel, GUILayout.Width(65)))
+            {
+                showExpandedStats = !showExpandedStats;
+                if (showExpandedStats && recordingsWindowRect.width < 730f)
+                    recordingsWindowRect.width = 730f;
+            }
+
             if (GUILayout.Button("Close"))
                 showRecordingsWindow = false;
+
+            GUILayout.EndHorizontal();
+
+            // Tooltip rendering (on top of all window content, before DragWindow)
+            if (Event.current.type == EventType.Repaint && hoveredRecIdx >= 0 &&
+                hoveredRecIdx < committed.Count &&
+                scrollViewRect.width > 0 &&
+                scrollViewRect.Contains(Event.current.mousePosition))
+            {
+                DrawRecordingTooltip(committed[hoveredRecIdx]);
+            }
 
             // Resize handle (bottom-right corner)
             Rect handleRect = new Rect(
@@ -505,6 +590,150 @@ namespace Parsek
             if (total < 60) return $"{total}s";
             if (total < 3600) return $"{total / 60}m {total % 60}s";
             return $"{total / 3600}h {(total % 3600) / 60}m";
+        }
+
+        internal static string FormatAltitude(double meters)
+        {
+            if (meters < 1000) return $"{(int)meters}m";
+            if (meters < 1000000) return (meters / 1000).ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + "km";
+            return (meters / 1000000).ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + "Mm";
+        }
+
+        internal static string FormatSpeed(double mps)
+        {
+            if (mps < 1000) return $"{(int)mps}m/s";
+            return (mps / 1000).ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + "km/s";
+        }
+
+        internal static string FormatDistance(double meters)
+        {
+            if (meters < 1000) return $"{(int)meters}m";
+            if (meters < 1000000) return (meters / 1000).ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + "km";
+            return (meters / 1000000).ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + "Mm";
+        }
+
+        private RecordingStats GetOrComputeStats(RecordingStore.Recording rec)
+        {
+            if (rec.CachedStats.HasValue && rec.CachedStatsPointCount == rec.Points.Count)
+                return rec.CachedStats.Value;
+
+            System.Func<string, double[]> bodyLookup = name =>
+            {
+                var body = FlightGlobals.GetBodyByName(name);
+                if (body == null) return null;
+                return new double[] { body.Radius, body.gravParameter };
+            };
+
+            var stats = TrajectoryMath.ComputeStats(rec, bodyLookup);
+            rec.CachedStats = stats;
+            rec.CachedStatsPointCount = rec.Points.Count;
+            return stats;
+        }
+
+        private void DrawRecordingTooltip(RecordingStore.Recording rec)
+        {
+            var stats = GetOrComputeStats(rec);
+
+            string text = $"Max Altitude: {FormatAltitude(stats.maxAltitude)}\n" +
+                          $"Max Speed: {FormatSpeed(stats.maxSpeed)}\n" +
+                          $"Distance: {FormatDistance(stats.distanceTravelled)}\n" +
+                          $"Points: {stats.pointCount}";
+
+            if (stats.orbitSegmentCount > 0)
+                text += $"\nOrbit Segments: {stats.orbitSegmentCount}";
+            if (stats.partEventCount > 0)
+                text += $"\nPart Events: {stats.partEventCount}";
+            if (!string.IsNullOrEmpty(stats.primaryBody))
+                text += $"\nBody: {stats.primaryBody}";
+            if (stats.maxRange > 0)
+                text += $"\nMax Range: {FormatDistance(stats.maxRange)}";
+
+            EnsureTooltipStyle();
+
+            GUIContent content = new GUIContent(text);
+            Vector2 size = tooltipLabelStyle.CalcSize(content);
+            size.x += 12;
+            size.y += 8;
+
+            Vector2 mousePos = Event.current.mousePosition;
+            float tooltipX = mousePos.x + 15;
+            float tooltipY = mousePos.y - size.y - 5;
+
+            if (tooltipX + size.x > recordingsWindowRect.width)
+                tooltipX = mousePos.x - size.x - 5;
+            if (tooltipY < 0)
+                tooltipY = mousePos.y + 20;
+
+            Rect tooltipRect = new Rect(tooltipX, tooltipY, size.x, size.y);
+            GUI.Box(tooltipRect, "");
+            GUI.Label(new Rect(tooltipX + 6, tooltipY + 4, size.x - 12, size.y - 8),
+                content, tooltipLabelStyle);
+        }
+
+        private void DrawLoopPeriodCell(RecordingStore.Recording rec, int ri, double dur)
+        {
+            if (!rec.LoopPlayback)
+            {
+                GUI.enabled = false;
+                GUILayout.Label("-", GUILayout.Width(ColW_Period));
+                GUI.enabled = true;
+                return;
+            }
+
+            if (editingLoopPeriodIdx == ri)
+            {
+                GUI.SetNextControlName("PeriodEdit");
+                editingLoopPeriodText = GUILayout.TextField(
+                    editingLoopPeriodText, GUILayout.Width(ColW_Period));
+
+                if (Event.current.type == EventType.KeyUp &&
+                    Event.current.keyCode == KeyCode.Return &&
+                    GUI.GetNameOfFocusedControl() == "PeriodEdit")
+                {
+                    ApplyLoopPeriodEdit(rec, dur);
+                    editingLoopPeriodIdx = -1;
+                }
+            }
+            else
+            {
+                double period = dur + rec.LoopPauseSeconds;
+                if (GUILayout.Button(FormatDuration(period), GUILayout.Width(ColW_Period)))
+                {
+                    // Save any in-progress edit on another recording
+                    if (editingLoopPeriodIdx >= 0)
+                    {
+                        var committed = RecordingStore.CommittedRecordings;
+                        if (editingLoopPeriodIdx < committed.Count)
+                        {
+                            var editRec = committed[editingLoopPeriodIdx];
+                            double editDur = editRec.EndUT - editRec.StartUT;
+                            ApplyLoopPeriodEdit(editRec, editDur);
+                        }
+                    }
+
+                    editingLoopPeriodIdx = ri;
+                    editingLoopPeriodText = ((int)(dur + rec.LoopPauseSeconds)).ToString();
+                }
+            }
+        }
+
+        private void ApplyLoopPeriodEdit(RecordingStore.Recording rec, double dur)
+        {
+            double newPeriod;
+            if (double.TryParse(editingLoopPeriodText, out newPeriod) && newPeriod > 0)
+            {
+                double pause = newPeriod - dur;
+                if (pause < 0) pause = 0;
+                rec.LoopPauseSeconds = pause;
+            }
+        }
+
+        private void EnsureTooltipStyle()
+        {
+            if (tooltipLabelStyle != null) return;
+            tooltipLabelStyle = new GUIStyle(GUI.skin.label);
+            tooltipLabelStyle.wordWrap = false;
+            tooltipLabelStyle.fontSize = 11;
         }
 
         private void EnsureStatusStyles()
