@@ -2485,6 +2485,46 @@ namespace Parsek
             return false;
         }
 
+        private static bool TryGetModuleIntField(
+            PartModule module, string fieldName, out int value)
+        {
+            value = 0;
+            object raw = TryGetModuleFieldValue(module, fieldName);
+            if (raw == null)
+                return false;
+
+            if (raw is int i)
+            {
+                value = i;
+                return true;
+            }
+
+            if (raw is uint ui)
+            {
+                value = (int)ui;
+                return true;
+            }
+
+            if (raw is float f && !float.IsNaN(f) && !float.IsInfinity(f))
+            {
+                value = (int)f;
+                return true;
+            }
+
+            if (raw is double d && !double.IsNaN(d) && !double.IsInfinity(d))
+            {
+                value = (int)d;
+                return true;
+            }
+
+            string text = raw.ToString();
+            if (string.IsNullOrEmpty(text))
+                return false;
+
+            text = text.Trim();
+            return int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
+        }
+
         private static bool TryParseRoboticAxis(string axisName, out Vector3 axisLocal)
         {
             axisLocal = Vector3.up;
@@ -2520,10 +2560,114 @@ namespace Parsek
             if (string.Equals(moduleName, "ModuleRoboticServoPiston", System.StringComparison.Ordinal))
                 return RoboticVisualMode.Linear;
 
+            if (string.Equals(moduleName, "ModuleWheelSuspension", System.StringComparison.Ordinal))
+                return RoboticVisualMode.Linear;
+
             if (string.Equals(moduleName, "ModuleRoboticServoRotor", System.StringComparison.Ordinal))
                 return RoboticVisualMode.RotorRpm;
 
+            if (string.Equals(moduleName, "ModuleWheelMotor", System.StringComparison.Ordinal) ||
+                string.Equals(moduleName, "ModuleWheelMotorSteering", System.StringComparison.Ordinal))
+            {
+                return RoboticVisualMode.RotorRpm;
+            }
+
             return RoboticVisualMode.Rotational;
+        }
+
+        private static bool TryGetWheelBaseModule(
+            Part prefab, PartModule module, out PartModule baseModule)
+        {
+            baseModule = null;
+            if (prefab == null || module == null || prefab.Modules == null)
+                return false;
+
+            if (TryGetModuleIntField(module, "baseModuleIndex", out int baseModuleIndex) &&
+                baseModuleIndex >= 0 &&
+                baseModuleIndex < prefab.Modules.Count)
+            {
+                baseModule = prefab.Modules[baseModuleIndex];
+                if (baseModule != null)
+                    return true;
+            }
+
+            for (int i = 0; i < prefab.Modules.Count; i++)
+            {
+                PartModule candidate = prefab.Modules[i];
+                if (candidate == null)
+                    continue;
+                if (string.Equals(candidate.moduleName, "ModuleWheelBase", System.StringComparison.Ordinal))
+                {
+                    baseModule = candidate;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryResolveRoboticTransform(
+            Part prefab,
+            PartModule module,
+            string moduleName,
+            out string transformName,
+            out Vector3 axis,
+            out string transformSource)
+        {
+            transformName = null;
+            axis = Vector3.up;
+            transformSource = null;
+
+            if (string.Equals(moduleName, "ModuleWheelSuspension", System.StringComparison.Ordinal))
+            {
+                if (TryGetModuleStringField(module, "suspensionTransformName", out transformName))
+                {
+                    axis = Vector3.up;
+                    transformSource = "suspensionTransformName";
+                    return true;
+                }
+                return false;
+            }
+
+            if (string.Equals(moduleName, "ModuleWheelSteering", System.StringComparison.Ordinal))
+            {
+                if (TryGetModuleStringField(module, "caliperTransformName", out transformName))
+                {
+                    axis = Vector3.up;
+                    transformSource = "caliperTransformName";
+                    return true;
+                }
+                return false;
+            }
+
+            if (string.Equals(moduleName, "ModuleWheelMotor", System.StringComparison.Ordinal) ||
+                string.Equals(moduleName, "ModuleWheelMotorSteering", System.StringComparison.Ordinal))
+            {
+                if (TryGetModuleStringField(module, "wheelTransformName", out transformName))
+                {
+                    axis = Vector3.right;
+                    transformSource = "wheelTransformName";
+                    return true;
+                }
+
+                if (TryGetWheelBaseModule(prefab, module, out PartModule wheelBase) &&
+                    TryGetModuleStringField(wheelBase, "wheelTransformName", out transformName))
+                {
+                    axis = Vector3.right;
+                    transformSource = "ModuleWheelBase.wheelTransformName";
+                    return true;
+                }
+
+                return false;
+            }
+
+            if (!TryGetModuleStringField(module, "servoTransformName", out transformName))
+                return false;
+
+            transformSource = "servoTransformName";
+            if (TryGetModuleStringField(module, "mainAxis", out string axisName))
+                TryParseRoboticAxis(axisName, out axis);
+            return true;
         }
 
         private static bool TryGetRoboticCurrentValue(
@@ -2536,9 +2680,39 @@ namespace Parsek
             {
                 fieldNames = new[] { "currentPosition", "position", "targetPosition" };
             }
+            else if (string.Equals(moduleName, "ModuleWheelSuspension", System.StringComparison.Ordinal))
+            {
+                fieldNames = new[]
+                {
+                    "currentSuspensionOffset",
+                    "suspensionOffset",
+                    "compression",
+                    "suspensionCompression",
+                    "suspensionTravel"
+                };
+            }
+            else if (string.Equals(moduleName, "ModuleWheelSteering", System.StringComparison.Ordinal))
+            {
+                fieldNames = new[] { "steeringAngle", "currentSteering", "steerAngle", "steeringInput" };
+            }
             else if (string.Equals(moduleName, "ModuleRoboticServoRotor", System.StringComparison.Ordinal))
             {
                 fieldNames = new[] { "currentRPM", "rpm", "targetRPM", "rpmLimit" };
+            }
+            else if (string.Equals(moduleName, "ModuleWheelMotor", System.StringComparison.Ordinal) ||
+                string.Equals(moduleName, "ModuleWheelMotorSteering", System.StringComparison.Ordinal))
+            {
+                fieldNames = new[]
+                {
+                    "currentRPM",
+                    "rpm",
+                    "wheelRPM",
+                    "motorRPM",
+                    "targetRPM",
+                    "driveOutput",
+                    "motorOutput",
+                    "wheelSpeed"
+                };
             }
             else
             {
@@ -2549,6 +2723,12 @@ namespace Parsek
             {
                 if (TryGetModuleFloatField(module, fieldNames[i], out value))
                     return true;
+            }
+
+            if (string.Equals(moduleName, "ModuleWheelMotorSteering", System.StringComparison.Ordinal) &&
+                TryGetModuleFloatField(module, "steeringAngle", out value))
+            {
+                return true;
             }
 
             return false;
@@ -2580,9 +2760,10 @@ namespace Parsek
                 int moduleIndex = roboticModuleIndex;
                 roboticModuleIndex++;
 
-                if (!TryGetModuleStringField(module, "servoTransformName", out string servoTransformName))
+                if (!TryResolveRoboticTransform(
+                    prefab, module, moduleName, out string servoTransformName, out Vector3 axis, out string transformSource))
                 {
-                    ParsekLog.Log($"    Robotics '{partName}' midx={moduleIndex}: missing servoTransformName on {moduleName}");
+                    ParsekLog.Log($"    Robotics '{partName}' midx={moduleIndex}: missing transform binding on {moduleName}");
                     continue;
                 }
 
@@ -2607,10 +2788,6 @@ namespace Parsek
                     }
                 }
 
-                Vector3 axis = Vector3.up;
-                if (TryGetModuleStringField(module, "mainAxis", out string axisName))
-                    TryParseRoboticAxis(axisName, out axis);
-
                 float currentValue = 0f;
                 TryGetRoboticCurrentValue(module, moduleName, out currentValue);
 
@@ -2630,7 +2807,7 @@ namespace Parsek
 
                 infos.Add(info);
                 ParsekLog.Log($"    Robotics detected: '{partName}' pid={persistentId} midx={moduleIndex} " +
-                    $"module={moduleName} servo={servoTransformName} axis={info.axisLocal} seed={currentValue:F3}");
+                    $"module={moduleName} servo={servoTransformName} source={transformSource} axis={info.axisLocal} seed={currentValue:F3}");
             }
 
             return infos.Count > 0 ? infos : null;
