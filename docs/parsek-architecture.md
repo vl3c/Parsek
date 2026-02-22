@@ -739,7 +739,7 @@ See `docs/design-going-back-in-time.md` for full design rationale. The mechanism
 
 Parsek is a **git-like recording system** for KSP missions. Players record flights sequentially, commit them to a single timeline, and they replay automatically as ghost vessels during future gameplay. Recordings are immutable — once committed, they play back exactly as flown.
 
-Like git, the player can go back to any earlier point and start new work. Existing recordings continue to play as ghosts. Conflicts are prevented through resource budgeting: committed recordings have already claimed their costs, so the player can only spend what's actually available. There is no timeline branching — one timeline, always.
+The long-term vision (Phase 5) extends this with the ability to go back to any earlier point and start new work, with resource budgeting to prevent conflicts. See `docs/design-going-back-in-time.md` for the planned design. There is no timeline branching — one timeline, always.
 
 The architecture naturally enables use cases like racing your own ghosts, but the mod does not include dedicated racing modes, AI playback, or multiplayer features. Those are gameplay possibilities that emerge from the core recording/playback system.
 
