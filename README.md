@@ -26,7 +26,6 @@ Recorded vessels are full visual replicas — original part meshes, textures, en
 - **Orbital recording** — time warp segments use analytical Keplerian orbits
 - **Part events** — staging, decoupling, parachutes, engines, solar panels, antennas, lights, landing gear, cargo bays, fairings, RCS, and docking all replay on the ghost
 - **Resource tracking** — funds, science, and reputation deltas applied at the correct time
-- **Take control** — grab a recording mid-playback and fly it yourself
 - **Recordings manager** — browse, sort, loop, and delete individual recordings
 - **External recording files** — bulk trajectory data stored in sidecar files, keeping saves lightweight
 
