@@ -154,12 +154,18 @@ namespace Parsek
                 if (pidStr != null)
                     uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out persistentId);
 
-                AvailablePart ap = PartLoader.getPartInfoByName(partName);
+                AvailablePart ap = ResolveAvailablePart(partName);
                 if (ap == null || ap.partPrefab == null)
                 {
                     skippedPrefab++;
                     ParsekLog.Log($"  Ghost part SKIPPED (no prefab): '{partName}' pid={persistentId}");
                     continue;
+                }
+                string resolvedName = ap.partPrefab.partInfo?.name ?? ap.name;
+                if (!string.IsNullOrEmpty(resolvedName) &&
+                    !string.Equals(resolvedName, partName, System.StringComparison.OrdinalIgnoreCase))
+                {
+                    ParsekLog.Log($"  Ghost part lookup alias: '{partName}' -> '{resolvedName}'");
                 }
 
                 int meshCount = 0;
@@ -316,6 +322,90 @@ namespace Parsek
             // name unless there is a trailing numeric suffix.
             var match = trailingNumericSuffixRegex.Match(rawPart);
             return match.Success ? match.Groups[1].Value : rawPart;
+        }
+
+        internal static AvailablePart ResolveAvailablePart(string partName)
+        {
+            if (string.IsNullOrEmpty(partName))
+                return null;
+
+            string trimmed = partName.Trim();
+            if (trimmed.Length == 0)
+                return null;
+
+            AvailablePart ap = TryGetAvailablePartByName(trimmed);
+            if (ap != null)
+                return ap;
+
+            string dotted = trimmed.Replace('_', '.');
+            if (!string.Equals(dotted, trimmed, System.StringComparison.Ordinal))
+            {
+                ap = TryGetAvailablePartByName(dotted);
+                if (ap != null)
+                    return ap;
+            }
+
+            string underscored = trimmed.Replace('.', '_');
+            if (!string.Equals(underscored, trimmed, System.StringComparison.Ordinal))
+            {
+                ap = TryGetAvailablePartByName(underscored);
+                if (ap != null)
+                    return ap;
+            }
+
+            List<AvailablePart> loadedParts = PartLoader.LoadedPartsList;
+            if (loadedParts == null || loadedParts.Count == 0)
+                return null;
+
+            for (int i = 0; i < loadedParts.Count; i++)
+            {
+                AvailablePart candidate = loadedParts[i];
+                if (candidate == null || candidate.partPrefab == null)
+                    continue;
+
+                if (PartNameMatches(candidate, trimmed) ||
+                    PartNameMatches(candidate, dotted) ||
+                    PartNameMatches(candidate, underscored))
+                {
+                    return candidate;
+                }
+            }
+
+            return null;
+        }
+
+        private static AvailablePart TryGetAvailablePartByName(string lookupName)
+        {
+            if (string.IsNullOrEmpty(lookupName))
+                return null;
+
+            AvailablePart ap = PartLoader.getPartInfoByName(lookupName);
+            return (ap != null && ap.partPrefab != null) ? ap : null;
+        }
+
+        private static bool PartNameMatches(AvailablePart candidate, string lookupName)
+        {
+            if (candidate == null || string.IsNullOrEmpty(lookupName))
+                return false;
+
+            if (string.Equals(candidate.name, lookupName, System.StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            string infoName = candidate.partPrefab?.partInfo?.name;
+            if (!string.IsNullOrEmpty(infoName) &&
+                string.Equals(infoName, lookupName, System.StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            string prefabName = candidate.partPrefab?.name;
+            if (!string.IsNullOrEmpty(prefabName) &&
+                string.Equals(prefabName, lookupName, System.StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return false;
         }
 
         internal static bool TryParseVector3(string value, out Vector3 result)
