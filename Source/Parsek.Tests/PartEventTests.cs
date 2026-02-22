@@ -1475,6 +1475,164 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Robotics state tracking
+
+        [Fact]
+        public void IsRoboticModuleName_KnownModules_ReturnTrue()
+        {
+            Assert.True(FlightRecorder.IsRoboticModuleName("ModuleRoboticServoHinge"));
+            Assert.True(FlightRecorder.IsRoboticModuleName("ModuleRoboticServoPiston"));
+            Assert.True(FlightRecorder.IsRoboticModuleName("ModuleRoboticRotationServo"));
+            Assert.True(FlightRecorder.IsRoboticModuleName("ModuleRoboticServoRotor"));
+            Assert.False(FlightRecorder.IsRoboticModuleName("ModuleDeployablePart"));
+        }
+
+        [Fact]
+        public void RoboticTransition_StartMoving_EmitsStartedEvent()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(300, 0);
+            var moving = new HashSet<ulong>();
+            var positions = new Dictionary<ulong, float>();
+            var sampleUT = new Dictionary<ulong, double>();
+
+            var events = FlightRecorder.CheckRoboticTransition(
+                key, 300, 0, "hinge_01",
+                movingSignal: true, positionValue: 10f, deadband: 0.5f, ut: 100.0,
+                moving, positions, sampleUT, sampleIntervalSeconds: 0.25);
+
+            Assert.Single(events);
+            Assert.Equal(PartEventType.RoboticMotionStarted, events[0].eventType);
+            Assert.Equal(10f, events[0].value, 0.001f);
+            Assert.Contains(key, moving);
+            Assert.True(sampleUT.ContainsKey(key));
+        }
+
+        [Fact]
+        public void RoboticTransition_Below4HzCap_NoSampleEvent()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(300, 0);
+            var moving = new HashSet<ulong>();
+            var positions = new Dictionary<ulong, float>();
+            var sampleUT = new Dictionary<ulong, double>();
+
+            FlightRecorder.CheckRoboticTransition(
+                key, 300, 0, "hinge_01",
+                movingSignal: true, positionValue: 10f, deadband: 0.5f, ut: 100.0,
+                moving, positions, sampleUT, sampleIntervalSeconds: 0.25);
+
+            var events = FlightRecorder.CheckRoboticTransition(
+                key, 300, 0, "hinge_01",
+                movingSignal: true, positionValue: 12f, deadband: 0.5f, ut: 100.1,
+                moving, positions, sampleUT, sampleIntervalSeconds: 0.25);
+
+            Assert.Empty(events);
+        }
+
+        [Fact]
+        public void RoboticTransition_At4HzCap_EmitsPositionSample()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(300, 0);
+            var moving = new HashSet<ulong>();
+            var positions = new Dictionary<ulong, float>();
+            var sampleUT = new Dictionary<ulong, double>();
+
+            FlightRecorder.CheckRoboticTransition(
+                key, 300, 0, "hinge_01",
+                movingSignal: true, positionValue: 10f, deadband: 0.5f, ut: 100.0,
+                moving, positions, sampleUT, sampleIntervalSeconds: 0.25);
+
+            // Within interval (no sample yet)
+            FlightRecorder.CheckRoboticTransition(
+                key, 300, 0, "hinge_01",
+                movingSignal: true, positionValue: 12f, deadband: 0.5f, ut: 100.1,
+                moving, positions, sampleUT, sampleIntervalSeconds: 0.25);
+
+            // At/after interval with sufficient delta from last emitted value
+            var events = FlightRecorder.CheckRoboticTransition(
+                key, 300, 0, "hinge_01",
+                movingSignal: true, positionValue: 13f, deadband: 0.5f, ut: 100.3,
+                moving, positions, sampleUT, sampleIntervalSeconds: 0.25);
+
+            Assert.Single(events);
+            Assert.Equal(PartEventType.RoboticPositionSample, events[0].eventType);
+            Assert.Equal(13f, events[0].value, 0.001f);
+        }
+
+        [Fact]
+        public void RoboticTransition_DeadbandSuppressesNoise()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(300, 0);
+            var moving = new HashSet<ulong>();
+            var positions = new Dictionary<ulong, float>();
+            var sampleUT = new Dictionary<ulong, double>();
+
+            FlightRecorder.CheckRoboticTransition(
+                key, 300, 0, "hinge_01",
+                movingSignal: true, positionValue: 10f, deadband: 0.5f, ut: 100.0,
+                moving, positions, sampleUT, sampleIntervalSeconds: 0.25);
+
+            var events = FlightRecorder.CheckRoboticTransition(
+                key, 300, 0, "hinge_01",
+                movingSignal: true, positionValue: 10.2f, deadband: 0.5f, ut: 100.3,
+                moving, positions, sampleUT, sampleIntervalSeconds: 0.25);
+
+            Assert.Empty(events);
+        }
+
+        [Fact]
+        public void RoboticTransition_StopMoving_EmitsStoppedEvent()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(300, 0);
+            var moving = new HashSet<ulong>();
+            var positions = new Dictionary<ulong, float>();
+            var sampleUT = new Dictionary<ulong, double>();
+
+            FlightRecorder.CheckRoboticTransition(
+                key, 300, 0, "hinge_01",
+                movingSignal: true, positionValue: 10f, deadband: 0.5f, ut: 100.0,
+                moving, positions, sampleUT, sampleIntervalSeconds: 0.25);
+
+            var events = FlightRecorder.CheckRoboticTransition(
+                key, 300, 0, "hinge_01",
+                movingSignal: false, positionValue: 10f, deadband: 0.5f, ut: 100.5,
+                moving, positions, sampleUT, sampleIntervalSeconds: 0.25);
+
+            Assert.Single(events);
+            Assert.Equal(PartEventType.RoboticMotionStopped, events[0].eventType);
+            Assert.DoesNotContain(key, moving);
+        }
+
+        [Fact]
+        public void RoboticsPositionSample_SerializationRoundtrip()
+        {
+            var rec = new RecordingStore.Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 120, bodyName = "Kerbin" });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 110,
+                partPersistentId = 333,
+                eventType = PartEventType.RoboticPositionSample,
+                partName = "hinge_01",
+                value = 42.5f,
+                moduleIndex = 0
+            });
+
+            var node = new ConfigNode("TEST");
+            RecordingStore.SerializeTrajectoryInto(node, rec);
+
+            var loaded = new RecordingStore.Recording();
+            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+
+            Assert.Single(loaded.PartEvents);
+            Assert.Equal(PartEventType.RoboticPositionSample, loaded.PartEvents[0].eventType);
+            Assert.Equal(42.5f, loaded.PartEvents[0].value, 0.001f);
+            Assert.Equal(0, loaded.PartEvents[0].moduleIndex);
+            Assert.Equal(333u, loaded.PartEvents[0].partPersistentId);
+        }
+
+        #endregion
+
         #region Engine event serialization
 
         [Fact]

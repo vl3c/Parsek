@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using KSP.UI.Screens;
 using UnityEngine;
 
@@ -49,6 +50,12 @@ namespace Parsek
         private List<(Part part, ModuleRCS rcs, int moduleIndex)> cachedRcsModules;
         private HashSet<ulong> activeRcsKeys;
         private Dictionary<ulong, float> lastRcsThrottle;
+        // Robotics state tracking (Breaking Ground; sparse sampling to limit event volume)
+        private List<(Part part, PartModule module, int moduleIndex, string moduleName)> cachedRoboticModules;
+        private HashSet<ulong> activeRoboticKeys;
+        private Dictionary<ulong, float> lastRoboticPosition;
+        private Dictionary<ulong, double> lastRoboticSampleUT;
+        private HashSet<ulong> loggedRoboticModuleKeys;
         internal bool partEventsSubscribed;
         public bool IsRecording { get; private set; }
         public uint RecordingVesselId { get; private set; }
@@ -69,6 +76,9 @@ namespace Parsek
         private const float speedChangeThreshold = 0.05f;
         private const double snapshotRefreshIntervalUT = 10.0;
         private const float snapshotPerfLogThresholdMs = 25.0f;
+        private const double roboticSampleIntervalSeconds = 0.25; // 4 Hz
+        private const float roboticAngularDeadbandDegrees = 0.5f;
+        private const float roboticLinearDeadbandMeters = 0.01f;
         private double lastRecordedUT = -1;
         private Vector3 lastRecordedVelocity;
         private ConfigNode lastGoodVesselSnapshot;
@@ -1386,6 +1396,456 @@ namespace Parsek
             }
         }
 
+        internal static bool IsRoboticModuleName(string moduleName)
+        {
+            return string.Equals(moduleName, "ModuleRoboticServoHinge", StringComparison.Ordinal) ||
+                   string.Equals(moduleName, "ModuleRoboticServoPiston", StringComparison.Ordinal) ||
+                   string.Equals(moduleName, "ModuleRoboticRotationServo", StringComparison.Ordinal) ||
+                   string.Equals(moduleName, "ModuleRoboticServoRotor", StringComparison.Ordinal);
+        }
+
+        internal static List<(Part part, PartModule module, int moduleIndex, string moduleName)> CacheRoboticModules(Vessel v)
+        {
+            var result = new List<(Part, PartModule, int, string)>();
+            if (v == null || v.parts == null) return result;
+
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                int roboticModuleIndex = 0;
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    PartModule module = p.Modules[m];
+                    if (module == null) continue;
+
+                    string moduleName = module.moduleName;
+                    if (!IsRoboticModuleName(moduleName)) continue;
+
+                    result.Add((p, module, roboticModuleIndex, moduleName));
+                    roboticModuleIndex++;
+                }
+            }
+
+            return result;
+        }
+
+        private static BaseField FindModuleField(PartModule module, string fieldName)
+        {
+            if (module == null || module.Fields == null || string.IsNullOrEmpty(fieldName))
+                return null;
+
+            try
+            {
+                return module.Fields[fieldName];
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static bool TryParseFloatValue(object rawValue, out float value)
+        {
+            value = 0f;
+            if (rawValue == null) return false;
+
+            if (rawValue is float f)
+            {
+                value = f;
+                return !float.IsNaN(value) && !float.IsInfinity(value);
+            }
+
+            if (rawValue is double d)
+            {
+                value = (float)d;
+                return !float.IsNaN(value) && !float.IsInfinity(value);
+            }
+
+            if (rawValue is int i)
+            {
+                value = i;
+                return true;
+            }
+
+            if (rawValue is uint ui)
+            {
+                value = ui;
+                return true;
+            }
+
+            if (rawValue is bool b)
+            {
+                value = b ? 1f : 0f;
+                return true;
+            }
+
+            string text = rawValue.ToString();
+            if (string.IsNullOrEmpty(text)) return false;
+            text = text.Trim();
+
+            if (float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value))
+                return !float.IsNaN(value) && !float.IsInfinity(value);
+
+            // Some KSP fields serialize vectors/quaternions as comma-separated values.
+            string[] parts = text.Split(',');
+            if (parts.Length > 0 &&
+                float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out value))
+            {
+                return !float.IsNaN(value) && !float.IsInfinity(value);
+            }
+
+            return false;
+        }
+
+        private static bool TryParseBoolValue(object rawValue, out bool value)
+        {
+            value = false;
+            if (rawValue == null) return false;
+
+            if (rawValue is bool b)
+            {
+                value = b;
+                return true;
+            }
+
+            if (rawValue is int i)
+            {
+                value = i != 0;
+                return true;
+            }
+
+            string text = rawValue.ToString();
+            if (string.IsNullOrEmpty(text)) return false;
+            text = text.Trim();
+
+            if (bool.TryParse(text, out value)) return true;
+
+            int intValue;
+            if (int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out intValue))
+            {
+                value = intValue != 0;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryParseVector3Value(object rawValue, out Vector3 value)
+        {
+            value = Vector3.zero;
+            if (rawValue == null) return false;
+
+            if (rawValue is Vector3 vec)
+            {
+                value = vec;
+                return true;
+            }
+
+            string text = rawValue.ToString();
+            if (string.IsNullOrEmpty(text)) return false;
+            string[] parts = text.Split(',');
+            if (parts.Length != 3) return false;
+
+            float x;
+            float y;
+            float z;
+            if (!float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out x)) return false;
+            if (!float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out y)) return false;
+            if (!float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out z)) return false;
+
+            value = new Vector3(x, y, z);
+            return true;
+        }
+
+        private static bool TryParseQuaternionValue(object rawValue, out Quaternion value)
+        {
+            value = Quaternion.identity;
+            if (rawValue == null) return false;
+
+            if (rawValue is Quaternion quat)
+            {
+                value = quat;
+                return true;
+            }
+
+            string text = rawValue.ToString();
+            if (string.IsNullOrEmpty(text)) return false;
+            string[] parts = text.Split(',');
+            if (parts.Length != 4) return false;
+
+            float x;
+            float y;
+            float z;
+            float w;
+            if (!float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out x)) return false;
+            if (!float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out y)) return false;
+            if (!float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out z)) return false;
+            if (!float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out w)) return false;
+
+            value = new Quaternion(x, y, z, w);
+            return true;
+        }
+
+        private static bool TryReadModuleFloatField(PartModule module, string fieldName, out float value)
+        {
+            value = 0f;
+            BaseField field = FindModuleField(module, fieldName);
+            if (field == null) return false;
+            return TryParseFloatValue(field.GetValue(module), out value);
+        }
+
+        private static bool TryReadModuleBoolField(PartModule module, string fieldName, out bool value)
+        {
+            value = false;
+            BaseField field = FindModuleField(module, fieldName);
+            if (field == null) return false;
+            return TryParseBoolValue(field.GetValue(module), out value);
+        }
+
+        private static bool TryReadModuleVector3Field(PartModule module, string fieldName, out Vector3 value)
+        {
+            value = Vector3.zero;
+            BaseField field = FindModuleField(module, fieldName);
+            if (field == null) return false;
+            return TryParseVector3Value(field.GetValue(module), out value);
+        }
+
+        private static bool TryReadModuleQuaternionField(PartModule module, string fieldName, out Quaternion value)
+        {
+            value = Quaternion.identity;
+            BaseField field = FindModuleField(module, fieldName);
+            if (field == null) return false;
+            return TryParseQuaternionValue(field.GetValue(module), out value);
+        }
+
+        private static bool TryGetRoboticMovingState(PartModule module, out bool moving)
+        {
+            moving = false;
+            string[] movingFields =
+            {
+                "servoIsMoving",
+                "isMoving",
+                "moving",
+                "isTraversing",
+                "isRotating"
+            };
+
+            for (int i = 0; i < movingFields.Length; i++)
+            {
+                if (TryReadModuleBoolField(module, movingFields[i], out moving))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryGetRoboticPositionValue(
+            PartModule module, string moduleName, out float positionValue,
+            out float deadband, out string sourceField)
+        {
+            positionValue = 0f;
+            sourceField = null;
+            deadband = string.Equals(moduleName, "ModuleRoboticServoPiston", StringComparison.Ordinal)
+                ? roboticLinearDeadbandMeters
+                : roboticAngularDeadbandDegrees;
+
+            string[] preferredScalarFields;
+            if (string.Equals(moduleName, "ModuleRoboticServoPiston", StringComparison.Ordinal))
+            {
+                preferredScalarFields = new[]
+                {
+                    "currentPosition",
+                    "position",
+                    "targetPosition",
+                    "traverseVelocity"
+                };
+            }
+            else if (string.Equals(moduleName, "ModuleRoboticServoRotor", StringComparison.Ordinal))
+            {
+                preferredScalarFields = new[]
+                {
+                    "currentRPM",
+                    "rpm",
+                    "rpmLimit"
+                };
+            }
+            else
+            {
+                preferredScalarFields = new[]
+                {
+                    "currentAngle",
+                    "angle",
+                    "targetAngle"
+                };
+            }
+
+            for (int i = 0; i < preferredScalarFields.Length; i++)
+            {
+                if (TryReadModuleFloatField(module, preferredScalarFields[i], out positionValue))
+                {
+                    sourceField = preferredScalarFields[i];
+                    return true;
+                }
+            }
+
+            if (TryReadModuleVector3Field(module, "servoTransformPosition", out Vector3 servoPos))
+            {
+                positionValue = servoPos.magnitude;
+                sourceField = "servoTransformPosition";
+                return true;
+            }
+
+            if (TryReadModuleQuaternionField(module, "servoTransformRotation", out Quaternion servoRot))
+            {
+                positionValue = Quaternion.Angle(Quaternion.identity, servoRot);
+                sourceField = "servoTransformRotation";
+                return true;
+            }
+
+            return false;
+        }
+
+        private static string DescribeModuleFields(PartModule module)
+        {
+            if (module == null || module.Fields == null) return "<none>";
+
+            var names = new List<string>();
+            for (int i = 0; i < module.Fields.Count; i++)
+            {
+                BaseField field = module.Fields[i];
+                if (field == null || string.IsNullOrEmpty(field.name)) continue;
+                names.Add(field.name);
+            }
+
+            return names.Count == 0 ? "<none>" : string.Join(", ", names.ToArray());
+        }
+
+        internal static List<PartEvent> CheckRoboticTransition(
+            ulong key, uint pid, int moduleIndex, string partName,
+            bool movingSignal, float positionValue, float deadband, double ut,
+            HashSet<ulong> movingSet, Dictionary<ulong, float> lastPositionMap,
+            Dictionary<ulong, double> lastSampleMap, double sampleIntervalSeconds)
+        {
+            var events = new List<PartEvent>();
+            bool emittedEvent = false;
+            bool wasMoving = movingSet.Contains(key);
+
+            float lastPosition;
+            bool hadLastPosition = lastPositionMap.TryGetValue(key, out lastPosition);
+            float delta = hadLastPosition ? Mathf.Abs(positionValue - lastPosition) : float.PositiveInfinity;
+            bool changedEnough = !hadLastPosition || delta >= deadband;
+            bool inferredMoving = hadLastPosition && delta >= Math.Max(deadband * 0.25f, 0.0001f);
+            bool movingNow = movingSignal || inferredMoving;
+
+            if (movingNow && !wasMoving)
+            {
+                movingSet.Add(key);
+                lastSampleMap[key] = ut;
+                events.Add(new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = pid,
+                    eventType = PartEventType.RoboticMotionStarted,
+                    partName = partName,
+                    value = positionValue,
+                    moduleIndex = moduleIndex
+                });
+                emittedEvent = true;
+            }
+            else if (!movingNow && wasMoving)
+            {
+                movingSet.Remove(key);
+                lastSampleMap.Remove(key);
+                events.Add(new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = pid,
+                    eventType = PartEventType.RoboticMotionStopped,
+                    partName = partName,
+                    value = positionValue,
+                    moduleIndex = moduleIndex
+                });
+                emittedEvent = true;
+            }
+            else if (movingNow && wasMoving)
+            {
+                double lastSampleUT;
+                bool sampleDue = !lastSampleMap.TryGetValue(key, out lastSampleUT) ||
+                    (ut - lastSampleUT) >= sampleIntervalSeconds;
+                if (sampleDue && changedEnough)
+                {
+                    lastSampleMap[key] = ut;
+                    events.Add(new PartEvent
+                    {
+                        ut = ut,
+                        partPersistentId = pid,
+                        eventType = PartEventType.RoboticPositionSample,
+                        partName = partName,
+                        value = positionValue,
+                        moduleIndex = moduleIndex
+                    });
+                    emittedEvent = true;
+                }
+            }
+
+            if (emittedEvent || !hadLastPosition)
+                lastPositionMap[key] = positionValue;
+
+            return events;
+        }
+
+        private void CheckRoboticState(Vessel v)
+        {
+            if (cachedRoboticModules == null) return;
+
+            double ut = Planetarium.GetUniversalTime();
+            for (int i = 0; i < cachedRoboticModules.Count; i++)
+            {
+                var (part, module, moduleIndex, moduleName) = cachedRoboticModules[i];
+                if (part == null || module == null) continue;
+
+                ulong key = EncodeEngineKey(part.persistentId, moduleIndex);
+
+                bool hasMovingSignal = TryGetRoboticMovingState(module, out bool movingSignal);
+                bool hasPosition = TryGetRoboticPositionValue(
+                    module, moduleName, out float positionValue, out float deadband, out string sourceField);
+
+                if (!hasPosition)
+                {
+                    if (loggedRoboticModuleKeys.Add(key))
+                    {
+                        ParsekLog.Log($"Robotics: unable to sample '{part.partInfo?.name}' pid={part.persistentId} " +
+                            $"midx={moduleIndex} module={moduleName}; fields=[{DescribeModuleFields(module)}]");
+                    }
+                    continue;
+                }
+
+                if (loggedRoboticModuleKeys.Add(key))
+                {
+                    string movingSource = hasMovingSignal ? "module-flag" : "inferred";
+                    ParsekLog.Log($"Robotics: tracking '{part.partInfo?.name}' pid={part.persistentId} " +
+                        $"midx={moduleIndex} module={moduleName} source={sourceField} " +
+                        $"deadband={deadband:F3} sampleHz=4.0 moving={movingSource}");
+                }
+
+                var events = CheckRoboticTransition(
+                    key, part.persistentId, moduleIndex,
+                    part.partInfo?.name ?? "unknown",
+                    movingSignal, positionValue, deadband, ut,
+                    activeRoboticKeys, lastRoboticPosition, lastRoboticSampleUT, roboticSampleIntervalSeconds);
+
+                for (int e = 0; e < events.Count; e++)
+                {
+                    PartEvents.Add(events[e]);
+                    ParsekLog.Log($"Part event: {events[e].eventType} '{events[e].partName}' " +
+                        $"pid={events[e].partPersistentId} midx={events[e].moduleIndex} " +
+                        $"val={events[e].value:F3}");
+                }
+            }
+        }
+
         #endregion
 
         public void StartRecording()
@@ -1425,6 +1885,11 @@ namespace Parsek
             cachedRcsModules = CacheRcsModules(v);
             activeRcsKeys = new HashSet<ulong>();
             lastRcsThrottle = new Dictionary<ulong, float>();
+            cachedRoboticModules = CacheRoboticModules(v);
+            activeRoboticKeys = new HashSet<ulong>();
+            lastRoboticPosition = new Dictionary<ulong, float>();
+            lastRoboticSampleUT = new Dictionary<ulong, double>();
+            loggedRoboticModuleKeys = new HashSet<ulong>();
 
             // Seed already-deployed fairings so we don't emit false events at first poll
             if (v != null && v.parts != null)
@@ -1698,6 +2163,7 @@ namespace Parsek
             CheckGearState(v);
             CheckCargoBayState(v);
             CheckFairingState(v);
+            CheckRoboticState(v);
 
             // Krakensbane-corrected true velocity
             Vector3 currentVelocity = (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity());

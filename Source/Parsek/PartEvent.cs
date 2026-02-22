@@ -29,7 +29,10 @@ namespace Parsek
         LightBlinkDisabled,   // 24 - light blink mode disabled
         LightBlinkRate,       // 25 - light blink rate changed (value = blinkRate)
         InventoryPartPlaced,  // 26 - inventory deployable placed into the world
-        InventoryPartRemoved  // 27 - inventory deployable removed from the world
+        InventoryPartRemoved, // 27 - inventory deployable removed from the world
+        RoboticMotionStarted, // 28 - robotic module started moving (value = sampled position)
+        RoboticPositionSample, // 29 - robotic module motion sample (value = sampled position)
+        RoboticMotionStopped  // 30 - robotic module stopped moving (value = sampled position)
     }
 
     public struct PartEvent

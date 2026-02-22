@@ -2170,6 +2170,12 @@ namespace Parsek
                     case PartEventType.RCSThrottle:
                         SetRcsEmission(state, evt, evt.value);
                         break;
+                    case PartEventType.RoboticMotionStarted:
+                    case PartEventType.RoboticPositionSample:
+                    case PartEventType.RoboticMotionStopped:
+                        // Robotics playback interpolation is tracked separately from
+                        // event capture and is not yet applied to ghost visuals.
+                        break;
                     case PartEventType.InventoryPartPlaced:
                         SetGhostPartActive(ghost, evt.partPersistentId, true);
                         Log($"Part event applied: InventoryPartPlaced '{evt.partName}' pid={evt.partPersistentId}");
