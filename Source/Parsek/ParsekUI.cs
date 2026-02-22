@@ -155,6 +155,13 @@ namespace Parsek
                 flight.ClearRecording();
             }
 
+            GUI.enabled = !flight.IsRecording && !flight.IsPlaying
+                && flight.recording.Count >= 2 && !flight.HasActiveChain;
+            if (GUILayout.Button("Commit Flight"))
+            {
+                flight.CommitFlight();
+            }
+
             GUI.enabled = activeGhosts > 0;
             if (GUILayout.Button($"Despawn Ghosts ({activeGhosts})"))
             {
