@@ -13,6 +13,12 @@ namespace Parsek
         GameScenes.FLIGHT, GameScenes.SPACECENTER, GameScenes.TRACKSTATION, GameScenes.EDITOR)]
     public class ParsekScenario : ScenarioModule
     {
+        #region Game State Recording
+
+        private GameStateRecorder stateRecorder;
+
+        #endregion
+
         #region Crew Replacements
 
         // Maps reserved kerbal name → replacement kerbal name
@@ -87,6 +93,14 @@ namespace Parsek
                 }
                 Debug.Log($"[Parsek Scenario] Saved {crewReplacements.Count} crew replacement(s)");
             }
+
+            // Save game state events to external file
+            GameStateStore.SaveEventFile();
+            node.AddValue("gameStateEventCount", GameStateStore.EventCount);
+
+            // Save any pending baselines
+            foreach (var baseline in GameStateStore.Baselines)
+                GameStateStore.SaveBaseline(baseline);
         }
 
         // Static flag: only load from save once per KSP session.
@@ -110,6 +124,30 @@ namespace Parsek
 
             // Load crew replacement mappings from the node (both initial and revert paths need this)
             LoadCrewReplacements(node);
+
+            // Game state recorder lifecycle — re-subscribe on every OnLoad (handles reverts)
+            stateRecorder?.Unsubscribe();
+            if (!initialLoadDone)
+            {
+                GameStateStore.LoadEventFile();
+                GameStateStore.LoadBaselines();
+            }
+            stateRecorder = new GameStateRecorder();
+            stateRecorder.SeedFacilityCacheFromHistory();
+            stateRecorder.Subscribe();
+
+            // Capture initial baseline if none exist yet
+            if (!initialLoadDone && GameStateStore.BaselineCount == 0)
+            {
+                try
+                {
+                    GameStateStore.CaptureBaselineIfNeeded();
+                }
+                catch (System.Exception ex)
+                {
+                    Debug.Log($"[Parsek Scenario] Failed to capture initial baseline: {ex.Message}");
+                }
+            }
 
             if (initialLoadDone)
             {
@@ -392,14 +430,22 @@ namespace Parsek
             var roster = HighLogic.CurrentGame?.CrewRoster;
             if (roster == null) return;
 
-            foreach (var rec in RecordingStore.CommittedRecordings)
+            GameStateRecorder.SuppressCrewEvents = true;
+            try
             {
-                if (rec.LoopPlayback) continue;
-                ReserveCrewIn(rec.VesselSnapshot, rec.VesselSpawned, roster);
-            }
+                foreach (var rec in RecordingStore.CommittedRecordings)
+                {
+                    if (rec.LoopPlayback) continue;
+                    ReserveCrewIn(rec.VesselSnapshot, rec.VesselSpawned, roster);
+                }
 
-            if (RecordingStore.HasPending && RecordingStore.Pending.VesselSnapshot != null)
-                ReserveCrewIn(RecordingStore.Pending.VesselSnapshot, false, roster);
+                if (RecordingStore.HasPending && RecordingStore.Pending.VesselSnapshot != null)
+                    ReserveCrewIn(RecordingStore.Pending.VesselSnapshot, false, roster);
+            }
+            finally
+            {
+                GameStateRecorder.SuppressCrewEvents = false;
+            }
         }
 
         /// <summary>
@@ -412,24 +458,32 @@ namespace Parsek
             var roster = HighLogic.CurrentGame?.CrewRoster;
             if (roster == null) return;
 
-            foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
+            GameStateRecorder.SuppressCrewEvents = true;
+            try
             {
-                foreach (string name in partNode.GetValues("crew"))
+                foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
                 {
-                    foreach (ProtoCrewMember pcm in roster.Crew)
+                    foreach (string name in partNode.GetValues("crew"))
                     {
-                        if (pcm.name == name && pcm.rosterStatus == ProtoCrewMember.RosterStatus.Assigned)
+                        foreach (ProtoCrewMember pcm in roster.Crew)
                         {
-                            pcm.rosterStatus = ProtoCrewMember.RosterStatus.Available;
-                            Debug.Log($"[Parsek Scenario] Unreserved crew '{name}'");
+                            if (pcm.name == name && pcm.rosterStatus == ProtoCrewMember.RosterStatus.Assigned)
+                            {
+                                pcm.rosterStatus = ProtoCrewMember.RosterStatus.Available;
+                                Debug.Log($"[Parsek Scenario] Unreserved crew '{name}'");
 
-                            // Clean up the replacement kerbal
-                            CleanUpReplacement(name, roster);
+                                // Clean up the replacement kerbal
+                                CleanUpReplacement(name, roster);
 
-                            break;
+                                break;
+                            }
                         }
                     }
                 }
+            }
+            finally
+            {
+                GameStateRecorder.SuppressCrewEvents = false;
             }
         }
 
@@ -548,13 +602,21 @@ namespace Parsek
                 return;
             }
 
-            foreach (var kvp in new Dictionary<string, string>(crewReplacements))
+            GameStateRecorder.SuppressCrewEvents = true;
+            try
             {
-                CleanUpReplacement(kvp.Key, roster);
-            }
+                foreach (var kvp in new Dictionary<string, string>(crewReplacements))
+                {
+                    CleanUpReplacement(kvp.Key, roster);
+                }
 
-            crewReplacements.Clear();
-            Debug.Log("[Parsek Scenario] Cleared all crew replacements");
+                crewReplacements.Clear();
+                Debug.Log("[Parsek Scenario] Cleared all crew replacements");
+            }
+            finally
+            {
+                GameStateRecorder.SuppressCrewEvents = false;
+            }
         }
 
         /// <summary>
@@ -708,5 +770,10 @@ namespace Parsek
         }
 
         #endregion
+
+        public void OnDestroy()
+        {
+            stateRecorder?.Unsubscribe();
+        }
     }
 }
