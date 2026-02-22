@@ -2388,6 +2388,12 @@ namespace Parsek
                 }
             }
 
+            // Parts with ModulePartVariants have multiple visual variants where only
+            // one set of GameObjects is active at a time (e.g. Poodle v2: DoubleBell vs
+            // SingleBell). The prefab has the base variant applied, so inactive objects
+            // belong to non-selected variants and must be skipped to avoid overlap.
+            bool hasPartVariants = prefab.FindModuleImplementing<ModulePartVariants>() != null;
+
             var meshRenderers = modelRoot.GetComponentsInChildren<MeshRenderer>(true);
             var skinnedRenderers = modelRoot.GetComponentsInChildren<SkinnedMeshRenderer>(true);
             if ((meshRenderers == null || meshRenderers.Length == 0) &&
@@ -2398,7 +2404,8 @@ namespace Parsek
             int totalSMR = skinnedRenderers != null ? skinnedRenderers.Length : 0;
             ParsekLog.Log($"  Part '{partName}' pid={persistentId}: modelRoot='{modelRoot.name}' " +
                 $"modelScale={modelRoot.localScale}, " +
-                $"{totalMR} MeshRenderers, {totalSMR} SkinnedMeshRenderers");
+                $"{totalMR} MeshRenderers, {totalSMR} SkinnedMeshRenderers" +
+                (hasPartVariants ? " (has ModulePartVariants)" : ""));
 
             // Name by persistentId for O(1) lookup during playback; fall back to part name
             string partLabel = persistentId != 0
@@ -2437,10 +2444,16 @@ namespace Parsek
             if (raiseLightVisualOnly && prefab.FindModuleImplementing<ModuleLight>() != null)
                 modelNode.transform.localPosition += new Vector3(0f, LightsShowcaseVisualYOffset, 0f);
 
+            int variantSkipped = 0;
             for (int r = 0; r < meshRenderers.Length; r++)
             {
                 var mr = meshRenderers[r];
                 if (mr == null) continue;
+                if (hasPartVariants && !mr.gameObject.activeInHierarchy)
+                {
+                    variantSkipped++;
+                    continue;
+                }
                 var mf = mr.GetComponent<MeshFilter>();
                 if (mf == null || mf.sharedMesh == null) continue;
 
@@ -2452,11 +2465,14 @@ namespace Parsek
                     $"localPos={leaf.localPosition} localScale={leaf.localScale}");
                 added = true;
             }
+            if (variantSkipped > 0)
+                ParsekLog.Log($"  Skipped {variantSkipped} MeshRenderers on inactive variant objects");
 
             for (int r = 0; r < skinnedRenderers.Length; r++)
             {
                 var smr = skinnedRenderers[r];
                 if (smr == null || smr.sharedMesh == null) continue;
+                if (hasPartVariants && !smr.gameObject.activeInHierarchy) continue;
 
                 Transform leaf = MirrorTransformChain(smr.transform, modelRoot, modelNode.transform, cloneMap);
 
