@@ -108,6 +108,9 @@ namespace Parsek
                 showSettingsWindow = !showSettingsWindow;
             GUILayout.EndHorizontal();
 
+            // Resource budget display (career mode with committed future items)
+            DrawResourceBudget();
+
             // Active ghost controls — Take Control buttons
             var committed = RecordingStore.CommittedRecordings;
             var ghosts = flight.TimelineGhosts;
@@ -204,6 +207,44 @@ namespace Parsek
 
             // Make window draggable
             GUI.DragWindow();
+        }
+
+        private void DrawResourceBudget()
+        {
+            var budget = ResourceBudget.ComputeTotal(
+                RecordingStore.CommittedRecordings,
+                MilestoneStore.Milestones);
+
+            if (budget.reservedFunds <= 0 && budget.reservedScience <= 0 && budget.reservedReputation <= 0)
+                return;
+
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            GUILayout.Space(5);
+            GUILayout.Label("Resources", GUI.skin.box);
+
+            if (budget.reservedFunds > 0)
+            {
+                double currentFunds = 0;
+                try { if (Funding.Instance != null) currentFunds = Funding.Instance.Funds; } catch { }
+                double available = currentFunds - budget.reservedFunds;
+                GUILayout.Label($"Funds: {available.ToString("N0", ic)} available ({budget.reservedFunds.ToString("N0", ic)} committed)");
+            }
+
+            if (budget.reservedScience > 0)
+            {
+                double currentScience = 0;
+                try { if (ResearchAndDevelopment.Instance != null) currentScience = ResearchAndDevelopment.Instance.Science; } catch { }
+                double available = currentScience - budget.reservedScience;
+                GUILayout.Label($"Science: {available.ToString("F1", ic)} available ({budget.reservedScience.ToString("F1", ic)} committed)");
+            }
+
+            if (budget.reservedReputation > 0)
+            {
+                float currentRep = 0;
+                try { if (Reputation.Instance != null) currentRep = Reputation.Instance.reputation; } catch { }
+                double available = currentRep - budget.reservedReputation;
+                GUILayout.Label($"Reputation: {available.ToString("F0", ic)} available ({budget.reservedReputation.ToString("F0", ic)} committed)");
+            }
         }
 
         public void DrawRecordingsWindowIfOpen(Rect mainWindowRect)

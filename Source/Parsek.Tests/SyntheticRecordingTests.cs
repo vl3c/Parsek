@@ -1785,6 +1785,8 @@ namespace Parsek.Tests
         public void SerializeTrajectory_RoundTrip_PreservesData()
         {
             RecordingStore.SuppressLogging = true;
+            MilestoneStore.SuppressLogging = true;
+            MilestoneStore.ResetForTesting();
             GameStateStore.SuppressLogging = true;
             try
             {
@@ -1863,6 +1865,8 @@ namespace Parsek.Tests
         public void SerializeTrajectory_SaveToFile_WritesExpectedContent()
         {
             RecordingStore.SuppressLogging = true;
+            MilestoneStore.SuppressLogging = true;
+            MilestoneStore.ResetForTesting();
             GameStateStore.SuppressLogging = true;
             string tempDir = Path.Combine(Path.GetTempPath(), "parsek_test_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);

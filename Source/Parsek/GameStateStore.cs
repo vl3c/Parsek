@@ -29,6 +29,9 @@ namespace Parsek
 
         internal static void AddEvent(GameStateEvent e)
         {
+            // Stamp current epoch for branch isolation
+            e.epoch = MilestoneStore.CurrentEpoch;
+
             // Resource coalescing: if this is a resource event and the last event
             // of the same type is within the epsilon window, update it instead
             if (IsResourceEvent(e.eventType) && events.Count > 0)
@@ -53,7 +56,7 @@ namespace Parsek
             events.Add(e);
         }
 
-        private static bool IsResourceEvent(GameStateEventType type)
+        internal static bool IsResourceEvent(GameStateEventType type)
         {
             return type == GameStateEventType.FundsChanged ||
                    type == GameStateEventType.ScienceChanged ||

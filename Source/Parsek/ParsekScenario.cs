@@ -101,6 +101,11 @@ namespace Parsek
             // Save any pending baselines
             foreach (var baseline in GameStateStore.Baselines)
                 GameStateStore.SaveBaseline(baseline);
+
+            // Save milestones to external file + mutable state to .sfs
+            MilestoneStore.SaveMilestoneFile();
+            MilestoneStore.SaveMutableState(node);
+            node.AddValue("milestoneEpoch", MilestoneStore.CurrentEpoch);
         }
 
         // Static flag: only load from save once per KSP session.
@@ -131,6 +136,16 @@ namespace Parsek
             {
                 GameStateStore.LoadEventFile();
                 GameStateStore.LoadBaselines();
+                MilestoneStore.LoadMilestoneFile();
+
+                // Restore epoch from save
+                string epochStr = node.GetValue("milestoneEpoch");
+                if (epochStr != null)
+                {
+                    uint epoch;
+                    if (uint.TryParse(epochStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out epoch))
+                        MilestoneStore.CurrentEpoch = epoch;
+                }
             }
             stateRecorder = new GameStateRecorder();
             stateRecorder.SeedFacilityCacheFromCurrentState();
@@ -182,6 +197,11 @@ namespace Parsek
                     recordings[i].TakenControl = savedTaken;
                     recordings[i].LastAppliedResourceIndex = resIdx;
                 }
+
+                // Restore milestone mutable state from .sfs and increment epoch on revert
+                MilestoneStore.RestoreMutableState(node);
+                MilestoneStore.CurrentEpoch++;
+                Debug.Log($"[Parsek Scenario] Milestone epoch incremented to {MilestoneStore.CurrentEpoch} on revert");
 
                 ReserveSnapshotCrew();
                 Debug.Log($"[Parsek Scenario] Revert detected — preserving {recordings.Count} session recordings");
@@ -279,6 +299,9 @@ namespace Parsek
             // Validate chain integrity before any playback
             RecordingStore.ValidateChains();
 
+            // Restore milestone mutable state (LastReplayedEventIndex) from .sfs
+            MilestoneStore.RestoreMutableState(node);
+
             ReserveSnapshotCrew();
 
             // Diagnostic summary of loaded recordings with UT context
@@ -359,6 +382,12 @@ namespace Parsek
             recNode.AddValue("ghostGeometryAvailable", rec.GhostGeometryAvailable);
             if (!string.IsNullOrEmpty(rec.GhostGeometryCaptureError))
                 recNode.AddValue("ghostGeometryError", rec.GhostGeometryCaptureError);
+            if (rec.PreLaunchFunds != 0)
+                recNode.AddValue("preLaunchFunds", rec.PreLaunchFunds.ToString("R", CultureInfo.InvariantCulture));
+            if (rec.PreLaunchScience != 0)
+                recNode.AddValue("preLaunchScience", rec.PreLaunchScience.ToString("R", CultureInfo.InvariantCulture));
+            if (rec.PreLaunchReputation != 0)
+                recNode.AddValue("preLaunchRep", rec.PreLaunchReputation.ToString("R", CultureInfo.InvariantCulture));
         }
 
         /// <summary>
@@ -419,6 +448,28 @@ namespace Parsek
                     rec.GhostGeometryAvailable = geomAvailable;
             }
             rec.GhostGeometryCaptureError = recNode.GetValue("ghostGeometryError");
+
+            string preLaunchFundsStr = recNode.GetValue("preLaunchFunds");
+            if (preLaunchFundsStr != null)
+            {
+                double preLaunchFunds;
+                if (double.TryParse(preLaunchFundsStr, NumberStyles.Float, CultureInfo.InvariantCulture, out preLaunchFunds))
+                    rec.PreLaunchFunds = preLaunchFunds;
+            }
+            string preLaunchScienceStr = recNode.GetValue("preLaunchScience");
+            if (preLaunchScienceStr != null)
+            {
+                double preLaunchScience;
+                if (double.TryParse(preLaunchScienceStr, NumberStyles.Float, CultureInfo.InvariantCulture, out preLaunchScience))
+                    rec.PreLaunchScience = preLaunchScience;
+            }
+            string preLaunchRepStr = recNode.GetValue("preLaunchRep");
+            if (preLaunchRepStr != null)
+            {
+                float preLaunchRep;
+                if (float.TryParse(preLaunchRepStr, NumberStyles.Float, CultureInfo.InvariantCulture, out preLaunchRep))
+                    rec.PreLaunchReputation = preLaunchRep;
+            }
         }
 
         /// <summary>
