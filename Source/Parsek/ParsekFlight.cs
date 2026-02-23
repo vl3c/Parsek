@@ -546,7 +546,7 @@ namespace Parsek
             // Stop manual playback
             StopPlayback();
             DestroyAllTimelineGhosts();
-            GhostVisualBuilder.ClearDeployedCanopyCache();
+            GhostVisualBuilder.ClearCanopyCache();
             GhostVisualBuilder.ClearDeployableCache();
             GhostVisualBuilder.ClearGearCache();
             GhostVisualBuilder.ClearLadderCache();
