@@ -196,6 +196,93 @@ namespace Parsek.Tests
             Assert.Equal(10, cost);
         }
 
+        [Fact]
+        public void CommittedFundsCost_NullRecording()
+        {
+            Assert.Equal(0, ResourceBudget.CommittedFundsCost(null));
+        }
+
+        [Fact]
+        public void CommittedFundsCost_EmptyPoints()
+        {
+            var rec = new RecordingStore.Recording { PreLaunchFunds = 50000 };
+            Assert.Equal(0, ResourceBudget.CommittedFundsCost(rec));
+        }
+
+        [Fact]
+        public void CommittedFundsCost_SinglePoint()
+        {
+            var rec = new RecordingStore.Recording { PreLaunchFunds = 50000 };
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 100, funds = 45000, bodyName = "Kerbin",
+                rotation = Quaternion.identity, velocity = Vector3.zero
+            });
+            // totalImpact = 50000 - 45000 = 5000, lastIdx = -1 → unplayed
+            Assert.Equal(5000, ResourceBudget.CommittedFundsCost(rec));
+        }
+
+        [Fact]
+        public void CommittedFundsCost_LastAppliedIndexAtCount()
+        {
+            // lastIdx == Points.Count (beyond last) → should return 0 (fully applied)
+            var rec = MakeRecording(50000, 35000, lastAppliedResIdx: 2);
+            Assert.Equal(0, ResourceBudget.CommittedFundsCost(rec));
+        }
+
+        [Fact]
+        public void CommittedFundsCost_PartialReplayWithProfit()
+        {
+            var rec = new RecordingStore.Recording
+            {
+                PreLaunchFunds = 50000,
+                LastAppliedResourceIndex = 0
+            };
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 100, funds = 45000, bodyName = "Kerbin",
+                rotation = Quaternion.identity, velocity = Vector3.zero
+            });
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 200, funds = 60000, bodyName = "Kerbin",
+                rotation = Quaternion.identity, velocity = Vector3.zero
+            });
+            // totalImpact = 50000 - 60000 = -10000 (net profit)
+            // alreadyApplied = 50000 - 45000 = 5000
+            // remaining = -10000 - 5000 = -15000
+            Assert.Equal(-15000, ResourceBudget.CommittedFundsCost(rec));
+        }
+
+        [Fact]
+        public void CommittedScienceCost_NullRecording()
+        {
+            Assert.Equal(0, ResourceBudget.CommittedScienceCost(null));
+        }
+
+        [Fact]
+        public void CommittedScienceCost_GainScience()
+        {
+            // Science gained during flight (rare but possible)
+            var rec = MakeRecording(50000, 35000,
+                preLaunchScience: 100, endScience: 120);
+            Assert.Equal(-20, ResourceBudget.CommittedScienceCost(rec));
+        }
+
+        [Fact]
+        public void CommittedReputationCost_NullRecording()
+        {
+            Assert.Equal(0, ResourceBudget.CommittedReputationCost(null));
+        }
+
+        [Fact]
+        public void CommittedReputationCost_GainReputation()
+        {
+            var rec = MakeRecording(50000, 35000,
+                preLaunchRep: 50, endRep: 70);
+            Assert.Equal(-20, ResourceBudget.CommittedReputationCost(rec));
+        }
+
         #endregion
 
         #region Milestone Cost Calculations
@@ -303,6 +390,108 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void MilestoneCommittedFunds_NullMilestone()
+        {
+            Assert.Equal(0, ResourceBudget.MilestoneCommittedFunds(null));
+        }
+
+        [Fact]
+        public void MilestoneCommittedScience_NullMilestone()
+        {
+            Assert.Equal(0, ResourceBudget.MilestoneCommittedScience(null));
+        }
+
+        [Fact]
+        public void MilestoneCommittedFunds_EmptyEvents()
+        {
+            var m = new Milestone
+            {
+                MilestoneId = "empty",
+                Committed = true,
+                LastReplayedEventIndex = -1,
+                Events = new List<GameStateEvent>()
+            };
+            Assert.Equal(0, ResourceBudget.MilestoneCommittedFunds(m));
+        }
+
+        [Fact]
+        public void MilestoneCommittedFunds_ReplayIndexBeyondCount()
+        {
+            // LastReplayedEventIndex beyond events list — loop doesn't execute
+            var m = new Milestone
+            {
+                MilestoneId = "oob",
+                Committed = true,
+                LastReplayedEventIndex = 5, // beyond the 1 event
+                Events = new List<GameStateEvent>
+                {
+                    new GameStateEvent
+                    {
+                        ut = 50,
+                        eventType = GameStateEventType.PartPurchased,
+                        key = "mk1pod.v2",
+                        detail = "cost=600"
+                    }
+                }
+            };
+            Assert.Equal(0, ResourceBudget.MilestoneCommittedFunds(m));
+        }
+
+        [Fact]
+        public void MilestoneCommittedScience_IgnoresNonTechEvents()
+        {
+            var m = new Milestone
+            {
+                MilestoneId = "non-tech",
+                Committed = true,
+                LastReplayedEventIndex = -1,
+                Events = new List<GameStateEvent>
+                {
+                    new GameStateEvent
+                    {
+                        ut = 50,
+                        eventType = GameStateEventType.PartPurchased,
+                        key = "mk1pod.v2",
+                        detail = "cost=600"
+                    },
+                    new GameStateEvent
+                    {
+                        ut = 60,
+                        eventType = GameStateEventType.FacilityUpgraded,
+                        key = "LaunchPad",
+                        valueBefore = 0,
+                        valueAfter = 1
+                    }
+                }
+            };
+            Assert.Equal(0, ResourceBudget.MilestoneCommittedScience(m));
+        }
+
+        [Fact]
+        public void MilestoneCommittedFunds_FacilityUpgradedReturnsZero()
+        {
+            // FacilityUpgraded costs are not extracted (placeholder returns 0)
+            var m = new Milestone
+            {
+                MilestoneId = "facility",
+                Committed = true,
+                LastReplayedEventIndex = -1,
+                Events = new List<GameStateEvent>
+                {
+                    new GameStateEvent
+                    {
+                        ut = 50,
+                        eventType = GameStateEventType.FacilityUpgraded,
+                        key = "LaunchPad",
+                        valueBefore = 0,
+                        valueAfter = 1
+                    }
+                }
+            };
+            Assert.Equal(0, ResourceBudget.MilestoneCommittedFunds(m));
+        }
+
+        [Fact]
         public void TotalCommitted_IncludesMilestones()
         {
             var rec = MakeRecording(50000, 35000); // recording cost = 15000
@@ -357,6 +546,71 @@ namespace Parsek.Tests
             Assert.Equal(0, budget.reservedFunds);
         }
 
+        [Fact]
+        public void ComputeTotal_BothNull()
+        {
+            var budget = ResourceBudget.ComputeTotal(null, null);
+            Assert.Equal(0, budget.reservedFunds);
+            Assert.Equal(0, budget.reservedScience);
+            Assert.Equal(0, budget.reservedReputation);
+        }
+
+        [Fact]
+        public void ComputeTotal_NullRecordingsNonNullMilestones()
+        {
+            var m = new Milestone
+            {
+                MilestoneId = "test-null-rec",
+                Committed = true,
+                LastReplayedEventIndex = -1,
+                Events = new List<GameStateEvent>
+                {
+                    new GameStateEvent
+                    {
+                        ut = 50,
+                        eventType = GameStateEventType.PartPurchased,
+                        key = "mk1pod.v2",
+                        detail = "cost=600"
+                    }
+                }
+            };
+            var budget = ResourceBudget.ComputeTotal(null, new List<Milestone> { m });
+            Assert.Equal(600, budget.reservedFunds);
+        }
+
+        [Fact]
+        public void ComputeTotal_NonNullRecordingsNullMilestones()
+        {
+            var rec = MakeRecording(50000, 35000);
+            var budget = ResourceBudget.ComputeTotal(
+                new List<RecordingStore.Recording> { rec }, null);
+            Assert.Equal(15000, budget.reservedFunds);
+        }
+
+        [Fact]
+        public void ComputeTotal_AllThreeResourceTypes()
+        {
+            var rec = MakeRecording(
+                preLaunchFunds: 50000, endFunds: 40000,
+                preLaunchScience: 100, endScience: 85,
+                preLaunchRep: 50, endRep: 45);
+            var budget = ResourceBudget.ComputeTotal(
+                new List<RecordingStore.Recording> { rec }, new List<Milestone>());
+            Assert.Equal(10000, budget.reservedFunds);
+            Assert.Equal(15, budget.reservedScience);
+            Assert.Equal(5, budget.reservedReputation);
+        }
+
+        [Fact]
+        public void ComputeTotal_ProfitsCancelCosts()
+        {
+            var rec1 = MakeRecording(50000, 40000); // cost 10000
+            var rec2 = MakeRecording(50000, 60000); // profit -10000
+            var budget = ResourceBudget.ComputeTotal(
+                new List<RecordingStore.Recording> { rec1, rec2 }, new List<Milestone>());
+            Assert.Equal(0, budget.reservedFunds);
+        }
+
         #endregion
 
         #region ParseCostFromDetail
@@ -384,6 +638,47 @@ namespace Parsek.Tests
         public void ParseCostFromDetail_NoCostField()
         {
             Assert.Equal(0, ResourceBudget.ParseCostFromDetail("type=SurveyContract"));
+        }
+
+        [Fact]
+        public void ParseCostFromDetail_InvalidFloat()
+        {
+            Assert.Equal(0, ResourceBudget.ParseCostFromDetail("cost=abc"));
+            Assert.Equal(0, ResourceBudget.ParseCostFromDetail("cost="));
+            Assert.Equal(0, ResourceBudget.ParseCostFromDetail("cost=12.34.56"));
+        }
+
+        [Fact]
+        public void ParseCostFromDetail_NegativeCost()
+        {
+            Assert.Equal(-500, ResourceBudget.ParseCostFromDetail("cost=-500"));
+        }
+
+        [Fact]
+        public void ParseCostFromDetail_DecimalCost()
+        {
+            Assert.Equal(12.5, ResourceBudget.ParseCostFromDetail("cost=12.5"));
+        }
+
+        [Fact]
+        public void ParseCostFromDetail_CaseSensitive()
+        {
+            // "cost=" is case-sensitive (Ordinal comparison)
+            Assert.Equal(0, ResourceBudget.ParseCostFromDetail("Cost=600"));
+            Assert.Equal(0, ResourceBudget.ParseCostFromDetail("COST=600"));
+        }
+
+        [Fact]
+        public void ParseCostFromDetail_DuplicateCostField()
+        {
+            // First match wins
+            Assert.Equal(100, ResourceBudget.ParseCostFromDetail("cost=100;cost=200"));
+        }
+
+        [Fact]
+        public void ParseCostFromDetail_CostInMiddle()
+        {
+            Assert.Equal(300, ResourceBudget.ParseCostFromDetail("type=tech;cost=300;node=basic"));
         }
 
         #endregion
