@@ -34,7 +34,8 @@ namespace Parsek
         RoboticPositionSample, // 29 - robotic module motion sample (value = sampled position)
         RoboticMotionStopped, // 30 - robotic module stopped moving (value = sampled position)
         ThermalAnimationHot,  // 31 - ModuleAnimateHeat entered hot visual state
-        ThermalAnimationCold  // 32 - ModuleAnimateHeat returned to cold visual state
+        ThermalAnimationCold, // 32 - ModuleAnimateHeat returned to cold visual state
+        ParachuteSemiDeployed // 33 - parachute entered semi-deployed (streamer) state
     }
 
     public struct PartEvent
