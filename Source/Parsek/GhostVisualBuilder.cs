@@ -718,42 +718,32 @@ namespace Parsek
 
                 try
                 {
+                    // Sample stowed state from the prefab rest pose (before any animation plays).
+                    // KSP parachute animations start from zero scale, so semiDeployedAnimation@time=0
+                    // is invisible. The actual packed canopy shape is the prefab's default mesh state.
+                    Transform stowedCanopy = !string.IsNullOrEmpty(canopyName)
+                        ? FindTransformRecursive(tempClone.transform, canopyName) : null;
+                    if (stowedCanopy != null)
+                    {
+                        sScale = stowedCanopy.localScale;
+                        sPos = tempClone.transform.InverseTransformPoint(stowedCanopy.position);
+                        sRot = Quaternion.Inverse(tempClone.transform.rotation) * stowedCanopy.rotation;
+                        // Only mark as sampled if the rest pose has visible geometry
+                        if (sScale.magnitude > 0.01f)
+                        {
+                            stowedSampled = true;
+                            ParsekLog.Log($"  Stowed canopy from prefab rest pose: scale={sScale} " +
+                                $"rootPos={sPos} rootRot={sRot.eulerAngles}");
+                        }
+                        else
+                        {
+                            ParsekLog.Log($"  Stowed canopy rest pose has near-zero scale ({sScale}), skipping");
+                        }
+                    }
+
                     Animation anim = tempClone.GetComponentInChildren<Animation>(true);
                     if (anim != null)
                     {
-                        // Sample stowed state from semiDeployedAnimation@time=0
-                        if (!string.IsNullOrEmpty(semiAnim))
-                        {
-                            AnimationState semiState = anim[semiAnim];
-                            if (semiState != null)
-                            {
-                                semiState.enabled = true;
-                                semiState.speed = 0f;
-                                semiState.normalizedTime = 0f;
-                                semiState.weight = 1f;
-                                anim.Play(semiAnim);
-                                anim.Sample();
-
-                                Transform canopy = !string.IsNullOrEmpty(canopyName)
-                                    ? FindTransformRecursive(tempClone.transform, canopyName) : null;
-                                if (canopy != null)
-                                {
-                                    sScale = canopy.localScale;
-                                    sPos = tempClone.transform.InverseTransformPoint(canopy.position);
-                                    sRot = Quaternion.Inverse(tempClone.transform.rotation) * canopy.rotation;
-                                    stowedSampled = true;
-                                    ParsekLog.Log($"  Stowed canopy sampled via '{semiAnim}'@0: scale={sScale} " +
-                                        $"rootPos={sPos} rootRot={sRot.eulerAngles}");
-                                }
-
-                                semiState.enabled = false;
-                            }
-                            else
-                            {
-                                ParsekLog.Log($"  Semi-deployed animation '{semiAnim}' not found on clone for '{key}'");
-                            }
-                        }
-
                         // Sample deployed state from fullyDeployedAnimation@time=1 (or semiDeployedAnimation@time=1)
                         if (!string.IsNullOrEmpty(deployedAnimName))
                         {
