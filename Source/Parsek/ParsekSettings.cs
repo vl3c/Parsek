@@ -21,6 +21,10 @@ namespace Parsek
             toolTip = "Stop time warp when a ghost playback is about to begin")]
         public bool autoWarpStop = true;
 
+        [GameParameters.CustomParameterUI("Auto-split at atmosphere boundary",
+            toolTip = "Automatically split recordings when crossing the atmosphere boundary")]
+        public bool autoSplitAtAtmosphere = true;
+
         [GameParameters.CustomFloatParameterUI("Max sample interval (s)", minValue = 1f, maxValue = 10f,
             stepCount = 19, displayFormat = "F1",
             toolTip = "Maximum seconds between trajectory samples")]

@@ -164,6 +164,7 @@ namespace Parsek
                     uint savedPid = 0;
                     bool savedTaken = false;
                     int resIdx = -1;
+                    bool savedPlaybackEnabled = true;
                     if (i < savedRecNodes.Length)
                     {
                         string pidStr = savedRecNodes[i].GetValue("spawnedPid");
@@ -177,10 +178,15 @@ namespace Parsek
                         string resIdxStr = savedRecNodes[i].GetValue("lastResIdx");
                         if (resIdxStr != null)
                             int.TryParse(resIdxStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out resIdx);
+
+                        string playbackEnabledStr = savedRecNodes[i].GetValue("playbackEnabled");
+                        if (playbackEnabledStr != null)
+                            bool.TryParse(playbackEnabledStr, out savedPlaybackEnabled);
                     }
                     recordings[i].SpawnedVesselPersistentId = savedPid;
                     recordings[i].TakenControl = savedTaken;
                     recordings[i].LastAppliedResourceIndex = resIdx;
+                    recordings[i].PlaybackEnabled = savedPlaybackEnabled;
                 }
 
                 ReserveSnapshotCrew();
@@ -359,6 +365,14 @@ namespace Parsek
             recNode.AddValue("ghostGeometryAvailable", rec.GhostGeometryAvailable);
             if (!string.IsNullOrEmpty(rec.GhostGeometryCaptureError))
                 recNode.AddValue("ghostGeometryError", rec.GhostGeometryCaptureError);
+
+            // Atmosphere segment metadata (only if set, saves space)
+            if (!string.IsNullOrEmpty(rec.SegmentPhase))
+                recNode.AddValue("segmentPhase", rec.SegmentPhase);
+            if (!string.IsNullOrEmpty(rec.SegmentBodyName))
+                recNode.AddValue("segmentBodyName", rec.SegmentBodyName);
+            if (!rec.PlaybackEnabled)
+                recNode.AddValue("playbackEnabled", rec.PlaybackEnabled.ToString());
         }
 
         /// <summary>
@@ -419,6 +433,17 @@ namespace Parsek
                     rec.GhostGeometryAvailable = geomAvailable;
             }
             rec.GhostGeometryCaptureError = recNode.GetValue("ghostGeometryError");
+
+            // Atmosphere segment metadata
+            rec.SegmentPhase = recNode.GetValue("segmentPhase");
+            rec.SegmentBodyName = recNode.GetValue("segmentBodyName");
+            string playbackEnabledStr = recNode.GetValue("playbackEnabled");
+            if (playbackEnabledStr != null)
+            {
+                bool playbackEnabled;
+                if (bool.TryParse(playbackEnabledStr, out playbackEnabled))
+                    rec.PlaybackEnabled = playbackEnabled;
+            }
         }
 
         /// <summary>
@@ -436,6 +461,7 @@ namespace Parsek
                 foreach (var rec in RecordingStore.CommittedRecordings)
                 {
                     if (rec.LoopPlayback) continue;
+                    if (RecordingStore.IsChainFullyDisabled(rec.ChainId)) continue;
                     ReserveCrewIn(rec.VesselSnapshot, rec.VesselSpawned, roster);
                 }
 

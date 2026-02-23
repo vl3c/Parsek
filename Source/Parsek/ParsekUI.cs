@@ -35,6 +35,8 @@ namespace Parsek
         private const string SettingsInputLockId = "Parsek_SettingsWindow";
 
         // Column widths — shared between header and body for alignment
+        private const float ColW_Enable = 15f;
+        private const float ColW_Phase = 70f;
         private const float ColW_Index = 25f;
         private const float ColW_Launch = 110f;
         private const float ColW_Dur = 55f;
@@ -43,6 +45,13 @@ namespace Parsek
         private const float ColW_LoopToggle = 15f;
         private const float ColW_Delete = 25f;
         private const float ScrollbarWidth = 16f;
+
+        // Chain grouping state
+        private HashSet<string> expandedChains = new HashSet<string>();
+
+        // Cached phase label styles
+        private GUIStyle phaseStyleAtmo;
+        private GUIStyle phaseStyleExo;
 
         // Sort state
         internal enum SortColumn { Index, Name, LaunchTime, Duration, Status }
@@ -255,12 +264,24 @@ namespace Parsek
             recordingsWindowHasInputLock = false;
         }
 
+        private void EnsurePhaseStyles()
+        {
+            if (phaseStyleAtmo != null) return;
+
+            phaseStyleAtmo = new GUIStyle(GUI.skin.label);
+            phaseStyleAtmo.normal.textColor = new Color(1f, 0.6f, 0.2f); // orange
+
+            phaseStyleExo = new GUIStyle(GUI.skin.label);
+            phaseStyleExo.normal.textColor = new Color(0.3f, 0.8f, 1f); // cyan
+        }
+
         private void DrawRecordingsWindow(int windowID)
         {
             var committed = RecordingStore.CommittedRecordings;
             double now = Planetarium.GetUniversalTime();
 
             EnsureStatusStyles();
+            EnsurePhaseStyles();
             RebuildSortedIndices(committed, now);
 
             if (committed.Count == 0)
@@ -269,12 +290,11 @@ namespace Parsek
             }
             else
             {
-                // Header row with sortable columns
-                // Use same widths as body row cells to ensure alignment.
-                // Add scrollbar-width spacer at end so header spans the same
-                // content width as the scroll view body.
+                // Header row
                 GUILayout.BeginHorizontal();
+                GUILayout.Label("", GUILayout.Width(ColW_Enable)); // enable column header
                 DrawSortableHeader("#", SortColumn.Index, ColW_Index);
+                GUILayout.Label("Phase", GUILayout.Width(ColW_Phase));
                 DrawSortableHeader("Name", SortColumn.Name, 0, true);
                 DrawSortableHeader("Launch", SortColumn.LaunchTime, ColW_Launch);
                 DrawSortableHeader("Dur", SortColumn.Duration, ColW_Dur);
@@ -295,84 +315,84 @@ namespace Parsek
                 }
 
                 GUILayout.Button("", GUI.skin.label, GUILayout.Width(ColW_Delete)); // placeholder
-                GUILayout.Space(ScrollbarWidth); // account for scrollbar in body
+                GUILayout.Space(ScrollbarWidth);
                 GUILayout.EndHorizontal();
 
-                // Scrollable table body (expands to fill available window space)
+                // Scrollable table body
                 recordingsScrollPos = GUILayout.BeginScrollView(
                     recordingsScrollPos, GUILayout.ExpandHeight(true));
+
+                // Build chain grouping: chainId → list of sorted row indices
+                var chainRows = new Dictionary<string, List<int>>();
+                var standaloneRows = new List<int>();
+                var seenChains = new HashSet<string>();
 
                 for (int row = 0; row < sortedIndices.Length; row++)
                 {
                     int ri = sortedIndices[row];
                     var rec = committed[ri];
-                    GUILayout.BeginHorizontal();
-
-                    // #
-                    GUILayout.Label((ri + 1).ToString(), GUILayout.Width(ColW_Index));
-
-                    // Name
-                    string name = string.IsNullOrEmpty(rec.VesselName) ? "Untitled" : rec.VesselName;
-                    GUILayout.Label(name, GUILayout.ExpandWidth(true));
-
-                    // Launch Time
-                    string launchTime = rec.Points.Count > 0
-                        ? KSPUtil.PrintDateCompact(rec.StartUT, true)
-                        : "-";
-                    GUILayout.Label(launchTime, GUILayout.Width(ColW_Launch));
-
-                    // Duration
-                    double dur = rec.EndUT - rec.StartUT;
-                    GUILayout.Label(FormatDuration(dur), GUILayout.Width(ColW_Dur));
-
-                    // Status
-                    GUIStyle statusStyle;
-                    string statusText;
-                    if (now < rec.StartUT)
+                    if (!string.IsNullOrEmpty(rec.ChainId))
                     {
-                        statusStyle = statusStyleFuture;
-                        statusText = "future";
-                    }
-                    else if (now <= rec.EndUT)
-                    {
-                        statusStyle = statusStyleActive;
-                        statusText = "active";
+                        List<int> list;
+                        if (!chainRows.TryGetValue(rec.ChainId, out list))
+                        {
+                            list = new List<int>();
+                            chainRows[rec.ChainId] = list;
+                        }
+                        list.Add(ri);
                     }
                     else
                     {
-                        statusStyle = statusStylePast;
-                        statusText = "past";
+                        standaloneRows.Add(ri);
                     }
-                    GUILayout.Label(statusText, statusStyle, GUILayout.Width(ColW_Status));
+                }
 
-                    // Loop checkbox
-                    GUILayout.Label("", GUILayout.Width(ColW_LoopLabel));
-                    bool loop = GUILayout.Toggle(rec.LoopPlayback, "", GUILayout.Width(ColW_LoopToggle));
-                    if (loop != rec.LoopPlayback)
-                        rec.LoopPlayback = loop;
+                // Draw standalone recordings first
+                for (int s = 0; s < standaloneRows.Count; s++)
+                {
+                    if (DrawRecordingRow(standaloneRows[s], committed, now, false))
+                        break;
+                }
 
-                    // Delete button (disabled during recording/continuation)
-                    GUI.enabled = flight.CanDeleteRecording;
-                    if (deleteConfirmIndex == ri)
+                // Draw chain groups
+                foreach (var kvp in chainRows)
+                {
+                    string chainId = kvp.Key;
+                    var members = kvp.Value;
+                    if (members.Count == 0) continue;
+
+                    // Chain header
+                    GUILayout.BeginHorizontal();
+                    bool expanded = expandedChains.Contains(chainId);
+                    string arrow = expanded ? "\u25bc" : "\u25b6";
+                    string chainName = committed[members[0]].VesselName;
+                    if (string.IsNullOrEmpty(chainName)) chainName = "Chain";
+
+                    // Aggregate duration
+                    double chainStart = double.MaxValue, chainEnd = double.MinValue;
+                    for (int m = 0; m < members.Count; m++)
                     {
-                        if (GUILayout.Button("?", GUILayout.Width(ColW_Delete)))
+                        var mr = committed[members[m]];
+                        if (mr.StartUT < chainStart) chainStart = mr.StartUT;
+                        if (mr.EndUT > chainEnd) chainEnd = mr.EndUT;
+                    }
+
+                    if (GUILayout.Button($"{arrow} {chainName} ({members.Count} segments, {FormatDuration(chainEnd - chainStart)})",
+                        GUI.skin.label, GUILayout.ExpandWidth(true)))
+                    {
+                        if (expanded) expandedChains.Remove(chainId);
+                        else expandedChains.Add(chainId);
+                    }
+                    GUILayout.EndHorizontal();
+
+                    if (expanded)
+                    {
+                        for (int m = 0; m < members.Count; m++)
                         {
-                            deleteConfirmIndex = -1;
-                            flight.DeleteRecording(ri);
-                            InvalidateSort();
-                            GUI.enabled = true;
-                            GUILayout.EndHorizontal();
-                            break; // list changed, stop iterating
+                            if (DrawRecordingRow(members[m], committed, now, true))
+                                break;
                         }
                     }
-                    else
-                    {
-                        if (GUILayout.Button("X", GUILayout.Width(ColW_Delete)))
-                            deleteConfirmIndex = ri;
-                    }
-                    GUI.enabled = true;
-
-                    GUILayout.EndHorizontal();
                 }
 
                 GUILayout.EndScrollView();
@@ -399,6 +419,102 @@ namespace Parsek
             }
 
             GUI.DragWindow();
+        }
+
+        /// <summary>
+        /// Draws a single recording row. Returns true if the list was modified (break iteration).
+        /// </summary>
+        private bool DrawRecordingRow(int ri, List<RecordingStore.Recording> committed, double now, bool indented)
+        {
+            var rec = committed[ri];
+            GUILayout.BeginHorizontal();
+
+            if (indented)
+                GUILayout.Space(15f); // indent chain children
+
+            // Enable checkbox
+            bool enabled = GUILayout.Toggle(rec.PlaybackEnabled, "", GUILayout.Width(ColW_Enable));
+            if (enabled != rec.PlaybackEnabled)
+                rec.PlaybackEnabled = enabled;
+
+            // #
+            GUILayout.Label((ri + 1).ToString(), GUILayout.Width(ColW_Index));
+
+            // Phase label
+            string phaseLabel = RecordingStore.GetSegmentPhaseLabel(rec);
+            if (!string.IsNullOrEmpty(phaseLabel))
+            {
+                GUIStyle phaseStyle = rec.SegmentPhase == "atmo" ? phaseStyleAtmo : phaseStyleExo;
+                GUILayout.Label(phaseLabel, phaseStyle, GUILayout.Width(ColW_Phase));
+            }
+            else
+            {
+                GUILayout.Label("", GUILayout.Width(ColW_Phase));
+            }
+
+            // Name
+            string name = string.IsNullOrEmpty(rec.VesselName) ? "Untitled" : rec.VesselName;
+            GUILayout.Label(name, GUILayout.ExpandWidth(true));
+
+            // Launch Time
+            string launchTime = rec.Points.Count > 0
+                ? KSPUtil.PrintDateCompact(rec.StartUT, true)
+                : "-";
+            GUILayout.Label(launchTime, GUILayout.Width(ColW_Launch));
+
+            // Duration
+            double dur = rec.EndUT - rec.StartUT;
+            GUILayout.Label(FormatDuration(dur), GUILayout.Width(ColW_Dur));
+
+            // Status
+            GUIStyle statusStyle;
+            string statusText;
+            if (now < rec.StartUT)
+            {
+                statusStyle = statusStyleFuture;
+                statusText = "future";
+            }
+            else if (now <= rec.EndUT)
+            {
+                statusStyle = statusStyleActive;
+                statusText = "active";
+            }
+            else
+            {
+                statusStyle = statusStylePast;
+                statusText = "past";
+            }
+            GUILayout.Label(statusText, statusStyle, GUILayout.Width(ColW_Status));
+
+            // Loop checkbox
+            GUILayout.Label("", GUILayout.Width(ColW_LoopLabel));
+            bool loop = GUILayout.Toggle(rec.LoopPlayback, "", GUILayout.Width(ColW_LoopToggle));
+            if (loop != rec.LoopPlayback)
+                rec.LoopPlayback = loop;
+
+            // Delete button
+            GUI.enabled = flight.CanDeleteRecording;
+            if (deleteConfirmIndex == ri)
+            {
+                if (GUILayout.Button("?", GUILayout.Width(ColW_Delete)))
+                {
+                    deleteConfirmIndex = -1;
+                    flight.DeleteRecording(ri);
+                    InvalidateSort();
+                    GUI.enabled = true;
+                    GUILayout.EndHorizontal();
+                    return true; // list changed
+                }
+            }
+            else
+            {
+                if (GUILayout.Button("X", GUILayout.Width(ColW_Delete)))
+                    deleteConfirmIndex = ri;
+            }
+            GUI.enabled = true;
+
+            GUILayout.EndHorizontal();
+            return false;
         }
 
         private void DrawSortableHeader(string label, SortColumn col, float width, bool expand = false)
