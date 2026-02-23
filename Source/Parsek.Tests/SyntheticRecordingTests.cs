@@ -982,23 +982,25 @@ namespace Parsek.Tests
 
         internal static RecordingBuilder[] ParachuteShowcaseRecordings(double baseUT = 0)
         {
+            // firstEventOffsetSeconds: 3.0 gives a 3s window showing the stowed (packed) canopy
+            // before the ParachuteDeployed event fires and transitions to the deployed dome.
             return new[]
             {
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Parachute Mk16", "parachuteSingle", 69,
                     ShowcaseDistanceFromPadMeters, PartEventType.ParachuteDeployed, PartEventType.ParachuteCut, 98300000, SinglePartPid,
-                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                    firstEventOffsetSeconds: 3.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Parachute Mk2-R", "parachuteRadial", 70,
                     ShowcaseDistanceFromPadMeters, PartEventType.ParachuteDeployed, PartEventType.ParachuteCut, 98300000, SinglePartPid,
-                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                    firstEventOffsetSeconds: 3.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Drogue Mk25", "parachuteDrogue", 71,
                     ShowcaseDistanceFromPadMeters, PartEventType.ParachuteDeployed, PartEventType.ParachuteCut, 98300000, SinglePartPid,
-                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                    firstEventOffsetSeconds: 3.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Drogue Mk12-R", "radialDrogue", 72,
                     ShowcaseDistanceFromPadMeters, PartEventType.ParachuteDeployed, PartEventType.ParachuteCut, 98300000, SinglePartPid,
-                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                    firstEventOffsetSeconds: 3.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Parachute Mk16-XL", "parachuteLarge", 73,
                     ShowcaseDistanceFromPadMeters, PartEventType.ParachuteDeployed, PartEventType.ParachuteCut, 98300000, SinglePartPid,
-                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
+                    firstEventOffsetSeconds: 3.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
             };
         }
 
