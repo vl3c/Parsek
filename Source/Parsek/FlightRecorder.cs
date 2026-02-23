@@ -122,6 +122,10 @@ namespace Parsek
         public bool AtmosphereBoundaryCrossed { get; private set; }
         public bool EnteredAtmosphere { get; private set; }
 
+        // SOI change detection
+        public bool SoiChangePending { get; private set; }
+        public string SoiChangeFromBody { get; private set; }
+
         #region Part Event Subscription
 
         private void SubscribePartEvents()
@@ -3013,6 +3017,8 @@ namespace Parsek
             atmosphereBoundaryPending = false;
             AtmosphereBoundaryCrossed = false;
             EnteredAtmosphere = false;
+            SoiChangePending = false;
+            SoiChangeFromBody = null;
 
             // Insert boundary anchor from previous chain segment if present.
             // Must come AFTER the lastRecordedUT reset above so the anchor's
@@ -3406,6 +3412,10 @@ namespace Parsek
 
             // Reseed atmosphere state for the new body
             ReseedAtmosphereState(v);
+
+            // Flag for ParsekFlight to trigger chain split in Update()
+            SoiChangePending = true;
+            SoiChangeFromBody = data.from.name;
 
             ParsekLog.Log($"SOI changed during orbit recording: {data.from.name} → {data.to.name}");
         }

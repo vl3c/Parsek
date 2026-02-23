@@ -203,6 +203,18 @@ namespace Parsek.Tests
 
             rec.SegmentPhase = "exo";
             Assert.Equal("Kerbin exo", RecordingStore.GetSegmentPhaseLabel(rec));
+
+            rec.SegmentPhase = "space";
+            rec.SegmentBodyName = "Mun";
+            Assert.Equal("Mun space", RecordingStore.GetSegmentPhaseLabel(rec));
+        }
+
+        [Fact]
+        public void SoiChangeFlag_DefaultsFalse()
+        {
+            var recorder = new FlightRecorder();
+            Assert.False(recorder.SoiChangePending);
+            Assert.Null(recorder.SoiChangeFromBody);
         }
     }
 }
