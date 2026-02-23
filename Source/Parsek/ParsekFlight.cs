@@ -354,6 +354,24 @@ namespace Parsek
                 }
             }
 
+            // Atmosphere boundary: auto-split when crossing atmosphere edge
+            if (recorder != null && recorder.IsRecording && recorder.AtmosphereBoundaryCrossed &&
+                ParsekSettings.Current?.autoSplitAtAtmosphere != false)
+            {
+                string phase = recorder.EnteredAtmosphere ? "exo" : "atmo";
+                string bodyName = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
+                recorder.StopRecordingForChainBoundary();
+                CommitAtmosphereSegment(phase, bodyName);
+                recorder = null;
+                StartRecording();
+                if (IsRecording)
+                {
+                    recorder.UndockSiblingPid = undockContinuationPid;
+                    Log($"Recording continues after atmosphere boundary (chain={activeChainId}, idx={activeChainNextIndex}, phase={phase}→{(phase == "atmo" ? "exo" : "atmo")})");
+                    ScreenMessage($"Recording continues ({(recorder.EnteredAtmosphere ? "entering" : "exiting")} atmosphere)", 2f);
+                }
+            }
+
             // Complete deferred auto-record for EVA (vessel switch may take a frame)
             if (pendingAutoRecord && !IsRecording &&
                 FlightGlobals.ActiveVessel != null && FlightGlobals.ActiveVessel.isEVA)
@@ -530,6 +548,18 @@ namespace Parsek
                         RecordingStore.Pending.ChainIndex = activeChainNextIndex;
                         RecordingStore.Pending.ParentRecordingId = activeChainPrevId;
                         RecordingStore.Pending.EvaCrewName = activeChainCrewName;
+                    }
+
+                    // Tag atmosphere phase in fallback path
+                    if (RecordingStore.HasPending && string.IsNullOrEmpty(RecordingStore.Pending.SegmentPhase))
+                    {
+                        var v = FlightGlobals.ActiveVessel;
+                        if (v != null && v.mainBody != null && v.mainBody.atmosphere)
+                        {
+                            bool inAtmo = v.altitude < v.mainBody.atmosphereDepth;
+                            RecordingStore.Pending.SegmentPhase = inAtmo ? "atmo" : "exo";
+                            RecordingStore.Pending.SegmentBodyName = v.mainBody.name;
+                        }
                     }
                 }
 
@@ -1038,6 +1068,69 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Commits the current segment as an atmosphere boundary chain split.
+        /// Follows the same pattern as CommitDockUndockSegment.
+        /// </summary>
+        void CommitAtmosphereSegment(string completedPhase, string bodyName)
+        {
+            var captured = recorder.CaptureAtStop;
+            string segmentId = captured != null ? captured.RecordingId : null;
+            Log($"Atmosphere chain: committing segment (id={segmentId}, phase={completedPhase}, body={bodyName})");
+
+            RecordingStore.StashPending(
+                recorder.Recording,
+                captured != null ? captured.VesselName : (FlightGlobals.ActiveVessel?.vesselName ?? "Unknown"),
+                recorder.OrbitSegments,
+                recordingId: segmentId,
+                recordingFormatVersion: captured != null ? (int?)captured.RecordingFormatVersion : null,
+                ghostGeometryVersion: captured != null ? (int?)captured.GhostGeometryVersion : null,
+                partEvents: recorder.PartEvents);
+
+            if (!RecordingStore.HasPending)
+            {
+                Log("Atmosphere chain: segment too short to stash — aborting");
+                return;
+            }
+
+            if (captured != null)
+                RecordingStore.Pending.ApplyPersistenceArtifactsFrom(captured);
+
+            // Tag segment with atmosphere phase
+            RecordingStore.Pending.SegmentPhase = completedPhase;
+            RecordingStore.Pending.SegmentBodyName = bodyName;
+
+            // First transition: initialize chain
+            if (activeChainId == null)
+            {
+                activeChainId = System.Guid.NewGuid().ToString("N");
+                activeChainNextIndex = 0;
+                Log($"Atmosphere chain: started new chain (id={activeChainId})");
+            }
+
+            // Tag segment with chain metadata
+            RecordingStore.Pending.ChainId = activeChainId;
+            RecordingStore.Pending.ChainIndex = activeChainNextIndex;
+            RecordingStore.Pending.ChainBranch = 0;
+            RecordingStore.Pending.ParentRecordingId = activeChainPrevId;
+            RecordingStore.Pending.EvaCrewName = activeChainCrewName;
+
+            // Mid-chain segments are ghost-only
+            RecordingStore.Pending.VesselSnapshot = null;
+
+            RecordingStore.CommitPending();
+            ParsekScenario.ReserveSnapshotCrew();
+            ParsekScenario.SwapReservedCrewInFlight();
+
+            // Prepare boundary anchor from last point of committed segment
+            if (recorder.Recording.Count > 0)
+                pendingBoundaryAnchor = recorder.Recording[recorder.Recording.Count - 1];
+
+            // Advance chain state
+            activeChainNextIndex++;
+            activeChainPrevId = segmentId;
+        }
+
+        /// <summary>
         /// Starts ghost-only continuation recording for the "other" vessel after undock.
         /// This vessel gets ChainBranch = 1 so it plays back as a ghost but never spawns.
         /// </summary>
@@ -1361,6 +1454,18 @@ namespace Parsek
                 recorder.CaptureAtStop.ParentRecordingId = activeChainPrevId;
                 recorder.CaptureAtStop.EvaCrewName = activeChainCrewName;
             }
+
+            // Tag final segment with atmosphere phase if untagged
+            if (recorder?.CaptureAtStop != null && string.IsNullOrEmpty(recorder.CaptureAtStop.SegmentPhase))
+            {
+                var v = FlightGlobals.ActiveVessel;
+                if (v != null && v.mainBody != null && v.mainBody.atmosphere)
+                {
+                    bool inAtmo = v.altitude < v.mainBody.atmosphereDepth;
+                    recorder.CaptureAtStop.SegmentPhase = inAtmo ? "atmo" : "exo";
+                    recorder.CaptureAtStop.SegmentBodyName = v.mainBody.name;
+                }
+            }
         }
 
         public void ClearRecording()
@@ -1579,6 +1684,7 @@ namespace Parsek
                     var rec = committed[i];
                     if (rec.Points.Count < 2) continue;
                     if (ShouldLoopPlayback(rec)) continue;
+                    if (!rec.PlaybackEnabled) continue;
                     if (rec.VesselSnapshot == null || rec.VesselSpawned || rec.VesselDestroyed ||
                         RecordingStore.IsChainMidSegment(rec)) continue;
 
@@ -1612,6 +1718,16 @@ namespace Parsek
                 ghostStates.TryGetValue(i, out state);
                 bool ghostActive = state != null && state.ghost != null;
 
+                // Disabled segments: destroy ghost if active, still apply resource deltas
+                if (!rec.PlaybackEnabled)
+                {
+                    if (ghostActive)
+                        DestroyTimelineGhost(i);
+                    if (pastEnd)
+                        ApplyResourceDeltas(rec, currentUT);
+                    continue;
+                }
+
                 if (ShouldLoopPlayback(rec))
                 {
                     UpdateLoopingTimelinePlayback(i, rec, currentUT, state, ghostActive);
@@ -1633,6 +1749,14 @@ namespace Parsek
                 if (needsSpawn && activeChainId != null && rec.ChainId == activeChainId)
                 {
                     needsSpawn = false;
+                }
+
+                // Suppress spawn for looping or fully-disabled chains
+                if (needsSpawn && !string.IsNullOrEmpty(rec.ChainId))
+                {
+                    if (RecordingStore.IsChainLooping(rec.ChainId) ||
+                        RecordingStore.IsChainFullyDisabled(rec.ChainId))
+                        needsSpawn = false;
                 }
 
                 // One-time chain spawn diagnostics when entering the spawn window

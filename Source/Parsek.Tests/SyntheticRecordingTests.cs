@@ -554,6 +554,90 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// 3-segment atmosphere boundary chain: atmo ascent → exo coast → atmo reentry.
+        /// Tests SegmentPhase/SegmentBodyName serialization and chain grouping in UI.
+        /// </summary>
+        internal static RecordingBuilder[] KerbinAscentChain(double baseUT = 0)
+        {
+            string chainId = "chain-atmo-split-test";
+            double t = baseUT + 430;
+            double baseLat = -0.0972;
+            double baseLon = -74.5575;
+
+            // Segment 0: Atmospheric ascent (0-60s, 77m → 71000m)
+            var seg0 = new RecordingBuilder("Kerbin Ascent")
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
+                .WithRecordingId("chain-atmo-seg0")
+                .WithChainId(chainId)
+                .WithChainIndex(0)
+                .WithSegmentPhase("atmo")
+                .WithSegmentBodyName("Kerbin");
+
+            seg0.AddPoint(t,      baseLat, baseLon,            77);
+            seg0.AddPoint(t + 10, baseLat, baseLon + 0.001,    5000);
+            seg0.AddPoint(t + 20, baseLat, baseLon + 0.003,    15000);
+            seg0.AddPoint(t + 30, baseLat, baseLon + 0.007,    30000);
+            seg0.AddPoint(t + 40, baseLat, baseLon + 0.012,    50000);
+            seg0.AddPoint(t + 50, baseLat, baseLon + 0.018,    65000);
+            seg0.AddPoint(t + 60, baseLat, baseLon + 0.025,    71000); // boundary crossing
+
+            seg0.WithGhostVisualSnapshot(
+                VesselSnapshotBuilder.FleaRocket("Kerbin Ascent", "Valentina Kerman", pid: 77000000)
+                    .AsLanded(baseLat, baseLon, 77));
+
+            // Segment 1: Exo-atmospheric coast (60-120s, 71000m → 80000m → 71000m)
+            var seg1 = new RecordingBuilder("Kerbin Ascent")
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
+                .WithRecordingId("chain-atmo-seg1")
+                .WithChainId(chainId)
+                .WithChainIndex(1)
+                .WithParentRecordingId("chain-atmo-seg0")
+                .WithSegmentPhase("exo")
+                .WithSegmentBodyName("Kerbin");
+
+            seg1.AddPoint(t + 60,  baseLat, baseLon + 0.025,  71000); // boundary anchor
+            seg1.AddPoint(t + 70,  baseLat, baseLon + 0.032,  75000);
+            seg1.AddPoint(t + 80,  baseLat, baseLon + 0.040,  80000); // apoapsis
+            seg1.AddPoint(t + 90,  baseLat, baseLon + 0.048,  78000);
+            seg1.AddPoint(t + 100, baseLat, baseLon + 0.055,  74000);
+            seg1.AddPoint(t + 110, baseLat, baseLon + 0.062,  72000);
+            seg1.AddPoint(t + 120, baseLat, baseLon + 0.068,  71000); // re-entry boundary
+
+            seg1.WithGhostVisualSnapshot(
+                VesselSnapshotBuilder.FleaRocket("Kerbin Ascent", "Valentina Kerman", pid: 77000000)
+                    .AsLanded(baseLat, baseLon, 77));
+
+            // Segment 2: Atmospheric reentry (120-180s, 71000m → 55m landed)
+            var seg2 = new RecordingBuilder("Kerbin Ascent")
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
+                .WithRecordingId("chain-atmo-seg2")
+                .WithChainId(chainId)
+                .WithChainIndex(2)
+                .WithParentRecordingId("chain-atmo-seg1")
+                .WithSegmentPhase("atmo")
+                .WithSegmentBodyName("Kerbin");
+
+            double landLat = baseLat + 0.005;
+            double landLon = baseLon + 0.075;
+            seg2.AddPoint(t + 120, baseLat,           baseLon + 0.068, 71000); // boundary anchor
+            seg2.AddPoint(t + 130, baseLat + 0.001,   baseLon + 0.070, 55000);
+            seg2.AddPoint(t + 140, baseLat + 0.002,   baseLon + 0.072, 35000);
+            seg2.AddPoint(t + 150, baseLat + 0.003,   baseLon + 0.073, 15000);
+            seg2.AddPoint(t + 160, baseLat + 0.004,   baseLon + 0.074, 5000);
+            seg2.AddPoint(t + 170, landLat - 0.0005,  landLon - 0.0005, 500);
+            seg2.AddPoint(t + 180, landLat,            landLon,          55); // landed
+
+            seg2.WithVesselSnapshot(
+                VesselSnapshotBuilder.FleaRocket("Kerbin Ascent", "Valentina Kerman", pid: 77000000)
+                    .AsLanded(landLat, landLon, 55));
+            seg2.WithGhostVisualSnapshot(
+                VesselSnapshotBuilder.FleaRocket("Kerbin Ascent", "Valentina Kerman", pid: 77000000)
+                    .AsLanded(baseLat, baseLon, 77));
+
+            return new[] { seg0, seg1, seg2 };
+        }
+
+        /// <summary>
         /// Generalized helper for building a static-trajectory, looping showcase recording
         /// that toggles a pair of part events every 3 seconds. Used for lights, deployables,
         /// gear, cargo bays, engines, and deployed science fixtures.
@@ -3272,6 +3356,9 @@ namespace Parsek.Tests
             var walkChainSegments = EvaWalkChain(baseUT);
             for (int i = 0; i < walkChainSegments.Length; i++)
                 writer.AddRecording(walkChainSegments[i].WithLoopPlayback());
+            var atmoChainSegments = KerbinAscentChain(baseUT);
+            for (int i = 0; i < atmoChainSegments.Length; i++)
+                writer.AddRecording(atmoChainSegments[i].WithLoopPlayback());
 
             foreach (string file in targets)
             {
@@ -3484,6 +3571,11 @@ namespace Parsek.Tests
                     Assert.Contains("chainId = chain-eva-board-test", content);
                     Assert.Contains("vesselName = Landing Craft", content);
                     Assert.Contains("chainId = chain-eva-walk-test", content);
+                    Assert.Contains("vesselName = Kerbin Ascent", content);
+                    Assert.Contains("chainId = chain-atmo-split-test", content);
+                    Assert.Contains("segmentPhase = atmo", content);
+                    Assert.Contains("segmentPhase = exo", content);
+                    Assert.Contains("segmentBodyName = Kerbin", content);
                     Assert.Contains("FLIGHTSTATE", content);
 
                     // v3: no inline POINT data in .sfs
@@ -3510,8 +3602,8 @@ namespace Parsek.Tests
                     $"Expected Parsek/Recordings directory at {recordingsDir}");
 
                 string[] precFiles = Directory.GetFiles(recordingsDir, "*.prec");
-                Assert.True(precFiles.Length >= 178,
-                    $"Expected at least 178 .prec files (8 baseline + 6 lights + 18 deployables + 7 gear + 11 cargo + 3 engines + 2 ladders + 3 RCS + 5 fairings + 2 extra radiators + 2 drills + 8 deployed science + 2 animation-group + 5 parachutes + 14 special deploy animations + 29 jettison showcases + 21 robotics + 1 aero-surface + 3 robot-arm-scanner + 24 control-surface + 6 wheel-dynamics + 13 animate-heat + 1 inventory-placement + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
+                Assert.True(precFiles.Length >= 181,
+                    $"Expected at least 181 .prec files (8 baseline + 6 lights + 18 deployables + 7 gear + 11 cargo + 3 engines + 2 ladders + 3 RCS + 5 fairings + 2 extra radiators + 2 drills + 8 deployed science + 2 animation-group + 5 parachutes + 14 special deploy animations + 29 jettison showcases + 21 robotics + 1 aero-surface + 3 robot-arm-scanner + 24 control-surface + 6 wheel-dynamics + 13 animate-heat + 1 inventory-placement + 3 board-chain + 2 walk-chain + 3 atmo-chain), found {precFiles.Length}");
             }
         }
 
