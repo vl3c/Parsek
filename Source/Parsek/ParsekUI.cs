@@ -52,6 +52,7 @@ namespace Parsek
         // Cached phase label styles
         private GUIStyle phaseStyleAtmo;
         private GUIStyle phaseStyleExo;
+        private GUIStyle phaseStyleSpace;
 
         // Sort state
         internal enum SortColumn { Index, Name, LaunchTime, Duration, Status }
@@ -290,6 +291,9 @@ namespace Parsek
 
             phaseStyleExo = new GUIStyle(GUI.skin.label);
             phaseStyleExo.normal.textColor = new Color(0.3f, 0.8f, 1f); // cyan
+
+            phaseStyleSpace = new GUIStyle(GUI.skin.label);
+            phaseStyleSpace.normal.textColor = new Color(0.2f, 1f, 0.6f); // lime green
         }
 
         private void DrawRecordingsWindow(int windowID)
@@ -507,7 +511,10 @@ namespace Parsek
             string phaseLabel = RecordingStore.GetSegmentPhaseLabel(rec);
             if (!string.IsNullOrEmpty(phaseLabel))
             {
-                GUIStyle phaseStyle = rec.SegmentPhase == "atmo" ? phaseStyleAtmo : phaseStyleExo;
+                GUIStyle phaseStyle;
+                if (rec.SegmentPhase == "atmo") phaseStyle = phaseStyleAtmo;
+                else if (rec.SegmentPhase == "space") phaseStyle = phaseStyleSpace;
+                else phaseStyle = phaseStyleExo;
                 GUILayout.Label(phaseLabel, phaseStyle, GUILayout.Width(ColW_Phase));
             }
             else

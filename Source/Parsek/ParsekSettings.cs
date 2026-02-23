@@ -25,6 +25,10 @@ namespace Parsek
             toolTip = "Automatically split recordings when crossing the atmosphere boundary")]
         public bool autoSplitAtAtmosphere = true;
 
+        [GameParameters.CustomParameterUI("Auto-split at SOI change",
+            toolTip = "Automatically split recordings when entering a new sphere of influence")]
+        public bool autoSplitAtSoi = true;
+
         [GameParameters.CustomFloatParameterUI("Max sample interval (s)", minValue = 1f, maxValue = 10f,
             stepCount = 19, displayFormat = "F1",
             toolTip = "Maximum seconds between trajectory samples")]

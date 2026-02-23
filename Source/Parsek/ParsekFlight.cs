@@ -361,7 +361,7 @@ namespace Parsek
                 string phase = recorder.EnteredAtmosphere ? "exo" : "atmo";
                 string bodyName = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
                 recorder.StopRecordingForChainBoundary();
-                CommitAtmosphereSegment(phase, bodyName);
+                CommitBoundarySplit(phase, bodyName);
                 recorder = null;
                 StartRecording();
                 if (IsRecording)
@@ -369,6 +369,27 @@ namespace Parsek
                     recorder.UndockSiblingPid = undockContinuationPid;
                     Log($"Recording continues after atmosphere boundary (chain={activeChainId}, idx={activeChainNextIndex}, phase={phase}→{(phase == "atmo" ? "exo" : "atmo")})");
                     ScreenMessage($"Recording continues ({(recorder.EnteredAtmosphere ? "entering" : "exiting")} atmosphere)", 2f);
+                }
+            }
+
+            // SOI change: auto-split when transitioning between celestial bodies
+            if (recorder != null && recorder.IsRecording && recorder.SoiChangePending &&
+                ParsekSettings.Current?.autoSplitAtSoi != false)
+            {
+                string fromBody = recorder.SoiChangeFromBody ?? "Unknown";
+                string toBody = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
+                // Completed segment was at fromBody — tag as "exo" if it has atmosphere, "space" otherwise
+                CelestialBody fromCB = FlightGlobals.Bodies?.Find(b => b.name == fromBody);
+                string fromPhase = (fromCB != null && fromCB.atmosphere) ? "exo" : "space";
+                recorder.StopRecordingForChainBoundary();
+                CommitBoundarySplit(fromPhase, fromBody);
+                recorder = null;
+                StartRecording();
+                if (IsRecording)
+                {
+                    recorder.UndockSiblingPid = undockContinuationPid;
+                    Log($"Recording continues after SOI change ({fromBody} → {toBody}, chain={activeChainId}, idx={activeChainNextIndex})");
+                    ScreenMessage($"Recording continues (entering {toBody} SOI)", 2f);
                 }
             }
 
@@ -550,15 +571,17 @@ namespace Parsek
                         RecordingStore.Pending.EvaCrewName = activeChainCrewName;
                     }
 
-                    // Tag atmosphere phase in fallback path
+                    // Tag segment phase in fallback path
                     if (RecordingStore.HasPending && string.IsNullOrEmpty(RecordingStore.Pending.SegmentPhase))
                     {
                         var v = FlightGlobals.ActiveVessel;
-                        if (v != null && v.mainBody != null && v.mainBody.atmosphere)
+                        if (v != null && v.mainBody != null)
                         {
-                            bool inAtmo = v.altitude < v.mainBody.atmosphereDepth;
-                            RecordingStore.Pending.SegmentPhase = inAtmo ? "atmo" : "exo";
                             RecordingStore.Pending.SegmentBodyName = v.mainBody.name;
+                            if (v.mainBody.atmosphere)
+                                RecordingStore.Pending.SegmentPhase = v.altitude < v.mainBody.atmosphereDepth ? "atmo" : "exo";
+                            else
+                                RecordingStore.Pending.SegmentPhase = "space";
                         }
                     }
                 }
@@ -1071,11 +1094,11 @@ namespace Parsek
         /// Commits the current segment as an atmosphere boundary chain split.
         /// Follows the same pattern as CommitDockUndockSegment.
         /// </summary>
-        void CommitAtmosphereSegment(string completedPhase, string bodyName)
+        void CommitBoundarySplit(string completedPhase, string bodyName)
         {
             var captured = recorder.CaptureAtStop;
             string segmentId = captured != null ? captured.RecordingId : null;
-            Log($"Atmosphere chain: committing segment (id={segmentId}, phase={completedPhase}, body={bodyName})");
+            Log($"Boundary split: committing segment (id={segmentId}, phase={completedPhase}, body={bodyName})");
 
             RecordingStore.StashPending(
                 recorder.Recording,
@@ -1088,14 +1111,14 @@ namespace Parsek
 
             if (!RecordingStore.HasPending)
             {
-                Log("Atmosphere chain: segment too short to stash — aborting");
+                Log("Boundary split: segment too short to stash — aborting");
                 return;
             }
 
             if (captured != null)
                 RecordingStore.Pending.ApplyPersistenceArtifactsFrom(captured);
 
-            // Tag segment with atmosphere phase
+            // Tag segment with phase and body
             RecordingStore.Pending.SegmentPhase = completedPhase;
             RecordingStore.Pending.SegmentBodyName = bodyName;
 
@@ -1104,7 +1127,7 @@ namespace Parsek
             {
                 activeChainId = System.Guid.NewGuid().ToString("N");
                 activeChainNextIndex = 0;
-                Log($"Atmosphere chain: started new chain (id={activeChainId})");
+                Log($"Boundary split: started new chain (id={activeChainId})");
             }
 
             // Tag segment with chain metadata
@@ -1455,15 +1478,17 @@ namespace Parsek
                 recorder.CaptureAtStop.EvaCrewName = activeChainCrewName;
             }
 
-            // Tag final segment with atmosphere phase if untagged
+            // Tag final segment phase if untagged
             if (recorder?.CaptureAtStop != null && string.IsNullOrEmpty(recorder.CaptureAtStop.SegmentPhase))
             {
                 var v = FlightGlobals.ActiveVessel;
-                if (v != null && v.mainBody != null && v.mainBody.atmosphere)
+                if (v != null && v.mainBody != null)
                 {
-                    bool inAtmo = v.altitude < v.mainBody.atmosphereDepth;
-                    recorder.CaptureAtStop.SegmentPhase = inAtmo ? "atmo" : "exo";
                     recorder.CaptureAtStop.SegmentBodyName = v.mainBody.name;
+                    if (v.mainBody.atmosphere)
+                        recorder.CaptureAtStop.SegmentPhase = v.altitude < v.mainBody.atmosphereDepth ? "atmo" : "exo";
+                    else
+                        recorder.CaptureAtStop.SegmentPhase = "space";
                 }
             }
         }
