@@ -36,16 +36,11 @@ Make the existing loop frictionless and configurable for different play styles.
 ### ~~Settings panel~~ (Done)
 `GameParameters.CustomParameterNode` with per-save persistence. Six settings: auto-record on launch, auto-record on EVA, auto-stop time warp, max sample interval, direction threshold, speed threshold. Accessible from both the Parsek UI window (Settings button) and KSP's Difficulty Settings screen (Esc > Settings > Parsek).
 
-### Recording stats
-Compute from existing trajectory data (no new recording needed):
-- Max altitude, max speed, max G-force
-- Distance travelled, final destination body
-- Duration (already shown), point count
+### ~~Recording stats~~ (Done)
+Computed from existing trajectory data: max altitude, max speed, max G-force, distance travelled, final destination body, duration, point count. Displayed in Recordings Manager as expandable detail per recording.
 
-Display in Recordings Manager as expandable detail or tooltip per recording.
-
-### Non-revert recording commitment
-Currently the flow requires revert-to-launch to commit. Add a "Commit Flight" action (via UI button) that snapshots the current vessel state and adds the recording to the timeline without reverting. This unlocks the mod for players who don't revert — they fly a mission, commit it, and the recording is available for future playback. The player continues flying the same vessel normally.
+### ~~Non-revert recording commitment~~ (Done)
+"Commit Flight" UI button snapshots the current vessel state and adds the recording to the timeline without reverting. Unlocks the mod for players who don't revert.
 
 ### Two-phase parachute deploy
 Visual distinction between SEMIDEPLOYED (streamer) and DEPLOYED (full canopy) on ghost vessels. Currently all chute states show the same mesh.
