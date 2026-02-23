@@ -65,6 +65,17 @@ namespace Parsek
             return milestone;
         }
 
+        /// <summary>
+        /// Captures any game state events that occurred after the last milestone's
+        /// EndUT into a new milestone. Called from ParsekScenario.OnSave to ensure
+        /// events are preserved even if the player never commits a recording.
+        /// Returns the created milestone, or null if no new events exist.
+        /// </summary>
+        internal static Milestone FlushPendingEvents(double currentUT)
+        {
+            return CreateMilestone(null, currentUT);
+        }
+
         #region File I/O
 
         internal static bool SaveMilestoneFile()
@@ -151,25 +162,33 @@ namespace Parsek
             }
         }
 
-        internal static void RestoreMutableState(ConfigNode scenarioNode)
+        /// <summary>
+        /// Restores mutable milestone state (LastReplayedEventIndex) from the .sfs
+        /// scenario node. When resetUnmatched is true (revert path), milestones not
+        /// found in the saved state are reset to -1 (unreplayed) — these are milestones
+        /// created after the launch quicksave that need to replay from scratch.
+        /// </summary>
+        internal static void RestoreMutableState(ConfigNode scenarioNode, bool resetUnmatched = false)
         {
             if (scenarioNode == null) return;
 
             ConfigNode[] stateNodes = scenarioNode.GetNodes("MILESTONE_STATE");
-            if (stateNodes == null || stateNodes.Length == 0) return;
 
             var stateMap = new Dictionary<string, int>();
-            for (int i = 0; i < stateNodes.Length; i++)
+            if (stateNodes != null)
             {
-                string id = stateNodes[i].GetValue("id");
-                string idxStr = stateNodes[i].GetValue("lastReplayedIdx");
-                if (id != null && idxStr != null)
+                for (int i = 0; i < stateNodes.Length; i++)
                 {
-                    int idx;
-                    if (int.TryParse(idxStr, System.Globalization.NumberStyles.Integer,
-                        System.Globalization.CultureInfo.InvariantCulture, out idx))
+                    string id = stateNodes[i].GetValue("id");
+                    string idxStr = stateNodes[i].GetValue("lastReplayedIdx");
+                    if (id != null && idxStr != null)
                     {
-                        stateMap[id] = idx;
+                        int idx;
+                        if (int.TryParse(idxStr, System.Globalization.NumberStyles.Integer,
+                            System.Globalization.CultureInfo.InvariantCulture, out idx))
+                        {
+                            stateMap[id] = idx;
+                        }
                     }
                 }
             }
@@ -179,6 +198,8 @@ namespace Parsek
                 int idx;
                 if (stateMap.TryGetValue(milestones[i].MilestoneId, out idx))
                     milestones[i].LastReplayedEventIndex = idx;
+                else if (resetUnmatched)
+                    milestones[i].LastReplayedEventIndex = -1;
             }
         }
 
@@ -210,20 +231,6 @@ namespace Parsek
         #endregion
 
         #region Removal
-
-        internal static void RemoveByRecordingId(string recordingId)
-        {
-            if (string.IsNullOrEmpty(recordingId)) return;
-
-            for (int i = milestones.Count - 1; i >= 0; i--)
-            {
-                if (milestones[i].RecordingId == recordingId)
-                {
-                    Log($"[Parsek] Removed milestone for recording {recordingId}");
-                    milestones.RemoveAt(i);
-                }
-            }
-        }
 
         internal static void ClearAll()
         {

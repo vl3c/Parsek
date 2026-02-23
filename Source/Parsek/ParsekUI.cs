@@ -201,6 +201,18 @@ namespace Parsek
                 ParsekLog.Log("All recordings wiped");
                 ParsekLog.ScreenMessage("All recordings wiped", 2f);
             }
+            GUI.enabled = committedCount > 0 || MilestoneStore.MilestoneCount > 0;
+            if (GUILayout.Button("Wipe All"))
+            {
+                foreach (var rec in RecordingStore.CommittedRecordings)
+                    ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
+                ParsekScenario.ClearReplacements();
+                flight.DestroyAllTimelineGhosts();
+                RecordingStore.ClearCommitted();
+                MilestoneStore.ClearAll();
+                ParsekLog.Log("All recordings and game state wiped");
+                ParsekLog.ScreenMessage("All data wiped", 2f);
+            }
             GUI.enabled = true;
 
             GUILayout.EndVertical();

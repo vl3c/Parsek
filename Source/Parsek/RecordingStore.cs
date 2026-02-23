@@ -240,7 +240,6 @@ namespace Parsek
             for (int i = 0; i < committedRecordings.Count; i++)
                 DeleteRecordingFiles(committedRecordings[i]);
             committedRecordings.Clear();
-            MilestoneStore.ClearAll();
         }
 
         public static void Clear()
@@ -331,7 +330,6 @@ namespace Parsek
                 if (committedRecordings[i].ChainId == chainId)
                 {
                     DeleteRecordingFiles(committedRecordings[i]);
-                    MilestoneStore.RemoveByRecordingId(committedRecordings[i].RecordingId);
                     Log($"[Parsek] Removed chain recording: {committedRecordings[i].VesselName} (chain={chainId}, idx={committedRecordings[i].ChainIndex})");
                     committedRecordings.RemoveAt(i);
                 }
@@ -469,7 +467,6 @@ namespace Parsek
             }
 
             DeleteRecordingFiles(rec);
-            MilestoneStore.RemoveByRecordingId(rec.RecordingId);
             committedRecordings.RemoveAt(index);
             Log($"[Parsek] Removed recording '{rec.VesselName}' (id={rec.RecordingId}) at index {index}");
         }
