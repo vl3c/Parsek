@@ -192,67 +192,115 @@ namespace Parsek.Tests
         #region Parachute state tracking
 
         [Fact]
-        public void ParachuteTransition_StowedToDeployed_EmitsDeployedEvent()
+        public void ParachuteTransition_StowedToSemiDeployed_EmitsSemiDeployedEvent()
         {
-            var deployed = new HashSet<uint>();
-            var evt = FlightRecorder.CheckParachuteTransition(
-                42, "parachute", isDeployed: true, deployed, 100.0);
+            var states = new Dictionary<uint, int>();
+            var evt = FlightRecorder.CheckParachuteTransition(42, "parachute", 1, states, 100.0);
 
             Assert.NotNull(evt);
-            Assert.Equal(PartEventType.ParachuteDeployed, evt.Value.eventType);
+            Assert.Equal(PartEventType.ParachuteSemiDeployed, evt.Value.eventType);
             Assert.Equal(42u, evt.Value.partPersistentId);
             Assert.Equal(100.0, evt.Value.ut);
-            Assert.Contains(42u, deployed);
+            Assert.Equal(1, states[42]);
         }
 
         [Fact]
-        public void ParachuteTransition_DeployedToCut_EmitsCutEvent()
+        public void ParachuteTransition_SemiToFullyDeployed_EmitsDeployedEvent()
         {
-            var deployed = new HashSet<uint> { 42 };
-            var evt = FlightRecorder.CheckParachuteTransition(
-                42, "parachute", isDeployed: false, deployed, 120.0);
+            var states = new Dictionary<uint, int> { { 42, 1 } };
+            var evt = FlightRecorder.CheckParachuteTransition(42, "parachute", 2, states, 110.0);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.ParachuteDeployed, evt.Value.eventType);
+            Assert.Equal(2, states[42]);
+        }
+
+        [Fact]
+        public void ParachuteTransition_StowedToFullyDeployed_EmitsDeployedEvent()
+        {
+            // Edge case: recording starts with chute already deployed
+            var states = new Dictionary<uint, int>();
+            var evt = FlightRecorder.CheckParachuteTransition(42, "parachute", 2, states, 100.0);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.ParachuteDeployed, evt.Value.eventType);
+            Assert.Equal(2, states[42]);
+        }
+
+        [Fact]
+        public void ParachuteTransition_SemiDeployedToCut_EmitsCutEvent()
+        {
+            var states = new Dictionary<uint, int> { { 42, 1 } };
+            var evt = FlightRecorder.CheckParachuteTransition(42, "parachute", 0, states, 120.0);
 
             Assert.NotNull(evt);
             Assert.Equal(PartEventType.ParachuteCut, evt.Value.eventType);
-            Assert.Equal(42u, evt.Value.partPersistentId);
-            Assert.DoesNotContain(42u, deployed);
+            Assert.False(states.ContainsKey(42));
+        }
+
+        [Fact]
+        public void ParachuteTransition_FullyDeployedToCut_EmitsCutEvent()
+        {
+            var states = new Dictionary<uint, int> { { 42, 2 } };
+            var evt = FlightRecorder.CheckParachuteTransition(42, "parachute", 0, states, 120.0);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.ParachuteCut, evt.Value.eventType);
+            Assert.False(states.ContainsKey(42));
         }
 
         [Fact]
         public void ParachuteTransition_NoChange_ReturnsNull()
         {
-            var deployed = new HashSet<uint>();
-            var evt = FlightRecorder.CheckParachuteTransition(
-                42, "parachute", isDeployed: false, deployed, 100.0);
+            var states = new Dictionary<uint, int>();
+            var evt = FlightRecorder.CheckParachuteTransition(42, "parachute", 0, states, 100.0);
 
             Assert.Null(evt);
         }
 
         [Fact]
-        public void ParachuteTransition_AlreadyDeployed_ReturnsNull()
+        public void ParachuteTransition_AlreadySemiDeployed_ReturnsNull()
         {
-            var deployed = new HashSet<uint> { 42 };
-            var evt = FlightRecorder.CheckParachuteTransition(
-                42, "parachute", isDeployed: true, deployed, 100.0);
+            var states = new Dictionary<uint, int> { { 42, 1 } };
+            var evt = FlightRecorder.CheckParachuteTransition(42, "parachute", 1, states, 100.0);
 
             Assert.Null(evt);
         }
 
         [Fact]
-        public void ParachuteDestroyed_DeployedChuteDeath_EmitsParachuteDestroyed()
+        public void ParachuteTransition_AlreadyFullyDeployed_ReturnsNull()
         {
-            var deployed = new HashSet<uint> { 42 };
-            var evtType = FlightRecorder.ClassifyPartDeath(42, hasParachuteModule: true, deployed);
+            var states = new Dictionary<uint, int> { { 42, 2 } };
+            var evt = FlightRecorder.CheckParachuteTransition(42, "parachute", 2, states, 100.0);
+
+            Assert.Null(evt);
+        }
+
+        [Fact]
+        public void ParachuteDestroyed_SemiDeployedChuteDeath_EmitsParachuteDestroyed()
+        {
+            var states = new Dictionary<uint, int> { { 42, 1 } };
+            var evtType = FlightRecorder.ClassifyPartDeath(42, hasParachuteModule: true, states);
 
             Assert.Equal(PartEventType.ParachuteDestroyed, evtType);
-            Assert.DoesNotContain(42u, deployed);
+            Assert.False(states.ContainsKey(42));
+        }
+
+        [Fact]
+        public void ParachuteDestroyed_FullyDeployedChuteDeath_EmitsParachuteDestroyed()
+        {
+            var states = new Dictionary<uint, int> { { 42, 2 } };
+            var evtType = FlightRecorder.ClassifyPartDeath(42, hasParachuteModule: true, states);
+
+            Assert.Equal(PartEventType.ParachuteDestroyed, evtType);
+            Assert.False(states.ContainsKey(42));
         }
 
         [Fact]
         public void ParachuteDestroyed_StowedChuteDeath_EmitsDestroyed()
         {
-            var deployed = new HashSet<uint>();
-            var evtType = FlightRecorder.ClassifyPartDeath(42, hasParachuteModule: true, deployed);
+            var states = new Dictionary<uint, int>();
+            var evtType = FlightRecorder.ClassifyPartDeath(42, hasParachuteModule: true, states);
 
             Assert.Equal(PartEventType.Destroyed, evtType);
         }
@@ -260,11 +308,11 @@ namespace Parsek.Tests
         [Fact]
         public void ParachuteDestroyed_NonChutePart_EmitsDestroyed()
         {
-            var deployed = new HashSet<uint> { 42 };
-            var evtType = FlightRecorder.ClassifyPartDeath(99, hasParachuteModule: false, deployed);
+            var states = new Dictionary<uint, int> { { 42, 2 } };
+            var evtType = FlightRecorder.ClassifyPartDeath(99, hasParachuteModule: false, states);
 
             Assert.Equal(PartEventType.Destroyed, evtType);
-            Assert.Contains(42u, deployed); // other entries untouched
+            Assert.Contains(42u, (IDictionary<uint, int>)states); // other entries untouched
         }
 
         #endregion

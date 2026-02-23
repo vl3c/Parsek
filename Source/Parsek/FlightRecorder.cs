@@ -28,7 +28,7 @@ namespace Parsek
         public List<PartEvent> PartEvents { get; } = new List<PartEvent>();
 
         // Part event tracking
-        private HashSet<uint> deployedParachutes = new HashSet<uint>();
+        private Dictionary<uint, int> parachuteStates = new Dictionary<uint, int>(); // 0=stowed, 1=semi, 2=deployed
         private HashSet<uint> jettisonedShrouds = new HashSet<uint>();
         private HashSet<uint> extendedDeployables = new HashSet<uint>();
         private HashSet<uint> lightsOn = new HashSet<uint>();
@@ -140,7 +140,7 @@ namespace Parsek
             if (p.vessel.persistentId != RecordingVesselId) return;
 
             bool hasChute = p.FindModuleImplementing<ModuleParachute>() != null;
-            var evtType = ClassifyPartDeath(p.persistentId, hasChute, deployedParachutes);
+            var evtType = ClassifyPartDeath(p.persistentId, hasChute, parachuteStates);
 
             PartEvents.Add(new PartEvent
             {
@@ -153,10 +153,14 @@ namespace Parsek
         }
 
         internal static PartEventType ClassifyPartDeath(
-            uint partPersistentId, bool hasParachuteModule, HashSet<uint> deployedSet)
+            uint partPersistentId, bool hasParachuteModule, Dictionary<uint, int> parachuteStates)
         {
-            if (hasParachuteModule && deployedSet.Remove(partPersistentId))
+            int state;
+            if (hasParachuteModule && parachuteStates.TryGetValue(partPersistentId, out state) && state > 0)
+            {
+                parachuteStates.Remove(partPersistentId);
                 return PartEventType.ParachuteDestroyed;
+            }
             return PartEventType.Destroyed;
         }
 
@@ -176,14 +180,39 @@ namespace Parsek
             ParsekLog.Log($"Part event: Decoupled '{joint.Child.partInfo?.name}' pid={joint.Child.persistentId}");
         }
 
+        /// <summary>
+        /// Detect parachute state transitions. States: 0=stowed/active/cut, 1=semi-deployed, 2=deployed.
+        /// </summary>
         internal static PartEvent? CheckParachuteTransition(
-            uint partPersistentId, string partName, bool isDeployed, HashSet<uint> deployedSet, double ut)
+            uint partPersistentId, string partName, int newState, Dictionary<uint, int> stateMap, double ut)
         {
-            bool wasDeployed = deployedSet.Contains(partPersistentId);
+            int oldState;
+            if (!stateMap.TryGetValue(partPersistentId, out oldState))
+                oldState = 0;
 
-            if (isDeployed && !wasDeployed)
+            if (newState == oldState)
+                return null;
+
+            if (newState > 0)
+                stateMap[partPersistentId] = newState;
+            else
+                stateMap.Remove(partPersistentId);
+
+            // 0→1: semi-deployed (streamer)
+            if (newState == 1 && oldState == 0)
             {
-                deployedSet.Add(partPersistentId);
+                return new PartEvent
+                {
+                    ut = ut,
+                    partPersistentId = partPersistentId,
+                    eventType = PartEventType.ParachuteSemiDeployed,
+                    partName = partName
+                };
+            }
+
+            // 0→2 or 1→2: fully deployed (dome)
+            if (newState == 2)
+            {
                 return new PartEvent
                 {
                     ut = ut,
@@ -193,9 +222,9 @@ namespace Parsek
                 };
             }
 
-            if (!isDeployed && wasDeployed)
+            // 1→0 or 2→0: cut
+            if (newState == 0 && oldState > 0)
             {
-                deployedSet.Remove(partPersistentId);
                 return new PartEvent
                 {
                     ut = ut,
@@ -221,11 +250,12 @@ namespace Parsek
                 var chute = p.FindModuleImplementing<ModuleParachute>();
                 if (chute == null) continue;
 
-                bool isDeployed = chute.deploymentState == ModuleParachute.deploymentStates.DEPLOYED ||
-                                  chute.deploymentState == ModuleParachute.deploymentStates.SEMIDEPLOYED;
+                int state = chute.deploymentState == ModuleParachute.deploymentStates.DEPLOYED ? 2
+                          : chute.deploymentState == ModuleParachute.deploymentStates.SEMIDEPLOYED ? 1
+                          : 0;
 
                 var evt = CheckParachuteTransition(
-                    p.persistentId, p.partInfo?.name ?? "unknown", isDeployed, deployedParachutes, ut);
+                    p.persistentId, p.partInfo?.name ?? "unknown", state, parachuteStates, ut);
                 if (evt.HasValue)
                 {
                     PartEvents.Add(evt.Value);
@@ -2804,7 +2834,7 @@ namespace Parsek
             Recording.Clear();
             OrbitSegments.Clear();
             PartEvents.Clear();
-            deployedParachutes.Clear();
+            parachuteStates.Clear();
             jettisonedShrouds.Clear();
             extendedDeployables.Clear();
             lightsOn.Clear();

@@ -982,26 +982,60 @@ namespace Parsek.Tests
 
         internal static RecordingBuilder[] ParachuteShowcaseRecordings(double baseUT = 0)
         {
-            // firstEventOffsetSeconds: 3.0 gives a 3s window showing the stowed (packed) canopy
-            // before the ParachuteDeployed event fires and transitions to the deployed dome.
+            // 3-phase cycle: semi-deployed (streamer) → deployed (dome) → cut → repeat
             return new[]
             {
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Parachute Mk16", "parachuteSingle", 69,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ParachuteDeployed, PartEventType.ParachuteCut, 98300000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Parachute Mk2-R", "parachuteRadial", 70,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ParachuteDeployed, PartEventType.ParachuteCut, 98300000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Drogue Mk25", "parachuteDrogue", 71,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ParachuteDeployed, PartEventType.ParachuteCut, 98300000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Drogue Mk12-R", "radialDrogue", 72,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ParachuteDeployed, PartEventType.ParachuteCut, 98300000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Parachute Mk16-XL", "parachuteLarge", 73,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ParachuteDeployed, PartEventType.ParachuteCut, 98300000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
+                BuildParachuteShowcaseRecording(baseUT, "Part Showcase - Parachute Mk16", "parachuteSingle", 69, 98300000),
+                BuildParachuteShowcaseRecording(baseUT, "Part Showcase - Parachute Mk2-R", "parachuteRadial", 70, 98300000),
+                BuildParachuteShowcaseRecording(baseUT, "Part Showcase - Drogue Mk25", "parachuteDrogue", 71, 98300000),
+                BuildParachuteShowcaseRecording(baseUT, "Part Showcase - Drogue Mk12-R", "radialDrogue", 72, 98300000),
+                BuildParachuteShowcaseRecording(baseUT, "Part Showcase - Parachute Mk16-XL", "parachuteLarge", 73, 98300000)
             };
+        }
+
+        private static RecordingBuilder BuildParachuteShowcaseRecording(
+            double baseUT, string vesselName, string partName, int rowIndex, uint pidBase)
+        {
+            const double metersPerDegree = (2.0 * Math.PI * 600000.0) / 360.0;
+            const double spacingMeters = 5.0;
+
+            double t = baseUT + 30;
+            double baseLat = -0.0972;
+            double baseLon = -74.5575;
+            double rowCenterOffsetMeters = -((ShowcaseRowCount - 1) * spacingMeters * 0.5);
+            double lat = baseLat + ((rowIndex * spacingMeters + rowCenterOffsetMeters) / metersPerDegree);
+            double lon = baseLon + ((ShowcaseDistanceFromPadMeters) / metersPerDegree);
+            double alt = 66.0;
+
+            var b = new RecordingBuilder(vesselName)
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
+                .WithLoopPlayback(loop: true, pauseSeconds: 0.0);
+
+            // Static trajectory (24s)
+            for (int i = 0; i <= 8; i++)
+                b.AddPoint(t + (i * 3), lat, lon, alt);
+
+            // 3-phase parachute cycle: semi-deployed (3s) → deployed (3s) → cut (2s) → repeat
+            double offset = 0.0;
+            for (int cycle = 0; cycle < 3; cycle++)
+            {
+                b.AddPartEvent(t + offset, SinglePartPid, (int)PartEventType.ParachuteSemiDeployed, partName);
+                offset += 3.0;
+                b.AddPartEvent(t + offset, SinglePartPid, (int)PartEventType.ParachuteDeployed, partName);
+                offset += 3.0;
+                b.AddPartEvent(t + offset, SinglePartPid, (int)PartEventType.ParachuteCut, partName);
+                offset += 2.0;
+            }
+
+            var snap = new VesselSnapshotBuilder()
+                .WithName(vesselName)
+                .WithPersistentId((uint)(pidBase + rowIndex))
+                .AddPart(partName, rotation: "0,-0.7071068,0,0.7071068")
+                .AsLanded(lat, lon, alt)
+                .Build();
+            b.WithGhostVisualSnapshot(snap);
+
+            return b;
         }
 
         internal static RecordingBuilder[] SpecialDeployAnimationShowcaseRecordings(double baseUT = 0)
@@ -2314,11 +2348,12 @@ namespace Parsek.Tests
             var first = recordings[0].Build();
             Assert.Equal("Part Showcase - Parachute Mk16", first.GetValue("vesselName"));
             Assert.Equal("True", first.GetValue("loopPlayback"));
-            Assert.Equal(8, first.GetNodes("PART_EVENT").Length);
+            Assert.Equal(9, first.GetNodes("PART_EVENT").Length); // 3 cycles × 3 events (semi, deploy, cut)
 
             var events = first.GetNodes("PART_EVENT");
-            Assert.Equal(((int)PartEventType.ParachuteDeployed).ToString(), events[0].GetValue("type"));
-            Assert.Equal(((int)PartEventType.ParachuteCut).ToString(), events[1].GetValue("type"));
+            Assert.Equal(((int)PartEventType.ParachuteSemiDeployed).ToString(), events[0].GetValue("type"));
+            Assert.Equal(((int)PartEventType.ParachuteDeployed).ToString(), events[1].GetValue("type"));
+            Assert.Equal(((int)PartEventType.ParachuteCut).ToString(), events[2].GetValue("type"));
 
             var names = new[] { "parachuteSingle", "parachuteRadial", "parachuteDrogue", "radialDrogue", "parachuteLarge" };
             for (int i = 0; i < recordings.Length; i++)
