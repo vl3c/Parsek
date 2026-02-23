@@ -3454,8 +3454,19 @@ namespace Parsek
                         // Non-EVA part with canopy outside modelRoot: reparent under
                         // subtree root so root-relative deployed position works.
                         ghostCanopy.SetParent(canopySubtreeRoot, false);
-                        ghostCanopy.localPosition = Vector3.zero;
-                        ghostCanopy.localRotation = Quaternion.identity;
+                        // Re-apply stowed pose after reparent (SetParent zeroes local transforms).
+                        // Without this, canopy stays pinned at subtree origin until deployment.
+                        if (stowedOk)
+                        {
+                            ghostCanopy.localScale = sScale;
+                            ghostCanopy.localPosition = sPos;
+                            ghostCanopy.localRotation = sRot;
+                        }
+                        else
+                        {
+                            ghostCanopy.localPosition = Vector3.zero;
+                            ghostCanopy.localRotation = Quaternion.identity;
+                        }
                     }
 
                     ParsekLog.Log($"    Parachute detected: canopy='{canopyName}' cap='{capName}' " +
