@@ -378,50 +378,55 @@ namespace Parsek
                 }
 
                 // Draw standalone recordings first
+                bool deleted = false;
                 for (int s = 0; s < standaloneRows.Count; s++)
                 {
                     if (DrawRecordingRow(standaloneRows[s], committed, now, false))
-                        break;
+                    { deleted = true; break; }
                 }
 
                 // Draw chain groups
-                foreach (var kvp in chainRows)
+                if (!deleted)
                 {
-                    string chainId = kvp.Key;
-                    var members = kvp.Value;
-                    if (members.Count == 0) continue;
-
-                    // Chain header
-                    GUILayout.BeginHorizontal();
-                    bool expanded = expandedChains.Contains(chainId);
-                    string arrow = expanded ? "\u25bc" : "\u25b6";
-                    string chainName = committed[members[0]].VesselName;
-                    if (string.IsNullOrEmpty(chainName)) chainName = "Chain";
-
-                    // Aggregate duration
-                    double chainStart = double.MaxValue, chainEnd = double.MinValue;
-                    for (int m = 0; m < members.Count; m++)
+                    foreach (var kvp in chainRows)
                     {
-                        var mr = committed[members[m]];
-                        if (mr.StartUT < chainStart) chainStart = mr.StartUT;
-                        if (mr.EndUT > chainEnd) chainEnd = mr.EndUT;
-                    }
+                        string chainId = kvp.Key;
+                        var members = kvp.Value;
+                        if (members.Count == 0) continue;
 
-                    if (GUILayout.Button($"{arrow} {chainName} ({members.Count} segments, {FormatDuration(chainEnd - chainStart)})",
-                        GUI.skin.label, GUILayout.ExpandWidth(true)))
-                    {
-                        if (expanded) expandedChains.Remove(chainId);
-                        else expandedChains.Add(chainId);
-                    }
-                    GUILayout.EndHorizontal();
+                        // Chain header
+                        GUILayout.BeginHorizontal();
+                        bool expanded = expandedChains.Contains(chainId);
+                        string arrow = expanded ? "\u25bc" : "\u25b6";
+                        string chainName = committed[members[0]].VesselName;
+                        if (string.IsNullOrEmpty(chainName)) chainName = "Chain";
 
-                    if (expanded)
-                    {
+                        // Aggregate duration
+                        double chainStart = double.MaxValue, chainEnd = double.MinValue;
                         for (int m = 0; m < members.Count; m++)
                         {
-                            if (DrawRecordingRow(members[m], committed, now, true))
-                                break;
+                            var mr = committed[members[m]];
+                            if (mr.StartUT < chainStart) chainStart = mr.StartUT;
+                            if (mr.EndUT > chainEnd) chainEnd = mr.EndUT;
                         }
+
+                        if (GUILayout.Button($"{arrow} {chainName} ({members.Count} segments, {FormatDuration(chainEnd - chainStart)})",
+                            GUI.skin.label, GUILayout.ExpandWidth(true)))
+                        {
+                            if (expanded) expandedChains.Remove(chainId);
+                            else expandedChains.Add(chainId);
+                        }
+                        GUILayout.EndHorizontal();
+
+                        if (expanded)
+                        {
+                            for (int m = 0; m < members.Count; m++)
+                            {
+                                if (DrawRecordingRow(members[m], committed, now, true))
+                                { deleted = true; break; }
+                            }
+                        }
+                        if (deleted) break;
                     }
                 }
 

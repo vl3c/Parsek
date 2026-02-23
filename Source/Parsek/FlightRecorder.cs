@@ -2862,6 +2862,7 @@ namespace Parsek
 
                 AtmosphereBoundaryCrossed = true;
                 EnteredAtmosphere = nowInAtmo;
+                wasInAtmosphere = nowInAtmo;
                 atmosphereBoundaryPending = false;
                 ParsekLog.Log($"Atmosphere boundary confirmed: {(nowInAtmo ? "entered" : "exited")} " +
                     $"atmosphere of {v.mainBody.name} at alt {altitude:F0}m");
