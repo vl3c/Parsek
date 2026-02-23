@@ -80,6 +80,11 @@ namespace Parsek
             internal RecordingStats? CachedStats;
             internal int CachedStatsPointCount;
 
+            // Pre-launch resource snapshot (captured before recording starts)
+            public double PreLaunchFunds;
+            public double PreLaunchScience;
+            public float PreLaunchReputation;
+
             // Tracks which point's resource deltas have been applied during playback.
             // -1 means no resources applied yet (start from point 0's delta).
             public int LastAppliedResourceIndex = -1;
@@ -133,6 +138,9 @@ namespace Parsek
                 ChainBranch = source.ChainBranch;
                 LoopPlayback = source.LoopPlayback;
                 LoopPauseSeconds = source.LoopPauseSeconds;
+                PreLaunchFunds = source.PreLaunchFunds;
+                PreLaunchScience = source.PreLaunchScience;
+                PreLaunchReputation = source.PreLaunchReputation;
             }
         }
 
@@ -206,10 +214,16 @@ namespace Parsek
             committedRecordings.Add(pendingRecording);
             Log($"[Parsek] Committed recording from {pendingRecording.VesselName} " +
                 $"({pendingRecording.Points.Count} points). Total committed: {committedRecordings.Count}");
+
+            string recordingId = pendingRecording.RecordingId;
+            double endUT = pendingRecording.EndUT;
             pendingRecording = null;
 
             // Capture a game state baseline at each commit (single funnel point)
             GameStateStore.CaptureBaselineIfNeeded();
+
+            // Create a milestone bundling game state events since the previous milestone
+            MilestoneStore.CreateMilestone(recordingId, endUT);
         }
 
         public static void DiscardPending()
@@ -226,6 +240,7 @@ namespace Parsek
             for (int i = 0; i < committedRecordings.Count; i++)
                 DeleteRecordingFiles(committedRecordings[i]);
             committedRecordings.Clear();
+            MilestoneStore.ClearAll();
         }
 
         public static void Clear()
@@ -316,6 +331,7 @@ namespace Parsek
                 if (committedRecordings[i].ChainId == chainId)
                 {
                     DeleteRecordingFiles(committedRecordings[i]);
+                    MilestoneStore.RemoveByRecordingId(committedRecordings[i].RecordingId);
                     Log($"[Parsek] Removed chain recording: {committedRecordings[i].VesselName} (chain={chainId}, idx={committedRecordings[i].ChainIndex})");
                     committedRecordings.RemoveAt(i);
                 }
@@ -453,6 +469,7 @@ namespace Parsek
             }
 
             DeleteRecordingFiles(rec);
+            MilestoneStore.RemoveByRecordingId(rec.RecordingId);
             committedRecordings.RemoveAt(index);
             Log($"[Parsek] Removed recording '{rec.VesselName}' (id={rec.RecordingId}) at index {index}");
         }

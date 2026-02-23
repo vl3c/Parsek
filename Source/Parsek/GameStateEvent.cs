@@ -32,6 +32,7 @@ namespace Parsek
         public string detail;    // semicolon-separated extra info (optional)
         public double valueBefore;
         public double valueAfter;
+        public uint epoch;       // branch epoch — incremented on revert, filters abandoned branches
 
         public void SerializeInto(ConfigNode node)
         {
@@ -45,6 +46,8 @@ namespace Parsek
                 node.AddValue("valBefore", valueBefore.ToString("R", CultureInfo.InvariantCulture));
             if (valueAfter != 0)
                 node.AddValue("valAfter", valueAfter.ToString("R", CultureInfo.InvariantCulture));
+            if (epoch != 0)
+                node.AddValue("epoch", epoch.ToString(CultureInfo.InvariantCulture));
         }
 
         public static GameStateEvent DeserializeFrom(ConfigNode node)
@@ -73,6 +76,10 @@ namespace Parsek
             string valAfterStr = node.GetValue("valAfter");
             if (valAfterStr != null)
                 double.TryParse(valAfterStr, NumberStyles.Float, CultureInfo.InvariantCulture, out e.valueAfter);
+
+            string epochStr = node.GetValue("epoch");
+            if (epochStr != null)
+                uint.TryParse(epochStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out e.epoch);
 
             return e;
         }
