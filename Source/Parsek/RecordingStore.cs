@@ -79,6 +79,12 @@ namespace Parsek
             public string GhostGeometryCaptureStrategy = "stub_v1";
             public string GhostGeometryProbeStatus = "uninitialized";
 
+            // Cached recording statistics (transient, recomputed on demand).
+            // Tracks point count at cache time so continuation (which appends
+            // points after commit) automatically invalidates the cache.
+            internal RecordingStats? CachedStats;
+            internal int CachedStatsPointCount;
+
             // Tracks which point's resource deltas have been applied during playback.
             // -1 means no resources applied yet (start from point 0's delta).
             public int LastAppliedResourceIndex = -1;
