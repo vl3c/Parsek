@@ -19,10 +19,10 @@ namespace Parsek
         public Vector3 deployedCanopyScale;
         public Vector3 deployedCanopyPos;
         public Quaternion deployedCanopyRot;
-        public Vector3 stowedCanopyScale;
-        public Vector3 stowedCanopyPos;
-        public Quaternion stowedCanopyRot;
-        public bool stowedSampled;
+        public Vector3 semiDeployedCanopyScale;
+        public Vector3 semiDeployedCanopyPos;
+        public Quaternion semiDeployedCanopyRot;
+        public bool semiDeployedSampled;
     }
 
     internal class EngineGhostInfo
@@ -672,8 +672,8 @@ namespace Parsek
             return canopy;
         }
 
-        // Cache: partName → (stowed + deployed canopy states) — sample once per part type, reuse across ghosts
-        private static readonly Dictionary<string, (Vector3 sScale, Vector3 sPos, Quaternion sRot, bool stowedSampled,
+        // Cache: partName → (semi-deployed + deployed canopy states) — sample once per part type, reuse across ghosts
+        private static readonly Dictionary<string, (Vector3 sdScale, Vector3 sdPos, Quaternion sdRot, bool semiDeployedSampled,
             Vector3 dScale, Vector3 dPos, Quaternion dRot)> canopyCache =
             new Dictionary<string, (Vector3, Vector3, Quaternion, bool, Vector3, Vector3, Quaternion)>();
 
@@ -682,27 +682,29 @@ namespace Parsek
             canopyCache.Clear();
         }
 
-        private static (Vector3 sScale, Vector3 sPos, Quaternion sRot, bool stowedSampled,
+        /// <summary>
+        /// Sample both semi-deployed (streamer) and fully deployed (dome) canopy states from animations.
+        /// KSP parachute animations are sequential:
+        ///   semiDeployedAnimation@time=1 → streamer (textile on wires, no air)
+        ///   fullyDeployedAnimation@time=1 → inflated dome
+        /// Stowed state is invisible (canopy mesh starts at zero scale in prefabs).
+        /// </summary>
+        private static (Vector3 sdScale, Vector3 sdPos, Quaternion sdRot, bool semiDeployedSampled,
             Vector3 dScale, Vector3 dPos, Quaternion dRot) SampleCanopyStates(Part prefab, ModuleParachute chute)
         {
             string key = prefab.partInfo?.name ?? prefab.name;
             if (canopyCache.TryGetValue(key, out var cached))
                 return cached;
 
-            // KSP parachute animations are sequential:
-            //   semiDeployedAnimation: stowed → semi-deployed
-            //   fullyDeployedAnimation: semi-deployed → fully deployed
-            // Therefore: stowed = semiDeployedAnimation@time=0
-            //            deployed = fullyDeployedAnimation@time=1 (fallback: semiDeployedAnimation@time=1)
             string semiAnim = chute.semiDeployedAnimation;
             string fullAnim = chute.fullyDeployedAnimation;
 
             string deployedAnimName = !string.IsNullOrEmpty(fullAnim) ? fullAnim
                 : !string.IsNullOrEmpty(semiAnim) ? semiAnim : null;
 
-            Vector3 sScale = Vector3.zero, sPos = Vector3.zero;
-            Quaternion sRot = Quaternion.identity;
-            bool stowedSampled = false;
+            Vector3 sdScale = Vector3.zero, sdPos = Vector3.zero;
+            Quaternion sdRot = Quaternion.identity;
+            bool semiDeployedSampled = false;
 
             Vector3 dScale = Vector3.one, dPos = Vector3.zero;
             Quaternion dRot = Quaternion.identity;
@@ -710,7 +712,6 @@ namespace Parsek
 
             string canopyName = chute.canopyName;
 
-            // Need at least one animation to sample
             if (!string.IsNullOrEmpty(semiAnim) || !string.IsNullOrEmpty(deployedAnimName))
             {
                 Transform prefabModel = prefab.transform.Find("model") ?? prefab.transform;
@@ -721,42 +722,46 @@ namespace Parsek
                     Animation anim = tempClone.GetComponentInChildren<Animation>(true);
                     if (anim != null)
                     {
-                        // Sample stowed state from semiDeployedAnimation@time=0
+                        // Sample semi-deployed state: semiDeployedAnimation@time=1 (streamer)
                         if (!string.IsNullOrEmpty(semiAnim))
                         {
                             AnimationState semiState = anim[semiAnim];
                             if (semiState != null)
                             {
+                                anim.Stop();
                                 semiState.enabled = true;
                                 semiState.speed = 0f;
-                                semiState.normalizedTime = 0f;
+                                semiState.normalizedTime = 1f;
                                 semiState.weight = 1f;
                                 anim.Play(semiAnim);
                                 anim.Sample();
 
                                 Transform canopy = !string.IsNullOrEmpty(canopyName)
                                     ? FindTransformRecursive(tempClone.transform, canopyName) : null;
-                                if (canopy != null)
+                                if (canopy != null && canopy.localScale.magnitude > 0.01f)
                                 {
-                                    sScale = canopy.localScale;
-                                    sPos = tempClone.transform.InverseTransformPoint(canopy.position);
-                                    sRot = Quaternion.Inverse(tempClone.transform.rotation) * canopy.rotation;
-                                    stowedSampled = true;
-                                    ParsekLog.Log($"  Stowed canopy sampled via '{semiAnim}'@0: scale={sScale} " +
-                                        $"rootPos={sPos} rootRot={sRot.eulerAngles}");
+                                    sdScale = canopy.localScale;
+                                    sdPos = tempClone.transform.InverseTransformPoint(canopy.position);
+                                    sdRot = Quaternion.Inverse(tempClone.transform.rotation) * canopy.rotation;
+                                    semiDeployedSampled = true;
+                                    ParsekLog.Log($"  Semi-deployed canopy sampled via '{semiAnim}'@1: scale={sdScale} " +
+                                        $"rootPos={sdPos} rootRot={sdRot.eulerAngles}");
                                 }
-
-                                semiState.enabled = false;
+                                else
+                                {
+                                    ParsekLog.Log($"  Semi-deploy animation '{semiAnim}'@1 gave near-zero scale, skipping");
+                                }
                             }
                             else
                             {
-                                ParsekLog.Log($"  Semi-deployed animation '{semiAnim}' not found on clone for '{key}'");
+                                ParsekLog.Log($"  Semi-deploy animation '{semiAnim}' not found on clone for '{key}'");
                             }
                         }
 
-                        // Sample deployed state from fullyDeployedAnimation@time=1 (or semiDeployedAnimation@time=1)
+                        // Sample deployed state: fullyDeployedAnimation@time=1 (dome)
                         if (!string.IsNullOrEmpty(deployedAnimName))
                         {
+                            anim.Stop();
                             AnimationState deployState = anim[deployedAnimName];
                             if (deployState != null)
                             {
@@ -796,9 +801,7 @@ namespace Parsek
                 }
             }
 
-            // If deployed animation produced a near-zero scale, it failed to animate properly.
-            // Use a conservative fallback. Threshold is very low because stock parachutes
-            // (e.g. parachuteSingle) legitimately deploy at small scales like (0.1, 0.1, 0.1).
+            // Deployed fallback: if animation produced near-zero scale
             if (deployedSampled && dScale.magnitude < 0.01f)
             {
                 ParsekLog.Log($"  Deploy animation produced near-zero scale ({dScale}), using deployed canopy fallback");
@@ -807,9 +810,9 @@ namespace Parsek
                 dRot = Quaternion.identity;
             }
 
-            var result = (sScale, sPos, sRot, stowedSampled, dScale, dPos, dRot);
+            var result = (sdScale, sdPos, sdRot, semiDeployedSampled, dScale, dPos, dRot);
             canopyCache[key] = result;
-            ParsekLog.Log($"  Canopy states for '{key}': stowed={stowedSampled} sScale={sScale} " +
+            ParsekLog.Log($"  Canopy states for '{key}': semiDeployed={semiDeployedSampled} sdScale={sdScale} " +
                 $"deployed dScale={dScale} dPos={dPos} dRot={dRot.eulerAngles}");
             return result;
         }
@@ -3404,7 +3407,7 @@ namespace Parsek
 
                 if (ghostCanopy != null)
                 {
-                    var (sScale, sPos, sRot, stowedOk, dScale, dPos, dRot) = SampleCanopyStates(prefab, chute);
+                    var (sdScale, sdPos, sdRot, semiOk, dScale, dPos, dRot) = SampleCanopyStates(prefab, chute);
                     parachuteInfo = new ParachuteGhostInfo
                     {
                         partPersistentId = persistentId,
@@ -3413,24 +3416,14 @@ namespace Parsek
                         deployedCanopyScale = dScale,
                         deployedCanopyPos = dPos,
                         deployedCanopyRot = dRot,
-                        stowedCanopyScale = sScale,
-                        stowedCanopyPos = sPos,
-                        stowedCanopyRot = sRot,
-                        stowedSampled = stowedOk
+                        semiDeployedCanopyScale = sdScale,
+                        semiDeployedCanopyPos = sdPos,
+                        semiDeployedCanopyRot = sdRot,
+                        semiDeployedSampled = semiOk
                     };
 
-                    // Set initial canopy state: show packed shape if stowed was sampled,
-                    // otherwise hide until deploy event (current fallback behavior)
-                    if (stowedOk)
-                    {
-                        ghostCanopy.localScale = sScale;
-                        ghostCanopy.localPosition = sPos;
-                        ghostCanopy.localRotation = sRot;
-                    }
-                    else
-                    {
-                        ghostCanopy.localScale = Vector3.zero;
-                    }
+                    // Stowed = invisible (canopy mesh starts at zero scale in KSP prefabs)
+                    ghostCanopy.localScale = Vector3.zero;
 
                     if (canopySubtreeRoot != null && partName.StartsWith("kerbalEVA"))
                     {
@@ -3438,39 +3431,29 @@ namespace Parsek
                         // movement — the kerbal body pose change that swings the backpack
                         // overhead is a separate animation we can't sample. Override with a
                         // position above the kerbal's head and dome-down rotation.
-                        // EVA chutes are invisible when packed in the kerbal's backpack.
                         ghostCanopy.SetParent(partRoot.transform, false);
                         ghostCanopy.localPosition = Vector3.zero;
                         ghostCanopy.localRotation = Quaternion.identity;
                         ghostCanopy.localScale = Vector3.zero;
-                        parachuteInfo.stowedSampled = false;
+                        // EVA: both semi-deployed and deployed appear above the kerbal's head
+                        parachuteInfo.semiDeployedCanopyPos = new Vector3(0f, 1f, 0f);
+                        parachuteInfo.semiDeployedCanopyRot = Quaternion.Euler(270f, 0f, 0f);
                         parachuteInfo.deployedCanopyPos = new Vector3(0f, 1f, 0f);
                         parachuteInfo.deployedCanopyRot = Quaternion.Euler(270f, 0f, 0f);
-                        ParsekLog.Log($"    EVA parachute: overriding deployed pos=(0,1,0) rot=(270,0,0) " +
-                            $"stowed=hidden (animation sampled dPos={dPos} dRot={dRot.eulerAngles})");
+                        ParsekLog.Log($"    EVA parachute: overriding semi/deployed pos=(0,1,0) rot=(270,0,0) " +
+                            $"(animation sampled sdScale={sdScale} dScale={dScale})");
                     }
                     else if (canopySubtreeRoot != null)
                     {
                         // Non-EVA part with canopy outside modelRoot: reparent under
-                        // subtree root so root-relative deployed position works.
+                        // subtree root so root-relative positions work.
                         ghostCanopy.SetParent(canopySubtreeRoot, false);
-                        // Re-apply stowed pose after reparent (SetParent zeroes local transforms).
-                        // Without this, canopy stays pinned at subtree origin until deployment.
-                        if (stowedOk)
-                        {
-                            ghostCanopy.localScale = sScale;
-                            ghostCanopy.localPosition = sPos;
-                            ghostCanopy.localRotation = sRot;
-                        }
-                        else
-                        {
-                            ghostCanopy.localPosition = Vector3.zero;
-                            ghostCanopy.localRotation = Quaternion.identity;
-                        }
+                        ghostCanopy.localPosition = Vector3.zero;
+                        ghostCanopy.localRotation = Quaternion.identity;
                     }
 
                     ParsekLog.Log($"    Parachute detected: canopy='{canopyName}' cap='{capName}' " +
-                        $"stowed={parachuteInfo.stowedSampled} stowScale={parachuteInfo.stowedCanopyScale} " +
+                        $"semiDeployed={parachuteInfo.semiDeployedSampled} sdScale={parachuteInfo.semiDeployedCanopyScale} " +
                         $"deployScale={parachuteInfo.deployedCanopyScale} " +
                         $"deployPos={parachuteInfo.deployedCanopyPos} " +
                         $"deployRot={parachuteInfo.deployedCanopyRot.eulerAngles} " +
