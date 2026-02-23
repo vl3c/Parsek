@@ -2199,6 +2199,26 @@ namespace Parsek
                         HideGhostPart(ghost, evt.partPersistentId);
                         Log($"Part event applied: ParachuteDestroyed '{evt.partName}' pid={evt.partPersistentId}");
                         break;
+                    case PartEventType.ParachuteSemiDeployed:
+                        if (state.parachuteInfos != null)
+                        {
+                            ParachuteGhostInfo semiInfo;
+                            if (state.parachuteInfos.TryGetValue(evt.partPersistentId, out semiInfo) &&
+                                semiInfo.canopyTransform != null && semiInfo.semiDeployedSampled)
+                            {
+                                semiInfo.canopyTransform.localScale = semiInfo.semiDeployedCanopyScale;
+                                semiInfo.canopyTransform.localPosition = semiInfo.semiDeployedCanopyPos;
+                                semiInfo.canopyTransform.localRotation = semiInfo.semiDeployedCanopyRot;
+                                if (semiInfo.capTransform != null)
+                                    semiInfo.capTransform.gameObject.SetActive(false);
+                                Log($"Part event: ParachuteSemiDeployed '{evt.partName}' — streamer canopy shown");
+                            }
+                            else
+                            {
+                                Log($"Part event: ParachuteSemiDeployed '{evt.partName}' — no semi-deployed state sampled, skipping");
+                            }
+                        }
+                        break;
                     case PartEventType.ParachuteDeployed:
                         bool usedRealCanopy = false;
 
