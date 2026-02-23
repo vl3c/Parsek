@@ -102,6 +102,11 @@ namespace Parsek
             foreach (var baseline in GameStateStore.Baselines)
                 GameStateStore.SaveBaseline(baseline);
 
+            // Flush any uncaptured game state events into a milestone before saving.
+            // Handles events that happened without a recording commit (e.g. tech
+            // research in R&D without launching a flight).
+            MilestoneStore.FlushPendingEvents(Planetarium.GetUniversalTime());
+
             // Save milestones to external file + mutable state to .sfs
             MilestoneStore.SaveMilestoneFile();
             MilestoneStore.SaveMutableState(node);
@@ -198,8 +203,10 @@ namespace Parsek
                     recordings[i].LastAppliedResourceIndex = resIdx;
                 }
 
-                // Restore milestone mutable state from .sfs and increment epoch on revert
-                MilestoneStore.RestoreMutableState(node);
+                // Restore milestone mutable state from .sfs and increment epoch on revert.
+                // resetUnmatched: true — milestones created after the launch quicksave
+                // (not in the saved state) must be reset to unreplayed (-1).
+                MilestoneStore.RestoreMutableState(node, resetUnmatched: true);
                 MilestoneStore.CurrentEpoch++;
                 Debug.Log($"[Parsek Scenario] Milestone epoch incremented to {MilestoneStore.CurrentEpoch} on revert");
 

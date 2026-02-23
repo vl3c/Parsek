@@ -407,6 +407,132 @@ namespace Parsek.Tests
             Assert.Equal(3, MilestoneStore.Milestones[0].LastReplayedEventIndex);
         }
 
+        [Fact]
+        public void MilestoneStore_RestoreMutableState_ResetUnmatched()
+        {
+            // Milestone created after launch quicksave (not in saved state)
+            var m = new Milestone
+            {
+                MilestoneId = "new-milestone",
+                StartUT = 0,
+                EndUT = 100,
+                LastReplayedEventIndex = 2, // fully applied during normal play
+                Events = new List<GameStateEvent>
+                {
+                    new GameStateEvent { ut = 50, eventType = GameStateEventType.TechResearched },
+                    new GameStateEvent { ut = 60, eventType = GameStateEventType.PartPurchased },
+                    new GameStateEvent { ut = 70, eventType = GameStateEventType.TechResearched }
+                }
+            };
+            MilestoneStore.AddMilestoneForTesting(m);
+
+            // Empty scenario node (simulates revert to a save before milestone existed)
+            var node = new ConfigNode("SCENARIO");
+
+            MilestoneStore.RestoreMutableState(node, resetUnmatched: true);
+
+            // Should be reset to -1 (unreplayed) since this milestone wasn't in the save
+            Assert.Equal(-1, MilestoneStore.Milestones[0].LastReplayedEventIndex);
+        }
+
+        [Fact]
+        public void MilestoneStore_RestoreMutableState_NoResetWithoutFlag()
+        {
+            var m = new Milestone
+            {
+                MilestoneId = "new-milestone",
+                StartUT = 0,
+                EndUT = 100,
+                LastReplayedEventIndex = 2,
+                Events = new List<GameStateEvent>
+                {
+                    new GameStateEvent { ut = 50, eventType = GameStateEventType.TechResearched },
+                    new GameStateEvent { ut = 60, eventType = GameStateEventType.PartPurchased },
+                    new GameStateEvent { ut = 70, eventType = GameStateEventType.TechResearched }
+                }
+            };
+            MilestoneStore.AddMilestoneForTesting(m);
+
+            // Empty scenario node — without resetUnmatched, index should stay unchanged
+            var node = new ConfigNode("SCENARIO");
+
+            MilestoneStore.RestoreMutableState(node);
+
+            Assert.Equal(2, MilestoneStore.Milestones[0].LastReplayedEventIndex);
+        }
+
+        #endregion
+
+        #region FlushPendingEvents
+
+        [Fact]
+        public void FlushPendingEvents_CapturesOrphanedEvents()
+        {
+            // Events that happened without a recording commit
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 50,
+                eventType = GameStateEventType.TechResearched,
+                key = "basicRocketry",
+                detail = "cost=5"
+            });
+
+            var milestone = MilestoneStore.FlushPendingEvents(100);
+
+            Assert.NotNull(milestone);
+            Assert.Single(milestone.Events);
+            Assert.Equal(GameStateEventType.TechResearched, milestone.Events[0].eventType);
+            Assert.Equal("", milestone.RecordingId); // no recording association
+        }
+
+        [Fact]
+        public void FlushPendingEvents_NoOpWhenNoNewEvents()
+        {
+            // Create a milestone that covers UT 0-100
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 50,
+                eventType = GameStateEventType.TechResearched,
+                key = "basicRocketry",
+                detail = "cost=5"
+            });
+            MilestoneStore.CreateMilestone("rec1", 100);
+
+            // No new events after UT 100
+            var milestone = MilestoneStore.FlushPendingEvents(200);
+
+            Assert.Null(milestone);
+        }
+
+        [Fact]
+        public void FlushPendingEvents_OnlyCapturesNewEvents()
+        {
+            // First milestone covers UT 0-100
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 50,
+                eventType = GameStateEventType.TechResearched,
+                key = "basicRocketry",
+                detail = "cost=5"
+            });
+            MilestoneStore.CreateMilestone("rec1", 100);
+
+            // New event at UT 150
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 150,
+                eventType = GameStateEventType.PartPurchased,
+                key = "mk1pod.v2",
+                detail = "cost=600"
+            });
+
+            var milestone = MilestoneStore.FlushPendingEvents(200);
+
+            Assert.NotNull(milestone);
+            Assert.Single(milestone.Events);
+            Assert.Equal(GameStateEventType.PartPurchased, milestone.Events[0].eventType);
+        }
+
         #endregion
 
         #region GameStateEvent Epoch Field

@@ -457,6 +457,73 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Decoupled Milestone Budget
+
+        [Fact]
+        public void MilestoneBudget_SurvivesRecordingDeletion()
+        {
+            // Recording + milestone both contribute to budget
+            var rec = MakeRecording(50000, 35000); // recording cost = 15000
+            var m = new Milestone
+            {
+                MilestoneId = "test-decouple",
+                Committed = true,
+                LastReplayedEventIndex = -1, // unreplayed (after revert)
+                Events = new List<GameStateEvent>
+                {
+                    new GameStateEvent
+                    {
+                        ut = 50,
+                        eventType = GameStateEventType.PartPurchased,
+                        key = "mk1pod.v2",
+                        detail = "cost=600"
+                    }
+                }
+            };
+
+            var recordings = new List<RecordingStore.Recording> { rec };
+            var milestones = new List<Milestone> { m };
+
+            // Both contribute
+            var budget = ResourceBudget.ComputeTotal(recordings, milestones);
+            Assert.Equal(15600, budget.reservedFunds); // 15000 + 600
+
+            // Remove recording, milestone survives
+            recordings.Clear();
+            budget = ResourceBudget.ComputeTotal(recordings, milestones);
+            Assert.Equal(600, budget.reservedFunds); // only milestone cost remains
+        }
+
+        [Fact]
+        public void MilestoneBudget_FullyApplied_ZeroCost()
+        {
+            // During normal play, milestones are fully applied — no reservation
+            var m = new Milestone
+            {
+                MilestoneId = "test-applied",
+                Committed = true,
+                LastReplayedEventIndex = 0, // fully applied (1 event, index 0)
+                Events = new List<GameStateEvent>
+                {
+                    new GameStateEvent
+                    {
+                        ut = 50,
+                        eventType = GameStateEventType.PartPurchased,
+                        key = "mk1pod.v2",
+                        detail = "cost=600"
+                    }
+                }
+            };
+
+            var milestones = new List<Milestone> { m };
+            var budget = ResourceBudget.ComputeTotal(
+                new List<RecordingStore.Recording>(), milestones);
+
+            Assert.Equal(0, budget.reservedFunds);
+        }
+
+        #endregion
+
         #region RecordingPaths
 
         [Fact]
