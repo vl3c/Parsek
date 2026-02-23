@@ -572,17 +572,9 @@ namespace Parsek.Tests
             double rowOffsetMeters = 0.0,
             double distanceOffsetMeters = 0.0)
         {
-            const double metersPerDegree = (2.0 * Math.PI * 600000.0) / 360.0;
-            const double spacingMeters = 5.0;
-
             double t = baseUT + 30;
-            double baseLat = -0.0972;
-            double baseLon = -74.5575;
-            // Keep the row centered on the launchpad as we expand showcase coverage.
-            double rowCenterOffsetMeters = -((ShowcaseRowCount - 1) * spacingMeters * 0.5);
-            double lat = baseLat + ((rowIndex * spacingMeters + rowCenterOffsetMeters + rowOffsetMeters) / metersPerDegree);
-            double lon = baseLon + ((distanceFromPadMeters + distanceOffsetMeters) / metersPerDegree);
-            double alt = 66.0;
+            ShowcasePosition(rowIndex, distanceFromPadMeters, out double lat, out double lon, out double alt,
+                rowOffsetMeters, distanceOffsetMeters);
             if (onEvent == PartEventType.ShroudJettisoned && offEvent == PartEventType.ShroudJettisoned)
                 alt += ShroudShowcaseAltitudeOffsetMeters;
 
@@ -646,18 +638,11 @@ namespace Parsek.Tests
         private static RecordingBuilder BuildInflatableHeatShieldShowcaseRecording(
             double baseUT, int rowIndex, double distanceFromPadMeters)
         {
-            const double metersPerDegree = (2.0 * Math.PI * 600000.0) / 360.0;
-            const double spacingMeters = 5.0;
             const string partName = "InflatableHeatShield";
             const string vesselName = "Part Showcase - Inflatable Heat Shield";
 
             double t = baseUT + 30;
-            double baseLat = -0.0972;
-            double baseLon = -74.5575;
-            double rowCenterOffsetMeters = -((ShowcaseRowCount - 1) * spacingMeters * 0.5);
-            double lat = baseLat + ((rowIndex * spacingMeters + rowCenterOffsetMeters) / metersPerDegree);
-            double lon = baseLon + (distanceFromPadMeters / metersPerDegree);
-            double alt = 66.0;
+            ShowcasePosition(rowIndex, distanceFromPadMeters, out double lat, out double lon, out double alt);
 
             var b = new RecordingBuilder(vesselName)
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
@@ -694,10 +679,34 @@ namespace Parsek.Tests
         // Optional companion part (e.g., kerbal actor) receives the second slot.
         // Total visible showcase row entries (indices 0-235, including inventory placement).
         private const int ShowcaseRowCount = 236;
+        // Split showcase into two parallel lines to avoid runway clipping.
+        private static readonly int ShowcaseEntriesPerLine = (ShowcaseRowCount + 1) / 2;
+        private const double ShowcaseLineSpacingMeters = 20.0;
         // Keep showcases close to the launchpad centerline without overlapping pad geometry.
         private const double ShowcaseDistanceFromPadMeters = 200.0;
         // Shroud-jettison showcase parts include tall engine plates and engines that clip at base altitude.
         private const double ShroudShowcaseAltitudeOffsetMeters = 12.0;
+
+        /// <summary>
+        /// Computes lat/lon/alt for a showcase row, splitting rows across two parallel lines.
+        /// Rows 0 to ShowcaseEntriesPerLine-1 are on the back line (200m from pad),
+        /// rows ShowcaseEntriesPerLine to ShowcaseRowCount-1 are on the front line (220m from pad).
+        /// </summary>
+        private static void ShowcasePosition(int rowIndex, double distanceFromPadMeters,
+            out double lat, out double lon, out double alt,
+            double rowOffsetMeters = 0.0, double distanceOffsetMeters = 0.0)
+        {
+            const double metersPerDegree = (2.0 * Math.PI * 600000.0) / 360.0;
+            const double spacingMeters = 5.0;
+
+            int lineIndex = rowIndex / ShowcaseEntriesPerLine;
+            int lineRowIndex = rowIndex % ShowcaseEntriesPerLine;
+
+            double rowCenterOffsetMeters = -((ShowcaseEntriesPerLine - 1) * spacingMeters * 0.5);
+            lat = -0.0972 + ((lineRowIndex * spacingMeters + rowCenterOffsetMeters + rowOffsetMeters) / metersPerDegree);
+            lon = -74.5575 + ((distanceFromPadMeters + lineIndex * ShowcaseLineSpacingMeters + distanceOffsetMeters) / metersPerDegree);
+            alt = 66.0;
+        }
 
         /// <summary>
         /// Builds a light showcase recording with an on → blink → off cycle that exercises
@@ -707,16 +716,8 @@ namespace Parsek.Tests
         private static RecordingBuilder BuildLightBlinkShowcaseRecording(
             double baseUT, string vesselName, string lightPartName, int rowIndex)
         {
-            const double metersPerDegree = (2.0 * Math.PI * 600000.0) / 360.0;
-            const double spacingMeters = 5.0;
-
             double t = baseUT + 30;
-            double baseLat = -0.0972;
-            double baseLon = -74.5575;
-            double rowCenterOffsetMeters = -((ShowcaseRowCount - 1) * spacingMeters * 0.5);
-            double lat = baseLat + ((rowIndex * spacingMeters + rowCenterOffsetMeters) / metersPerDegree);
-            double lon = baseLon + (ShowcaseDistanceFromPadMeters / metersPerDegree);
-            double alt = 66.0;
+            ShowcasePosition(rowIndex, ShowcaseDistanceFromPadMeters, out double lat, out double lon, out double alt);
 
             var b = new RecordingBuilder(vesselName)
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
@@ -755,16 +756,8 @@ namespace Parsek.Tests
             double baseUT, string vesselName, string enginePartName, int rowIndex,
             uint pidBase)
         {
-            const double metersPerDegree = (2.0 * Math.PI * 600000.0) / 360.0;
-            const double spacingMeters = 5.0;
-
             double t = baseUT + 30;
-            double baseLat = -0.0972;
-            double baseLon = -74.5575;
-            double rowCenterOffsetMeters = -((ShowcaseRowCount - 1) * spacingMeters * 0.5);
-            double lat = baseLat + ((rowIndex * spacingMeters + rowCenterOffsetMeters) / metersPerDegree);
-            double lon = baseLon + (ShowcaseDistanceFromPadMeters / metersPerDegree);
-            double alt = 66.0;
+            ShowcasePosition(rowIndex, ShowcaseDistanceFromPadMeters, out double lat, out double lon, out double alt);
 
             var b = new RecordingBuilder(vesselName)
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
@@ -802,16 +795,8 @@ namespace Parsek.Tests
             double baseUT, string vesselName, string srbPartName, int rowIndex,
             uint pidBase)
         {
-            const double metersPerDegree = (2.0 * Math.PI * 600000.0) / 360.0;
-            const double spacingMeters = 5.0;
-
             double t = baseUT + 30;
-            double baseLat = -0.0972;
-            double baseLon = -74.5575;
-            double rowCenterOffsetMeters = -((ShowcaseRowCount - 1) * spacingMeters * 0.5);
-            double lat = baseLat + ((rowIndex * spacingMeters + rowCenterOffsetMeters) / metersPerDegree);
-            double lon = baseLon + (ShowcaseDistanceFromPadMeters / metersPerDegree);
-            double alt = 66.0;
+            ShowcasePosition(rowIndex, ShowcaseDistanceFromPadMeters, out double lat, out double lon, out double alt);
 
             var b = new RecordingBuilder(vesselName)
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
@@ -851,14 +836,16 @@ namespace Parsek.Tests
             };
         }
 
-        // Row indices continue from lights (0-5) so all showcases form one line.
-        // Lights: 0-5 + 185-188, Deployables: 6-23, Airplane Gear: 24-27, Landing Legs: 28-30,
-        // Cargo: 31-41, Engines: 42-44, Ladders: 45-46, RCS: 47-49 + 190-191, Fairings: 50-54,
-        // Extra Radiators: 55-56, Drills: 57-58, Deployed Science: 59-66,
-        // Animation Group: 67-68, Parachutes: 69-73, Special Deploy Animations: 74-85 and 115-116,
-        // Jettison Coverage: 86-114, Robotics: 117-137, AeroSurface: 138, Robot Arm Scanners: 139-141,
-        // Control Surfaces: 142-165, Wheel Dynamics: 166-171, AnimateHeat: 172-184,
-        // Gear Extra Large: 189, Engine Flames: 192-234, Inventory Placement: 235.
+        // Two parallel lines (rows 0-117 at 200m, rows 118-235 at 220m from pad):
+        // Back line — Lights: 0-5, Deployables: 6-23, Airplane Gear: 24-27, Landing Legs: 28-30,
+        //   Cargo: 31-41, Engines: 42-44, Ladders: 45-46, RCS: 47-49, Fairings: 50-54,
+        //   Extra Radiators: 55-56, Drills: 57-58, Deployed Science: 59-66,
+        //   Animation Group: 67-68, Parachutes: 69-73, Special Deploy Animations: 74-85 and 115-116,
+        //   Jettison Coverage: 86-114, Robotics: 117 (partial)
+        // Front line — Robotics: 118-137, AeroSurface: 138, Robot Arm Scanners: 139-141,
+        //   Control Surfaces: 142-165, Wheel Dynamics: 166-171, AnimateHeat: 172-184,
+        //   Lights (extra): 185-188, Gear Extra Large: 189, RCS (extra): 190-191,
+        //   Engine Flames: 192-234, Inventory Placement: 235.
 
         internal static RecordingBuilder[] DeployableShowcaseRecordings(double baseUT = 0)
         {
@@ -1588,18 +1575,9 @@ namespace Parsek.Tests
 
         internal static RecordingBuilder InventoryPlacementShowcaseRecording(double baseUT = 0)
         {
-            const double metersPerDegree = (2.0 * Math.PI * 600000.0) / 360.0;
-            const double spacingMeters = 5.0;
-
-            // Keep inventory placement inside the same centered showcase line.
             const int rowIndex = ShowcaseRowCount - 1;
             double t = baseUT + 30;
-            double baseLat = -0.0972;
-            double baseLon = -74.5575;
-            double rowCenterOffsetMeters = -((ShowcaseRowCount - 1) * spacingMeters * 0.5);
-            double lat = baseLat + ((rowIndex * spacingMeters + rowCenterOffsetMeters) / metersPerDegree);
-            double lon = baseLon + (ShowcaseDistanceFromPadMeters / metersPerDegree);
-            double alt = 66.0;
+            ShowcasePosition(rowIndex, ShowcaseDistanceFromPadMeters, out double lat, out double lon, out double alt);
 
             const string partName = "DeployedWeatherStn";
             var b = new RecordingBuilder("Part Showcase - Inventory Placement")
