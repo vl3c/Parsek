@@ -3,6 +3,18 @@ using UnityEngine;
 
 namespace Parsek
 {
+    internal struct RecordingStats
+    {
+        public double maxAltitude;
+        public double maxSpeed;
+        public double distanceTravelled;
+        public int pointCount;
+        public int orbitSegmentCount;
+        public int partEventCount;
+        public string primaryBody;
+        public double maxRange;
+    }
+
     /// <summary>
     /// Pure static math functions for trajectory recording and playback.
     /// </summary>
@@ -131,6 +143,155 @@ namespace Parsek
             }
 
             return -1;
+        }
+
+        /// <summary>
+        /// Computes aggregate statistics for a recording.
+        /// Pure function — uses bodyLookup callback for orbit segment calculations.
+        /// bodyLookup("Kerbin") should return [radius, gravParameter] or null.
+        /// </summary>
+        internal static RecordingStats ComputeStats(
+            RecordingStore.Recording rec,
+            System.Func<string, double[]> bodyLookup = null)
+        {
+            var stats = new RecordingStats();
+            stats.pointCount = rec.Points.Count;
+            stats.orbitSegmentCount = rec.OrbitSegments.Count;
+            stats.partEventCount = rec.PartEvents.Count;
+
+            if (rec.Points.Count == 0) return stats;
+
+            var bodyCounts = new Dictionary<string, int>();
+            double lat0 = rec.Points[0].latitude;
+            double lon0 = rec.Points[0].longitude;
+            string body0 = rec.Points[0].bodyName ?? "Kerbin";
+
+            for (int i = 0; i < rec.Points.Count; i++)
+            {
+                var pt = rec.Points[i];
+
+                if (pt.altitude > stats.maxAltitude)
+                    stats.maxAltitude = pt.altitude;
+
+                float speed = pt.velocity.magnitude;
+                if (speed > stats.maxSpeed)
+                    stats.maxSpeed = speed;
+
+                string body = pt.bodyName ?? "Kerbin";
+                int count;
+                bodyCounts.TryGetValue(body, out count);
+                bodyCounts[body] = count + 1;
+
+                if (bodyLookup != null)
+                {
+                    double[] bodyData = bodyLookup(body);
+                    if (bodyData != null)
+                    {
+                        double bodyRadius = bodyData[0];
+
+                        // Distance from previous point (same body only).
+                        // Skip when both points fall inside an orbit segment
+                        // to avoid double-counting distance already covered
+                        // by the segment's mean-speed calculation.
+                        if (i > 0 && (rec.Points[i - 1].bodyName ?? "Kerbin") == body)
+                        {
+                            var prev = rec.Points[i - 1];
+                            double midUT = (prev.ut + pt.ut) * 0.5;
+                            bool inOrbitSegment = FindOrbitSegment(rec.OrbitSegments, midUT) != null;
+                            if (!inOrbitSegment)
+                            {
+                                double avgAlt = (prev.altitude + pt.altitude) * 0.5;
+                                double surfaceDist = HaversineDistance(
+                                    prev.latitude, prev.longitude,
+                                    pt.latitude, pt.longitude,
+                                    bodyRadius + avgAlt);
+                                double altDiff = System.Math.Abs(pt.altitude - prev.altitude);
+                                stats.distanceTravelled += System.Math.Sqrt(
+                                    surfaceDist * surfaceDist + altDiff * altDiff);
+                            }
+                        }
+
+                        // Max range from first point (same body only)
+                        if (body == body0)
+                        {
+                            double avgAlt = (rec.Points[0].altitude + pt.altitude) * 0.5;
+                            double range = HaversineDistance(
+                                lat0, lon0,
+                                pt.latitude, pt.longitude,
+                                bodyRadius + avgAlt);
+                            if (range > stats.maxRange)
+                                stats.maxRange = range;
+                        }
+                    }
+                }
+            }
+
+            // Orbit segment stats
+            for (int i = 0; i < rec.OrbitSegments.Count; i++)
+            {
+                var seg = rec.OrbitSegments[i];
+                if (bodyLookup == null) continue;
+                double[] bodyData = bodyLookup(seg.bodyName ?? "Kerbin");
+                if (bodyData == null) continue;
+
+                double bodyRadius = bodyData[0];
+                double gm = bodyData[1];
+
+                // Apoapsis altitude
+                double apoRadius = seg.semiMajorAxis * (1.0 + seg.eccentricity);
+                double apoAlt = apoRadius - bodyRadius;
+                if (apoAlt > stats.maxAltitude)
+                    stats.maxAltitude = apoAlt;
+
+                // Periapsis speed (max orbital speed via vis-viva)
+                double periRadius = seg.semiMajorAxis * (1.0 - seg.eccentricity);
+                if (periRadius > 0 && seg.semiMajorAxis > 0)
+                {
+                    double periSpeed = System.Math.Sqrt(
+                        gm * (2.0 / periRadius - 1.0 / seg.semiMajorAxis));
+                    if (periSpeed > stats.maxSpeed)
+                        stats.maxSpeed = periSpeed;
+                }
+
+                // Mean orbital speed * duration
+                if (seg.semiMajorAxis > 0)
+                {
+                    double meanSpeed = System.Math.Sqrt(gm / seg.semiMajorAxis);
+                    stats.distanceTravelled += meanSpeed * (seg.endUT - seg.startUT);
+                }
+            }
+
+            // Primary body (most frequent)
+            string primaryBody = null;
+            int maxCount = 0;
+            foreach (var kvp in bodyCounts)
+            {
+                if (kvp.Value > maxCount)
+                {
+                    maxCount = kvp.Value;
+                    primaryBody = kvp.Key;
+                }
+            }
+            stats.primaryBody = primaryBody;
+
+            return stats;
+        }
+
+        private static double HaversineDistance(
+            double lat1Deg, double lon1Deg,
+            double lat2Deg, double lon2Deg, double radius)
+        {
+            const double toRad = System.Math.PI / 180.0;
+            double lat1 = lat1Deg * toRad;
+            double lat2 = lat2Deg * toRad;
+            double dlat = (lat2Deg - lat1Deg) * toRad;
+            double dlon = (lon2Deg - lon1Deg) * toRad;
+            double a = System.Math.Sin(dlat * 0.5) * System.Math.Sin(dlat * 0.5) +
+                       System.Math.Cos(lat1) * System.Math.Cos(lat2) *
+                       System.Math.Sin(dlon * 0.5) * System.Math.Sin(dlon * 0.5);
+            double c = 2.0 * System.Math.Atan2(
+                System.Math.Sqrt(a), System.Math.Sqrt(1.0 - a));
+            return radius * c;
         }
 
         /// <summary>
