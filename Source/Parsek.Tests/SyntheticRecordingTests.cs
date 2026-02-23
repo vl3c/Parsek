@@ -692,41 +692,85 @@ namespace Parsek.Tests
         // Event PIDs must match this so the ghost visual builder can find the part.
         private const uint SinglePartPid = 100000;
         // Optional companion part (e.g., kerbal actor) receives the second slot.
-        // Total visible showcase row entries (indices 0-185, including inventory placement).
-        private const int ShowcaseRowCount = 186;
+        // Total visible showcase row entries (indices 0-192, including inventory placement).
+        private const int ShowcaseRowCount = 193;
         // Keep showcases close to the launchpad centerline without overlapping pad geometry.
         private const double ShowcaseDistanceFromPadMeters = 200.0;
         // Shroud-jettison showcase parts include tall engine plates and engines that clip at base altitude.
         private const double ShroudShowcaseAltitudeOffsetMeters = 12.0;
 
-        private static RecordingBuilder BuildLightShowcaseRecording(
+        /// <summary>
+        /// Builds a light showcase recording with an on → blink → off cycle that exercises
+        /// all 5 light event types: LightOn, LightOff, LightBlinkEnabled, LightBlinkDisabled,
+        /// LightBlinkRate. 24s clip with 9 trajectory points.
+        /// </summary>
+        private static RecordingBuilder BuildLightBlinkShowcaseRecording(
             double baseUT, string vesselName, string lightPartName, int rowIndex)
         {
-            return BuildPartShowcaseRecording(baseUT, vesselName, lightPartName, rowIndex,
-                distanceFromPadMeters: ShowcaseDistanceFromPadMeters, onEvent: PartEventType.LightOn,
-                offEvent: PartEventType.LightOff, pidBase: 88000000, evtPid: SinglePartPid);
+            const double metersPerDegree = (2.0 * Math.PI * 600000.0) / 360.0;
+            const double spacingMeters = 5.0;
+
+            double t = baseUT + 30;
+            double baseLat = -0.0972;
+            double baseLon = -74.5575;
+            double rowCenterOffsetMeters = -((ShowcaseRowCount - 1) * spacingMeters * 0.5);
+            double lat = baseLat + ((rowIndex * spacingMeters + rowCenterOffsetMeters) / metersPerDegree);
+            double lon = baseLon + (ShowcaseDistanceFromPadMeters / metersPerDegree);
+            double alt = 66.0;
+
+            var b = new RecordingBuilder(vesselName)
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
+                .WithLoopPlayback(loop: true, pauseSeconds: 0.0);
+
+            // Static trajectory (24s).
+            for (int i = 0; i <= 8; i++)
+                b.AddPoint(t + (i * 3), lat, lon, alt);
+
+            // On → slow blink → solid → fast blink → faster blink → solid → off.
+            b.AddPartEvent(t + 0.0,  SinglePartPid, (int)PartEventType.LightOn, lightPartName);
+            b.AddPartEvent(t + 6.0,  SinglePartPid, (int)PartEventType.LightBlinkEnabled, lightPartName, value: 0.5f);
+            b.AddPartEvent(t + 12.0, SinglePartPid, (int)PartEventType.LightBlinkDisabled, lightPartName);
+            b.AddPartEvent(t + 15.0, SinglePartPid, (int)PartEventType.LightBlinkEnabled, lightPartName, value: 2.0f);
+            b.AddPartEvent(t + 18.0, SinglePartPid, (int)PartEventType.LightBlinkRate, lightPartName, value: 5.0f);
+            b.AddPartEvent(t + 21.0, SinglePartPid, (int)PartEventType.LightBlinkDisabled, lightPartName);
+            b.AddPartEvent(t + 22.0, SinglePartPid, (int)PartEventType.LightOff, lightPartName);
+
+            var snap = new VesselSnapshotBuilder()
+                .WithName(vesselName)
+                .WithPersistentId((uint)(88000000 + rowIndex))
+                .AddPart(lightPartName, rotation: "0,-0.7071068,0,0.7071068")
+                .AsLanded(lat, lon, alt)
+                .Build();
+
+            b.WithGhostVisualSnapshot(snap);
+            return b;
         }
 
         internal static RecordingBuilder[] LightShowcaseRecordings(double baseUT = 0)
         {
             return new[]
             {
-                BuildLightShowcaseRecording(baseUT, "Part Showcase - Lights v1", "domeLight1", rowIndex: 0),
-                BuildLightShowcaseRecording(baseUT, "Part Showcase - Light - Nav v1", "navLight1", rowIndex: 1),
-                BuildLightShowcaseRecording(baseUT, "Part Showcase - Light - Strip v1", "stripLight1", rowIndex: 2),
-                BuildLightShowcaseRecording(baseUT, "Part Showcase - Light - Spot v1", "spotLight3", rowIndex: 3),
-                BuildLightShowcaseRecording(baseUT, "Part Showcase - Light - Ground Small v1", "groundLight1", rowIndex: 4),
-                BuildLightShowcaseRecording(baseUT, "Part Showcase - Light - Ground Stand v1", "groundLight2", rowIndex: 5)
+                BuildLightBlinkShowcaseRecording(baseUT, "Part Showcase - Lights v1", "domeLight1", rowIndex: 0),
+                BuildLightBlinkShowcaseRecording(baseUT, "Part Showcase - Light - Nav v1", "navLight1", rowIndex: 1),
+                BuildLightBlinkShowcaseRecording(baseUT, "Part Showcase - Light - Strip v1", "stripLight1", rowIndex: 2),
+                BuildLightBlinkShowcaseRecording(baseUT, "Part Showcase - Light - Spot v1", "spotLight3", rowIndex: 3),
+                BuildLightBlinkShowcaseRecording(baseUT, "Part Showcase - Light - Ground Small v1", "groundLight1", rowIndex: 4),
+                BuildLightBlinkShowcaseRecording(baseUT, "Part Showcase - Light - Ground Stand v1", "groundLight2", rowIndex: 5),
+                BuildLightBlinkShowcaseRecording(baseUT, "Part Showcase - Light - Spot Mk1", "spotLight1", rowIndex: 185),
+                BuildLightBlinkShowcaseRecording(baseUT, "Part Showcase - Light - Spot Mk1 v2", "spotLight1_v2", rowIndex: 186),
+                BuildLightBlinkShowcaseRecording(baseUT, "Part Showcase - Light - Spot Mk2", "spotLight2", rowIndex: 187),
+                BuildLightBlinkShowcaseRecording(baseUT, "Part Showcase - Light - Spot Mk2 v2", "spotLight2_v2", rowIndex: 188)
             };
         }
 
         // Row indices continue from lights (0-5) so all showcases form one line.
-        // Lights: 0-5, Deployables: 6-23, Airplane Gear: 24-27, Landing Legs: 28-30,
-        // Cargo: 31-41, Engines: 42-44, Ladders: 45-46, RCS: 47-49, Fairings: 50-54,
+        // Lights: 0-5 + 185-188, Deployables: 6-23, Airplane Gear: 24-27, Landing Legs: 28-30,
+        // Cargo: 31-41, Engines: 42-44, Ladders: 45-46, RCS: 47-49 + 190-191, Fairings: 50-54,
         // Extra Radiators: 55-56, Drills: 57-58, Deployed Science: 59-66,
         // Animation Group: 67-68, Parachutes: 69-73, Special Deploy Animations: 74-85 and 115-116,
         // Jettison Coverage: 86-114, Robotics: 117-137, AeroSurface: 138, Robot Arm Scanners: 139-141,
-        // Control Surfaces: 142-165, Wheel Dynamics: 166-171, AnimateHeat: 172-184, Inventory Placement: 185.
+        // Control Surfaces: 142-165, Wheel Dynamics: 166-171, AnimateHeat: 172-184,
+        // Gear Extra Large: 189, Inventory Placement: 192.
 
         internal static RecordingBuilder[] DeployableShowcaseRecordings(double baseUT = 0)
         {
@@ -788,6 +832,8 @@ namespace Parsek.Tests
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Landing Leg LT-2", "landingLeg1-2", 29,
                     ShowcaseDistanceFromPadMeters, PartEventType.GearDeployed, PartEventType.GearRetracted, 90000000, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Landing Leg LT-05", "miniLandingLeg", 30,
+                    ShowcaseDistanceFromPadMeters, PartEventType.GearDeployed, PartEventType.GearRetracted, 90000000, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Gear Extra Large", "GearExtraLarge", 189,
                     ShowcaseDistanceFromPadMeters, PartEventType.GearDeployed, PartEventType.GearRetracted, 90000000, SinglePartPid)
             };
         }
@@ -861,6 +907,14 @@ namespace Parsek.Tests
                     eventValue: 1.0f, moduleIndex: 0,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - RCS Linear", "RCSLinearSmall", 49,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RCSActivated, PartEventType.RCSStopped, 94000000, SinglePartPid,
+                    eventValue: 1.0f, moduleIndex: 0,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - RCS Linear Port", "linearRcs", 190,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RCSActivated, PartEventType.RCSStopped, 94000000, SinglePartPid,
+                    eventValue: 1.0f, moduleIndex: 0,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - RCS Vernor", "vernierEngine", 191,
                     ShowcaseDistanceFromPadMeters, PartEventType.RCSActivated, PartEventType.RCSStopped, 94000000, SinglePartPid,
                     eventValue: 1.0f, moduleIndex: 0,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
@@ -1963,14 +2017,14 @@ namespace Parsek.Tests
         public void LightShowcaseRecordings_BuildExpectedShape()
         {
             var recordings = LightShowcaseRecordings(baseUT: 17000);
-            Assert.Equal(6, recordings.Length);
+            Assert.Equal(10, recordings.Length);
 
             var first = recordings[0].Build();
             Assert.Equal("Part Showcase - Lights v1", first.GetValue("vesselName"));
             Assert.Equal("9", first.GetValue("pointCount"));
             Assert.Equal("True", first.GetValue("loopPlayback"));
             Assert.Equal("0", first.GetValue("loopPauseSeconds"));
-            Assert.Equal(8, first.GetNodes("PART_EVENT").Length);
+            Assert.Equal(7, first.GetNodes("PART_EVENT").Length);
 
             var ghost = first.GetNode("GHOST_VISUAL_SNAPSHOT");
             Assert.NotNull(ghost);
@@ -2022,7 +2076,7 @@ namespace Parsek.Tests
         public void GearShowcaseRecordings_BuildExpectedShape()
         {
             var recordings = GearShowcaseRecordings(baseUT: 17000);
-            Assert.Equal(7, recordings.Length);
+            Assert.Equal(8, recordings.Length);
 
             var first = recordings[0].Build();
             Assert.Equal("Part Showcase - Gear Bay", first.GetValue("vesselName"));
@@ -2039,7 +2093,7 @@ namespace Parsek.Tests
             Assert.Equal(ghost.GetNodes("PART")[0].GetValue("persistentId"), events[0].GetValue("pid"));
 
             var names = new[] { "SmallGearBay", "GearSmall", "GearMedium", "GearLarge",
-                "landingLeg1", "landingLeg1-2", "miniLandingLeg" };
+                "landingLeg1", "landingLeg1-2", "miniLandingLeg", "GearExtraLarge" };
             for (int i = 0; i < recordings.Length; i++)
             {
                 var g = recordings[i].Build().GetNode("GHOST_VISUAL_SNAPSHOT");
@@ -2116,7 +2170,7 @@ namespace Parsek.Tests
         public void RcsShowcaseRecordings_BuildExpectedShape()
         {
             var recordings = RcsShowcaseRecordings(baseUT: 17000);
-            Assert.Equal(3, recordings.Length);
+            Assert.Equal(5, recordings.Length);
 
             var first = recordings[0].Build();
             Assert.Equal("Part Showcase - RCS RV-105", first.GetValue("vesselName"));
@@ -2135,7 +2189,7 @@ namespace Parsek.Tests
             Assert.Equal("RCSBlock.v2", ghost.GetNodes("PART")[0].GetValue("name"));
             Assert.Equal(ghost.GetNodes("PART")[0].GetValue("persistentId"), events[0].GetValue("pid"));
 
-            var names = new[] { "RCSBlock.v2", "RCSblock.01.small", "RCSLinearSmall" };
+            var names = new[] { "RCSBlock.v2", "RCSblock.01.small", "RCSLinearSmall", "linearRcs", "vernierEngine" };
             for (int i = 0; i < recordings.Length; i++)
             {
                 var g = recordings[i].Build().GetNode("GHOST_VISUAL_SNAPSHOT");
@@ -2688,7 +2742,7 @@ namespace Parsek.Tests
                         $"Duplicate position in '{rec.GetValue("vesselName")}': {key}");
                 }
             }
-            Assert.Equal(185, positions.Count); // 6 + 18 + 7 + 11 + 3 + 2 + 3 + 5 + 2 + 2 + 8 + 2 + 5 + 14 + 29 + 21 + 1 + 3 + 24 + 6 + 13
+            Assert.Equal(192, positions.Count); // 10 + 18 + 8 + 11 + 3 + 2 + 5 + 5 + 2 + 2 + 8 + 2 + 5 + 14 + 29 + 21 + 1 + 3 + 24 + 6 + 13
         }
 
         [Fact]
@@ -3300,6 +3354,10 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Part Showcase - Light - Spot v1", content);
                     Assert.Contains("vesselName = Part Showcase - Light - Ground Small v1", content);
                     Assert.Contains("vesselName = Part Showcase - Light - Ground Stand v1", content);
+                    Assert.Contains("vesselName = Part Showcase - Light - Spot Mk1", content);
+                    Assert.Contains("vesselName = Part Showcase - Light - Spot Mk1 v2", content);
+                    Assert.Contains("vesselName = Part Showcase - Light - Spot Mk2", content);
+                    Assert.Contains("vesselName = Part Showcase - Light - Spot Mk2 v2", content);
                     Assert.Contains("vesselName = Part Showcase - Solar Tracking", content);
                     Assert.Contains("vesselName = Part Showcase - Solar Large", content);
                     Assert.Contains("vesselName = Part Showcase - Solar Radial XL", content);
@@ -3322,6 +3380,7 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Part Showcase - Gear Small", content);
                     Assert.Contains("vesselName = Part Showcase - Gear Medium", content);
                     Assert.Contains("vesselName = Part Showcase - Gear Large", content);
+                    Assert.Contains("vesselName = Part Showcase - Gear Extra Large", content);
                     Assert.Contains("vesselName = Part Showcase - Landing Leg LT-1", content);
                     Assert.Contains("vesselName = Part Showcase - Landing Leg LT-2", content);
                     Assert.Contains("vesselName = Part Showcase - Landing Leg LT-05", content);
@@ -3344,6 +3403,8 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Part Showcase - RCS RV-105", content);
                     Assert.Contains("vesselName = Part Showcase - RCS RV-1X", content);
                     Assert.Contains("vesselName = Part Showcase - RCS Linear", content);
+                    Assert.Contains("vesselName = Part Showcase - RCS Linear Port", content);
+                    Assert.Contains("vesselName = Part Showcase - RCS Vernor", content);
                     Assert.Contains("vesselName = Part Showcase - Fairing Size 1", content);
                     Assert.Contains("vesselName = Part Showcase - Fairing Size 1.5", content);
                     Assert.Contains("vesselName = Part Showcase - Fairing Size 2", content);
@@ -3510,8 +3571,8 @@ namespace Parsek.Tests
                     $"Expected Parsek/Recordings directory at {recordingsDir}");
 
                 string[] precFiles = Directory.GetFiles(recordingsDir, "*.prec");
-                Assert.True(precFiles.Length >= 178,
-                    $"Expected at least 178 .prec files (8 baseline + 6 lights + 18 deployables + 7 gear + 11 cargo + 3 engines + 2 ladders + 3 RCS + 5 fairings + 2 extra radiators + 2 drills + 8 deployed science + 2 animation-group + 5 parachutes + 14 special deploy animations + 29 jettison showcases + 21 robotics + 1 aero-surface + 3 robot-arm-scanner + 24 control-surface + 6 wheel-dynamics + 13 animate-heat + 1 inventory-placement + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
+                Assert.True(precFiles.Length >= 185,
+                    $"Expected at least 185 .prec files (8 baseline + 10 lights + 18 deployables + 8 gear + 11 cargo + 3 engines + 2 ladders + 5 RCS + 5 fairings + 2 extra radiators + 2 drills + 8 deployed science + 2 animation-group + 5 parachutes + 14 special deploy animations + 29 jettison showcases + 21 robotics + 1 aero-surface + 3 robot-arm-scanner + 24 control-surface + 6 wheel-dynamics + 13 animate-heat + 1 inventory-placement + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
             }
         }
 
