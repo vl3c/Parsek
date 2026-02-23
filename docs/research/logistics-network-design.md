@@ -30,20 +30,42 @@ The game state recording system (`GameStateRecorder`, `GameStateStore`, `GameSta
 
 ## The Connection to Game State Recording
 
-The game state system captures a baseline snapshot of the entire career state (funds, science, tech tree, crew roster, facility levels, active contracts) and then records delta events as they happen. This is exactly the foundation a logistics system needs:
+### What Exists Today (GameStateStore + GameStateRecorder)
+
+The game state system captures a baseline snapshot of the entire career state (funds, science, tech tree, crew roster, facility levels, active contracts) and then records delta events as they happen. Events are typed (`GameStateEventType` enum covering contracts, tech, crew, facilities, currencies) with UT, key, detail, and before/after values.
+
+### What's Being Built (Milestones + ResourceBudget — timeline-actions branch)
+
+The milestone system in development takes this further:
+
+- **Milestones** bundle semantic events (tech research, part purchases, facility upgrades) into time-bounded groups linked to specific flight recordings. Each milestone captures events from its UT range, filtering out raw resource deltas to keep only meaningful career progression events.
+
+- **Epoch isolation** prevents abandoned timeline branches from polluting future milestones. Each revert increments a global epoch counter. Milestones created after the quicksave point get their `LastReplayedEventIndex` reset to -1 (unreplayed), ensuring clean branch separation.
+
+- **ResourceBudget** aggregates committed costs across all recordings and milestones, computing "available = current - reserved" for funds, science, and reputation. Pre-launch snapshots (`PreLaunchFunds`, etc.) captured at recording start provide the baseline for cost calculations.
+
+- **Replay tracking** via `LastReplayedEventIndex` persists which events have been applied during playback, surviving save/load cycles. This is exactly the pattern a logistics route would need — tracking which dispatches have been executed vs pending.
+
+### How Logistics Extends This
+
+The milestone/epoch/replay pattern is the exact foundation logistics needs:
 
 **Baseline captures** could be extended to include:
 - Resource inventories at known bases/stations (total LF, Ox, Ore, etc.)
 - Active logistics routes and their schedules
 - Pending deliveries in transit
 
-**Game state events** could include new types:
+**New event types** (extending `GameStateEventType`):
 - `RouteDispatched` — fuel deducted from origin, delivery scheduled
 - `RouteDelivered` — cargo added to destination
 - `RouteFailed` — origin ran out of fuel, destination destroyed, etc.
 - `RouteEstablished` / `RouteRetired` — lifecycle events
 
-This means logistics would integrate cleanly with the existing revert system. If the player reverts to before a route dispatch, the game state rollback naturally undoes the fuel deduction and cancels the delivery. The same infrastructure that handles "undo this tech research" handles "undo this supply run."
+**Epoch isolation applies directly:** If the player reverts to before a route dispatch, the epoch increment naturally invalidates the dispatch. `RestoreMutableState(resetUnmatched: true)` resets route milestones to unreplayed, undoing fuel deductions. The same infrastructure that handles "undo this tech research" handles "undo this supply run."
+
+**ResourceBudget extends naturally:** Route fuel costs become another line item in the budget. "Funds: 35,000 available (15,000 committed)" becomes "LiquidFuel: 1,200 available at KSC (1,150 committed to Mun Resupply)". The budget pattern already handles partial replay and aggregation across multiple recordings — routes are just another source of committed costs.
+
+**Replay tracking maps to dispatch tracking:** `LastReplayedEventIndex` on a milestone tracks which events have been applied. For logistics, a `LastDispatchedCycle` index on a route tracks which delivery cycles have executed. Both need persistence, both need reset on revert, both use the same epoch isolation.
 
 ## How a Route Works
 
@@ -235,15 +257,15 @@ This is exactly what `ParsekScenario.ReserveSnapshotCrew` and `SwapReservedCrewI
 
 ## Implementation Phases
 
-**Phase 0 (prerequisite, in progress):** Game state recording with extended resource tracking. This is already being built — the `GameStateRecorder` and `GameStateStore` infrastructure exists.
+**Phase 0 (prerequisite, in progress — timeline-actions branch):** Milestone system with epoch isolation, replay tracking, and resource budget. This is actively being built. The `MilestoneStore`, `ResourceBudget`, and `PreLaunch*` snapshot infrastructure establishes the patterns that logistics would reuse: time-bounded event bundles, branch-aware replay state, and committed cost aggregation.
 
-**Phase 1:** Physical resource snapshots per trajectory point. Extend `TrajectoryPoint` or add a parallel resource log. This is the foundation — everything else builds on knowing what resources were where during the flight.
+**Phase 1:** Physical resource snapshots per trajectory point. Extend `TrajectoryPoint` or add a parallel resource log. This is the foundation — everything else builds on knowing what resources were where during the flight. The `.prec` sidecar format already supports extensibility; adding resource keys is a format version bump.
 
-**Phase 2:** Route definition. Extract origin, destination, cost, delivery from a committed recording. Store as metadata on the chain. UI: "Create Route" button on eligible chains.
+**Phase 2:** Route definition. Extract origin, destination, cost, delivery from a committed recording. Store as metadata on the chain. UI: "Create Route" button on eligible chains. Routes become a new entity alongside milestones — both linked to recordings, both time-bounded, both epoch-aware.
 
-**Phase 3:** Abstracted route execution. Dispatch/delivery scheduling using existing loop timing. Deduct from origin vessel resources, add to destination after transit time. Game state events for each dispatch/delivery.
+**Phase 3:** Abstracted route execution. Dispatch/delivery scheduling using existing loop timing. Deduct from origin vessel resources, add to destination after transit time. Route dispatches become game state events (new `GameStateEventType` values), bundled into milestones at commit time. `LastDispatchedCycle` parallels `LastReplayedEventIndex` for replay tracking.
 
-**Phase 4:** Route management UI. Status display, cadence configuration, fuel warnings, map view integration.
+**Phase 4:** Route management UI. Status display, cadence configuration, fuel warnings, map view integration. Extends `ResourceBudget.ComputeTotal()` to include route fuel commitments alongside recording and milestone costs.
 
 **Phase 5 (optional):** Physical vessel routing. Spawn actual vessels on recorded trajectories. Significantly more complex, may not be worth the effort vs abstracted approach.
 
@@ -251,4 +273,4 @@ This is exactly what `ParsekScenario.ReserveSnapshotCrew` and `SwapReservedCrewI
 
 Logistics is a natural evolution of Parsek's recording system. The "fly it once, automate it forever" model is compelling because it ties automation to player skill — you earn routes by flying them. The infrastructure is largely in place: recordings, chains, loops, vessel snapshots, game state tracking, crew management. The main new work is physical resource tracking and the route scheduling layer, both of which build directly on existing code.
 
-The game state recording system being developed now is the key enabler. Once resource deltas are tracked per-flight with before/after values, the route system is mostly UI and scheduling on top of data that already exists.
+The milestone system being developed on `timeline-actions` is the key enabler. It establishes the patterns logistics would reuse: epoch-isolated event bundles tied to recordings, replay tracking with persistent indices, resource budget aggregation, and branch-aware state management. Once milestones land, adding route dispatches as another event type in the same framework is a natural next step — the hard architectural problems (revert handling, branch isolation, cost tracking, persistence) are already solved.
