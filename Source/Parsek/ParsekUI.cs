@@ -358,7 +358,6 @@ namespace Parsek
 
                 // Build chain grouping: chainId → list of sorted row indices
                 var chainRows = new Dictionary<string, List<int>>();
-                var standaloneRows = new List<int>();
                 var seenChains = new HashSet<string>();
 
                 for (int row = 0; row < sortedIndices.Length; row++)
@@ -375,32 +374,30 @@ namespace Parsek
                         }
                         list.Add(ri);
                     }
-                    else
-                    {
-                        standaloneRows.Add(ri);
-                    }
                 }
 
-                // Draw standalone recordings first
+                // Draw in sorted order — standalone rows inline, chain groups
+                // emitted at the position of their first sorted member
                 bool deleted = false;
-                for (int s = 0; s < standaloneRows.Count; s++)
+                for (int row = 0; row < sortedIndices.Length && !deleted; row++)
                 {
-                    if (DrawRecordingRow(standaloneRows[s], committed, now, false))
-                    { deleted = true; break; }
-                }
+                    int ri = sortedIndices[row];
+                    var rec = committed[ri];
 
-                // Draw chain groups
-                if (!deleted)
-                {
-                    foreach (var kvp in chainRows)
+                    if (string.IsNullOrEmpty(rec.ChainId))
                     {
-                        string chainId = kvp.Key;
-                        var members = kvp.Value;
-                        if (members.Count == 0) continue;
+                        // Standalone recording
+                        if (DrawRecordingRow(ri, committed, now, false))
+                        { deleted = true; break; }
+                    }
+                    else if (seenChains.Add(rec.ChainId))
+                    {
+                        // First time seeing this chain — draw the whole group here
+                        var members = chainRows[rec.ChainId];
 
                         // Chain header
                         GUILayout.BeginHorizontal();
-                        bool expanded = expandedChains.Contains(chainId);
+                        bool expanded = expandedChains.Contains(rec.ChainId);
                         string arrow = expanded ? "\u25bc" : "\u25b6";
                         string chainName = committed[members[0]].VesselName;
                         if (string.IsNullOrEmpty(chainName)) chainName = "Chain";
@@ -417,8 +414,8 @@ namespace Parsek
                         if (GUILayout.Button($"{arrow} {chainName} ({members.Count} segments, {FormatDuration(chainEnd - chainStart)})",
                             GUI.skin.label, GUILayout.ExpandWidth(true)))
                         {
-                            if (expanded) expandedChains.Remove(chainId);
-                            else expandedChains.Add(chainId);
+                            if (expanded) expandedChains.Remove(rec.ChainId);
+                            else expandedChains.Add(rec.ChainId);
                         }
                         GUILayout.EndHorizontal();
 
@@ -430,8 +427,8 @@ namespace Parsek
                                 { deleted = true; break; }
                             }
                         }
-                        if (deleted) break;
                     }
+                    // else: chain member already drawn with its group — skip
                 }
 
                 GUILayout.EndScrollView();
