@@ -164,7 +164,6 @@ namespace Parsek
                     uint savedPid = 0;
                     bool savedTaken = false;
                     int resIdx = -1;
-                    bool savedPlaybackEnabled = true;
                     if (i < savedRecNodes.Length)
                     {
                         string pidStr = savedRecNodes[i].GetValue("spawnedPid");
@@ -181,12 +180,15 @@ namespace Parsek
 
                         string playbackEnabledStr = savedRecNodes[i].GetValue("playbackEnabled");
                         if (playbackEnabledStr != null)
-                            bool.TryParse(playbackEnabledStr, out savedPlaybackEnabled);
+                        {
+                            bool savedPlaybackEnabled;
+                            if (bool.TryParse(playbackEnabledStr, out savedPlaybackEnabled))
+                                recordings[i].PlaybackEnabled = savedPlaybackEnabled;
+                        }
                     }
                     recordings[i].SpawnedVesselPersistentId = savedPid;
                     recordings[i].TakenControl = savedTaken;
                     recordings[i].LastAppliedResourceIndex = resIdx;
-                    recordings[i].PlaybackEnabled = savedPlaybackEnabled;
                 }
 
                 ReserveSnapshotCrew();
