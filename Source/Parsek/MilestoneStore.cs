@@ -21,14 +21,14 @@ namespace Parsek
         internal static Milestone CreateMilestone(string recordingId, double currentUT)
         {
             double startUT = 0;
+            uint epoch = CurrentEpoch;
             for (int i = 0; i < milestones.Count; i++)
             {
-                if (milestones[i].EndUT > startUT)
+                if (milestones[i].Epoch == epoch && milestones[i].EndUT > startUT)
                     startUT = milestones[i].EndUT;
             }
 
             var events = GameStateStore.Events;
-            uint epoch = CurrentEpoch;
 
             var filtered = new List<GameStateEvent>();
             for (int i = 0; i < events.Count; i++)

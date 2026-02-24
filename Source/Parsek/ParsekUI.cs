@@ -210,6 +210,8 @@ namespace Parsek
                 flight.DestroyAllTimelineGhosts();
                 RecordingStore.ClearCommitted();
                 MilestoneStore.ClearAll();
+                GameStateStore.ClearEvents();
+                GameStateStore.ClearBaselines();
                 ParsekLog.Log("All recordings and game state wiped");
                 ParsekLog.ScreenMessage("All data wiped", 2f);
             }

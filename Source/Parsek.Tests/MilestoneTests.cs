@@ -587,5 +587,77 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Epoch-Aware StartUT Watermark
+
+        [Fact]
+        public void CreateMilestone_StartUT_IgnoresOldEpochMilestones()
+        {
+            // Old epoch milestone with high EndUT
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 200,
+                eventType = GameStateEventType.TechResearched,
+                key = "oldTech",
+                detail = "cost=10"
+            });
+            MilestoneStore.CreateMilestone("rec1", 300);
+            Assert.Equal(1, MilestoneStore.MilestoneCount);
+
+            // Revert — increment epoch
+            MilestoneStore.CurrentEpoch++;
+
+            // New event at UT 50 (below old milestone's EndUT of 300)
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 50,
+                eventType = GameStateEventType.PartPurchased,
+                key = "mk1pod",
+                detail = "cost=600"
+            });
+
+            // Without epoch-aware watermark, this would be skipped (50 <= 300)
+            var m = MilestoneStore.CreateMilestone("rec2", 100);
+            Assert.NotNull(m);
+            Assert.Single(m.Events);
+            Assert.Equal("mk1pod", m.Events[0].key);
+        }
+
+        [Fact]
+        public void CreateMilestone_StartUT_UsesCurrentEpochMilestones()
+        {
+            // Create two milestones in the same epoch
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 50,
+                eventType = GameStateEventType.TechResearched,
+                key = "tech1",
+                detail = "cost=5"
+            });
+            MilestoneStore.CreateMilestone("rec1", 100);
+
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 150,
+                eventType = GameStateEventType.PartPurchased,
+                key = "part1",
+                detail = "cost=300"
+            });
+            MilestoneStore.CreateMilestone("rec2", 200);
+
+            // Event at UT 80 (within first milestone's range) should NOT be captured again
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 80,
+                eventType = GameStateEventType.TechResearched,
+                key = "duplicateTech",
+                detail = "cost=10"
+            });
+            var m = MilestoneStore.CreateMilestone(null, 250);
+            // Should be null — no new events after UT 200 watermark
+            Assert.Null(m);
+        }
+
+        #endregion
     }
 }
