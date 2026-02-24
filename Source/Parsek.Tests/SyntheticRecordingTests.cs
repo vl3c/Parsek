@@ -678,7 +678,7 @@ namespace Parsek.Tests
         private const uint SinglePartPid = 100000;
         // Optional companion part (e.g., kerbal actor) receives the second slot.
         // Total visible showcase row entries (indices 0-235, including inventory placement).
-        private const int ShowcaseRowCount = 236;
+        private const int ShowcaseRowCount = 235;
         // Split showcase into two parallel lines to avoid runway clipping.
         private static readonly int ShowcaseEntriesPerLine = (ShowcaseRowCount + 1) / 2;
         private const double ShowcaseLineSpacingMeters = 20.0;
@@ -838,7 +838,7 @@ namespace Parsek.Tests
             };
         }
 
-        // Two parallel lines (rows 0-117 at 200m, rows 118-235 at 220m from pad):
+        // Two parallel lines (rows 0-117 at 200m, rows 118-234 at 220m from pad):
         // Back line — Lights: 0-5, Deployables: 6-23, Airplane Gear: 24-27, Landing Legs: 28-30,
         //   Cargo: 31-41, Engines: 42-44, Ladders: 45-46, RCS: 47-49, Fairings: 50-54,
         //   Extra Radiators: 55-56, Drills: 57-58, Deployed Science: 59-66,
@@ -846,8 +846,8 @@ namespace Parsek.Tests
         //   Jettison Coverage: 86-114, Robotics: 117 (partial)
         // Front line — Robotics: 118-137, AeroSurface: 138, Robot Arm Scanners: 139-141,
         //   Control Surfaces: 142-165, Wheel Dynamics: 166-171, AnimateHeat: 172-184,
-        //   Lights (extra): 185-188, Gear Extra Large: 189, RCS (extra): 190-191,
-        //   Engine Flames: 192-234, Inventory Placement: 235.
+        //   Lights (extra): 185-188, RCS (extra): 189-190,
+        //   Engine Flames: 191-233, Inventory Placement: 234.
 
         internal static RecordingBuilder[] DeployableShowcaseRecordings(double baseUT = 0)
         {
@@ -909,8 +909,6 @@ namespace Parsek.Tests
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Landing Leg LT-2", "landingLeg1-2", 29,
                     ShowcaseDistanceFromPadMeters, PartEventType.GearDeployed, PartEventType.GearRetracted, 90000000, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Landing Leg LT-05", "miniLandingLeg", 30,
-                    ShowcaseDistanceFromPadMeters, PartEventType.GearDeployed, PartEventType.GearRetracted, 90000000, SinglePartPid),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Gear Extra Large", "GearLarge", 189,
                     ShowcaseDistanceFromPadMeters, PartEventType.GearDeployed, PartEventType.GearRetracted, 90000000, SinglePartPid)
             };
         }
@@ -981,11 +979,11 @@ namespace Parsek.Tests
                     ShowcaseDistanceFromPadMeters, PartEventType.RCSActivated, PartEventType.RCSStopped, 94000000, SinglePartPid,
                     eventValue: 1.0f, moduleIndex: 0,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - RCS Linear Port", "linearRcs", 190,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - RCS Linear Port", "linearRcs", 189,
                     ShowcaseDistanceFromPadMeters, PartEventType.RCSActivated, PartEventType.RCSStopped, 94000000, SinglePartPid,
                     eventValue: 1.0f, moduleIndex: 0,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - RCS Vernor", "vernierEngine", 191,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - RCS Vernor", "vernierEngine", 190,
                     ShowcaseDistanceFromPadMeters, PartEventType.RCSActivated, PartEventType.RCSStopped, 94000000, SinglePartPid,
                     eventValue: 1.0f, moduleIndex: 0,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
@@ -1525,53 +1523,53 @@ namespace Parsek.Tests
             const uint pidBase = 99200000;
             return new[]
             {
-                // Liquid engines (rows 192-218) — throttle-varying cycle
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame LV-T30", "liquidEngine", 192, pidBase),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame LV-T30 v2", "liquidEngine.v2", 193, pidBase),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame LV-T45", "liquidEngine2", 194, pidBase),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame LV-T45 v2", "liquidEngine2.v2", 195, pidBase),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Poodle", "liquidEngine2-2.v2", 196, pidBase, altitudeOffsetMeters: 5.0),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Terrier", "liquidEngine3.v2", 197, pidBase),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Spark", "liquidEngineMini.v2", 198, pidBase),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Ant", "microEngine.v2", 199, pidBase),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Spider", "radialEngineMini.v2", 200, pidBase),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Twitch", "smallRadialEngine", 201, pidBase),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Twitch v2", "smallRadialEngine.v2", 202, pidBase),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Thud", "radialLiquidEngine1-2", 203, pidBase),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame NERV", "nuclearEngine", 204, pidBase),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Aerospike", "toroidalAerospike", 205, pidBase),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Cub", "omsEngine", 206, pidBase),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Twin-Boar", "Size2LFB", 207, pidBase, altitudeOffsetMeters: 8.0),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Twin-Boar v2", "Size2LFB.v2", 208, pidBase, altitudeOffsetMeters: 8.0),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Mammoth", "Size3EngineCluster", 209, pidBase, altitudeOffsetMeters: 10.0),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Vector", "Size3AdvancedEngine", 210, pidBase, altitudeOffsetMeters: 8.0),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Kodiak", "LiquidEngineKE-1", 211, pidBase, altitudeOffsetMeters: 5.0),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Cheetah", "LiquidEngineLV-T91", 212, pidBase, altitudeOffsetMeters: 5.0),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Wolfhound", "LiquidEngineLV-TX87", 213, pidBase, altitudeOffsetMeters: 5.0),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Bobcat", "LiquidEngineRE-I2", 214, pidBase),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Skiff", "LiquidEngineRE-J10", 215, pidBase),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Mastodon", "LiquidEngineRK-7", 216, pidBase, altitudeOffsetMeters: 10.0),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Pug", "LiquidEngineRV-1", 217, pidBase),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame RAPIER", "RAPIER", 218, pidBase),
-                // Solid boosters (rows 219-228) — simple ignite/burnout cycle
-                BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Flea", "solidBooster.sm.v2", 219, pidBase),
-                BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Hammer", "solidBooster.v2", 220, pidBase),
-                BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Thumper", "solidBooster1-1", 221, pidBase, altitudeOffsetMeters: 5.0),
-                BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Kickback", "MassiveBooster", 222, pidBase, altitudeOffsetMeters: 8.0),
-                BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Mite", "Mite", 223, pidBase),
-                BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Shrimp", "Shrimp", 224, pidBase),
-                BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Thoroughbred", "Thoroughbred", 225, pidBase),
-                BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Clydesdale", "Clydesdale", 226, pidBase, altitudeOffsetMeters: 10.0),
-                BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Pollux", "Pollux", 227, pidBase, altitudeOffsetMeters: 10.0),
-                BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Sepatron", "sepMotor1", 228, pidBase),
-                // Jet engines (rows 229-233) — throttle-varying cycle
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Juno", "miniJetEngine", 229, pidBase),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Wheesley", "JetEngine", 230, pidBase),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Whiplash", "turboFanEngine", 231, pidBase),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Panther", "turboJet", 232, pidBase),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Goliath", "turboFanSize2", 233, pidBase, altitudeOffsetMeters: 8.0),
-                // Special (row 234)
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Ion", "ionEngine", 234, pidBase)
+                // Liquid engines (rows 191-217) — throttle-varying cycle
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame LV-T30", "liquidEngine", 191, pidBase),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame LV-T30 v2", "liquidEngine.v2", 192, pidBase),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame LV-T45", "liquidEngine2", 193, pidBase),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame LV-T45 v2", "liquidEngine2.v2", 194, pidBase),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Poodle", "liquidEngine2-2.v2", 195, pidBase, altitudeOffsetMeters: 5.0),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Terrier", "liquidEngine3.v2", 196, pidBase),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Spark", "liquidEngineMini.v2", 197, pidBase),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Ant", "microEngine.v2", 198, pidBase),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Spider", "radialEngineMini.v2", 199, pidBase),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Twitch", "smallRadialEngine", 200, pidBase),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Twitch v2", "smallRadialEngine.v2", 201, pidBase),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Thud", "radialLiquidEngine1-2", 202, pidBase),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame NERV", "nuclearEngine", 203, pidBase),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Aerospike", "toroidalAerospike", 204, pidBase),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Cub", "omsEngine", 205, pidBase),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Skipper", "engineLargeSkipper.v2", 206, pidBase, altitudeOffsetMeters: 8.0),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Twin-Boar", "Size2LFB.v2", 207, pidBase, altitudeOffsetMeters: 8.0),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Mammoth", "Size3EngineCluster", 208, pidBase, altitudeOffsetMeters: 10.0),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Vector", "Size3AdvancedEngine", 209, pidBase, altitudeOffsetMeters: 8.0),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Kodiak", "LiquidEngineKE-1", 210, pidBase, altitudeOffsetMeters: 5.0),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Cheetah", "LiquidEngineLV-T91", 211, pidBase, altitudeOffsetMeters: 5.0),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Wolfhound", "LiquidEngineLV-TX87", 212, pidBase, altitudeOffsetMeters: 5.0),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Bobcat", "LiquidEngineRE-I2", 213, pidBase),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Skiff", "LiquidEngineRE-J10", 214, pidBase),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Mastodon", "LiquidEngineRK-7", 215, pidBase, altitudeOffsetMeters: 10.0),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Pug", "LiquidEngineRV-1", 216, pidBase),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame RAPIER", "RAPIER", 217, pidBase),
+                // Solid boosters (rows 218-227) — simple ignite/burnout cycle
+                BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Flea", "solidBooster.sm.v2", 218, pidBase),
+                BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Hammer", "solidBooster.v2", 219, pidBase),
+                BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Thumper", "solidBooster1-1", 220, pidBase, altitudeOffsetMeters: 15.0),
+                BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Kickback", "MassiveBooster", 221, pidBase, altitudeOffsetMeters: 15.0),
+                BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Mite", "Mite", 222, pidBase),
+                BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Shrimp", "Shrimp", 223, pidBase),
+                BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Thoroughbred", "Thoroughbred", 224, pidBase),
+                BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Clydesdale", "Clydesdale", 225, pidBase, altitudeOffsetMeters: 15.0),
+                BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Pollux", "Pollux", 226, pidBase, altitudeOffsetMeters: 15.0),
+                BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Sepatron", "sepMotor1", 227, pidBase),
+                // Jet engines (rows 228-232) — throttle-varying cycle
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Juno", "miniJetEngine", 228, pidBase),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Wheesley", "JetEngine", 229, pidBase),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Whiplash", "turboFanEngine", 230, pidBase),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Panther", "turboJet", 231, pidBase),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Goliath", "turboFanSize2", 232, pidBase, altitudeOffsetMeters: 8.0),
+                // Special (row 233)
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Ion", "ionEngine", 233, pidBase)
             };
         }
 
@@ -2193,7 +2191,7 @@ namespace Parsek.Tests
         public void GearShowcaseRecordings_BuildExpectedShape()
         {
             var recordings = GearShowcaseRecordings(baseUT: 17000);
-            Assert.Equal(8, recordings.Length);
+            Assert.Equal(7, recordings.Length);
 
             var first = recordings[0].Build();
             Assert.Equal("Part Showcase - Gear Bay", first.GetValue("vesselName"));
@@ -2210,7 +2208,7 @@ namespace Parsek.Tests
             Assert.Equal(ghost.GetNodes("PART")[0].GetValue("persistentId"), events[0].GetValue("pid"));
 
             var names = new[] { "SmallGearBay", "GearSmall", "GearMedium", "GearLarge",
-                "landingLeg1", "landingLeg1-2", "miniLandingLeg", "GearLarge" };
+                "landingLeg1", "landingLeg1-2", "miniLandingLeg" };
             for (int i = 0; i < recordings.Length; i++)
             {
                 var g = recordings[i].Build().GetNode("GHOST_VISUAL_SNAPSHOT");
@@ -2892,7 +2890,7 @@ namespace Parsek.Tests
                         $"Duplicate position in '{rec.GetValue("vesselName")}': {key}");
                 }
             }
-            Assert.Equal(235, positions.Count); // 10 + 18 + 8 + 11 + 3 + 2 + 5 + 5 + 2 + 2 + 8 + 2 + 5 + 14 + 29 + 21 + 1 + 3 + 24 + 6 + 13 + 43
+            Assert.Equal(234, positions.Count); // 10 + 18 + 7 + 11 + 3 + 2 + 5 + 5 + 2 + 2 + 8 + 2 + 5 + 14 + 29 + 21 + 1 + 3 + 24 + 6 + 13 + 43
         }
 
         [Fact]
@@ -3533,7 +3531,6 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Part Showcase - Gear Small", content);
                     Assert.Contains("vesselName = Part Showcase - Gear Medium", content);
                     Assert.Contains("vesselName = Part Showcase - Gear Large", content);
-                    Assert.Contains("vesselName = Part Showcase - Gear Extra Large", content);
                     Assert.Contains("vesselName = Part Showcase - Landing Leg LT-1", content);
                     Assert.Contains("vesselName = Part Showcase - Landing Leg LT-2", content);
                     Assert.Contains("vesselName = Part Showcase - Landing Leg LT-05", content);
@@ -3708,8 +3705,8 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Part Showcase - Flame NERV", content);
                     Assert.Contains("vesselName = Part Showcase - Flame Aerospike", content);
                     Assert.Contains("vesselName = Part Showcase - Flame Cub", content);
+                    Assert.Contains("vesselName = Part Showcase - Flame Skipper", content);
                     Assert.Contains("vesselName = Part Showcase - Flame Twin-Boar", content);
-                    Assert.Contains("vesselName = Part Showcase - Flame Twin-Boar v2", content);
                     Assert.Contains("vesselName = Part Showcase - Flame Mammoth", content);
                     Assert.Contains("vesselName = Part Showcase - Flame Vector", content);
                     Assert.Contains("vesselName = Part Showcase - Flame Kodiak", content);
@@ -3767,8 +3764,8 @@ namespace Parsek.Tests
                     $"Expected Parsek/Recordings directory at {recordingsDir}");
 
                 string[] precFiles = Directory.GetFiles(recordingsDir, "*.prec");
-                Assert.True(precFiles.Length >= 228,
-                    $"Expected at least 228 .prec files (8 baseline + 10 lights + 18 deployables + 8 gear + 11 cargo + 3 engines + 2 ladders + 5 RCS + 5 fairings + 2 extra radiators + 2 drills + 8 deployed science + 2 animation-group + 5 parachutes + 14 special deploy animations + 29 jettison showcases + 21 robotics + 1 aero-surface + 3 robot-arm-scanner + 24 control-surface + 6 wheel-dynamics + 13 animate-heat + 43 engine-flame + 1 inventory-placement + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
+                Assert.True(precFiles.Length >= 227,
+                    $"Expected at least 227 .prec files (8 baseline + 10 lights + 18 deployables + 7 gear + 11 cargo + 3 engines + 2 ladders + 5 RCS + 5 fairings + 2 extra radiators + 2 drills + 8 deployed science + 2 animation-group + 5 parachutes + 14 special deploy animations + 29 jettison showcases + 21 robotics + 1 aero-surface + 3 robot-arm-scanner + 24 control-surface + 6 wheel-dynamics + 13 animate-heat + 43 engine-flame + 1 inventory-placement + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
             }
         }
 
