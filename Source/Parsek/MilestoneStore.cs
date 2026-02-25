@@ -257,6 +257,71 @@ namespace Parsek
 
         #endregion
 
+        #region Committed Action Queries
+
+        /// <summary>
+        /// Returns tech IDs that are committed but not yet replayed.
+        /// Used by TechResearchPatch to block duplicate research.
+        /// </summary>
+        internal static HashSet<string> GetCommittedTechIds()
+        {
+            var result = new HashSet<string>();
+            for (int i = 0; i < milestones.Count; i++)
+            {
+                var m = milestones[i];
+                if (!m.Committed) continue;
+                for (int j = m.LastReplayedEventIndex + 1; j < m.Events.Count; j++)
+                {
+                    if (m.Events[j].eventType == GameStateEventType.TechResearched
+                        && !string.IsNullOrEmpty(m.Events[j].key))
+                        result.Add(m.Events[j].key);
+                }
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Returns facility IDs that have committed-but-unreplayed upgrade events.
+        /// Used by FacilityUpgradePatch to block duplicate upgrades.
+        /// </summary>
+        internal static HashSet<string> GetCommittedFacilityUpgrades()
+        {
+            var result = new HashSet<string>();
+            for (int i = 0; i < milestones.Count; i++)
+            {
+                var m = milestones[i];
+                if (!m.Committed) continue;
+                for (int j = m.LastReplayedEventIndex + 1; j < m.Events.Count; j++)
+                {
+                    if (m.Events[j].eventType == GameStateEventType.FacilityUpgraded
+                        && !string.IsNullOrEmpty(m.Events[j].key))
+                        result.Add(m.Events[j].key);
+                }
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Finds the first unreplayed committed event matching the given type and key.
+        /// Returns null if not found. Used for blocking dialog messages.
+        /// </summary>
+        internal static GameStateEvent? FindCommittedEvent(GameStateEventType type, string key)
+        {
+            for (int i = 0; i < milestones.Count; i++)
+            {
+                var m = milestones[i];
+                if (!m.Committed) continue;
+                for (int j = m.LastReplayedEventIndex + 1; j < m.Events.Count; j++)
+                {
+                    if (m.Events[j].eventType == type && m.Events[j].key == key)
+                        return m.Events[j];
+                }
+            }
+            return null;
+        }
+
+        #endregion
+
         private static void Log(string msg)
         {
             if (!SuppressLogging)

@@ -1,3 +1,5 @@
+using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using UnityEngine;
@@ -111,6 +113,8 @@ namespace Parsek
             MilestoneStore.SaveMilestoneFile();
             MilestoneStore.SaveMutableState(node);
             node.AddValue("milestoneEpoch", MilestoneStore.CurrentEpoch);
+            node.AddValue("budgetDeductionEpoch",
+                budgetDeductionEpoch.ToString(CultureInfo.InvariantCulture));
         }
 
         // Static flag: only load from save once per KSP session.
@@ -118,6 +122,7 @@ namespace Parsek
         // static list is the real source of truth within a session.
         private static bool initialLoadDone = false;
         private static string lastSaveFolder = null;
+        private static uint budgetDeductionEpoch = 0;
 
         public override void OnLoad(ConfigNode node)
         {
@@ -150,6 +155,15 @@ namespace Parsek
                     uint epoch;
                     if (uint.TryParse(epochStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out epoch))
                         MilestoneStore.CurrentEpoch = epoch;
+                }
+
+                // Restore budget deduction tracking
+                string bdeStr = node.GetValue("budgetDeductionEpoch");
+                if (bdeStr != null)
+                {
+                    uint bde;
+                    if (uint.TryParse(bdeStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out bde))
+                        budgetDeductionEpoch = bde;
                 }
             }
             stateRecorder = new GameStateRecorder();
@@ -209,6 +223,9 @@ namespace Parsek
                 MilestoneStore.RestoreMutableState(node, resetUnmatched: true);
                 MilestoneStore.CurrentEpoch++;
                 Debug.Log($"[Parsek Scenario] Milestone epoch incremented to {MilestoneStore.CurrentEpoch} on revert");
+
+                // Schedule committed resource deduction (singletons may not be ready yet)
+                StartCoroutine(ApplyBudgetDeductionWhenReady());
 
                 ReserveSnapshotCrew();
                 Debug.Log($"[Parsek Scenario] Revert detected — preserving {recordings.Count} session recordings");
@@ -368,6 +385,75 @@ namespace Parsek
                     $"(scene: {HighLogic.LoadedScene})");
             }
         }
+
+        #region Budget Deduction
+
+        /// <summary>
+        /// Waits for resource singletons to be available, then deducts committed
+        /// budget from the game state. This ensures the KSP top bar and all
+        /// purchase checks reflect available (non-committed) resources.
+        /// </summary>
+        private IEnumerator ApplyBudgetDeductionWhenReady()
+        {
+            // Wait until singletons are available (may take a few frames after scene load)
+            int maxWait = 120; // ~2 seconds at 60fps
+            while (maxWait-- > 0
+                   && Funding.Instance == null
+                   && ResearchAndDevelopment.Instance == null
+                   && Reputation.Instance == null)
+                yield return null;
+
+            if (budgetDeductionEpoch >= MilestoneStore.CurrentEpoch)
+            {
+                Debug.Log("[Parsek Scenario] Budget deduction already applied for this epoch");
+                yield break;
+            }
+            budgetDeductionEpoch = MilestoneStore.CurrentEpoch;
+
+            var budget = ResourceBudget.ComputeTotal(
+                RecordingStore.CommittedRecordings,
+                MilestoneStore.Milestones);
+
+            if (budget.reservedFunds <= 0 && budget.reservedScience <= 0
+                && budget.reservedReputation <= 0)
+            {
+                Debug.Log("[Parsek Scenario] No committed budget to deduct on revert");
+                yield break;
+            }
+
+            GameStateRecorder.SuppressResourceEvents = true;
+            try
+            {
+                if (budget.reservedFunds > 0 && Funding.Instance != null)
+                {
+                    Funding.Instance.AddFunds(-budget.reservedFunds, TransactionReasons.None);
+                    Debug.Log($"[Parsek Scenario] Budget deduction: funds -{budget.reservedFunds:F0}");
+                }
+
+                if (budget.reservedScience > 0 && ResearchAndDevelopment.Instance != null)
+                {
+                    ResearchAndDevelopment.Instance.AddScience(
+                        -(float)budget.reservedScience, TransactionReasons.None);
+                    Debug.Log($"[Parsek Scenario] Budget deduction: science -{budget.reservedScience:F1}");
+                }
+
+                if (budget.reservedReputation > 0 && Reputation.Instance != null)
+                {
+                    Reputation.Instance.AddReputation(
+                        -(float)budget.reservedReputation, TransactionReasons.None);
+                    Debug.Log($"[Parsek Scenario] Budget deduction: reputation -{budget.reservedReputation:F0}");
+                }
+            }
+            finally
+            {
+                GameStateRecorder.SuppressResourceEvents = false;
+            }
+
+            Debug.Log("[Parsek Scenario] Budget deduction applied for epoch " +
+                MilestoneStore.CurrentEpoch);
+        }
+
+        #endregion
 
         #region Crew Reservation
 
