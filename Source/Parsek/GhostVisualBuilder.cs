@@ -877,6 +877,42 @@ namespace Parsek
                 $"deltaPos={deltaPos} deltaRot={deltaRot:F3}");
         }
 
+        private static int ConfigureGhostEngineParticleSystems(
+            GameObject fxInstance, List<ParticleSystem> sink)
+        {
+            if (fxInstance == null || sink == null)
+                return 0;
+
+            ParticleSystem[] systems = fxInstance.GetComponentsInChildren<ParticleSystem>(true);
+            int added = 0;
+            for (int i = 0; i < systems.Length; i++)
+            {
+                ParticleSystem ps = systems[i];
+                if (ps == null)
+                    continue;
+
+                var main = ps.main;
+                main.playOnAwake = false;
+                main.prewarm = false;
+
+                var emission = ps.emission;
+                emission.enabled = true;
+                emission.rateOverTimeMultiplier = 0f;
+
+                ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                ps.Clear(true);
+
+                var renderer = ps.GetComponent<ParticleSystemRenderer>();
+                if (renderer != null)
+                    renderer.enabled = false;
+
+                sink.Add(ps);
+                added++;
+            }
+
+            return added;
+        }
+
         /// <summary>
         /// Create a fake parachute canopy (flattened hemisphere) and parent it to
         /// the ghost part identified by persistentId. Returns the canopy GameObject.
@@ -1812,8 +1848,8 @@ namespace Parsek
 
                 ConfigNode effectsNode = partConfig.GetNode("EFFECTS");
 
-                // Scan EFFECTS for particle FX entries (MODEL_MULTI_PARTICLE and PREFAB_PARTICLE)
-                var mmpEntries = new List<(string transformName, string modelName, Vector3 localPos, Quaternion localRot)>();
+                // Scan EFFECTS for particle FX entries (MODEL_MULTI_PARTICLE, MODEL_PARTICLE, PREFAB_PARTICLE)
+                var modelFxEntries = new List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot)>();
                 var prefabFxEntries = new List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation)>();
                 FloatCurve emissionCurve = null;
                 FloatCurve speedCurve = null;
@@ -1822,57 +1858,62 @@ namespace Parsek
                 {
                     ConfigNode[] effectGroups = effectsNode.GetNodes();
 
-                    // Scan for MODEL_MULTI_PARTICLE / MODEL_MULTI_PARTICLE_PERSIST
+                    // Scan for model FX nodes used by engines.
                     for (int g = 0; g < effectGroups.Length; g++)
                     {
-                        ConfigNode[] mmpNodes = effectGroups[g].GetNodes("MODEL_MULTI_PARTICLE_PERSIST");
-                        if (mmpNodes.Length == 0)
-                            mmpNodes = effectGroups[g].GetNodes("MODEL_MULTI_PARTICLE");
-
-                        for (int mp = 0; mp < mmpNodes.Length; mp++)
+                        string[] modelNodeTypes = { "MODEL_MULTI_PARTICLE_PERSIST", "MODEL_MULTI_PARTICLE", "MODEL_PARTICLE" };
+                        for (int n = 0; n < modelNodeTypes.Length; n++)
                         {
-                            string transformName = mmpNodes[mp].GetValue("transformName");
-                            string modelName = mmpNodes[mp].GetValue("modelName");
-                            if (!string.IsNullOrEmpty(transformName))
+                            string nodeType = modelNodeTypes[n];
+                            ConfigNode[] modelNodes = effectGroups[g].GetNodes(nodeType);
+                            for (int mp = 0; mp < modelNodes.Length; mp++)
                             {
-                                // Parse localPosition from config
-                                Vector3 mmpLocalPos = Vector3.zero;
-                                TryParseVector3(mmpNodes[mp].GetValue("localPosition"), out mmpLocalPos);
-
-                                // Parse localRotation (axis-angle x,y,z,angle)
-                                Quaternion mmpLocalRot = Quaternion.identity;
-                                string mmpRotStr = mmpNodes[mp].GetValue("localRotation");
-                                if (!string.IsNullOrEmpty(mmpRotStr))
+                                string transformName = modelNodes[mp].GetValue("transformName");
+                                string modelName = modelNodes[mp].GetValue("modelName");
+                                if (!string.IsNullOrEmpty(transformName))
                                 {
-                                    string[] rp = mmpRotStr.Split(',');
-                                    if (rp.Length >= 4 &&
-                                        float.TryParse(rp[0].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float rx) &&
-                                        float.TryParse(rp[1].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float ry) &&
-                                        float.TryParse(rp[2].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float rz) &&
-                                        float.TryParse(rp[3].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float angle))
-                                    {
-                                        var axis = new Vector3(rx, ry, rz);
-                                        if (axis.sqrMagnitude > 0.0001f)
-                                            mmpLocalRot = Quaternion.AngleAxis(angle, axis);
-                                    }
-                                }
+                                    // Parse localPosition/localOffset from config
+                                    Vector3 mmpLocalPos = Vector3.zero;
+                                    string mmpOffsetStr = modelNodes[mp].GetValue("localPosition");
+                                    if (string.IsNullOrEmpty(mmpOffsetStr))
+                                        mmpOffsetStr = modelNodes[mp].GetValue("localOffset");
+                                    TryParseVector3(mmpOffsetStr, out mmpLocalPos);
 
-                                mmpEntries.Add((transformName, modelName ?? "", mmpLocalPos, mmpLocalRot));
-
-                                // Parse emission and speed curves from the first entry
-                                if (emissionCurve == null)
-                                {
-                                    ConfigNode emNode = mmpNodes[mp].GetNode("emission");
-                                    if (emNode != null)
+                                    // Parse localRotation (axis-angle x,y,z,angle)
+                                    Quaternion mmpLocalRot = Quaternion.identity;
+                                    string mmpRotStr = modelNodes[mp].GetValue("localRotation");
+                                    if (!string.IsNullOrEmpty(mmpRotStr))
                                     {
-                                        emissionCurve = new FloatCurve();
-                                        emissionCurve.Load(emNode);
+                                        string[] rp = mmpRotStr.Split(',');
+                                        if (rp.Length >= 4 &&
+                                            float.TryParse(rp[0].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float rx) &&
+                                            float.TryParse(rp[1].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float ry) &&
+                                            float.TryParse(rp[2].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float rz) &&
+                                            float.TryParse(rp[3].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float angle))
+                                        {
+                                            var axis = new Vector3(rx, ry, rz);
+                                            if (axis.sqrMagnitude > 0.0001f)
+                                                mmpLocalRot = Quaternion.AngleAxis(angle, axis);
+                                        }
                                     }
-                                    ConfigNode spNode = mmpNodes[mp].GetNode("speed");
-                                    if (spNode != null)
+
+                                    modelFxEntries.Add((nodeType, transformName, modelName ?? "", mmpLocalPos, mmpLocalRot));
+
+                                    // Parse emission and speed curves from the first model entry.
+                                    if (emissionCurve == null)
                                     {
-                                        speedCurve = new FloatCurve();
-                                        speedCurve.Load(spNode);
+                                        ConfigNode emNode = modelNodes[mp].GetNode("emission");
+                                        if (emNode != null)
+                                        {
+                                            emissionCurve = new FloatCurve();
+                                            emissionCurve.Load(emNode);
+                                        }
+                                        ConfigNode spNode = modelNodes[mp].GetNode("speed");
+                                        if (spNode != null)
+                                        {
+                                            speedCurve = new FloatCurve();
+                                            speedCurve.Load(spNode);
+                                        }
                                     }
                                 }
                             }
@@ -1925,7 +1966,7 @@ namespace Parsek
                     }
                 }
 
-                if (mmpEntries.Count == 0 && prefabFxEntries.Count == 0)
+                if (modelFxEntries.Count == 0 && prefabFxEntries.Count == 0)
                 {
                     // No EFFECTS node, or EFFECTS has no particle entries (e.g. Mainsail: AUDIO only).
                     // Fall through to legacy fx_* child search.
@@ -1948,7 +1989,7 @@ namespace Parsek
                         if (!childName.Contains("flame") && !childName.Contains("exhaust") && !childName.Contains("smoke"))
                             continue;
 
-                        var ps = child.GetComponentInChildren<ParticleSystem>();
+                        var ps = child.GetComponentInChildren<ParticleSystem>(true);
                         if (ps == null) continue;
 
                         GameObject fxClone = Object.Instantiate(child.gameObject);
@@ -1962,14 +2003,15 @@ namespace Parsek
                         if (smokeTrail != null)
                             Object.Destroy(smokeTrail);
 
-                        var clonedPs = fxClone.GetComponentInChildren<ParticleSystem>();
-                        if (clonedPs != null)
+                        int addedSystems = ConfigureGhostEngineParticleSystems(fxClone, info.particleSystems);
+                        if (addedSystems > 0)
                         {
-                            var emission = clonedPs.emission;
-                            emission.rateOverTimeMultiplier = 0;
-                            clonedPs.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                            info.particleSystems.Add(clonedPs);
-                            ParsekLog.Log($"    Engine FX (legacy): '{partName}' midx={moduleIndex} fx='{child.name}'");
+                            ParsekLog.Log($"    Engine FX (legacy): '{partName}' midx={moduleIndex} " +
+                                $"fx='{child.name}' systems={addedSystems}");
+                        }
+                        else
+                        {
+                            Object.Destroy(fxClone);
                         }
                     }
 
@@ -1983,10 +2025,10 @@ namespace Parsek
                 info.emissionCurve = emissionCurve;
                 info.speedCurve = speedCurve;
 
-                // Process MODEL_MULTI_PARTICLE entries
-                for (int f = 0; f < mmpEntries.Count; f++)
+                // Process model FX entries (MODEL_MULTI_PARTICLE/MODEL_PARTICLE variants).
+                for (int f = 0; f < modelFxEntries.Count; f++)
                 {
-                    var (transformName, modelName, mmpLocalPos, mmpLocalRot) = mmpEntries[f];
+                    var (nodeType, transformName, modelName, mmpLocalPos, mmpLocalRot) = modelFxEntries[f];
 
                     // Find matching transform(s) in prefab — may be multiple (multi-nozzle engines)
                     var fxTransforms = FindTransformsRecursive(prefab.transform, transformName);
@@ -2003,7 +2045,7 @@ namespace Parsek
                             continue;
                         }
                         LogFxParentAlignmentDiagnostic(
-                            partName, moduleIndex, "MODEL_MULTI_PARTICLE", transformName,
+                            partName, moduleIndex, nodeType, transformName,
                             prefab.transform, ghostModelNode, srcFxTransform, ghostFxParent);
 
                         // Instantiate FX model prefab if available
@@ -2017,14 +2059,17 @@ namespace Parsek
                                 fxInstance.transform.localPosition = mmpLocalPos;
                                 fxInstance.transform.localRotation = mmpLocalRot;
 
-                                var ps = fxInstance.GetComponentInChildren<ParticleSystem>();
-                                if (ps != null)
+                                int addedSystems = ConfigureGhostEngineParticleSystems(fxInstance, info.particleSystems);
+                                if (addedSystems > 0)
                                 {
-                                    var emission = ps.emission;
-                                    emission.rateOverTimeMultiplier = 0;
-                                    info.particleSystems.Add(ps);
                                     ParsekLog.Log($"    Engine FX cloned: '{partName}' midx={moduleIndex} " +
-                                        $"transform='{transformName}' model='{modelName}'");
+                                        $"type={nodeType} transform='{transformName}' model='{modelName}' " +
+                                        $"systems={addedSystems}");
+                                }
+                                else
+                                {
+                                    ParsekLog.Log($"    Engine FX model has no ParticleSystem: '{modelName}' for '{partName}'");
+                                    Object.Destroy(fxInstance);
                                 }
                             }
                             else
@@ -2083,15 +2128,11 @@ namespace Parsek
                         if (smokeTrail != null)
                             Object.Destroy(smokeTrail);
 
-                        var ps = fxInstance.GetComponentInChildren<ParticleSystem>();
-                        if (ps != null)
+                        int addedSystems = ConfigureGhostEngineParticleSystems(fxInstance, info.particleSystems);
+                        if (addedSystems > 0)
                         {
-                            var emission = ps.emission;
-                            emission.rateOverTimeMultiplier = 0;
-                            ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                            info.particleSystems.Add(ps);
                             ParsekLog.Log($"    Engine FX (prefab): '{partName}' midx={moduleIndex} " +
-                                $"transform='{transformName}' prefab='{prefabName}'");
+                                $"transform='{transformName}' prefab='{prefabName}' systems={addedSystems}");
                         }
                         else
                         {
