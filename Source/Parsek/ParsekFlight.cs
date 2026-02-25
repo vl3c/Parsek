@@ -2432,8 +2432,10 @@ namespace Parsek
                 if (ps == null) continue;
 
                 var emission = ps.emission;
+                var renderer = ps.GetComponent<ParticleSystemRenderer>();
                 if (power > 0f)
                 {
+                    emission.enabled = true;
                     float emRate = info.emissionCurve != null ? info.emissionCurve.Evaluate(power) : power * 100f;
                     emission.rateOverTimeMultiplier = emRate;
 
@@ -2441,12 +2443,15 @@ namespace Parsek
                     float spd = info.speedCurve != null ? info.speedCurve.Evaluate(power) : power * 10f;
                     main.startSpeedMultiplier = spd;
 
+                    if (renderer != null) renderer.enabled = true;
                     if (!ps.isPlaying) ps.Play();
                 }
                 else
                 {
                     emission.rateOverTimeMultiplier = 0;
-                    ps.Stop();
+                    ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                    ps.Clear(true);
+                    if (renderer != null) renderer.enabled = false;
                 }
             }
         }
