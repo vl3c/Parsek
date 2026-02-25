@@ -73,10 +73,25 @@ The game state event system is NOT for reversal. It serves as:
 - No baseline restoration logic (baselines are for display, not rollback)
 - No "undo" mechanism (recordings are immutable)
 
+## Implementation Status
+
+**Done (Phase 5 foundation):**
+- Game state event recording (18 event types: contracts, tech, crew, facilities, resources)
+- Milestones — independent of recordings, epoch-isolated, with `FlushPendingEvents` for non-recording events
+- Resource budget computation — on-the-fly from recordings + milestones, partial-replay aware
+- Epoch isolation — revert increments epoch, old-branch events excluded
+- Resource deduction on revert — committed costs deducted from KSP game state
+- Action blocking — Harmony patches on `RDTech.UnlockTech` and `UpgradeableFacility.SetLevel`
+- UI resource budget display — red/yellow over-commitment warnings
+- Game state baselines — captured at commit points for future timeline visualization
+
+**Remaining:**
+- Restore point auto-saves at commit points
+- "Go Back" UI (restore point picker)
+
 ## Open Design Questions
 
 - How does the restore point UI present available points? Just a UT list? Calendar format? Tied to recording commit times?
 - Should the player be able to create manual restore points, or only auto-generated ones?
-- What's the UX for showing "committed funds" vs "available funds" — a modified funds display? A Parsek overlay?
 - How do we handle facility upgrades that happened after the restore point? (Player goes back, facility reverts to pre-upgrade state from save load, but recordings don't depend on facilities — so this just works)
 - Do we need to prevent the player from downgrading facilities or cancelling contracts that recordings depend on? (Probably not — recordings capture vessels as-built and don't reference external state)

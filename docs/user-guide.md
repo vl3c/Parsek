@@ -121,9 +121,37 @@ Click the "Settings" button in the main Parsek window to open the Settings panel
 
 The "Defaults" button resets all settings to their original values.
 
+### Resource Budget
+
+When recordings or milestones have unreplayed resource costs, the Parsek UI shows a Resources section:
+
+- **Funds: X available (Y committed)** — current funds minus reserved amounts
+- **Science: X available (Y committed)** — current science minus reserved amounts
+- **Reputation: X available (Y committed)** — current reputation minus reserved amounts
+
+If any resource goes negative (over-committed), the value turns red and a yellow "Over-committed! Some timeline actions may fail." warning appears. This means you've committed more resources to future timeline events than you currently have available.
+
+The resource budget is computed on-the-fly from two sources:
+1. **Recording costs** — net flight impact (launch cost minus in-flight earnings), proportional to replay progress
+2. **Milestone costs** — game state event costs (tech research, part purchases) not yet replayed
+
+### Action Blocking
+
+If you try to re-research a technology or re-upgrade a facility that is already committed on your timeline (but not yet replayed), Parsek blocks the action and shows a popup dialog explaining why. This prevents paradoxes — you can't spend resources that are already committed to future timeline events.
+
+### Milestones
+
+Parsek captures career actions (tech research, part purchases, facility upgrades, contracts, crew changes) into milestones. These are independent of flight recordings — even if you never record a flight, your R&D and facility work is captured.
+
+Milestones are created:
+- When you commit a recording (bundles events since the last milestone)
+- On game save (captures any events not yet bundled)
+
+Deleting a recording does not delete its associated milestone.
+
 ### Wipe Recordings
 
-Click "Wipe Recordings" in the Parsek UI window to clear all committed recordings. This also frees any reserved crew and removes replacement kerbals.
+Click "Wipe Recordings" in the Parsek UI window to clear all committed recordings. This also frees any reserved crew and removes replacement kerbals. Milestones are preserved.
 
 ## Automatic Behaviors
 
@@ -154,6 +182,14 @@ Parsek handles several edge cases automatically. These are logged to `KSP.log` (
 
 - **No negative balance** — Funds, science, and reputation deltas are clamped so they never go below zero.
 - **Quicksave safety** — Resource application progress is saved, so quickloading doesn't double-apply deltas.
+- **Resource deduction on revert** — When you revert, committed resource costs are deducted from game state so KSP's funds/science/reputation displays and purchase checks reflect what's actually available.
+- **Action blocking** — Researching tech or upgrading facilities that are already committed on the timeline is blocked with an explanatory dialog.
+
+### Game State Recording
+
+- **Career events captured** — Tech research, part purchases, facility upgrades/downgrades, building destruction/repair, contract lifecycle, crew changes, and resource changes are recorded automatically in career mode.
+- **Milestone creation** — Events are bundled into milestones at recording commit time and on game save.
+- **Epoch isolation** — After a revert, events from the abandoned timeline branch are excluded from new milestones. This prevents old-branch actions from contaminating the current branch.
 
 ### Scene Transitions
 
