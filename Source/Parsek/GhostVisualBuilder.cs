@@ -1977,6 +1977,32 @@ namespace Parsek
                         continue;
                     }
 
+                    // Legacy PART-level fx_* entries are driven by thrust transform + fxOffset.
+                    // The child prefab position on part root can be far from nozzle on some parts
+                    // (e.g., Terrier/Swivel), so prefer anchoring to thrust transforms.
+                    var legacyAnchors = new List<Transform>();
+                    if (engine != null && engine.thrustTransforms != null)
+                    {
+                        for (int t = 0; t < engine.thrustTransforms.Count; t++)
+                        {
+                            Transform anchor = engine.thrustTransforms[t];
+                            if (anchor != null && !legacyAnchors.Contains(anchor))
+                                legacyAnchors.Add(anchor);
+                        }
+                    }
+                    if (legacyAnchors.Count == 0 && engine != null &&
+                        !string.IsNullOrEmpty(engine.thrustVectorTransformName))
+                    {
+                        var namedAnchors = FindTransformsRecursive(prefab.transform, engine.thrustVectorTransformName);
+                        for (int t = 0; t < namedAnchors.Count; t++)
+                        {
+                            Transform anchor = namedAnchors[t];
+                            if (anchor != null && !legacyAnchors.Contains(anchor))
+                                legacyAnchors.Add(anchor);
+                        }
+                    }
+                    Vector3 legacyFxOffset = engine != null ? engine.fxOffset : Vector3.zero;
+
                     for (int c = 0; c < prefab.transform.childCount; c++)
                     {
                         Transform child = prefab.transform.GetChild(c);
@@ -1992,26 +2018,66 @@ namespace Parsek
                         var ps = child.GetComponentInChildren<ParticleSystem>(true);
                         if (ps == null) continue;
 
-                        GameObject fxClone = Object.Instantiate(child.gameObject);
-                        fxClone.transform.SetParent(ghostModelNode.parent, false);
-                        fxClone.transform.localPosition = child.localPosition;
-                        fxClone.transform.localRotation = child.localRotation;
-                        fxClone.transform.localScale = child.localScale;
-
-                        // SmokeTrailControl expects real vessel/part state — destroy it on the ghost
-                        var smokeTrail = fxClone.GetComponent("SmokeTrailControl");
-                        if (smokeTrail != null)
-                            Object.Destroy(smokeTrail);
-
-                        int addedSystems = ConfigureGhostEngineParticleSystems(fxClone, info.particleSystems);
-                        if (addedSystems > 0)
+                        int clonesAdded = 0;
+                        if (legacyAnchors.Count > 0)
                         {
-                            ParsekLog.Log($"    Engine FX (legacy): '{partName}' midx={moduleIndex} " +
-                                $"fx='{child.name}' systems={addedSystems}");
+                            for (int t = 0; t < legacyAnchors.Count; t++)
+                            {
+                                Transform srcLegacyAnchor = legacyAnchors[t];
+                                Transform ghostLegacyParent = ResolveGhostFxParent(
+                                    srcLegacyAnchor, prefab.transform, modelRoot, ghostModelNode, cloneMap);
+                                if (ghostLegacyParent == null)
+                                    continue;
+
+                                GameObject fxClone = Object.Instantiate(child.gameObject);
+                                fxClone.transform.SetParent(ghostLegacyParent, false);
+                                fxClone.transform.localPosition = legacyFxOffset;
+                                fxClone.transform.localRotation = child.localRotation;
+                                fxClone.transform.localScale = child.localScale;
+
+                                // SmokeTrailControl expects real vessel/part state — destroy it on the ghost
+                                var smokeTrail = fxClone.GetComponent("SmokeTrailControl");
+                                if (smokeTrail != null)
+                                    Object.Destroy(smokeTrail);
+
+                                int addedSystems = ConfigureGhostEngineParticleSystems(fxClone, info.particleSystems);
+                                if (addedSystems > 0)
+                                {
+                                    clonesAdded++;
+                                    ParsekLog.Log($"    Engine FX (legacy): '{partName}' midx={moduleIndex} " +
+                                        $"fx='{child.name}' anchor='{srcLegacyAnchor.name}' offset={legacyFxOffset} systems={addedSystems}");
+                                }
+                                else
+                                {
+                                    Object.Destroy(fxClone);
+                                }
+                            }
                         }
-                        else
+
+                        if (clonesAdded == 0)
                         {
-                            Object.Destroy(fxClone);
+                            // Fallback for uncommon prefabs where thrust anchors are unavailable.
+                            GameObject fxClone = Object.Instantiate(child.gameObject);
+                            fxClone.transform.SetParent(ghostModelNode.parent, false);
+                            fxClone.transform.localPosition = child.localPosition;
+                            fxClone.transform.localRotation = child.localRotation;
+                            fxClone.transform.localScale = child.localScale;
+
+                            // SmokeTrailControl expects real vessel/part state — destroy it on the ghost
+                            var smokeTrail = fxClone.GetComponent("SmokeTrailControl");
+                            if (smokeTrail != null)
+                                Object.Destroy(smokeTrail);
+
+                            int addedSystems = ConfigureGhostEngineParticleSystems(fxClone, info.particleSystems);
+                            if (addedSystems > 0)
+                            {
+                                ParsekLog.Log($"    Engine FX (legacy): '{partName}' midx={moduleIndex} " +
+                                    $"fx='{child.name}' systems={addedSystems}");
+                            }
+                            else
+                            {
+                                Object.Destroy(fxClone);
+                            }
                         }
                     }
 
