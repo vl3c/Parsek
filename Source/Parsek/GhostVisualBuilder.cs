@@ -137,40 +137,66 @@ namespace Parsek
         private static readonly Color HeatTintColor = new Color(1f, 0.45f, 0.2f, 1f);
         private static readonly Color HeatEmissionColor = new Color(1.5f, 0.6f, 0.15f, 1f);
 
-        // Cache for PREFAB_PARTICLE fx_* prefabs found via FindObjectsOfTypeAll.
-        // Built once per scene (cleared on scene change or when empty).
+        // Cache for PREFAB_PARTICLE fx_* prefabs found on PartLoader part prefabs.
+        // Built once from PartLoader.LoadedPartsList (stable prefab templates).
         private static Dictionary<string, GameObject> fxPrefabCache;
 
         /// <summary>
-        /// Find a KSP fx_* prefab by name. These exist as children of legacy parts
-        /// (e.g., fx_exhaustFlame_blue(Clone) on liquidEngine) but are NOT Unity Resources.
-        /// We scan all GameObjects in memory once and cache the results.
+        /// Find a KSP fx_* prefab by name. These exist as children of legacy part
+        /// prefabs (e.g., fx_exhaustFlame_blue(Clone) on liquidEngine's prefab transform).
+        /// We scan PartLoader.LoadedPartsList once and cache the results.
+        /// Self-heals: if a cached reference becomes Unity-null, removes and re-scans.
         /// </summary>
         private static GameObject FindFxPrefab(string prefabName)
         {
             if (fxPrefabCache == null)
+                RebuildFxPrefabCache();
+
+            GameObject result;
+            if (fxPrefabCache.TryGetValue(prefabName, out result))
             {
-                fxPrefabCache = new Dictionary<string, GameObject>();
-                var allObjects = Resources.FindObjectsOfTypeAll<GameObject>();
-                for (int i = 0; i < allObjects.Length; i++)
+                // Self-heal: if cached object was destroyed, remove and try rebuild
+                if (result == null)
                 {
-                    string name = allObjects[i].name;
+                    fxPrefabCache.Remove(prefabName);
+                    RebuildFxPrefabCache();
+                    fxPrefabCache.TryGetValue(prefabName, out result);
+                }
+            }
+            return result;
+        }
+
+        private static void RebuildFxPrefabCache()
+        {
+            fxPrefabCache = new Dictionary<string, GameObject>();
+            if (PartLoader.LoadedPartsList == null) return;
+
+            for (int p = 0; p < PartLoader.LoadedPartsList.Count; p++)
+            {
+                Part prefab = PartLoader.LoadedPartsList[p]?.partPrefab;
+                if (prefab == null) continue;
+
+                for (int c = 0; c < prefab.transform.childCount; c++)
+                {
+                    Transform child = prefab.transform.GetChild(c);
+                    string name = child.name;
                     // Strip "(Clone)" suffix if present
                     if (name.EndsWith("(Clone)"))
                         name = name.Substring(0, name.Length - 7);
-                    // Only cache fx_* objects that have a ParticleSystem
                     if (name.StartsWith("fx_") && !fxPrefabCache.ContainsKey(name)
-                        && allObjects[i].GetComponentInChildren<ParticleSystem>() != null)
+                        && child.GetComponentInChildren<ParticleSystem>() != null)
                     {
-                        fxPrefabCache[name] = allObjects[i];
+                        fxPrefabCache[name] = child.gameObject;
                     }
                 }
-                ParsekLog.Log($"  FX prefab cache built: {fxPrefabCache.Count} entries");
             }
+            ParsekLog.Log($"  FX prefab cache built from PartLoader: {fxPrefabCache.Count} entries");
+        }
 
-            GameObject result;
-            fxPrefabCache.TryGetValue(prefabName, out result);
-            return result;
+        /// <summary>Clear the fx prefab cache (e.g., on scene change).</summary>
+        internal static void ClearFxPrefabCache()
+        {
+            fxPrefabCache = null;
         }
 
         internal static GameObject BuildTimelineGhostFromSnapshot(
@@ -1686,7 +1712,11 @@ namespace Parsek
                                     float.TryParse(parts[1].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float ry) &&
                                     float.TryParse(parts[2].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float rz) &&
                                     float.TryParse(parts[3].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float angle))
-                                    localRot = Quaternion.AngleAxis(angle, new Vector3(rx, ry, rz));
+                                {
+                                    var axis = new Vector3(rx, ry, rz);
+                                    if (axis.sqrMagnitude > 0.0001f)
+                                        localRot = Quaternion.AngleAxis(angle, axis);
+                                }
                             }
 
                             prefabFxEntries.Add((prefabName, transformName, localOffset, localRot));
@@ -1827,6 +1857,12 @@ namespace Parsek
 
                     // Find the attachment transform(s) on the part
                     var fxTransforms = FindTransformsRecursive(prefab.transform, transformName);
+                    if (fxTransforms.Count == 0)
+                    {
+                        ParsekLog.Log($"    Engine FX (prefab): '{partName}' midx={moduleIndex} " +
+                            $"transform '{transformName}' not found on prefab");
+                        continue;
+                    }
                     for (int t = 0; t < fxTransforms.Count; t++)
                     {
                         Transform srcFxTransform = fxTransforms[t];
@@ -1868,6 +1904,12 @@ namespace Parsek
                             info.particleSystems.Add(ps);
                             ParsekLog.Log($"    Engine FX (prefab): '{partName}' midx={moduleIndex} " +
                                 $"transform='{transformName}' prefab='{prefabName}'");
+                        }
+                        else
+                        {
+                            ParsekLog.Log($"    Engine FX (prefab): '{partName}' midx={moduleIndex} " +
+                                $"prefab '{prefabName}' has no ParticleSystem");
+                            Object.Destroy(fxInstance);
                         }
                     }
                 }
