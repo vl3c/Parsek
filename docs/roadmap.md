@@ -124,7 +124,8 @@ Playback already supports multiple simultaneous ghosts. Recording is currently s
 
 ## Out of Scope
 
-- Racing modes or lap timing
-- AI playback or autopilot
-- Multiplayer synchronization
-- Timeline branching or alternate histories
+- **Racing modes or lap timing**
+- **AI playback or autopilot**
+- **Multiplayer synchronization**
+- **Timeline branching or alternate histories**
+- **Logistics network** — Parsek's recording infrastructure (looped playback, chain segments, vessel snapshots, game state events, resource tracking) forms a natural foundation for automated supply routes between bases. The concept: fly a cargo mission once, Parsek records it, then that recording becomes a reusable logistics route that periodically deducts fuel at the origin and delivers cargo at the destination, with the ghost replaying visually during transit. This will be built as a separate mod on top of Parsek rather than integrated directly. See `docs/research/logistics-network-design.md` for the full design exploration.
