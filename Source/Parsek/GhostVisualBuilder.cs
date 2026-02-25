@@ -1562,10 +1562,81 @@ namespace Parsek
                 }
 
                 ConfigNode effectsNode = partConfig.GetNode("EFFECTS");
-                if (effectsNode == null)
+
+                // Scan EFFECTS for particle FX entries (MODEL_MULTI_PARTICLE and PREFAB_PARTICLE)
+                var fxTransformNames = new List<string>();
+                var fxModelNames = new List<string>();
+                var prefabFxNames = new List<string>();
+                var prefabTransformNames = new List<string>();
+                FloatCurve emissionCurve = null;
+                FloatCurve speedCurve = null;
+
+                if (effectsNode != null)
                 {
-                    // Legacy FX fallback: stock early-career parts (Flea SRB, LV-T30, etc.)
-                    // use fx_* prefab children instead of modern EFFECTS configs.
+                    ConfigNode[] effectGroups = effectsNode.GetNodes();
+
+                    // Scan for MODEL_MULTI_PARTICLE / MODEL_MULTI_PARTICLE_PERSIST
+                    for (int g = 0; g < effectGroups.Length; g++)
+                    {
+                        ConfigNode[] mmpNodes = effectGroups[g].GetNodes("MODEL_MULTI_PARTICLE_PERSIST");
+                        if (mmpNodes.Length == 0)
+                            mmpNodes = effectGroups[g].GetNodes("MODEL_MULTI_PARTICLE");
+
+                        for (int mp = 0; mp < mmpNodes.Length; mp++)
+                        {
+                            string transformName = mmpNodes[mp].GetValue("transformName");
+                            string modelName = mmpNodes[mp].GetValue("modelName");
+                            if (!string.IsNullOrEmpty(transformName))
+                            {
+                                fxTransformNames.Add(transformName);
+                                fxModelNames.Add(modelName ?? "");
+
+                                // Parse emission and speed curves from the first entry
+                                if (emissionCurve == null)
+                                {
+                                    ConfigNode emNode = mmpNodes[mp].GetNode("emission");
+                                    if (emNode != null)
+                                    {
+                                        emissionCurve = new FloatCurve();
+                                        emissionCurve.Load(emNode);
+                                    }
+                                    ConfigNode spNode = mmpNodes[mp].GetNode("speed");
+                                    if (spNode != null)
+                                    {
+                                        speedCurve = new FloatCurve();
+                                        speedCurve.Load(spNode);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Scan for PREFAB_PARTICLE (used by Spark, Twitch, Pug, Juno, Wheesley, Goliath)
+                    for (int g = 0; g < effectGroups.Length; g++)
+                    {
+                        ConfigNode[] ppNodes = effectGroups[g].GetNodes("PREFAB_PARTICLE");
+                        for (int pp = 0; pp < ppNodes.Length; pp++)
+                        {
+                            string prefabName = ppNodes[pp].GetValue("prefabName");
+                            string transformName = ppNodes[pp].GetValue("transformName");
+                            if (string.IsNullOrEmpty(prefabName) || string.IsNullOrEmpty(transformName))
+                                continue;
+
+                            // Skip flameout/engage/disengage prefabs — only want running FX
+                            string lower = prefabName.ToLowerInvariant();
+                            if (lower.Contains("flameout") || lower.Contains("sparks") || lower.Contains("debris"))
+                                continue;
+
+                            prefabFxNames.Add(prefabName);
+                            prefabTransformNames.Add(transformName);
+                        }
+                    }
+                }
+
+                if (fxTransformNames.Count == 0 && prefabFxNames.Count == 0)
+                {
+                    // No EFFECTS node, or EFFECTS has no particle entries (e.g. Mainsail: AUDIO only).
+                    // Fall through to legacy fx_* child search.
                     // Only process once per part — legacy FX are shared, not per-module.
                     if (moduleIndex > 0)
                     {
@@ -1617,60 +1688,10 @@ namespace Parsek
                     continue;
                 }
 
-                // Scan all effect groups for MODEL_MULTI_PARTICLE entries.
-                // We can't reliably filter by runningEffectName from a prefab context,
-                // so we collect all particle FX from the EFFECTS node.
-                var fxTransformNames = new List<string>();
-                var fxModelNames = new List<string>();
-                FloatCurve emissionCurve = null;
-                FloatCurve speedCurve = null;
-
-                ConfigNode[] effectGroups = effectsNode.GetNodes();
-
-                for (int g = 0; g < effectGroups.Length; g++)
-                {
-                    ConfigNode[] mmpNodes = effectGroups[g].GetNodes("MODEL_MULTI_PARTICLE_PERSIST");
-                    if (mmpNodes.Length == 0)
-                        mmpNodes = effectGroups[g].GetNodes("MODEL_MULTI_PARTICLE");
-
-                    for (int mp = 0; mp < mmpNodes.Length; mp++)
-                    {
-                        string transformName = mmpNodes[mp].GetValue("transformName");
-                        string modelName = mmpNodes[mp].GetValue("modelName");
-                        if (!string.IsNullOrEmpty(transformName))
-                        {
-                            fxTransformNames.Add(transformName);
-                            fxModelNames.Add(modelName ?? "");
-
-                            // Parse emission and speed curves from the first entry
-                            if (emissionCurve == null)
-                            {
-                                ConfigNode emNode = mmpNodes[mp].GetNode("emission");
-                                if (emNode != null)
-                                {
-                                    emissionCurve = new FloatCurve();
-                                    emissionCurve.Load(emNode);
-                                }
-                                ConfigNode spNode = mmpNodes[mp].GetNode("speed");
-                                if (spNode != null)
-                                {
-                                    speedCurve = new FloatCurve();
-                                    speedCurve.Load(spNode);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (fxTransformNames.Count == 0)
-                {
-                    ParsekLog.Log($"    Engine '{partName}' midx={moduleIndex}: no FX transforms found in EFFECTS");
-                    continue;
-                }
-
                 info.emissionCurve = emissionCurve;
                 info.speedCurve = speedCurve;
 
+                // Process MODEL_MULTI_PARTICLE entries
                 for (int f = 0; f < fxTransformNames.Count; f++)
                 {
                     string transformName = fxTransformNames[f];
@@ -1726,6 +1747,67 @@ namespace Parsek
                             {
                                 ParsekLog.Log($"    Engine FX model not found: '{modelName}' for '{partName}'");
                             }
+                        }
+                    }
+                }
+
+                // Process PREFAB_PARTICLE entries (Spark, Twitch, Pug, Juno, Wheesley, Goliath)
+                for (int f = 0; f < prefabFxNames.Count; f++)
+                {
+                    string prefabName = prefabFxNames[f];
+                    string transformName = prefabTransformNames[f];
+
+                    // Load the Unity prefab by resource name
+                    GameObject fxPrefab = Resources.Load<GameObject>(prefabName);
+                    if (fxPrefab == null)
+                    {
+                        ParsekLog.Log($"    Engine FX prefab not found: '{prefabName}' for '{partName}'");
+                        continue;
+                    }
+
+                    // Find the attachment transform(s) on the part
+                    var fxTransforms = FindTransformsRecursive(prefab.transform, transformName);
+                    for (int t = 0; t < fxTransforms.Count; t++)
+                    {
+                        Transform srcFxTransform = fxTransforms[t];
+
+                        // Same transform chain mirroring as MODEL_MULTI_PARTICLE
+                        Transform ghostFxParent;
+                        bool isUnderModel = IsDescendantOf(srcFxTransform, modelRoot);
+                        if (isUnderModel)
+                        {
+                            ghostFxParent = MirrorTransformChain(srcFxTransform, modelRoot, ghostModelNode, cloneMap);
+                        }
+                        else
+                        {
+                            GameObject fxHolder = new GameObject(srcFxTransform.name);
+                            fxHolder.transform.SetParent(ghostModelNode, false);
+                            fxHolder.transform.localPosition = srcFxTransform.localPosition;
+                            fxHolder.transform.localRotation = srcFxTransform.localRotation;
+                            fxHolder.transform.localScale = srcFxTransform.localScale;
+                            ghostFxParent = fxHolder.transform;
+                        }
+
+                        // Clone the prefab
+                        GameObject fxInstance = Object.Instantiate(fxPrefab);
+                        fxInstance.transform.SetParent(ghostFxParent, false);
+                        fxInstance.transform.localPosition = Vector3.zero;
+                        fxInstance.transform.localRotation = Quaternion.identity;
+
+                        // SmokeTrailControl expects real vessel/part state — destroy it on the ghost
+                        var smokeTrail = fxInstance.GetComponent("SmokeTrailControl");
+                        if (smokeTrail != null)
+                            Object.Destroy(smokeTrail);
+
+                        var ps = fxInstance.GetComponentInChildren<ParticleSystem>();
+                        if (ps != null)
+                        {
+                            var emission = ps.emission;
+                            emission.rateOverTimeMultiplier = 0;
+                            ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                            info.particleSystems.Add(ps);
+                            ParsekLog.Log($"    Engine FX (prefab): '{partName}' midx={moduleIndex} " +
+                                $"transform='{transformName}' prefab='{prefabName}'");
                         }
                     }
                 }
