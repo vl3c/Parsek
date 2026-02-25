@@ -548,6 +548,7 @@ namespace Parsek
             DestroyAllTimelineGhosts();
             GhostVisualBuilder.ClearDeployedCanopyCache();
             GhostVisualBuilder.ClearDeployableCache();
+            GhostVisualBuilder.ClearFxPrefabCache();
             GhostVisualBuilder.ClearGearCache();
             GhostVisualBuilder.ClearLadderCache();
             GhostVisualBuilder.ClearCargoBayCache();
