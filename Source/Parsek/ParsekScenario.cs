@@ -185,11 +185,22 @@ namespace Parsek
 
             if (initialLoadDone)
             {
+                // Detect revert vs scene change. On a revert, the quicksave is older:
+                // its epoch is lower (after a prior revert bumped it) or it has fewer
+                // recordings (new ones were committed since launch). On a scene change,
+                // the most recent OnSave wrote the current epoch and recording count.
+                ConfigNode[] savedRecNodes = node.GetNodes("RECORDING");
+                uint savedEpoch = 0;
+                string savedEpochStr = node.GetValue("milestoneEpoch");
+                if (savedEpochStr != null)
+                    uint.TryParse(savedEpochStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out savedEpoch);
+                bool isRevert = savedEpoch < MilestoneStore.CurrentEpoch
+                                || savedRecNodes.Length < recordings.Count;
+
                 // Restore mutable state from save. On revert the launch quicksave has
                 // no spawnedPid / takenControl / lastResIdx, so they naturally reset.
                 // On non-revert scene changes (e.g. tracking station → flight) the
                 // save preserves these, preventing duplicate spawns and ghost replays.
-                ConfigNode[] savedRecNodes = node.GetNodes("RECORDING");
                 for (int i = 0; i < recordings.Count; i++)
                 {
                     recordings[i].VesselSpawned = false;
@@ -217,18 +228,27 @@ namespace Parsek
                     recordings[i].LastAppliedResourceIndex = resIdx;
                 }
 
-                // Restore milestone mutable state from .sfs and increment epoch on revert.
-                // resetUnmatched: true — milestones created after the launch quicksave
-                // (not in the saved state) must be reset to unreplayed (-1).
-                MilestoneStore.RestoreMutableState(node, resetUnmatched: true);
-                MilestoneStore.CurrentEpoch++;
-                Debug.Log($"[Parsek Scenario] Milestone epoch incremented to {MilestoneStore.CurrentEpoch} on revert");
+                if (isRevert)
+                {
+                    // Restore milestone mutable state from .sfs and increment epoch.
+                    // resetUnmatched: true — milestones created after the launch quicksave
+                    // (not in the saved state) must be reset to unreplayed (-1).
+                    MilestoneStore.RestoreMutableState(node, resetUnmatched: true);
+                    MilestoneStore.CurrentEpoch++;
+                    Debug.Log($"[Parsek Scenario] Milestone epoch incremented to {MilestoneStore.CurrentEpoch} on revert");
 
-                // Schedule committed resource deduction (singletons may not be ready yet)
-                StartCoroutine(ApplyBudgetDeductionWhenReady());
+                    // Schedule committed resource deduction (singletons may not be ready yet)
+                    StartCoroutine(ApplyBudgetDeductionWhenReady());
+                }
+                else
+                {
+                    // Scene change — restore milestone state without resetting unmatched.
+                    MilestoneStore.RestoreMutableState(node);
+                    Debug.Log("[Parsek Scenario] Scene change — milestone state restored");
+                }
 
                 ReserveSnapshotCrew();
-                Debug.Log($"[Parsek Scenario] Revert detected — preserving {recordings.Count} session recordings");
+                Debug.Log($"[Parsek Scenario] {(isRevert ? "Revert" : "Scene change")} — preserving {recordings.Count} session recordings");
                 return;
             }
 
@@ -395,12 +415,13 @@ namespace Parsek
         /// </summary>
         private IEnumerator ApplyBudgetDeductionWhenReady()
         {
-            // Wait until singletons are available (may take a few frames after scene load)
+            // Wait until ALL resource singletons are available (may take a few frames
+            // after scene load). Use || so we wait while ANY singleton is still null.
             int maxWait = 120; // ~2 seconds at 60fps
             while (maxWait-- > 0
-                   && Funding.Instance == null
-                   && ResearchAndDevelopment.Instance == null
-                   && Reputation.Instance == null)
+                   && (Funding.Instance == null
+                       || ResearchAndDevelopment.Instance == null
+                       || Reputation.Instance == null))
                 yield return null;
 
             if (budgetDeductionEpoch >= MilestoneStore.CurrentEpoch)
@@ -449,8 +470,31 @@ namespace Parsek
                 GameStateRecorder.SuppressResourceEvents = false;
             }
 
+            // Mark all recordings as fully applied so that:
+            // 1. ResourceBudget.ComputeTotal returns 0 reserved (deduction already covers it)
+            // 2. Ghost replay doesn't re-apply resource deltas (avoiding double-subtraction)
+            // 3. The UI correctly shows current funds as available (no second subtraction)
+            var recordings = RecordingStore.CommittedRecordings;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                if (recordings[i].Points.Count > 0 && recordings[i].LastAppliedResourceIndex < recordings[i].Points.Count - 1)
+                {
+                    recordings[i].LastAppliedResourceIndex = recordings[i].Points.Count - 1;
+                }
+            }
+
+            // Mark all milestones as fully replayed (deduction already covers their costs)
+            var milestones = MilestoneStore.Milestones;
+            for (int i = 0; i < milestones.Count; i++)
+            {
+                if (milestones[i].Events.Count > 0 && milestones[i].LastReplayedEventIndex < milestones[i].Events.Count - 1)
+                {
+                    milestones[i].LastReplayedEventIndex = milestones[i].Events.Count - 1;
+                }
+            }
+
             Debug.Log("[Parsek Scenario] Budget deduction applied for epoch " +
-                MilestoneStore.CurrentEpoch);
+                MilestoneStore.CurrentEpoch + " — recordings and milestones marked as fully applied");
         }
 
         #endregion
