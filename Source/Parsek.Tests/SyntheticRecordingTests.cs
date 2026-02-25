@@ -575,8 +575,7 @@ namespace Parsek.Tests
             double t = baseUT + 30;
             ShowcasePosition(rowIndex, distanceFromPadMeters, out double lat, out double lon, out double alt,
                 rowOffsetMeters, distanceOffsetMeters);
-            if (onEvent == PartEventType.ShroudJettisoned && offEvent == PartEventType.ShroudJettisoned)
-                alt += ShroudShowcaseAltitudeOffsetMeters;
+            alt += ShowcaseAltitudeOffset(partName);
 
             var b = new RecordingBuilder(vesselName)
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
@@ -643,6 +642,7 @@ namespace Parsek.Tests
 
             double t = baseUT + 30;
             ShowcasePosition(rowIndex, distanceFromPadMeters, out double lat, out double lon, out double alt);
+            alt += ShowcaseAltitudeOffset(partName);
 
             var b = new RecordingBuilder(vesselName)
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
@@ -684,8 +684,295 @@ namespace Parsek.Tests
         private const double ShowcaseLineSpacingMeters = 20.0;
         // Keep showcases close to the launchpad centerline without overlapping pad geometry.
         private const double ShowcaseDistanceFromPadMeters = 200.0;
-        // Shroud-jettison showcase parts include tall engine plates and engines that clip at base altitude.
-        private const double ShroudShowcaseAltitudeOffsetMeters = 12.0;
+        // Target top height (meters above KSC ground level). Every part's top is placed at
+        // this height. With Clydesdale (topY=10.8, total ~22.3m) the bottom sits ~5.7m
+        // above ground. Small parts float at ~28m — fine at 200m viewing distance.
+        private const double ShowcaseTargetTopHeight = 28.0;
+
+        // Maps partName -> topY (meters above part origin, from node_stack_top Y or visual
+        // estimate). Used to compute per-part altitude offset for top-aligned showcase layout.
+        // Surface-attach-only parts (lights, control surfaces, RCS, etc.) use 0.0.
+        private static readonly Dictionary<string, double> ShowcasePartTopY = new Dictionary<string, double>
+        {
+            // ── Lights (surface-attach) ──
+            { "domeLight1", 0.0 },
+            { "navLight1", 0.0 },
+            { "stripLight1", 0.0 },
+            { "spotLight3", 0.0 },
+            { "groundLight1", 0.0 },
+            { "groundLight2", 0.0 },
+            { "spotLight1", 0.0 },
+            { "spotLight1_v2", 0.0 },
+            { "spotLight2", 0.0 },
+            { "spotLight2_v2", 0.0 },
+
+            // ── Solar panels / Antennas / Radiator (surface-attach or radial) ──
+            { "solarPanels4", 0.0 },
+            { "largeSolarPanel", 0.0 },
+            { "LgRadialSolarPanel", 0.0 },
+            { "solarPanelOX10C", 0.0 },
+            { "solarPanelOX10L", 0.0 },
+            { "solarPanels1", 0.0 },
+            { "solarPanels2", 0.0 },
+            { "solarPanels3", 0.0 },
+            { "solarPanels5", 0.0 },
+            { "solarPanelSP10C", 0.0 },
+            { "solarPanelSP10L", 0.0 },
+            { "longAntenna", 0.0 },
+            { "commDish", 0.0 },
+            { "HighGainAntenna", 0.0 },
+            { "HighGainAntenna5", 0.0 },
+            { "HighGainAntenna5.v2", 0.0 },
+            { "mediumDishAntenna", 0.0 },
+            { "foldingRadSmall", 0.0 },
+            { "foldingRadMed", 0.0 },
+            { "foldingRadLarge", 0.0 },
+
+            // ── Landing gear (surface-attach) ──
+            { "SmallGearBay", 0.0 },
+            { "GearSmall", 0.0 },
+            { "GearMedium", 0.0 },
+            { "GearLarge", 0.0 },
+
+            // ── Landing legs (surface-attach) ──
+            { "landingLeg1", 0.0 },
+            { "landingLeg1-2", 0.0 },
+            { "miniLandingLeg", 0.0 },
+
+            // ── Service bays / Cargo bays ──
+            { "ServiceBay.125.v2", 0.3 },
+            { "ServiceBay.250.v2", 0.65 },
+            { "ServiceModule18", 0.75 },
+            { "ServiceModule25", 1.55 },
+            { "Size1to0ServiceModule", 0.3125 },
+            { "mk2CargoBayS", 0.9375 },
+            { "mk2CargoBayL", 1.875 },
+            { "mk3CargoBayS", 1.25 },
+            { "mk3CargoBayM", 2.5 },
+            { "mk3CargoBayL", 5.0 },
+            { "mk3CargoRamp", 3.0 },
+
+            // ── Engines (EngineShowcaseRecordings — shroud jettison + flame) ──
+            { "liquidEngineMainsail.v2", 1.01359 },
+            { "engineLargeSkipper.v2", 1.013 },
+            { "SSME", 0.0 },
+
+            // ── Ladders (surface-attach) ──
+            { "telescopicLadder", 0.0 },
+            { "telescopicLadderBay", 0.0 },
+
+            // ── RCS (surface-attach) ──
+            { "RCSBlock.v2", 0.0 },
+            { "RCSblock.01.small", 0.0 },
+            { "RCSLinearSmall", 0.0 },
+            { "linearRcs", 0.0 },
+            { "vernierEngine", 0.0 },
+
+            // ── Fairings ──
+            { "fairingSize1", 0.22 },
+            { "fairingSize1p5", 0.22 },
+            { "fairingSize2", 0.22 },
+            { "fairingSize3", 0.22 },
+            { "fairingSize4", 0.22 },
+
+            // ── Drills (surface-attach / radial) ──
+            { "MiniDrill", 0.0 },
+            { "RadialDrill", 0.0 },
+
+            // ── Deployed science (surface-attach) ──
+            { "DeployedCentralStation", 0.0 },
+            { "DeployedGoExOb", 0.0 },
+            { "DeployedIONExp", 0.0 },
+            { "DeployedRTG", 0.0 },
+            { "DeployedSatDish", 0.0 },
+            { "DeployedSeismicSensor", 0.0 },
+            { "DeployedSolarPanel", 0.0 },
+            { "DeployedWeatherStn", 0.0 },
+
+            // ── Animation group / Survey / Anchor ──
+            { "groundAnchor", 0.12236 },
+            { "SurveyScanner", 0.0 },
+
+            // ── Parachutes (surface-attach / radial) ──
+            { "parachuteSingle", 0.0 },
+            { "parachuteRadial", 0.0 },
+            { "parachuteDrogue", 0.0 },
+            { "radialDrogue", 0.0 },
+            { "parachuteLarge", 0.0 },
+
+            // ── Special deploy animations ──
+            { "roverWheelM1-F", 0.0 },
+            { "GooExperiment", 0.0 },
+            { "science_module", 0.49 },
+            { "Magnetometer", 0.0 },
+            { "InflatableHeatShield", 1.4 },       // Inverted nodes: real top is node_stack_bottom Y
+            { "InflatableAirlock", 0.0 },
+            { "dockingPort1", 0.0 },
+            { "dockingPortLateral", 0.5753132 },
+            { "GrapplingDevice", 0.0 },             // node_stack_top Y is negative; treat as 0.0
+            { "smallClaw", 0.0 },                    // node_stack_top Y is negative; treat as 0.0
+            { "mk2DockingPort", 0.625 },
+            { "mk2LanderCabin_v2", 0.751929 },
+
+            // ── Jets (part showcase, non-flame) ──
+            { "JetEngine", 0.972875 },
+            { "turboFanSize2", 2.0 },
+
+            // ── Robotics ──
+            { "hinge.01", 0.3125 },
+            { "hinge.01.s", 0.10348 },
+            { "hinge.03", 0.0 },                    // Negative node_stack_top; treat as 0.0
+            { "hinge.03.s", 0.0 },                  // Negative node_stack_top; treat as 0.0
+            { "hinge.04", 0.0 },                    // Negative node_stack_top; treat as 0.0
+            { "piston.01", 1.30408 },
+            { "piston.02", 0.643867 },
+            { "piston.03", 1.32439 },
+            { "piston.04", 0.662193 },
+            { "rotoServo.00", 0.21796 },
+            { "rotoServo.02", 0.21796 },
+            { "rotoServo.03", 0.62483 },
+            { "rotoServo.04", 0.9375 },
+            { "rotor.01", 0.415 },
+            { "rotor.01s", 0.343347 },
+            { "rotor.02", 0.42 },
+            { "rotor.02s", 0.42 },
+            { "rotor.03", 1.25 },
+            { "rotor.03s", 0.955512 },
+            { "RotorEngine.02", 0.415 },
+            { "RotorEngine.03", 0.415 },
+
+            // ── Airbrake (surface-attach) ──
+            { "airbrake1", 0.0 },
+
+            // ── Robot arm scanners (surface-attach) ──
+            { "RobotArmScanner_S1", 0.0 },
+            { "RobotArmScanner_S2", 0.0 },
+            { "RobotArmScanner_S3", 0.0 },
+
+            // ── Control surfaces (surface-attach) ──
+            { "AdvancedCanard", 0.0 },
+            { "airlinerCtrlSrf", 0.0 },
+            { "airlinerTailFin", 0.0 },
+            { "CanardController", 0.0 },
+            { "elevon2", 0.0 },
+            { "elevon3", 0.0 },
+            { "elevon5", 0.0 },
+            { "largeFanBlade", 0.0 },
+            { "largeHeliBlade", 0.0 },
+            { "largePropeller", 0.0 },
+            { "mediumFanBlade", 0.0 },
+            { "mediumHeliBlade", 0.0 },
+            { "mediumPropeller", 0.0 },
+            { "R8winglet", 0.0 },
+            { "smallCtrlSrf", 0.0 },
+            { "smallFanBlade", 0.0 },
+            { "smallHeliBlade", 0.0 },
+            { "smallPropeller", 0.0 },
+            { "StandardCtrlSrf", 0.0 },
+            { "tailfin", 0.0 },
+            { "winglet3", 0.0 },
+            { "wingShuttleElevon1", 0.0 },
+            { "wingShuttleElevon2", 0.0 },
+            { "wingShuttleRudder", 0.0 },
+
+            // ── Wheel dynamics (surface-attach) ──
+            { "GearFixed", 0.0 },
+            { "GearFree", 0.0 },
+            { "roverWheel1", 0.0 },
+            { "roverWheel2", 0.0 },
+            { "roverWheel3", 0.0 },
+            { "wheelMed", 0.0 },
+
+            // ── AnimateHeat parts ──
+            { "airplaneTail", 0.0 },
+            { "airplaneTailB", 0.0 },
+            { "avionicsNoseCone", 0.0 },
+            { "CircularIntake", 0.0 },
+            { "MK1IntakeFuselage", 0.9375 },
+            { "nacelleBody", 0.9375 },
+            { "noseConeAdapter", 1.125 },
+            { "pointyNoseConeA", 0.0 },
+            { "pointyNoseConeB", 0.0 },
+            { "radialEngineBody", 0.9375 },
+            { "ramAirIntake", 0.0 },
+            { "shockConeIntake", 0.0 },
+            { "standardNoseCone", 0.0 },
+
+            // ── Jettison coverage: engine plates ──
+            { "EnginePlate1p5", 0.15 },
+            { "EnginePlate2", 0.2 },
+            { "EnginePlate3", 0.3 },
+            { "EnginePlate4", 0.4 },
+            { "EnginePlate5", 0.1 },
+
+            // ── Jettison coverage: heat shields ──
+            { "HeatShield1", 0.022 },
+            { "HeatShield2", 0.034 },
+            { "HeatShield3", 0.25 },
+            { "HeatShield1p5", 0.125 },
+
+            // ── Jettison coverage: engines (v1 / v2 / MH) ──
+            { "liquidEngine", 0.721461 },           // scale=0.1 applied
+            { "liquidEngine.v2", 0.0 },
+            { "liquidEngine2", 0.721461 },           // scale=0.1 applied
+            { "liquidEngine2.v2", 0.0 },
+            { "liquidEngine2-2.v2", 0.0 },
+            { "liquidEngine3.v2", 0.0 },
+            { "liquidEngineMini.v2", 0.0 },
+            { "nuclearEngine", 1.40383 },
+            { "toroidalAerospike", 0.0 },
+            { "Mite", 0.874462 },
+            { "Shrimp", 1.98582 },
+            { "solidBooster.sm.v2", 0.7575 },
+            { "solidBooster.v2", 1.2818375 },
+            { "Size3AdvancedEngine", 1.487975 },
+            { "LiquidEngineKE-1", 0.8 },
+            { "LiquidEngineLV-T91", 0.84028 },
+            { "LiquidEngineLV-TX87", 0.76784 },
+            { "LiquidEngineRE-I2", 1.80521 },
+            { "LiquidEngineRE-J10", 0.361067 },
+            { "LiquidEngineRK-7", 0.75 },
+
+            // ── Engine flame showcase: additional liquid engines ──
+            { "microEngine.v2", 0.0 },
+            { "radialEngineMini.v2", 0.0 },
+            { "smallRadialEngine", 0.0 },
+            { "smallRadialEngine.v2", 0.0 },
+            { "radialLiquidEngine1-2", 0.0 },
+            { "omsEngine", 0.0 },
+            { "Size2LFB.v2", 4.356 },
+            { "Size3EngineCluster", 1.527248 },
+            { "LiquidEngineRV-1", 0.0 },
+            { "RAPIER", 0.741545 },
+
+            // ── SRB flame showcase: additional SRBs ──
+            { "solidBooster1-1", 3.92 },
+            { "MassiveBooster", 7.429159 },
+            { "Thoroughbred", 6.14614 },
+            { "Clydesdale", 10.8 },
+            { "Pollux", 7.83746 },
+            { "sepMotor1", 0.0 },
+
+            // ── Jet flame showcase ──
+            { "miniJetEngine", 0.0 },
+            { "turboFanEngine", 1.4 },
+            { "turboJet", 0.0 },
+            { "ionEngine", 0.2135562 },
+
+            // ── Inventory placement (kerbalEVA companion, not offset) ──
+            // DeployedWeatherStn already listed above.
+        };
+
+        /// <summary>
+        /// Returns the altitude offset (meters above base altitude) so the part's top aligns
+        /// with <see cref="ShowcaseTargetTopHeight"/> above KSC ground level.
+        /// </summary>
+        private static double ShowcaseAltitudeOffset(string partName)
+        {
+            if (ShowcasePartTopY.TryGetValue(partName, out double topY))
+                return ShowcaseTargetTopHeight - topY;
+            return ShowcaseTargetTopHeight; // fallback: assume origin is at top
+        }
 
         /// <summary>
         /// Computes lat/lon/alt for a showcase row, splitting rows across two parallel lines.
@@ -718,6 +1005,7 @@ namespace Parsek.Tests
         {
             double t = baseUT + 30;
             ShowcasePosition(rowIndex, ShowcaseDistanceFromPadMeters, out double lat, out double lon, out double alt);
+            alt += ShowcaseAltitudeOffset(lightPartName);
 
             var b = new RecordingBuilder(vesselName)
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
@@ -754,11 +1042,11 @@ namespace Parsek.Tests
         /// </summary>
         private static RecordingBuilder BuildEngineFlameShowcaseRecording(
             double baseUT, string vesselName, string enginePartName, int rowIndex,
-            uint pidBase, double altitudeOffsetMeters = 0.0)
+            uint pidBase)
         {
             double t = baseUT + 30;
             ShowcasePosition(rowIndex, ShowcaseDistanceFromPadMeters, out double lat, out double lon, out double alt);
-            alt += altitudeOffsetMeters;
+            alt += ShowcaseAltitudeOffset(enginePartName);
 
             var b = new RecordingBuilder(vesselName)
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
@@ -794,11 +1082,11 @@ namespace Parsek.Tests
         /// </summary>
         private static RecordingBuilder BuildSrbFlameShowcaseRecording(
             double baseUT, string vesselName, string srbPartName, int rowIndex,
-            uint pidBase, double altitudeOffsetMeters = 0.0)
+            uint pidBase)
         {
             double t = baseUT + 30;
             ShowcasePosition(rowIndex, ShowcaseDistanceFromPadMeters, out double lat, out double lon, out double alt);
-            alt += altitudeOffsetMeters;
+            alt += ShowcaseAltitudeOffset(srbPartName);
 
             var b = new RecordingBuilder(vesselName)
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
@@ -1528,7 +1816,7 @@ namespace Parsek.Tests
                 BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame LV-T30 v2", "liquidEngine.v2", 192, pidBase),
                 BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame LV-T45", "liquidEngine2", 193, pidBase),
                 BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame LV-T45 v2", "liquidEngine2.v2", 194, pidBase),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Poodle", "liquidEngine2-2.v2", 195, pidBase, altitudeOffsetMeters: 5.0),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Poodle", "liquidEngine2-2.v2", 195, pidBase),
                 BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Terrier", "liquidEngine3.v2", 196, pidBase),
                 BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Spark", "liquidEngineMini.v2", 197, pidBase),
                 BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Ant", "microEngine.v2", 198, pidBase),
@@ -1539,35 +1827,35 @@ namespace Parsek.Tests
                 BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame NERV", "nuclearEngine", 203, pidBase),
                 BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Aerospike", "toroidalAerospike", 204, pidBase),
                 BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Cub", "omsEngine", 205, pidBase),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Skipper", "engineLargeSkipper.v2", 206, pidBase, altitudeOffsetMeters: 8.0),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Twin-Boar", "Size2LFB.v2", 207, pidBase, altitudeOffsetMeters: 8.0),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Mammoth", "Size3EngineCluster", 208, pidBase, altitudeOffsetMeters: 10.0),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Vector", "Size3AdvancedEngine", 209, pidBase, altitudeOffsetMeters: 8.0),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Kodiak", "LiquidEngineKE-1", 210, pidBase, altitudeOffsetMeters: 5.0),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Cheetah", "LiquidEngineLV-T91", 211, pidBase, altitudeOffsetMeters: 5.0),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Wolfhound", "LiquidEngineLV-TX87", 212, pidBase, altitudeOffsetMeters: 5.0),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Skipper", "engineLargeSkipper.v2", 206, pidBase),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Twin-Boar", "Size2LFB.v2", 207, pidBase),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Mammoth", "Size3EngineCluster", 208, pidBase),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Vector", "Size3AdvancedEngine", 209, pidBase),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Kodiak", "LiquidEngineKE-1", 210, pidBase),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Cheetah", "LiquidEngineLV-T91", 211, pidBase),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Wolfhound", "LiquidEngineLV-TX87", 212, pidBase),
                 BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Bobcat", "LiquidEngineRE-I2", 213, pidBase),
                 BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Skiff", "LiquidEngineRE-J10", 214, pidBase),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Mastodon", "LiquidEngineRK-7", 215, pidBase, altitudeOffsetMeters: 10.0),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Mastodon", "LiquidEngineRK-7", 215, pidBase),
                 BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Pug", "LiquidEngineRV-1", 216, pidBase),
                 BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame RAPIER", "RAPIER", 217, pidBase),
                 // Solid boosters (rows 218-227) — simple ignite/burnout cycle
                 BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Flea", "solidBooster.sm.v2", 218, pidBase),
                 BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Hammer", "solidBooster.v2", 219, pidBase),
-                BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Thumper", "solidBooster1-1", 220, pidBase, altitudeOffsetMeters: 15.0),
-                BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Kickback", "MassiveBooster", 221, pidBase, altitudeOffsetMeters: 15.0),
+                BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Thumper", "solidBooster1-1", 220, pidBase),
+                BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Kickback", "MassiveBooster", 221, pidBase),
                 BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Mite", "Mite", 222, pidBase),
                 BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Shrimp", "Shrimp", 223, pidBase),
                 BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Thoroughbred", "Thoroughbred", 224, pidBase),
-                BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Clydesdale", "Clydesdale", 225, pidBase, altitudeOffsetMeters: 15.0),
-                BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Pollux", "Pollux", 226, pidBase, altitudeOffsetMeters: 15.0),
+                BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Clydesdale", "Clydesdale", 225, pidBase),
+                BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Pollux", "Pollux", 226, pidBase),
                 BuildSrbFlameShowcaseRecording(baseUT, "Part Showcase - Flame Sepatron", "sepMotor1", 227, pidBase),
                 // Jet engines (rows 228-232) — throttle-varying cycle
                 BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Juno", "miniJetEngine", 228, pidBase),
                 BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Wheesley", "JetEngine", 229, pidBase),
                 BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Whiplash", "turboFanEngine", 230, pidBase),
                 BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Panther", "turboJet", 231, pidBase),
-                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Goliath", "turboFanSize2", 232, pidBase, altitudeOffsetMeters: 8.0),
+                BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Goliath", "turboFanSize2", 232, pidBase),
                 // Special (row 233)
                 BuildEngineFlameShowcaseRecording(baseUT, "Part Showcase - Flame Ion", "ionEngine", 233, pidBase)
             };
@@ -1576,10 +1864,10 @@ namespace Parsek.Tests
         internal static RecordingBuilder InventoryPlacementShowcaseRecording(double baseUT = 0)
         {
             const int rowIndex = ShowcaseRowCount - 1;
+            const string partName = "DeployedWeatherStn";
             double t = baseUT + 30;
             ShowcasePosition(rowIndex, ShowcaseDistanceFromPadMeters, out double lat, out double lon, out double alt);
-
-            const string partName = "DeployedWeatherStn";
+            alt += ShowcaseAltitudeOffset(partName);
             var b = new RecordingBuilder("Part Showcase - Inventory Placement")
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
                 .WithLoopPlayback(loop: true, pauseSeconds: 0.0);
