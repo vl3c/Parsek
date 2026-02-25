@@ -236,12 +236,19 @@ namespace Parsek
             GUILayout.Space(5);
             GUILayout.Label("Resources", GUI.skin.box);
 
+            bool anyOverCommitted = false;
+
             if (budget.reservedFunds > 0)
             {
                 double currentFunds = 0;
                 try { if (Funding.Instance != null) currentFunds = Funding.Instance.Funds; } catch { }
                 double available = currentFunds - budget.reservedFunds;
+                bool over = available < 0;
+                if (over) anyOverCommitted = true;
+                Color prev = GUI.contentColor;
+                if (over) GUI.contentColor = Color.red;
                 GUILayout.Label($"Funds: {available.ToString("N0", ic)} available ({budget.reservedFunds.ToString("N0", ic)} committed)");
+                GUI.contentColor = prev;
             }
 
             if (budget.reservedScience > 0)
@@ -249,7 +256,12 @@ namespace Parsek
                 double currentScience = 0;
                 try { if (ResearchAndDevelopment.Instance != null) currentScience = ResearchAndDevelopment.Instance.Science; } catch { }
                 double available = currentScience - budget.reservedScience;
+                bool over = available < 0;
+                if (over) anyOverCommitted = true;
+                Color prev = GUI.contentColor;
+                if (over) GUI.contentColor = Color.red;
                 GUILayout.Label($"Science: {available.ToString("F1", ic)} available ({budget.reservedScience.ToString("F1", ic)} committed)");
+                GUI.contentColor = prev;
             }
 
             if (budget.reservedReputation > 0)
@@ -257,7 +269,20 @@ namespace Parsek
                 float currentRep = 0;
                 try { if (Reputation.Instance != null) currentRep = Reputation.Instance.reputation; } catch { }
                 double available = currentRep - budget.reservedReputation;
+                bool over = available < 0;
+                if (over) anyOverCommitted = true;
+                Color prev = GUI.contentColor;
+                if (over) GUI.contentColor = Color.red;
                 GUILayout.Label($"Reputation: {available.ToString("F0", ic)} available ({budget.reservedReputation.ToString("F0", ic)} committed)");
+                GUI.contentColor = prev;
+            }
+
+            if (anyOverCommitted)
+            {
+                Color prev = GUI.contentColor;
+                GUI.contentColor = Color.yellow;
+                GUILayout.Label("Over-committed! Some timeline actions may fail.");
+                GUI.contentColor = prev;
             }
         }
 
