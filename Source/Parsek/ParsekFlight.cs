@@ -2432,7 +2432,6 @@ namespace Parsek
                 if (ps == null) continue;
 
                 var emission = ps.emission;
-                var renderer = ps.GetComponent<ParticleSystemRenderer>();
                 if (power > 0f)
                 {
                     emission.enabled = true;
@@ -2443,7 +2442,7 @@ namespace Parsek
                     float spd = info.speedCurve != null ? info.speedCurve.Evaluate(power) : power * 10f;
                     main.startSpeedMultiplier = spd;
 
-                    if (renderer != null) renderer.enabled = true;
+                    SetParticleRenderersEnabled(ps, true);
                     if (!ps.isPlaying) ps.Play();
                 }
                 else
@@ -2451,8 +2450,21 @@ namespace Parsek
                     emission.rateOverTimeMultiplier = 0;
                     ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                     ps.Clear(true);
-                    if (renderer != null) renderer.enabled = false;
+                    SetParticleRenderersEnabled(ps, false);
                 }
+            }
+        }
+
+        static void SetParticleRenderersEnabled(ParticleSystem ps, bool enabled)
+        {
+            if (ps == null)
+                return;
+
+            ParticleSystemRenderer[] renderers = ps.GetComponentsInChildren<ParticleSystemRenderer>(true);
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                if (renderers[i] != null)
+                    renderers[i].enabled = enabled;
             }
         }
 

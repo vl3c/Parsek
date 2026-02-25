@@ -148,6 +148,16 @@ namespace Parsek
                 { "fx_smokeTrail_veryLarge", new[] { "fx_smokeTrail_large", "fx_smokeTrail_light" } },
                 { "fx_smokeTrail_aeroSpike", new[] { "fx_smokeTrail_light", "fx_smokeTrail_large" } }
             };
+        private static readonly Dictionary<string, Vector3> fxModelRotationFallbackEuler =
+            new Dictionary<string, Vector3>(System.StringComparer.OrdinalIgnoreCase)
+            {
+                // These stock model FX are authored with implicit -90deg X orientation in KSP's
+                // runtime FX pipeline when localRotation is omitted in EFFECTS config.
+                { "Squad/FX/Monoprop_small", new Vector3(-90f, 0f, 0f) },
+                { "Squad/FX/Monoprop_medium", new Vector3(-90f, 0f, 0f) },
+                { "Squad/FX/shockExhaust_blue_small", new Vector3(-90f, 0f, 0f) },
+                { "Squad/FX/shockExhaust_red_small", new Vector3(-90f, 0f, 0f) }
+            };
 
         /// <summary>
         /// Find a KSP fx_* prefab by name. These exist as children of legacy part
@@ -699,6 +709,51 @@ namespace Parsek
             return true;
         }
 
+        internal static bool TryParseFxLocalRotation(string value, out Quaternion result)
+        {
+            result = Quaternion.identity;
+            if (string.IsNullOrEmpty(value))
+                return false;
+
+            string[] parts = value.Split(',');
+            if (parts.Length == 3)
+            {
+                if (!TryParseVector3(value, out Vector3 euler))
+                    return false;
+                result = Quaternion.Euler(euler);
+                return true;
+            }
+
+            if (parts.Length >= 4 &&
+                float.TryParse(parts[0].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float ax) &&
+                float.TryParse(parts[1].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float ay) &&
+                float.TryParse(parts[2].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float az) &&
+                float.TryParse(parts[3].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float angle))
+            {
+                Vector3 axis = new Vector3(ax, ay, az);
+                result = axis.sqrMagnitude > 0.0001f
+                    ? Quaternion.AngleAxis(angle, axis)
+                    : Quaternion.identity;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryGetFxModelFallbackRotation(string modelName, out Quaternion result)
+        {
+            result = Quaternion.identity;
+            if (string.IsNullOrEmpty(modelName))
+                return false;
+
+            string normalized = modelName.Trim();
+            if (!fxModelRotationFallbackEuler.TryGetValue(normalized, out Vector3 fallbackEuler))
+                return false;
+
+            result = Quaternion.Euler(fallbackEuler);
+            return true;
+        }
+
         internal static string GetPartPositionRaw(ConfigNode partNode)
         {
             if (partNode == null) return null;
@@ -902,9 +957,12 @@ namespace Parsek
                 ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                 ps.Clear(true);
 
-                var renderer = ps.GetComponent<ParticleSystemRenderer>();
-                if (renderer != null)
-                    renderer.enabled = false;
+                ParticleSystemRenderer[] renderers = ps.GetComponentsInChildren<ParticleSystemRenderer>(true);
+                for (int r = 0; r < renderers.Length; r++)
+                {
+                    if (renderers[r] != null)
+                        renderers[r].enabled = false;
+                }
 
                 sink.Add(ps);
                 added++;
@@ -1879,21 +1937,15 @@ namespace Parsek
                                         mmpOffsetStr = modelNodes[mp].GetValue("localOffset");
                                     TryParseVector3(mmpOffsetStr, out mmpLocalPos);
 
-                                    // Parse localRotation (axis-angle x,y,z,angle)
                                     Quaternion mmpLocalRot = Quaternion.identity;
                                     string mmpRotStr = modelNodes[mp].GetValue("localRotation");
-                                    if (!string.IsNullOrEmpty(mmpRotStr))
+                                    if (!TryParseFxLocalRotation(mmpRotStr, out mmpLocalRot))
                                     {
-                                        string[] rp = mmpRotStr.Split(',');
-                                        if (rp.Length >= 4 &&
-                                            float.TryParse(rp[0].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float rx) &&
-                                            float.TryParse(rp[1].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float ry) &&
-                                            float.TryParse(rp[2].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float rz) &&
-                                            float.TryParse(rp[3].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float angle))
+                                        // Some stock model FX rely on implicit orientation when
+                                        // localRotation is omitted from EFFECTS config.
+                                        if (TryGetFxModelFallbackRotation(modelName, out mmpLocalRot))
                                         {
-                                            var axis = new Vector3(rx, ry, rz);
-                                            if (axis.sqrMagnitude > 0.0001f)
-                                                mmpLocalRot = Quaternion.AngleAxis(angle, axis);
+                                            ParsekLog.Log($"    Engine FX model rotation fallback: '{modelName}' euler={mmpLocalRot.eulerAngles}");
                                         }
                                     }
 
@@ -1943,23 +1995,9 @@ namespace Parsek
                                 offsetStr = ppNodes[pp].GetValue("localPosition");
                             TryParseVector3(offsetStr, out localOffset);
 
-                            // Parse localRotation (x,y,z,angle format — axis-angle, not quaternion)
                             Quaternion localRot = Quaternion.identity;
                             string rotStr = ppNodes[pp].GetValue("localRotation");
-                            if (!string.IsNullOrEmpty(rotStr))
-                            {
-                                string[] parts = rotStr.Split(',');
-                                if (parts.Length >= 4 &&
-                                    float.TryParse(parts[0].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float rx) &&
-                                    float.TryParse(parts[1].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float ry) &&
-                                    float.TryParse(parts[2].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float rz) &&
-                                    float.TryParse(parts[3].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float angle))
-                                {
-                                    var axis = new Vector3(rx, ry, rz);
-                                    if (axis.sqrMagnitude > 0.0001f)
-                                        localRot = Quaternion.AngleAxis(angle, axis);
-                                }
-                            }
+                            TryParseFxLocalRotation(rotStr, out localRot);
 
                             prefabFxEntries.Add((prefabName, transformName, localOffset, localRot));
                         }
@@ -2301,8 +2339,7 @@ namespace Parsek
                             localOffset = parsedVector;
                         if (TryParseVector3(mmpNodes[mp].GetValue("localScale"), out parsedVector))
                             localScale = parsedVector;
-                        if (TryParseVector3(mmpNodes[mp].GetValue("localRotation"), out parsedVector))
-                            localRotation = Quaternion.Euler(parsedVector);
+                        TryParseFxLocalRotation(mmpNodes[mp].GetValue("localRotation"), out localRotation);
 
                         fxDefinitions.Add(new FxModelDefinition
                         {
