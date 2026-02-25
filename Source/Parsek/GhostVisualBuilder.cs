@@ -140,6 +140,14 @@ namespace Parsek
         // Cache for PREFAB_PARTICLE fx_* prefabs found on PartLoader part prefabs.
         // Built once from PartLoader.LoadedPartsList (stable prefab templates).
         private static Dictionary<string, GameObject> fxPrefabCache;
+        private static bool fxLoadedObjectScanCompleted;
+        private static readonly Dictionary<string, string[]> fxPrefabFallbacks =
+            new Dictionary<string, string[]>(System.StringComparer.OrdinalIgnoreCase)
+            {
+                { "fx_exhaustFlame_yellow_tiny_Z", new[] { "fx_exhaustFlame_yellow_tiny" } },
+                { "fx_smokeTrail_veryLarge", new[] { "fx_smokeTrail_large", "fx_smokeTrail_light" } },
+                { "fx_smokeTrail_aeroSpike", new[] { "fx_smokeTrail_light", "fx_smokeTrail_large" } }
+            };
 
         /// <summary>
         /// Find a KSP fx_* prefab by name. These exist as children of legacy part
@@ -149,37 +157,154 @@ namespace Parsek
         /// </summary>
         private static GameObject FindFxPrefab(string prefabName)
         {
+            prefabName = NormalizeFxPrefabName(prefabName);
+            if (string.IsNullOrEmpty(prefabName))
+                return null;
+
             if (fxPrefabCache == null)
                 RebuildFxPrefabCache();
 
             GameObject result;
-            if (fxPrefabCache.TryGetValue(prefabName, out result))
+            if (TryGetFxPrefabFromCache(prefabName, out result))
             {
-                // Self-heal: if cached object was destroyed, remove and try rebuild
-                if (result == null)
-                {
-                    fxPrefabCache.Remove(prefabName);
-                    RebuildFxPrefabCache();
-                    fxPrefabCache.TryGetValue(prefabName, out result);
-                }
                 return result;
             }
 
-            // Fallback: some fx_* prefabs (fx_exhaustFlame_yellow_tiny_Z,
-            // fx_smokeTrail_veryLarge, fx_smokeTrail_aeroSpike) are Unity
-            // built-in Resources in resources.assets, not part prefab children.
-            result = Resources.Load<GameObject>(prefabName);
+            result = TryResolveFxPrefabExact(prefabName);
             if (result != null)
             {
                 fxPrefabCache[prefabName] = result;
-                ParsekLog.Log($"  FX prefab loaded from Resources: '{prefabName}'");
+                return result;
             }
-            return result;
+
+            if (fxPrefabFallbacks.TryGetValue(prefabName, out string[] fallbackNames))
+            {
+                for (int i = 0; i < fallbackNames.Length; i++)
+                {
+                    string fallbackName = NormalizeFxPrefabName(fallbackNames[i]);
+                    if (string.IsNullOrEmpty(fallbackName) ||
+                        string.Equals(fallbackName, prefabName, System.StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    if (!TryGetFxPrefabFromCache(fallbackName, out result))
+                    {
+                        result = TryResolveFxPrefabExact(fallbackName);
+                        if (result != null)
+                            fxPrefabCache[fallbackName] = result;
+                    }
+
+                    if (result != null)
+                    {
+                        fxPrefabCache[prefabName] = result;
+                        ParsekLog.Log($"  FX prefab substitution: '{prefabName}' -> '{fallbackName}'");
+                        return result;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        private static string NormalizeFxPrefabName(string rawName)
+        {
+            if (string.IsNullOrEmpty(rawName))
+                return rawName;
+
+            string name = rawName.Trim();
+            if (name.EndsWith("(Clone)"))
+                name = name.Substring(0, name.Length - 7);
+            return name;
+        }
+
+        private static bool TryGetFxPrefabFromCache(string prefabName, out GameObject result)
+        {
+            result = null;
+            if (fxPrefabCache == null)
+                return false;
+
+            if (!fxPrefabCache.TryGetValue(prefabName, out result))
+                return false;
+
+            // Self-heal: if cached object was destroyed, remove and rebuild.
+            if (result == null)
+            {
+                fxPrefabCache.Remove(prefabName);
+                RebuildFxPrefabCache();
+                return fxPrefabCache.TryGetValue(prefabName, out result) && result != null;
+            }
+
+            return true;
+        }
+
+        private static GameObject TryResolveFxPrefabExact(string prefabName)
+        {
+            string[] resourcePaths = { prefabName, $"FX/{prefabName}", $"fx/{prefabName}" };
+            for (int i = 0; i < resourcePaths.Length; i++)
+            {
+                string resourcePath = resourcePaths[i];
+                GameObject result = Resources.Load<GameObject>(resourcePath);
+                if (result != null)
+                {
+                    ParsekLog.Log($"  FX prefab loaded from Resources: '{prefabName}' (path='{resourcePath}')");
+                    return result;
+                }
+            }
+
+            GameObject modelPrefab = GameDatabase.Instance != null
+                ? GameDatabase.Instance.GetModelPrefab(prefabName)
+                : null;
+            if (modelPrefab != null)
+            {
+                ParsekLog.Log($"  FX prefab loaded from GameDatabase model: '{prefabName}'");
+                return modelPrefab;
+            }
+
+            PopulateFxPrefabCacheFromLoadedObjects();
+            if (TryGetFxPrefabFromCache(prefabName, out GameObject cached))
+            {
+                ParsekLog.Log($"  FX prefab resolved from loaded objects: '{prefabName}'");
+                return cached;
+            }
+
+            return null;
+        }
+
+        private static void PopulateFxPrefabCacheFromLoadedObjects()
+        {
+            if (fxLoadedObjectScanCompleted)
+                return;
+
+            fxLoadedObjectScanCompleted = true;
+            if (fxPrefabCache == null)
+                fxPrefabCache = new Dictionary<string, GameObject>(System.StringComparer.OrdinalIgnoreCase);
+
+            GameObject[] loadedObjects = Resources.FindObjectsOfTypeAll<GameObject>();
+            int added = 0;
+            for (int i = 0; i < loadedObjects.Length; i++)
+            {
+                GameObject go = loadedObjects[i];
+                if (go == null)
+                    continue;
+
+                string name = NormalizeFxPrefabName(go.name);
+                if (string.IsNullOrEmpty(name) || !name.StartsWith("fx_"))
+                    continue;
+                if (fxPrefabCache.ContainsKey(name))
+                    continue;
+                if (go.GetComponentInChildren<ParticleSystem>(true) == null)
+                    continue;
+
+                fxPrefabCache[name] = go;
+                added++;
+            }
+
+            ParsekLog.Log($"  FX prefab cache extended from loaded objects: +{added} entries");
         }
 
         private static void RebuildFxPrefabCache()
         {
-            fxPrefabCache = new Dictionary<string, GameObject>();
+            fxPrefabCache = new Dictionary<string, GameObject>(System.StringComparer.OrdinalIgnoreCase);
+            fxLoadedObjectScanCompleted = false;
             if (PartLoader.LoadedPartsList == null) return;
 
             for (int p = 0; p < PartLoader.LoadedPartsList.Count; p++)
@@ -190,10 +315,7 @@ namespace Parsek
                 for (int c = 0; c < prefab.transform.childCount; c++)
                 {
                     Transform child = prefab.transform.GetChild(c);
-                    string name = child.name;
-                    // Strip "(Clone)" suffix if present
-                    if (name.EndsWith("(Clone)"))
-                        name = name.Substring(0, name.Length - 7);
+                    string name = NormalizeFxPrefabName(child.name);
                     if (name.StartsWith("fx_") && !fxPrefabCache.ContainsKey(name)
                         && child.GetComponentInChildren<ParticleSystem>() != null)
                     {
@@ -208,6 +330,7 @@ namespace Parsek
         internal static void ClearFxPrefabCache()
         {
             fxPrefabCache = null;
+            fxLoadedObjectScanCompleted = false;
         }
 
         internal static GameObject BuildTimelineGhostFromSnapshot(
@@ -699,6 +822,59 @@ namespace Parsek
             }
 
             return parent;
+        }
+
+        private static Transform ResolveGhostFxParent(
+            Transform srcFxTransform, Transform prefabRoot, Transform modelRoot,
+            Transform ghostModelNode, Dictionary<Transform, Transform> cloneMap)
+        {
+            if (srcFxTransform == null || ghostModelNode == null)
+                return null;
+
+            if (IsDescendantOf(srcFxTransform, modelRoot))
+                return MirrorTransformChain(srcFxTransform, modelRoot, ghostModelNode, cloneMap);
+
+            Transform ghostPartRoot = ghostModelNode.parent != null ? ghostModelNode.parent : ghostModelNode;
+            if (prefabRoot != null && IsDescendantOf(srcFxTransform, prefabRoot))
+                return MirrorTransformChain(srcFxTransform, prefabRoot, ghostPartRoot, cloneMap);
+
+            // Last-resort fallback for unexpected hierarchy shapes.
+            GameObject fxHolder = new GameObject(srcFxTransform.name);
+            fxHolder.transform.SetParent(ghostModelNode, false);
+            fxHolder.transform.localPosition = srcFxTransform.localPosition;
+            fxHolder.transform.localRotation = srcFxTransform.localRotation;
+            fxHolder.transform.localScale = srcFxTransform.localScale;
+            return fxHolder.transform;
+        }
+
+        private static void LogFxParentAlignmentDiagnostic(
+            string partName, int moduleIndex, string fxKind, string transformName,
+            Transform prefabRoot, Transform ghostModelNode,
+            Transform srcFxTransform, Transform ghostFxParent)
+        {
+            if (prefabRoot == null || ghostModelNode == null ||
+                srcFxTransform == null || ghostFxParent == null)
+                return;
+
+            Transform ghostPartRoot = ghostModelNode.parent != null ? ghostModelNode.parent : ghostModelNode;
+
+            Vector3 srcPartLocalPos = prefabRoot.InverseTransformPoint(srcFxTransform.position);
+            Vector3 ghostPartLocalPos = ghostPartRoot.InverseTransformPoint(ghostFxParent.position);
+            Vector3 deltaPos = ghostPartLocalPos - srcPartLocalPos;
+
+            Quaternion srcPartLocalRot = Quaternion.Inverse(prefabRoot.rotation) * srcFxTransform.rotation;
+            Quaternion ghostPartLocalRot = Quaternion.Inverse(ghostPartRoot.rotation) * ghostFxParent.rotation;
+            float deltaRot = Quaternion.Angle(srcPartLocalRot, ghostPartLocalRot);
+
+            bool alwaysLog = !string.IsNullOrEmpty(partName) &&
+                string.Equals(partName, "omsEngine", System.StringComparison.OrdinalIgnoreCase);
+            if (!alwaysLog && deltaPos.sqrMagnitude < 0.000001f && deltaRot < 0.05f)
+                return;
+
+            ParsekLog.Log($"    [DIAG] FX align '{partName}' midx={moduleIndex} type={fxKind} transform='{transformName}' " +
+                $"srcWorld={srcFxTransform.position} ghostWorld={ghostFxParent.position} " +
+                $"srcPartLocal={srcPartLocalPos} ghostPartLocal={ghostPartLocalPos} " +
+                $"deltaPos={deltaPos} deltaRot={deltaRot:F3}");
         }
 
         /// <summary>
@@ -1818,24 +1994,17 @@ namespace Parsek
                     {
                         Transform srcFxTransform = fxTransforms[t];
 
-                        // Clone the FX transform chain into the ghost
-                        Transform ghostFxParent;
-                        // Check if the FX transform is under modelRoot (common case)
-                        bool isUnderModel = IsDescendantOf(srcFxTransform, modelRoot);
-                        if (isUnderModel)
+                        Transform ghostFxParent = ResolveGhostFxParent(
+                            srcFxTransform, prefab.transform, modelRoot, ghostModelNode, cloneMap);
+                        if (ghostFxParent == null)
                         {
-                            ghostFxParent = MirrorTransformChain(srcFxTransform, modelRoot, ghostModelNode, cloneMap);
+                            ParsekLog.Log($"    Engine FX: '{partName}' midx={moduleIndex} " +
+                                $"transform='{transformName}' parent resolution failed");
+                            continue;
                         }
-                        else
-                        {
-                            // FX transform is outside model subtree — create under ghost model node directly
-                            GameObject fxHolder = new GameObject(srcFxTransform.name);
-                            fxHolder.transform.SetParent(ghostModelNode, false);
-                            fxHolder.transform.localPosition = srcFxTransform.localPosition;
-                            fxHolder.transform.localRotation = srcFxTransform.localRotation;
-                            fxHolder.transform.localScale = srcFxTransform.localScale;
-                            ghostFxParent = fxHolder.transform;
-                        }
+                        LogFxParentAlignmentDiagnostic(
+                            partName, moduleIndex, "MODEL_MULTI_PARTICLE", transformName,
+                            prefab.transform, ghostModelNode, srcFxTransform, ghostFxParent);
 
                         // Instantiate FX model prefab if available
                         if (!string.IsNullOrEmpty(modelName))
@@ -1871,7 +2040,7 @@ namespace Parsek
                 {
                     var (prefabName, transformName, localOffset, localRot) = prefabFxEntries[f];
 
-                    // Find the fx_* prefab in memory (children of legacy parts, not Unity Resources)
+                    // Resolve the fx_* prefab (cache, Resources, loaded objects, then substitutions).
                     GameObject fxPrefab = FindFxPrefab(prefabName);
                     if (fxPrefab == null)
                     {
@@ -1891,22 +2060,17 @@ namespace Parsek
                     {
                         Transform srcFxTransform = fxTransforms[t];
 
-                        // Same transform chain mirroring as MODEL_MULTI_PARTICLE
-                        Transform ghostFxParent;
-                        bool isUnderModel = IsDescendantOf(srcFxTransform, modelRoot);
-                        if (isUnderModel)
+                        Transform ghostFxParent = ResolveGhostFxParent(
+                            srcFxTransform, prefab.transform, modelRoot, ghostModelNode, cloneMap);
+                        if (ghostFxParent == null)
                         {
-                            ghostFxParent = MirrorTransformChain(srcFxTransform, modelRoot, ghostModelNode, cloneMap);
+                            ParsekLog.Log($"    Engine FX (prefab): '{partName}' midx={moduleIndex} " +
+                                $"transform='{transformName}' parent resolution failed");
+                            continue;
                         }
-                        else
-                        {
-                            GameObject fxHolder = new GameObject(srcFxTransform.name);
-                            fxHolder.transform.SetParent(ghostModelNode, false);
-                            fxHolder.transform.localPosition = srcFxTransform.localPosition;
-                            fxHolder.transform.localRotation = srcFxTransform.localRotation;
-                            fxHolder.transform.localScale = srcFxTransform.localScale;
-                            ghostFxParent = fxHolder.transform;
-                        }
+                        LogFxParentAlignmentDiagnostic(
+                            partName, moduleIndex, "PREFAB_PARTICLE", transformName,
+                            prefab.transform, ghostModelNode, srcFxTransform, ghostFxParent);
 
                         // Clone the prefab and apply localOffset/localRotation from config
                         GameObject fxInstance = Object.Instantiate(fxPrefab);
@@ -2085,21 +2249,17 @@ namespace Parsek
                     {
                         Transform srcFxTransform = fxTransforms[t];
 
-                        Transform ghostFxParent;
-                        bool isUnderModel = IsDescendantOf(srcFxTransform, modelRoot);
-                        if (isUnderModel)
+                        Transform ghostFxParent = ResolveGhostFxParent(
+                            srcFxTransform, prefab.transform, modelRoot, ghostModelNode, cloneMap);
+                        if (ghostFxParent == null)
                         {
-                            ghostFxParent = MirrorTransformChain(srcFxTransform, modelRoot, ghostModelNode, cloneMap);
+                            ParsekLog.Log($"    RCS '{partName}' midx={moduleIndex}: " +
+                                $"transform='{transformName}' parent resolution failed");
+                            continue;
                         }
-                        else
-                        {
-                            GameObject fxHolder = new GameObject(srcFxTransform.name);
-                            fxHolder.transform.SetParent(ghostModelNode, false);
-                            fxHolder.transform.localPosition = srcFxTransform.localPosition;
-                            fxHolder.transform.localRotation = srcFxTransform.localRotation;
-                            fxHolder.transform.localScale = srcFxTransform.localScale;
-                            ghostFxParent = fxHolder.transform;
-                        }
+                        LogFxParentAlignmentDiagnostic(
+                            partName, moduleIndex, "RCS_MODEL_MULTI_PARTICLE", transformName,
+                            prefab.transform, ghostModelNode, srcFxTransform, ghostFxParent);
 
                         if (!string.IsNullOrEmpty(modelName))
                         {
