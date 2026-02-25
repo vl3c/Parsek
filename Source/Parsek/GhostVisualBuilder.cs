@@ -162,6 +162,17 @@ namespace Parsek
                     RebuildFxPrefabCache();
                     fxPrefabCache.TryGetValue(prefabName, out result);
                 }
+                return result;
+            }
+
+            // Fallback: some fx_* prefabs (fx_exhaustFlame_yellow_tiny_Z,
+            // fx_smokeTrail_veryLarge, fx_smokeTrail_aeroSpike) are Unity
+            // built-in Resources in resources.assets, not part prefab children.
+            result = Resources.Load<GameObject>(prefabName);
+            if (result != null)
+            {
+                fxPrefabCache[prefabName] = result;
+                ParsekLog.Log($"  FX prefab loaded from Resources: '{prefabName}'");
             }
             return result;
         }
