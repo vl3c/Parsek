@@ -137,6 +137,42 @@ namespace Parsek
         private static readonly Color HeatTintColor = new Color(1f, 0.45f, 0.2f, 1f);
         private static readonly Color HeatEmissionColor = new Color(1.5f, 0.6f, 0.15f, 1f);
 
+        // Cache for PREFAB_PARTICLE fx_* prefabs found via FindObjectsOfTypeAll.
+        // Built once per scene (cleared on scene change or when empty).
+        private static Dictionary<string, GameObject> fxPrefabCache;
+
+        /// <summary>
+        /// Find a KSP fx_* prefab by name. These exist as children of legacy parts
+        /// (e.g., fx_exhaustFlame_blue(Clone) on liquidEngine) but are NOT Unity Resources.
+        /// We scan all GameObjects in memory once and cache the results.
+        /// </summary>
+        private static GameObject FindFxPrefab(string prefabName)
+        {
+            if (fxPrefabCache == null)
+            {
+                fxPrefabCache = new Dictionary<string, GameObject>();
+                var allObjects = Resources.FindObjectsOfTypeAll<GameObject>();
+                for (int i = 0; i < allObjects.Length; i++)
+                {
+                    string name = allObjects[i].name;
+                    // Strip "(Clone)" suffix if present
+                    if (name.EndsWith("(Clone)"))
+                        name = name.Substring(0, name.Length - 7);
+                    // Only cache fx_* objects that have a ParticleSystem
+                    if (name.StartsWith("fx_") && !fxPrefabCache.ContainsKey(name)
+                        && allObjects[i].GetComponentInChildren<ParticleSystem>() != null)
+                    {
+                        fxPrefabCache[name] = allObjects[i];
+                    }
+                }
+                ParsekLog.Log($"  FX prefab cache built: {fxPrefabCache.Count} entries");
+            }
+
+            GameObject result;
+            fxPrefabCache.TryGetValue(prefabName, out result);
+            return result;
+        }
+
         internal static GameObject BuildTimelineGhostFromSnapshot(
             RecordingStore.Recording rec, string rootName,
             out List<ParachuteGhostInfo> parachuteInfos,
@@ -1566,8 +1602,7 @@ namespace Parsek
                 // Scan EFFECTS for particle FX entries (MODEL_MULTI_PARTICLE and PREFAB_PARTICLE)
                 var fxTransformNames = new List<string>();
                 var fxModelNames = new List<string>();
-                var prefabFxNames = new List<string>();
-                var prefabTransformNames = new List<string>();
+                var prefabFxEntries = new List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation)>();
                 FloatCurve emissionCurve = null;
                 FloatCurve speedCurve = null;
 
@@ -1627,13 +1662,39 @@ namespace Parsek
                             if (lower.Contains("flameout") || lower.Contains("sparks") || lower.Contains("debris"))
                                 continue;
 
-                            prefabFxNames.Add(prefabName);
-                            prefabTransformNames.Add(transformName);
+                            // Parse localOffset (comma-separated x,y,z)
+                            Vector3 localOffset = Vector3.zero;
+                            string offsetStr = ppNodes[pp].GetValue("localOffset");
+                            if (!string.IsNullOrEmpty(offsetStr))
+                            {
+                                string[] parts = offsetStr.Split(',');
+                                if (parts.Length >= 3 &&
+                                    float.TryParse(parts[0].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float ox) &&
+                                    float.TryParse(parts[1].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float oy) &&
+                                    float.TryParse(parts[2].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float oz))
+                                    localOffset = new Vector3(ox, oy, oz);
+                            }
+
+                            // Parse localRotation (x,y,z,angle format — axis-angle, not quaternion)
+                            Quaternion localRot = Quaternion.identity;
+                            string rotStr = ppNodes[pp].GetValue("localRotation");
+                            if (!string.IsNullOrEmpty(rotStr))
+                            {
+                                string[] parts = rotStr.Split(',');
+                                if (parts.Length >= 4 &&
+                                    float.TryParse(parts[0].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float rx) &&
+                                    float.TryParse(parts[1].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float ry) &&
+                                    float.TryParse(parts[2].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float rz) &&
+                                    float.TryParse(parts[3].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float angle))
+                                    localRot = Quaternion.AngleAxis(angle, new Vector3(rx, ry, rz));
+                            }
+
+                            prefabFxEntries.Add((prefabName, transformName, localOffset, localRot));
                         }
                     }
                 }
 
-                if (fxTransformNames.Count == 0 && prefabFxNames.Count == 0)
+                if (fxTransformNames.Count == 0 && prefabFxEntries.Count == 0)
                 {
                     // No EFFECTS node, or EFFECTS has no particle entries (e.g. Mainsail: AUDIO only).
                     // Fall through to legacy fx_* child search.
@@ -1752,13 +1813,12 @@ namespace Parsek
                 }
 
                 // Process PREFAB_PARTICLE entries (Spark, Twitch, Pug, Juno, Wheesley, Goliath)
-                for (int f = 0; f < prefabFxNames.Count; f++)
+                for (int f = 0; f < prefabFxEntries.Count; f++)
                 {
-                    string prefabName = prefabFxNames[f];
-                    string transformName = prefabTransformNames[f];
+                    var (prefabName, transformName, localOffset, localRot) = prefabFxEntries[f];
 
-                    // Load the Unity prefab by resource name
-                    GameObject fxPrefab = Resources.Load<GameObject>(prefabName);
+                    // Find the fx_* prefab in memory (children of legacy parts, not Unity Resources)
+                    GameObject fxPrefab = FindFxPrefab(prefabName);
                     if (fxPrefab == null)
                     {
                         ParsekLog.Log($"    Engine FX prefab not found: '{prefabName}' for '{partName}'");
@@ -1788,11 +1848,11 @@ namespace Parsek
                             ghostFxParent = fxHolder.transform;
                         }
 
-                        // Clone the prefab
+                        // Clone the prefab and apply localOffset/localRotation from config
                         GameObject fxInstance = Object.Instantiate(fxPrefab);
                         fxInstance.transform.SetParent(ghostFxParent, false);
-                        fxInstance.transform.localPosition = Vector3.zero;
-                        fxInstance.transform.localRotation = Quaternion.identity;
+                        fxInstance.transform.localPosition = localOffset;
+                        fxInstance.transform.localRotation = localRot;
 
                         // SmokeTrailControl expects real vessel/part state — destroy it on the ghost
                         var smokeTrail = fxInstance.GetComponent("SmokeTrailControl");
