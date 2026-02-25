@@ -1637,8 +1637,7 @@ namespace Parsek
                 ConfigNode effectsNode = partConfig.GetNode("EFFECTS");
 
                 // Scan EFFECTS for particle FX entries (MODEL_MULTI_PARTICLE and PREFAB_PARTICLE)
-                var fxTransformNames = new List<string>();
-                var fxModelNames = new List<string>();
+                var mmpEntries = new List<(string transformName, string modelName, Vector3 localPos, Quaternion localRot)>();
                 var prefabFxEntries = new List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation)>();
                 FloatCurve emissionCurve = null;
                 FloatCurve speedCurve = null;
@@ -1660,8 +1659,29 @@ namespace Parsek
                             string modelName = mmpNodes[mp].GetValue("modelName");
                             if (!string.IsNullOrEmpty(transformName))
                             {
-                                fxTransformNames.Add(transformName);
-                                fxModelNames.Add(modelName ?? "");
+                                // Parse localPosition from config
+                                Vector3 mmpLocalPos = Vector3.zero;
+                                TryParseVector3(mmpNodes[mp].GetValue("localPosition"), out mmpLocalPos);
+
+                                // Parse localRotation (axis-angle x,y,z,angle)
+                                Quaternion mmpLocalRot = Quaternion.identity;
+                                string mmpRotStr = mmpNodes[mp].GetValue("localRotation");
+                                if (!string.IsNullOrEmpty(mmpRotStr))
+                                {
+                                    string[] rp = mmpRotStr.Split(',');
+                                    if (rp.Length >= 4 &&
+                                        float.TryParse(rp[0].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float rx) &&
+                                        float.TryParse(rp[1].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float ry) &&
+                                        float.TryParse(rp[2].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float rz) &&
+                                        float.TryParse(rp[3].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float angle))
+                                    {
+                                        var axis = new Vector3(rx, ry, rz);
+                                        if (axis.sqrMagnitude > 0.0001f)
+                                            mmpLocalRot = Quaternion.AngleAxis(angle, axis);
+                                    }
+                                }
+
+                                mmpEntries.Add((transformName, modelName ?? "", mmpLocalPos, mmpLocalRot));
 
                                 // Parse emission and speed curves from the first entry
                                 if (emissionCurve == null)
@@ -1699,18 +1719,12 @@ namespace Parsek
                             if (lower.Contains("flameout") || lower.Contains("sparks") || lower.Contains("debris"))
                                 continue;
 
-                            // Parse localOffset (comma-separated x,y,z)
+                            // Parse localOffset or localPosition (comma-separated x,y,z)
                             Vector3 localOffset = Vector3.zero;
                             string offsetStr = ppNodes[pp].GetValue("localOffset");
-                            if (!string.IsNullOrEmpty(offsetStr))
-                            {
-                                string[] parts = offsetStr.Split(',');
-                                if (parts.Length >= 3 &&
-                                    float.TryParse(parts[0].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float ox) &&
-                                    float.TryParse(parts[1].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float oy) &&
-                                    float.TryParse(parts[2].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float oz))
-                                    localOffset = new Vector3(ox, oy, oz);
-                            }
+                            if (string.IsNullOrEmpty(offsetStr))
+                                offsetStr = ppNodes[pp].GetValue("localPosition");
+                            TryParseVector3(offsetStr, out localOffset);
 
                             // Parse localRotation (x,y,z,angle format — axis-angle, not quaternion)
                             Quaternion localRot = Quaternion.identity;
@@ -1735,7 +1749,7 @@ namespace Parsek
                     }
                 }
 
-                if (fxTransformNames.Count == 0 && prefabFxEntries.Count == 0)
+                if (mmpEntries.Count == 0 && prefabFxEntries.Count == 0)
                 {
                     // No EFFECTS node, or EFFECTS has no particle entries (e.g. Mainsail: AUDIO only).
                     // Fall through to legacy fx_* child search.
@@ -1794,10 +1808,9 @@ namespace Parsek
                 info.speedCurve = speedCurve;
 
                 // Process MODEL_MULTI_PARTICLE entries
-                for (int f = 0; f < fxTransformNames.Count; f++)
+                for (int f = 0; f < mmpEntries.Count; f++)
                 {
-                    string transformName = fxTransformNames[f];
-                    string modelName = fxModelNames[f];
+                    var (transformName, modelName, mmpLocalPos, mmpLocalRot) = mmpEntries[f];
 
                     // Find matching transform(s) in prefab — may be multiple (multi-nozzle engines)
                     var fxTransforms = FindTransformsRecursive(prefab.transform, transformName);
@@ -1832,8 +1845,8 @@ namespace Parsek
                             {
                                 GameObject fxInstance = Object.Instantiate(fxPrefab);
                                 fxInstance.transform.SetParent(ghostFxParent, false);
-                                fxInstance.transform.localPosition = Vector3.zero;
-                                fxInstance.transform.localRotation = Quaternion.identity;
+                                fxInstance.transform.localPosition = mmpLocalPos;
+                                fxInstance.transform.localRotation = mmpLocalRot;
 
                                 var ps = fxInstance.GetComponentInChildren<ParticleSystem>();
                                 if (ps != null)
