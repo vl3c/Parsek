@@ -12,7 +12,11 @@ namespace Parsek
         /// </summary>
         internal static void CaptureStub(RecordingStore.Recording rec, Vessel vesselAtCapture)
         {
-            if (rec == null) return;
+            if (rec == null)
+            {
+                ParsekLog.Warn("GhostGeometry", "CaptureStub called with null recording");
+                return;
+            }
 
             rec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
             rec.GhostGeometryVersion = RecordingStore.CurrentGhostGeometryVersion;
@@ -35,6 +39,9 @@ namespace Parsek
                 }
             }
             rec.GhostGeometryProbeStatus = DetermineProbeStatus(vesselLoaded, partCount, missingTransforms);
+            ParsekLog.Verbose("GhostGeometry",
+                $"Probe status for '{rec.VesselName}' id={rec.RecordingId}: {rec.GhostGeometryProbeStatus} " +
+                $"(vesselLoaded={vesselLoaded}, partCount={partCount}, missingTransforms={missingTransforms})");
 
             try
             {
@@ -42,6 +49,8 @@ namespace Parsek
                 if (string.IsNullOrEmpty(absolutePath))
                 {
                     rec.GhostGeometryCaptureError = "no_save_context";
+                    ParsekLog.Warn("GhostGeometry",
+                        $"Stub capture skipped for '{rec.VesselName}' id={rec.RecordingId}: no save context");
                     return;
                 }
                 string dir = Path.GetDirectoryName(absolutePath);
@@ -60,11 +69,15 @@ namespace Parsek
                 node.AddValue("capturedUT", Planetarium.GetUniversalTime().ToString("R"));
                 node.AddValue("vesselName", vesselAtCapture != null ? vesselAtCapture.vesselName : rec.VesselName);
                 node.Save(absolutePath);
+                ParsekLog.Info("GhostGeometry",
+                    $"Stub capture wrote '{absolutePath}' for '{rec.VesselName}' id={rec.RecordingId} " +
+                    $"probe={rec.GhostGeometryProbeStatus}");
             }
             catch (Exception ex)
             {
                 rec.GhostGeometryCaptureError = $"stub_write_failed:{ex.GetType().Name}";
-                ParsekLog.Log($"Ghost geometry stub write failed for '{rec.VesselName}': {ex.Message}");
+                ParsekLog.Error("GhostGeometry",
+                    $"Stub capture write failed for '{rec.VesselName}' id={rec.RecordingId}: {ex.Message}");
             }
         }
 
