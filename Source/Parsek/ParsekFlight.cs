@@ -2425,6 +2425,8 @@ namespace Parsek
             ulong key = FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex);
             EngineGhostInfo info;
             if (!state.engineInfos.TryGetValue(key, out info)) return;
+            bool logKickback =
+                string.Equals(evt.partName, "MassiveBooster", StringComparison.OrdinalIgnoreCase);
 
             for (int i = 0; i < info.particleSystems.Count; i++)
             {
@@ -2451,6 +2453,17 @@ namespace Parsek
                     ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                     ps.Clear(true);
                     SetParticleRenderersEnabled(ps, false);
+                }
+
+                if (logKickback)
+                {
+                    Transform t = ps.transform;
+                    string parentName = t != null && t.parent != null ? t.parent.name : "<none>";
+                    var main = ps.main;
+                    ParsekLog.Log($"Kickback emission diag: power={power:F2} pid={evt.partPersistentId} midx={evt.moduleIndex} " +
+                        $"ps='{ps.name}' parent='{parentName}' localRot={t.localRotation.eulerAngles} " +
+                        $"worldFwd={t.forward} worldUp={t.up} rate={emission.rateOverTimeMultiplier:F2} " +
+                        $"speed={main.startSpeedMultiplier:F2} playing={ps.isPlaying}");
                 }
             }
         }

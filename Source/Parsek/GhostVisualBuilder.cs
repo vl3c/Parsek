@@ -2070,95 +2070,62 @@ namespace Parsek
                     }
                 }
 
-                // Kickback uses model FX + smoke prefab; add a Thumper-style flame prefab fallback.
+                // Kickback: force Thumper-style FX so smoke/flame match solidBooster1-1 visuals.
+                // This avoids the stock veryLarge/large smoke prefab orientation mismatch.
                 bool isKickback =
                     string.Equals(partName, "MassiveBooster", System.StringComparison.OrdinalIgnoreCase);
                 if (isKickback)
                 {
-                    string kickbackSmokeTransform = "smokePoint";
-                    Vector3 kickbackSmokeOffset = new Vector3(0f, 0f, 1f);
-                    Quaternion kickbackSmokeRotation = Quaternion.identity;
-                    bool kickbackSmokeHasLocalRotation = false;
-                    bool copiedSmokeAnchor = false;
+                    int removedKickbackModelFx = modelFxEntries.Count;
+                    modelFxEntries.Clear();
 
-                    bool replacedSmokePrefab = false;
+                    int removedKickbackPrefabs = 0;
                     for (int i = prefabFxEntries.Count - 1; i >= 0; i--)
                     {
                         string existingPrefab = NormalizeFxPrefabName(prefabFxEntries[i].prefabName);
-                        if (existingPrefab != null &&
-                            existingPrefab.IndexOf("smoketrail", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                        if (existingPrefab == null)
+                            continue;
+
+                        if (existingPrefab.IndexOf("smoketrail", System.StringComparison.OrdinalIgnoreCase) >= 0)
                         {
-                            if (!copiedSmokeAnchor)
-                            {
-                                kickbackSmokeTransform = prefabFxEntries[i].transformName;
-                                kickbackSmokeOffset = prefabFxEntries[i].localOffset;
-                                kickbackSmokeRotation = prefabFxEntries[i].localRotation;
-                                kickbackSmokeHasLocalRotation = prefabFxEntries[i].hasLocalRotation;
-                                copiedSmokeAnchor = true;
-                            }
                             prefabFxEntries.RemoveAt(i);
-                            replacedSmokePrefab = true;
+                            removedKickbackPrefabs++;
+                            continue;
                         }
-                    }
 
-                    if (!copiedSmokeAnchor)
-                    {
-                        if (FindTransformsRecursive(prefab.transform, kickbackSmokeTransform).Count == 0)
+                        if (existingPrefab.IndexOf("exhaustflame", System.StringComparison.OrdinalIgnoreCase) >= 0)
                         {
-                            if (FindTransformsRecursive(prefab.transform, "thrustTransform").Count > 0)
-                            {
-                                kickbackSmokeTransform = "thrustTransform";
-                                kickbackSmokeOffset = engine != null ? engine.fxOffset : Vector3.zero;
-                            }
-                            else if (engine != null && !string.IsNullOrEmpty(engine.thrustVectorTransformName))
-                            {
-                                kickbackSmokeTransform = engine.thrustVectorTransformName;
-                                kickbackSmokeOffset = engine.fxOffset;
-                            }
+                            prefabFxEntries.RemoveAt(i);
+                            removedKickbackPrefabs++;
                         }
                     }
 
-                    prefabFxEntries.Add(("fx_smokeTrail_medium", kickbackSmokeTransform, kickbackSmokeOffset, kickbackSmokeRotation, kickbackSmokeHasLocalRotation));
+                    string kickbackTransform = "thrustTransform";
+                    if (engine != null && !string.IsNullOrEmpty(engine.thrustVectorTransformName))
+                        kickbackTransform = engine.thrustVectorTransformName;
+                    if (FindTransformsRecursive(prefab.transform, kickbackTransform).Count == 0)
+                    {
+                        if (FindTransformsRecursive(prefab.transform, "thrustTransform").Count > 0)
+                            kickbackTransform = "thrustTransform";
+                        else if (FindTransformsRecursive(prefab.transform, "smokePoint").Count > 0)
+                            kickbackTransform = "smokePoint";
+                        else if (FindTransformsRecursive(prefab.transform, "fxPoint").Count > 0)
+                            kickbackTransform = "fxPoint";
+                    }
+
+                    Vector3 kickbackOffset = engine != null ? engine.fxOffset : new Vector3(0f, 0f, 0.35f);
+                    if (kickbackOffset.sqrMagnitude <= 0.000001f)
+                        kickbackOffset = new Vector3(0f, 0f, 0.35f);
+                    Quaternion kickbackThumperLocalRot = Quaternion.Euler(-90f, 0f, 0f);
+
+                    prefabFxEntries.Add(("fx_smokeTrail_medium",
+                        kickbackTransform, kickbackOffset, kickbackThumperLocalRot, true));
+                    prefabFxEntries.Add(("fx_exhaustFlame_yellow",
+                        kickbackTransform, kickbackOffset, kickbackThumperLocalRot, true));
                     ParsekLog.Log($"    Engine FX fallback: '{partName}' midx={moduleIndex} " +
-                        $"{(replacedSmokePrefab ? "replaced smoke with" : "added")} Thumper smoke prefab on '{kickbackSmokeTransform}' " +
-                        $"offset={kickbackSmokeOffset} rot={kickbackSmokeRotation.eulerAngles}");
-
-                    bool hasFlamePrefab = false;
-                    for (int i = 0; i < prefabFxEntries.Count; i++)
-                    {
-                        string existingPrefab = NormalizeFxPrefabName(prefabFxEntries[i].prefabName);
-                        if (existingPrefab != null && existingPrefab.IndexOf("exhaustflame", System.StringComparison.OrdinalIgnoreCase) >= 0)
-                        {
-                            hasFlamePrefab = true;
-                            break;
-                        }
-                    }
-
-                    if (!hasFlamePrefab)
-                    {
-                        string fallbackTransform = "fxPoint";
-                        if (FindTransformsRecursive(prefab.transform, fallbackTransform).Count == 0)
-                        {
-                            if (engine != null && !string.IsNullOrEmpty(engine.thrustVectorTransformName))
-                                fallbackTransform = engine.thrustVectorTransformName;
-                            else if (FindTransformsRecursive(prefab.transform, "thrustTransform").Count > 0)
-                                fallbackTransform = "thrustTransform";
-                        }
-
-                        Vector3 fallbackOffset = Vector3.zero;
-                        for (int i = 0; i < modelFxEntries.Count; i++)
-                        {
-                            if (string.Equals(modelFxEntries[i].transformName, fallbackTransform, System.StringComparison.OrdinalIgnoreCase))
-                            {
-                                fallbackOffset = modelFxEntries[i].localPos;
-                                break;
-                            }
-                        }
-
-                        prefabFxEntries.Add(("fx_exhaustFlame_yellow", fallbackTransform, fallbackOffset, Quaternion.identity, false));
-                        ParsekLog.Log($"    Engine FX fallback: '{partName}' midx={moduleIndex} " +
-                            $"added Thumper plume prefab on '{fallbackTransform}' offset={fallbackOffset}");
-                    }
+                        $"forced Thumper-style plume on '{kickbackTransform}' offset={kickbackOffset} " +
+                        $"rot={kickbackThumperLocalRot.eulerAngles} hasRot=true " +
+                        $"(removed MODEL={removedKickbackModelFx}, PREFAB={removedKickbackPrefabs})");
                 }
 
                 // Puff (omsEngine) often renders only Monoprop_big model FX; add Thud-style blue flame.
