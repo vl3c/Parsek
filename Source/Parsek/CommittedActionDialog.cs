@@ -14,6 +14,10 @@ namespace Parsek
             if (!string.IsNullOrEmpty(resourceDetail))
                 message += "\n\n" + resourceDetail;
 
+            ParsekLog.Info("CommittedAction",
+                $"Blocked action: {actionDescription} — {reason}" +
+                (!string.IsNullOrEmpty(resourceDetail) ? $" ({resourceDetail})" : ""));
+
             PopupDialog.SpawnPopupDialog(
                 new Vector2(0.5f, 0.5f),
                 new Vector2(0.5f, 0.5f),
@@ -27,8 +31,6 @@ namespace Parsek
                 false,
                 HighLogic.UISkin
             );
-
-            ParsekLog.Log("Blocked action: " + actionDescription + " \u2014 " + reason);
         }
     }
 }

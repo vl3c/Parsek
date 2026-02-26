@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using UnityEngine;
 
 namespace Parsek
 {
@@ -12,6 +11,12 @@ namespace Parsek
         private static string lastSaveFolder = null;
 
         internal static bool SuppressLogging = false;
+
+        private static string ShortId(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return "?";
+            return id.Length <= 8 ? id : id.Substring(0, 8);
+        }
 
         internal static IReadOnlyList<Milestone> Milestones => milestones;
         internal static int MilestoneCount => milestones.Count;
@@ -28,21 +33,30 @@ namespace Parsek
                     startUT = milestones[i].EndUT;
             }
 
+            ParsekLog.Verbose("MilestoneStore",
+                $"CreateMilestone: scanning events epoch={epoch}, window UT {startUT:F0}-{currentUT:F0}, recordingId={recordingId ?? "(flush)"}");
+
             var events = GameStateStore.Events;
 
             var filtered = new List<GameStateEvent>();
+            int skippedEpoch = 0, skippedWindow = 0, skippedResource = 0;
             for (int i = 0; i < events.Count; i++)
             {
                 var e = events[i];
-                if (e.epoch != epoch) continue;
-                if (e.ut <= startUT || e.ut > currentUT) continue;
-                if (GameStateStore.IsResourceEvent(e.eventType)) continue;
+                if (e.epoch != epoch) { skippedEpoch++; continue; }
+                if (e.ut <= startUT || e.ut > currentUT) { skippedWindow++; continue; }
+                if (GameStateStore.IsResourceEvent(e.eventType)) { skippedResource++; continue; }
                 filtered.Add(e);
             }
 
+            ParsekLog.Verbose("MilestoneStore",
+                $"CreateMilestone: {events.Count} total events, {filtered.Count} matched, " +
+                $"skipped: epoch={skippedEpoch}, window={skippedWindow}, resource={skippedResource}");
+
             if (filtered.Count == 0)
             {
-                Log($"[Parsek] No game state events for milestone (epoch={epoch}, UT {startUT:F0}-{currentUT:F0}) — skipped");
+                ParsekLog.Verbose("MilestoneStore",
+                    $"No game state events for milestone (epoch={epoch}, UT {startUT:F0}-{currentUT:F0}) — skipped");
                 return null;
             }
 
@@ -61,7 +75,16 @@ namespace Parsek
             };
 
             milestones.Add(milestone);
-            Log($"[Parsek] Milestone created: {filtered.Count} events, UT {startUT:F0}-{currentUT:F0}, epoch={epoch}");
+            ParsekLog.Info("MilestoneStore",
+                $"Milestone created: id={ShortId(milestone.MilestoneId)}, {filtered.Count} events, " +
+                $"UT {startUT:F0}-{currentUT:F0}, epoch={epoch}");
+
+            for (int i = 0; i < filtered.Count; i++)
+            {
+                ParsekLog.Verbose("MilestoneStore",
+                    $"  event[{i}]: {filtered[i].eventType} key='{filtered[i].key}' ut={filtered[i].ut:F1}");
+            }
+
             return milestone;
         }
 
@@ -73,6 +96,7 @@ namespace Parsek
         /// </summary>
         internal static Milestone FlushPendingEvents(double currentUT)
         {
+            ParsekLog.Verbose("MilestoneStore", $"FlushPendingEvents: currentUT={currentUT:F0}");
             return CreateMilestone(null, currentUT);
         }
 
@@ -84,7 +108,7 @@ namespace Parsek
                 RecordingPaths.BuildMilestonesRelativePath());
             if (path == null)
             {
-                Log("[Parsek] WARNING: Cannot resolve milestones path");
+                ParsekLog.Warn("MilestoneStore", "Cannot resolve milestones path — save skipped");
                 return false;
             }
 
@@ -103,12 +127,12 @@ namespace Parsek
 
                 SafeWriteConfigNode(rootNode, path);
 
-                Log($"[Parsek] Saved {milestones.Count} milestones to {path}");
+                ParsekLog.Info("MilestoneStore", $"Saved {milestones.Count} milestones to {path}");
                 return true;
             }
             catch (Exception ex)
             {
-                Log($"[Parsek] WARNING: Failed to save milestones: {ex.Message}");
+                ParsekLog.Warn("MilestoneStore", $"Failed to save milestones: {ex.Message}");
                 return false;
             }
         }
@@ -120,10 +144,14 @@ namespace Parsek
             {
                 initialLoadDone = false;
                 lastSaveFolder = currentSave;
+                ParsekLog.Verbose("MilestoneStore", $"Save folder changed to '{currentSave}' — resetting milestone load state");
             }
 
             if (initialLoadDone)
+            {
+                ParsekLog.Verbose("MilestoneStore", "LoadMilestoneFile: already loaded, skipping");
                 return true;
+            }
 
             initialLoadDone = true;
             milestones.Clear();
@@ -132,7 +160,7 @@ namespace Parsek
                 RecordingPaths.BuildMilestonesRelativePath());
             if (path == null || !File.Exists(path))
             {
-                Log("[Parsek] No milestones file found — starting fresh");
+                ParsekLog.Info("MilestoneStore", "No milestones file found — starting fresh");
                 return true;
             }
 
@@ -141,7 +169,7 @@ namespace Parsek
                 ConfigNode rootNode = ConfigNode.Load(path);
                 if (rootNode == null)
                 {
-                    Log("[Parsek] WARNING: Failed to parse milestones file");
+                    ParsekLog.Warn("MilestoneStore", "Failed to parse milestones file");
                     return false;
                 }
 
@@ -152,12 +180,19 @@ namespace Parsek
                         milestones.Add(Milestone.DeserializeFrom(milestoneNodes[i]));
                 }
 
-                Log($"[Parsek] Loaded {milestones.Count} milestones");
+                ParsekLog.Info("MilestoneStore", $"Loaded {milestones.Count} milestones from {path}");
+                for (int i = 0; i < milestones.Count; i++)
+                {
+                    ParsekLog.Verbose("MilestoneStore",
+                        $"  milestone[{i}]: id={ShortId(milestones[i].MilestoneId)}, " +
+                        $"epoch={milestones[i].Epoch}, events={milestones[i].Events.Count}, " +
+                        $"committed={milestones[i].Committed}, lastReplayedIdx={milestones[i].LastReplayedEventIndex}");
+                }
                 return true;
             }
             catch (Exception ex)
             {
-                Log($"[Parsek] WARNING: Failed to load milestones: {ex.Message}");
+                ParsekLog.Warn("MilestoneStore", $"Failed to load milestones: {ex.Message}");
                 return false;
             }
         }
@@ -170,7 +205,11 @@ namespace Parsek
         /// </summary>
         internal static void RestoreMutableState(ConfigNode scenarioNode, bool resetUnmatched = false)
         {
-            if (scenarioNode == null) return;
+            if (scenarioNode == null)
+            {
+                ParsekLog.Verbose("MilestoneStore", "RestoreMutableState: scenarioNode is null — no-op");
+                return;
+            }
 
             ConfigNode[] stateNodes = scenarioNode.GetNodes("MILESTONE_STATE");
 
@@ -193,14 +232,40 @@ namespace Parsek
                 }
             }
 
+            ParsekLog.Verbose("MilestoneStore",
+                $"RestoreMutableState: {stateMap.Count} saved states, {milestones.Count} milestones, resetUnmatched={resetUnmatched}");
+
+            int matched = 0, reset = 0, unchanged = 0;
             for (int i = 0; i < milestones.Count; i++)
             {
                 int idx;
                 if (stateMap.TryGetValue(milestones[i].MilestoneId, out idx))
+                {
+                    int oldIdx = milestones[i].LastReplayedEventIndex;
                     milestones[i].LastReplayedEventIndex = idx;
+                    matched++;
+                    if (oldIdx != idx)
+                    {
+                        ParsekLog.Verbose("MilestoneStore",
+                            $"  milestone {ShortId(milestones[i].MilestoneId)}: lastReplayedIdx {oldIdx} → {idx}");
+                    }
+                }
                 else if (resetUnmatched)
+                {
+                    int oldIdx = milestones[i].LastReplayedEventIndex;
                     milestones[i].LastReplayedEventIndex = -1;
+                    reset++;
+                    ParsekLog.Verbose("MilestoneStore",
+                        $"  milestone {ShortId(milestones[i].MilestoneId)}: unmatched, reset lastReplayedIdx {oldIdx} → -1");
+                }
+                else
+                {
+                    unchanged++;
+                }
             }
+
+            ParsekLog.Info("MilestoneStore",
+                $"RestoreMutableState complete: matched={matched}, reset={reset}, unchanged={unchanged}");
         }
 
         internal static void SaveMutableState(ConfigNode scenarioNode)
@@ -217,6 +282,8 @@ namespace Parsek
                 stateNode.AddValue("lastReplayedIdx",
                     milestones[i].LastReplayedEventIndex.ToString(ic));
             }
+
+            ParsekLog.Verbose("MilestoneStore", $"SaveMutableState: wrote {milestones.Count} MILESTONE_STATE nodes");
         }
 
         private static void SafeWriteConfigNode(ConfigNode node, string path)
@@ -234,8 +301,9 @@ namespace Parsek
 
         internal static void ClearAll()
         {
+            int count = milestones.Count;
             milestones.Clear();
-            Log("[Parsek] All milestones cleared");
+            ParsekLog.Info("MilestoneStore", $"All milestones cleared (was {count})");
         }
 
         #endregion
@@ -277,6 +345,10 @@ namespace Parsek
                         result.Add(m.Events[j].key);
                 }
             }
+
+            if (result.Count > 0)
+                ParsekLog.Verbose("MilestoneStore", $"GetCommittedTechIds: {result.Count} committed tech(s): [{string.Join(", ", result)}]");
+
             return result;
         }
 
@@ -298,6 +370,10 @@ namespace Parsek
                         result.Add(m.Events[j].key);
                 }
             }
+
+            if (result.Count > 0)
+                ParsekLog.Verbose("MilestoneStore", $"GetCommittedFacilityUpgrades: {result.Count} committed facility(ies): [{string.Join(", ", result)}]");
+
             return result;
         }
 
@@ -314,18 +390,18 @@ namespace Parsek
                 for (int j = m.LastReplayedEventIndex + 1; j < m.Events.Count; j++)
                 {
                     if (m.Events[j].eventType == type && m.Events[j].key == key)
+                    {
+                        ParsekLog.Verbose("MilestoneStore",
+                            $"FindCommittedEvent: found {type} key='{key}' in milestone {ShortId(m.MilestoneId)} event[{j}] ut={m.Events[j].ut:F0}");
                         return m.Events[j];
+                    }
                 }
             }
+
+            ParsekLog.Verbose("MilestoneStore", $"FindCommittedEvent: no match for {type} key='{key}'");
             return null;
         }
 
         #endregion
-
-        private static void Log(string msg)
-        {
-            if (!SuppressLogging)
-                Debug.Log(msg);
-        }
     }
 }

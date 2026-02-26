@@ -23,13 +23,24 @@ namespace Parsek
 
             int lastIdx = rec.LastAppliedResourceIndex;
             if (lastIdx >= rec.Points.Count - 1)
+            {
+                ParsekLog.Verbose("ResourceBudget",
+                    $"CommittedFundsCost: '{rec.VesselName}' fully applied (lastIdx={lastIdx}) — 0");
                 return 0;
+            }
 
             if (lastIdx < 0)
+            {
+                ParsekLog.Verbose("ResourceBudget",
+                    $"CommittedFundsCost: '{rec.VesselName}' not yet applied — totalImpact={totalImpact:F0} (pre={rec.PreLaunchFunds:F0}, end={rec.Points[rec.Points.Count - 1].funds:F0})");
                 return totalImpact;
+            }
 
             double alreadyApplied = rec.PreLaunchFunds - rec.Points[lastIdx].funds;
-            return totalImpact - alreadyApplied;
+            double remaining = totalImpact - alreadyApplied;
+            ParsekLog.Verbose("ResourceBudget",
+                $"CommittedFundsCost: '{rec.VesselName}' partial — total={totalImpact:F0}, applied={alreadyApplied:F0}, remaining={remaining:F0}");
+            return remaining;
         }
 
         internal static double CommittedScienceCost(RecordingStore.Recording rec)
@@ -42,13 +53,24 @@ namespace Parsek
 
             int lastIdx = rec.LastAppliedResourceIndex;
             if (lastIdx >= rec.Points.Count - 1)
+            {
+                ParsekLog.Verbose("ResourceBudget",
+                    $"CommittedScienceCost: '{rec.VesselName}' fully applied (lastIdx={lastIdx}) — 0");
                 return 0;
+            }
 
             if (lastIdx < 0)
+            {
+                ParsekLog.Verbose("ResourceBudget",
+                    $"CommittedScienceCost: '{rec.VesselName}' not yet applied — totalImpact={totalImpact:F1}");
                 return totalImpact;
+            }
 
             double alreadyApplied = rec.PreLaunchScience - rec.Points[lastIdx].science;
-            return totalImpact - alreadyApplied;
+            double remaining = totalImpact - alreadyApplied;
+            ParsekLog.Verbose("ResourceBudget",
+                $"CommittedScienceCost: '{rec.VesselName}' partial — total={totalImpact:F1}, applied={alreadyApplied:F1}, remaining={remaining:F1}");
+            return remaining;
         }
 
         internal static double CommittedReputationCost(RecordingStore.Recording rec)
@@ -61,13 +83,24 @@ namespace Parsek
 
             int lastIdx = rec.LastAppliedResourceIndex;
             if (lastIdx >= rec.Points.Count - 1)
+            {
+                ParsekLog.Verbose("ResourceBudget",
+                    $"CommittedReputationCost: '{rec.VesselName}' fully applied (lastIdx={lastIdx}) — 0");
                 return 0;
+            }
 
             if (lastIdx < 0)
+            {
+                ParsekLog.Verbose("ResourceBudget",
+                    $"CommittedReputationCost: '{rec.VesselName}' not yet applied — totalImpact={totalImpact:F1}");
                 return totalImpact;
+            }
 
             double alreadyApplied = rec.PreLaunchReputation - rec.Points[lastIdx].reputation;
-            return totalImpact - alreadyApplied;
+            double remaining = totalImpact - alreadyApplied;
+            ParsekLog.Verbose("ResourceBudget",
+                $"CommittedReputationCost: '{rec.VesselName}' partial — total={totalImpact:F1}, applied={alreadyApplied:F1}, remaining={remaining:F1}");
+            return remaining;
         }
 
         internal static double MilestoneCommittedFunds(Milestone m)
@@ -81,13 +114,23 @@ namespace Parsek
                 switch (e.eventType)
                 {
                     case GameStateEventType.PartPurchased:
-                        cost += ParseCostFromDetail(e.detail);
+                        double partCost = ParseCostFromDetail(e.detail);
+                        cost += partCost;
+                        if (partCost > 0)
+                            ParsekLog.Verbose("ResourceBudget",
+                                $"MilestoneCommittedFunds: PartPurchased '{e.key}' cost={partCost:F0}");
                         break;
                     case GameStateEventType.FacilityUpgraded:
-                        cost += ComputeFacilityUpgradeCost(e.valueBefore, e.valueAfter);
+                        double facCost = ComputeFacilityUpgradeCost(e.valueBefore, e.valueAfter);
+                        cost += facCost;
                         break;
                 }
             }
+
+            if (cost > 0)
+                ParsekLog.Verbose("ResourceBudget",
+                    $"MilestoneCommittedFunds: milestone {(m.MilestoneId != null && m.MilestoneId.Length >= 8 ? m.MilestoneId.Substring(0, 8) : m.MilestoneId ?? "?")} total={cost:F0}");
+
             return cost;
         }
 
@@ -100,8 +143,19 @@ namespace Parsek
             {
                 var e = m.Events[i];
                 if (e.eventType == GameStateEventType.TechResearched)
-                    cost += ParseCostFromDetail(e.detail);
+                {
+                    double techCost = ParseCostFromDetail(e.detail);
+                    cost += techCost;
+                    if (techCost > 0)
+                        ParsekLog.Verbose("ResourceBudget",
+                            $"MilestoneCommittedScience: TechResearched '{e.key}' cost={techCost:F1}");
+                }
             }
+
+            if (cost > 0)
+                ParsekLog.Verbose("ResourceBudget",
+                    $"MilestoneCommittedScience: milestone {(m.MilestoneId != null && m.MilestoneId.Length >= 8 ? m.MilestoneId.Substring(0, 8) : m.MilestoneId ?? "?")} total={cost:F1}");
+
             return cost;
         }
 
@@ -110,6 +164,9 @@ namespace Parsek
             IReadOnlyList<Milestone> milestones)
         {
             var result = new BudgetSummary();
+
+            ParsekLog.Verbose("ResourceBudget",
+                $"ComputeTotal: {recordings?.Count ?? 0} recordings, {milestones?.Count ?? 0} milestones");
 
             if (recordings != null)
             {
@@ -131,6 +188,10 @@ namespace Parsek
                 }
             }
 
+            ParsekLog.Info("ResourceBudget",
+                $"ComputeTotal result: reservedFunds={result.reservedFunds:F0}, " +
+                $"reservedScience={result.reservedScience:F1}, reservedReputation={result.reservedReputation:F1}");
+
             return result;
         }
 
@@ -148,6 +209,8 @@ namespace Parsek
                     if (double.TryParse(part.Substring(5), NumberStyles.Float,
                         CultureInfo.InvariantCulture, out cost))
                         return cost;
+
+                    ParsekLog.Warn("ResourceBudget", $"ParseCostFromDetail: failed to parse '{part}' from detail='{detail}'");
                 }
             }
             return 0;
