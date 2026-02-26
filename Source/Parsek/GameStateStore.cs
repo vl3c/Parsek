@@ -388,14 +388,12 @@ namespace Parsek
             if (clean.StartsWith(LegacyPrefix, StringComparison.Ordinal))
                 clean = clean.Substring(LegacyPrefix.Length);
 
-            if (clean.StartsWith("WARNING:", StringComparison.OrdinalIgnoreCase))
+            if (clean.StartsWith("WARNING:", StringComparison.OrdinalIgnoreCase) ||
+                clean.StartsWith("WARN:", StringComparison.OrdinalIgnoreCase))
             {
-                ParsekLog.Warn("GameStateStore", clean.Substring("WARNING:".Length).TrimStart());
-                return;
-            }
-            if (clean.IndexOf("failed", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                ParsekLog.Warn("GameStateStore", clean);
+                int idx = clean.IndexOf(':');
+                string trimmed = idx >= 0 ? clean.Substring(idx + 1).TrimStart() : clean;
+                ParsekLog.Warn("GameStateStore", trimmed);
                 return;
             }
 

@@ -22,12 +22,25 @@ namespace Parsek
             new Dictionary<string, RateLimitState>();
 
         private const double DefaultRateLimitSeconds = 5.0;
+        private static readonly DateTime UnixEpochUtc = new DateTime(1970, 1, 1);
+        internal static Func<double> ClockOverrideForTesting;
+        internal static Action<string> TestSinkForTesting;
+        internal static bool? VerboseOverrideForTesting;
 
-        public static bool IsVerboseEnabled => ParsekSettings.Current?.verboseLogging ?? true;
+        public static bool IsVerboseEnabled =>
+            VerboseOverrideForTesting ?? (ParsekSettings.Current?.verboseLogging ?? true);
 
         internal static void ResetRateLimitsForTesting()
         {
             rateLimitStateByKey.Clear();
+        }
+
+        internal static void ResetTestOverrides()
+        {
+            ClockOverrideForTesting = null;
+            TestSinkForTesting = null;
+            VerboseOverrideForTesting = null;
+            ResetRateLimitsForTesting();
         }
 
         public static void Log(string message)
@@ -103,14 +116,10 @@ namespace Parsek
 
         private static double GetLogClockSeconds()
         {
-            try
-            {
-                return Planetarium.GetUniversalTime();
-            }
-            catch (Exception)
-            {
-                return DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1)).TotalSeconds;
-            }
+            if (ClockOverrideForTesting != null)
+                return ClockOverrideForTesting();
+
+            return DateTime.UtcNow.Subtract(UnixEpochUtc).TotalSeconds;
         }
 
         private static void Write(string level, string subsystem, string message)
@@ -121,6 +130,11 @@ namespace Parsek
             string safeSubsystem = string.IsNullOrEmpty(subsystem) ? "General" : subsystem;
             string safeMessage = string.IsNullOrEmpty(message) ? "(empty)" : message;
             string line = $"[Parsek][{level}][{safeSubsystem}] {safeMessage}";
+            if (TestSinkForTesting != null)
+            {
+                TestSinkForTesting(line);
+                return;
+            }
 
             try
             {

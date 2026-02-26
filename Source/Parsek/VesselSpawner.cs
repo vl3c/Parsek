@@ -68,7 +68,7 @@ namespace Parsek
                     return 0;
                 }
                 if (pv.vesselRef.orbitDriver == null)
-                    ParsekLog.Warn("Spawner", "WARNING: Spawned vessel has no orbitDriver — may not appear in map view");
+                    ParsekLog.Warn("Spawner", "Spawned vessel has no orbitDriver — may not appear in map view");
 
                 GameEvents.onNewVesselCreated.Fire(pv.vesselRef);
 
@@ -211,7 +211,7 @@ namespace Parsek
                     return 0;
                 }
                 if (pv.vesselRef.orbitDriver == null)
-                    ParsekLog.Warn("Spawner", "WARNING: SpawnAtPosition — vessel has no orbitDriver — may not appear in map view");
+                    ParsekLog.Warn("Spawner", "SpawnAtPosition vessel has no orbitDriver — may not appear in map view");
 
                 GameEvents.onNewVesselCreated.Fire(pv.vesselRef);
 
@@ -221,7 +221,7 @@ namespace Parsek
             }
             catch (Exception ex)
             {
-                ParsekLog.Info("Spawner", $"SpawnAtPosition failed: {ex.Message}");
+                ParsekLog.Error("Spawner", $"SpawnAtPosition failed: {ex.Message}");
                 return 0;
             }
         }
@@ -244,9 +244,9 @@ namespace Parsek
                 {
                     rec.SpawnAttempts++;
                     if (rec.SpawnAttempts >= maxSpawnAttempts)
-                        ParsekLog.Info("Spawner", $"Vessel spawn failed permanently for recording #{index} ({rec.VesselName}) after {maxSpawnAttempts} attempts");
+                        ParsekLog.Error("Spawner", $"Vessel spawn failed permanently for recording #{index} ({rec.VesselName}) after {maxSpawnAttempts} attempts");
                     else
-                        ParsekLog.Info("Spawner", $"Vessel spawn failed for recording #{index} ({rec.VesselName}) — will retry (attempt {rec.SpawnAttempts}/{maxSpawnAttempts})");
+                        ParsekLog.Warn("Spawner", $"Vessel spawn failed for recording #{index} ({rec.VesselName}) — will retry (attempt {rec.SpawnAttempts}/{maxSpawnAttempts})");
                 }
                 return;
             }
@@ -264,9 +264,9 @@ namespace Parsek
                 {
                     rec.SpawnAttempts++;
                     if (rec.SpawnAttempts >= maxSpawnAttempts)
-                        ParsekLog.Info("Spawner", $"Vessel spawn failed permanently for recording #{index} ({rec.VesselName}) after {maxSpawnAttempts} attempts");
+                        ParsekLog.Error("Spawner", $"Vessel spawn failed permanently for recording #{index} ({rec.VesselName}) after {maxSpawnAttempts} attempts");
                     else
-                        ParsekLog.Info("Spawner", $"Vessel spawn failed for recording #{index} ({rec.VesselName}) — will retry (attempt {rec.SpawnAttempts}/{maxSpawnAttempts})");
+                        ParsekLog.Warn("Spawner", $"Vessel spawn failed for recording #{index} ({rec.VesselName}) — will retry (attempt {rec.SpawnAttempts}/{maxSpawnAttempts})");
                 }
                 return;
             }
@@ -369,9 +369,9 @@ namespace Parsek
             {
                 rec.SpawnAttempts++;
                 if (rec.SpawnAttempts >= maxSpawnAttempts)
-                    ParsekLog.Info("Spawner", $"Vessel spawn failed permanently for recording #{index} ({rec.VesselName}) after {maxSpawnAttempts} attempts");
+                    ParsekLog.Error("Spawner", $"Vessel spawn failed permanently for recording #{index} ({rec.VesselName}) after {maxSpawnAttempts} attempts");
                 else
-                    ParsekLog.Info("Spawner", $"Vessel spawn failed for recording #{index} ({rec.VesselName}) — will retry (attempt {rec.SpawnAttempts}/{maxSpawnAttempts})");
+                    ParsekLog.Warn("Spawner", $"Vessel spawn failed for recording #{index} ({rec.VesselName}) — will retry (attempt {rec.SpawnAttempts}/{maxSpawnAttempts})");
             }
         }
 
@@ -718,7 +718,7 @@ namespace Parsek
 
             // Snapshot the vessel (works for regular vessels and EVA kerbals)
             if (!vessel.loaded)
-                ParsekLog.Warn("Spawner", "WARNING: Active vessel is unloaded at snapshot time — snapshot may be incomplete");
+                ParsekLog.Warn("Spawner", "Active vessel is unloaded at snapshot time — snapshot may be incomplete");
             ConfigNode node = TryBackupSnapshot(vessel);
             if (node == null)
             {
