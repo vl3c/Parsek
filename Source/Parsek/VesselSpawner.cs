@@ -29,7 +29,7 @@ namespace Parsek
             }
             catch (Exception ex)
             {
-                ParsekLog.Log($"Failed to backup vessel snapshot: {ex.Message}");
+                ParsekLog.Error("Spawner", $"Failed to backup vessel snapshot: {ex.Message}");
                 return null;
             }
         }
@@ -64,20 +64,20 @@ namespace Parsek
 
                 if (pv.vesselRef == null)
                 {
-                    ParsekLog.Log("CRITICAL: ProtoVessel.Load() produced null vesselRef — vessel will not appear");
+                    ParsekLog.Error("Spawner", "CRITICAL: ProtoVessel.Load() produced null vesselRef — vessel will not appear");
                     return 0;
                 }
                 if (pv.vesselRef.orbitDriver == null)
-                    ParsekLog.Log("WARNING: Spawned vessel has no orbitDriver — may not appear in map view");
+                    ParsekLog.Warn("Spawner", "Spawned vessel has no orbitDriver — may not appear in map view");
 
                 GameEvents.onNewVesselCreated.Fire(pv.vesselRef);
 
-                ParsekLog.Log($"Vessel respawned (sit={spawnNode.GetValue("sit")}, pid={pv.vesselRef.persistentId})");
+                ParsekLog.Info("Spawner", $"Vessel respawned (sit={spawnNode.GetValue("sit")}, pid={pv.vesselRef.persistentId})");
                 return pv.vesselRef.persistentId;
             }
             catch (System.Exception ex)
             {
-                ParsekLog.Log($"Failed to respawn vessel: {ex.Message}");
+                ParsekLog.Error("Spawner", $"Failed to respawn vessel: {ex.Message}");
                 return 0;
             }
         }
@@ -188,7 +188,7 @@ namespace Parsek
                     SaveOrbitToNode(orbit, orbitNode, body);
                     spawnNode.AddNode(orbitNode);
 
-                    ParsekLog.Log($"SpawnAtPosition: offset from {closestDist:F0}m to 250m from nearest vessel");
+                    ParsekLog.Info("Spawner", $"SpawnAtPosition: offset from {closestDist:F0}m to 250m from nearest vessel");
                 }
 
                 // Crew handling
@@ -207,21 +207,21 @@ namespace Parsek
 
                 if (pv.vesselRef == null)
                 {
-                    ParsekLog.Log("CRITICAL: SpawnAtPosition — ProtoVessel.Load() produced null vesselRef");
+                    ParsekLog.Error("Spawner", "CRITICAL: SpawnAtPosition — ProtoVessel.Load() produced null vesselRef");
                     return 0;
                 }
                 if (pv.vesselRef.orbitDriver == null)
-                    ParsekLog.Log("WARNING: SpawnAtPosition — vessel has no orbitDriver — may not appear in map view");
+                    ParsekLog.Warn("Spawner", "SpawnAtPosition vessel has no orbitDriver — may not appear in map view");
 
                 GameEvents.onNewVesselCreated.Fire(pv.vesselRef);
 
-                ParsekLog.Log($"SpawnAtPosition: vessel spawned (sit={sit}, pid={pv.vesselRef.persistentId}, " +
+                ParsekLog.Info("Spawner", $"SpawnAtPosition: vessel spawned (sit={sit}, pid={pv.vesselRef.persistentId}, " +
                     $"body={body.name}, alt={alt:F0}m)");
                 return pv.vesselRef.persistentId;
             }
             catch (Exception ex)
             {
-                ParsekLog.Log($"SpawnAtPosition failed: {ex.Message}");
+                ParsekLog.Error("Spawner", $"SpawnAtPosition failed: {ex.Message}");
                 return 0;
             }
         }
@@ -244,9 +244,9 @@ namespace Parsek
                 {
                     rec.SpawnAttempts++;
                     if (rec.SpawnAttempts >= maxSpawnAttempts)
-                        ParsekLog.Log($"Vessel spawn failed permanently for recording #{index} ({rec.VesselName}) after {maxSpawnAttempts} attempts");
+                        ParsekLog.Error("Spawner", $"Vessel spawn failed permanently for recording #{index} ({rec.VesselName}) after {maxSpawnAttempts} attempts");
                     else
-                        ParsekLog.Log($"Vessel spawn failed for recording #{index} ({rec.VesselName}) — will retry (attempt {rec.SpawnAttempts}/{maxSpawnAttempts})");
+                        ParsekLog.Warn("Spawner", $"Vessel spawn failed for recording #{index} ({rec.VesselName}) — will retry (attempt {rec.SpawnAttempts}/{maxSpawnAttempts})");
                 }
                 return;
             }
@@ -255,7 +255,7 @@ namespace Parsek
             CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == lastPt.bodyName);
             if (body == null)
             {
-                ParsekLog.Log($"Body lookup failed for spawn: bodyName='{lastPt.bodyName}' not found — " +
+                ParsekLog.Info("Spawner", $"Body lookup failed for spawn: bodyName='{lastPt.bodyName}' not found — " +
                     $"falling back to RespawnVessel without position");
                 LogSpawnContext(rec, double.MaxValue);
                 rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot, excludeCrew);
@@ -264,9 +264,9 @@ namespace Parsek
                 {
                     rec.SpawnAttempts++;
                     if (rec.SpawnAttempts >= maxSpawnAttempts)
-                        ParsekLog.Log($"Vessel spawn failed permanently for recording #{index} ({rec.VesselName}) after {maxSpawnAttempts} attempts");
+                        ParsekLog.Error("Spawner", $"Vessel spawn failed permanently for recording #{index} ({rec.VesselName}) after {maxSpawnAttempts} attempts");
                     else
-                        ParsekLog.Log($"Vessel spawn failed for recording #{index} ({rec.VesselName}) — will retry (attempt {rec.SpawnAttempts}/{maxSpawnAttempts})");
+                        ParsekLog.Warn("Spawner", $"Vessel spawn failed for recording #{index} ({rec.VesselName}) — will retry (attempt {rec.SpawnAttempts}/{maxSpawnAttempts})");
                 }
                 return;
             }
@@ -353,7 +353,7 @@ namespace Parsek
                 SaveOrbitToNode(relocOrbit, relocOrbitNode, body);
                 rec.VesselSnapshot.AddNode(relocOrbitNode);
 
-                ParsekLog.Log($"Offset vessel #{index} ({rec.VesselName}) from {closestDist:F0}m to 250m from nearest vessel/recording");
+                ParsekLog.Info("Spawner", $"Offset vessel #{index} ({rec.VesselName}) from {closestDist:F0}m to 250m from nearest vessel/recording");
             }
 
             LogSpawnContext(rec, closestDist);
@@ -362,16 +362,16 @@ namespace Parsek
             rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
             if (rec.VesselSpawned)
             {
-                ParsekLog.Log($"Vessel spawn for recording #{index} ({rec.VesselName})");
+                ParsekLog.Info("Spawner", $"Vessel spawn for recording #{index} ({rec.VesselName})");
                 ParsekLog.ScreenMessage($"Vessel '{rec.VesselName}' has appeared!", 4f);
             }
             else
             {
                 rec.SpawnAttempts++;
                 if (rec.SpawnAttempts >= maxSpawnAttempts)
-                    ParsekLog.Log($"Vessel spawn failed permanently for recording #{index} ({rec.VesselName}) after {maxSpawnAttempts} attempts");
+                    ParsekLog.Error("Spawner", $"Vessel spawn failed permanently for recording #{index} ({rec.VesselName}) after {maxSpawnAttempts} attempts");
                 else
-                    ParsekLog.Log($"Vessel spawn failed for recording #{index} ({rec.VesselName}) — will retry (attempt {rec.SpawnAttempts}/{maxSpawnAttempts})");
+                    ParsekLog.Warn("Spawner", $"Vessel spawn failed for recording #{index} ({rec.VesselName}) — will retry (attempt {rec.SpawnAttempts}/{maxSpawnAttempts})");
             }
         }
 
@@ -424,7 +424,7 @@ namespace Parsek
                 }
 
                 if (excludeCrew != null)
-                    ParsekLog.Log($"Excluding EVA'd crew from chain vessel spawn: [{string.Join(", ", excludeCrew)}]");
+                    ParsekLog.Info("Spawner", $"Excluding EVA'd crew from chain vessel spawn: [{string.Join(", ", excludeCrew)}]");
                 return excludeCrew;
             }
 
@@ -441,7 +441,7 @@ namespace Parsek
             }
 
             if (excludeCrew != null)
-                ParsekLog.Log($"Excluding EVA'd crew from parent spawn: [{string.Join(", ", excludeCrew)}]");
+                ParsekLog.Info("Spawner", $"Excluding EVA'd crew from parent spawn: [{string.Join(", ", excludeCrew)}]");
             return excludeCrew;
         }
 
@@ -459,7 +459,7 @@ namespace Parsek
                 }
             }
             string crewStr = allCrew.Count > 0 ? $", crew=[{string.Join(", ", allCrew)}]" : "";
-            ParsekLog.Log($"Spawning vessel: \"{rec.VesselName}\" sit={sit}{crewStr}, " +
+            ParsekLog.Info("Spawner", $"Spawning vessel: \"{rec.VesselName}\" sit={sit}{crewStr}, " +
                 $"nearest vessel={closestDist:F0}m");
         }
 
@@ -469,17 +469,22 @@ namespace Parsek
             {
                 ProtoVessel pv = new ProtoVessel(vesselNode, HighLogic.CurrentGame);
                 ShipConstruction.RecoverVesselFromFlight(pv, HighLogic.CurrentGame.flightState, true);
-                ParsekLog.Log("Vessel recovered for funds");
+                ParsekLog.Info("Spawner", "Vessel recovered for funds");
             }
             catch (System.Exception ex)
             {
-                ParsekLog.Log($"Failed to recover vessel: {ex.Message}");
+                ParsekLog.Error("Spawner", $"Failed to recover vessel: {ex.Message}");
             }
         }
 
         public static void RemoveSpecificCrewFromSnapshot(ConfigNode snapshot, HashSet<string> crewNames)
         {
-            if (snapshot == null || crewNames == null || crewNames.Count == 0) return;
+            if (snapshot == null || crewNames == null || crewNames.Count == 0)
+            {
+                ParsekLog.VerboseRateLimited("Spawner", "remove-specific-crew-skipped",
+                    "RemoveSpecificCrewFromSnapshot skipped due to missing snapshot or crew set", 5.0);
+                return;
+            }
 
             foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
             {
@@ -493,7 +498,7 @@ namespace Parsek
                     if (crewNames.Contains(name))
                     {
                         removedAny = true;
-                        ParsekLog.Log($"Removed EVA'd crew '{name}' from vessel snapshot");
+                        ParsekLog.Info("Spawner", $"Removed EVA'd crew '{name}' from vessel snapshot");
                     }
                     else
                     {
@@ -513,7 +518,11 @@ namespace Parsek
         public static void RemoveDeadCrewFromSnapshot(ConfigNode snapshot)
         {
             var roster = HighLogic.CurrentGame?.CrewRoster;
-            if (roster == null) return;
+            if (roster == null)
+            {
+                ParsekLog.Warn("Spawner", "RemoveDeadCrewFromSnapshot skipped: crew roster unavailable");
+                return;
+            }
 
             var reserved = ParsekScenario.CrewReplacements;
             int removedCount = 0;
@@ -546,7 +555,7 @@ namespace Parsek
                              pcm.rosterStatus == ProtoCrewMember.RosterStatus.Missing))
                         {
                             isDead = true;
-                            ParsekLog.Log($"Removed dead/missing crew '{name}' from vessel snapshot");
+                            ParsekLog.Info("Spawner", $"Removed dead/missing crew '{name}' from vessel snapshot");
                             removedCount++;
                             break;
                         }
@@ -566,7 +575,7 @@ namespace Parsek
             }
 
             if (removedCount > 0)
-                ParsekLog.Log($"Spawn prep: removed {removedCount} dead/missing crew from snapshot");
+                ParsekLog.Info("Spawner", $"Spawn prep: removed {removedCount} dead/missing crew from snapshot");
         }
 
         /// <summary>
@@ -577,7 +586,11 @@ namespace Parsek
         public static void EnsureCrewExistInRoster(ConfigNode snapshot)
         {
             var roster = HighLogic.CurrentGame?.CrewRoster;
-            if (roster == null) return;
+            if (roster == null)
+            {
+                ParsekLog.Warn("Spawner", "EnsureCrewExistInRoster skipped: crew roster unavailable");
+                return;
+            }
 
             int createdCount = 0;
             foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
@@ -605,14 +618,14 @@ namespace Parsek
                     {
                         newCrew.ChangeName(name);
                         newCrew.rosterStatus = ProtoCrewMember.RosterStatus.Assigned;
-                        ParsekLog.Log($"Created missing crew '{name}' in roster for vessel spawn");
+                        ParsekLog.Info("Spawner", $"Created missing crew '{name}' in roster for vessel spawn");
                         createdCount++;
                     }
                 }
             }
 
             if (createdCount > 0)
-                ParsekLog.Log($"Spawn prep: created {createdCount} missing crew in roster");
+                ParsekLog.Info("Spawner", $"Spawn prep: created {createdCount} missing crew in roster");
         }
 
         public static bool VesselExistsByPid(uint pid)
@@ -632,11 +645,17 @@ namespace Parsek
             Vessel vesselOverride = null,
             ConfigNode destroyedFallbackSnapshot = null)
         {
-            if (pending == null || pending.Points.Count == 0) return;
+            if (pending == null || pending.Points.Count == 0)
+            {
+                ParsekLog.Warn("Spawner", "SnapshotVessel skipped: pending recording is null or has no points");
+                return;
+            }
 
             // Compute distance from launch
             var firstPoint = pending.Points[0];
             CelestialBody bodyFirst = FlightGlobals.Bodies?.Find(b => b.name == firstPoint.bodyName);
+            if (bodyFirst == null)
+                ParsekLog.Warn("Spawner", $"SnapshotVessel: body '{firstPoint.bodyName}' not found — distance computation will be skipped");
 
             if (vesselDestroyed)
             {
@@ -669,7 +688,7 @@ namespace Parsek
                 ComputeMaxDistance(pending, bodyFirst, firstPoint);
 
                 pending.VesselSituation = pending.VesselSnapshot != null ? "Destroyed (snapshot kept)" : "Destroyed";
-                ParsekLog.Log($"Vessel was destroyed during recording. Distance from launch: {pending.DistanceFromLaunch:F0}m, " +
+                ParsekLog.Info("Spawner", $"Vessel was destroyed during recording. Distance from launch: {pending.DistanceFromLaunch:F0}m, " +
                     $"Max distance: {pending.MaxDistanceFromLaunch:F0}m, Snapshot kept: {pending.VesselSnapshot != null}");
                 return;
             }
@@ -684,7 +703,7 @@ namespace Parsek
                 pending.GhostGeometryCaptureStrategy = "live_hierarchy_probe_v1";
                 pending.GhostGeometryProbeStatus = "no_active_vessel";
                 pending.VesselSituation = "Unknown (no active vessel)";
-                ParsekLog.Log("No active vessel at snapshot time");
+                ParsekLog.Info("Spawner", "No active vessel at snapshot time");
                 return;
             }
 
@@ -701,7 +720,7 @@ namespace Parsek
 
             // Snapshot the vessel (works for regular vessels and EVA kerbals)
             if (!vessel.loaded)
-                ParsekLog.Log("Warning: Active vessel is unloaded at snapshot time — snapshot may be incomplete");
+                ParsekLog.Warn("Spawner", "Active vessel is unloaded at snapshot time — snapshot may be incomplete");
             ConfigNode node = TryBackupSnapshot(vessel);
             if (node == null)
             {
@@ -712,7 +731,7 @@ namespace Parsek
                 pending.GhostGeometryCaptureStrategy = "live_hierarchy_probe_v1";
                 pending.GhostGeometryProbeStatus = "snapshot_backup_failed";
                 pending.VesselSituation = "Unknown (snapshot failed)";
-                ParsekLog.Log("Failed to backup active vessel at snapshot time");
+                ParsekLog.Error("Spawner", "Failed to backup active vessel at snapshot time");
                 return;
             }
             pending.VesselSnapshot = node;
@@ -726,7 +745,7 @@ namespace Parsek
             // Atomic capture: snapshot and ghost geometry metadata are captured together.
             GhostGeometryCapture.CaptureStub(pending, vessel);
 
-            ParsekLog.Log($"Vessel snapshot taken. Distance from launch: {pending.DistanceFromLaunch:F0}m, " +
+            ParsekLog.Info("Spawner", $"Vessel snapshot taken. Distance from launch: {pending.DistanceFromLaunch:F0}m, " +
                 $"Max distance: {pending.MaxDistanceFromLaunch:F0}m, Situation: {pending.VesselSituation}");
         }
 
@@ -737,15 +756,22 @@ namespace Parsek
             Vector3d launchPos = bodyFirst.GetWorldSurfacePosition(
                 firstPoint.latitude, firstPoint.longitude, firstPoint.altitude);
             double maxDist = 0;
+            int bodyLookupFailCount = 0;
             for (int i = 1; i < pending.Points.Count; i++)
             {
                 var pt = pending.Points[i];
                 CelestialBody bodyPt = FlightGlobals.Bodies?.Find(b => b.name == pt.bodyName);
-                if (bodyPt == null) continue;
+                if (bodyPt == null)
+                {
+                    bodyLookupFailCount++;
+                    continue;
+                }
                 Vector3d ptPos = bodyPt.GetWorldSurfacePosition(pt.latitude, pt.longitude, pt.altitude);
                 double d = Vector3d.Distance(launchPos, ptPos);
                 if (d > maxDist) maxDist = d;
             }
+            if (bodyLookupFailCount > 0)
+                ParsekLog.Warn("Spawner", $"ComputeMaxDistance: {bodyLookupFailCount} points had unresolvable body names");
             pending.MaxDistanceFromLaunch = maxDist;
         }
 
@@ -754,14 +780,23 @@ namespace Parsek
         {
             bool landedLike = IsLandedLikeSnapshot(rec?.VesselSnapshot);
             bool hasSnapshotAlt = TryGetSnapshotDouble(rec?.VesselSnapshot, "alt", out double snapshotAlt);
+            double selectedAltitude;
             if (landedLike)
             {
                 double terrainAlt = body.TerrainAltitude(latitude, longitude);
                 bool terrainValid = !double.IsNaN(terrainAlt) && !double.IsInfinity(terrainAlt);
-                return SelectRelocatedAltitude(landedLike, terrainAlt, terrainValid, snapshotAlt, hasSnapshotAlt);
+                selectedAltitude = SelectRelocatedAltitude(landedLike, terrainAlt, terrainValid, snapshotAlt, hasSnapshotAlt);
+                ParsekLog.Verbose("Spawner",
+                    $"Relocation altitude selected={selectedAltitude:F1} source={(terrainValid ? "terrain" : hasSnapshotAlt ? "snapshot" : "fallback")} " +
+                    $"landedLike={landedLike} terrainValid={terrainValid} snapshotAltSet={hasSnapshotAlt}");
+                return selectedAltitude;
             }
 
-            return SelectRelocatedAltitude(landedLike, 0.0, false, snapshotAlt, hasSnapshotAlt);
+            selectedAltitude = SelectRelocatedAltitude(landedLike, 0.0, false, snapshotAlt, hasSnapshotAlt);
+            ParsekLog.Verbose("Spawner",
+                $"Relocation altitude selected={selectedAltitude:F1} source={(hasSnapshotAlt ? "snapshot" : "fallback")} " +
+                $"landedLike={landedLike}");
+            return selectedAltitude;
         }
 
         private static bool IsLandedLikeSnapshot(ConfigNode snapshot)
@@ -856,7 +891,7 @@ namespace Parsek
             { spawnNode.AddNode("VESSELMODULES"); fixCount++; }
 
             if (fixCount > 0)
-                ParsekLog.Log($"Spawn prep: added {fixCount} missing node(s) to snapshot");
+                ParsekLog.Info("Spawner", $"Spawn prep: added {fixCount} missing node(s) to snapshot");
         }
 
         internal static double SelectRelocatedAltitude(

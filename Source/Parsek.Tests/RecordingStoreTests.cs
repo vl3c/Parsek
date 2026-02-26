@@ -515,6 +515,18 @@ namespace Parsek.Tests
             Assert.Equal(expected, ok);
         }
 
+        [Theory]
+        [InlineData("")]
+        [InlineData("0,1")]
+        [InlineData("x,0,0")]
+        [InlineData("0,y,0,90")]
+        public void TryParseFxLocalRotation_RejectsMalformedValues(string value)
+        {
+            bool ok = GhostVisualBuilder.TryParseFxLocalRotation(value, out _);
+
+            Assert.False(ok);
+        }
+
         [Fact]
         public void GetPartTransformRaw_PrefersLegacyKeys_ButSupportsProtoKeys()
         {

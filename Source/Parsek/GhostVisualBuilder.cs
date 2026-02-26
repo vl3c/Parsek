@@ -19,6 +19,10 @@ namespace Parsek
         public Vector3 deployedCanopyScale;
         public Vector3 deployedCanopyPos;
         public Quaternion deployedCanopyRot;
+        public Vector3 semiDeployedCanopyScale;
+        public Vector3 semiDeployedCanopyPos;
+        public Quaternion semiDeployedCanopyRot;
+        public bool semiDeployedSampled;
     }
 
     internal class EngineGhostInfo
@@ -367,11 +371,19 @@ namespace Parsek
             roboticInfos = null;
             ConfigNode snapshotNode = GetGhostSnapshot(rec);
             if (snapshotNode == null)
+            {
+                ParsekLog.Warn("GhostVisual",
+                    $"Ghost build aborted for '{rec?.VesselName ?? "unknown"}': no snapshot node");
                 return null;
+            }
 
             var partNodes = snapshotNode.GetNodes("PART");
             if (partNodes == null || partNodes.Length == 0)
+            {
+                ParsekLog.Warn("GhostVisual",
+                    $"Ghost build aborted for '{rec?.VesselName ?? "unknown"}': snapshot has no PART nodes");
                 return null;
+            }
 
             GameObject root = new GameObject(rootName);
             bool addedAnyVisual = false;
@@ -399,7 +411,7 @@ namespace Parsek
                 if (string.IsNullOrEmpty(partName))
                 {
                     skippedName++;
-                    ParsekLog.Log($"  Ghost part SKIPPED (no name): raw='{rawPart ?? "null"}' index={i}");
+                    ParsekLog.Verbose("GhostVisual", $"  Ghost part SKIPPED (no name): raw='{rawPart ?? "null"}' index={i}");
                     continue;
                 }
 
@@ -413,14 +425,14 @@ namespace Parsek
                 if (ap == null || ap.partPrefab == null)
                 {
                     skippedPrefab++;
-                    ParsekLog.Log($"  Ghost part SKIPPED (no prefab): '{partName}' pid={persistentId}");
+                    ParsekLog.Verbose("GhostVisual", $"  Ghost part SKIPPED (no prefab): '{partName}' pid={persistentId}");
                     continue;
                 }
                 string resolvedName = ap.partPrefab.partInfo?.name ?? ap.name;
                 if (!string.IsNullOrEmpty(resolvedName) &&
                     !string.Equals(resolvedName, partName, System.StringComparison.OrdinalIgnoreCase))
                 {
-                    ParsekLog.Log($"  Ghost part lookup alias: '{partName}' -> '{resolvedName}'");
+                    ParsekLog.Verbose("GhostVisual", $"  Ghost part lookup alias: '{partName}' -> '{resolvedName}'");
                 }
 
                 int meshCount = 0;
@@ -448,7 +460,7 @@ namespace Parsek
                 else
                 {
                     skippedMesh++;
-                    ParsekLog.Log($"  Ghost part SKIPPED (no mesh): '{partName}' pid={persistentId}");
+                    ParsekLog.Verbose("GhostVisual", $"  Ghost part SKIPPED (no mesh): '{partName}' pid={persistentId}");
                 }
                 addedAnyVisual = addedAnyVisual || partVisualAdded;
 
@@ -472,7 +484,7 @@ namespace Parsek
                     collectedRoboticInfos.AddRange(partRoboticInfos);
             }
 
-            ParsekLog.Log($"Ghost built: {visualCount}/{partNodes.Length} parts with visuals" +
+            ParsekLog.Verbose("GhostVisual", $"Ghost built: {visualCount}/{partNodes.Length} parts with visuals" +
                 (skippedName > 0 ? $", {skippedName} bad name" : "") +
                 (skippedPrefab > 0 ? $", {skippedPrefab} no prefab" : "") +
                 (skippedMesh > 0 ? $", {skippedMesh} no mesh" : ""));
@@ -480,6 +492,8 @@ namespace Parsek
             if (!addedAnyVisual)
             {
                 Object.Destroy(root);
+                ParsekLog.Warn("GhostVisual",
+                    $"Ghost build produced zero visuals for '{rec?.VesselName ?? "unknown"}' (parts={partNodes.Length})");
                 return null;
             }
 
@@ -903,6 +917,71 @@ namespace Parsek
             return fxHolder.transform;
         }
 
+        internal static float ComputeDirectionAngleDegrees(Vector3 source, Vector3 target)
+        {
+            double sourceSq =
+                (source.x * source.x) +
+                (source.y * source.y) +
+                (source.z * source.z);
+            double targetSq =
+                (target.x * target.x) +
+                (target.y * target.y) +
+                (target.z * target.z);
+            if (sourceSq <= 0.000001 || targetSq <= 0.000001)
+                return float.NaN;
+
+            double dot =
+                (source.x * target.x) +
+                (source.y * target.y) +
+                (source.z * target.z);
+            double normalized = dot / System.Math.Sqrt(sourceSq * targetSq);
+            if (normalized < -1.0) normalized = -1.0;
+            else if (normalized > 1.0) normalized = 1.0;
+
+            return (float)(System.Math.Acos(normalized) * (180.0 / System.Math.PI));
+        }
+
+        internal static float ComputeQuaternionAngleDegrees(Quaternion source, Quaternion target)
+        {
+            double dot = System.Math.Abs(
+                (source.x * target.x) +
+                (source.y * target.y) +
+                (source.z * target.z) +
+                (source.w * target.w));
+
+            if (dot > 1.0) dot = 1.0;
+
+            return (float)(System.Math.Acos(dot) * 2.0 * (180.0 / System.Math.PI));
+        }
+
+        private static string FormatAngleDegrees(float angleDegrees)
+        {
+            if (float.IsNaN(angleDegrees) || float.IsInfinity(angleDegrees))
+                return "n/a";
+
+            return angleDegrees.ToString("F3", CultureInfo.InvariantCulture);
+        }
+
+        internal static string BuildFxFrameDiagnostic(
+            Vector3 sourcePartLocalPos,
+            Quaternion sourcePartLocalRot,
+            Vector3 sourceForward,
+            Vector3 sourceUp,
+            Vector3 targetPartLocalPos,
+            Quaternion targetPartLocalRot,
+            Vector3 targetForward,
+            Vector3 targetUp)
+        {
+            Vector3 deltaPos = targetPartLocalPos - sourcePartLocalPos;
+            float deltaRot = ComputeQuaternionAngleDegrees(sourcePartLocalRot, targetPartLocalRot);
+            float forwardAngle = ComputeDirectionAngleDegrees(sourceForward, targetForward);
+            float upAngle = ComputeDirectionAngleDegrees(sourceUp, targetUp);
+
+            return $"deltaPos={deltaPos} deltaPosMag={deltaPos.magnitude.ToString("F4", CultureInfo.InvariantCulture)} " +
+                $"deltaRot={deltaRot.ToString("F3", CultureInfo.InvariantCulture)} " +
+                $"fwdAngle={FormatAngleDegrees(forwardAngle)} upAngle={FormatAngleDegrees(upAngle)}";
+        }
+
         private static void LogFxParentAlignmentDiagnostic(
             string partName, int moduleIndex, string fxKind, string transformName,
             Transform prefabRoot, Transform ghostModelNode,
@@ -916,20 +995,62 @@ namespace Parsek
 
             Vector3 srcPartLocalPos = prefabRoot.InverseTransformPoint(srcFxTransform.position);
             Vector3 ghostPartLocalPos = ghostPartRoot.InverseTransformPoint(ghostFxParent.position);
-            Vector3 deltaPos = ghostPartLocalPos - srcPartLocalPos;
 
             Quaternion srcPartLocalRot = Quaternion.Inverse(prefabRoot.rotation) * srcFxTransform.rotation;
             Quaternion ghostPartLocalRot = Quaternion.Inverse(ghostPartRoot.rotation) * ghostFxParent.rotation;
-            float deltaRot = Quaternion.Angle(srcPartLocalRot, ghostPartLocalRot);
+            string diagnostic = BuildFxFrameDiagnostic(
+                srcPartLocalPos, srcPartLocalRot, srcFxTransform.forward, srcFxTransform.up,
+                ghostPartLocalPos, ghostPartLocalRot, ghostFxParent.forward, ghostFxParent.up);
 
-            // Always log for debugging FX orientation
-            Vector3 ghostFwd = ghostFxParent.forward;
-            Vector3 ghostUp = ghostFxParent.up;
-            ParsekLog.Log($"    [DIAG] FX align '{partName}' midx={moduleIndex} type={fxKind} transform='{transformName}' " +
-                $"ghostFwd={ghostFwd} ghostUp={ghostUp} " +
-                $"srcFwd={srcFxTransform.forward} srcUp={srcFxTransform.up} " +
-                $"ghostLocalRot={ghostFxParent.localRotation} srcLocalRot={srcFxTransform.localRotation} " +
-                $"deltaRot={deltaRot:F3}");
+            ParsekLog.Verbose("GhostVisual", $"    [DIAG] FX parent align '{partName}' midx={moduleIndex} " +
+                $"type={fxKind} transform='{transformName}' {diagnostic} " +
+                $"srcLocalRot={srcFxTransform.localRotation.eulerAngles} parentLocalRot={ghostFxParent.localRotation.eulerAngles}");
+        }
+
+        private static void LogFxInstancePlacementDiagnostic(
+            string partName,
+            int moduleIndex,
+            string fxKind,
+            string transformName,
+            string fxAssetName,
+            Transform prefabRoot,
+            Transform ghostModelNode,
+            Transform srcFxTransform,
+            Transform ghostFxParent,
+            Transform fxTransform,
+            Vector3 configuredLocalOffset,
+            Quaternion configuredLocalRotation,
+            bool hasConfiguredLocalRotation)
+        {
+            if (prefabRoot == null || ghostModelNode == null ||
+                srcFxTransform == null || ghostFxParent == null || fxTransform == null)
+                return;
+
+            Transform ghostPartRoot = ghostModelNode.parent != null ? ghostModelNode.parent : ghostModelNode;
+
+            Vector3 srcPartLocalPos = prefabRoot.InverseTransformPoint(srcFxTransform.position);
+            Quaternion srcPartLocalRot = Quaternion.Inverse(prefabRoot.rotation) * srcFxTransform.rotation;
+
+            Vector3 parentPartLocalPos = ghostPartRoot.InverseTransformPoint(ghostFxParent.position);
+            Quaternion parentPartLocalRot = Quaternion.Inverse(ghostPartRoot.rotation) * ghostFxParent.rotation;
+
+            Vector3 fxPartLocalPos = ghostPartRoot.InverseTransformPoint(fxTransform.position);
+            Quaternion fxPartLocalRot = Quaternion.Inverse(ghostPartRoot.rotation) * fxTransform.rotation;
+
+            string sourceToFx = BuildFxFrameDiagnostic(
+                srcPartLocalPos, srcPartLocalRot, srcFxTransform.forward, srcFxTransform.up,
+                fxPartLocalPos, fxPartLocalRot, fxTransform.forward, fxTransform.up);
+            string parentToFx = BuildFxFrameDiagnostic(
+                parentPartLocalPos, parentPartLocalRot, ghostFxParent.forward, ghostFxParent.up,
+                fxPartLocalPos, fxPartLocalRot, fxTransform.forward, fxTransform.up);
+
+            string safeAssetName = string.IsNullOrEmpty(fxAssetName) ? "<none>" : fxAssetName;
+            ParsekLog.Verbose("GhostVisual", $"    [DIAG] FX placement '{partName}' midx={moduleIndex} " +
+                $"type={fxKind} transform='{transformName}' asset='{safeAssetName}' " +
+                $"cfgOffset={configuredLocalOffset} cfgRot={configuredLocalRotation.eulerAngles} hasCfgRot={hasConfiguredLocalRotation} " +
+                $"parent='{ghostFxParent.name}' fx='{fxTransform.name}' " +
+                $"fxLocalPos={fxTransform.localPosition} fxLocalRot={fxTransform.localRotation.eulerAngles} " +
+                $"sourceToFx=({sourceToFx}) parentToFx=({parentToFx})");
         }
 
         private static int ConfigureGhostEngineParticleSystems(
@@ -1011,35 +1132,48 @@ namespace Parsek
             return canopy;
         }
 
-        // Cache: partName → (scale, pos, rot) — sample once per part type, reuse across ghosts
-        private static readonly Dictionary<string, (Vector3 scale, Vector3 pos, Quaternion rot)> deployedCanopyCache =
-            new Dictionary<string, (Vector3, Vector3, Quaternion)>();
+        // Cache: partName → (semi-deployed + deployed canopy states) — sample once per part type, reuse across ghosts
+        private static readonly Dictionary<string, (Vector3 sdScale, Vector3 sdPos, Quaternion sdRot, bool semiDeployedSampled,
+            Vector3 dScale, Vector3 dPos, Quaternion dRot)> canopyCache =
+            new Dictionary<string, (Vector3, Vector3, Quaternion, bool, Vector3, Vector3, Quaternion)>();
 
-        internal static void ClearDeployedCanopyCache()
+        internal static void ClearCanopyCache()
         {
-            deployedCanopyCache.Clear();
+            canopyCache.Clear();
         }
 
-        private static (Vector3 scale, Vector3 pos, Quaternion rot) SampleDeployedCanopy(Part prefab, ModuleParachute chute)
+        /// <summary>
+        /// Sample both semi-deployed (streamer) and fully deployed (dome) canopy states from animations.
+        /// KSP parachute animations are sequential:
+        ///   semiDeployedAnimation@time=1 → streamer (textile on wires, no air)
+        ///   fullyDeployedAnimation@time=1 → inflated dome
+        /// Stowed state is invisible (canopy mesh starts at zero scale in prefabs).
+        /// </summary>
+        private static (Vector3 sdScale, Vector3 sdPos, Quaternion sdRot, bool semiDeployedSampled,
+            Vector3 dScale, Vector3 dPos, Quaternion dRot) SampleCanopyStates(Part prefab, ModuleParachute chute)
         {
             string key = prefab.partInfo?.name ?? prefab.name;
-            if (deployedCanopyCache.TryGetValue(key, out var cached))
+            if (canopyCache.TryGetValue(key, out var cached))
                 return cached;
 
-            // Use fullyDeployedAnimation for the open dome shape (visually correct for ghost).
-            // Fall back to semiDeployedAnimation if fullyDeployed is missing.
-            string animName = chute.fullyDeployedAnimation;
-            if (string.IsNullOrEmpty(animName))
-                animName = chute.semiDeployedAnimation;
+            string semiAnim = chute.semiDeployedAnimation;
+            string fullAnim = chute.fullyDeployedAnimation;
 
-            Vector3 scale = Vector3.one;
-            Vector3 pos = Vector3.zero;
-            Quaternion rot = Quaternion.identity;
-            bool sampled = false;
+            string deployedAnimName = !string.IsNullOrEmpty(fullAnim) ? fullAnim
+                : !string.IsNullOrEmpty(semiAnim) ? semiAnim : null;
 
-            if (!string.IsNullOrEmpty(animName))
+            Vector3 sdScale = Vector3.zero, sdPos = Vector3.zero;
+            Quaternion sdRot = Quaternion.identity;
+            bool semiDeployedSampled = false;
+
+            Vector3 dScale = Vector3.one, dPos = Vector3.zero;
+            Quaternion dRot = Quaternion.identity;
+            bool deployedSampled = false;
+
+            string canopyName = chute.canopyName;
+
+            if (!string.IsNullOrEmpty(semiAnim) || !string.IsNullOrEmpty(deployedAnimName))
             {
-                // Clone ONLY the model subtree — avoids Part/PartModule Awake() side effects
                 Transform prefabModel = prefab.transform.Find("model") ?? prefab.transform;
                 GameObject tempClone = Object.Instantiate(prefabModel.gameObject);
 
@@ -1048,40 +1182,77 @@ namespace Parsek
                     Animation anim = tempClone.GetComponentInChildren<Animation>(true);
                     if (anim != null)
                     {
-                        AnimationState state = anim[animName];
-                        if (state != null)
+                        // Sample semi-deployed state: semiDeployedAnimation@time=1 (streamer)
+                        if (!string.IsNullOrEmpty(semiAnim))
                         {
-                            state.enabled = true;
-                            state.speed = 0f;
-                            state.normalizedTime = 1f;
-                            state.weight = 1f;
-                            anim.Play(animName);
-                            anim.Sample();
-
-                            string canopyName = chute.canopyName;
-                            Transform canopy = !string.IsNullOrEmpty(canopyName)
-                                ? FindTransformRecursive(tempClone.transform, canopyName) : null;
-                            if (canopy != null)
+                            AnimationState semiState = anim[semiAnim];
+                            if (semiState != null)
                             {
-                                scale = canopy.localScale;
-                                // Root-relative position/rotation accounts for animated
-                                // intermediate transforms (critical for EVA kerbals where
-                                // the deploy animation moves parent bones, not canopy itself)
-                                pos = tempClone.transform.InverseTransformPoint(canopy.position);
-                                rot = Quaternion.Inverse(tempClone.transform.rotation) * canopy.rotation;
-                                sampled = true;
-                                ParsekLog.Log($"  Animation '{animName}' sampled canopy: scale={scale} " +
-                                    $"rootPos={pos} rootRot={rot.eulerAngles}");
+                                anim.Stop();
+                                semiState.enabled = true;
+                                semiState.speed = 0f;
+                                semiState.normalizedTime = 1f;
+                                semiState.weight = 1f;
+                                anim.Play(semiAnim);
+                                anim.Sample();
+
+                                Transform canopy = !string.IsNullOrEmpty(canopyName)
+                                    ? FindTransformRecursive(tempClone.transform, canopyName) : null;
+                                if (canopy != null && canopy.localScale.magnitude > 0.01f)
+                                {
+                                    sdScale = canopy.localScale;
+                                    sdPos = tempClone.transform.InverseTransformPoint(canopy.position);
+                                    sdRot = Quaternion.Inverse(tempClone.transform.rotation) * canopy.rotation;
+                                    semiDeployedSampled = true;
+                                    ParsekLog.Verbose("GhostVisual", $"  Semi-deployed canopy sampled via '{semiAnim}'@1: scale={sdScale} " +
+                                        $"rootPos={sdPos} rootRot={sdRot.eulerAngles}");
+                                }
+                                else
+                                {
+                                    ParsekLog.Verbose("GhostVisual", $"  Semi-deploy animation '{semiAnim}'@1 gave near-zero scale, skipping");
+                                }
+                            }
+                            else
+                            {
+                                ParsekLog.Verbose("GhostVisual", $"  Semi-deploy animation '{semiAnim}' not found on clone for '{key}'");
                             }
                         }
-                        else
+
+                        // Sample deployed state: fullyDeployedAnimation@time=1 (dome)
+                        if (!string.IsNullOrEmpty(deployedAnimName))
                         {
-                            ParsekLog.Log($"  Animation '{animName}' not found on clone for '{key}'");
+                            anim.Stop();
+                            AnimationState deployState = anim[deployedAnimName];
+                            if (deployState != null)
+                            {
+                                deployState.enabled = true;
+                                deployState.speed = 0f;
+                                deployState.normalizedTime = 1f;
+                                deployState.weight = 1f;
+                                anim.Play(deployedAnimName);
+                                anim.Sample();
+
+                                Transform canopy = !string.IsNullOrEmpty(canopyName)
+                                    ? FindTransformRecursive(tempClone.transform, canopyName) : null;
+                                if (canopy != null)
+                                {
+                                    dScale = canopy.localScale;
+                                    dPos = tempClone.transform.InverseTransformPoint(canopy.position);
+                                    dRot = Quaternion.Inverse(tempClone.transform.rotation) * canopy.rotation;
+                                    deployedSampled = true;
+                                    ParsekLog.Verbose("GhostVisual", $"  Deployed canopy sampled via '{deployedAnimName}'@1: scale={dScale} " +
+                                        $"rootPos={dPos} rootRot={dRot.eulerAngles}");
+                                }
+                            }
+                            else
+                            {
+                                ParsekLog.Verbose("GhostVisual", $"  Deploy animation '{deployedAnimName}' not found on clone for '{key}'");
+                            }
                         }
                     }
                     else
                     {
-                        ParsekLog.Log($"  No Animation component on model clone for '{key}'");
+                        ParsekLog.Verbose("GhostVisual", $"  No Animation component on model clone for '{key}'");
                     }
                 }
                 finally
@@ -1090,20 +1261,19 @@ namespace Parsek
                 }
             }
 
-            // If animation produced a near-zero scale, it failed to animate properly.
-            // Use a conservative fallback. Threshold is very low because stock parachutes
-            // (e.g. parachuteSingle) legitimately deploy at small scales like (0.1, 0.1, 0.1).
-            if (sampled && scale.magnitude < 0.01f)
+            // Deployed fallback: if animation produced near-zero scale
+            if (deployedSampled && dScale.magnitude < 0.01f)
             {
-                ParsekLog.Log($"  Animation produced near-zero scale ({scale}), using deployed canopy fallback");
-                scale = Vector3.one;
-                pos = Vector3.zero;
-                rot = Quaternion.identity;
+                ParsekLog.Verbose("GhostVisual", $"  Deploy animation produced near-zero scale ({dScale}), using deployed canopy fallback");
+                dScale = Vector3.one;
+                dPos = Vector3.zero;
+                dRot = Quaternion.identity;
             }
 
-            var result = (scale, pos, rot);
-            deployedCanopyCache[key] = result;
-            ParsekLog.Log($"  Deployed canopy for '{key}': scale={scale} pos={pos} rot={rot.eulerAngles}");
+            var result = (sdScale, sdPos, sdRot, semiDeployedSampled, dScale, dPos, dRot);
+            canopyCache[key] = result;
+            ParsekLog.Verbose("GhostVisual", $"  Canopy states for '{key}': semiDeployed={semiDeployedSampled} sdScale={sdScale} " +
+                $"deployed dScale={dScale} dPos={dPos} dRot={dRot.eulerAngles}");
             return result;
         }
 
@@ -1174,7 +1344,7 @@ namespace Parsek
 
             if (string.IsNullOrEmpty(animationStateName))
             {
-                ParsekLog.Log($"  Gear '{key}': no animationStateName — skipping animation sampling");
+                ParsekLog.Verbose("GhostVisual", $"  Gear '{key}': no animationStateName — skipping animation sampling");
                 gearCache[key] = null;
                 return null;
             }
@@ -1200,7 +1370,7 @@ namespace Parsek
 
                 if (anim == null)
                 {
-                    ParsekLog.Log($"  Gear '{key}': no Animation component on model clone");
+                    ParsekLog.Verbose("GhostVisual", $"  Gear '{key}': no Animation component on model clone");
                     gearCache[key] = null;
                     return null;
                 }
@@ -1208,7 +1378,7 @@ namespace Parsek
                 AnimationState state = anim[animationStateName];
                 if (state == null)
                 {
-                    ParsekLog.Log($"  Gear '{key}': animation '{animationStateName}' not found on clone");
+                    ParsekLog.Verbose("GhostVisual", $"  Gear '{key}': animation '{animationStateName}' not found on clone");
                     gearCache[key] = null;
                     return null;
                 }
@@ -1262,12 +1432,12 @@ namespace Parsek
 
                 if (result.Count == 0)
                 {
-                    ParsekLog.Log($"  Gear '{key}': animation '{animationStateName}' produced no transform deltas");
+                    ParsekLog.Verbose("GhostVisual", $"  Gear '{key}': animation '{animationStateName}' produced no transform deltas");
                     result = null;
                 }
                 else
                 {
-                    ParsekLog.Log($"  Gear '{key}': sampled {result.Count} animated transforms from '{animationStateName}'");
+                    ParsekLog.Verbose("GhostVisual", $"  Gear '{key}': sampled {result.Count} animated transforms from '{animationStateName}'");
                 }
             }
             finally
@@ -1403,7 +1573,7 @@ namespace Parsek
 
             if (string.IsNullOrEmpty(animationName))
             {
-                ParsekLog.Log($"  Ladder '{partKey}': no ladderRetractAnimationName — skipping animation sampling");
+                ParsekLog.Verbose("GhostVisual", $"  Ladder '{partKey}': no ladderRetractAnimationName — skipping animation sampling");
                 ladderCache[cacheKey] = null;
                 return null;
             }
@@ -1421,7 +1591,7 @@ namespace Parsek
                     if (animRoot != null)
                         anim = animRoot.GetComponent<Animation>();
                     else
-                        ParsekLog.Log($"  Ladder '{partKey}': animation root '{animationRootName}' not found on clone");
+                        ParsekLog.Verbose("GhostVisual", $"  Ladder '{partKey}': animation root '{animationRootName}' not found on clone");
                 }
 
                 if (anim == null)
@@ -1438,7 +1608,7 @@ namespace Parsek
 
                 if (anim == null)
                 {
-                    ParsekLog.Log($"  Ladder '{partKey}': no Animation component on model clone");
+                    ParsekLog.Verbose("GhostVisual", $"  Ladder '{partKey}': no Animation component on model clone");
                     ladderCache[cacheKey] = null;
                     return null;
                 }
@@ -1446,7 +1616,7 @@ namespace Parsek
                 AnimationState state = anim[animationName];
                 if (state == null)
                 {
-                    ParsekLog.Log($"  Ladder '{partKey}': animation '{animationName}' not found on clone");
+                    ParsekLog.Verbose("GhostVisual", $"  Ladder '{partKey}': animation '{animationName}' not found on clone");
                     ladderCache[cacheKey] = null;
                     return null;
                 }
@@ -1523,12 +1693,12 @@ namespace Parsek
 
                 if (result.Count == 0)
                 {
-                    ParsekLog.Log($"  Ladder '{partKey}': animation '{animationName}' produced no transform deltas");
+                    ParsekLog.Verbose("GhostVisual", $"  Ladder '{partKey}': animation '{animationName}' produced no transform deltas");
                     result = null;
                 }
                 else
                 {
-                    ParsekLog.Log($"  Ladder '{partKey}': sampled {result.Count} animated transforms from '{animationName}' " +
+                    ParsekLog.Verbose("GhostVisual", $"  Ladder '{partKey}': sampled {result.Count} animated transforms from '{animationName}' " +
                         $"(stowed=time{(stowedIsTime0 ? "0" : "1")})");
                 }
             }
@@ -1559,7 +1729,7 @@ namespace Parsek
 
             if (string.IsNullOrEmpty(animationName))
             {
-                ParsekLog.Log($"  CargoBay '{key}': no animationName — skipping animation sampling");
+                ParsekLog.Verbose("GhostVisual", $"  CargoBay '{key}': no animationName — skipping animation sampling");
                 cargoBayCache[key] = null;
                 return null;
             }
@@ -1578,7 +1748,7 @@ namespace Parsek
             }
             else
             {
-                ParsekLog.Log($"  CargoBay '{key}': non-standard closedPosition={closedPosition} — skipping");
+                ParsekLog.Verbose("GhostVisual", $"  CargoBay '{key}': non-standard closedPosition={closedPosition} — skipping");
                 cargoBayCache[key] = null;
                 return null;
             }
@@ -1606,7 +1776,7 @@ namespace Parsek
 
                 if (anim == null)
                 {
-                    ParsekLog.Log($"  CargoBay '{key}': no Animation component on model clone");
+                    ParsekLog.Verbose("GhostVisual", $"  CargoBay '{key}': no Animation component on model clone");
                     cargoBayCache[key] = null;
                     return null;
                 }
@@ -1614,7 +1784,7 @@ namespace Parsek
                 AnimationState state = anim[animationName];
                 if (state == null)
                 {
-                    ParsekLog.Log($"  CargoBay '{key}': animation '{animationName}' not found on clone");
+                    ParsekLog.Verbose("GhostVisual", $"  CargoBay '{key}': animation '{animationName}' not found on clone");
                     cargoBayCache[key] = null;
                     return null;
                 }
@@ -1662,12 +1832,12 @@ namespace Parsek
 
                 if (result.Count == 0)
                 {
-                    ParsekLog.Log($"  CargoBay '{key}': animation '{animationName}' produced no transform deltas");
+                    ParsekLog.Verbose("GhostVisual", $"  CargoBay '{key}': animation '{animationName}' produced no transform deltas");
                     result = null;
                 }
                 else
                 {
-                    ParsekLog.Log($"  CargoBay '{key}': sampled {result.Count} animated transforms from '{animationName}'");
+                    ParsekLog.Verbose("GhostVisual", $"  CargoBay '{key}': sampled {result.Count} animated transforms from '{animationName}'");
                 }
             }
             finally
@@ -1695,7 +1865,7 @@ namespace Parsek
             string animName = deployable.animationName;
             if (string.IsNullOrEmpty(animName))
             {
-                ParsekLog.Log($"  Deployable '{key}': no animationName — skipping animation sampling");
+                ParsekLog.Verbose("GhostVisual", $"  Deployable '{key}': no animationName — skipping animation sampling");
                 deployableCache[key] = null;
                 return null;
             }
@@ -1710,7 +1880,7 @@ namespace Parsek
                 Animation anim = tempClone.GetComponentInChildren<Animation>(true);
                 if (anim == null)
                 {
-                    ParsekLog.Log($"  Deployable '{key}': no Animation component on model clone");
+                    ParsekLog.Verbose("GhostVisual", $"  Deployable '{key}': no Animation component on model clone");
                     deployableCache[key] = null;
                     return null;
                 }
@@ -1718,7 +1888,7 @@ namespace Parsek
                 AnimationState state = anim[animName];
                 if (state == null)
                 {
-                    ParsekLog.Log($"  Deployable '{key}': animation '{animName}' not found on clone");
+                    ParsekLog.Verbose("GhostVisual", $"  Deployable '{key}': animation '{animName}' not found on clone");
                     deployableCache[key] = null;
                     return null;
                 }
@@ -1769,12 +1939,12 @@ namespace Parsek
 
                 if (result.Count == 0)
                 {
-                    ParsekLog.Log($"  Deployable '{key}': animation '{animName}' produced no transform deltas");
+                    ParsekLog.Verbose("GhostVisual", $"  Deployable '{key}': animation '{animName}' produced no transform deltas");
                     result = null;
                 }
                 else
                 {
-                    ParsekLog.Log($"  Deployable '{key}': sampled {result.Count} animated transforms from '{animName}'");
+                    ParsekLog.Verbose("GhostVisual", $"  Deployable '{key}': sampled {result.Count} animated transforms from '{animName}'");
                 }
             }
             finally
@@ -1861,7 +2031,7 @@ namespace Parsek
             }
             string compStr = compNames.Count > 0 ? " [" + string.Join(", ", compNames) + "]" : "";
             string activeStr = t.gameObject.activeSelf ? "" : " (INACTIVE)";
-            ParsekLog.Log($"    HIERARCHY {partName}: {indent}{t.name}{compStr}{activeStr}");
+            ParsekLog.Verbose("GhostVisual", $"    HIERARCHY {partName}: {indent}{t.name}{compStr}{activeStr}");
             for (int i = 0; i < t.childCount; i++)
                 DumpTransformHierarchy(t.GetChild(i), depth + 1, partName);
         }
@@ -1910,7 +2080,7 @@ namespace Parsek
                 ConfigNode partConfig = prefab.partInfo?.partConfig;
                 if (partConfig == null)
                 {
-                    ParsekLog.Log($"    Engine '{partName}' midx={moduleIndex}: no partConfig — skipping FX");
+                    ParsekLog.Verbose("GhostVisual", $"    Engine '{partName}' midx={moduleIndex}: no partConfig — skipping FX");
                     continue;
                 }
 
@@ -2117,6 +2287,24 @@ namespace Parsek
                     if (kickbackOffset.sqrMagnitude <= 0.000001f)
                         kickbackOffset = new Vector3(0f, 0f, 0.35f);
                     Quaternion kickbackThumperLocalRot = Quaternion.Euler(-90f, 0f, 0f);
+                    var kickbackAnchors = FindTransformsRecursive(prefab.transform, kickbackTransform);
+                    if (kickbackAnchors.Count > 0)
+                    {
+                        Transform diagAnchor = kickbackAnchors[0];
+                        Vector3 anchorPartLocalPos = prefab.transform.InverseTransformPoint(diagAnchor.position);
+                        Quaternion anchorPartLocalRot = Quaternion.Inverse(prefab.transform.rotation) * diagAnchor.rotation;
+                        ParsekLog.Verbose("GhostVisual", $"    [DIAG] Kickback fallback anchor '{partName}' midx={moduleIndex} " +
+                            $"transform='{kickbackTransform}' anchors={kickbackAnchors.Count} " +
+                            $"anchorPartLocalPos={anchorPartLocalPos} anchorPartLocalRot={anchorPartLocalRot.eulerAngles} " +
+                            $"anchorFwd={diagAnchor.forward} anchorUp={diagAnchor.up} " +
+                            $"targetOffset={kickbackOffset} targetRot={kickbackThumperLocalRot.eulerAngles}");
+                    }
+                    else
+                    {
+                        ParsekLog.Verbose("GhostVisual", $"    [DIAG] Kickback fallback anchor '{partName}' midx={moduleIndex} " +
+                            $"transform='{kickbackTransform}' anchors=0 targetOffset={kickbackOffset} " +
+                            $"targetRot={kickbackThumperLocalRot.eulerAngles}");
+                    }
 
                     prefabFxEntries.Add(("fx_smokeTrail_medium",
                         kickbackTransform, kickbackOffset, kickbackThumperLocalRot, true));
@@ -2378,7 +2566,7 @@ namespace Parsek
                     // Only process once per part — legacy FX are shared, not per-module.
                     if (moduleIndex > 0)
                     {
-                        ParsekLog.Log($"    Engine '{partName}' midx={moduleIndex}: legacy FX already handled by midx=0");
+                        ParsekLog.Verbose("GhostVisual", $"    Engine '{partName}' midx={moduleIndex}: legacy FX already handled by midx=0");
                         continue;
                     }
 
@@ -2452,6 +2640,20 @@ namespace Parsek
                                 if (addedSystems > 0)
                                 {
                                     clonesAdded++;
+                                    LogFxInstancePlacementDiagnostic(
+                                        partName,
+                                        moduleIndex,
+                                        "LEGACY_CHILD",
+                                        srcLegacyAnchor.name,
+                                        child.name,
+                                        prefab.transform,
+                                        ghostModelNode,
+                                        srcLegacyAnchor,
+                                        ghostLegacyParent,
+                                        fxClone.transform,
+                                        legacyFxOffset,
+                                        legacyLocalRot,
+                                        true);
                                     ParsekLog.Log($"    Engine FX (legacy): '{partName}' midx={moduleIndex} " +
                                         $"fx='{child.name}' anchor='{srcLegacyAnchor.name}' offset={legacyFxOffset} systems={addedSystems}");
                                 }
@@ -2479,6 +2681,23 @@ namespace Parsek
                             int addedSystems = ConfigureGhostEngineParticleSystems(fxClone, info.particleSystems);
                             if (addedSystems > 0)
                             {
+                                Transform fallbackParent = fxClone.transform.parent != null
+                                    ? fxClone.transform.parent
+                                    : ghostModelNode;
+                                LogFxInstancePlacementDiagnostic(
+                                    partName,
+                                    moduleIndex,
+                                    "LEGACY_CHILD_FALLBACK",
+                                    child.name,
+                                    child.name,
+                                    prefab.transform,
+                                    ghostModelNode,
+                                    child,
+                                    fallbackParent,
+                                    fxClone.transform,
+                                    child.localPosition,
+                                    child.localRotation,
+                                    true);
                                 ParsekLog.Log($"    Engine FX (legacy): '{partName}' midx={moduleIndex} " +
                                     $"fx='{child.name}' systems={addedSystems}");
                             }
@@ -2492,7 +2711,7 @@ namespace Parsek
                     if (info.particleSystems.Count > 0)
                         result.Add(info);
                     else
-                        ParsekLog.Log($"    Engine '{partName}' midx={moduleIndex}: no legacy fx_* children found");
+                        ParsekLog.Verbose("GhostVisual", $"    Engine '{partName}' midx={moduleIndex}: no legacy fx_* children found");
                     continue;
                 }
 
@@ -2536,6 +2755,20 @@ namespace Parsek
                                 int addedSystems = ConfigureGhostEngineParticleSystems(fxInstance, info.particleSystems);
                                 if (addedSystems > 0)
                                 {
+                                    LogFxInstancePlacementDiagnostic(
+                                        partName,
+                                        moduleIndex,
+                                        nodeType,
+                                        transformName,
+                                        modelName,
+                                        prefab.transform,
+                                        ghostModelNode,
+                                        srcFxTransform,
+                                        ghostFxParent,
+                                        fxInstance.transform,
+                                        mmpLocalPos,
+                                        mmpLocalRot,
+                                        true);
                                     // Diagnostic: log source transform orientation to debug FX direction
                                     Vector3 srcFwd = srcFxTransform.forward;
                                     Vector3 srcUp = srcFxTransform.up;
@@ -2553,7 +2786,7 @@ namespace Parsek
                             }
                             else
                             {
-                                ParsekLog.Log($"    Engine FX model not found: '{modelName}' for '{partName}'");
+                                ParsekLog.Verbose("GhostVisual", $"    Engine FX model not found: '{modelName}' for '{partName}'");
                             }
                         }
                     }
@@ -2631,6 +2864,20 @@ namespace Parsek
                         int addedSystems = ConfigureGhostEngineParticleSystems(fxInstance, info.particleSystems);
                         if (addedSystems > 0)
                         {
+                            LogFxInstancePlacementDiagnostic(
+                                partName,
+                                moduleIndex,
+                                "PREFAB_PARTICLE",
+                                transformName,
+                                prefabName,
+                                prefab.transform,
+                                ghostModelNode,
+                                srcFxTransform,
+                                ghostFxParent,
+                                fxInstance.transform,
+                                localOffset,
+                                localRot,
+                                hasLocalRot);
                             ParsekLog.Log($"    Engine FX (prefab): '{partName}' midx={moduleIndex} " +
                                 $"transform='{transformName}' prefab='{prefabName}' systems={addedSystems}");
                         }
@@ -2686,14 +2933,14 @@ namespace Parsek
                 ConfigNode partConfig = prefab.partInfo?.partConfig;
                 if (partConfig == null)
                 {
-                    ParsekLog.Log($"    RCS '{partName}' midx={moduleIndex}: no partConfig — skipping FX");
+                    ParsekLog.Verbose("GhostVisual", $"    RCS '{partName}' midx={moduleIndex}: no partConfig — skipping FX");
                     continue;
                 }
 
                 ConfigNode effectsNode = partConfig.GetNode("EFFECTS");
                 if (effectsNode == null)
                 {
-                    ParsekLog.Log($"    RCS '{partName}' midx={moduleIndex}: no EFFECTS node — skipping FX");
+                    ParsekLog.Verbose("GhostVisual", $"    RCS '{partName}' midx={moduleIndex}: no EFFECTS node — skipping FX");
                     continue;
                 }
 
@@ -2709,7 +2956,7 @@ namespace Parsek
                 ConfigNode effectGroup = effectsNode.GetNode(runningEffect);
                 if (effectGroup == null)
                 {
-                    ParsekLog.Log($"    RCS '{partName}' midx={moduleIndex}: no '{runningEffect}' effect group");
+                    ParsekLog.Verbose("GhostVisual", $"    RCS '{partName}' midx={moduleIndex}: no '{runningEffect}' effect group");
                     continue;
                 }
 
@@ -2766,7 +3013,7 @@ namespace Parsek
 
                 if (fxDefinitions.Count == 0)
                 {
-                    ParsekLog.Log($"    RCS '{partName}' midx={moduleIndex}: no FX transforms in '{runningEffect}' group");
+                    ParsekLog.Verbose("GhostVisual", $"    RCS '{partName}' midx={moduleIndex}: no FX transforms in '{runningEffect}' group");
                     continue;
                 }
 
@@ -2781,7 +3028,7 @@ namespace Parsek
                     var fxTransforms = FindTransformsRecursive(prefab.transform, transformName);
                     if (fxTransforms.Count == 0)
                     {
-                        ParsekLog.Log($"    RCS '{partName}' midx={moduleIndex}: transform '{transformName}' not found on prefab");
+                        ParsekLog.Verbose("GhostVisual", $"    RCS '{partName}' midx={moduleIndex}: transform '{transformName}' not found on prefab");
                         continue;
                     }
 
@@ -2837,9 +3084,23 @@ namespace Parsek
                                         }
                                     }
                                     info.particleSystems.Add(ps);
+                                    LogFxInstancePlacementDiagnostic(
+                                        partName,
+                                        moduleIndex,
+                                        "RCS_MODEL_MULTI_PARTICLE",
+                                        transformName,
+                                        modelName,
+                                        prefab.transform,
+                                        ghostModelNode,
+                                        srcFxTransform,
+                                        ghostFxParent,
+                                        fxInstance.transform,
+                                        fxDefinitions[f].localOffset,
+                                        fxDefinitions[f].localRotation,
+                                        true);
                                     var diagRenderer = ps.GetComponent<ParticleSystemRenderer>();
                                     var diagMain = ps.main;
-                                    ParsekLog.Log($"    RCS FX cloned: '{partName}' midx={moduleIndex} " +
+                                    ParsekLog.Verbose("GhostVisual", $"    RCS FX cloned: '{partName}' midx={moduleIndex} " +
                                         $"transform='{transformName}' model='{modelName}' " +
                                         $"offset={fxDefinitions[f].localOffset} " +
                                         $"rot={fxDefinitions[f].localRotation.eulerAngles} " +
@@ -2851,7 +3112,7 @@ namespace Parsek
                             }
                             else
                             {
-                                ParsekLog.Log($"    RCS FX model not found: '{modelName}' for '{partName}'");
+                                ParsekLog.Verbose("GhostVisual", $"    RCS FX model not found: '{modelName}' for '{partName}'");
                             }
                         }
                     }
@@ -2859,14 +3120,14 @@ namespace Parsek
 
                 if (info.particleSystems.Count > 0)
                 {
-                    ParsekLog.Log($"    RCS module ready: '{partName}' midx={moduleIndex} " +
+                    ParsekLog.Verbose("GhostVisual", $"    RCS module ready: '{partName}' midx={moduleIndex} " +
                         $"particles={info.particleSystems.Count} " +
                         $"emissionScale={info.emissionScale:F1} speedScale={info.speedScale:F2}");
                     result.Add(info);
                 }
                 else
                 {
-                    ParsekLog.Log($"    RCS '{partName}' midx={moduleIndex}: no particle systems cloned");
+                    ParsekLog.Verbose("GhostVisual", $"    RCS '{partName}' midx={moduleIndex}: no particle systems cloned");
                 }
             }
 
@@ -3331,7 +3592,7 @@ namespace Parsek
             if (xNodes == null || xNodes.Length < 2)
             {
                 if (xNodes != null && xNodes.Length > 0)
-                    ParsekLog.Log($"    Fairing '{partName}': only {xNodes.Length} XSECTION(s) — skipping cone mesh");
+                    ParsekLog.Verbose("GhostVisual", $"    Fairing '{partName}': only {xNodes.Length} XSECTION(s) — skipping cone mesh");
                 return null;
             }
 
@@ -3364,7 +3625,7 @@ namespace Parsek
                 color = new Color(0.85f, 0.85f, 0.85f)
             };
 
-            ParsekLog.Log($"    Fairing detected: '{partName}' pid={persistentId}, " +
+            ParsekLog.Verbose("GhostVisual", $"    Fairing detected: '{partName}' pid={persistentId}, " +
                 $"cone mesh generated ({sections.Count} sections, {nSides} sides)");
 
             return new FairingGhostInfo
@@ -3746,14 +4007,14 @@ namespace Parsek
                 if (!TryResolveRoboticTransform(
                     prefab, module, moduleName, out string servoTransformName, out Vector3 axis, out string transformSource))
                 {
-                    ParsekLog.Log($"    Robotics '{partName}' midx={moduleIndex}: missing transform binding on {moduleName}");
+                    ParsekLog.Verbose("GhostVisual", $"    Robotics '{partName}' midx={moduleIndex}: missing transform binding on {moduleName}");
                     continue;
                 }
 
                 Transform sourceServo = prefab.FindModelTransform(servoTransformName);
                 if (sourceServo == null)
                 {
-                    ParsekLog.Log($"    Robotics '{partName}' midx={moduleIndex}: servo transform '{servoTransformName}' not found");
+                    ParsekLog.Verbose("GhostVisual", $"    Robotics '{partName}' midx={moduleIndex}: servo transform '{servoTransformName}' not found");
                     continue;
                 }
 
@@ -3766,7 +4027,7 @@ namespace Parsek
                     }
                     else
                     {
-                        ParsekLog.Log($"    Robotics '{partName}' midx={moduleIndex}: servo '{servoTransformName}' outside model root");
+                        ParsekLog.Verbose("GhostVisual", $"    Robotics '{partName}' midx={moduleIndex}: servo '{servoTransformName}' outside model root");
                         continue;
                     }
                 }
@@ -3789,7 +4050,7 @@ namespace Parsek
                 };
 
                 infos.Add(info);
-                ParsekLog.Log($"    Robotics detected: '{partName}' pid={persistentId} midx={moduleIndex} " +
+                ParsekLog.Verbose("GhostVisual", $"    Robotics detected: '{partName}' pid={persistentId} midx={moduleIndex} " +
                     $"module={moduleName} servo={servoTransformName} source={transformSource} axis={info.axisLocal} seed={currentValue:F3}");
             }
 
@@ -3898,14 +4159,14 @@ namespace Parsek
 
             if (trackedMaterials > 0)
             {
-                ParsekLog.Log($"    AnimateHeat materials detected: '{partName}' pid={persistentId}, " +
+                ParsekLog.Verbose("GhostVisual", $"    AnimateHeat materials detected: '{partName}' pid={persistentId}, " +
                     $"tracked={trackedMaterials} cloned={clonedMaterials}");
                 return materialStates;
             }
 
             if (clonedMaterials > 0)
             {
-                ParsekLog.Log($"    AnimateHeat '{partName}' pid={persistentId}: " +
+                ParsekLog.Verbose("GhostVisual", $"    AnimateHeat '{partName}' pid={persistentId}: " +
                     $"cloned {clonedMaterials} material(s) but no _Color/emissive properties found");
             }
 
@@ -3937,7 +4198,7 @@ namespace Parsek
             // Search from the Part root (not just modelRoot) to catch siblings of "model".
             if (prefab.FindModuleImplementing<ModuleEngines>() != null)
             {
-                ParsekLog.Log($"  ENGINE PART HIERARCHY DUMP for '{partName}' pid={persistentId}:");
+                ParsekLog.Verbose("GhostVisual", $"  ENGINE PART HIERARCHY DUMP for '{partName}' pid={persistentId}:");
                 DumpTransformHierarchy(prefab.transform, 0, partName);
 
                 // Also log MeshRenderers found from Part root vs modelRoot
@@ -3945,7 +4206,7 @@ namespace Parsek
                 var modelMR = modelRoot.GetComponentsInChildren<MeshRenderer>(true);
                 if (allMR.Length != modelMR.Length)
                 {
-                    ParsekLog.Log($"  WARNING: Part root has {allMR.Length} MeshRenderers but " +
+                    ParsekLog.Verbose("GhostVisual", $"  WARNING: Part root has {allMR.Length} MeshRenderers but " +
                         $"modelRoot '{modelRoot.name}' has only {modelMR.Length}! " +
                         $"Missing renderers are OUTSIDE the model subtree.");
                     foreach (var mr in allMR)
@@ -3961,7 +4222,7 @@ namespace Parsek
                         {
                             var mf = mr.GetComponent<MeshFilter>();
                             string meshName = mf?.sharedMesh?.name ?? "(no mesh)";
-                            ParsekLog.Log($"    OUTSIDE-MODEL MR: '{mr.gameObject.name}' mesh={meshName} " +
+                            ParsekLog.Verbose("GhostVisual", $"    OUTSIDE-MODEL MR: '{mr.gameObject.name}' mesh={meshName} " +
                                 $"path={GetTransformPath(mr.transform, prefab.transform)}");
                         }
                     }
@@ -4015,18 +4276,18 @@ namespace Parsek
                 }
             }
             bool filterInactiveVariantRenderers = hasPartVariants && (activeMR > 0 || activeSMR > 0);
-            ParsekLog.Log($"  Part '{partName}' pid={persistentId}: modelRoot='{modelRoot.name}' " +
+            ParsekLog.Verbose("GhostVisual", $"  Part '{partName}' pid={persistentId}: modelRoot='{modelRoot.name}' " +
                 $"modelScale={modelRoot.localScale}, " +
                 $"{totalMR} MeshRenderers, {totalSMR} SkinnedMeshRenderers" +
                 (hasPartVariants ? " (has ModulePartVariants)" : ""));
             if (hasPartVariants && hasVariantGameObjectRules)
             {
-                ParsekLog.Log($"  Variant selection: '{selectedVariantName}' with " +
+                ParsekLog.Verbose("GhostVisual", $"  Variant selection: '{selectedVariantName}' with " +
                     $"{selectedVariantGameObjects.Count} GAMEOBJECT rules");
             }
             if (hasPartVariants && !filterInactiveVariantRenderers)
             {
-                ParsekLog.Log($"  Variant active-state fallback: no active variant renderers found " +
+                ParsekLog.Verbose("GhostVisual", $"  Variant active-state fallback: no active variant renderers found " +
                     $"(active MR={activeMR}, active SMR={activeSMR})");
             }
 
@@ -4059,7 +4320,7 @@ namespace Parsek
             modelNode.transform.localPosition = modelRoot.localPosition;
             modelNode.transform.localRotation = modelRoot.localRotation;
             modelNode.transform.localScale = modelRoot.localScale;
-            ParsekLog.Log($"  [DIAG] part '{partName}' modelRoot '{modelRoot.name}' localRot={modelRoot.localRotation} localPos={modelRoot.localPosition} localScale={modelRoot.localScale}");
+            ParsekLog.Verbose("GhostVisual", $"  [DIAG] part '{partName}' modelRoot '{modelRoot.name}' localRot={modelRoot.localRotation} localPos={modelRoot.localPosition} localScale={modelRoot.localScale}");
             cloneMap[modelRoot] = modelNode.transform;
 
             // For light showcase recordings, lift only light-part visuals so probes stay
@@ -4093,14 +4354,14 @@ namespace Parsek
                 leaf.gameObject.AddComponent<MeshFilter>().sharedMesh = mf.sharedMesh;
                 leaf.gameObject.AddComponent<MeshRenderer>().sharedMaterials = mr.sharedMaterials;
                 meshCount++;
-                ParsekLog.Log($"    MR[{r}] '{mr.gameObject.name}' mesh={mf.sharedMesh.name} " +
+                ParsekLog.Verbose("GhostVisual", $"    MR[{r}] '{mr.gameObject.name}' mesh={mf.sharedMesh.name} " +
                     $"localPos={leaf.localPosition} localScale={leaf.localScale}");
                 added = true;
             }
             if (variantSkipped > 0)
-                ParsekLog.Log($"  Skipped {variantSkipped} MeshRenderers on inactive variant objects");
+                ParsekLog.Verbose("GhostVisual", $"  Skipped {variantSkipped} MeshRenderers on inactive variant objects");
             if (variantRuleSkipped > 0)
-                ParsekLog.Log($"  Skipped {variantRuleSkipped} MeshRenderers by selected variant GAMEOBJECT rules");
+                ParsekLog.Verbose("GhostVisual", $"  Skipped {variantRuleSkipped} MeshRenderers by selected variant GAMEOBJECT rules");
 
             for (int r = 0; r < skinnedRenderers.Length; r++)
             {
@@ -4179,12 +4440,12 @@ namespace Parsek
                 ghostSmr.shadowCastingMode = smr.shadowCastingMode;
                 ghostSmr.receiveShadows = smr.receiveShadows;
                 meshCount++;
-                ParsekLog.Log($"    SMR[{r}] '{smr.gameObject.name}' mesh={smr.sharedMesh.name} " +
+                ParsekLog.Verbose("GhostVisual", $"    SMR[{r}] '{smr.gameObject.name}' mesh={smr.sharedMesh.name} " +
                     $"localPos={leaf.localPosition} localScale={leaf.localScale} " +
                     $"bones={resolvedBones}/{(smr.bones != null ? smr.bones.Length : 0)}");
                 if (usedPartRootFallbackForBones)
                 {
-                    ParsekLog.Log($"      SMR[{r}] '{smr.gameObject.name}': used part-root fallback for external bone transforms");
+                    ParsekLog.Verbose("GhostVisual", $"      SMR[{r}] '{smr.gameObject.name}': used part-root fallback for external bone transforms");
                 }
                 added = true;
             }
@@ -4212,7 +4473,7 @@ namespace Parsek
                     Transform canopyVisualRoot = FindImmediateChildOf(srcCanopy, prefab.transform);
                     if (canopyVisualRoot != null && canopyVisualRoot != modelRoot)
                     {
-                        ParsekLog.Log($"    Canopy '{canopyName}' is outside modelRoot '{modelRoot.name}'" +
+                        ParsekLog.Verbose("GhostVisual", $"    Canopy '{canopyName}' is outside modelRoot '{modelRoot.name}'" +
                             $" — cloning canopy/cap only from '{canopyVisualRoot.name}'");
 
                         GameObject subNode = new GameObject(canopyVisualRoot.name);
@@ -4239,7 +4500,7 @@ namespace Parsek
                                 leaf.gameObject.AddComponent<MeshRenderer>().sharedMaterials = mr.sharedMaterials;
                                 meshCount++;
                                 added = true;
-                                ParsekLog.Log($"      CANOPY-CLONE '{target.gameObject.name}' " +
+                                ParsekLog.Verbose("GhostVisual", $"      CANOPY-CLONE '{target.gameObject.name}' " +
                                     $"mesh={mf.sharedMesh.name}");
                             }
                             else
@@ -4248,7 +4509,7 @@ namespace Parsek
                                 // so it enters cloneMap for lookup
                                 MirrorTransformChain(target, canopyVisualRoot,
                                     subNode.transform, cloneMap);
-                                ParsekLog.Log($"      CANOPY-CLONE '{target.gameObject.name}' (no mesh, chain only)");
+                                ParsekLog.Verbose("GhostVisual", $"      CANOPY-CLONE '{target.gameObject.name}' (no mesh, chain only)");
                             }
                         }
                     }
@@ -4262,16 +4523,22 @@ namespace Parsek
 
                 if (ghostCanopy != null)
                 {
-                    var (scale, pos, rot) = SampleDeployedCanopy(prefab, chute);
+                    var (sdScale, sdPos, sdRot, semiOk, dScale, dPos, dRot) = SampleCanopyStates(prefab, chute);
                     parachuteInfo = new ParachuteGhostInfo
                     {
                         partPersistentId = persistentId,
                         canopyTransform = ghostCanopy,
                         capTransform = ghostCap,
-                        deployedCanopyScale = scale,
-                        deployedCanopyPos = pos,
-                        deployedCanopyRot = rot
+                        deployedCanopyScale = dScale,
+                        deployedCanopyPos = dPos,
+                        deployedCanopyRot = dRot,
+                        semiDeployedCanopyScale = sdScale,
+                        semiDeployedCanopyPos = sdPos,
+                        semiDeployedCanopyRot = sdRot,
+                        semiDeployedSampled = semiOk
                     };
+
+                    // Stowed = invisible (canopy mesh starts at zero scale in KSP prefabs)
                     ghostCanopy.localScale = Vector3.zero;
 
                     if (canopySubtreeRoot != null && partName.StartsWith("kerbalEVA"))
@@ -4283,21 +4550,26 @@ namespace Parsek
                         ghostCanopy.SetParent(partRoot.transform, false);
                         ghostCanopy.localPosition = Vector3.zero;
                         ghostCanopy.localRotation = Quaternion.identity;
+                        ghostCanopy.localScale = Vector3.zero;
+                        // EVA: both semi-deployed and deployed appear above the kerbal's head
+                        parachuteInfo.semiDeployedCanopyPos = new Vector3(0f, 1f, 0f);
+                        parachuteInfo.semiDeployedCanopyRot = Quaternion.Euler(270f, 0f, 0f);
                         parachuteInfo.deployedCanopyPos = new Vector3(0f, 1f, 0f);
                         parachuteInfo.deployedCanopyRot = Quaternion.Euler(270f, 0f, 0f);
-                        ParsekLog.Log($"    EVA parachute: overriding deployed pos=(0,1,0) rot=(270,0,0) " +
-                            $"(animation sampled pos={pos} rot={rot.eulerAngles})");
+                        ParsekLog.Verbose("GhostVisual", $"    EVA parachute: overriding semi/deployed pos=(0,1,0) rot=(270,0,0) " +
+                            $"(animation sampled sdScale={sdScale} dScale={dScale})");
                     }
                     else if (canopySubtreeRoot != null)
                     {
                         // Non-EVA part with canopy outside modelRoot: reparent under
-                        // subtree root so root-relative deployed position works.
+                        // subtree root so root-relative positions work.
                         ghostCanopy.SetParent(canopySubtreeRoot, false);
                         ghostCanopy.localPosition = Vector3.zero;
                         ghostCanopy.localRotation = Quaternion.identity;
                     }
 
-                    ParsekLog.Log($"    Parachute detected: canopy='{canopyName}' cap='{capName}' " +
+                    ParsekLog.Verbose("GhostVisual", $"    Parachute detected: canopy='{canopyName}' cap='{capName}' " +
+                        $"semiDeployed={parachuteInfo.semiDeployedSampled} sdScale={parachuteInfo.semiDeployedCanopyScale} " +
                         $"deployScale={parachuteInfo.deployedCanopyScale} " +
                         $"deployPos={parachuteInfo.deployedCanopyPos} " +
                         $"deployRot={parachuteInfo.deployedCanopyRot.eulerAngles} " +
@@ -4305,7 +4577,7 @@ namespace Parsek
                 }
                 else if (srcCanopy != null)
                 {
-                    ParsekLog.Log($"    Parachute '{canopyName}' found on prefab but not in cloneMap " +
+                    ParsekLog.Verbose("GhostVisual", $"    Parachute '{canopyName}' found on prefab but not in cloneMap " +
                         $"— will use fake canopy");
                 }
             }
@@ -4333,14 +4605,14 @@ namespace Parsek
                     Transform srcJettison = prefab.FindModelTransform(jettisonName);
                     if (srcJettison == null)
                     {
-                        ParsekLog.Log($"    Jettison '{jettisonName}' not found on prefab for module {moduleIndex} ({partName})");
+                        ParsekLog.Verbose("GhostVisual", $"    Jettison '{jettisonName}' not found on prefab for module {moduleIndex} ({partName})");
                         continue;
                     }
 
                     Transform ghostJettison;
                     if (!cloneMap.TryGetValue(srcJettison, out ghostJettison) || ghostJettison == null)
                     {
-                        ParsekLog.Log($"    Jettison '{jettisonName}' found on prefab but not in cloneMap");
+                        ParsekLog.Verbose("GhostVisual", $"    Jettison '{jettisonName}' found on prefab but not in cloneMap");
                         continue;
                     }
 
@@ -4357,7 +4629,7 @@ namespace Parsek
                     partPersistentId = persistentId,
                     jettisonTransforms = ghostJettisonTransforms
                 };
-                ParsekLog.Log($"    Jettison detected: '{string.Join(", ", resolvedJettisonNames.ToArray())}' pid={persistentId}");
+                ParsekLog.Verbose("GhostVisual", $"    Jettison detected: '{string.Join(", ", resolvedJettisonNames.ToArray())}' pid={persistentId}");
             }
 
             // Detect engine parts and clone FX particle systems
@@ -4427,7 +4699,7 @@ namespace Parsek
                     MirrorTransformChain(src, modelRoot, modelNode.transform, cloneMap);
                     created++;
                 }
-                ParsekLog.Log($"    EnsureFullHierarchy '{partName}': " +
+                ParsekLog.Verbose("GhostVisual", $"    EnsureFullHierarchy '{partName}': " +
                     (created > 0
                         ? $"created {created} missing intermediate transforms for animation support"
                         : $"all {allModelTransforms.Length} model transforms already in cloneMap"));
@@ -4468,7 +4740,7 @@ namespace Parsek
                         {
                             unresolved++;
                             if (unresolved <= 5)
-                                ParsekLog.Log($"    [DIAG] Deployable '{partName}': unresolved path '{path}'");
+                                ParsekLog.Verbose("GhostVisual", $"    [DIAG] Deployable '{partName}': unresolved path '{path}'");
                         }
                     }
 
@@ -4479,12 +4751,12 @@ namespace Parsek
                             partPersistentId = persistentId,
                             transforms = resolvedTransforms
                         };
-                        ParsekLog.Log($"    Deployable detected: '{partName}' pid={persistentId}, " +
+                        ParsekLog.Verbose("GhostVisual", $"    Deployable detected: '{partName}' pid={persistentId}, " +
                             $"{resolvedTransforms.Count}/{sampledStates.Count} transforms resolved");
                     }
                     else
                     {
-                        ParsekLog.Log($"    Deployable '{partName}' pid={persistentId}: " +
+                        ParsekLog.Verbose("GhostVisual", $"    Deployable '{partName}' pid={persistentId}: " +
                             $"sampled {sampledStates.Count} transforms but none resolved to ghost");
                     }
                 }
@@ -4531,7 +4803,7 @@ namespace Parsek
                                 partPersistentId = persistentId,
                                 transforms = resolvedTransforms
                             };
-                            ParsekLog.Log($"    Gear detected: '{partName}' pid={persistentId}, " +
+                            ParsekLog.Verbose("GhostVisual", $"    Gear detected: '{partName}' pid={persistentId}, " +
                                 $"{resolvedTransforms.Count}/{sampledStates.Count} transforms resolved");
                         }
                     }
@@ -4540,7 +4812,7 @@ namespace Parsek
             }
             else if (prefab.FindModuleImplementing<ModuleWheels.ModuleWheelDeployment>() != null)
             {
-                ParsekLog.Log($"    WARNING: '{partName}' pid={persistentId} has both " +
+                ParsekLog.Verbose("GhostVisual", $"    WARNING: '{partName}' pid={persistentId} has both " +
                     $"ModuleDeployablePart and ModuleWheels.ModuleWheelDeployment — gear visuals skipped");
             }
 
@@ -4573,7 +4845,7 @@ namespace Parsek
                         {
                             unresolved++;
                             if (unresolved <= 5)
-                                ParsekLog.Log($"    [DIAG] Ladder '{partName}': unresolved path '{path}'");
+                                ParsekLog.Verbose("GhostVisual", $"    [DIAG] Ladder '{partName}': unresolved path '{path}'");
                         }
                     }
 
@@ -4584,12 +4856,12 @@ namespace Parsek
                             partPersistentId = persistentId,
                             transforms = resolvedTransforms
                         };
-                        ParsekLog.Log($"    Ladder detected: '{partName}' pid={persistentId}, " +
+                        ParsekLog.Verbose("GhostVisual", $"    Ladder detected: '{partName}' pid={persistentId}, " +
                             $"{resolvedTransforms.Count}/{sampledStates.Count} transforms resolved");
                     }
                     else
                     {
-                        ParsekLog.Log($"    Ladder '{partName}' pid={persistentId}: " +
+                        ParsekLog.Verbose("GhostVisual", $"    Ladder '{partName}' pid={persistentId}: " +
                             $"sampled {sampledStates.Count} transforms but none resolved to ghost");
                     }
                 }
@@ -4624,7 +4896,7 @@ namespace Parsek
                         {
                             unresolved++;
                             if (unresolved <= 5)
-                                ParsekLog.Log($"    [DIAG] AnimationGroup '{partName}': unresolved path '{path}'");
+                                ParsekLog.Verbose("GhostVisual", $"    [DIAG] AnimationGroup '{partName}': unresolved path '{path}'");
                         }
                     }
 
@@ -4635,7 +4907,7 @@ namespace Parsek
                             partPersistentId = persistentId,
                             transforms = resolvedTransforms
                         };
-                        ParsekLog.Log($"    AnimationGroup deployable detected: '{partName}' pid={persistentId}, " +
+                        ParsekLog.Verbose("GhostVisual", $"    AnimationGroup deployable detected: '{partName}' pid={persistentId}, " +
                             $"{resolvedTransforms.Count}/{sampledStates.Count} transforms resolved");
                     }
                 }
@@ -4670,7 +4942,7 @@ namespace Parsek
                         {
                             unresolved++;
                             if (unresolved <= 5)
-                                ParsekLog.Log($"    [DIAG] AnimateGeneric '{partName}': unresolved path '{path}'");
+                                ParsekLog.Verbose("GhostVisual", $"    [DIAG] AnimateGeneric '{partName}': unresolved path '{path}'");
                         }
                     }
 
@@ -4681,7 +4953,7 @@ namespace Parsek
                             partPersistentId = persistentId,
                             transforms = resolvedTransforms
                         };
-                        ParsekLog.Log($"    AnimateGeneric deployable detected: '{partName}' pid={persistentId}, " +
+                        ParsekLog.Verbose("GhostVisual", $"    AnimateGeneric deployable detected: '{partName}' pid={persistentId}, " +
                             $"{resolvedTransforms.Count}/{sampledStates.Count} transforms resolved");
                     }
                 }
@@ -4731,14 +5003,14 @@ namespace Parsek
                             partPersistentId = persistentId,
                             transforms = resolvedTransforms
                         };
-                        ParsekLog.Log($"    AeroSurface deployable detected: '{partName}' pid={persistentId}, " +
+                        ParsekLog.Verbose("GhostVisual", $"    AeroSurface deployable detected: '{partName}' pid={persistentId}, " +
                             $"transform='{aeroSurfaceTransformName}' angle={aeroSurfaceDeployAngle:F1} " +
                             $"resolved={resolvedTransforms.Count}");
                     }
                 }
                 else
                 {
-                    ParsekLog.Log($"    AeroSurface '{partName}' pid={persistentId}: " +
+                    ParsekLog.Verbose("GhostVisual", $"    AeroSurface '{partName}' pid={persistentId}: " +
                         $"transform '{aeroSurfaceTransformName}' not found under modelRoot");
                 }
             }
@@ -4787,14 +5059,14 @@ namespace Parsek
                             partPersistentId = persistentId,
                             transforms = resolvedTransforms
                         };
-                        ParsekLog.Log($"    ControlSurface deployable detected: '{partName}' pid={persistentId}, " +
+                        ParsekLog.Verbose("GhostVisual", $"    ControlSurface deployable detected: '{partName}' pid={persistentId}, " +
                             $"transform='{controlSurfaceTransformName}' angle={controlSurfaceDeployAngle:F1} " +
                             $"resolved={resolvedTransforms.Count}");
                     }
                 }
                 else
                 {
-                    ParsekLog.Log($"    ControlSurface '{partName}' pid={persistentId}: " +
+                    ParsekLog.Verbose("GhostVisual", $"    ControlSurface '{partName}' pid={persistentId}: " +
                         $"transform '{controlSurfaceTransformName}' not found under modelRoot");
                 }
             }
@@ -4812,7 +5084,7 @@ namespace Parsek
                     string candidateAnim = robotArmScannerAnimCandidates[i];
                     var candidateStates = SampleLadderStates(prefab, candidateAnim, null);
                     int candidateCount = candidateStates != null ? candidateStates.Count : 0;
-                    ParsekLog.Log($"    RobotArmScanner '{partName}' candidate anim='{candidateAnim}' sampled={candidateCount}");
+                    ParsekLog.Verbose("GhostVisual", $"    RobotArmScanner '{partName}' candidate anim='{candidateAnim}' sampled={candidateCount}");
                     if (candidateCount > bestCount)
                     {
                         bestCount = candidateCount;
@@ -4846,7 +5118,7 @@ namespace Parsek
                         {
                             unresolved++;
                             if (unresolved <= 5)
-                                ParsekLog.Log($"    [DIAG] RobotArmScanner '{partName}': unresolved path '{path}'");
+                                ParsekLog.Verbose("GhostVisual", $"    [DIAG] RobotArmScanner '{partName}': unresolved path '{path}'");
                         }
                     }
 
@@ -4857,7 +5129,7 @@ namespace Parsek
                             partPersistentId = persistentId,
                             transforms = resolvedTransforms
                         };
-                        ParsekLog.Log($"    RobotArmScanner deployable detected: '{partName}' pid={persistentId}, " +
+                        ParsekLog.Verbose("GhostVisual", $"    RobotArmScanner deployable detected: '{partName}' pid={persistentId}, " +
                             $"anim='{selectedAnimName}' {resolvedTransforms.Count}/{sampledStates.Count} transforms resolved");
                     }
                 }
@@ -4881,7 +5153,7 @@ namespace Parsek
                     {
                         animModule = prefab.FindModuleImplementing<ModuleAnimateGeneric>();
                         if (animModule != null)
-                            ParsekLog.Log($"    CargoBay '{partName}': DeployModuleIndex={deployIdx} " +
+                            ParsekLog.Verbose("GhostVisual", $"    CargoBay '{partName}': DeployModuleIndex={deployIdx} " +
                                 $"didn't resolve to ModuleAnimateGeneric (Modules.Count={prefab.Modules.Count}), " +
                                 $"using fallback FindModuleImplementing");
                     }
@@ -4912,7 +5184,7 @@ namespace Parsek
                                 }
                                 else if (s < 5)
                                 {
-                                    ParsekLog.Log($"    [DIAG] CargoBay '{partName}': unresolved path '{path}'");
+                                    ParsekLog.Verbose("GhostVisual", $"    [DIAG] CargoBay '{partName}': unresolved path '{path}'");
                                 }
                             }
 
@@ -4936,7 +5208,7 @@ namespace Parsek
                                     ts.t.localScale = ts.stowedScale;
                                 }
 
-                                ParsekLog.Log($"    CargoBay detected: '{partName}' pid={persistentId}, " +
+                                ParsekLog.Verbose("GhostVisual", $"    CargoBay detected: '{partName}' pid={persistentId}, " +
                                     $"{resolvedTransforms.Count}/{sampledStates.Count} transforms resolved" +
                                     $" (closedPosition={cargoBay.closedPosition})");
                             }
@@ -4975,7 +5247,7 @@ namespace Parsek
                         {
                             unresolved++;
                             if (unresolved <= 5)
-                                ParsekLog.Log($"    [DIAG] AnimateHeat '{partName}': unresolved path '{path}'");
+                                ParsekLog.Verbose("GhostVisual", $"    [DIAG] AnimateHeat '{partName}': unresolved path '{path}'");
                         }
                     }
                 }
@@ -5007,13 +5279,13 @@ namespace Parsek
                         }
                     }
 
-                    ParsekLog.Log($"    AnimateHeat detected: '{partName}' pid={persistentId}, anim='{animateHeatAnimName}' " +
+                    ParsekLog.Verbose("GhostVisual", $"    AnimateHeat detected: '{partName}' pid={persistentId}, anim='{animateHeatAnimName}' " +
                         $"transforms={(resolvedHeatTransforms != null ? resolvedHeatTransforms.Count : 0)} " +
                         $"materials={(heatMaterialStates != null ? heatMaterialStates.Count : 0)}");
                 }
                 else
                 {
-                    ParsekLog.Log($"    AnimateHeat '{partName}' pid={persistentId}: no transform/material deltas");
+                    ParsekLog.Verbose("GhostVisual", $"    AnimateHeat '{partName}' pid={persistentId}: no transform/material deltas");
                 }
             }
 
@@ -5065,7 +5337,7 @@ namespace Parsek
                             : srcLight.renderMode;
                         ghostLight.enabled = false;
                         clonedLights.Add(ghostLight);
-                        ParsekLog.Log(
+                        ParsekLog.Verbose("GhostVisual", 
                             $"      Light clone[{li}] '{srcLight.name}': " +
                             $"srcI={srcLight.intensity:F2} srcR={srcLight.range:F1} " +
                             $"-> ghostI={clonedIntensity:F2} ghostR={clonedRange:F1} " +
@@ -5079,7 +5351,7 @@ namespace Parsek
                             partPersistentId = persistentId,
                             lights = clonedLights
                         };
-                        ParsekLog.Log($"    Light detected: '{partName}' pid={persistentId}, " +
+                        ParsekLog.Verbose("GhostVisual", $"    Light detected: '{partName}' pid={persistentId}, " +
                             $"{clonedLights.Count} Light component(s) cloned");
                     }
                 }

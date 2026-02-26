@@ -17,16 +17,38 @@ namespace Parsek.Patches
         /// Null when not recording.
         /// </summary>
         internal static FlightRecorder ActiveRecorder;
+        private static FlightRecorder lastObservedRecorder;
 
         static void Postfix(VesselPrecalculate __instance)
         {
-            if (ActiveRecorder == null) return;
+            if (ActiveRecorder != lastObservedRecorder)
+            {
+                if (ActiveRecorder == null)
+                    ParsekLog.Info("PhysicsPatch", "Active recorder cleared");
+                else
+                    ParsekLog.Info("PhysicsPatch", "Active recorder attached");
+                lastObservedRecorder = ActiveRecorder;
+            }
+
+            if (ActiveRecorder == null)
+                return;
 
             // VesselPrecalculate.vessel is protected; resolve the vessel
             // via the GameObject instead.
             Vessel v = FlightGlobals.ActiveVessel;
-            if (v == null) return;
-            if (__instance.gameObject != v.gameObject) return;
+            if (v == null)
+            {
+                ParsekLog.VerboseRateLimited("PhysicsPatch", "active-vessel-null",
+                    "Skipping physics callback: active vessel is null", 5.0);
+                return;
+            }
+
+            if (__instance.gameObject != v.gameObject)
+            {
+                ParsekLog.VerboseRateLimited("PhysicsPatch", "non-active-vessel",
+                    "Skipping physics callback: patch fired for non-active vessel", 5.0);
+                return;
+            }
 
             ActiveRecorder.OnPhysicsFrame(v);
         }
