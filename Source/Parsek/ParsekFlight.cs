@@ -200,7 +200,7 @@ namespace Parsek
                 boardingConfirmFrames++;
                 if (boardingConfirmFrames > 3)
                 {
-                    Log($"Boarding confirmation expired (targetPid={pendingBoardingTargetPid})");
+                    ParsekLog.Info("Flight", $"Boarding confirmation expired (targetPid={pendingBoardingTargetPid})");
                     pendingBoardingTargetPid = 0;
                     boardingConfirmFrames = 0;
                 }
@@ -212,7 +212,7 @@ namespace Parsek
                 dockConfirmFrames++;
                 if (dockConfirmFrames > 5)
                 {
-                    Log($"Dock confirmation expired (mergedPid={pendingDockMergedPid})");
+                    ParsekLog.Info("Flight", $"Dock confirmation expired (mergedPid={pendingDockMergedPid})");
                     pendingDockMergedPid = 0;
                     pendingDockAsTarget = false;
                     dockConfirmFrames = 0;
@@ -223,7 +223,7 @@ namespace Parsek
                 undockConfirmFrames++;
                 if (undockConfirmFrames > 5)
                 {
-                    Log($"Undock confirmation expired (otherPid={pendingUndockOtherPid})");
+                    ParsekLog.Info("Flight", $"Undock confirmation expired (otherPid={pendingUndockOtherPid})");
                     pendingUndockOtherPid = 0;
                     undockConfirmFrames = 0;
                 }
