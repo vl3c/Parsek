@@ -2003,6 +2003,228 @@ namespace Parsek
                     }
                 }
 
+                // Ant/Spider configs only define MODEL_MULTI_PARTICLE Monoprop_small in running FX.
+                // Add a Twitch-style prefab flame fallback so they render a visible plume like Twitch.
+                bool isAntOrSpider =
+                    string.Equals(partName, "microEngine.v2", System.StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(partName, "microEngine_v2", System.StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(partName, "microEngine", System.StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(partName, "radialEngineMini.v2", System.StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(partName, "radialEngineMini_v2", System.StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(partName, "radialEngineMini", System.StringComparison.OrdinalIgnoreCase);
+                if (isAntOrSpider)
+                {
+                    bool hasFlamePrefab = false;
+                    for (int i = 0; i < prefabFxEntries.Count; i++)
+                    {
+                        string existingPrefab = NormalizeFxPrefabName(prefabFxEntries[i].prefabName);
+                        if (string.Equals(existingPrefab, "fx_exhaustFlame_yellow_tiny_Z", System.StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(existingPrefab, "fx_exhaustFlame_yellow_tiny", System.StringComparison.OrdinalIgnoreCase))
+                        {
+                            hasFlamePrefab = true;
+                            break;
+                        }
+                    }
+
+                    if (!hasFlamePrefab)
+                    {
+                        string fallbackTransform = "FXTransform";
+                        if (FindTransformsRecursive(prefab.transform, fallbackTransform).Count == 0)
+                        {
+                            if (engine != null && !string.IsNullOrEmpty(engine.thrustVectorTransformName))
+                                fallbackTransform = engine.thrustVectorTransformName;
+                            else if (FindTransformsRecursive(prefab.transform, "thrustTransform").Count > 0)
+                                fallbackTransform = "thrustTransform";
+                        }
+
+                        Vector3 fallbackOffset = new Vector3(0f, 0f, 0.08f);
+                        for (int i = 0; i < modelFxEntries.Count; i++)
+                        {
+                            if (string.Equals(modelFxEntries[i].transformName, fallbackTransform, System.StringComparison.OrdinalIgnoreCase) ||
+                                string.Equals(modelFxEntries[i].transformName, "FXTransform", System.StringComparison.OrdinalIgnoreCase))
+                            {
+                                fallbackOffset = modelFxEntries[i].localPos;
+                                break;
+                            }
+                        }
+
+                        prefabFxEntries.Add(("fx_exhaustFlame_yellow_tiny_Z", fallbackTransform, fallbackOffset, Quaternion.identity));
+                        ParsekLog.Log($"    Engine FX fallback: '{partName}' midx={moduleIndex} " +
+                            $"added Twitch plume prefab on '{fallbackTransform}' offset={fallbackOffset}");
+                    }
+                }
+
+                // Kickback uses model FX + smoke prefab; add a Thumper-style flame prefab fallback.
+                bool isKickback =
+                    string.Equals(partName, "MassiveBooster", System.StringComparison.OrdinalIgnoreCase);
+                if (isKickback)
+                {
+                    string kickbackSmokeTransform = "thrustTransform";
+                    if (FindTransformsRecursive(prefab.transform, kickbackSmokeTransform).Count == 0)
+                    {
+                        if (FindTransformsRecursive(prefab.transform, "smokePoint").Count > 0)
+                            kickbackSmokeTransform = "smokePoint";
+                        else if (engine != null && !string.IsNullOrEmpty(engine.thrustVectorTransformName))
+                            kickbackSmokeTransform = engine.thrustVectorTransformName;
+                    }
+                    Vector3 kickbackSmokeOffset =
+                        string.Equals(kickbackSmokeTransform, "thrustTransform", System.StringComparison.OrdinalIgnoreCase)
+                        ? (engine != null ? engine.fxOffset : Vector3.zero)
+                        : new Vector3(0f, 0f, 1f);
+
+                    bool replacedSmokePrefab = false;
+                    for (int i = prefabFxEntries.Count - 1; i >= 0; i--)
+                    {
+                        string existingPrefab = NormalizeFxPrefabName(prefabFxEntries[i].prefabName);
+                        if (existingPrefab != null &&
+                            existingPrefab.IndexOf("smoketrail", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            prefabFxEntries.RemoveAt(i);
+                            replacedSmokePrefab = true;
+                        }
+                    }
+                    prefabFxEntries.Add(("fx_smokeTrail_medium", kickbackSmokeTransform, kickbackSmokeOffset, Quaternion.identity));
+                    ParsekLog.Log($"    Engine FX fallback: '{partName}' midx={moduleIndex} " +
+                        $"{(replacedSmokePrefab ? "replaced smoke with" : "added")} Thumper smoke prefab on '{kickbackSmokeTransform}' offset={kickbackSmokeOffset}");
+
+                    bool hasFlamePrefab = false;
+                    for (int i = 0; i < prefabFxEntries.Count; i++)
+                    {
+                        string existingPrefab = NormalizeFxPrefabName(prefabFxEntries[i].prefabName);
+                        if (existingPrefab != null && existingPrefab.IndexOf("exhaustflame", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            hasFlamePrefab = true;
+                            break;
+                        }
+                    }
+
+                    if (!hasFlamePrefab)
+                    {
+                        string fallbackTransform = "fxPoint";
+                        if (FindTransformsRecursive(prefab.transform, fallbackTransform).Count == 0)
+                        {
+                            if (engine != null && !string.IsNullOrEmpty(engine.thrustVectorTransformName))
+                                fallbackTransform = engine.thrustVectorTransformName;
+                            else if (FindTransformsRecursive(prefab.transform, "thrustTransform").Count > 0)
+                                fallbackTransform = "thrustTransform";
+                        }
+
+                        Vector3 fallbackOffset = Vector3.zero;
+                        for (int i = 0; i < modelFxEntries.Count; i++)
+                        {
+                            if (string.Equals(modelFxEntries[i].transformName, fallbackTransform, System.StringComparison.OrdinalIgnoreCase))
+                            {
+                                fallbackOffset = modelFxEntries[i].localPos;
+                                break;
+                            }
+                        }
+
+                        prefabFxEntries.Add(("fx_exhaustFlame_yellow", fallbackTransform, fallbackOffset, Quaternion.identity));
+                        ParsekLog.Log($"    Engine FX fallback: '{partName}' midx={moduleIndex} " +
+                            $"added Thumper plume prefab on '{fallbackTransform}' offset={fallbackOffset}");
+                    }
+                }
+
+                // Puff (omsEngine) often renders only Monoprop_big model FX; add Thud-style blue flame.
+                bool isPuff =
+                    string.Equals(partName, "omsEngine", System.StringComparison.OrdinalIgnoreCase);
+                if (isPuff)
+                {
+                    bool hasFlamePrefab = false;
+                    for (int i = 0; i < prefabFxEntries.Count; i++)
+                    {
+                        string existingPrefab = NormalizeFxPrefabName(prefabFxEntries[i].prefabName);
+                        if (existingPrefab != null && existingPrefab.IndexOf("exhaustflame", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            hasFlamePrefab = true;
+                            break;
+                        }
+                    }
+
+                    if (!hasFlamePrefab)
+                    {
+                        string fallbackTransform = "FXTransform";
+                        if (FindTransformsRecursive(prefab.transform, fallbackTransform).Count == 0)
+                        {
+                            if (engine != null && !string.IsNullOrEmpty(engine.thrustVectorTransformName))
+                                fallbackTransform = engine.thrustVectorTransformName;
+                            else if (FindTransformsRecursive(prefab.transform, "thrustTransform").Count > 0)
+                                fallbackTransform = "thrustTransform";
+                        }
+
+                        Vector3 fallbackOffset = new Vector3(0f, 0f, 0.12f);
+                        for (int i = 0; i < modelFxEntries.Count; i++)
+                        {
+                            if (string.Equals(modelFxEntries[i].transformName, fallbackTransform, System.StringComparison.OrdinalIgnoreCase) ||
+                                string.Equals(modelFxEntries[i].transformName, "FXTransform", System.StringComparison.OrdinalIgnoreCase))
+                            {
+                                fallbackOffset = modelFxEntries[i].localPos;
+                                break;
+                            }
+                        }
+
+                        prefabFxEntries.Add(("fx_exhaustFlame_blue_small", fallbackTransform, fallbackOffset, Quaternion.identity));
+                        ParsekLog.Log($"    Engine FX fallback: '{partName}' midx={moduleIndex} " +
+                            $"added Thud plume prefab on '{fallbackTransform}' offset={fallbackOffset}");
+                    }
+                }
+
+                // Rhino/Mammoth/Twin-Boar can show smoke without a visible core flame in ghost playback.
+                // Add a white flame prefab fallback used by stock medium/large plume setups.
+                bool isHeavyLargeEngine =
+                    string.Equals(partName, "Size3AdvancedEngine", System.StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(partName, "Size3EngineCluster", System.StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(partName, "Size2LFB.v2", System.StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(partName, "Size2LFB_v2", System.StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(partName, "Size2LFB", System.StringComparison.OrdinalIgnoreCase);
+                if (isHeavyLargeEngine)
+                {
+                    bool hasFlamePrefab = false;
+                    for (int i = 0; i < prefabFxEntries.Count; i++)
+                    {
+                        string existingPrefab = NormalizeFxPrefabName(prefabFxEntries[i].prefabName);
+                        if (existingPrefab != null && existingPrefab.IndexOf("exhaustflame", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            hasFlamePrefab = true;
+                            break;
+                        }
+                    }
+
+                    if (!hasFlamePrefab)
+                    {
+                        string fallbackTransform = "thrustTransform";
+                        if (string.Equals(partName, "Size3AdvancedEngine", System.StringComparison.OrdinalIgnoreCase))
+                            fallbackTransform = "fxPoint";
+
+                        if (FindTransformsRecursive(prefab.transform, fallbackTransform).Count == 0)
+                        {
+                            if (engine != null && !string.IsNullOrEmpty(engine.thrustVectorTransformName))
+                                fallbackTransform = engine.thrustVectorTransformName;
+                            else if (FindTransformsRecursive(prefab.transform, "fxPoint").Count > 0)
+                                fallbackTransform = "fxPoint";
+                            else if (FindTransformsRecursive(prefab.transform, "thrustTransform").Count > 0)
+                                fallbackTransform = "thrustTransform";
+                        }
+
+                        Vector3 fallbackOffset = Vector3.zero;
+                        for (int i = 0; i < modelFxEntries.Count; i++)
+                        {
+                            if (string.Equals(modelFxEntries[i].transformName, fallbackTransform, System.StringComparison.OrdinalIgnoreCase))
+                            {
+                                fallbackOffset = modelFxEntries[i].localPos;
+                                break;
+                            }
+                        }
+
+                        // White flame prefab is authored in a Y-up frame; on these thrust/fx transforms
+                        // it needs a -90deg X adjustment to align with nozzle direction.
+                        Quaternion fallbackRotation = Quaternion.Euler(-90f, 0f, 0f);
+                        prefabFxEntries.Add(("fx_exhaustFlame_white", fallbackTransform, fallbackOffset, fallbackRotation));
+                        ParsekLog.Log($"    Engine FX fallback: '{partName}' midx={moduleIndex} " +
+                            $"added white flame prefab on '{fallbackTransform}' offset={fallbackOffset} rot={fallbackRotation.eulerAngles}");
+                    }
+                }
+
                 if (modelFxEntries.Count == 0 && prefabFxEntries.Count == 0)
                 {
                     // No EFFECTS node, or EFFECTS has no particle entries (e.g. Mainsail: AUDIO only).

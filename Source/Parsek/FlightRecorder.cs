@@ -261,11 +261,50 @@ namespace Parsek
                 Part p = v.parts[i];
                 if (p == null) continue;
 
-                var jettison = p.FindModuleImplementing<ModuleJettison>();
-                if (jettison == null) continue;
+                bool hasJettisonModule = false;
+                bool isJettisoned = false;
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    var jettison = p.Modules[m] as ModuleJettison;
+                    if (jettison == null) continue;
+                    hasJettisonModule = true;
+
+                    // Primary state flag.
+                    if (jettison.isJettisoned)
+                    {
+                        isJettisoned = true;
+                        break;
+                    }
+
+                    // Fallback for parts where the module flag may lag/never set:
+                    // if any configured jettison object is already hidden, treat as jettisoned.
+                    string jettisonNames = jettison.jettisonName;
+                    if (string.IsNullOrWhiteSpace(jettisonNames))
+                        continue;
+
+                    string[] names = jettisonNames.Split(
+                        new[] { ',' }, System.StringSplitOptions.RemoveEmptyEntries);
+                    for (int n = 0; n < names.Length; n++)
+                    {
+                        string jettisonName = names[n].Trim();
+                        if (string.IsNullOrEmpty(jettisonName))
+                            continue;
+
+                        Transform jt = p.FindModelTransform(jettisonName);
+                        if (jt != null && !jt.gameObject.activeInHierarchy)
+                        {
+                            isJettisoned = true;
+                            break;
+                        }
+                    }
+                    if (isJettisoned)
+                        break;
+                }
+
+                if (!hasJettisonModule) continue;
 
                 var evt = CheckJettisonTransition(
-                    p.persistentId, p.partInfo?.name ?? "unknown", jettison.isJettisoned, jettisonedShrouds, ut);
+                    p.persistentId, p.partInfo?.name ?? "unknown", isJettisoned, jettisonedShrouds, ut);
                 if (evt.HasValue)
                 {
                     PartEvents.Add(evt.Value);
