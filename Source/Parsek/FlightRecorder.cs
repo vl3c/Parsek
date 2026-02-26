@@ -3433,6 +3433,15 @@ namespace Parsek
             Patches.PhysicsFramePatch.ActiveRecorder = null;
             UnsubscribePartEvents();
             IsRecording = false;
+            PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+
+            double duration = Recording.Count > 0
+                ? Recording[Recording.Count - 1].ut - Recording[0].ut
+                : 0;
+
+            // Keep stop-line contract identical to normal StopRecording so live
+            // KSP.log validation does not require a manual in-flight stop.
+            ParsekLog.Info("Recorder", $"Recording stopped. {Recording.Count} points, {OrbitSegments.Count} orbit segments over {duration:F1}s");
             ParsekLog.Info("Recorder", "Auto-stopped recording due to scene change");
         }
 
