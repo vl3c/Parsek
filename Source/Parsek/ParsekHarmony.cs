@@ -10,12 +10,29 @@ namespace Parsek
     [KSPAddon(KSPAddon.Startup.Instantly, true)]
     public class ParsekHarmony : MonoBehaviour
     {
+        private static bool initialized;
+
         void Awake()
         {
-            var harmony = new Harmony("com.parsek.mod");
-            harmony.PatchAll(typeof(ParsekHarmony).Assembly);
-            DontDestroyOnLoad(gameObject);
-            ParsekLog.Log("Harmony patches applied");
+            if (initialized)
+            {
+                ParsekLog.Warn("Harmony", "Awake called after initialization; skipping duplicate PatchAll");
+                return;
+            }
+
+            try
+            {
+                var assembly = typeof(ParsekHarmony).Assembly;
+                var harmony = new Harmony("com.parsek.mod");
+                harmony.PatchAll(assembly);
+                initialized = true;
+                DontDestroyOnLoad(gameObject);
+                ParsekLog.Info("Harmony", $"Harmony patches applied for assembly '{assembly.GetName().Name}'");
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Error("Harmony", $"Failed to apply Harmony patches: {ex.Message}");
+            }
         }
     }
 }

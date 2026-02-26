@@ -93,6 +93,11 @@ namespace Parsek
                         baseline.buildingIntact[db.id] = !db.IsDestroyed;
                 }
             }
+            if (baseline.buildingIntact.Count == 0)
+            {
+                ParsekLog.Verbose("Baseline",
+                    $"Captured baseline at ut={baseline.ut:F0} with no building state entries (scene={HighLogic.LoadedScene})");
+            }
 
             // Active contracts
             if (ContractSystem.Instance != null)
@@ -128,6 +133,11 @@ namespace Parsek
                     }
                 }
             }
+
+            ParsekLog.Info("Baseline",
+                $"Captured baseline at ut={baseline.ut:F0}: tech={baseline.researchedTechIds.Count}, " +
+                $"facilities={baseline.facilityLevels.Count}, buildings={baseline.buildingIntact.Count}, " +
+                $"contracts={baseline.activeContracts.Count}, crew={baseline.crewEntries.Count}");
 
             return baseline;
         }
@@ -174,19 +184,31 @@ namespace Parsek
 
             string utStr = node.GetValue("ut");
             if (utStr != null)
-                double.TryParse(utStr, NumberStyles.Float, CultureInfo.InvariantCulture, out baseline.ut);
+            {
+                if (!double.TryParse(utStr, NumberStyles.Float, CultureInfo.InvariantCulture, out baseline.ut))
+                    ParsekLog.Warn("Baseline", $"Failed to parse baseline UT '{utStr}'");
+            }
 
             string fundsStr = node.GetValue("funds");
             if (fundsStr != null)
-                double.TryParse(fundsStr, NumberStyles.Float, CultureInfo.InvariantCulture, out baseline.funds);
+            {
+                if (!double.TryParse(fundsStr, NumberStyles.Float, CultureInfo.InvariantCulture, out baseline.funds))
+                    ParsekLog.Warn("Baseline", $"Failed to parse baseline funds '{fundsStr}'");
+            }
 
             string sciStr = node.GetValue("science");
             if (sciStr != null)
-                double.TryParse(sciStr, NumberStyles.Float, CultureInfo.InvariantCulture, out baseline.science);
+            {
+                if (!double.TryParse(sciStr, NumberStyles.Float, CultureInfo.InvariantCulture, out baseline.science))
+                    ParsekLog.Warn("Baseline", $"Failed to parse baseline science '{sciStr}'");
+            }
 
             string repStr = node.GetValue("reputation");
             if (repStr != null)
-                float.TryParse(repStr, NumberStyles.Float, CultureInfo.InvariantCulture, out baseline.reputation);
+            {
+                if (!float.TryParse(repStr, NumberStyles.Float, CultureInfo.InvariantCulture, out baseline.reputation))
+                    ParsekLog.Warn("Baseline", $"Failed to parse baseline reputation '{repStr}'");
+            }
 
             // Tech
             ConfigNode techNode = node.GetNode("TECH_IDS");
@@ -206,6 +228,8 @@ namespace Parsek
                     float level;
                     if (float.TryParse(v.value, NumberStyles.Float, CultureInfo.InvariantCulture, out level))
                         baseline.facilityLevels[v.name] = level;
+                    else
+                        ParsekLog.Warn("Baseline", $"Failed to parse facility level '{v.value}' for '{v.name}'");
                 }
             }
 
@@ -218,6 +242,8 @@ namespace Parsek
                     bool intact;
                     if (bool.TryParse(v.value, out intact))
                         baseline.buildingIntact[v.name] = intact;
+                    else
+                        ParsekLog.Warn("Baseline", $"Failed to parse building intact value '{v.value}' for '{v.name}'");
                 }
             }
 
@@ -236,6 +262,11 @@ namespace Parsek
                 foreach (ConfigNode entryNode in crewNode.GetNodes("CREW"))
                     baseline.crewEntries.Add(CrewEntry.DeserializeFrom(entryNode));
             }
+
+            ParsekLog.Verbose("Baseline",
+                $"Deserialized baseline at ut={baseline.ut:F0}: tech={baseline.researchedTechIds.Count}, " +
+                $"facilities={baseline.facilityLevels.Count}, buildings={baseline.buildingIntact.Count}, " +
+                $"contracts={baseline.activeContracts.Count}, crew={baseline.crewEntries.Count}");
 
             return baseline;
         }
