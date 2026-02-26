@@ -1,0 +1,11 @@
+[LOG 11:10:01.100] [ModuleManager] Applying update pass
+[LOG 11:10:01.250] [ToolbarControl] Toolbar initialized
+[LOG 11:10:02.001] [Parsek][INFO][Init] SessionStart runUtc=1700000100
+[LOG 11:10:02.140] [Parsek][INFO][Harmony] Harmony patches applied for assembly 'Parsek'
+[LOG 11:10:12.410] [Parsek][INFO][Recorder] Recording started (physics-frame sampling)
+[LOG 11:10:12.900] [Parsek][VERBOSE][Recorder] Sample skipped due to adaptive threshold | suppressed=2
+[LOG 11:10:13.100] [Parsek][INFO][GameStateRecorder] Game state: FundsChanged +1200 (ContractReward) → 10000
+[LOG 11:10:13.200] [Parsek][INFO][GameStateRecorder] Game state: ScienceChanged +1.5 (Research) → 12.5
+[LOG 11:10:13.300] [Parsek][INFO][GameStateRecorder] Game state: ReputationChanged +0.3 (Recovery) → 2.1
+[LOG 11:10:55.700] [Parsek][INFO][Recorder] Recording stopped. 15 points, 1 orbit segments over 42.5s
+[LOG 11:10:56.010] [Roster] Kerbal roster sync completed

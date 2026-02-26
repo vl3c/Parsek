@@ -1,0 +1,9 @@
+[LOG 11:30:00.010] [Parsek][INFO][Init] SessionStart runUtc=1000
+[LOG 11:30:00.020] [Parsek][INFO][Recorder] Recording started (physics-frame sampling)
+[LOG 11:30:00.200] [Parsek][ERROR][Spawner] Old failure from prior session
+[LOG 11:30:00.300] [Parsek][INFO][Recorder] Recording stopped. 5 points, 0 orbit segments over 3.0s
+[LOG 11:35:00.010] [Parsek][INFO][Init] SessionStart runUtc=2000
+[LOG 11:35:00.020] [Parsek][INFO][Recorder] Recording started (physics-frame sampling)
+[LOG 11:35:00.120] [Parsek][VERBOSE][Recorder] Sample skipped due to adaptive threshold | suppressed=1
+[LOG 11:35:00.220] [Parsek][INFO][GameStateRecorder] Game state: FundsChanged +20 (Test) → 20
+[LOG 11:35:00.320] [Parsek][INFO][Recorder] Recording stopped. 3 points, 0 orbit segments over 2.0s

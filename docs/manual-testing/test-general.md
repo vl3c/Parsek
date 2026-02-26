@@ -243,3 +243,12 @@ Search `KSP.log` for `[Parsek]` and `[Parsek Scenario]`:
 - No unexpected errors or exceptions
 - Auto-record triggers logged correctly
 - Crew replacement actions logged as "Hired replacement ..." / "Removed replacement ..."
+
+### Post-run validation command
+After running a manual scenario, run:
+
+```bash
+pwsh -File scripts/validate-ksp-log.ps1
+```
+
+Treat a non-zero exit as a failed local validation.
