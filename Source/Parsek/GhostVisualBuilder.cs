@@ -146,7 +146,8 @@ namespace Parsek
             {
                 { "fx_exhaustFlame_yellow_tiny_Z", new[] { "fx_exhaustFlame_yellow_tiny" } },
                 { "fx_smokeTrail_veryLarge", new[] { "fx_smokeTrail_large", "fx_smokeTrail_light" } },
-                { "fx_smokeTrail_aeroSpike", new[] { "fx_smokeTrail_light", "fx_smokeTrail_large" } }
+                // RAPIER's smokePoint frame matches stock large-smoke setups more closely.
+                { "fx_smokeTrail_aeroSpike", new[] { "fx_smokeTrail_large", "fx_smokeTrail_light" } }
             };
         private static readonly Dictionary<string, Vector3> fxModelRotationFallbackEuler =
             new Dictionary<string, Vector3>(System.StringComparer.OrdinalIgnoreCase)
@@ -2059,18 +2060,10 @@ namespace Parsek
                     string.Equals(partName, "MassiveBooster", System.StringComparison.OrdinalIgnoreCase);
                 if (isKickback)
                 {
-                    string kickbackSmokeTransform = "thrustTransform";
-                    if (FindTransformsRecursive(prefab.transform, kickbackSmokeTransform).Count == 0)
-                    {
-                        if (FindTransformsRecursive(prefab.transform, "smokePoint").Count > 0)
-                            kickbackSmokeTransform = "smokePoint";
-                        else if (engine != null && !string.IsNullOrEmpty(engine.thrustVectorTransformName))
-                            kickbackSmokeTransform = engine.thrustVectorTransformName;
-                    }
-                    Vector3 kickbackSmokeOffset =
-                        string.Equals(kickbackSmokeTransform, "thrustTransform", System.StringComparison.OrdinalIgnoreCase)
-                        ? (engine != null ? engine.fxOffset : Vector3.zero)
-                        : new Vector3(0f, 0f, 1f);
+                    string kickbackSmokeTransform = "smokePoint";
+                    Vector3 kickbackSmokeOffset = new Vector3(0f, 0f, 1f);
+                    Quaternion kickbackSmokeRotation = Quaternion.identity;
+                    bool copiedSmokeAnchor = false;
 
                     bool replacedSmokePrefab = false;
                     for (int i = prefabFxEntries.Count - 1; i >= 0; i--)
@@ -2079,13 +2072,39 @@ namespace Parsek
                         if (existingPrefab != null &&
                             existingPrefab.IndexOf("smoketrail", System.StringComparison.OrdinalIgnoreCase) >= 0)
                         {
+                            if (!copiedSmokeAnchor)
+                            {
+                                kickbackSmokeTransform = prefabFxEntries[i].transformName;
+                                kickbackSmokeOffset = prefabFxEntries[i].localOffset;
+                                kickbackSmokeRotation = prefabFxEntries[i].localRotation;
+                                copiedSmokeAnchor = true;
+                            }
                             prefabFxEntries.RemoveAt(i);
                             replacedSmokePrefab = true;
                         }
                     }
-                    prefabFxEntries.Add(("fx_smokeTrail_medium", kickbackSmokeTransform, kickbackSmokeOffset, Quaternion.identity));
+
+                    if (!copiedSmokeAnchor)
+                    {
+                        if (FindTransformsRecursive(prefab.transform, kickbackSmokeTransform).Count == 0)
+                        {
+                            if (FindTransformsRecursive(prefab.transform, "thrustTransform").Count > 0)
+                            {
+                                kickbackSmokeTransform = "thrustTransform";
+                                kickbackSmokeOffset = engine != null ? engine.fxOffset : Vector3.zero;
+                            }
+                            else if (engine != null && !string.IsNullOrEmpty(engine.thrustVectorTransformName))
+                            {
+                                kickbackSmokeTransform = engine.thrustVectorTransformName;
+                                kickbackSmokeOffset = engine.fxOffset;
+                            }
+                        }
+                    }
+
+                    prefabFxEntries.Add(("fx_smokeTrail_medium", kickbackSmokeTransform, kickbackSmokeOffset, kickbackSmokeRotation));
                     ParsekLog.Log($"    Engine FX fallback: '{partName}' midx={moduleIndex} " +
-                        $"{(replacedSmokePrefab ? "replaced smoke with" : "added")} Thumper smoke prefab on '{kickbackSmokeTransform}' offset={kickbackSmokeOffset}");
+                        $"{(replacedSmokePrefab ? "replaced smoke with" : "added")} Thumper smoke prefab on '{kickbackSmokeTransform}' " +
+                        $"offset={kickbackSmokeOffset} rot={kickbackSmokeRotation.eulerAngles}");
 
                     bool hasFlamePrefab = false;
                     for (int i = 0; i < prefabFxEntries.Count; i++)
