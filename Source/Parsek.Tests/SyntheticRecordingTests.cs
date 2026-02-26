@@ -1866,6 +1866,76 @@ namespace Parsek.Tests
 
         #region Unit Tests
 
+        private const string ShowcasePrimaryRotation = "0,-0.7071068,0,0.7071068";
+
+        private static double ParseInvariantDouble(string value)
+        {
+            return double.Parse(value, CultureInfo.InvariantCulture);
+        }
+
+        private static float ParseInvariantFloat(string value)
+        {
+            return float.Parse(value, CultureInfo.InvariantCulture);
+        }
+
+        private static void AssertFloatClose(float expected, float actual, float tolerance = 0.0001f)
+        {
+            Assert.True(
+                Math.Abs(expected - actual) <= tolerance,
+                $"Expected {expected.ToString("R", CultureInfo.InvariantCulture)} but got {actual.ToString("R", CultureInfo.InvariantCulture)}");
+        }
+
+        private static void AssertEventTargetsPrimaryPart(ConfigNode eventNode, ConfigNode primaryPart)
+        {
+            Assert.Equal(primaryPart.GetValue("persistentId"), eventNode.GetValue("pid"));
+            Assert.Equal(primaryPart.GetValue("name"), eventNode.GetValue("part"));
+        }
+
+        private static void AssertAlternatingPartEvents(
+            ConfigNode recording,
+            PartEventType onEvent,
+            PartEventType offEvent,
+            double firstEventOffsetSeconds,
+            double onDurationSeconds,
+            double offDurationSeconds,
+            float expectedOnValue,
+            int expectedModuleIndex = 0,
+            int expectedEventCount = 8)
+        {
+            ConfigNode[] events = recording.GetNodes("PART_EVENT");
+            Assert.Equal(expectedEventCount, events.Length);
+
+            ConfigNode ghost = recording.GetNode("GHOST_VISUAL_SNAPSHOT");
+            Assert.NotNull(ghost);
+            ConfigNode[] parts = ghost.GetNodes("PART");
+            Assert.True(parts.Length >= 1, $"Missing ghost PART for {recording.GetValue("vesselName")}");
+            ConfigNode primaryPart = parts[0];
+
+            double baseUt = ParseInvariantDouble(events[0].GetValue("ut")) - firstEventOffsetSeconds;
+            double expectedOffset = firstEventOffsetSeconds;
+            for (int i = 0; i < events.Length; i++)
+            {
+                bool onPhase = (i % 2) == 0;
+                ConfigNode evt = events[i];
+
+                Assert.Equal(
+                    ((int)(onPhase ? onEvent : offEvent)).ToString(CultureInfo.InvariantCulture),
+                    evt.GetValue("type"));
+                AssertEventTargetsPrimaryPart(evt, primaryPart);
+                Assert.Equal(expectedModuleIndex.ToString(CultureInfo.InvariantCulture), evt.GetValue("midx"));
+
+                float expectedValue = onPhase ? expectedOnValue : 0f;
+                float actualValue = ParseInvariantFloat(evt.GetValue("value"));
+                AssertFloatClose(expectedValue, actualValue);
+
+                double expectedUt = baseUt + expectedOffset;
+                double actualUt = ParseInvariantDouble(evt.GetValue("ut"));
+                Assert.Equal(expectedUt, actualUt, 6);
+
+                expectedOffset += onPhase ? onDurationSeconds : offDurationSeconds;
+            }
+        }
+
         [Fact]
         public void PadWalk_HasEvaGhostSnapshot()
         {
@@ -3213,6 +3283,610 @@ namespace Parsek.Tests
             Assert.Equal("DeployedWeatherStn", parts[0].GetValue("name"));
             Assert.Equal("kerbalEVA", parts[1].GetValue("name"));
             Assert.Equal(parts[0].GetValue("persistentId"), events[0].GetValue("pid"));
+        }
+
+        [Fact]
+        public void ShowcaseRecordings_PrimaryPartRotationIsConsistent()
+        {
+            var allShowcases = new[]
+            {
+                LightShowcaseRecordings(17000),
+                DeployableShowcaseRecordings(17000),
+                GearShowcaseRecordings(17000),
+                CargoBayShowcaseRecordings(17000),
+                EngineShowcaseRecordings(17000),
+                LadderShowcaseRecordings(17000),
+                RcsShowcaseRecordings(17000),
+                FairingShowcaseRecordings(17000),
+                RadiatorShowcaseRecordings(17000),
+                DrillShowcaseRecordings(17000),
+                DeployedScienceShowcaseRecordings(17000),
+                AnimationGroupShowcaseRecordings(17000),
+                ParachuteShowcaseRecordings(17000),
+                SpecialDeployAnimationShowcaseRecordings(17000),
+                JettisonShowcaseRecordings(17000),
+                RoboticsShowcaseRecordings(17000),
+                AeroSurfaceShowcaseRecordings(17000),
+                RobotArmScannerShowcaseRecordings(17000),
+                ControlSurfaceShowcaseRecordings(17000),
+                WheelDynamicsShowcaseRecordings(17000),
+                AnimateHeatShowcaseRecordings(17000),
+                new[] { InventoryPlacementShowcaseRecording(17000) }
+            };
+
+            foreach (var category in allShowcases)
+            {
+                foreach (var rb in category)
+                {
+                    var rec = rb.Build();
+                    var ghost = rec.GetNode("GHOST_VISUAL_SNAPSHOT");
+                    Assert.NotNull(ghost);
+                    var primaryPart = ghost.GetNodes("PART")[0];
+                    Assert.Equal(ShowcasePrimaryRotation, primaryPart.GetValue("rotation"));
+                }
+            }
+        }
+
+        [Fact]
+        public void ShowcaseToggleRecordings_DefaultCadenceCategoriesUseExpectedStateMachine()
+        {
+            var categories = new[]
+            {
+                new
+                {
+                    Recordings = DeployableShowcaseRecordings(17000),
+                    OnEvent = PartEventType.DeployableExtended,
+                    OffEvent = PartEventType.DeployableRetracted
+                },
+                new
+                {
+                    Recordings = GearShowcaseRecordings(17000),
+                    OnEvent = PartEventType.GearDeployed,
+                    OffEvent = PartEventType.GearRetracted
+                },
+                new
+                {
+                    Recordings = CargoBayShowcaseRecordings(17000),
+                    OnEvent = PartEventType.CargoBayOpened,
+                    OffEvent = PartEventType.CargoBayClosed
+                },
+                new
+                {
+                    Recordings = LadderShowcaseRecordings(17000),
+                    OnEvent = PartEventType.DeployableExtended,
+                    OffEvent = PartEventType.DeployableRetracted
+                },
+                new
+                {
+                    Recordings = RadiatorShowcaseRecordings(17000),
+                    OnEvent = PartEventType.DeployableExtended,
+                    OffEvent = PartEventType.DeployableRetracted
+                }
+            };
+
+            foreach (var category in categories)
+            {
+                foreach (var rb in category.Recordings)
+                {
+                    AssertAlternatingPartEvents(
+                        rb.Build(),
+                        category.OnEvent,
+                        category.OffEvent,
+                        firstEventOffsetSeconds: 3.0,
+                        onDurationSeconds: 3.0,
+                        offDurationSeconds: 3.0,
+                        expectedOnValue: 0f);
+                }
+            }
+        }
+
+        [Fact]
+        public void ShowcaseToggleRecordings_FastCadenceCategoriesUseExpectedStateMachine()
+        {
+            var categories = new[]
+            {
+                new
+                {
+                    Recordings = RcsShowcaseRecordings(17000),
+                    OnEvent = PartEventType.RCSActivated,
+                    OffEvent = PartEventType.RCSStopped,
+                    OnValue = 1.0f
+                },
+                new
+                {
+                    Recordings = DrillShowcaseRecordings(17000),
+                    OnEvent = PartEventType.DeployableExtended,
+                    OffEvent = PartEventType.DeployableRetracted,
+                    OnValue = 0f
+                },
+                new
+                {
+                    Recordings = DeployedScienceShowcaseRecordings(17000),
+                    OnEvent = PartEventType.DeployableExtended,
+                    OffEvent = PartEventType.DeployableRetracted,
+                    OnValue = 0f
+                },
+                new
+                {
+                    Recordings = AnimationGroupShowcaseRecordings(17000),
+                    OnEvent = PartEventType.DeployableExtended,
+                    OffEvent = PartEventType.DeployableRetracted,
+                    OnValue = 0f
+                },
+                new
+                {
+                    Recordings = AeroSurfaceShowcaseRecordings(17000),
+                    OnEvent = PartEventType.DeployableExtended,
+                    OffEvent = PartEventType.DeployableRetracted,
+                    OnValue = 0f
+                },
+                new
+                {
+                    Recordings = RobotArmScannerShowcaseRecordings(17000),
+                    OnEvent = PartEventType.DeployableExtended,
+                    OffEvent = PartEventType.DeployableRetracted,
+                    OnValue = 0f
+                },
+                new
+                {
+                    Recordings = ControlSurfaceShowcaseRecordings(17000),
+                    OnEvent = PartEventType.DeployableExtended,
+                    OffEvent = PartEventType.DeployableRetracted,
+                    OnValue = 0f
+                },
+                new
+                {
+                    Recordings = AnimateHeatShowcaseRecordings(17000),
+                    OnEvent = PartEventType.ThermalAnimationHot,
+                    OffEvent = PartEventType.ThermalAnimationCold,
+                    OnValue = 1.0f
+                }
+            };
+
+            foreach (var category in categories)
+            {
+                foreach (var rb in category.Recordings)
+                {
+                    AssertAlternatingPartEvents(
+                        rb.Build(),
+                        category.OnEvent,
+                        category.OffEvent,
+                        firstEventOffsetSeconds: 0.0,
+                        onDurationSeconds: 4.5,
+                        offDurationSeconds: 1.5,
+                        expectedOnValue: category.OnValue);
+                }
+            }
+        }
+
+        [Fact]
+        public void SpecialDeployAnimationShowcases_NonHeatShieldEntriesUseFastAlternatingStateMachine()
+        {
+            var recordings = SpecialDeployAnimationShowcaseRecordings(17000);
+            Assert.Equal(12, recordings.Length);
+
+            foreach (var rb in recordings)
+            {
+                var rec = rb.Build();
+                string vesselName = rec.GetValue("vesselName");
+                if (vesselName == "Part Showcase - Inflatable Heat Shield")
+                    continue;
+
+                PartEventType onEvent = vesselName == "Part Showcase - Rover Wheel M1-F"
+                    ? PartEventType.GearDeployed
+                    : PartEventType.DeployableExtended;
+                PartEventType offEvent = vesselName == "Part Showcase - Rover Wheel M1-F"
+                    ? PartEventType.GearRetracted
+                    : PartEventType.DeployableRetracted;
+
+                AssertAlternatingPartEvents(
+                    rec,
+                    onEvent,
+                    offEvent,
+                    firstEventOffsetSeconds: 0.0,
+                    onDurationSeconds: 4.5,
+                    offDurationSeconds: 1.5,
+                    expectedOnValue: 0f);
+            }
+        }
+
+        [Fact]
+        public void SpecialDeployAnimationShowcases_InflatableHeatShieldUsesExpectedSequence()
+        {
+            var recordings = SpecialDeployAnimationShowcaseRecordings(17000);
+            ConfigNode heatShield = null;
+
+            foreach (var rb in recordings)
+            {
+                var rec = rb.Build();
+                if (rec.GetValue("vesselName") == "Part Showcase - Inflatable Heat Shield")
+                {
+                    heatShield = rec;
+                    break;
+                }
+            }
+
+            Assert.NotNull(heatShield);
+            var events = heatShield.GetNodes("PART_EVENT");
+            Assert.Equal(8, events.Length);
+
+            var expectedTypes = new[]
+            {
+                PartEventType.ShroudJettisoned,
+                PartEventType.DeployableExtended,
+                PartEventType.DeployableRetracted,
+                PartEventType.DeployableExtended,
+                PartEventType.DeployableRetracted,
+                PartEventType.DeployableExtended,
+                PartEventType.DeployableRetracted,
+                PartEventType.DeployableExtended
+            };
+            var expectedOffsets = new[] { 0.5, 1.0, 4.5, 7.5, 10.5, 13.5, 16.5, 19.5 };
+
+            var ghost = heatShield.GetNode("GHOST_VISUAL_SNAPSHOT");
+            var primaryPart = ghost.GetNodes("PART")[0];
+            double baseUt = ParseInvariantDouble(events[0].GetValue("ut")) - expectedOffsets[0];
+
+            for (int i = 0; i < events.Length; i++)
+            {
+                Assert.Equal(((int)expectedTypes[i]).ToString(CultureInfo.InvariantCulture), events[i].GetValue("type"));
+                AssertEventTargetsPrimaryPart(events[i], primaryPart);
+                Assert.Equal("0", events[i].GetValue("midx"));
+                AssertFloatClose(0f, ParseInvariantFloat(events[i].GetValue("value")));
+                Assert.Equal(baseUt + expectedOffsets[i], ParseInvariantDouble(events[i].GetValue("ut")), 6);
+            }
+        }
+
+        [Fact]
+        public void FairingShowcaseRecordings_UseExpectedModulesAndJettisonCadence()
+        {
+            var expectedBaseRadius = new Dictionary<string, float>
+            {
+                ["Part Showcase - Fairing Size 1"] = 0.625f,
+                ["Part Showcase - Fairing Size 1.5"] = 0.9375f,
+                ["Part Showcase - Fairing Size 2"] = 1.25f,
+                ["Part Showcase - Fairing Size 3"] = 1.875f,
+                ["Part Showcase - Fairing Size 4"] = 2.5f
+            };
+            var expectedTopHeight = new Dictionary<string, float>
+            {
+                ["Part Showcase - Fairing Size 1"] = 2.0f,
+                ["Part Showcase - Fairing Size 1.5"] = 2.8f,
+                ["Part Showcase - Fairing Size 2"] = 3.2f,
+                ["Part Showcase - Fairing Size 3"] = 4.5f,
+                ["Part Showcase - Fairing Size 4"] = 6.0f
+            };
+
+            foreach (var rb in FairingShowcaseRecordings(17000))
+            {
+                var rec = rb.Build();
+                AssertAlternatingPartEvents(
+                    rec,
+                    PartEventType.FairingJettisoned,
+                    PartEventType.FairingJettisoned,
+                    firstEventOffsetSeconds: 3.0,
+                    onDurationSeconds: 3.0,
+                    offDurationSeconds: 3.0,
+                    expectedOnValue: 0f);
+
+                var part = rec.GetNode("GHOST_VISUAL_SNAPSHOT").GetNodes("PART")[0];
+                ConfigNode fairingModule = null;
+                foreach (var module in part.GetNodes("MODULE"))
+                {
+                    if (module.GetValue("name") == "ModuleProceduralFairing")
+                    {
+                        fairingModule = module;
+                        break;
+                    }
+                }
+
+                Assert.NotNull(fairingModule);
+                var xsections = fairingModule.GetNodes("XSECTION");
+                Assert.Equal(2, xsections.Length);
+                AssertFloatClose(0f, ParseInvariantFloat(xsections[0].GetValue("h")));
+                AssertFloatClose(expectedBaseRadius[rec.GetValue("vesselName")], ParseInvariantFloat(xsections[0].GetValue("r")));
+                AssertFloatClose(expectedTopHeight[rec.GetValue("vesselName")], ParseInvariantFloat(xsections[1].GetValue("h")));
+                AssertFloatClose(0f, ParseInvariantFloat(xsections[1].GetValue("r")));
+            }
+        }
+
+        [Fact]
+        public void JettisonShowcaseRecordings_UseRepeatedShroudJettisonCadence()
+        {
+            foreach (var rb in JettisonShowcaseRecordings(17000))
+            {
+                AssertAlternatingPartEvents(
+                    rb.Build(),
+                    PartEventType.ShroudJettisoned,
+                    PartEventType.ShroudJettisoned,
+                    firstEventOffsetSeconds: 3.0,
+                    onDurationSeconds: 3.0,
+                    offDurationSeconds: 3.0,
+                    expectedOnValue: 0f);
+            }
+        }
+
+        [Fact]
+        public void LightShowcaseRecordings_AllEntriesFollowExpectedBlinkStateMachine()
+        {
+            var expectedTypes = new[]
+            {
+                PartEventType.LightOn,
+                PartEventType.LightBlinkEnabled,
+                PartEventType.LightBlinkDisabled,
+                PartEventType.LightBlinkEnabled,
+                PartEventType.LightBlinkRate,
+                PartEventType.LightBlinkDisabled,
+                PartEventType.LightOff
+            };
+            var expectedValues = new[] { 0f, 0.5f, 0f, 2.0f, 5.0f, 0f, 0f };
+            var expectedOffsets = new[] { 0.0, 6.0, 12.0, 15.0, 18.0, 21.0, 22.0 };
+
+            foreach (var rb in LightShowcaseRecordings(17000))
+            {
+                var rec = rb.Build();
+                var events = rec.GetNodes("PART_EVENT");
+                Assert.Equal(7, events.Length);
+                var primaryPart = rec.GetNode("GHOST_VISUAL_SNAPSHOT").GetNodes("PART")[0];
+                double baseUt = ParseInvariantDouble(events[0].GetValue("ut"));
+
+                for (int i = 0; i < events.Length; i++)
+                {
+                    Assert.Equal(((int)expectedTypes[i]).ToString(CultureInfo.InvariantCulture), events[i].GetValue("type"));
+                    AssertEventTargetsPrimaryPart(events[i], primaryPart);
+                    Assert.Equal("0", events[i].GetValue("midx"));
+                    AssertFloatClose(expectedValues[i], ParseInvariantFloat(events[i].GetValue("value")));
+                    Assert.Equal(baseUt + expectedOffsets[i], ParseInvariantDouble(events[i].GetValue("ut")), 6);
+                }
+            }
+        }
+
+        [Fact]
+        public void ParachuteShowcaseRecordings_AllEntriesFollowThreePhaseStateCycle()
+        {
+            var expectedTypes = new[]
+            {
+                PartEventType.ParachuteSemiDeployed,
+                PartEventType.ParachuteDeployed,
+                PartEventType.ParachuteCut,
+                PartEventType.ParachuteSemiDeployed,
+                PartEventType.ParachuteDeployed,
+                PartEventType.ParachuteCut,
+                PartEventType.ParachuteSemiDeployed,
+                PartEventType.ParachuteDeployed,
+                PartEventType.ParachuteCut
+            };
+            var expectedOffsets = new[] { 0.0, 3.0, 6.0, 8.0, 11.0, 14.0, 16.0, 19.0, 22.0 };
+
+            foreach (var rb in ParachuteShowcaseRecordings(17000))
+            {
+                var rec = rb.Build();
+                var events = rec.GetNodes("PART_EVENT");
+                Assert.Equal(9, events.Length);
+
+                var primaryPart = rec.GetNode("GHOST_VISUAL_SNAPSHOT").GetNodes("PART")[0];
+                double baseUt = ParseInvariantDouble(events[0].GetValue("ut"));
+                for (int i = 0; i < events.Length; i++)
+                {
+                    Assert.Equal(((int)expectedTypes[i]).ToString(CultureInfo.InvariantCulture), events[i].GetValue("type"));
+                    AssertEventTargetsPrimaryPart(events[i], primaryPart);
+                    Assert.Equal("0", events[i].GetValue("midx"));
+                    AssertFloatClose(0f, ParseInvariantFloat(events[i].GetValue("value")));
+                    Assert.Equal(baseUt + expectedOffsets[i], ParseInvariantDouble(events[i].GetValue("ut")), 6);
+                }
+            }
+        }
+
+        [Fact]
+        public void InventoryPlacementShowcaseRecording_UsesRepeatableLifecycleStateMachine()
+        {
+            var rec = InventoryPlacementShowcaseRecording(17000).Build();
+            var events = rec.GetNodes("PART_EVENT");
+            Assert.Equal(8, events.Length);
+
+            var expectedTypes = new[]
+            {
+                PartEventType.InventoryPartPlaced,
+                PartEventType.DeployableExtended,
+                PartEventType.DeployableRetracted,
+                PartEventType.InventoryPartRemoved,
+                PartEventType.InventoryPartPlaced,
+                PartEventType.DeployableExtended,
+                PartEventType.DeployableRetracted,
+                PartEventType.InventoryPartRemoved
+            };
+            var expectedOffsets = new[] { 0.5, 1.0, 4.0, 4.5, 12.5, 13.0, 16.0, 16.5 };
+            var primaryPart = rec.GetNode("GHOST_VISUAL_SNAPSHOT").GetNodes("PART")[0];
+            double baseUt = ParseInvariantDouble(events[0].GetValue("ut")) - expectedOffsets[0];
+
+            for (int i = 0; i < events.Length; i++)
+            {
+                Assert.Equal(((int)expectedTypes[i]).ToString(CultureInfo.InvariantCulture), events[i].GetValue("type"));
+                AssertEventTargetsPrimaryPart(events[i], primaryPart);
+                Assert.Equal("0", events[i].GetValue("midx"));
+                AssertFloatClose(0f, ParseInvariantFloat(events[i].GetValue("value")));
+                Assert.Equal(baseUt + expectedOffsets[i], ParseInvariantDouble(events[i].GetValue("ut")), 6);
+            }
+        }
+
+        [Fact]
+        public void EngineShowcaseRecordings_AllEntriesUseDeterministicTimelineAndValues()
+        {
+            var recordings = EngineShowcaseRecordings(17000);
+            Assert.Equal(45, recordings.Length);
+
+            var withShroudTypes = new[]
+            {
+                PartEventType.ShroudJettisoned,
+                PartEventType.EngineIgnited,
+                PartEventType.EngineThrottle,
+                PartEventType.EngineThrottle,
+                PartEventType.EngineShutdown,
+                PartEventType.EngineIgnited,
+                PartEventType.EngineThrottle,
+                PartEventType.EngineShutdown
+            };
+            var withShroudOffsets = new[] { 0.5, 3.0, 6.0, 9.0, 12.0, 15.0, 18.0, 21.0 };
+            var withShroudValues = new[] { 0f, 0.3f, 0.7f, 1.0f, 0f, 1.0f, 0.5f, 0f };
+
+            var flameOnlyTypes = new[]
+            {
+                PartEventType.EngineIgnited,
+                PartEventType.EngineThrottle,
+                PartEventType.EngineThrottle,
+                PartEventType.EngineShutdown,
+                PartEventType.EngineIgnited,
+                PartEventType.EngineThrottle,
+                PartEventType.EngineThrottle,
+                PartEventType.EngineShutdown
+            };
+            var flameOnlyOffsets = new[] { 0.0, 3.0, 6.0, 9.0, 12.0, 15.0, 18.0, 21.0 };
+            var flameOnlyValues = new[] { 0.3f, 0.7f, 1.0f, 0f, 1.0f, 0.5f, 0.15f, 0f };
+
+            foreach (var rb in recordings)
+            {
+                var rec = rb.Build();
+                var events = rec.GetNodes("PART_EVENT");
+                Assert.True(
+                    events.Length == 2 || events.Length == 3 || events.Length == 8,
+                    $"Unexpected event count {events.Length} for {rec.GetValue("vesselName")}");
+
+                var primaryPart = rec.GetNode("GHOST_VISUAL_SNAPSHOT").GetNodes("PART")[0];
+
+                if (events.Length == 2)
+                {
+                    double baseUt = ParseInvariantDouble(events[0].GetValue("ut"));
+                    var expectedTypes = new[] { PartEventType.EngineIgnited, PartEventType.EngineShutdown };
+                    var expectedOffsets = new[] { 0.0, 12.0 };
+                    var expectedValues = new[] { 1.0f, 0f };
+                    for (int i = 0; i < events.Length; i++)
+                    {
+                        Assert.Equal(((int)expectedTypes[i]).ToString(CultureInfo.InvariantCulture), events[i].GetValue("type"));
+                        AssertEventTargetsPrimaryPart(events[i], primaryPart);
+                        Assert.Equal("0", events[i].GetValue("midx"));
+                        AssertFloatClose(expectedValues[i], ParseInvariantFloat(events[i].GetValue("value")));
+                        Assert.Equal(baseUt + expectedOffsets[i], ParseInvariantDouble(events[i].GetValue("ut")), 6);
+                    }
+                    continue;
+                }
+
+                if (events.Length == 3)
+                {
+                    double baseUt = ParseInvariantDouble(events[0].GetValue("ut")) - 0.5;
+                    var expectedTypes = new[] { PartEventType.ShroudJettisoned, PartEventType.EngineIgnited, PartEventType.EngineShutdown };
+                    var expectedOffsets = new[] { 0.5, 3.0, 15.0 };
+                    var expectedValues = new[] { 0f, 1.0f, 0f };
+                    for (int i = 0; i < events.Length; i++)
+                    {
+                        Assert.Equal(((int)expectedTypes[i]).ToString(CultureInfo.InvariantCulture), events[i].GetValue("type"));
+                        AssertEventTargetsPrimaryPart(events[i], primaryPart);
+                        Assert.Equal("0", events[i].GetValue("midx"));
+                        AssertFloatClose(expectedValues[i], ParseInvariantFloat(events[i].GetValue("value")));
+                        Assert.Equal(baseUt + expectedOffsets[i], ParseInvariantDouble(events[i].GetValue("ut")), 6);
+                    }
+                    continue;
+                }
+
+                bool hasShroud = events[0].GetValue("type") ==
+                    ((int)PartEventType.ShroudJettisoned).ToString(CultureInfo.InvariantCulture);
+                var expectedTypes8 = hasShroud ? withShroudTypes : flameOnlyTypes;
+                var expectedOffsets8 = hasShroud ? withShroudOffsets : flameOnlyOffsets;
+                var expectedValues8 = hasShroud ? withShroudValues : flameOnlyValues;
+                double baseUt8 = ParseInvariantDouble(events[0].GetValue("ut")) - expectedOffsets8[0];
+
+                for (int i = 0; i < events.Length; i++)
+                {
+                    Assert.Equal(((int)expectedTypes8[i]).ToString(CultureInfo.InvariantCulture), events[i].GetValue("type"));
+                    AssertEventTargetsPrimaryPart(events[i], primaryPart);
+                    Assert.Equal("0", events[i].GetValue("midx"));
+                    AssertFloatClose(expectedValues8[i], ParseInvariantFloat(events[i].GetValue("value")));
+                    Assert.Equal(baseUt8 + expectedOffsets8[i], ParseInvariantDouble(events[i].GetValue("ut")), 6);
+                }
+            }
+        }
+
+        [Fact]
+        public void RoboticsShowcaseRecordings_UseExpectedMotionTargetsAndCadence()
+        {
+            var expectedOnValueByVessel = new Dictionary<string, float>
+            {
+                ["Part Showcase - Robotics Hinge G-11"] = 45f,
+                ["Part Showcase - Robotics Hinge G-00"] = 45f,
+                ["Part Showcase - Robotics Hinge M-12"] = 45f,
+                ["Part Showcase - Robotics Hinge M-06"] = 45f,
+                ["Part Showcase - Robotics Hinge XL"] = 45f,
+                ["Part Showcase - Robotics Piston 3P6"] = 0.3f,
+                ["Part Showcase - Robotics Piston 1P2"] = 0.2f,
+                ["Part Showcase - Robotics Piston 1P4"] = 0.4f,
+                ["Part Showcase - Robotics Piston 3P12"] = 0.9f,
+                ["Part Showcase - Robotics Rotation Servo M-06"] = 90f,
+                ["Part Showcase - Robotics Rotation Servo M-12"] = 90f,
+                ["Part Showcase - Robotics Rotation Servo F-12"] = 90f,
+                ["Part Showcase - Robotics Rotation Servo F-33"] = 90f,
+                ["Part Showcase - Robotics Rotor EM-16"] = 240f,
+                ["Part Showcase - Robotics Rotor EM-16S"] = 240f,
+                ["Part Showcase - Robotics Rotor EM-32"] = 240f,
+                ["Part Showcase - Robotics Rotor EM-32S"] = 240f,
+                ["Part Showcase - Robotics Rotor EM-64"] = 240f,
+                ["Part Showcase - Robotics Rotor EM-64S"] = 240f,
+                ["Part Showcase - Robotics Rotor Motor R121"] = 240f,
+                ["Part Showcase - Robotics Rotor Motor R7000"] = 240f
+            };
+
+            foreach (var rb in RoboticsShowcaseRecordings(17000))
+            {
+                var rec = rb.Build();
+                string vesselName = rec.GetValue("vesselName");
+                Assert.True(expectedOnValueByVessel.ContainsKey(vesselName), $"Missing expected motion target for {vesselName}");
+                AssertAlternatingPartEvents(
+                    rec,
+                    PartEventType.RoboticMotionStarted,
+                    PartEventType.RoboticMotionStopped,
+                    firstEventOffsetSeconds: 0.0,
+                    onDurationSeconds: 4.5,
+                    offDurationSeconds: 1.5,
+                    expectedOnValue: expectedOnValueByVessel[vesselName]);
+            }
+        }
+
+        [Fact]
+        public void WheelDynamicsShowcaseRecordings_UseExpectedModulesAndMotionTargets()
+        {
+            var expectedOnValueByVessel = new Dictionary<string, float>
+            {
+                ["Part Showcase - Wheel Dynamics Gear Fixed"] = 0.08f,
+                ["Part Showcase - Wheel Dynamics Gear Free"] = 24f,
+                ["Part Showcase - Wheel Dynamics Rover M1"] = 180f,
+                ["Part Showcase - Wheel Dynamics Rover S2"] = 180f,
+                ["Part Showcase - Wheel Dynamics Rover XL3"] = 120f,
+                ["Part Showcase - Wheel Dynamics TR-2L"] = 180f
+            };
+            var expectedModuleIndexByVessel = new Dictionary<string, int>
+            {
+                ["Part Showcase - Wheel Dynamics Gear Fixed"] = 0,
+                ["Part Showcase - Wheel Dynamics Gear Free"] = 1,
+                ["Part Showcase - Wheel Dynamics Rover M1"] = 2,
+                ["Part Showcase - Wheel Dynamics Rover S2"] = 2,
+                ["Part Showcase - Wheel Dynamics Rover XL3"] = 1,
+                ["Part Showcase - Wheel Dynamics TR-2L"] = 2
+            };
+
+            foreach (var rb in WheelDynamicsShowcaseRecordings(17000))
+            {
+                var rec = rb.Build();
+                string vesselName = rec.GetValue("vesselName");
+                Assert.True(expectedOnValueByVessel.ContainsKey(vesselName), $"Missing expected wheel target for {vesselName}");
+                Assert.True(expectedModuleIndexByVessel.ContainsKey(vesselName), $"Missing expected wheel module for {vesselName}");
+                AssertAlternatingPartEvents(
+                    rec,
+                    PartEventType.RoboticMotionStarted,
+                    PartEventType.RoboticMotionStopped,
+                    firstEventOffsetSeconds: 0.0,
+                    onDurationSeconds: 4.5,
+                    offDurationSeconds: 1.5,
+                    expectedOnValue: expectedOnValueByVessel[vesselName],
+                    expectedModuleIndex: expectedModuleIndexByVessel[vesselName]);
+            }
         }
 
         [Fact]

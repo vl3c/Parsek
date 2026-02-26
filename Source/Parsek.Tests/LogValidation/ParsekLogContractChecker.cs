@@ -177,7 +177,9 @@ namespace Parsek.Tests.LogValidation
             if (!string.Equals(entry.Subsystem, "Recorder", StringComparison.Ordinal))
                 return false;
 
-            return (entry.Message ?? string.Empty).StartsWith("Recording stopped", StringComparison.Ordinal);
+            string message = entry.Message ?? string.Empty;
+            return message.StartsWith("Recording stopped", StringComparison.Ordinal) ||
+                message.StartsWith("Auto-stopped recording due to scene change", StringComparison.Ordinal);
         }
 
         private static void ValidateSuppressedCount(KspLogEntry entry, List<LogViolation> violations)

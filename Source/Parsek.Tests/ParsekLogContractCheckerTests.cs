@@ -76,6 +76,21 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void AutoStoppedSceneChange_CountsAsRecordingStop()
+        {
+            var entries = ParsekKspLogParser.ParseLines(new[]
+            {
+                "[LOG] [Parsek][INFO][Init] SessionStart runUtc=3003",
+                "[LOG] [Parsek][INFO][Recorder] Recording started (physics-frame sampling)",
+                "[LOG] [Parsek][INFO][Recorder] Auto-stopped recording due to scene change"
+            });
+
+            var violations = ParsekLogContractChecker.ValidateLatestSession(entries);
+
+            Assert.DoesNotContain(violations, v => v.Code == "REC-003");
+        }
+
+        [Fact]
         public void AsciiArrowResourceLine_IsAccepted()
         {
             var entries = ParsekKspLogParser.ParseLines(new[]
