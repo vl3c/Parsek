@@ -2120,6 +2120,26 @@ namespace Parsek
                     PartEvents.Add(events[e]);
                     ParsekLog.Log($"Part event: {events[e].eventType} '{events[e].partName}' " +
                         $"pid={events[e].partPersistentId} midx={events[e].moduleIndex} val={events[e].value:F2}");
+
+                    // Some engines with ModuleJettison (e.g. Mainsail/Skipper/Vector) can
+                    // visually drop covers on ignition even when isJettisoned polling lags.
+                    // Emit a one-shot shroud event on ignition as a reliable fallback.
+                    if (events[e].eventType == PartEventType.EngineIgnited &&
+                        part.FindModuleImplementing<ModuleJettison>() != null)
+                    {
+                        var shroudEvt = CheckJettisonTransition(
+                            part.persistentId,
+                            part.partInfo?.name ?? "unknown",
+                            isJettisoned: true,
+                            jettisonedSet: jettisonedShrouds,
+                            ut: ut);
+                        if (shroudEvt.HasValue)
+                        {
+                            PartEvents.Add(shroudEvt.Value);
+                            ParsekLog.Log($"Part event: {shroudEvt.Value.eventType} '{shroudEvt.Value.partName}' " +
+                                $"pid={shroudEvt.Value.partPersistentId} (engine-ignite fallback)");
+                        }
+                    }
                 }
             }
         }

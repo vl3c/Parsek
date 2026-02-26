@@ -1253,16 +1253,18 @@ namespace Parsek.Tests
                 BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Mite", "Mite", 209, pidBase, isSrb: true, hasShroud: true),
                 BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Shrimp", "Shrimp", 210, pidBase, isSrb: true, hasShroud: true),
 
-                // ── Liquid engines flame only (rows 211-222) ──
+                // ── Liquid engines flame only (rows 211-216) ──
                 BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Ant", "microEngine.v2", 211, pidBase),
                 BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Spider", "radialEngineMini.v2", 212, pidBase),
                 BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Twitch", "smallRadialEngine", 213, pidBase),
                 BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Twitch v2", "smallRadialEngine.v2", 214, pidBase),
                 BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Thud", "radialLiquidEngine1-2", 215, pidBase),
                 BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Cub", "omsEngine", 216, pidBase),
-                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Mainsail", "liquidEngineMainsail.v2", 217, pidBase),
-                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Skipper", "engineLargeSkipper.v2", 218, pidBase),
-                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - SSME", "SSME", 219, pidBase),
+
+                // ── Liquid engines with shroud jettison + flame (rows 217-219) ──
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Mainsail", "liquidEngineMainsail.v2", 217, pidBase, hasShroud: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Skipper", "engineLargeSkipper.v2", 218, pidBase, hasShroud: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - SSME", "SSME", 219, pidBase, hasShroud: true),
                 BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Twin-Boar", "Size2LFB.v2", 220, pidBase),
                 BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Mammoth", "Size3EngineCluster", 221, pidBase),
                 BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Pug", "LiquidEngineRV-1", 222, pidBase),
@@ -2504,6 +2506,22 @@ namespace Parsek.Tests
             var flameEvents = flameOnly.GetNodes("PART_EVENT");
             Assert.Equal(((int)PartEventType.EngineIgnited).ToString(), flameEvents[0].GetValue("type"));
             Assert.Equal("0.3", flameEvents[0].GetValue("value"));
+
+            // Late large-liquid rows also use shroud+jettison (indices 26-28).
+            var mainsail = recordings[26].Build();
+            Assert.Equal("Part Showcase - Mainsail", mainsail.GetValue("vesselName"));
+            Assert.Equal(8, mainsail.GetNodes("PART_EVENT").Length);
+            Assert.Equal(((int)PartEventType.ShroudJettisoned).ToString(), mainsail.GetNodes("PART_EVENT")[0].GetValue("type"));
+
+            var skipper = recordings[27].Build();
+            Assert.Equal("Part Showcase - Skipper", skipper.GetValue("vesselName"));
+            Assert.Equal(8, skipper.GetNodes("PART_EVENT").Length);
+            Assert.Equal(((int)PartEventType.ShroudJettisoned).ToString(), skipper.GetNodes("PART_EVENT")[0].GetValue("type"));
+
+            var ssme = recordings[28].Build();
+            Assert.Equal("Part Showcase - SSME", ssme.GetValue("vesselName"));
+            Assert.Equal(8, ssme.GetNodes("PART_EVENT").Length);
+            Assert.Equal(((int)PartEventType.ShroudJettisoned).ToString(), ssme.GetNodes("PART_EVENT")[0].GetValue("type"));
 
             // SRB flame-only (index 33 = Thumper) → 2 events
             var srbFlame = recordings[33].Build();

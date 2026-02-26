@@ -2225,6 +2225,58 @@ namespace Parsek
                     }
                 }
 
+                // Vector (SSME) can look underpowered with only blue_small + model flame.
+                // Add a Skipper-style blue flame core on the same transform as its stock blue_small prefab.
+                bool isVector =
+                    string.Equals(partName, "SSME", System.StringComparison.OrdinalIgnoreCase);
+                if (isVector)
+                {
+                    bool hasSkipperStyleFlame = false;
+                    for (int i = 0; i < prefabFxEntries.Count; i++)
+                    {
+                        string existingPrefab = NormalizeFxPrefabName(prefabFxEntries[i].prefabName);
+                        if (string.Equals(existingPrefab, "fx_exhaustFlame_blue", System.StringComparison.OrdinalIgnoreCase))
+                        {
+                            hasSkipperStyleFlame = true;
+                            break;
+                        }
+                    }
+
+                    if (!hasSkipperStyleFlame)
+                    {
+                        string fallbackTransform = "thrustTransformYup";
+                        Vector3 fallbackOffset = Vector3.zero;
+                        Quaternion fallbackRotation = Quaternion.identity;
+
+                        bool copiedFromExistingBlueSmall = false;
+                        for (int i = 0; i < prefabFxEntries.Count; i++)
+                        {
+                            string existingPrefab = NormalizeFxPrefabName(prefabFxEntries[i].prefabName);
+                            if (string.Equals(existingPrefab, "fx_exhaustFlame_blue_small", System.StringComparison.OrdinalIgnoreCase))
+                            {
+                                fallbackTransform = prefabFxEntries[i].transformName;
+                                fallbackOffset = prefabFxEntries[i].localOffset;
+                                fallbackRotation = prefabFxEntries[i].localRotation;
+                                copiedFromExistingBlueSmall = true;
+                                break;
+                            }
+                        }
+
+                        if (!copiedFromExistingBlueSmall &&
+                            FindTransformsRecursive(prefab.transform, fallbackTransform).Count == 0)
+                        {
+                            if (FindTransformsRecursive(prefab.transform, "thrustTransform").Count > 0)
+                                fallbackTransform = "thrustTransform";
+                            else if (engine != null && !string.IsNullOrEmpty(engine.thrustVectorTransformName))
+                                fallbackTransform = engine.thrustVectorTransformName;
+                        }
+
+                        prefabFxEntries.Add(("fx_exhaustFlame_blue", fallbackTransform, fallbackOffset, fallbackRotation));
+                        ParsekLog.Log($"    Engine FX fallback: '{partName}' midx={moduleIndex} " +
+                            $"added Skipper-style blue flame prefab on '{fallbackTransform}' offset={fallbackOffset} rot={fallbackRotation.eulerAngles}");
+                    }
+                }
+
                 if (modelFxEntries.Count == 0 && prefabFxEntries.Count == 0)
                 {
                     // No EFFECTS node, or EFFECTS has no particle entries (e.g. Mainsail: AUDIO only).
