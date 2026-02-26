@@ -87,7 +87,17 @@ cd Source/Parsek.Tests
 dotnet test
 ```
 
-532 tests total: 531 pass, 1 skipped (QuaternionSlerp NaN edge case — Unity behavior).
+652 tests total: 651 pass, 1 skipped (QuaternionSlerp NaN edge case — Unity behavior).
+
+### Live KSP Log Validation
+
+After running a manual in-game scenario, validate the latest Parsek session in `KSP.log`:
+
+```bash
+pwsh -File scripts/validate-ksp-log.ps1
+```
+
+The script exits non-zero if required log contracts fail.
 
 ## Testing In-Game
 
