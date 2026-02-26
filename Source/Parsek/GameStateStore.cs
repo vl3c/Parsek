@@ -16,6 +16,7 @@ namespace Parsek
         private static string lastSaveFolder = null;
 
         internal static bool SuppressLogging = false;
+        private const string LegacyPrefix = "[Parsek] ";
 
         private const double ResourceCoalesceEpsilon = 0.1; // seconds
 
@@ -42,6 +43,8 @@ namespace Parsek
                         // Update the existing event's valueAfter
                         existing.valueAfter = e.valueAfter;
                         events[i] = existing;
+                        ParsekLog.VerboseRateLimited("GameStateStore", "resource-coalesce",
+                            $"Coalesced {e.eventType} event at ut={e.ut:F2}");
                         return;
                     }
                     // Stop searching once we pass the epsilon window
@@ -156,7 +159,12 @@ namespace Parsek
 
             try
             {
-                RecordingPaths.EnsureGameStateDirectory();
+                string dir = RecordingPaths.EnsureGameStateDirectory();
+                if (string.IsNullOrEmpty(dir))
+                {
+                    Log("[Parsek] WARNING: EnsureGameStateDirectory returned null during SaveEventFile");
+                    return false;
+                }
 
                 // Events are stored in insertion (capture) order, not UT order.
                 // After reverts, events from an abandoned future branch precede
@@ -221,6 +229,18 @@ namespace Parsek
                     return false;
                 }
 
+                int version = 1;
+                string versionStr = rootNode.GetValue("version");
+                if (!string.IsNullOrEmpty(versionStr) && !int.TryParse(versionStr, out version))
+                {
+                    Log($"[Parsek] WARNING: Invalid game state events version '{versionStr}'");
+                    version = 1;
+                }
+                if (version != 1)
+                {
+                    Log($"[Parsek] WARNING: Unsupported game state events version={version} (expected 1)");
+                }
+
                 // ConfigNode.Load returns the file contents directly
                 ConfigNode[] eventNodes = rootNode.GetNodes("GAME_STATE_EVENT");
                 if (eventNodes != null)
@@ -261,7 +281,12 @@ namespace Parsek
 
             try
             {
-                RecordingPaths.EnsureGameStateDirectory();
+                string dir = RecordingPaths.EnsureGameStateDirectory();
+                if (string.IsNullOrEmpty(dir))
+                {
+                    Log("[Parsek] WARNING: EnsureGameStateDirectory returned null during SaveBaseline");
+                    return false;
+                }
 
                 var rootNode = new ConfigNode("PARSEK_BASELINE");
                 baseline.SerializeInto(rootNode);
@@ -317,8 +342,27 @@ namespace Parsek
             string tmpPath = path + ".tmp";
             node.Save(tmpPath);
             if (File.Exists(path))
-                File.Delete(path);
-            File.Move(tmpPath, path);
+            {
+                try
+                {
+                    File.Delete(path);
+                }
+                catch (Exception ex)
+                {
+                    Log($"[Parsek] WARNING: Failed to delete existing file '{path}': {ex.Message}");
+                    throw;
+                }
+            }
+
+            try
+            {
+                File.Move(tmpPath, path);
+            }
+            catch (Exception ex)
+            {
+                Log($"[Parsek] WARNING: Failed to move temp file '{tmpPath}' to '{path}': {ex.Message}");
+                throw;
+            }
         }
 
         #endregion
@@ -338,8 +382,24 @@ namespace Parsek
 
         private static void Log(string msg)
         {
-            if (!SuppressLogging)
-                Debug.Log(msg);
+            if (SuppressLogging) return;
+
+            string clean = msg ?? "(empty)";
+            if (clean.StartsWith(LegacyPrefix, StringComparison.Ordinal))
+                clean = clean.Substring(LegacyPrefix.Length);
+
+            if (clean.StartsWith("WARNING:", StringComparison.OrdinalIgnoreCase))
+            {
+                ParsekLog.Warn("GameStateStore", clean.Substring("WARNING:".Length).TrimStart());
+                return;
+            }
+            if (clean.IndexOf("failed", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                ParsekLog.Warn("GameStateStore", clean);
+                return;
+            }
+
+            ParsekLog.Info("GameStateStore", clean);
         }
     }
 }

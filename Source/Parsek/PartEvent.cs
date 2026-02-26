@@ -46,5 +46,11 @@ namespace Parsek
         public string partName;
         public float value;       // throttle 0-1 for engine events; 0 for others
         public int moduleIndex;   // index of ModuleEngines on part (0 for single-engine parts)
+
+        public override string ToString()
+        {
+            return $"UT={ut:F2} event={eventType} part='{partName ?? "?"}' pid={partPersistentId} " +
+                   $"midx={moduleIndex} value={value:F3}";
+        }
     }
 }

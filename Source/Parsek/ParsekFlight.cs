@@ -200,6 +200,7 @@ namespace Parsek
                 boardingConfirmFrames++;
                 if (boardingConfirmFrames > 3)
                 {
+                    Log($"Boarding confirmation expired (targetPid={pendingBoardingTargetPid})");
                     pendingBoardingTargetPid = 0;
                     boardingConfirmFrames = 0;
                 }
@@ -211,6 +212,7 @@ namespace Parsek
                 dockConfirmFrames++;
                 if (dockConfirmFrames > 5)
                 {
+                    Log($"Dock confirmation expired (mergedPid={pendingDockMergedPid})");
                     pendingDockMergedPid = 0;
                     pendingDockAsTarget = false;
                     dockConfirmFrames = 0;
@@ -221,6 +223,7 @@ namespace Parsek
                 undockConfirmFrames++;
                 if (undockConfirmFrames > 5)
                 {
+                    Log($"Undock confirmation expired (otherPid={pendingUndockOtherPid})");
                     pendingUndockOtherPid = 0;
                     undockConfirmFrames = 0;
                 }
@@ -1347,6 +1350,14 @@ namespace Parsek
                 pendingBoundaryAnchor = null;
             }
             recorder.StartRecording();
+            if (!recorder.IsRecording)
+            {
+                ParsekLog.Warn("Flight", $"StartRecording blocked: {DetermineRecordingBlockReason()}");
+                return;
+            }
+
+            uint pid = FlightGlobals.ActiveVessel != null ? FlightGlobals.ActiveVessel.persistentId : 0;
+            ParsekLog.Info("Flight", $"StartRecording succeeded: pid={pid}, chainActive={activeChainId != null}");
         }
 
         public void StopRecording()
@@ -2101,8 +2112,19 @@ namespace Parsek
         public void DeleteRecording(int index)
         {
             var committed = RecordingStore.CommittedRecordings;
-            if (index < 0 || index >= committed.Count) return;
-            if (!CanDeleteRecording) return;
+            if (index < 0 || index >= committed.Count)
+            {
+                ParsekLog.Warn("Flight", $"DeleteRecording ignored: index={index} out of range (count={committed.Count})");
+                return;
+            }
+
+            if (!CanDeleteRecording)
+            {
+                ParsekLog.Warn("Flight",
+                    $"DeleteRecording blocked: index={index}, isRecording={IsRecording}, " +
+                    $"continuationRecordingIdx={continuationRecordingIdx}, undockContinuationRecIdx={undockContinuationRecIdx}");
+                return;
+            }
 
             var rec = committed[index];
             Log($"Deleting recording '{rec.VesselName}' at index {index}");
@@ -2527,7 +2549,7 @@ namespace Parsek
 
             if (info.emissionScale > 1f)
             {
-                ParsekLog.Log($"RCS showcase diagnostics: part='{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} " +
+                ParsekLog.Verbose("Flight", $"RCS showcase diagnostics: part='{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} " +
                     $"power={power:F2} systems={configuredSystems} playing={playingSystems} renderers={enabledRenderers} " +
                     $"rate={sampleRate:F1} speed={sampleSpeed:F1} size={sampleSize:F2} life={sampleLifetime:F2}");
             }
@@ -3289,7 +3311,16 @@ namespace Parsek
 
         #region Utilities
 
-        void Log(string message) => ParsekLog.Log(message);
+        private static string DetermineRecordingBlockReason()
+        {
+            if (Time.timeScale < 0.01f)
+                return "game paused";
+            if (FlightGlobals.ActiveVessel == null)
+                return "no active vessel";
+            return "unknown guard in FlightRecorder.StartRecording";
+        }
+
+        void Log(string message) => ParsekLog.Verbose("Flight", message);
         void ScreenMessage(string message, float duration) => ParsekLog.ScreenMessage(message, duration);
 
         #endregion

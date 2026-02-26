@@ -123,6 +123,7 @@ namespace Parsek
             GameEvents.onPartDie.Add(OnPartDie);
             GameEvents.onPartJointBreak.Add(OnPartJointBreak);
             partEventsSubscribed = true;
+            ParsekLog.Verbose("Recorder", "Subscribed part event hooks");
         }
 
         private void UnsubscribePartEvents()
@@ -131,6 +132,7 @@ namespace Parsek
             GameEvents.onPartDie.Remove(OnPartDie);
             GameEvents.onPartJointBreak.Remove(OnPartJointBreak);
             partEventsSubscribed = false;
+            ParsekLog.Verbose("Recorder", "Unsubscribed part event hooks");
         }
 
         private void OnPartDie(Part p)
@@ -149,7 +151,7 @@ namespace Parsek
                 eventType = evtType,
                 partName = p.partInfo?.name ?? "unknown"
             });
-            ParsekLog.Log($"Part event: {evtType} '{p.partInfo?.name}' pid={p.persistentId}");
+            ParsekLog.Verbose("Recorder", $"Part event: {evtType} '{p.partInfo?.name}' pid={p.persistentId}");
         }
 
         internal static PartEventType ClassifyPartDeath(
@@ -177,7 +179,7 @@ namespace Parsek
                 eventType = PartEventType.Decoupled,
                 partName = joint.Child.partInfo?.name ?? "unknown"
             });
-            ParsekLog.Log($"Part event: Decoupled '{joint.Child.partInfo?.name}' pid={joint.Child.persistentId}");
+            ParsekLog.Verbose("Recorder", $"Part event: Decoupled '{joint.Child.partInfo?.name}' pid={joint.Child.persistentId}");
         }
 
         /// <summary>
@@ -259,7 +261,7 @@ namespace Parsek
                 if (evt.HasValue)
                 {
                     PartEvents.Add(evt.Value);
-                    ParsekLog.Log($"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
+                    ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
                 }
             }
         }
@@ -299,7 +301,7 @@ namespace Parsek
                 if (evt.HasValue)
                 {
                     PartEvents.Add(evt.Value);
-                    ParsekLog.Log($"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
+                    ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
                 }
             }
         }
@@ -363,7 +365,7 @@ namespace Parsek
                 if (evt.HasValue)
                 {
                     PartEvents.Add(evt.Value);
-                    ParsekLog.Log($"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
+                    ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
                 }
             }
         }
@@ -592,7 +594,7 @@ namespace Parsek
                 if (evt.HasValue)
                 {
                     PartEvents.Add(evt.Value);
-                    ParsekLog.Log($"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
+                    ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
                 }
 
                 var blinkEvents = CheckLightBlinkTransition(
@@ -602,7 +604,7 @@ namespace Parsek
                 for (int e = 0; e < blinkEvents.Count; e++)
                 {
                     PartEvents.Add(blinkEvents[e]);
-                    ParsekLog.Log($"Part event: {blinkEvents[e].eventType} '{blinkEvents[e].partName}' " +
+                    ParsekLog.Verbose("Recorder", $"Part event: {blinkEvents[e].eventType} '{blinkEvents[e].partName}' " +
                         $"pid={blinkEvents[e].partPersistentId} val={blinkEvents[e].value:F2}");
                 }
             }
@@ -1230,7 +1232,7 @@ namespace Parsek
                     if (evt.HasValue)
                     {
                         PartEvents.Add(evt.Value);
-                        ParsekLog.Log($"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
+                        ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
                     }
                     break; // one deployment module per part
                 }
@@ -1315,7 +1317,7 @@ namespace Parsek
                 {
                     if (loggedCargoBayDeployIndexIssues.Add(p.persistentId))
                     {
-                        ParsekLog.Log($"CargoBay: invalid DeployModuleIndex for '{p.partInfo?.name}' " +
+                        ParsekLog.Verbose("Recorder", $"CargoBay: invalid DeployModuleIndex for '{p.partInfo?.name}' " +
                             $"pid={p.persistentId} deployIdx={deployIdx} modules={p.Modules.Count}");
                     }
                     continue;
@@ -1327,7 +1329,7 @@ namespace Parsek
                     {
                         PartModule moduleAtIndex = p.Modules[deployIdx];
                         string moduleName = moduleAtIndex?.moduleName ?? "<null>";
-                        ParsekLog.Log($"CargoBay: DeployModuleIndex did not resolve to ModuleAnimateGeneric for " +
+                        ParsekLog.Verbose("Recorder", $"CargoBay: DeployModuleIndex did not resolve to ModuleAnimateGeneric for " +
                             $"'{p.partInfo?.name}' pid={p.persistentId} deployIdx={deployIdx} module='{moduleName}'");
                     }
                     continue;
@@ -1341,7 +1343,7 @@ namespace Parsek
                     if (cargo.closedPosition >= 0.1f && cargo.closedPosition <= 0.9f &&
                         loggedCargoBayClosedPositionIssues.Add(p.persistentId))
                     {
-                        ParsekLog.Log($"CargoBay: unsupported closedPosition for '{p.partInfo?.name}' " +
+                        ParsekLog.Verbose("Recorder", $"CargoBay: unsupported closedPosition for '{p.partInfo?.name}' " +
                             $"pid={p.persistentId} closedPosition={cargo.closedPosition:F3} animTime={animModule.animTime:F3}");
                     }
                     continue; // mid-transition or non-standard closedPosition
@@ -1352,7 +1354,7 @@ namespace Parsek
                 if (evt.HasValue)
                 {
                     PartEvents.Add(evt.Value);
-                    ParsekLog.Log($"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
+                    ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
                 }
             }
         }
@@ -1381,7 +1383,7 @@ namespace Parsek
                     {
                         if (loggedLadderClassificationMisses.Add(key))
                         {
-                            ParsekLog.Log($"Ladder: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
+                            ParsekLog.Verbose("Recorder", $"Ladder: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
                                 $"midx={m}; fields=[{DescribeModuleFields(module)}]");
                         }
                         continue;
@@ -1393,7 +1395,7 @@ namespace Parsek
                     if (evt.HasValue)
                     {
                         PartEvents.Add(evt.Value);
-                        ParsekLog.Log($"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                        ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
                             $"pid={evt.Value.partPersistentId} (ladder)");
                     }
 
@@ -1426,7 +1428,7 @@ namespace Parsek
                         ulong diagnosticKey = EncodeEngineKey(p.persistentId, m);
                         if (loggedAnimationGroupClassificationMisses.Add(diagnosticKey))
                         {
-                            ParsekLog.Log($"AnimationGroup: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
+                            ParsekLog.Verbose("Recorder", $"AnimationGroup: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
                                 $"midx={m}; fields=[{DescribeModuleFields(module)}]");
                         }
                         continue;
@@ -1439,7 +1441,7 @@ namespace Parsek
                     if (evt.HasValue)
                     {
                         PartEvents.Add(evt.Value);
-                        ParsekLog.Log($"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                        ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
                             $"pid={evt.Value.partPersistentId} midx={evt.Value.moduleIndex} (animation-group)");
                     }
                 }
@@ -1470,7 +1472,7 @@ namespace Parsek
                         ulong diagnosticKey = EncodeEngineKey(p.persistentId, m);
                         if (loggedAeroSurfaceClassificationMisses.Add(diagnosticKey))
                         {
-                            ParsekLog.Log($"AeroSurface: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
+                            ParsekLog.Verbose("Recorder", $"AeroSurface: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
                                 $"midx={m}; fields=[{DescribeModuleFields(module)}]");
                         }
                         continue;
@@ -1485,7 +1487,7 @@ namespace Parsek
                     if (evt.HasValue)
                     {
                         PartEvents.Add(evt.Value);
-                        ParsekLog.Log($"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                        ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
                             $"pid={evt.Value.partPersistentId} midx={evt.Value.moduleIndex} (aero-surface)");
                     }
                 }
@@ -1516,7 +1518,7 @@ namespace Parsek
                         ulong diagnosticKey = EncodeEngineKey(p.persistentId, m);
                         if (loggedControlSurfaceClassificationMisses.Add(diagnosticKey))
                         {
-                            ParsekLog.Log($"ControlSurface: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
+                            ParsekLog.Verbose("Recorder", $"ControlSurface: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
                                 $"midx={m}; fields=[{DescribeModuleFields(module)}]");
                         }
                         continue;
@@ -1531,7 +1533,7 @@ namespace Parsek
                     if (evt.HasValue)
                     {
                         PartEvents.Add(evt.Value);
-                        ParsekLog.Log($"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                        ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
                             $"pid={evt.Value.partPersistentId} midx={evt.Value.moduleIndex} (control-surface)");
                     }
                 }
@@ -1562,7 +1564,7 @@ namespace Parsek
                         ulong diagnosticKey = EncodeEngineKey(p.persistentId, m);
                         if (loggedRobotArmScannerClassificationMisses.Add(diagnosticKey))
                         {
-                            ParsekLog.Log($"RobotArmScanner: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
+                            ParsekLog.Verbose("Recorder", $"RobotArmScanner: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
                                 $"midx={m}; fields=[{DescribeModuleFields(module)}]");
                         }
                         continue;
@@ -1577,7 +1579,7 @@ namespace Parsek
                     if (evt.HasValue)
                     {
                         PartEvents.Add(evt.Value);
-                        ParsekLog.Log($"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                        ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
                             $"pid={evt.Value.partPersistentId} midx={evt.Value.moduleIndex} (robot-arm-scanner)");
                     }
                 }
@@ -1642,7 +1644,7 @@ namespace Parsek
                         ulong diagnosticKey = EncodeEngineKey(p.persistentId, m);
                         if (loggedAnimateGenericClassificationMisses.Add(diagnosticKey))
                         {
-                            ParsekLog.Log($"AnimateGeneric: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
+                            ParsekLog.Verbose("Recorder", $"AnimateGeneric: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
                                 $"midx={m} anim='{animateModule.animationName}'; fields=[{DescribeModuleFields(animateModule)}]");
                         }
                         continue;
@@ -1657,7 +1659,7 @@ namespace Parsek
                     if (evt.HasValue)
                     {
                         PartEvents.Add(evt.Value);
-                        ParsekLog.Log($"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                        ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
                             $"pid={evt.Value.partPersistentId} midx={evt.Value.moduleIndex} (anim-generic)");
                     }
                 }
@@ -1688,7 +1690,7 @@ namespace Parsek
                         ulong diagnosticKey = EncodeEngineKey(p.persistentId, m);
                         if (loggedAnimateHeatClassificationMisses.Add(diagnosticKey))
                         {
-                            ParsekLog.Log($"AnimateHeat: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
+                            ParsekLog.Verbose("Recorder", $"AnimateHeat: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
                                 $"midx={m}; fields=[{DescribeModuleFields(module)}]");
                         }
                         continue;
@@ -1701,7 +1703,7 @@ namespace Parsek
                     if (evt.HasValue)
                     {
                         PartEvents.Add(evt.Value);
-                        ParsekLog.Log($"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                        ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
                             $"pid={evt.Value.partPersistentId} midx={evt.Value.moduleIndex} " +
                             $"heat={normalizedHeat:F2} src={sourceField ?? "<unknown>"}");
                     }
@@ -1750,7 +1752,7 @@ namespace Parsek
                 {
                     if (loggedFairingReadFailures.Add(p.persistentId))
                     {
-                        ParsekLog.Log($"Fairing: unable to read GetScalar for '{p.partInfo?.name}' " +
+                        ParsekLog.Verbose("Recorder", $"Fairing: unable to read GetScalar for '{p.partInfo?.name}' " +
                             $"pid={p.persistentId} ({ex.GetType().Name}: {ex.Message})");
                     }
                     continue;
@@ -1761,7 +1763,7 @@ namespace Parsek
                 if (evt.HasValue)
                 {
                     PartEvents.Add(evt.Value);
-                    ParsekLog.Log($"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
+                    ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
                 }
             }
         }
@@ -1809,7 +1811,7 @@ namespace Parsek
 
         private static void LogCoverageDetails(string label, List<string> entries)
         {
-            ParsekLog.Log($"  Visual coverage [{label}] {entries.Count}: {FormatCoverageEntries(entries)}");
+            ParsekLog.Verbose("Recorder", $"  Visual coverage [{label}] {entries.Count}: {FormatCoverageEntries(entries)}");
         }
 
         private void LogVisualRecordingCoverage(Vessel v)
@@ -1988,7 +1990,7 @@ namespace Parsek
                 }
             }
 
-            ParsekLog.Log(
+            ParsekLog.Verbose("Recorder", 
                 $"Visual recording coverage for '{v.vesselName}' pid={v.persistentId}: " +
                 $"parts={v.parts.Count} modules={moduleCount} " +
                 $"parachute={parachuteParts.Count} jettison={jettisonModules.Count} deployable={deployableParts.Count} " +
@@ -2096,7 +2098,7 @@ namespace Parsek
                         ? engine.thrustTransforms.Count
                         : 0;
                     string engineId = string.IsNullOrEmpty(engine.engineID) ? "<none>" : engine.engineID;
-                    ParsekLog.Log($"Engine tracking: '{part.partInfo?.name}' pid={part.persistentId} " +
+                    ParsekLog.Verbose("Recorder", $"Engine tracking: '{part.partInfo?.name}' pid={part.persistentId} " +
                         $"midx={moduleIndex} id={engineId} thrustTransforms={thrustTransformCount}");
                 }
 
@@ -2109,7 +2111,7 @@ namespace Parsek
                 for (int e = 0; e < events.Count; e++)
                 {
                     PartEvents.Add(events[e]);
-                    ParsekLog.Log($"Part event: {events[e].eventType} '{events[e].partName}' " +
+                    ParsekLog.Verbose("Recorder", $"Part event: {events[e].eventType} '{events[e].partName}' " +
                         $"pid={events[e].partPersistentId} midx={events[e].moduleIndex} val={events[e].value:F2}");
                 }
             }
@@ -2231,7 +2233,7 @@ namespace Parsek
                 {
                     int thrusterCount = rcs.thrusterTransforms != null ? rcs.thrusterTransforms.Count : 0;
                     int forceCount = rcs.thrustForces != null ? rcs.thrustForces.Length : 0;
-                    ParsekLog.Log($"RCS tracking: '{part.partInfo?.name}' pid={part.persistentId} " +
+                    ParsekLog.Verbose("Recorder", $"RCS tracking: '{part.partInfo?.name}' pid={part.persistentId} " +
                         $"midx={moduleIndex} thrusters={thrusterCount} forces={forceCount} power={rcs.thrusterPower:F2}");
                 }
 
@@ -2244,7 +2246,7 @@ namespace Parsek
                 for (int e = 0; e < events.Count; e++)
                 {
                     PartEvents.Add(events[e]);
-                    ParsekLog.Log($"Part event: {events[e].eventType} '{events[e].partName}' " +
+                    ParsekLog.Verbose("Recorder", $"Part event: {events[e].eventType} '{events[e].partName}' " +
                         $"pid={events[e].partPersistentId} midx={events[e].moduleIndex} val={events[e].value:F2}");
                 }
             }
@@ -2783,7 +2785,7 @@ namespace Parsek
                 {
                     if (loggedRoboticModuleKeys.Add(key))
                     {
-                        ParsekLog.Log($"Robotics: unable to sample '{part.partInfo?.name}' pid={part.persistentId} " +
+                        ParsekLog.Verbose("Recorder", $"Robotics: unable to sample '{part.partInfo?.name}' pid={part.persistentId} " +
                             $"midx={moduleIndex} module={moduleName}; fields=[{DescribeModuleFields(module)}]");
                     }
                     continue;
@@ -2792,7 +2794,7 @@ namespace Parsek
                 if (loggedRoboticModuleKeys.Add(key))
                 {
                     string movingSource = hasMovingSignal ? "module-flag" : "inferred";
-                    ParsekLog.Log($"Robotics: tracking '{part.partInfo?.name}' pid={part.persistentId} " +
+                    ParsekLog.Verbose("Recorder", $"Robotics: tracking '{part.partInfo?.name}' pid={part.persistentId} " +
                         $"midx={moduleIndex} module={moduleName} source={sourceField} " +
                         $"deadband={deadband:F3} sampleHz=4.0 moving={movingSource}");
                 }
@@ -2806,7 +2808,7 @@ namespace Parsek
                 for (int e = 0; e < events.Count; e++)
                 {
                     PartEvents.Add(events[e]);
-                    ParsekLog.Log($"Part event: {events[e].eventType} '{events[e].partName}' " +
+                    ParsekLog.Verbose("Recorder", $"Part event: {events[e].eventType} '{events[e].partName}' " +
                         $"pid={events[e].partPersistentId} midx={events[e].moduleIndex} " +
                         $"val={events[e].value:F3}");
                 }
@@ -2819,7 +2821,7 @@ namespace Parsek
         {
             if (Time.timeScale < 0.01f)
             {
-                ParsekLog.Log("Cannot start recording while paused");
+                ParsekLog.Warn("Recorder", "Cannot start recording while paused");
                 ParsekLog.ScreenMessage("Cannot record while paused", 2f);
                 return;
             }
@@ -2827,7 +2829,7 @@ namespace Parsek
             Vessel v = FlightGlobals.ActiveVessel;
             if (v == null)
             {
-                ParsekLog.Log("No active vessel to record!");
+                ParsekLog.Warn("Recorder", "Cannot start recording: no active vessel");
                 return;
             }
 
@@ -2874,6 +2876,9 @@ namespace Parsek
             lastRoboticPosition = new Dictionary<ulong, float>();
             lastRoboticSampleUT = new Dictionary<ulong, double>();
             loggedRoboticModuleKeys = new HashSet<ulong>();
+            ParsekLog.Info("Recorder",
+                $"Module caches seeded for vessel pid={v.persistentId}: engines={cachedEngines?.Count ?? 0}, " +
+                $"rcs={cachedRcsModules?.Count ?? 0}, robotics={cachedRoboticModules?.Count ?? 0}");
 
             // Seed already-deployed fairings so we don't emit false events at first poll
             if (v != null && v.parts != null)
@@ -2918,7 +2923,7 @@ namespace Parsek
                 lastRecordedUT = anchorUT;
                 lastRecordedVelocity = anchor.velocity;
                 BoundaryAnchor = null;
-                ParsekLog.Log($"Boundary anchor inserted at UT {anchorUT:F3}");
+                ParsekLog.Verbose("Recorder", $"Boundary anchor inserted at UT {anchorUT:F3}");
             }
             RefreshBackupSnapshot(v, "record_start", force: true);
             initialGhostVisualSnapshot = lastGoodVesselSnapshot != null
@@ -2944,7 +2949,7 @@ namespace Parsek
                     bodyName = v.mainBody.name
                 };
                 isOnRails = true;
-                ParsekLog.Log($"Recording started on rails — capturing orbit (body={v.mainBody.name})");
+                ParsekLog.Info("Recorder", $"Recording started on rails — capturing orbit (body={v.mainBody.name})");
             }
 
             // Register the Harmony patch to call us each physics frame
@@ -2952,7 +2957,7 @@ namespace Parsek
 
             SubscribePartEvents();
 
-            ParsekLog.Log("Recording started (physics-frame sampling)");
+            ParsekLog.Info("Recorder", "Recording started (physics-frame sampling)");
             ParsekLog.ScreenMessage("Recording STARTED", 2f);
         }
 
@@ -3004,7 +3009,7 @@ namespace Parsek
                 ? Recording[Recording.Count - 1].ut - Recording[0].ut
                 : 0;
 
-            ParsekLog.Log($"Recording stopped. {Recording.Count} points, {OrbitSegments.Count} orbit segments over {duration:F1}s");
+            ParsekLog.Info("Recorder", $"Recording stopped. {Recording.Count} points, {OrbitSegments.Count} orbit segments over {duration:F1}s");
             ParsekLog.ScreenMessage($"Recording STOPPED: {Recording.Count} points", 3f);
         }
 
@@ -3055,7 +3060,7 @@ namespace Parsek
                 ? Recording[Recording.Count - 1].ut - Recording[0].ut
                 : 0;
 
-            ParsekLog.Log($"Recording stopped (chain boundary). {Recording.Count} points, {OrbitSegments.Count} orbit segments over {duration:F1}s");
+            ParsekLog.Info("Recorder", $"Recording stopped (chain boundary). {Recording.Count} points, {OrbitSegments.Count} orbit segments over {duration:F1}s");
         }
 
         /// <summary>
@@ -3079,7 +3084,7 @@ namespace Parsek
                     RecordingVesselId = v.persistentId;
                     SamplePosition(v);
                     RefreshBackupSnapshot(v, "eva_switch", force: true);
-                    ParsekLog.Log($"Recording switched to EVA vessel (pid={v.persistentId})");
+                    ParsekLog.Verbose("Recorder", $"Recording switched to EVA vessel (pid={v.persistentId})");
                     return;
                 }
 
@@ -3111,25 +3116,25 @@ namespace Parsek
                 if (decision == VesselSwitchDecision.ChainToVessel)
                 {
                     ChainToVesselPending = true;
-                    ParsekLog.Log($"EVA boarded vessel (was pid={RecordingVesselId}, now pid={v.persistentId}) — chain pending");
+                    ParsekLog.Verbose("Recorder", $"EVA boarded vessel (was pid={RecordingVesselId}, now pid={v.persistentId}) — chain pending");
                     return;
                 }
 
                 if (decision == VesselSwitchDecision.DockMerge)
                 {
                     DockMergePending = true;
-                    ParsekLog.Log($"Dock merge detected (was pid={RecordingVesselId}, now pid={v.persistentId}) — dock pending");
+                    ParsekLog.Verbose("Recorder", $"Dock merge detected (was pid={RecordingVesselId}, now pid={v.persistentId}) — dock pending");
                     return;
                 }
 
                 if (decision == VesselSwitchDecision.UndockSwitch)
                 {
                     UndockSwitchPending = true;
-                    ParsekLog.Log($"Undock sibling switch (was pid={RecordingVesselId}, now pid={v.persistentId}) — undock switch pending");
+                    ParsekLog.Verbose("Recorder", $"Undock sibling switch (was pid={RecordingVesselId}, now pid={v.persistentId}) — undock switch pending");
                     return;
                 }
 
-                ParsekLog.Log($"Active vessel changed during recording — auto-stopping " +
+                ParsekLog.Verbose("Recorder", $"Active vessel changed during recording — auto-stopping " +
                     $"(decision={decision}, was pid={RecordingVesselId}, now pid={v.persistentId}, " +
                     $"nowIsEva={v.isEVA}, startedAsEva={RecordingStartedAsEva})");
                 ParsekLog.ScreenMessage("Recording stopped — vessel changed", 3f);
@@ -3161,7 +3166,11 @@ namespace Parsek
             if (!TrajectoryMath.ShouldRecordPoint(currentVelocity, lastRecordedVelocity,
                 Planetarium.GetUniversalTime(), lastRecordedUT,
                 maxSampleInterval, velocityDirThreshold, speedChangeThreshold))
+            {
+                ParsekLog.VerboseRateLimited("Recorder", "sample-skipped",
+                    $"Sample skipped at ut={Planetarium.GetUniversalTime():F2}; waiting for threshold trigger", 2.0);
                 return;
+            }
 
             TrajectoryPoint point = new TrajectoryPoint
             {
@@ -3185,7 +3194,7 @@ namespace Parsek
 
             if (Recording.Count % 10 == 0)
             {
-                ParsekLog.Log($"Recorded point #{Recording.Count}: {point}");
+                ParsekLog.Verbose("Recorder", $"Recorded point #{Recording.Count}: {point}");
             }
         }
 
@@ -3242,7 +3251,7 @@ namespace Parsek
             };
 
             isOnRails = true;
-            ParsekLog.Log($"Vessel went on rails — capturing orbit segment (body={v.mainBody.name})");
+            ParsekLog.Verbose("Recorder", $"Vessel went on rails — capturing orbit segment (body={v.mainBody.name})");
         }
 
         public void OnVesselGoOffRails(Vessel v)
@@ -3259,7 +3268,7 @@ namespace Parsek
             // Record a boundary TrajectoryPoint at current UT
             SamplePosition(v);
 
-            ParsekLog.Log($"Vessel went off rails — orbit segment closed " +
+            ParsekLog.Verbose("Recorder", $"Vessel went off rails — orbit segment closed " +
                 $"(UT {currentOrbitSegment.startUT:F0}-{currentOrbitSegment.endUT:F0})");
         }
 
@@ -3288,7 +3297,7 @@ namespace Parsek
                 bodyName = v.mainBody.name
             };
 
-            ParsekLog.Log($"SOI changed during orbit recording: {data.from.name} → {data.to.name}");
+            ParsekLog.Verbose("Recorder", $"SOI changed during orbit recording: {data.from.name} → {data.to.name}");
         }
 
         public void OnVesselWillDestroy(Vessel v)
@@ -3307,7 +3316,7 @@ namespace Parsek
 
                 VesselDestroyedDuringRecording = true;
                 RefreshBackupSnapshot(v, "destroy_event", force: true);
-                ParsekLog.Log("Active vessel destroyed during recording!");
+                ParsekLog.Warn("Recorder", "Active vessel destroyed during recording");
             }
         }
 
@@ -3329,7 +3338,7 @@ namespace Parsek
             Patches.PhysicsFramePatch.ActiveRecorder = null;
             UnsubscribePartEvents();
             IsRecording = false;
-            ParsekLog.Log("Auto-stopped recording due to scene change");
+            ParsekLog.Info("Recorder", "Auto-stopped recording due to scene change");
         }
 
         internal static Vessel FindVesselByPid(uint pid)
@@ -3363,13 +3372,13 @@ namespace Parsek
             }
             else
             {
-                ParsekLog.Log($"Snapshot backup FAILED ({reason}): pid={vessel.persistentId}, " +
+                ParsekLog.Warn("Recorder", $"Snapshot backup failed ({reason}): pid={vessel.persistentId}, " +
                     $"loaded={vessel.loaded}, packed={vessel.packed} — using previous snapshot");
             }
 
             if (elapsedMs >= snapshotPerfLogThresholdMs)
             {
-                ParsekLog.Log(
+                ParsekLog.Verbose("Recorder", 
                     $"Snapshot backup cost ({reason}): {elapsedMs:F1}ms " +
                     $"pid={vessel.persistentId}, points={Recording.Count}");
             }

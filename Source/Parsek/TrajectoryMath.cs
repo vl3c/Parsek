@@ -82,7 +82,11 @@ namespace Parsek
         internal static int FindWaypointIndex(List<TrajectoryPoint> points, ref int cachedIndex, double targetUT)
         {
             if (points.Count < 2)
+            {
+                ParsekLog.VerboseRateLimited("TrajectoryMath", "waypoint-too-few-points",
+                    $"FindWaypointIndex skipped: points.Count={points.Count} targetUT={targetUT:F3}", 5.0);
                 return -1;
+            }
 
             if (targetUT < points[0].ut)
                 return -1;
@@ -138,10 +142,14 @@ namespace Parsek
                 if (points[i].ut <= targetUT && points[i + 1].ut > targetUT)
                 {
                     cachedIndex = i;
+                    ParsekLog.VerboseRateLimited("TrajectoryMath", "waypoint-linear-fallback-hit",
+                        $"Linear fallback used for targetUT={targetUT:F3}, idx={i}", 5.0);
                     return i;
                 }
             }
 
+            ParsekLog.VerboseRateLimited("TrajectoryMath", "waypoint-index-not-found",
+                $"No waypoint index found for targetUT={targetUT:F3}", 5.0);
             return -1;
         }
 
@@ -159,7 +167,12 @@ namespace Parsek
             stats.orbitSegmentCount = rec.OrbitSegments.Count;
             stats.partEventCount = rec.PartEvents.Count;
 
-            if (rec.Points.Count == 0) return stats;
+            if (rec.Points.Count == 0)
+            {
+                ParsekLog.VerboseRateLimited("TrajectoryMath", "compute-stats-empty",
+                    "ComputeStats called with empty trajectory", 5.0);
+                return stats;
+            }
 
             var bodyCounts = new Dictionary<string, int>();
             double lat0 = rec.Points[0].latitude;

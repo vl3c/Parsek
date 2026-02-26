@@ -16,26 +16,31 @@ namespace Parsek
         public const int CurrentRecordingFormatVersion = 4;
         public const int CurrentGhostGeometryVersion = 1;
 
-        // When true, suppresses Debug.Log calls (for unit testing outside Unity)
+        // When true, suppresses logging calls (for unit testing outside Unity)
         internal static bool SuppressLogging;
+
+        private const string LegacyPrefix = "[Parsek] ";
 
         static void Log(string message)
         {
-            if (!SuppressLogging)
+            if (SuppressLogging) return;
+
+            string clean = message ?? "(empty)";
+            if (clean.StartsWith(LegacyPrefix, StringComparison.Ordinal))
+                clean = clean.Substring(LegacyPrefix.Length);
+
+            if (clean.StartsWith("WARNING:", StringComparison.OrdinalIgnoreCase))
             {
-                try
-                {
-                    UnityEngine.Debug.Log(message);
-                }
-                catch (System.Security.SecurityException)
-                {
-                    // Unit-test runtime can throw when Unity internals are unavailable.
-                }
-                catch (MethodAccessException)
-                {
-                    // Same fallback for some non-Unity execution environments.
-                }
+                ParsekLog.Warn("RecordingStore", clean.Substring("WARNING:".Length).TrimStart());
+                return;
             }
+            if (clean.IndexOf("failed", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                ParsekLog.Warn("RecordingStore", clean);
+                return;
+            }
+
+            ParsekLog.Info("RecordingStore", clean);
         }
 
         /// <summary>
@@ -619,7 +624,12 @@ namespace Parsek
                     evt.partPersistentId = pid;
                 int typeInt;
                 if (int.TryParse(peNode.GetValue("type"), NumberStyles.Integer, ic, out typeInt))
-                    evt.eventType = (PartEventType)typeInt;
+                {
+                    if (Enum.IsDefined(typeof(PartEventType), typeInt))
+                        evt.eventType = (PartEventType)typeInt;
+                    else
+                        Log($"[Parsek] WARNING: Unknown PartEvent type id '{typeInt}' in recording {rec.RecordingId}");
+                }
                 evt.partName = peNode.GetValue("part") ?? "";
 
                 float val;
@@ -639,13 +649,25 @@ namespace Parsek
 
         internal static bool SaveRecordingFiles(Recording rec)
         {
-            if (rec == null || !RecordingPaths.ValidateRecordingId(rec.RecordingId))
+            if (rec == null)
+            {
+                Log("[Parsek] WARNING: SaveRecordingFiles called with null recording");
                 return false;
+            }
+            if (!RecordingPaths.ValidateRecordingId(rec.RecordingId))
+            {
+                Log($"[Parsek] WARNING: SaveRecordingFiles rejected invalid recording id '{rec.RecordingId}'");
+                return false;
+            }
 
             try
             {
                 string dir = RecordingPaths.EnsureRecordingsDirectory();
-                if (dir == null) return false;
+                if (dir == null)
+                {
+                    Log($"[Parsek] WARNING: SaveRecordingFiles could not resolve recordings directory for {rec.RecordingId}");
+                    return false;
+                }
 
                 // Save .prec trajectory file
                 var precNode = new ConfigNode("PARSEK_RECORDING");
@@ -655,18 +677,35 @@ namespace Parsek
 
                 string precPath = RecordingPaths.ResolveSaveScopedPath(
                     RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
+                if (string.IsNullOrEmpty(precPath))
+                {
+                    Log($"[Parsek] WARNING: SaveRecordingFiles could not resolve trajectory path for {rec.RecordingId}");
+                    return false;
+                }
                 SafeWriteConfigNode(precNode, precPath);
 
                 // Save _vessel.craft (always rewrite — snapshot can be mutated by spawn offset)
                 string vesselPath = RecordingPaths.ResolveSaveScopedPath(
                     RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
+                if (string.IsNullOrEmpty(vesselPath))
+                {
+                    Log($"[Parsek] WARNING: SaveRecordingFiles could not resolve vessel snapshot path for {rec.RecordingId}");
+                    return false;
+                }
                 if (rec.VesselSnapshot != null)
                 {
                     SafeWriteConfigNode(rec.VesselSnapshot, vesselPath);
                 }
                 else if (File.Exists(vesselPath))
                 {
-                    File.Delete(vesselPath);
+                    try
+                    {
+                        File.Delete(vesselPath);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"[Parsek] WARNING: Failed deleting stale vessel snapshot '{vesselPath}': {ex.Message}");
+                    }
                 }
 
                 // Save _ghost.craft (write once — immutable after creation)
@@ -674,9 +713,17 @@ namespace Parsek
                 {
                     string ghostPath = RecordingPaths.ResolveSaveScopedPath(
                         RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
-                    if (!File.Exists(ghostPath))
+                    if (string.IsNullOrEmpty(ghostPath))
+                    {
+                        Log($"[Parsek] WARNING: SaveRecordingFiles could not resolve ghost snapshot path for {rec.RecordingId}");
+                    }
+                    else if (!File.Exists(ghostPath))
                         SafeWriteConfigNode(rec.GhostVisualSnapshot, ghostPath);
                 }
+
+                Log($"[Parsek] Saved recording files for {rec.RecordingId}: points={rec.Points.Count}, " +
+                    $"orbitSegments={rec.OrbitSegments.Count}, partEvents={rec.PartEvents.Count}, " +
+                    $"hasVesselSnapshot={rec.VesselSnapshot != null}, hasGhostSnapshot={rec.GhostVisualSnapshot != null}");
 
                 return true;
             }
@@ -689,8 +736,16 @@ namespace Parsek
 
         internal static bool LoadRecordingFiles(Recording rec)
         {
-            if (rec == null || !RecordingPaths.ValidateRecordingId(rec.RecordingId))
+            if (rec == null)
+            {
+                Log("[Parsek] WARNING: LoadRecordingFiles called with null recording");
                 return false;
+            }
+            if (!RecordingPaths.ValidateRecordingId(rec.RecordingId))
+            {
+                Log($"[Parsek] WARNING: LoadRecordingFiles rejected invalid recording id '{rec.RecordingId}'");
+                return false;
+            }
 
             try
             {
@@ -746,6 +801,10 @@ namespace Parsek
                 if (rec.GhostVisualSnapshot == null && rec.VesselSnapshot != null)
                     rec.GhostVisualSnapshot = rec.VesselSnapshot.CreateCopy();
 
+                Log($"[Parsek] Loaded recording files for {rec.RecordingId}: points={rec.Points.Count}, " +
+                    $"orbitSegments={rec.OrbitSegments.Count}, partEvents={rec.PartEvents.Count}, " +
+                    $"hasVesselSnapshot={rec.VesselSnapshot != null}, hasGhostSnapshot={rec.GhostVisualSnapshot != null}");
+
                 return true;
             }
             catch (Exception ex)
@@ -760,8 +819,27 @@ namespace Parsek
             string tmpPath = path + ".tmp";
             node.Save(tmpPath);
             if (File.Exists(path))
-                File.Delete(path);
-            File.Move(tmpPath, path);
+            {
+                try
+                {
+                    File.Delete(path);
+                }
+                catch (Exception ex)
+                {
+                    Log($"[Parsek] WARNING: Failed to delete existing file '{path}': {ex.Message}");
+                    throw;
+                }
+            }
+
+            try
+            {
+                File.Move(tmpPath, path);
+            }
+            catch (Exception ex)
+            {
+                Log($"[Parsek] WARNING: Failed to move temp file '{tmpPath}' to '{path}': {ex.Message}");
+                throw;
+            }
         }
 
         #endregion
