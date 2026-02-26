@@ -1896,6 +1896,16 @@ namespace Parsek
                     moduleIndex = moduleIndex
                 };
 
+                bool isRapierPart =
+                    string.Equals(partName, "RAPIER", System.StringComparison.OrdinalIgnoreCase);
+                if (isRapierPart && moduleIndex > 0)
+                {
+                    // RAPIER has multi-mode engine modules sharing nozzle transforms; recording events
+                    // target midx=0, so skip duplicate module FX to avoid doubled plumes.
+                    ParsekLog.Log($"    Engine '{partName}' midx={moduleIndex}: skipped duplicate multi-mode FX module");
+                    continue;
+                }
+
                 // Try to read EFFECTS config from the part config
                 ConfigNode partConfig = prefab.partInfo?.partConfig;
                 if (partConfig == null)
@@ -1908,7 +1918,12 @@ namespace Parsek
 
                 // Scan EFFECTS for particle FX entries (MODEL_MULTI_PARTICLE, MODEL_PARTICLE, PREFAB_PARTICLE)
                 var modelFxEntries = new List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot)>();
-                var prefabFxEntries = new List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation)>();
+                var prefabFxEntries = new List<(
+                    string prefabName,
+                    string transformName,
+                    Vector3 localOffset,
+                    Quaternion localRotation,
+                    bool hasLocalRotation)>();
                 FloatCurve emissionCurve = null;
                 FloatCurve speedCurve = null;
 
@@ -1997,9 +2012,9 @@ namespace Parsek
 
                             Quaternion localRot = Quaternion.identity;
                             string rotStr = ppNodes[pp].GetValue("localRotation");
-                            TryParseFxLocalRotation(rotStr, out localRot);
+                            bool hasLocalRot = TryParseFxLocalRotation(rotStr, out localRot);
 
-                            prefabFxEntries.Add((prefabName, transformName, localOffset, localRot));
+                            prefabFxEntries.Add((prefabName, transformName, localOffset, localRot, hasLocalRot));
                         }
                     }
                 }
@@ -2049,7 +2064,7 @@ namespace Parsek
                             }
                         }
 
-                        prefabFxEntries.Add(("fx_exhaustFlame_yellow_tiny_Z", fallbackTransform, fallbackOffset, Quaternion.identity));
+                        prefabFxEntries.Add(("fx_exhaustFlame_yellow_tiny_Z", fallbackTransform, fallbackOffset, Quaternion.identity, false));
                         ParsekLog.Log($"    Engine FX fallback: '{partName}' midx={moduleIndex} " +
                             $"added Twitch plume prefab on '{fallbackTransform}' offset={fallbackOffset}");
                     }
@@ -2063,6 +2078,7 @@ namespace Parsek
                     string kickbackSmokeTransform = "smokePoint";
                     Vector3 kickbackSmokeOffset = new Vector3(0f, 0f, 1f);
                     Quaternion kickbackSmokeRotation = Quaternion.identity;
+                    bool kickbackSmokeHasLocalRotation = false;
                     bool copiedSmokeAnchor = false;
 
                     bool replacedSmokePrefab = false;
@@ -2077,6 +2093,7 @@ namespace Parsek
                                 kickbackSmokeTransform = prefabFxEntries[i].transformName;
                                 kickbackSmokeOffset = prefabFxEntries[i].localOffset;
                                 kickbackSmokeRotation = prefabFxEntries[i].localRotation;
+                                kickbackSmokeHasLocalRotation = prefabFxEntries[i].hasLocalRotation;
                                 copiedSmokeAnchor = true;
                             }
                             prefabFxEntries.RemoveAt(i);
@@ -2101,7 +2118,7 @@ namespace Parsek
                         }
                     }
 
-                    prefabFxEntries.Add(("fx_smokeTrail_medium", kickbackSmokeTransform, kickbackSmokeOffset, kickbackSmokeRotation));
+                    prefabFxEntries.Add(("fx_smokeTrail_medium", kickbackSmokeTransform, kickbackSmokeOffset, kickbackSmokeRotation, kickbackSmokeHasLocalRotation));
                     ParsekLog.Log($"    Engine FX fallback: '{partName}' midx={moduleIndex} " +
                         $"{(replacedSmokePrefab ? "replaced smoke with" : "added")} Thumper smoke prefab on '{kickbackSmokeTransform}' " +
                         $"offset={kickbackSmokeOffset} rot={kickbackSmokeRotation.eulerAngles}");
@@ -2138,7 +2155,7 @@ namespace Parsek
                             }
                         }
 
-                        prefabFxEntries.Add(("fx_exhaustFlame_yellow", fallbackTransform, fallbackOffset, Quaternion.identity));
+                        prefabFxEntries.Add(("fx_exhaustFlame_yellow", fallbackTransform, fallbackOffset, Quaternion.identity, false));
                         ParsekLog.Log($"    Engine FX fallback: '{partName}' midx={moduleIndex} " +
                             $"added Thumper plume prefab on '{fallbackTransform}' offset={fallbackOffset}");
                     }
@@ -2182,7 +2199,7 @@ namespace Parsek
                             }
                         }
 
-                        prefabFxEntries.Add(("fx_exhaustFlame_blue_small", fallbackTransform, fallbackOffset, Quaternion.identity));
+                        prefabFxEntries.Add(("fx_exhaustFlame_blue_small", fallbackTransform, fallbackOffset, Quaternion.identity, false));
                         ParsekLog.Log($"    Engine FX fallback: '{partName}' midx={moduleIndex} " +
                             $"added Thud plume prefab on '{fallbackTransform}' offset={fallbackOffset}");
                     }
@@ -2238,7 +2255,7 @@ namespace Parsek
                         // White flame prefab is authored in a Y-up frame; on these thrust/fx transforms
                         // it needs a -90deg X adjustment to align with nozzle direction.
                         Quaternion fallbackRotation = Quaternion.Euler(-90f, 0f, 0f);
-                        prefabFxEntries.Add(("fx_exhaustFlame_white", fallbackTransform, fallbackOffset, fallbackRotation));
+                        prefabFxEntries.Add(("fx_exhaustFlame_white", fallbackTransform, fallbackOffset, fallbackRotation, true));
                         ParsekLog.Log($"    Engine FX fallback: '{partName}' midx={moduleIndex} " +
                             $"added white flame prefab on '{fallbackTransform}' offset={fallbackOffset} rot={fallbackRotation.eulerAngles}");
                     }
@@ -2266,6 +2283,7 @@ namespace Parsek
                         string fallbackTransform = "thrustTransformYup";
                         Vector3 fallbackOffset = Vector3.zero;
                         Quaternion fallbackRotation = Quaternion.identity;
+                        bool fallbackHasLocalRotation = false;
 
                         bool copiedFromExistingBlueSmall = false;
                         for (int i = 0; i < prefabFxEntries.Count; i++)
@@ -2276,6 +2294,7 @@ namespace Parsek
                                 fallbackTransform = prefabFxEntries[i].transformName;
                                 fallbackOffset = prefabFxEntries[i].localOffset;
                                 fallbackRotation = prefabFxEntries[i].localRotation;
+                                fallbackHasLocalRotation = prefabFxEntries[i].hasLocalRotation;
                                 copiedFromExistingBlueSmall = true;
                                 break;
                             }
@@ -2290,9 +2309,98 @@ namespace Parsek
                                 fallbackTransform = engine.thrustVectorTransformName;
                         }
 
-                        prefabFxEntries.Add(("fx_exhaustFlame_blue", fallbackTransform, fallbackOffset, fallbackRotation));
+                        prefabFxEntries.Add(("fx_exhaustFlame_blue", fallbackTransform, fallbackOffset, fallbackRotation, fallbackHasLocalRotation));
                         ParsekLog.Log($"    Engine FX fallback: '{partName}' midx={moduleIndex} " +
                             $"added Skipper-style blue flame prefab on '{fallbackTransform}' offset={fallbackOffset} rot={fallbackRotation.eulerAngles}");
+                    }
+                }
+
+                // RAPIER can resolve to dark/perpendicular smoke when aeroSpike smoke prefab falls back.
+                // Force a Vector-like visible plume: single large smoke + white flame core.
+                bool isRapier =
+                    string.Equals(partName, "RAPIER", System.StringComparison.OrdinalIgnoreCase);
+                if (isRapier)
+                {
+                    string rapierSmokeTransform = "smokePoint";
+                    Vector3 rapierSmokeOffset = new Vector3(0f, 0f, 1f);
+                    Quaternion rapierSmokeRotation = Quaternion.identity;
+                    bool rapierSmokeHasLocalRotation = false;
+                    bool copiedRapierSmokeAnchor = false;
+
+                    int removedRapierSmoke = 0;
+                    for (int i = prefabFxEntries.Count - 1; i >= 0; i--)
+                    {
+                        string existingPrefab = NormalizeFxPrefabName(prefabFxEntries[i].prefabName);
+                        if (existingPrefab == null ||
+                            existingPrefab.IndexOf("smoketrail", System.StringComparison.OrdinalIgnoreCase) < 0)
+                            continue;
+
+                        if (!copiedRapierSmokeAnchor)
+                        {
+                            rapierSmokeTransform = prefabFxEntries[i].transformName;
+                            rapierSmokeOffset = prefabFxEntries[i].localOffset;
+                            rapierSmokeRotation = prefabFxEntries[i].localRotation;
+                            rapierSmokeHasLocalRotation = prefabFxEntries[i].hasLocalRotation;
+                            copiedRapierSmokeAnchor = true;
+                        }
+
+                        prefabFxEntries.RemoveAt(i);
+                        removedRapierSmoke++;
+                    }
+
+                    if (!copiedRapierSmokeAnchor)
+                    {
+                        if (FindTransformsRecursive(prefab.transform, rapierSmokeTransform).Count == 0)
+                        {
+                            if (FindTransformsRecursive(prefab.transform, "thrustTransform").Count > 0)
+                            {
+                                rapierSmokeTransform = "thrustTransform";
+                                rapierSmokeOffset = engine != null ? engine.fxOffset : Vector3.zero;
+                            }
+                            else if (engine != null && !string.IsNullOrEmpty(engine.thrustVectorTransformName))
+                            {
+                                rapierSmokeTransform = engine.thrustVectorTransformName;
+                                rapierSmokeOffset = engine.fxOffset;
+                            }
+                        }
+                    }
+
+                    prefabFxEntries.Add(("fx_smokeTrail_large", rapierSmokeTransform, rapierSmokeOffset,
+                        rapierSmokeRotation, rapierSmokeHasLocalRotation));
+                    ParsekLog.Log($"    Engine FX fallback: '{partName}' midx={moduleIndex} " +
+                        $"replaced {removedRapierSmoke} smoke entries with Vector-style smoke on '{rapierSmokeTransform}' " +
+                        $"offset={rapierSmokeOffset} rot={rapierSmokeRotation.eulerAngles}");
+
+                    bool hasWhiteFlame = false;
+                    for (int i = 0; i < prefabFxEntries.Count; i++)
+                    {
+                        string existingPrefab = NormalizeFxPrefabName(prefabFxEntries[i].prefabName);
+                        if (string.Equals(existingPrefab, "fx_exhaustFlame_white", System.StringComparison.OrdinalIgnoreCase))
+                        {
+                            hasWhiteFlame = true;
+                            break;
+                        }
+                    }
+
+                    if (!hasWhiteFlame)
+                    {
+                        // Keep it compact: anchor the added white core to the same smokePoint frame.
+                        string flameTransform = rapierSmokeTransform;
+                        Vector3 flameOffset = Vector3.zero;
+                        if (FindTransformsRecursive(prefab.transform, flameTransform).Count == 0)
+                        {
+                            flameTransform = "thrustTransform";
+                            if (FindTransformsRecursive(prefab.transform, flameTransform).Count == 0 &&
+                                engine != null && !string.IsNullOrEmpty(engine.thrustVectorTransformName))
+                            {
+                                flameTransform = engine.thrustVectorTransformName;
+                            }
+                        }
+
+                        Quaternion flameRotation = Quaternion.Euler(-90f, 0f, 0f);
+                        prefabFxEntries.Add(("fx_exhaustFlame_white", flameTransform, flameOffset, flameRotation, true));
+                        ParsekLog.Log($"    Engine FX fallback: '{partName}' midx={moduleIndex} " +
+                            $"added Vector-style white flame on '{flameTransform}' offset={flameOffset} rot={flameRotation.eulerAngles}");
                     }
                 }
 
@@ -2487,7 +2595,11 @@ namespace Parsek
                 // Process PREFAB_PARTICLE entries (Spark, Twitch, Pug, Juno, Wheesley, Goliath)
                 for (int f = 0; f < prefabFxEntries.Count; f++)
                 {
-                    var (prefabName, transformName, localOffset, localRot) = prefabFxEntries[f];
+                    var (prefabName, transformName, localOffset, localRot, hasLocalRot) = prefabFxEntries[f];
+                    string normalizedPrefabName = NormalizeFxPrefabName(prefabName);
+                    bool isRapierWhiteFlame =
+                        string.Equals(partName, "RAPIER", System.StringComparison.OrdinalIgnoreCase) &&
+                        string.Equals(normalizedPrefabName, "fx_exhaustFlame_white", System.StringComparison.OrdinalIgnoreCase);
 
                     // Resolve the fx_* prefab (cache, Resources, loaded objects, then substitutions).
                     GameObject fxPrefab = FindFxPrefab(prefabName);
@@ -2507,6 +2619,9 @@ namespace Parsek
                     }
                     for (int t = 0; t < fxTransforms.Count; t++)
                     {
+                        if (isRapierWhiteFlame && t > 0)
+                            continue; // keep single compact white core on RAPIER
+
                         Transform srcFxTransform = fxTransforms[t];
 
                         Transform ghostFxParent = ResolveGhostFxParent(
@@ -2525,7 +2640,21 @@ namespace Parsek
                         GameObject fxInstance = Object.Instantiate(fxPrefab);
                         fxInstance.transform.SetParent(ghostFxParent, false);
                         fxInstance.transform.localPosition = localOffset;
-                        fxInstance.transform.localRotation = localRot;
+                        if (hasLocalRot)
+                            fxInstance.transform.localRotation = localRot;
+
+                        if (isRapierWhiteFlame)
+                        {
+                            // Prevent SRB-sized white plume look on RAPIER.
+                            fxInstance.transform.localScale *= 0.35f;
+                            ParticleSystem[] rapierWhiteSystems = fxInstance.GetComponentsInChildren<ParticleSystem>(true);
+                            for (int psIndex = 0; psIndex < rapierWhiteSystems.Length; psIndex++)
+                            {
+                                var main = rapierWhiteSystems[psIndex].main;
+                                main.startSizeMultiplier *= 0.45f;
+                                main.startSpeedMultiplier *= 0.75f;
+                            }
+                        }
 
                         // SmokeTrailControl expects real vessel/part state — destroy it on the ghost
                         var smokeTrail = fxInstance.GetComponent("SmokeTrailControl");
