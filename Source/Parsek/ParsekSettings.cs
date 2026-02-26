@@ -21,6 +21,10 @@ namespace Parsek
             toolTip = "Stop time warp when a ghost playback is about to begin")]
         public bool autoWarpStop = true;
 
+        [GameParameters.CustomParameterUI("Verbose logging",
+            toolTip = "When enabled, write detailed diagnostics to KSP.log (default for development)")]
+        public bool verboseLogging = true;
+
         [GameParameters.CustomFloatParameterUI("Max sample interval (s)", minValue = 1f, maxValue = 10f,
             stepCount = 19, displayFormat = "F1",
             toolTip = "Maximum seconds between trajectory samples")]

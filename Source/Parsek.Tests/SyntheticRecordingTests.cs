@@ -1443,24 +1443,60 @@ namespace Parsek.Tests
 
         internal static RecordingBuilder[] ParachuteShowcaseRecordings(double baseUT = 0)
         {
+            // 3-phase cycle: semi-deployed (streamer) → deployed (dome) → cut → repeat
             return new[]
             {
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Parachute Mk16", "parachuteSingle", 69,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ParachuteDeployed, PartEventType.ParachuteCut, 98300000, SinglePartPid,
-                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Parachute Mk2-R", "parachuteRadial", 70,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ParachuteDeployed, PartEventType.ParachuteCut, 98300000, SinglePartPid,
-                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Drogue Mk25", "parachuteDrogue", 71,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ParachuteDeployed, PartEventType.ParachuteCut, 98300000, SinglePartPid,
-                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Drogue Mk12-R", "radialDrogue", 72,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ParachuteDeployed, PartEventType.ParachuteCut, 98300000, SinglePartPid,
-                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Parachute Mk16-XL", "parachuteLarge", 73,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ParachuteDeployed, PartEventType.ParachuteCut, 98300000, SinglePartPid,
-                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
+                BuildParachuteShowcaseRecording(baseUT, "Part Showcase - Parachute Mk16", "parachuteSingle", 69, 98300000),
+                BuildParachuteShowcaseRecording(baseUT, "Part Showcase - Parachute Mk2-R", "parachuteRadial", 70, 98300000),
+                BuildParachuteShowcaseRecording(baseUT, "Part Showcase - Drogue Mk25", "parachuteDrogue", 71, 98300000),
+                BuildParachuteShowcaseRecording(baseUT, "Part Showcase - Drogue Mk12-R", "radialDrogue", 72, 98300000),
+                BuildParachuteShowcaseRecording(baseUT, "Part Showcase - Parachute Mk16-XL", "parachuteLarge", 73, 98300000)
             };
+        }
+
+        private static RecordingBuilder BuildParachuteShowcaseRecording(
+            double baseUT, string vesselName, string partName, int rowIndex, uint pidBase)
+        {
+            const double metersPerDegree = (2.0 * Math.PI * 600000.0) / 360.0;
+            const double spacingMeters = 5.0;
+
+            double t = baseUT + 30;
+            double baseLat = -0.0972;
+            double baseLon = -74.5575;
+            double rowCenterOffsetMeters = -((ShowcaseRowCount - 1) * spacingMeters * 0.5);
+            double lat = baseLat + ((rowIndex * spacingMeters + rowCenterOffsetMeters) / metersPerDegree);
+            double lon = baseLon + ((ShowcaseDistanceFromPadMeters) / metersPerDegree);
+            double alt = 66.0;
+
+            var b = new RecordingBuilder(vesselName)
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
+                .WithLoopPlayback(loop: true, pauseSeconds: 0.0);
+
+            // Static trajectory (24s)
+            for (int i = 0; i <= 8; i++)
+                b.AddPoint(t + (i * 3), lat, lon, alt);
+
+            // 3-phase parachute cycle: semi-deployed (3s) → deployed (3s) → cut (2s) → repeat
+            double offset = 0.0;
+            for (int cycle = 0; cycle < 3; cycle++)
+            {
+                b.AddPartEvent(t + offset, SinglePartPid, (int)PartEventType.ParachuteSemiDeployed, partName);
+                offset += 3.0;
+                b.AddPartEvent(t + offset, SinglePartPid, (int)PartEventType.ParachuteDeployed, partName);
+                offset += 3.0;
+                b.AddPartEvent(t + offset, SinglePartPid, (int)PartEventType.ParachuteCut, partName);
+                offset += 2.0;
+            }
+
+            var snap = new VesselSnapshotBuilder()
+                .WithName(vesselName)
+                .WithPersistentId((uint)(pidBase + rowIndex))
+                .AddPart(partName, rotation: "0,-0.7071068,0,0.7071068")
+                .AsLanded(lat, lon, alt)
+                .Build();
+            b.WithGhostVisualSnapshot(snap);
+
+            return b;
         }
 
         internal static RecordingBuilder[] SpecialDeployAnimationShowcaseRecordings(double baseUT = 0)
@@ -2544,6 +2580,127 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void EngineShowcaseRecordings_AllEntriesFollowExpectedEventProfiles()
+        {
+            var recordings = EngineShowcaseRecordings(baseUT: 17000);
+            Assert.Equal(45, recordings.Length);
+
+            for (int i = 0; i < recordings.Length; i++)
+            {
+                ConfigNode built = recordings[i].Build();
+                ConfigNode[] events = built.GetNodes("PART_EVENT");
+                Assert.True(events.Length == 2 || events.Length == 3 || events.Length == 8,
+                    $"Unexpected event count {events.Length} for '{built.GetValue("vesselName")}'");
+
+                ConfigNode ghost = built.GetNode("GHOST_VISUAL_SNAPSHOT");
+                Assert.NotNull(ghost);
+                ConfigNode[] parts = ghost.GetNodes("PART");
+                Assert.Single(parts);
+                string expectedPid = parts[0].GetValue("persistentId");
+
+                double previousUt = double.MinValue;
+                for (int e = 0; e < events.Length; e++)
+                {
+                    Assert.Equal(expectedPid, events[e].GetValue("pid"));
+                    double ut = double.Parse(events[e].GetValue("ut"), CultureInfo.InvariantCulture);
+                    Assert.True(ut > previousUt,
+                        $"Non-monotonic UT in '{built.GetValue("vesselName")}' at event {e}");
+                    previousUt = ut;
+                }
+
+                if (events.Length == 2)
+                {
+                    Assert.Equal(((int)PartEventType.EngineIgnited).ToString(), events[0].GetValue("type"));
+                    Assert.Equal("1", events[0].GetValue("value"));
+                    Assert.Equal(((int)PartEventType.EngineShutdown).ToString(), events[1].GetValue("type"));
+                    continue;
+                }
+
+                if (events.Length == 3)
+                {
+                    Assert.Equal(((int)PartEventType.ShroudJettisoned).ToString(), events[0].GetValue("type"));
+                    Assert.Equal(((int)PartEventType.EngineIgnited).ToString(), events[1].GetValue("type"));
+                    Assert.Equal("1", events[1].GetValue("value"));
+                    Assert.Equal(((int)PartEventType.EngineShutdown).ToString(), events[2].GetValue("type"));
+                    continue;
+                }
+
+                int shroudCount = 0;
+                int igniteCount = 0;
+                int throttleCount = 0;
+                int shutdownCount = 0;
+                int firstIgniteIndex = -1;
+                for (int e = 0; e < events.Length; e++)
+                {
+                    int eventType = int.Parse(events[e].GetValue("type"), CultureInfo.InvariantCulture);
+                    if (eventType == (int)PartEventType.ShroudJettisoned)
+                        shroudCount++;
+                    else if (eventType == (int)PartEventType.EngineIgnited)
+                    {
+                        igniteCount++;
+                        if (firstIgniteIndex < 0)
+                            firstIgniteIndex = e;
+                    }
+                    else if (eventType == (int)PartEventType.EngineThrottle)
+                        throttleCount++;
+                    else if (eventType == (int)PartEventType.EngineShutdown)
+                        shutdownCount++;
+                }
+
+                Assert.True(shroudCount == 0 || shroudCount == 1);
+                Assert.Equal(2, igniteCount);
+                Assert.Equal(2, shutdownCount);
+                Assert.Equal(shroudCount == 1 ? 3 : 4, throttleCount);
+                Assert.True(firstIgniteIndex >= 0);
+                Assert.Equal("0.3", events[firstIgniteIndex].GetValue("value"));
+
+                int expectedFirstType = shroudCount == 1
+                    ? (int)PartEventType.ShroudJettisoned
+                    : (int)PartEventType.EngineIgnited;
+                Assert.Equal(expectedFirstType.ToString(CultureInfo.InvariantCulture), events[0].GetValue("type"));
+            }
+        }
+
+        [Fact]
+        public void EngineShowcaseRecordings_KickbackMatchesThumperSrbProfile()
+        {
+            var recordings = EngineShowcaseRecordings(baseUT: 17000);
+            ConfigNode thumper = null;
+            ConfigNode kickback = null;
+
+            for (int i = 0; i < recordings.Length; i++)
+            {
+                ConfigNode built = recordings[i].Build();
+                string name = built.GetValue("vesselName");
+                if (name == "Part Showcase - Thumper")
+                    thumper = built;
+                else if (name == "Part Showcase - Kickback")
+                    kickback = built;
+            }
+
+            Assert.NotNull(thumper);
+            Assert.NotNull(kickback);
+
+            ConfigNode[] thumperEvents = thumper.GetNodes("PART_EVENT");
+            ConfigNode[] kickbackEvents = kickback.GetNodes("PART_EVENT");
+            Assert.Equal(2, thumperEvents.Length);
+            Assert.Equal(2, kickbackEvents.Length);
+
+            for (int i = 0; i < 2; i++)
+            {
+                Assert.Equal(thumperEvents[i].GetValue("type"), kickbackEvents[i].GetValue("type"));
+                Assert.Equal(thumperEvents[i].GetValue("value") ?? "", kickbackEvents[i].GetValue("value") ?? "");
+            }
+
+            double thumperDuration = double.Parse(thumperEvents[1].GetValue("ut"), CultureInfo.InvariantCulture) -
+                double.Parse(thumperEvents[0].GetValue("ut"), CultureInfo.InvariantCulture);
+            double kickbackDuration = double.Parse(kickbackEvents[1].GetValue("ut"), CultureInfo.InvariantCulture) -
+                double.Parse(kickbackEvents[0].GetValue("ut"), CultureInfo.InvariantCulture);
+
+            Assert.Equal(thumperDuration, kickbackDuration, 6);
+        }
+
+        [Fact]
         public void RcsShowcaseRecordings_BuildExpectedShape()
         {
             var recordings = RcsShowcaseRecordings(baseUT: 17000);
@@ -2598,6 +2755,44 @@ namespace Parsek.Tests
             Assert.Equal(((int)PartEventType.RCSActivated).ToString(), events[0].GetValue("type"));
             Assert.Equal(((int)PartEventType.RCSActivated).ToString(), events[6].GetValue("type"));
             Assert.Equal(((int)PartEventType.RCSStopped).ToString(), events[7].GetValue("type"));
+        }
+
+        [Fact]
+        public void RcsShowcaseRecordings_AllEntriesUseAlternatingCadenceAndPidBinding()
+        {
+            var recordings = RcsShowcaseRecordings(baseUT: 17000);
+            Assert.Equal(5, recordings.Length);
+
+            for (int i = 0; i < recordings.Length; i++)
+            {
+                ConfigNode built = recordings[i].Build();
+                ConfigNode[] events = built.GetNodes("PART_EVENT");
+                Assert.Equal(8, events.Length);
+
+                ConfigNode ghost = built.GetNode("GHOST_VISUAL_SNAPSHOT");
+                Assert.NotNull(ghost);
+                ConfigNode[] parts = ghost.GetNodes("PART");
+                Assert.Single(parts);
+                string expectedPid = parts[0].GetValue("persistentId");
+
+                for (int e = 0; e < events.Length; e++)
+                {
+                    bool onEvent = (e % 2) == 0;
+                    Assert.Equal(expectedPid, events[e].GetValue("pid"));
+                    Assert.Equal("0", events[e].GetValue("midx"));
+                    Assert.Equal((onEvent ? (int)PartEventType.RCSActivated : (int)PartEventType.RCSStopped)
+                        .ToString(CultureInfo.InvariantCulture), events[e].GetValue("type"));
+                    Assert.Equal(onEvent ? "1" : "0", events[e].GetValue("value"));
+                }
+
+                for (int e = 1; e < events.Length; e++)
+                {
+                    double prevUt = double.Parse(events[e - 1].GetValue("ut"), CultureInfo.InvariantCulture);
+                    double curUt = double.Parse(events[e].GetValue("ut"), CultureInfo.InvariantCulture);
+                    double expectedStep = ((e - 1) % 2) == 0 ? 4.5 : 1.5;
+                    Assert.Equal(expectedStep, curUt - prevUt, 3);
+                }
+            }
         }
 
         [Fact]
@@ -2743,11 +2938,12 @@ namespace Parsek.Tests
             var first = recordings[0].Build();
             Assert.Equal("Part Showcase - Parachute Mk16", first.GetValue("vesselName"));
             Assert.Equal("True", first.GetValue("loopPlayback"));
-            Assert.Equal(8, first.GetNodes("PART_EVENT").Length);
+            Assert.Equal(9, first.GetNodes("PART_EVENT").Length); // 3 cycles × 3 events (semi, deploy, cut)
 
             var events = first.GetNodes("PART_EVENT");
-            Assert.Equal(((int)PartEventType.ParachuteDeployed).ToString(), events[0].GetValue("type"));
-            Assert.Equal(((int)PartEventType.ParachuteCut).ToString(), events[1].GetValue("type"));
+            Assert.Equal(((int)PartEventType.ParachuteSemiDeployed).ToString(), events[0].GetValue("type"));
+            Assert.Equal(((int)PartEventType.ParachuteDeployed).ToString(), events[1].GetValue("type"));
+            Assert.Equal(((int)PartEventType.ParachuteCut).ToString(), events[2].GetValue("type"));
 
             var names = new[] { "parachuteSingle", "parachuteRadial", "parachuteDrogue", "radialDrogue", "parachuteLarge" };
             for (int i = 0; i < recordings.Length; i++)

@@ -34,7 +34,8 @@ namespace Parsek
         RoboticPositionSample, // 29 - robotic module motion sample (value = sampled position)
         RoboticMotionStopped, // 30 - robotic module stopped moving (value = sampled position)
         ThermalAnimationHot,  // 31 - ModuleAnimateHeat entered hot visual state
-        ThermalAnimationCold  // 32 - ModuleAnimateHeat returned to cold visual state
+        ThermalAnimationCold, // 32 - ModuleAnimateHeat returned to cold visual state
+        ParachuteSemiDeployed // 33 - parachute entered semi-deployed (streamer) state
     }
 
     public struct PartEvent
@@ -45,5 +46,11 @@ namespace Parsek
         public string partName;
         public float value;       // throttle 0-1 for engine events; 0 for others
         public int moduleIndex;   // index of ModuleEngines on part (0 for single-engine parts)
+
+        public override string ToString()
+        {
+            return $"UT={ut:F2} event={eventType} part='{partName ?? "?"}' pid={partPersistentId} " +
+                   $"midx={moduleIndex} value={value:F3}";
+        }
     }
 }

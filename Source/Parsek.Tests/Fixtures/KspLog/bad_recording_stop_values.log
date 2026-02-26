@@ -1,0 +1,5 @@
+[LOG 11:24:00.500] [KSP] Entering flight scene
+[LOG 11:24:01.010] [Parsek][INFO][Init] SessionStart runUtc=1700000600
+[LOG 11:24:01.020] [Parsek][INFO][Recorder] Recording started (physics-frame sampling)
+[LOG 11:24:02.100] [Parsek][INFO][GameStateRecorder] Game state: FundsChanged +40 (Test) → 40
+[LOG 11:24:04.500] [Parsek][INFO][Recorder] Recording stopped. 1 points, -1 orbit segments over -3.5s
