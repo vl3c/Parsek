@@ -17,7 +17,11 @@ namespace Parsek.Patches
 
             var committedTechs = MilestoneStore.GetCommittedTechIds();
             if (!committedTechs.Contains(techId))
+            {
+                ParsekLog.Verbose("TechResearchPatch",
+                    $"Allowing tech research: '{techId}' ({__instance.title ?? techId}) — not in committed set ({committedTechs.Count} committed)");
                 return true;
+            }
 
             var ev = MilestoneStore.FindCommittedEvent(
                 GameStateEventType.TechResearched, techId);
@@ -34,6 +38,10 @@ namespace Parsek.Patches
             string utStr = ev.HasValue
                 ? " at UT " + ev.Value.ut.ToString("F0", System.Globalization.CultureInfo.InvariantCulture)
                 : "";
+
+            ParsekLog.Info("TechResearchPatch",
+                $"Blocking tech research: '{techId}' ({__instance.title ?? techId}) — already committed{utStr}" +
+                (!string.IsNullOrEmpty(sciCost) ? $", {sciCost}" : ""));
 
             CommittedActionDialog.ShowBlocked(
                 "Cannot research \"" + (__instance.title ?? techId) + "\"",

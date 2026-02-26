@@ -16,14 +16,23 @@ namespace Parsek.Patches
 
             // Only block upgrades (level increases), not downgrades or resets
             int currentLevel = __instance.FacilityLevel;
-            if (level <= currentLevel) return true;
+            if (level <= currentLevel)
+            {
+                ParsekLog.Verbose("FacilityUpgradePatch",
+                    $"Allowing facility level change: '{__instance.id}' level {currentLevel} → {level} (not an upgrade)");
+                return true;
+            }
 
             string facilityId = __instance.id;
             if (string.IsNullOrEmpty(facilityId)) return true;
 
             var committedFacilities = MilestoneStore.GetCommittedFacilityUpgrades();
             if (!committedFacilities.Contains(facilityId))
+            {
+                ParsekLog.Verbose("FacilityUpgradePatch",
+                    $"Allowing facility upgrade: '{facilityId}' level {currentLevel} → {level} — not in committed set ({committedFacilities.Count} committed)");
                 return true;
+            }
 
             var ev = MilestoneStore.FindCommittedEvent(
                 GameStateEventType.FacilityUpgraded, facilityId);
@@ -31,6 +40,9 @@ namespace Parsek.Patches
             string utStr = ev.HasValue
                 ? " at UT " + ev.Value.ut.ToString("F0", System.Globalization.CultureInfo.InvariantCulture)
                 : "";
+
+            ParsekLog.Info("FacilityUpgradePatch",
+                $"Blocking facility upgrade: '{facilityId}' level {currentLevel} → {level} — already committed{utStr}");
 
             CommittedActionDialog.ShowBlocked(
                 "Cannot upgrade \"" + facilityId + "\"",

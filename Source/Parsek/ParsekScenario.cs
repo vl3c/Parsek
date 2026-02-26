@@ -39,7 +39,7 @@ namespace Parsek
             node.RemoveNodes("RECORDING");
 
             var recordings = RecordingStore.CommittedRecordings;
-            ScenarioLog($"[Parsek Scenario] Saving {recordings.Count} committed recordings");
+            ParsekLog.Info("Scenario", $"OnSave: saving {recordings.Count} committed recordings, epoch={MilestoneStore.CurrentEpoch}");
 
             for (int r = 0; r < recordings.Count; r++)
             {
@@ -107,6 +107,7 @@ namespace Parsek
             // Flush any uncaptured game state events into a milestone before saving.
             // Handles events that happened without a recording commit (e.g. tech
             // research in R&D without launching a flight).
+            ParsekLog.Verbose("Scenario", $"OnSave: flushing pending events at UT {Planetarium.GetUniversalTime():F0}");
             MilestoneStore.FlushPendingEvents(Planetarium.GetUniversalTime());
 
             // Save milestones to external file + mutable state to .sfs
@@ -115,6 +116,8 @@ namespace Parsek
             node.AddValue("milestoneEpoch", MilestoneStore.CurrentEpoch);
             node.AddValue("budgetDeductionEpoch",
                 budgetDeductionEpoch.ToString(CultureInfo.InvariantCulture));
+            ParsekLog.Verbose("Scenario",
+                $"OnSave: wrote milestoneEpoch={MilestoneStore.CurrentEpoch}, budgetDeductionEpoch={budgetDeductionEpoch}");
         }
 
         // Static flag: only load from save once per KSP session.
@@ -144,6 +147,7 @@ namespace Parsek
             stateRecorder?.Unsubscribe();
             if (!initialLoadDone)
             {
+                ParsekLog.Verbose("Scenario", "OnLoad: initial load — loading external files");
                 GameStateStore.LoadEventFile();
                 GameStateStore.LoadBaselines();
                 MilestoneStore.LoadMilestoneFile();
@@ -154,7 +158,10 @@ namespace Parsek
                 {
                     uint epoch;
                     if (uint.TryParse(epochStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out epoch))
+                    {
                         MilestoneStore.CurrentEpoch = epoch;
+                        ParsekLog.Verbose("Scenario", $"OnLoad: restored milestoneEpoch={epoch} from save");
+                    }
                 }
 
                 // Restore budget deduction tracking
@@ -163,7 +170,10 @@ namespace Parsek
                 {
                     uint bde;
                     if (uint.TryParse(bdeStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out bde))
+                    {
                         budgetDeductionEpoch = bde;
+                        ParsekLog.Verbose("Scenario", $"OnLoad: restored budgetDeductionEpoch={bde} from save");
+                    }
                 }
             }
             stateRecorder = new GameStateRecorder();
@@ -196,6 +206,9 @@ namespace Parsek
                     uint.TryParse(savedEpochStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out savedEpoch);
                 bool isRevert = savedEpoch < MilestoneStore.CurrentEpoch
                                 || savedRecNodes.Length < recordings.Count;
+                ParsekLog.Verbose("Scenario",
+                    $"OnLoad: revert detection — savedEpoch={savedEpoch}, currentEpoch={MilestoneStore.CurrentEpoch}, " +
+                    $"savedRecNodes={savedRecNodes.Length}, memoryRecordings={recordings.Count}, isRevert={isRevert}");
 
                 // Restore mutable state from save. On revert the launch quicksave has
                 // no spawnedPid / takenControl / lastResIdx, so they naturally reset.
@@ -235,16 +248,17 @@ namespace Parsek
                     // (not in the saved state) must be reset to unreplayed (-1).
                     MilestoneStore.RestoreMutableState(node, resetUnmatched: true);
                     MilestoneStore.CurrentEpoch++;
-                    Debug.Log($"[Parsek Scenario] Milestone epoch incremented to {MilestoneStore.CurrentEpoch} on revert");
+                    ParsekLog.Info("Scenario", $"Milestone epoch incremented to {MilestoneStore.CurrentEpoch} on revert");
 
                     // Schedule committed resource deduction (singletons may not be ready yet)
+                    ParsekLog.Verbose("Scenario", "Scheduling budget deduction coroutine (singletons may not be ready yet)");
                     StartCoroutine(ApplyBudgetDeductionWhenReady());
                 }
                 else
                 {
                     // Scene change — restore milestone state without resetting unmatched.
                     MilestoneStore.RestoreMutableState(node);
-                    Debug.Log("[Parsek Scenario] Scene change — milestone state restored");
+                    ParsekLog.Verbose("Scenario", "Scene change — milestone state restored (resetUnmatched=false)");
                 }
 
                 ReserveSnapshotCrew();
@@ -424,9 +438,14 @@ namespace Parsek
                        || Reputation.Instance == null))
                 yield return null;
 
+            ParsekLog.Verbose("Scenario",
+                $"ApplyBudgetDeduction: singletons ready after {120 - maxWait} frames. " +
+                $"Funding={Funding.Instance != null}, R&D={ResearchAndDevelopment.Instance != null}, Rep={Reputation.Instance != null}");
+
             if (budgetDeductionEpoch >= MilestoneStore.CurrentEpoch)
             {
-                Debug.Log("[Parsek Scenario] Budget deduction already applied for this epoch");
+                ParsekLog.Verbose("Scenario",
+                    $"Budget deduction already applied for epoch {budgetDeductionEpoch} (current={MilestoneStore.CurrentEpoch})");
                 yield break;
             }
             budgetDeductionEpoch = MilestoneStore.CurrentEpoch;
@@ -438,31 +457,41 @@ namespace Parsek
             if (budget.reservedFunds <= 0 && budget.reservedScience <= 0
                 && budget.reservedReputation <= 0)
             {
-                Debug.Log("[Parsek Scenario] No committed budget to deduct on revert");
+                ParsekLog.Verbose("Scenario", "No committed budget to deduct on revert — all zero");
                 yield break;
             }
+
+            ParsekLog.Info("Scenario",
+                $"Budget deduction starting for epoch {MilestoneStore.CurrentEpoch}: " +
+                $"funds={budget.reservedFunds:F0}, science={budget.reservedScience:F1}, rep={budget.reservedReputation:F1}");
 
             GameStateRecorder.SuppressResourceEvents = true;
             try
             {
                 if (budget.reservedFunds > 0 && Funding.Instance != null)
                 {
+                    double fundsBefore = Funding.Instance.Funds;
                     Funding.Instance.AddFunds(-budget.reservedFunds, TransactionReasons.None);
-                    Debug.Log($"[Parsek Scenario] Budget deduction: funds -{budget.reservedFunds:F0}");
+                    ParsekLog.Info("Scenario",
+                        $"Budget deduction: funds {fundsBefore:F0} → {Funding.Instance.Funds:F0} (reserved={budget.reservedFunds:F0})");
                 }
 
                 if (budget.reservedScience > 0 && ResearchAndDevelopment.Instance != null)
                 {
+                    double scienceBefore = ResearchAndDevelopment.Instance.Science;
                     ResearchAndDevelopment.Instance.AddScience(
                         -(float)budget.reservedScience, TransactionReasons.None);
-                    Debug.Log($"[Parsek Scenario] Budget deduction: science -{budget.reservedScience:F1}");
+                    ParsekLog.Info("Scenario",
+                        $"Budget deduction: science {scienceBefore:F1} → {ResearchAndDevelopment.Instance.Science:F1} (reserved={budget.reservedScience:F1})");
                 }
 
                 if (budget.reservedReputation > 0 && Reputation.Instance != null)
                 {
+                    float repBefore = Reputation.Instance.reputation;
                     Reputation.Instance.AddReputation(
                         -(float)budget.reservedReputation, TransactionReasons.None);
-                    Debug.Log($"[Parsek Scenario] Budget deduction: reputation -{budget.reservedReputation:F0}");
+                    ParsekLog.Info("Scenario",
+                        $"Budget deduction: reputation {repBefore:F1} → {Reputation.Instance.reputation:F1} (reserved={budget.reservedReputation:F1})");
                 }
             }
             finally
@@ -475,26 +504,37 @@ namespace Parsek
             // 2. Ghost replay doesn't re-apply resource deltas (avoiding double-subtraction)
             // 3. The UI correctly shows current funds as available (no second subtraction)
             var recordings = RecordingStore.CommittedRecordings;
+            int recMarked = 0;
             for (int i = 0; i < recordings.Count; i++)
             {
                 if (recordings[i].Points.Count > 0 && recordings[i].LastAppliedResourceIndex < recordings[i].Points.Count - 1)
                 {
+                    int oldIdx = recordings[i].LastAppliedResourceIndex;
                     recordings[i].LastAppliedResourceIndex = recordings[i].Points.Count - 1;
+                    recMarked++;
+                    ParsekLog.Verbose("Scenario",
+                        $"  recording #{i} '{recordings[i].VesselName}': lastAppliedResourceIndex {oldIdx} → {recordings[i].LastAppliedResourceIndex}");
                 }
             }
 
             // Mark all milestones as fully replayed (deduction already covers their costs)
             var milestones = MilestoneStore.Milestones;
+            int mileMarked = 0;
             for (int i = 0; i < milestones.Count; i++)
             {
                 if (milestones[i].Events.Count > 0 && milestones[i].LastReplayedEventIndex < milestones[i].Events.Count - 1)
                 {
+                    int oldIdx = milestones[i].LastReplayedEventIndex;
                     milestones[i].LastReplayedEventIndex = milestones[i].Events.Count - 1;
+                    mileMarked++;
+                    ParsekLog.Verbose("Scenario",
+                        $"  milestone {(milestones[i].MilestoneId != null && milestones[i].MilestoneId.Length >= 8 ? milestones[i].MilestoneId.Substring(0, 8) : milestones[i].MilestoneId ?? "?")}: lastReplayedEventIndex {oldIdx} → {milestones[i].LastReplayedEventIndex}");
                 }
             }
 
-            Debug.Log("[Parsek Scenario] Budget deduction applied for epoch " +
-                MilestoneStore.CurrentEpoch + " — recordings and milestones marked as fully applied");
+            ParsekLog.Info("Scenario",
+                $"Budget deduction applied for epoch {MilestoneStore.CurrentEpoch} — " +
+                $"{recMarked} recording(s) and {mileMarked} milestone(s) marked as fully applied");
         }
 
         #endregion

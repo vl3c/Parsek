@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
-using UnityEngine;
 
 namespace Parsek
 {
@@ -16,7 +15,6 @@ namespace Parsek
         private static string lastSaveFolder = null;
 
         internal static bool SuppressLogging = false;
-        private const string LegacyPrefix = "[Parsek] ";
 
         private const double ResourceCoalesceEpsilon = 0.1; // seconds
 
@@ -57,6 +55,8 @@ namespace Parsek
             }
 
             events.Add(e);
+            ParsekLog.Verbose("GameStateStore",
+                $"AddEvent: {e.eventType} key='{e.key}' epoch={e.epoch} ut={e.ut:F1} (total={events.Count})");
         }
 
         internal static bool IsResourceEvent(GameStateEventType type)
@@ -84,6 +84,7 @@ namespace Parsek
                         contractGuid = guid,
                         contractNode = contractNode
                     };
+                    ParsekLog.Verbose("GameStateStore", $"Replaced existing contract snapshot for guid={guid}");
                     return;
                 }
             }
@@ -93,6 +94,7 @@ namespace Parsek
                 contractGuid = guid,
                 contractNode = contractNode
             });
+            ParsekLog.Verbose("GameStateStore", $"Added contract snapshot for guid={guid} (total={contractSnapshots.Count})");
         }
 
         internal static ConfigNode GetContractSnapshot(string guid)
@@ -109,8 +111,11 @@ namespace Parsek
 
         internal static void ClearEvents()
         {
+            int eventCount = events.Count;
+            int snapCount = contractSnapshots.Count;
             events.Clear();
             contractSnapshots.Clear();
+            ParsekLog.Info("GameStateStore", $"Cleared {eventCount} events and {snapCount} contract snapshots");
         }
 
         #endregion
@@ -121,7 +126,7 @@ namespace Parsek
         {
             if (baseline == null) return;
             baselines.Add(baseline);
-            Log($"[Parsek] Game state baseline captured at UT {baseline.ut:F0}");
+            ParsekLog.Info("GameStateStore", $"Game state baseline captured at UT {baseline.ut:F0} (total={baselines.Count})");
         }
 
         /// <summary>
@@ -136,18 +141,21 @@ namespace Parsek
 
             try
             {
+                ParsekLog.Verbose("GameStateStore", "CaptureBaselineIfNeeded: capturing baseline...");
                 var baseline = GameStateBaseline.CaptureCurrentState();
                 AddBaseline(baseline);
             }
             catch (Exception ex)
             {
-                Log($"[Parsek] WARNING: Failed to capture baseline: {ex.Message}");
+                ParsekLog.Warn("GameStateStore", $"Failed to capture baseline: {ex.Message}");
             }
         }
 
         internal static void ClearBaselines()
         {
+            int count = baselines.Count;
             baselines.Clear();
+            ParsekLog.Verbose("GameStateStore", $"Cleared {count} baselines");
         }
 
         #endregion
@@ -160,7 +168,7 @@ namespace Parsek
                 RecordingPaths.BuildGameStateEventsRelativePath());
             if (path == null)
             {
-                Log("[Parsek] WARNING: Cannot resolve game state events path");
+                ParsekLog.Warn("GameStateStore", "Cannot resolve game state events path — save skipped");
                 return false;
             }
 
@@ -169,7 +177,7 @@ namespace Parsek
                 string dir = RecordingPaths.EnsureGameStateDirectory();
                 if (string.IsNullOrEmpty(dir))
                 {
-                    Log("[Parsek] WARNING: EnsureGameStateDirectory returned null during SaveEventFile");
+                    ParsekLog.Warn("GameStateStore", "EnsureGameStateDirectory returned null during SaveEventFile");
                     return false;
                 }
 
@@ -192,13 +200,13 @@ namespace Parsek
 
                 SafeWriteConfigNode(rootNode, path);
 
-                Log($"[Parsek] Saved {events.Count} game state events, " +
-                    $"{contractSnapshots.Count} contract snapshots to {path}");
+                ParsekLog.Info("GameStateStore",
+                    $"Saved {events.Count} game state events, {contractSnapshots.Count} contract snapshots to {path}");
                 return true;
             }
             catch (Exception ex)
             {
-                Log($"[Parsek] WARNING: Failed to save game state events: {ex.Message}");
+                ParsekLog.Warn("GameStateStore", $"Failed to save game state events: {ex.Message}");
                 return false;
             }
         }
@@ -210,10 +218,14 @@ namespace Parsek
             {
                 initialLoadDone = false;
                 lastSaveFolder = currentSave;
+                ParsekLog.Verbose("GameStateStore", $"Save folder changed to '{currentSave}' — resetting event load state");
             }
 
             if (initialLoadDone)
+            {
+                ParsekLog.Verbose("GameStateStore", "LoadEventFile: already loaded, skipping");
                 return true;
+            }
 
             initialLoadDone = true;
             events.Clear();
@@ -223,7 +235,7 @@ namespace Parsek
                 RecordingPaths.BuildGameStateEventsRelativePath());
             if (path == null || !File.Exists(path))
             {
-                Log("[Parsek] No game state events file found — starting fresh");
+                ParsekLog.Info("GameStateStore", "No game state events file found — starting fresh");
                 return true;
             }
 
@@ -232,7 +244,7 @@ namespace Parsek
                 ConfigNode rootNode = ConfigNode.Load(path);
                 if (rootNode == null)
                 {
-                    Log("[Parsek] WARNING: Failed to parse game state events file");
+                    ParsekLog.Warn("GameStateStore", "Failed to parse game state events file");
                     return false;
                 }
 
@@ -240,12 +252,12 @@ namespace Parsek
                 string versionStr = rootNode.GetValue("version");
                 if (!string.IsNullOrEmpty(versionStr) && !int.TryParse(versionStr, out version))
                 {
-                    Log($"[Parsek] WARNING: Invalid game state events version '{versionStr}'");
+                    ParsekLog.Warn("GameStateStore", $"Invalid game state events version '{versionStr}'");
                     version = 1;
                 }
                 if (version != 1)
                 {
-                    Log($"[Parsek] WARNING: Unsupported game state events version={version} (expected 1)");
+                    ParsekLog.Warn("GameStateStore", $"Unsupported game state events version={version} (expected 1)");
                 }
 
                 // ConfigNode.Load returns the file contents directly
@@ -263,13 +275,33 @@ namespace Parsek
                         contractSnapshots.Add(ContractSnapshot.DeserializeFrom(sn));
                 }
 
-                Log($"[Parsek] Loaded {events.Count} game state events, " +
-                    $"{contractSnapshots.Count} contract snapshots");
+                ParsekLog.Info("GameStateStore",
+                    $"Loaded {events.Count} game state events, {contractSnapshots.Count} contract snapshots from {path}");
+
+                // Log event type distribution for diagnostics
+                if (events.Count > 0)
+                {
+                    var typeCounts = new Dictionary<GameStateEventType, int>();
+                    for (int i = 0; i < events.Count; i++)
+                    {
+                        var type = events[i].eventType;
+                        if (typeCounts.ContainsKey(type))
+                            typeCounts[type]++;
+                        else
+                            typeCounts[type] = 1;
+                    }
+
+                    var parts = new List<string>();
+                    foreach (var kvp in typeCounts)
+                        parts.Add($"{kvp.Key}={kvp.Value}");
+                    ParsekLog.Verbose("GameStateStore", $"Event type distribution: {string.Join(", ", parts)}");
+                }
+
                 return true;
             }
             catch (Exception ex)
             {
-                Log($"[Parsek] WARNING: Failed to load game state events: {ex.Message}");
+                ParsekLog.Warn("GameStateStore", $"Failed to load game state events: {ex.Message}");
                 return false;
             }
         }
@@ -282,7 +314,7 @@ namespace Parsek
             string path = RecordingPaths.ResolveSaveScopedPath(relativePath);
             if (path == null)
             {
-                Log("[Parsek] WARNING: Cannot resolve baseline path");
+                ParsekLog.Warn("GameStateStore", "Cannot resolve baseline path — save skipped");
                 return false;
             }
 
@@ -291,7 +323,7 @@ namespace Parsek
                 string dir = RecordingPaths.EnsureGameStateDirectory();
                 if (string.IsNullOrEmpty(dir))
                 {
-                    Log("[Parsek] WARNING: EnsureGameStateDirectory returned null during SaveBaseline");
+                    ParsekLog.Warn("GameStateStore", "EnsureGameStateDirectory returned null during SaveBaseline");
                     return false;
                 }
 
@@ -300,12 +332,12 @@ namespace Parsek
 
                 SafeWriteConfigNode(rootNode, path);
 
-                Log($"[Parsek] Saved baseline at UT {baseline.ut:F0} to {path}");
+                ParsekLog.Info("GameStateStore", $"Saved baseline at UT {baseline.ut:F0} to {path}");
                 return true;
             }
             catch (Exception ex)
             {
-                Log($"[Parsek] WARNING: Failed to save baseline: {ex.Message}");
+                ParsekLog.Warn("GameStateStore", $"Failed to save baseline: {ex.Message}");
                 return false;
             }
         }
@@ -316,11 +348,16 @@ namespace Parsek
 
             string dir = RecordingPaths.ResolveGameStateDirectory();
             if (dir == null || !Directory.Exists(dir))
+            {
+                ParsekLog.Verbose("GameStateStore", "No game state directory found — no baselines to load");
                 return true;
+            }
 
             try
             {
                 string[] files = Directory.GetFiles(dir, "baseline_*.pgsb");
+                ParsekLog.Verbose("GameStateStore", $"Found {files.Length} baseline files in {dir}");
+
                 foreach (string file in files)
                 {
                     ConfigNode rootNode = ConfigNode.Load(file);
@@ -329,17 +366,21 @@ namespace Parsek
                         var baseline = GameStateBaseline.DeserializeFrom(rootNode);
                         baselines.Add(baseline);
                     }
+                    else
+                    {
+                        ParsekLog.Warn("GameStateStore", $"Failed to parse baseline file '{file}'");
+                    }
                 }
 
                 // Sort baselines by UT
                 baselines.Sort((a, b) => a.ut.CompareTo(b.ut));
 
-                Log($"[Parsek] Loaded {baselines.Count} baselines");
+                ParsekLog.Info("GameStateStore", $"Loaded {baselines.Count} baselines");
                 return true;
             }
             catch (Exception ex)
             {
-                Log($"[Parsek] WARNING: Failed to load baselines: {ex.Message}");
+                ParsekLog.Warn("GameStateStore", $"Failed to load baselines: {ex.Message}");
                 return false;
             }
         }
@@ -356,7 +397,7 @@ namespace Parsek
                 }
                 catch (Exception ex)
                 {
-                    Log($"[Parsek] WARNING: Failed to delete existing file '{path}': {ex.Message}");
+                    ParsekLog.Warn("GameStateStore", $"Failed to delete existing file '{path}': {ex.Message}");
                     throw;
                 }
             }
@@ -367,7 +408,7 @@ namespace Parsek
             }
             catch (Exception ex)
             {
-                Log($"[Parsek] WARNING: Failed to move temp file '{tmpPath}' to '{path}': {ex.Message}");
+                ParsekLog.Warn("GameStateStore", $"Failed to move temp file '{tmpPath}' to '{path}': {ex.Message}");
                 throw;
             }
         }
@@ -386,25 +427,5 @@ namespace Parsek
         }
 
         #endregion
-
-        private static void Log(string msg)
-        {
-            if (SuppressLogging) return;
-
-            string clean = msg ?? "(empty)";
-            if (clean.StartsWith(LegacyPrefix, StringComparison.Ordinal))
-                clean = clean.Substring(LegacyPrefix.Length);
-
-            if (clean.StartsWith("WARNING:", StringComparison.OrdinalIgnoreCase) ||
-                clean.StartsWith("WARN:", StringComparison.OrdinalIgnoreCase))
-            {
-                int idx = clean.IndexOf(':');
-                string trimmed = idx >= 0 ? clean.Substring(idx + 1).TrimStart() : clean;
-                ParsekLog.Warn("GameStateStore", trimmed);
-                return;
-            }
-
-            ParsekLog.Info("GameStateStore", clean);
-        }
     }
 }
