@@ -11,5 +11,11 @@ namespace Parsek
         public double longitudeOfAscendingNode, argumentOfPeriapsis;
         public double meanAnomalyAtEpoch, epoch;
         public string bodyName;
+
+        public override string ToString()
+        {
+            return $"UT={startUT:F1}-{endUT:F1} body={bodyName ?? "?"} inc={inclination:F2} " +
+                   $"ecc={eccentricity:F4} sma={semiMajorAxis:F1}";
+        }
     }
 }

@@ -1,3 +1,4 @@
+using System;
 using System.Globalization;
 
 namespace Parsek
@@ -53,14 +54,30 @@ namespace Parsek
 
             string utStr = node.GetValue("ut");
             if (utStr != null)
-                double.TryParse(utStr, NumberStyles.Float, CultureInfo.InvariantCulture, out e.ut);
+            {
+                if (!double.TryParse(utStr, NumberStyles.Float, CultureInfo.InvariantCulture, out e.ut))
+                    ParsekLog.Warn("GameStateEvent", $"Failed to parse 'ut' value '{utStr}'");
+            }
 
             string typeStr = node.GetValue("type");
             if (typeStr != null)
             {
                 int typeInt;
                 if (int.TryParse(typeStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out typeInt))
-                    e.eventType = (GameStateEventType)typeInt;
+                {
+                    if (Enum.IsDefined(typeof(GameStateEventType), typeInt))
+                    {
+                        e.eventType = (GameStateEventType)typeInt;
+                    }
+                    else
+                    {
+                        ParsekLog.Warn("GameStateEvent", $"Unknown event type id '{typeInt}' while deserializing");
+                    }
+                }
+                else
+                {
+                    ParsekLog.Warn("GameStateEvent", $"Failed to parse event type value '{typeStr}'");
+                }
             }
 
             e.key = node.GetValue("key") ?? "";
@@ -68,11 +85,17 @@ namespace Parsek
 
             string valBeforeStr = node.GetValue("valBefore");
             if (valBeforeStr != null)
-                double.TryParse(valBeforeStr, NumberStyles.Float, CultureInfo.InvariantCulture, out e.valueBefore);
+            {
+                if (!double.TryParse(valBeforeStr, NumberStyles.Float, CultureInfo.InvariantCulture, out e.valueBefore))
+                    ParsekLog.Warn("GameStateEvent", $"Failed to parse valBefore '{valBeforeStr}'");
+            }
 
             string valAfterStr = node.GetValue("valAfter");
             if (valAfterStr != null)
-                double.TryParse(valAfterStr, NumberStyles.Float, CultureInfo.InvariantCulture, out e.valueAfter);
+            {
+                if (!double.TryParse(valAfterStr, NumberStyles.Float, CultureInfo.InvariantCulture, out e.valueAfter))
+                    ParsekLog.Warn("GameStateEvent", $"Failed to parse valAfter '{valAfterStr}'");
+            }
 
             return e;
         }
