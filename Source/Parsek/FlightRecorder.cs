@@ -138,7 +138,12 @@ namespace Parsek
         private void OnPartDie(Part p)
         {
             if (!IsRecording) return;
-            if (p?.vessel == null) return;
+            if (p?.vessel == null)
+            {
+                ParsekLog.VerboseRateLimited("Recorder", "part-die-null",
+                    "OnPartDie: part or vessel is null");
+                return;
+            }
             if (p.vessel.persistentId != RecordingVesselId) return;
 
             bool hasChute = p.FindModuleImplementing<ModuleParachute>() != null;
@@ -169,7 +174,12 @@ namespace Parsek
         private void OnPartJointBreak(PartJoint joint, float breakForce)
         {
             if (!IsRecording) return;
-            if (joint?.Child?.vessel == null) return;
+            if (joint?.Child?.vessel == null)
+            {
+                ParsekLog.VerboseRateLimited("Recorder", "joint-break-null",
+                    "OnPartJointBreak: joint, child, or vessel is null");
+                return;
+            }
             if (joint.Child.vessel.persistentId != RecordingVesselId) return;
 
             PartEvents.Add(new PartEvent
@@ -2305,8 +2315,10 @@ namespace Parsek
             {
                 return module.Fields[fieldName];
             }
-            catch
+            catch (Exception ex)
             {
+                ParsekLog.VerboseRateLimited("Recorder", $"field-{fieldName}",
+                    $"FindModuleField exception for '{fieldName}' on {module.GetType().Name}: {ex.Message}");
                 return null;
             }
         }
@@ -3203,7 +3215,12 @@ namespace Parsek
         /// </summary>
         public void SamplePosition(Vessel v)
         {
-            if (v == null) return;
+            if (v == null)
+            {
+                ParsekLog.VerboseRateLimited("Recorder", "sample-null-vessel",
+                    "SamplePosition called with null vessel");
+                return;
+            }
 
             Vector3 currentVelocity = v.packed
                 ? (Vector3)v.obt_velocity
@@ -3231,7 +3248,12 @@ namespace Parsek
         public void OnVesselGoOnRails(Vessel v)
         {
             if (!IsRecording) return;
-            if (v != FlightGlobals.ActiveVessel) return;
+            if (v != FlightGlobals.ActiveVessel)
+            {
+                ParsekLog.VerboseRateLimited("Recorder", "on-rails-other-vessel",
+                    $"OnVesselGoOnRails: ignoring non-active vessel (pid={v?.persistentId})");
+                return;
+            }
             if (v.persistentId != RecordingVesselId) return;
 
             // Record a boundary TrajectoryPoint at current UT (stitching point)
@@ -3257,7 +3279,12 @@ namespace Parsek
         public void OnVesselGoOffRails(Vessel v)
         {
             if (!IsRecording || !isOnRails) return;
-            if (v != FlightGlobals.ActiveVessel) return;
+            if (v != FlightGlobals.ActiveVessel)
+            {
+                ParsekLog.VerboseRateLimited("Recorder", "off-rails-other-vessel",
+                    $"OnVesselGoOffRails: ignoring non-active vessel (pid={v?.persistentId})");
+                return;
+            }
             if (v.persistentId != RecordingVesselId) return;
 
             // Finalize orbit segment
@@ -3275,7 +3302,12 @@ namespace Parsek
         public void OnVesselSOIChanged(GameEvents.HostedFromToAction<Vessel, CelestialBody> data)
         {
             if (!IsRecording || !isOnRails) return;
-            if (data.host != FlightGlobals.ActiveVessel) return;
+            if (data.host != FlightGlobals.ActiveVessel)
+            {
+                ParsekLog.VerboseRateLimited("Recorder", "soi-other-vessel",
+                    $"OnVesselSOIChanged: ignoring non-active vessel (pid={data.host?.persistentId})");
+                return;
+            }
             if (data.host.persistentId != RecordingVesselId) return;
 
             // Close current orbit segment in old SOI
@@ -3303,7 +3335,11 @@ namespace Parsek
         public void OnVesselWillDestroy(Vessel v)
         {
             if (!IsRecording) return;
-            if (FlightGlobals.ActiveVessel == null) return;
+            if (FlightGlobals.ActiveVessel == null)
+            {
+                ParsekLog.Verbose("Recorder", "OnVesselWillDestroy: no active vessel — skipping");
+                return;
+            }
             if (v == FlightGlobals.ActiveVessel)
             {
                 // Finalize in-progress orbit segment if on rails

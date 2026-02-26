@@ -313,14 +313,21 @@ namespace Parsek
         /// </summary>
         internal static Quaternion SanitizeQuaternion(Quaternion q)
         {
-            if (float.IsNaN(q.x) || float.IsInfinity(q.x)) q.x = 0;
-            if (float.IsNaN(q.y) || float.IsInfinity(q.y)) q.y = 0;
-            if (float.IsNaN(q.z) || float.IsInfinity(q.z)) q.z = 0;
-            if (float.IsNaN(q.w) || float.IsInfinity(q.w)) q.w = 1;
+            bool hadBadComponent = false;
+            if (float.IsNaN(q.x) || float.IsInfinity(q.x)) { q.x = 0; hadBadComponent = true; }
+            if (float.IsNaN(q.y) || float.IsInfinity(q.y)) { q.y = 0; hadBadComponent = true; }
+            if (float.IsNaN(q.z) || float.IsInfinity(q.z)) { q.z = 0; hadBadComponent = true; }
+            if (float.IsNaN(q.w) || float.IsInfinity(q.w)) { q.w = 1; hadBadComponent = true; }
+
+            if (hadBadComponent)
+                ParsekLog.VerboseRateLimited("TrajectoryMath", "sanitize-quat",
+                    "SanitizeQuaternion replaced NaN/Infinity component(s)");
 
             float magnitude = Mathf.Sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
             if (float.IsNaN(magnitude) || float.IsInfinity(magnitude) || magnitude < 0.001f)
             {
+                ParsekLog.VerboseRateLimited("TrajectoryMath", "sanitize-quat-identity",
+                    "SanitizeQuaternion returned identity (near-zero magnitude)");
                 return Quaternion.identity;
             }
 

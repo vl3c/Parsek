@@ -168,16 +168,16 @@ namespace Parsek
                     if (i < savedRecNodes.Length)
                     {
                         string pidStr = savedRecNodes[i].GetValue("spawnedPid");
-                        if (pidStr != null)
-                            uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out savedPid);
+                        if (pidStr != null && !uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out savedPid))
+                            ParsekLog.Warn("Scenario", $"Failed to parse spawnedPid '{pidStr}' for recording #{i}");
 
                         string takenStr = savedRecNodes[i].GetValue("takenControl");
-                        if (takenStr != null)
-                            bool.TryParse(takenStr, out savedTaken);
+                        if (takenStr != null && !bool.TryParse(takenStr, out savedTaken))
+                            ParsekLog.Warn("Scenario", $"Failed to parse takenControl '{takenStr}' for recording #{i}");
 
                         string resIdxStr = savedRecNodes[i].GetValue("lastResIdx");
-                        if (resIdxStr != null)
-                            int.TryParse(resIdxStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out resIdx);
+                        if (resIdxStr != null && !int.TryParse(resIdxStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out resIdx))
+                            ParsekLog.Warn("Scenario", $"Failed to parse lastResIdx '{resIdxStr}' for recording #{i}");
                     }
                     recordings[i].SpawnedVesselPersistentId = savedPid;
                     recordings[i].TakenControl = savedTaken;
@@ -496,9 +496,11 @@ namespace Parsek
             {
                 foreach (string name in partNode.GetValues("crew"))
                 {
+                    bool found = false;
                     foreach (ProtoCrewMember pcm in roster.Crew)
                     {
                         if (pcm.name != name) continue;
+                        found = true;
 
                         // Skip dead crew — they're truly gone
                         if (pcm.rosterStatus == ProtoCrewMember.RosterStatus.Dead)
@@ -545,6 +547,8 @@ namespace Parsek
 
                         break;
                     }
+                    if (!found)
+                        ScenarioLog($"[Parsek Scenario] WARNING: Crew '{name}' not found in roster during reservation");
                 }
             }
         }

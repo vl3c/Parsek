@@ -592,9 +592,23 @@ namespace Parsek
         void OnVesselSituationChange(GameEvents.HostedFromToAction<Vessel, Vessel.Situations> data)
         {
             if (IsRecording) return;
-            if (data.host != FlightGlobals.ActiveVessel) return;
-            if (data.from != Vessel.Situations.PRELAUNCH) return;
-            if (ParsekSettings.Current?.autoRecordOnLaunch == false) return;
+            if (data.host != FlightGlobals.ActiveVessel)
+            {
+                ParsekLog.VerboseRateLimited("Flight", "sit-change-other",
+                    $"OnVesselSituationChange: ignoring non-active vessel ({data.from} → {data.to})");
+                return;
+            }
+            if (data.from != Vessel.Situations.PRELAUNCH)
+            {
+                ParsekLog.VerboseRateLimited("Flight", "sit-change-not-prelaunch",
+                    $"OnVesselSituationChange: not from PRELAUNCH ({data.from} → {data.to})");
+                return;
+            }
+            if (ParsekSettings.Current?.autoRecordOnLaunch == false)
+            {
+                ParsekLog.Verbose("Flight", "OnVesselSituationChange: auto-record disabled in settings");
+                return;
+            }
 
             StartRecording();
             Log("Auto-record started (vessel left pad/runway)");
@@ -603,8 +617,16 @@ namespace Parsek
 
         void OnCrewBoardVessel(GameEvents.FromToAction<Part, Part> data)
         {
-            if (activeChainId == null) return;
-            if (data.to?.vessel == null) return;
+            if (activeChainId == null)
+            {
+                ParsekLog.Verbose("Flight", "OnCrewBoardVessel: no active chain — ignoring");
+                return;
+            }
+            if (data.to?.vessel == null)
+            {
+                ParsekLog.Verbose("Flight", "OnCrewBoardVessel: target vessel is null — ignoring");
+                return;
+            }
 
             pendingBoardingTargetPid = data.to.vessel.persistentId;
             boardingConfirmFrames = 0;
@@ -838,9 +860,22 @@ namespace Parsek
                 return;
             }
 
-            if (data.from?.vessel == null) return;
-            if (data.from.vessel.situation != Vessel.Situations.PRELAUNCH) return;
-            if (ParsekSettings.Current?.autoRecordOnEva == false) return;
+            if (data.from?.vessel == null)
+            {
+                ParsekLog.Verbose("Flight", "OnCrewOnEva: source vessel is null — ignoring");
+                return;
+            }
+            if (data.from.vessel.situation != Vessel.Situations.PRELAUNCH)
+            {
+                ParsekLog.VerboseRateLimited("Flight", "eva-not-prelaunch",
+                    $"OnCrewOnEva: vessel not on pad (sit={data.from.vessel.situation}) — ignoring");
+                return;
+            }
+            if (ParsekSettings.Current?.autoRecordOnEva == false)
+            {
+                ParsekLog.Verbose("Flight", "OnCrewOnEva: auto-record on EVA disabled in settings");
+                return;
+            }
 
             // The EVA kerbal may not yet be the active vessel, defer to Update()
             pendingAutoRecord = true;
@@ -911,7 +946,11 @@ namespace Parsek
         void OnPartUndock(Part undockedPart)
         {
             if (recorder == null || !recorder.IsRecording) return;
-            if (undockedPart?.vessel == null) return;
+            if (undockedPart?.vessel == null)
+            {
+                ParsekLog.Verbose("Flight", "OnPartUndock: undocked part or vessel is null — ignoring");
+                return;
+            }
 
             uint newPid = undockedPart.vessel.persistentId;
             if (newPid != recorder.RecordingVesselId)
@@ -1636,7 +1675,11 @@ namespace Parsek
 
                 // Branch > 0 recordings are ghost-only (undock continuations) — never spawn
                 if (needsSpawn && rec.ChainBranch > 0)
+                {
                     needsSpawn = false;
+                    if (loggedGhostEnter.Add(i + 200000))
+                        ParsekLog.Verbose("Flight", $"Spawn suppressed for #{i} ({rec.VesselName}): branch > 0 (ghost-only)");
+                }
 
                 // Suppress spawning for recordings belonging to a chain currently being built.
                 // Without this guard, CommitChainSegment commits the vessel segment mid-flight,
@@ -1644,6 +1687,8 @@ namespace Parsek
                 if (needsSpawn && activeChainId != null && rec.ChainId == activeChainId)
                 {
                     needsSpawn = false;
+                    if (loggedGhostEnter.Add(i + 300000))
+                        ParsekLog.Verbose("Flight", $"Spawn suppressed for #{i} ({rec.VesselName}): active chain being built");
                 }
 
                 // One-time chain spawn diagnostics when entering the spawn window
@@ -2165,7 +2210,12 @@ namespace Parsek
         void ApplyPartEvents(int recIdx, RecordingStore.Recording rec, double currentUT, GhostPlaybackState state)
         {
             if (rec.PartEvents == null || rec.PartEvents.Count == 0) return;
-            if (state.ghost == null) return;
+            if (state.ghost == null)
+            {
+                ParsekLog.VerboseRateLimited("Flight", $"apply-part-events-null-ghost-{recIdx}",
+                    $"ApplyPartEvents: ghost is null for recording #{recIdx}");
+                return;
+            }
 
             int evtIdx = state.partEventIndex;
             var tree = state.partTree;
@@ -2898,10 +2948,18 @@ namespace Parsek
         GameObject BuildPreviewGhostFromActiveVessel(string name)
         {
             Vessel vessel = FlightGlobals.ActiveVessel;
-            if (vessel == null) return null;
+            if (vessel == null)
+            {
+                ParsekLog.Warn("Flight", "BuildPreviewGhost: no active vessel");
+                return null;
+            }
 
             ProtoVessel pv = vessel.BackupVessel();
-            if (pv == null) return null;
+            if (pv == null)
+            {
+                ParsekLog.Warn("Flight", "BuildPreviewGhost: BackupVessel() returned null");
+                return null;
+            }
 
             ConfigNode node = new ConfigNode("VESSEL");
             pv.Save(node);
@@ -3226,7 +3284,12 @@ namespace Parsek
         void PositionGhostAt(GameObject ghost, TrajectoryPoint point)
         {
             CelestialBody body = FlightGlobals.Bodies.Find(b => b.name == point.bodyName);
-            if (body == null) return;
+            if (body == null)
+            {
+                ParsekLog.VerboseRateLimited("Flight", "position-ghost-no-body",
+                    $"PositionGhostAt: body '{point.bodyName}' not found — ghost position not updated");
+                return;
+            }
 
             Vector3 worldPos = body.GetWorldSurfacePosition(
                 point.latitude, point.longitude, point.altitude);
