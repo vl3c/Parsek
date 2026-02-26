@@ -11,6 +11,12 @@ namespace Parsek
     {
         public static void Show(RecordingStore.Recording pending)
         {
+            if (pending == null)
+            {
+                ParsekLog.Warn("MergeDialog", "Cannot show merge dialog: pending recording is null");
+                return;
+            }
+
             // Detect if this is a chain recording with committed siblings
             bool isChain = !string.IsNullOrEmpty(pending.ChainId);
             List<RecordingStore.Recording> chainSiblings = isChain
@@ -22,6 +28,12 @@ namespace Parsek
             {
                 ShowChainDialog(pending, chainSiblings, chainSegmentCount);
                 return;
+            }
+
+            if (isChain && chainSiblings == null)
+            {
+                ParsekLog.Warn("MergeDialog",
+                    $"Pending recording references chain='{pending.ChainId}' but no siblings were found; falling back to standalone dialog");
             }
 
             // Non-chain: use existing dialog
@@ -36,7 +48,7 @@ namespace Parsek
                 pending.VesselSnapshot != null,
                 duration, pending.MaxDistanceFromLaunch);
 
-            ParsekLog.Log($"Merge dialog: distance={pending.DistanceFromLaunch:F0}m, " +
+            ParsekLog.Info("MergeDialog", $"Merge dialog: distance={pending.DistanceFromLaunch:F0}m, " +
                 $"maxDistance={pending.MaxDistanceFromLaunch:F0}m, duration={duration:F1}s, " +
                 $"destroyed={pending.VesselDestroyed}, hasSnapshot={pending.VesselSnapshot != null}, " +
                 $"recommended={recommended}");
@@ -56,14 +68,14 @@ namespace Parsek
                             pending.VesselSnapshot = null;
                             RecordingStore.CommitPending();
                             ParsekLog.ScreenMessage("Recording merged to timeline!", 3f);
-                            ParsekLog.Log("User chose: Merge to Timeline (vessel destroyed)");
+                            ParsekLog.Info("MergeDialog", "User chose: Merge to Timeline (vessel destroyed)");
                         }),
                         new DialogGUIButton("Discard", () =>
                         {
                             ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
                             RecordingStore.DiscardPending();
                             ParsekLog.ScreenMessage("Recording discarded", 2f);
-                            ParsekLog.Log("User chose: Discard");
+                            ParsekLog.Info("MergeDialog", "User chose: Discard");
                         })
                     };
                     break;
@@ -78,7 +90,7 @@ namespace Parsek
                             ParsekScenario.ReserveSnapshotCrew();
                             ParsekScenario.SwapReservedCrewInFlight();
                             ParsekLog.ScreenMessage("Recording merged — vessel will appear after ghost playback", 3f);
-                            ParsekLog.Log("User chose: Merge + Keep Vessel (deferred spawn)");
+                            ParsekLog.Info("MergeDialog", "User chose: Merge + Keep Vessel (deferred spawn)");
                         }),
                         new DialogGUIButton("Merge + Recover", () =>
                         {
@@ -91,14 +103,14 @@ namespace Parsek
                             // Clear snapshot so ghost despawns normally at EndUT
                             pending.VesselSnapshot = null;
                             ParsekLog.ScreenMessage("Recording merged, vessel recovered!", 3f);
-                            ParsekLog.Log("User chose: Merge + Recover");
+                            ParsekLog.Info("MergeDialog", "User chose: Merge + Recover");
                         }),
                         new DialogGUIButton("Discard", () =>
                         {
                             ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
                             RecordingStore.DiscardPending();
                             ParsekLog.ScreenMessage("Recording discarded", 2f);
-                            ParsekLog.Log("User chose: Discard");
+                            ParsekLog.Info("MergeDialog", "User chose: Discard");
                         })
                     };
                     break;
@@ -131,7 +143,7 @@ namespace Parsek
                 pending.VesselSnapshot != null,
                 duration, pending.MaxDistanceFromLaunch);
 
-            ParsekLog.Log($"Chain merge dialog: chain={chainId}, segments={totalSegments}, " +
+            ParsekLog.Info("MergeDialog", $"Chain merge dialog: chain={chainId}, segments={totalSegments}, " +
                 $"recommended={recommended}, hasSnapshot={pending.VesselSnapshot != null}");
 
             DialogGUIButton[] buttons;
@@ -146,7 +158,7 @@ namespace Parsek
                         ParsekScenario.ReserveSnapshotCrew();
                         ParsekScenario.SwapReservedCrewInFlight();
                         ParsekLog.ScreenMessage($"Mission chain ({totalSegments} segments) merged — vessel will appear!", 3f);
-                        ParsekLog.Log($"User chose: Chain Merge + Keep Vessel ({totalSegments} segments)");
+                        ParsekLog.Info("MergeDialog", $"User chose: Chain Merge + Keep Vessel ({totalSegments} segments)");
                     }),
                     new DialogGUIButton("Merge + Recover", () =>
                     {
@@ -160,13 +172,13 @@ namespace Parsek
                         pending.VesselSnapshot = null;
                         RecoverChainSiblingSnapshots(chainSiblings);
                         ParsekLog.ScreenMessage($"Mission chain ({totalSegments} segments) merged, vessel recovered!", 3f);
-                        ParsekLog.Log($"User chose: Chain Merge + Recover ({totalSegments} segments)");
+                        ParsekLog.Info("MergeDialog", $"User chose: Chain Merge + Recover ({totalSegments} segments)");
                     }),
                     new DialogGUIButton("Discard All", () =>
                     {
                         DiscardChain(pending, chainId);
                         ParsekLog.ScreenMessage($"Mission chain ({totalSegments} segments) discarded", 2f);
-                        ParsekLog.Log($"User chose: Chain Discard ({totalSegments} segments)");
+                        ParsekLog.Info("MergeDialog", $"User chose: Chain Discard ({totalSegments} segments)");
                     })
                 };
             }
@@ -183,13 +195,13 @@ namespace Parsek
                         NullChainSiblingSnapshots(chainSiblings);
                         RecordingStore.CommitPending();
                         ParsekLog.ScreenMessage($"Mission chain ({totalSegments} segments) merged!", 3f);
-                        ParsekLog.Log($"User chose: Chain Merge to Timeline ({totalSegments} segments)");
+                        ParsekLog.Info("MergeDialog", $"User chose: Chain Merge to Timeline ({totalSegments} segments)");
                     }),
                     new DialogGUIButton("Discard All", () =>
                     {
                         DiscardChain(pending, chainId);
                         ParsekLog.ScreenMessage($"Mission chain ({totalSegments} segments) discarded", 2f);
-                        ParsekLog.Log($"User chose: Chain Discard ({totalSegments} segments)");
+                        ParsekLog.Info("MergeDialog", $"User chose: Chain Discard ({totalSegments} segments)");
                     })
                 };
             }
@@ -242,7 +254,7 @@ namespace Parsek
                     ParsekScenario.UnreserveCrewInSnapshot(siblings[i].VesselSnapshot);
                     VesselSpawner.RecoverVessel(siblings[i].VesselSnapshot);
                     siblings[i].VesselSnapshot = null;
-                    ParsekLog.Log($"Chain sibling #{i} snapshot recovered + nulled");
+                    ParsekLog.Info("MergeDialog", $"Chain sibling #{i} snapshot recovered + nulled");
                 }
             }
         }
@@ -260,16 +272,21 @@ namespace Parsek
                 {
                     ParsekScenario.UnreserveCrewInSnapshot(siblings[i].VesselSnapshot);
                     siblings[i].VesselSnapshot = null;
-                    ParsekLog.Log($"Chain sibling #{i} snapshot nulled (no recovery)");
+                    ParsekLog.Info("MergeDialog", $"Chain sibling #{i} snapshot nulled (no recovery)");
                 }
             }
         }
 
         static void DiscardChain(RecordingStore.Recording pending, string chainId)
         {
+            int unreservedCount = 0;
+
             // Unreserve crew from pending
             if (pending.VesselSnapshot != null)
+            {
                 ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
+                unreservedCount++;
+            }
 
             // Unreserve crew from all committed chain siblings
             var siblings = RecordingStore.GetChainRecordings(chainId);
@@ -278,13 +295,18 @@ namespace Parsek
                 for (int i = 0; i < siblings.Count; i++)
                 {
                     if (siblings[i].VesselSnapshot != null)
+                    {
                         ParsekScenario.UnreserveCrewInSnapshot(siblings[i].VesselSnapshot);
+                        unreservedCount++;
+                    }
                 }
             }
 
             // Remove committed chain recordings and discard pending
             RecordingStore.RemoveChainRecordings(chainId);
             RecordingStore.DiscardPending();
+            ParsekLog.Info("MergeDialog",
+                $"Discarded chain '{chainId}': unreservedSnapshots={unreservedCount}, siblingCount={siblings?.Count ?? 0}");
         }
 
         internal static string BuildMergeMessage(RecordingStore.Recording pending, double duration,
