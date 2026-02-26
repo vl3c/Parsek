@@ -654,6 +654,8 @@ namespace Parsek
             // Compute distance from launch
             var firstPoint = pending.Points[0];
             CelestialBody bodyFirst = FlightGlobals.Bodies?.Find(b => b.name == firstPoint.bodyName);
+            if (bodyFirst == null)
+                ParsekLog.Warn("Spawner", $"SnapshotVessel: body '{firstPoint.bodyName}' not found — distance computation will be skipped");
 
             if (vesselDestroyed)
             {
@@ -754,15 +756,22 @@ namespace Parsek
             Vector3d launchPos = bodyFirst.GetWorldSurfacePosition(
                 firstPoint.latitude, firstPoint.longitude, firstPoint.altitude);
             double maxDist = 0;
+            int bodyLookupFailCount = 0;
             for (int i = 1; i < pending.Points.Count; i++)
             {
                 var pt = pending.Points[i];
                 CelestialBody bodyPt = FlightGlobals.Bodies?.Find(b => b.name == pt.bodyName);
-                if (bodyPt == null) continue;
+                if (bodyPt == null)
+                {
+                    bodyLookupFailCount++;
+                    continue;
+                }
                 Vector3d ptPos = bodyPt.GetWorldSurfacePosition(pt.latitude, pt.longitude, pt.altitude);
                 double d = Vector3d.Distance(launchPos, ptPos);
                 if (d > maxDist) maxDist = d;
             }
+            if (bodyLookupFailCount > 0)
+                ParsekLog.Warn("Spawner", $"ComputeMaxDistance: {bodyLookupFailCount} points had unresolvable body names");
             pending.MaxDistanceFromLaunch = maxDist;
         }
 

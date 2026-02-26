@@ -204,7 +204,11 @@ namespace Parsek
 
         public static void CommitPending()
         {
-            if (pendingRecording == null) return;
+            if (pendingRecording == null)
+            {
+                ParsekLog.Verbose("RecordingStore", "CommitPending called with no pending recording");
+                return;
+            }
 
             committedRecordings.Add(pendingRecording);
             Log($"[Parsek] Committed recording from {pendingRecording.VesselName} " +
@@ -217,7 +221,11 @@ namespace Parsek
 
         public static void DiscardPending()
         {
-            if (pendingRecording == null) return;
+            if (pendingRecording == null)
+            {
+                ParsekLog.Verbose("RecordingStore", "DiscardPending called with no pending recording");
+                return;
+            }
 
             DeleteRecordingFiles(pendingRecording);
             Log($"[Parsek] Discarded pending recording from {pendingRecording.VesselName}");
@@ -226,9 +234,11 @@ namespace Parsek
 
         public static void ClearCommitted()
         {
+            int count = committedRecordings.Count;
             for (int i = 0; i < committedRecordings.Count; i++)
                 DeleteRecordingFiles(committedRecordings[i]);
             committedRecordings.Clear();
+            Log($"[Parsek] Cleared {count} committed recordings");
         }
 
         public static void Clear()
@@ -432,7 +442,11 @@ namespace Parsek
         /// </summary>
         internal static void RemoveRecordingAt(int index)
         {
-            if (index < 0 || index >= committedRecordings.Count) return;
+            if (index < 0 || index >= committedRecordings.Count)
+            {
+                ParsekLog.Warn("RecordingStore", $"RemoveRecordingAt called with invalid index={index} (count={committedRecordings.Count})");
+                return;
+            }
 
             var rec = committedRecordings[index];
 
@@ -471,8 +485,16 @@ namespace Parsek
 
         internal static void DeleteRecordingFiles(Recording rec)
         {
-            if (rec == null) return;
-            if (!RecordingPaths.ValidateRecordingId(rec.RecordingId)) return;
+            if (rec == null)
+            {
+                ParsekLog.Verbose("RecordingStore", "DeleteRecordingFiles called with null recording");
+                return;
+            }
+            if (!RecordingPaths.ValidateRecordingId(rec.RecordingId))
+            {
+                ParsekLog.Warn("RecordingStore", $"DeleteRecordingFiles skipped: invalid recording id '{rec.RecordingId}'");
+                return;
+            }
 
             DeleteFileIfExists(RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
             DeleteFileIfExists(RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
@@ -488,7 +510,10 @@ namespace Parsek
                 if (!string.IsNullOrEmpty(absolutePath) && File.Exists(absolutePath))
                     File.Delete(absolutePath);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Log($"[Parsek] WARNING: Failed to delete file '{relativePath}': {ex.Message}");
+            }
         }
 
         #region Trajectory Serialization
@@ -552,15 +577,19 @@ namespace Parsek
             var ic = CultureInfo.InvariantCulture;
 
             ConfigNode[] ptNodes = sourceNode.GetNodes("POINT");
+            int parseFailCount = 0;
             for (int i = 0; i < ptNodes.Length; i++)
             {
                 var ptNode = ptNodes[i];
                 var pt = new TrajectoryPoint();
 
-                double.TryParse(ptNode.GetValue("ut"), inv, ic, out pt.ut);
+                bool utOk = double.TryParse(ptNode.GetValue("ut"), inv, ic, out pt.ut);
                 double.TryParse(ptNode.GetValue("lat"), inv, ic, out pt.latitude);
                 double.TryParse(ptNode.GetValue("lon"), inv, ic, out pt.longitude);
                 double.TryParse(ptNode.GetValue("alt"), inv, ic, out pt.altitude);
+
+                if (!utOk)
+                    parseFailCount++;
 
                 float rx, ry, rz, rw;
                 float.TryParse(ptNode.GetValue("rotX"), inv, ic, out rx);
@@ -589,6 +618,8 @@ namespace Parsek
 
                 rec.Points.Add(pt);
             }
+            if (parseFailCount > 0)
+                Log($"[Parsek] WARNING: {parseFailCount}/{ptNodes.Length} trajectory points had unparseable UT in recording {rec.RecordingId}");
 
             ConfigNode[] segNodes = sourceNode.GetNodes("ORBIT_SEGMENT");
             for (int s = 0; s < segNodes.Length; s++)

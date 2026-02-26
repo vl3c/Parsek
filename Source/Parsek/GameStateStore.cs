@@ -65,7 +65,11 @@ namespace Parsek
 
         internal static void AddContractSnapshot(string guid, ConfigNode contractNode)
         {
-            if (string.IsNullOrEmpty(guid) || contractNode == null) return;
+            if (string.IsNullOrEmpty(guid) || contractNode == null)
+            {
+                ParsekLog.Verbose("GameStateStore", $"AddContractSnapshot skipped: guid={guid ?? "null"}, node={contractNode != null}");
+                return;
+            }
 
             // Replace existing snapshot for same GUID (contract re-accepted after failure)
             for (int i = 0; i < contractSnapshots.Count; i++)
