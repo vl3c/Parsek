@@ -921,15 +921,14 @@ namespace Parsek
             Quaternion ghostPartLocalRot = Quaternion.Inverse(ghostPartRoot.rotation) * ghostFxParent.rotation;
             float deltaRot = Quaternion.Angle(srcPartLocalRot, ghostPartLocalRot);
 
-            bool alwaysLog = !string.IsNullOrEmpty(partName) &&
-                string.Equals(partName, "omsEngine", System.StringComparison.OrdinalIgnoreCase);
-            if (!alwaysLog && deltaPos.sqrMagnitude < 0.000001f && deltaRot < 0.05f)
-                return;
-
+            // Always log for debugging FX orientation
+            Vector3 ghostFwd = ghostFxParent.forward;
+            Vector3 ghostUp = ghostFxParent.up;
             ParsekLog.Log($"    [DIAG] FX align '{partName}' midx={moduleIndex} type={fxKind} transform='{transformName}' " +
-                $"srcWorld={srcFxTransform.position} ghostWorld={ghostFxParent.position} " +
-                $"srcPartLocal={srcPartLocalPos} ghostPartLocal={ghostPartLocalPos} " +
-                $"deltaPos={deltaPos} deltaRot={deltaRot:F3}");
+                $"ghostFwd={ghostFwd} ghostUp={ghostUp} " +
+                $"srcFwd={srcFxTransform.forward} srcUp={srcFxTransform.up} " +
+                $"ghostLocalRot={ghostFxParent.localRotation} srcLocalRot={srcFxTransform.localRotation} " +
+                $"deltaRot={deltaRot:F3}");
         }
 
         private static int ConfigureGhostEngineParticleSystems(
@@ -2070,7 +2069,10 @@ namespace Parsek
                                 GameObject fxClone = Object.Instantiate(child.gameObject);
                                 fxClone.transform.SetParent(ghostLegacyParent, false);
                                 fxClone.transform.localPosition = legacyFxOffset;
-                                fxClone.transform.localRotation = child.localRotation;
+                                // child.localRotation is relative to part root, but this clone is
+                                // parented to the mirrored thrust anchor. Convert to anchor-local.
+                                Quaternion legacyLocalRot = Quaternion.Inverse(srcLegacyAnchor.rotation) * child.rotation;
+                                fxClone.transform.localRotation = legacyLocalRot;
                                 fxClone.transform.localScale = child.localScale;
 
                                 // SmokeTrailControl expects real vessel/part state — destroy it on the ghost
@@ -2166,9 +2168,14 @@ namespace Parsek
                                 int addedSystems = ConfigureGhostEngineParticleSystems(fxInstance, info.particleSystems);
                                 if (addedSystems > 0)
                                 {
+                                    // Diagnostic: log source transform orientation to debug FX direction
+                                    Vector3 srcFwd = srcFxTransform.forward;
+                                    Vector3 srcUp = srcFxTransform.up;
+                                    Quaternion srcLocalRot = srcFxTransform.localRotation;
                                     ParsekLog.Log($"    Engine FX cloned: '{partName}' midx={moduleIndex} " +
                                         $"type={nodeType} transform='{transformName}' model='{modelName}' " +
-                                        $"systems={addedSystems}");
+                                        $"systems={addedSystems} " +
+                                        $"srcLocalRot={srcLocalRot} srcFwd={srcFwd} srcUp={srcUp}");
                                 }
                                 else
                                 {
