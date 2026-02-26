@@ -193,7 +193,7 @@ namespace Parsek
             if (GUILayout.Button($"Despawn Ghosts ({activeGhosts})"))
             {
                 flight.DestroyAllTimelineGhosts();
-                ParsekLog.Log("Ghosts despawned");
+                ParsekLog.Info("UI", "Ghosts despawned");
             }
 
             GUI.enabled = committedCount > 0;
@@ -205,7 +205,7 @@ namespace Parsek
                 ParsekScenario.ClearReplacements();
                 flight.DestroyAllTimelineGhosts();
                 RecordingStore.ClearCommitted();
-                ParsekLog.Log("All recordings wiped");
+                ParsekLog.Info("UI", "All recordings wiped");
                 ParsekLog.ScreenMessage("All recordings wiped", 2f);
             }
             GUI.enabled = true;
@@ -344,6 +344,7 @@ namespace Parsek
                 {
                     for (int i = 0; i < committed.Count; i++)
                         committed[i].LoopPlayback = newAllLoop;
+                    ParsekLog.Info("UI", $"Set loop playback for all recordings: enabled={newAllLoop}");
                 }
 
                 GUILayout.Label("Period", GUILayout.Width(ColW_Period));
@@ -499,7 +500,11 @@ namespace Parsek
             // Enable checkbox
             bool enabled = GUILayout.Toggle(rec.PlaybackEnabled, "", GUILayout.Width(ColW_Enable));
             if (enabled != rec.PlaybackEnabled)
+            {
                 rec.PlaybackEnabled = enabled;
+                ParsekLog.Info("UI", $"Recording '{rec.VesselName}' playback {(enabled ? "enabled" : "disabled")}" +
+                    (!string.IsNullOrEmpty(rec.SegmentPhase) ? $" (segment: {RecordingStore.GetSegmentPhaseLabel(rec)})" : ""));
+            }
 
             // #
             GUILayout.Label((ri + 1).ToString(), GUILayout.Width(ColW_Index));
@@ -569,6 +574,7 @@ namespace Parsek
             if (loop != rec.LoopPlayback)
             {
                 rec.LoopPlayback = loop;
+                ParsekLog.Info("UI", $"Recording '{rec.VesselName}' loop playback set to {loop}");
                 if (!loop && editingLoopPeriodIdx == ri)
                     editingLoopPeriodIdx = -1;
             }
@@ -587,6 +593,7 @@ namespace Parsek
                         editingLoopPeriodIdx = -1;
                     else if (editingLoopPeriodIdx > ri)
                         editingLoopPeriodIdx--;
+                    ParsekLog.Info("UI", $"Delete confirmed for recording index={ri} name='{rec.VesselName}'");
                     flight.DeleteRecording(ri);
                     InvalidateSort();
                     GUI.enabled = true;
@@ -597,7 +604,10 @@ namespace Parsek
             else
             {
                 if (GUILayout.Button("X", GUILayout.Width(ColW_Delete)))
+                {
                     deleteConfirmIndex = ri;
+                    ParsekLog.Verbose("UI", $"Delete armed for recording index={ri} name='{rec.VesselName}'");
+                }
             }
             GUI.enabled = true;
 
@@ -860,6 +870,13 @@ namespace Parsek
                 double pause = newPeriod - dur;
                 if (pause < 0) pause = 0;
                 rec.LoopPauseSeconds = pause;
+                ParsekLog.Info("UI",
+                    $"Recording '{rec.VesselName}' loop period updated to {(dur + rec.LoopPauseSeconds):F1}s (pause={pause:F1}s)");
+            }
+            else
+            {
+                ParsekLog.Warn("UI",
+                    $"Rejected loop period edit '{editingLoopPeriodText}' for recording '{rec.VesselName}'");
             }
         }
 
@@ -943,26 +960,84 @@ namespace Parsek
             }
 
             GUILayout.Label("Recording", GUI.skin.box);
-            s.autoRecordOnLaunch = GUILayout.Toggle(s.autoRecordOnLaunch, "Auto-record on launch");
-            s.autoRecordOnEva = GUILayout.Toggle(s.autoRecordOnEva, "Auto-record on EVA");
-            s.autoWarpStop = GUILayout.Toggle(s.autoWarpStop, "Auto-stop time warp");
+            bool autoRecordOnLaunch = GUILayout.Toggle(s.autoRecordOnLaunch, "Auto-record on launch");
+            if (autoRecordOnLaunch != s.autoRecordOnLaunch)
+            {
+                s.autoRecordOnLaunch = autoRecordOnLaunch;
+                ParsekLog.Info("UI", $"Setting changed: autoRecordOnLaunch={s.autoRecordOnLaunch}");
+            }
+
+            bool autoRecordOnEva = GUILayout.Toggle(s.autoRecordOnEva, "Auto-record on EVA");
+            if (autoRecordOnEva != s.autoRecordOnEva)
+            {
+                s.autoRecordOnEva = autoRecordOnEva;
+                ParsekLog.Info("UI", $"Setting changed: autoRecordOnEva={s.autoRecordOnEva}");
+            }
+
+            bool autoWarpStop = GUILayout.Toggle(s.autoWarpStop, "Auto-stop time warp");
+            if (autoWarpStop != s.autoWarpStop)
+            {
+                s.autoWarpStop = autoWarpStop;
+                ParsekLog.Info("UI", $"Setting changed: autoWarpStop={s.autoWarpStop}");
+            }
+
+            bool autoSplitAtAtmosphere = GUILayout.Toggle(s.autoSplitAtAtmosphere, "Auto-split at atmosphere boundary");
+            if (autoSplitAtAtmosphere != s.autoSplitAtAtmosphere)
+            {
+                s.autoSplitAtAtmosphere = autoSplitAtAtmosphere;
+                ParsekLog.Info("UI", $"Setting changed: autoSplitAtAtmosphere={s.autoSplitAtAtmosphere}");
+            }
+
+            bool autoSplitAtSoi = GUILayout.Toggle(s.autoSplitAtSoi, "Auto-split at SOI change");
+            if (autoSplitAtSoi != s.autoSplitAtSoi)
+            {
+                s.autoSplitAtSoi = autoSplitAtSoi;
+                ParsekLog.Info("UI", $"Setting changed: autoSplitAtSoi={s.autoSplitAtSoi}");
+            }
+
+            GUILayout.Space(5);
+            GUILayout.Label("Diagnostics", GUI.skin.box);
+            bool verboseLogging = GUILayout.Toggle(s.verboseLogging, "Verbose logging (development default)");
+            if (verboseLogging != s.verboseLogging)
+            {
+                s.verboseLogging = verboseLogging;
+                ParsekLog.Info("UI", $"Setting changed: verboseLogging={s.verboseLogging}");
+            }
 
             GUILayout.Space(5);
             GUILayout.Label("Sampling", GUI.skin.box);
 
             GUILayout.BeginHorizontal();
             GUILayout.Label($"Max interval: {s.maxSampleInterval:F1}s", GUILayout.Width(140));
-            s.maxSampleInterval = GUILayout.HorizontalSlider(s.maxSampleInterval, 1f, 10f);
+            float maxSampleInterval = GUILayout.HorizontalSlider(s.maxSampleInterval, 1f, 10f);
+            if (Mathf.Abs(maxSampleInterval - s.maxSampleInterval) > 0.0001f)
+            {
+                s.maxSampleInterval = maxSampleInterval;
+                ParsekLog.VerboseRateLimited("UI", "sampling.maxSampleInterval",
+                    $"Setting changed: maxSampleInterval={s.maxSampleInterval:F1}s", 1.0);
+            }
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
             GUILayout.Label($"Direction: {s.velocityDirThreshold:F1}\u00b0", GUILayout.Width(140));
-            s.velocityDirThreshold = GUILayout.HorizontalSlider(s.velocityDirThreshold, 0.5f, 10f);
+            float velocityDirThreshold = GUILayout.HorizontalSlider(s.velocityDirThreshold, 0.5f, 10f);
+            if (Mathf.Abs(velocityDirThreshold - s.velocityDirThreshold) > 0.0001f)
+            {
+                s.velocityDirThreshold = velocityDirThreshold;
+                ParsekLog.VerboseRateLimited("UI", "sampling.velocityDirThreshold",
+                    $"Setting changed: velocityDirThreshold={s.velocityDirThreshold:F1}", 1.0);
+            }
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
             GUILayout.Label($"Speed: {s.speedChangeThreshold:F0}%", GUILayout.Width(140));
-            s.speedChangeThreshold = GUILayout.HorizontalSlider(s.speedChangeThreshold, 1f, 20f);
+            float speedChangeThreshold = GUILayout.HorizontalSlider(s.speedChangeThreshold, 1f, 20f);
+            if (Mathf.Abs(speedChangeThreshold - s.speedChangeThreshold) > 0.0001f)
+            {
+                s.speedChangeThreshold = speedChangeThreshold;
+                ParsekLog.VerboseRateLimited("UI", "sampling.speedChangeThreshold",
+                    $"Setting changed: speedChangeThreshold={s.speedChangeThreshold:F0}%", 1.0);
+            }
             GUILayout.EndHorizontal();
 
             GUILayout.Space(5);
@@ -972,9 +1047,13 @@ namespace Parsek
                 s.autoRecordOnLaunch = true;
                 s.autoRecordOnEva = true;
                 s.autoWarpStop = true;
+                s.autoSplitAtAtmosphere = true;
+                s.autoSplitAtSoi = true;
+                s.verboseLogging = true;
                 s.maxSampleInterval = 3.0f;
                 s.velocityDirThreshold = 2.0f;
                 s.speedChangeThreshold = 5.0f;
+                ParsekLog.Info("UI", "Settings reset to defaults");
             }
             if (GUILayout.Button("Close"))
                 showSettingsWindow = false;

@@ -75,7 +75,7 @@ namespace Parsek
             // Poll facility/building state for changes since last save
             PollFacilityState();
 
-            ParsekLog.Log($"GameStateRecorder subscribed ({GameStateStore.EventCount} events in history)");
+            ParsekLog.Info("GameStateRecorder", $"GameStateRecorder subscribed ({GameStateStore.EventCount} events in history)");
         }
 
         internal void Unsubscribe()
@@ -105,7 +105,7 @@ namespace Parsek
             GameEvents.OnScienceChanged.Remove(OnScienceChanged);
             GameEvents.OnReputationChanged.Remove(OnReputationChanged);
 
-            ParsekLog.Log("GameStateRecorder unsubscribed");
+            ParsekLog.Info("GameStateRecorder", "GameStateRecorder unsubscribed");
         }
 
         #endregion
@@ -123,7 +123,7 @@ namespace Parsek
                 key = contract.ContractGuid.ToString(),
                 detail = title
             });
-            ParsekLog.Log($"Game state: ContractOffered '{title}'");
+            ParsekLog.Info("GameStateRecorder", $"Game state: ContractOffered '{title}'");
         }
 
         private void OnContractAccepted(Contract contract)
@@ -146,11 +146,11 @@ namespace Parsek
                 var contractNode = new ConfigNode("CONTRACT");
                 contract.Save(contractNode);
                 GameStateStore.AddContractSnapshot(guid, contractNode);
-                ParsekLog.Log($"Game state: ContractAccepted '{title}' (snapshot saved)");
+                ParsekLog.Info("GameStateRecorder", $"Game state: ContractAccepted '{title}' (snapshot saved)");
             }
             catch (Exception ex)
             {
-                ParsekLog.Log($"Game state: ContractAccepted '{title}' (snapshot FAILED: {ex.Message})");
+                ParsekLog.Warn("GameStateRecorder", $"Game state: ContractAccepted '{title}' (snapshot FAILED: {ex.Message})");
             }
         }
 
@@ -165,7 +165,7 @@ namespace Parsek
                 key = contract.ContractGuid.ToString(),
                 detail = title
             });
-            ParsekLog.Log($"Game state: ContractCompleted '{title}'");
+            ParsekLog.Info("GameStateRecorder", $"Game state: ContractCompleted '{title}'");
         }
 
         private void OnContractFailed(Contract contract)
@@ -179,7 +179,7 @@ namespace Parsek
                 key = contract.ContractGuid.ToString(),
                 detail = title
             });
-            ParsekLog.Log($"Game state: ContractFailed '{title}'");
+            ParsekLog.Info("GameStateRecorder", $"Game state: ContractFailed '{title}'");
         }
 
         private void OnContractCancelled(Contract contract)
@@ -193,7 +193,7 @@ namespace Parsek
                 key = contract.ContractGuid.ToString(),
                 detail = title
             });
-            ParsekLog.Log($"Game state: ContractCancelled '{title}'");
+            ParsekLog.Info("GameStateRecorder", $"Game state: ContractCancelled '{title}'");
         }
 
         private void OnContractDeclined(Contract contract)
@@ -207,7 +207,7 @@ namespace Parsek
                 key = contract.ContractGuid.ToString(),
                 detail = title
             });
-            ParsekLog.Log($"Game state: ContractDeclined '{title}'");
+            ParsekLog.Info("GameStateRecorder", $"Game state: ContractDeclined '{title}'");
         }
 
         #endregion
@@ -245,7 +245,7 @@ namespace Parsek
                     ? ResearchAndDevelopment.Instance.Science
                     : 0
             });
-            ParsekLog.Log($"Game state: TechResearched '{techId}' (cost={data.host.scienceCost})");
+            ParsekLog.Info("GameStateRecorder", $"Game state: TechResearched '{techId}' (cost={data.host.scienceCost})");
         }
 
         private void OnPartPurchased(AvailablePart part)
@@ -262,7 +262,7 @@ namespace Parsek
                 valueBefore = Funding.Instance != null ? Funding.Instance.Funds + part.cost : 0,
                 valueAfter = Funding.Instance != null ? Funding.Instance.Funds : 0
             });
-            ParsekLog.Log($"Game state: PartPurchased '{partName}' (cost={part.cost})");
+            ParsekLog.Info("GameStateRecorder", $"Game state: PartPurchased '{partName}' (cost={part.cost})");
         }
 
         #endregion
@@ -271,7 +271,13 @@ namespace Parsek
 
         private void OnKerbalAdded(ProtoCrewMember crew)
         {
-            if (SuppressCrewEvents || crew == null) return;
+            if (SuppressCrewEvents)
+            {
+                ParsekLog.VerboseRateLimited("GameStateRecorder", "suppress-crew-added",
+                    "Suppressed CrewHired event while Parsek mutates crew state", 5.0);
+                return;
+            }
+            if (crew == null) return;
             var name = crew.name ?? "";
 
             GameStateStore.AddEvent(new GameStateEvent
@@ -281,12 +287,18 @@ namespace Parsek
                 key = name,
                 detail = $"trait={crew.trait ?? ""}"
             });
-            ParsekLog.Log($"Game state: CrewHired '{name}' ({crew.trait ?? "?"})");
+            ParsekLog.Info("GameStateRecorder", $"Game state: CrewHired '{name}' ({crew.trait ?? "?"})");
         }
 
         private void OnKerbalRemoved(ProtoCrewMember crew)
         {
-            if (SuppressCrewEvents || crew == null) return;
+            if (SuppressCrewEvents)
+            {
+                ParsekLog.VerboseRateLimited("GameStateRecorder", "suppress-crew-removed",
+                    "Suppressed CrewRemoved event while Parsek mutates crew state", 5.0);
+                return;
+            }
+            if (crew == null) return;
             var name = crew.name ?? "";
 
             GameStateStore.AddEvent(new GameStateEvent
@@ -296,13 +308,19 @@ namespace Parsek
                 key = name,
                 detail = $"trait={crew.trait ?? ""}"
             });
-            ParsekLog.Log($"Game state: CrewRemoved '{name}'");
+            ParsekLog.Info("GameStateRecorder", $"Game state: CrewRemoved '{name}'");
         }
 
         private void OnKerbalStatusChange(ProtoCrewMember crew,
             ProtoCrewMember.RosterStatus oldStatus, ProtoCrewMember.RosterStatus newStatus)
         {
-            if (SuppressCrewEvents || crew == null) return;
+            if (SuppressCrewEvents)
+            {
+                ParsekLog.VerboseRateLimited("GameStateRecorder", "suppress-crew-status",
+                    "Suppressed CrewStatusChanged event while Parsek mutates crew state", 5.0);
+                return;
+            }
+            if (crew == null) return;
             var name = crew.name ?? "";
 
             GameStateStore.AddEvent(new GameStateEvent
@@ -312,7 +330,7 @@ namespace Parsek
                 key = name,
                 detail = $"from={oldStatus};to={newStatus}"
             });
-            ParsekLog.Log($"Game state: CrewStatusChanged '{name}' {oldStatus} → {newStatus}");
+            ParsekLog.Info("GameStateRecorder", $"Game state: CrewStatusChanged '{name}' {oldStatus} → {newStatus}");
         }
 
         #endregion
@@ -334,10 +352,20 @@ namespace Parsek
             double oldFunds = lastFunds;
             lastFunds = newFunds;
 
-            if (SuppressResourceEvents) return;
+            if (SuppressResourceEvents)
+            {
+                ParsekLog.VerboseRateLimited("GameStateRecorder", "suppress-funds",
+                    $"Suppressed FundsChanged event ({reason}) during timeline replay", 5.0);
+                return;
+            }
             if (double.IsNaN(oldFunds)) return;
             double delta = newFunds - oldFunds;
-            if (Math.Abs(delta) < FundsThreshold) return;
+            if (Math.Abs(delta) < FundsThreshold)
+            {
+                ParsekLog.VerboseRateLimited("GameStateRecorder", "funds-threshold",
+                    $"Ignored FundsChanged delta={delta:+0.0;-0.0} below threshold={FundsThreshold:F1}", 5.0);
+                return;
+            }
 
             GameStateStore.AddEvent(new GameStateEvent
             {
@@ -347,7 +375,7 @@ namespace Parsek
                 valueBefore = oldFunds,
                 valueAfter = newFunds
             });
-            ParsekLog.Log($"Game state: FundsChanged {delta:+0;-0} ({reason}) → {newFunds:F0}");
+            ParsekLog.Info("GameStateRecorder", $"Game state: FundsChanged {delta:+0;-0} ({reason}) → {newFunds:F0}");
         }
 
         private void OnScienceChanged(float newScience, TransactionReasons reason)
@@ -355,10 +383,20 @@ namespace Parsek
             double oldScience = lastScience;
             lastScience = newScience;
 
-            if (SuppressResourceEvents) return;
+            if (SuppressResourceEvents)
+            {
+                ParsekLog.VerboseRateLimited("GameStateRecorder", "suppress-science",
+                    $"Suppressed ScienceChanged event ({reason}) during timeline replay", 5.0);
+                return;
+            }
             if (double.IsNaN(oldScience)) return;
             double delta = newScience - oldScience;
-            if (Math.Abs(delta) < ScienceThreshold) return;
+            if (Math.Abs(delta) < ScienceThreshold)
+            {
+                ParsekLog.VerboseRateLimited("GameStateRecorder", "science-threshold",
+                    $"Ignored ScienceChanged delta={delta:+0.0;-0.0} below threshold={ScienceThreshold:F1}", 5.0);
+                return;
+            }
 
             GameStateStore.AddEvent(new GameStateEvent
             {
@@ -368,7 +406,7 @@ namespace Parsek
                 valueBefore = oldScience,
                 valueAfter = newScience
             });
-            ParsekLog.Log($"Game state: ScienceChanged {delta:+0.0;-0.0} ({reason}) → {newScience:F1}");
+            ParsekLog.Info("GameStateRecorder", $"Game state: ScienceChanged {delta:+0.0;-0.0} ({reason}) → {newScience:F1}");
         }
 
         private void OnReputationChanged(float newReputation, TransactionReasons reason)
@@ -376,10 +414,20 @@ namespace Parsek
             float oldReputation = lastReputation;
             lastReputation = newReputation;
 
-            if (SuppressResourceEvents) return;
+            if (SuppressResourceEvents)
+            {
+                ParsekLog.VerboseRateLimited("GameStateRecorder", "suppress-reputation",
+                    $"Suppressed ReputationChanged event ({reason}) during timeline replay", 5.0);
+                return;
+            }
             if (float.IsNaN(oldReputation)) return;
             float delta = newReputation - oldReputation;
-            if (Math.Abs(delta) < ReputationThreshold) return;
+            if (Math.Abs(delta) < ReputationThreshold)
+            {
+                ParsekLog.VerboseRateLimited("GameStateRecorder", "reputation-threshold",
+                    $"Ignored ReputationChanged delta={delta:+0.0;-0.0} below threshold={ReputationThreshold:F1}", 5.0);
+                return;
+            }
 
             GameStateStore.AddEvent(new GameStateEvent
             {
@@ -389,7 +437,7 @@ namespace Parsek
                 valueBefore = oldReputation,
                 valueAfter = newReputation
             });
-            ParsekLog.Log($"Game state: ReputationChanged {delta:+0.0;-0.0} ({reason}) → {newReputation:F1}");
+            ParsekLog.Info("GameStateRecorder", $"Game state: ReputationChanged {delta:+0.0;-0.0} ({reason}) → {newReputation:F1}");
         }
 
         #endregion
@@ -430,7 +478,7 @@ namespace Parsek
                 }
             }
 
-            ParsekLog.Log($"Game state: Facility cache seeded from current state " +
+            ParsekLog.Info("GameStateRecorder", $"Game state: Facility cache seeded from current state " +
                 $"({lastFacilityLevels.Count} facilities, {lastBuildingIntact.Count} buildings)");
         }
 
@@ -441,6 +489,9 @@ namespace Parsek
         internal void PollFacilityState()
         {
             double ut = Planetarium.GetUniversalTime();
+            int facilitiesChecked = 0;
+            int buildingsChecked = 0;
+            int eventsEmitted = 0;
 
             // Check facility levels
             if (ScenarioUpgradeableFacilities.protoUpgradeables != null)
@@ -453,6 +504,7 @@ namespace Parsek
                     var facility = kvp.Value.facilityRefs[0];
                     if (facility == null) continue;
 
+                    facilitiesChecked++;
                     float currentLevel = facility.GetNormLevel();
                     float cachedLevel;
 
@@ -472,7 +524,8 @@ namespace Parsek
                                 valueBefore = cachedLevel,
                                 valueAfter = currentLevel
                             });
-                            ParsekLog.Log($"Game state: {eventType} '{kvp.Key}' {cachedLevel:F2} → {currentLevel:F2}");
+                            eventsEmitted++;
+                            ParsekLog.Info("GameStateRecorder", $"Game state: {eventType} '{kvp.Key}' {cachedLevel:F2} → {currentLevel:F2}");
                         }
                     }
 
@@ -488,6 +541,7 @@ namespace Parsek
                 {
                     if (db == null || string.IsNullOrEmpty(db.id)) continue;
 
+                    buildingsChecked++;
                     bool currentIntact = !db.IsDestroyed;
                     bool cachedIntact;
 
@@ -505,13 +559,18 @@ namespace Parsek
                                 eventType = eventType,
                                 key = db.id
                             });
-                            ParsekLog.Log($"Game state: {eventType} '{db.id}'");
+                            eventsEmitted++;
+                            ParsekLog.Info("GameStateRecorder", $"Game state: {eventType} '{db.id}'");
                         }
                     }
 
                     lastBuildingIntact[db.id] = currentIntact;
                 }
             }
+
+            ParsekLog.Verbose("GameStateRecorder",
+                $"Facility poll pass: facilitiesChecked={facilitiesChecked}, buildingsChecked={buildingsChecked}, " +
+                $"eventsEmitted={eventsEmitted}");
         }
 
         #endregion
