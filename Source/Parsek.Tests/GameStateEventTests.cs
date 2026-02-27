@@ -1132,6 +1132,125 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void GetDisplayDescription_CrewRemoved_WithTrait()
+        {
+            var e = new GameStateEvent
+            {
+                eventType = GameStateEventType.CrewRemoved,
+                key = "Bob Kerman",
+                detail = "trait=Scientist"
+            };
+            var desc = GameStateEventDisplay.GetDisplayDescription(e);
+            Assert.Contains("Removed Bob Kerman", desc);
+            Assert.Contains("Scientist", desc);
+        }
+
+        [Fact]
+        public void GetDisplayDescription_FacilityDowngraded()
+        {
+            var e = new GameStateEvent
+            {
+                eventType = GameStateEventType.FacilityDowngraded,
+                key = "SpaceCenter/VehicleAssemblyBuilding",
+                valueBefore = 1.0,
+                valueAfter = 0.5
+            };
+            var desc = GameStateEventDisplay.GetDisplayDescription(e);
+            Assert.Contains("VehicleAssemblyBuilding", desc);
+            Assert.Contains("lv 2 \u2192 1", desc);
+        }
+
+        [Fact]
+        public void GetDisplayDescription_BuildingRepaired()
+        {
+            var e = new GameStateEvent
+            {
+                eventType = GameStateEventType.BuildingRepaired,
+                key = "SpaceCenter/LaunchPad"
+            };
+            var desc = GameStateEventDisplay.GetDisplayDescription(e);
+            Assert.Contains("LaunchPad", desc);
+            Assert.Contains("repaired", desc);
+        }
+
+        [Fact]
+        public void GetDisplayDescription_FundsChanged_PositiveDelta()
+        {
+            var e = new GameStateEvent
+            {
+                eventType = GameStateEventType.FundsChanged,
+                key = "ContractReward",
+                valueBefore = 5000,
+                valueAfter = 15000
+            };
+            var desc = GameStateEventDisplay.GetDisplayDescription(e);
+            Assert.Contains("+10,000", desc);
+            Assert.Contains("5,000", desc);
+            Assert.Contains("15,000", desc);
+        }
+
+        [Fact]
+        public void GetDisplayDescription_FundsChanged_NegativeDelta()
+        {
+            var e = new GameStateEvent
+            {
+                eventType = GameStateEventType.FundsChanged,
+                key = "VesselLaunch",
+                valueBefore = 20000,
+                valueAfter = 15000
+            };
+            var desc = GameStateEventDisplay.GetDisplayDescription(e);
+            Assert.Contains("-5,000", desc);
+        }
+
+        [Fact]
+        public void GetDisplayDescription_ScienceChanged()
+        {
+            var e = new GameStateEvent
+            {
+                eventType = GameStateEventType.ScienceChanged,
+                key = "ExperimentSubmit",
+                valueBefore = 50,
+                valueAfter = 75
+            };
+            var desc = GameStateEventDisplay.GetDisplayDescription(e);
+            Assert.Contains("+25", desc);
+        }
+
+        [Fact]
+        public void GetDisplayDescription_ReputationChanged()
+        {
+            var e = new GameStateEvent
+            {
+                eventType = GameStateEventType.ReputationChanged,
+                key = "ContractComplete",
+                valueBefore = 100,
+                valueAfter = 125
+            };
+            var desc = GameStateEventDisplay.GetDisplayDescription(e);
+            Assert.Contains("+25", desc);
+        }
+
+        [Theory]
+        [InlineData(GameStateEventType.ContractOffered, "offered")]
+        [InlineData(GameStateEventType.ContractCompleted, "completed")]
+        [InlineData(GameStateEventType.ContractFailed, "failed")]
+        [InlineData(GameStateEventType.ContractCancelled, "cancelled")]
+        [InlineData(GameStateEventType.ContractDeclined, "declined")]
+        public void GetDisplayDescription_ContractVerbs(GameStateEventType type, string expectedVerb)
+        {
+            var e = new GameStateEvent
+            {
+                eventType = type,
+                key = "guid-test",
+                detail = "title=Test Contract"
+            };
+            var desc = GameStateEventDisplay.GetDisplayDescription(e);
+            Assert.Contains("Test Contract", desc);
+            Assert.Contains(expectedVerb, desc);
+        }
+
+        [Fact]
         public void ExtractDetailField_BasicExtraction()
         {
             Assert.Equal("5", GameStateEventDisplay.ExtractDetailField("cost=5;parts=solidBooster", "cost"));

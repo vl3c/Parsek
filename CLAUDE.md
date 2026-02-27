@@ -52,7 +52,7 @@ Parsek/
 │   │   │   ├── PhysicsFramePatch.cs # Harmony postfix on VesselPrecalculate
 │   │   │   ├── TechResearchPatch.cs # Blocks re-researching committed tech
 │   │   │   └── FacilityUpgradePatch.cs # Blocks re-upgrading committed facilities
-│   │   ├── ParsekUI.cs      # UI window and map view markers
+│   │   ├── ParsekUI.cs      # UI windows (main, recordings, actions, settings) and map markers
 │   │   ├── ParsekLog.cs     # Shared logging utilities
 │   │   ├── ParsekScenario.cs # ScenarioModule for save/load, crew reservation & replacement
 │   │   ├── ParsekToolbarRegistration.cs # ToolbarControl registration
@@ -190,8 +190,18 @@ See `docs/synthetic-recordings.md` for builder API docs.
 
 **Wipe cleanup test:**
 1. Record + merge several times with "Keep Vessel"
-2. Click "Wipe Recordings" in Parsek UI
-3. All reserved kerbals return to Available, all replacements removed
+2. Click "Wipe Recordings" in main Parsek window (clears recordings only)
+3. Or open Actions window → click "Wipe All" (clears recordings + milestones + events + baselines)
+4. All reserved kerbals return to Available, all replacements removed
+
+**Game Actions window test:**
+1. In career mode: research tech, purchase parts, hire crew, upgrade facilities
+2. Record a flight → revert → merge
+3. Open Actions window → verify budget summary shows correct committed amounts
+4. Verify committed actions list shows tech/part/crew/facility events with correct UT and status
+5. Replayed events appear gray, pending events appear white
+6. Epoch indicator shows correct revert count
+7. Click "Wipe All" → verify everything clears (recordings + milestones + events)
 
 **Orbital recording test (hybrid orbit segments):**
 1. Launch → establish orbit → F9 record → time warp 50x for one orbit → drop to 1x → F9 stop → revert → merge
@@ -210,7 +220,7 @@ See `docs/synthetic-recordings.md` for builder API docs.
 3. Parent vessel spawns without EVA'd kerbal → EVA kerbal spawns separately
 
 **Settings test:**
-1. Open Parsek UI → Settings → toggle auto-record off
+1. Open Parsek UI → Settings (or Actions) → toggle auto-record off
 2. Launch → verify no auto-recording
 3. Toggle auto-warp-stop off → warp past recording → verify warp continues
 4. Adjust sampling sliders → record → observe different sample density
