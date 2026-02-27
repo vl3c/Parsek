@@ -30,6 +30,8 @@ namespace Parsek
         // Part event tracking
         private Dictionary<uint, int> parachuteStates = new Dictionary<uint, int>(); // 0=stowed, 1=semi, 2=deployed
         private HashSet<uint> jettisonedShrouds = new HashSet<uint>();
+        private Dictionary<ulong, string> jettisonNameRawCache = new Dictionary<ulong, string>();
+        private Dictionary<ulong, string[]> parsedJettisonNamesCache = new Dictionary<ulong, string[]>();
         private HashSet<uint> extendedDeployables = new HashSet<uint>();
         private HashSet<uint> lightsOn = new HashSet<uint>();
         private HashSet<uint> blinkingLights = new HashSet<uint>();
@@ -117,6 +119,17 @@ namespace Parsek
         // On-rails state
         private bool isOnRails;
         private OrbitSegment currentOrbitSegment;
+
+        // Atmosphere boundary detection
+        private bool wasInAtmosphere;
+        private bool atmosphereBoundaryPending;
+        private double atmosphereBoundaryPendingUT;
+        public bool AtmosphereBoundaryCrossed { get; private set; }
+        public bool EnteredAtmosphere { get; private set; }
+
+        // SOI change detection
+        public bool SoiChangePending { get; private set; }
+        public string SoiChangeFromBody { get; private set; }
 
         #region Part Event Subscription
 
@@ -296,6 +309,43 @@ namespace Parsek
             return null;
         }
 
+        private string[] GetCachedJettisonNames(ulong moduleKey, string rawNames)
+        {
+            rawNames = rawNames ?? string.Empty;
+            string cachedRaw;
+            if (jettisonNameRawCache.TryGetValue(moduleKey, out cachedRaw) &&
+                string.Equals(cachedRaw, rawNames, StringComparison.Ordinal) &&
+                parsedJettisonNamesCache.TryGetValue(moduleKey, out string[] cachedNames))
+            {
+                return cachedNames;
+            }
+
+            string[] parsedNames = ParseJettisonNames(rawNames);
+            jettisonNameRawCache[moduleKey] = rawNames;
+            parsedJettisonNamesCache[moduleKey] = parsedNames;
+            return parsedNames;
+        }
+
+        private static string[] ParseJettisonNames(string rawNames)
+        {
+            if (string.IsNullOrWhiteSpace(rawNames))
+                return Array.Empty<string>();
+
+            string[] split = rawNames.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+            if (split.Length == 0)
+                return Array.Empty<string>();
+
+            var cleaned = new List<string>(split.Length);
+            for (int i = 0; i < split.Length; i++)
+            {
+                string name = split[i].Trim();
+                if (!string.IsNullOrEmpty(name))
+                    cleaned.Add(name);
+            }
+
+            return cleaned.Count > 0 ? cleaned.ToArray() : Array.Empty<string>();
+        }
+
         private void CheckJettisonState(Vessel v)
         {
             if (v == null || v.parts == null) return;
@@ -306,11 +356,48 @@ namespace Parsek
                 Part p = v.parts[i];
                 if (p == null) continue;
 
-                var jettison = p.FindModuleImplementing<ModuleJettison>();
-                if (jettison == null) continue;
+                bool hasJettisonModule = false;
+                bool isJettisoned = false;
+                int jettisonModuleIndex = 0;
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    var jettison = p.Modules[m] as ModuleJettison;
+                    if (jettison == null) continue;
+                    hasJettisonModule = true;
+                    ulong moduleKey = EncodeEngineKey(p.persistentId, jettisonModuleIndex);
+                    jettisonModuleIndex++;
+
+                    // Primary state flag.
+                    if (jettison.isJettisoned)
+                    {
+                        isJettisoned = true;
+                        break;
+                    }
+
+                    // Fallback for parts where the module flag may lag/never set:
+                    // if any configured jettison object is already hidden, treat as jettisoned.
+                    string jettisonNames = jettison.jettisonName;
+                    if (string.IsNullOrWhiteSpace(jettisonNames))
+                        continue;
+
+                    string[] names = GetCachedJettisonNames(moduleKey, jettisonNames);
+                    for (int n = 0; n < names.Length; n++)
+                    {
+                        Transform jt = p.FindModelTransform(names[n]);
+                        if (jt != null && !jt.gameObject.activeInHierarchy)
+                        {
+                            isJettisoned = true;
+                            break;
+                        }
+                    }
+                    if (isJettisoned)
+                        break;
+                }
+
+                if (!hasJettisonModule) continue;
 
                 var evt = CheckJettisonTransition(
-                    p.persistentId, p.partInfo?.name ?? "unknown", jettison.isJettisoned, jettisonedShrouds, ut);
+                    p.persistentId, p.partInfo?.name ?? "unknown", isJettisoned, jettisonedShrouds, ut);
                 if (evt.HasValue)
                 {
                     PartEvents.Add(evt.Value);
@@ -2126,6 +2213,26 @@ namespace Parsek
                     PartEvents.Add(events[e]);
                     ParsekLog.Verbose("Recorder", $"Part event: {events[e].eventType} '{events[e].partName}' " +
                         $"pid={events[e].partPersistentId} midx={events[e].moduleIndex} val={events[e].value:F2}");
+
+                    // Some engines with ModuleJettison (e.g. Mainsail/Skipper/Vector) can
+                    // visually drop covers on ignition even when isJettisoned polling lags.
+                    // Emit a one-shot shroud event on ignition as a reliable fallback.
+                    if (events[e].eventType == PartEventType.EngineIgnited &&
+                        part.FindModuleImplementing<ModuleJettison>() != null)
+                    {
+                        var shroudEvt = CheckJettisonTransition(
+                            part.persistentId,
+                            part.partInfo?.name ?? "unknown",
+                            isJettisoned: true,
+                            jettisonedSet: jettisonedShrouds,
+                            ut: ut);
+                        if (shroudEvt.HasValue)
+                        {
+                            PartEvents.Add(shroudEvt.Value);
+                            ParsekLog.Info("Recorder", $"Part event: {shroudEvt.Value.eventType} '{shroudEvt.Value.partName}' " +
+                                $"pid={shroudEvt.Value.partPersistentId} (engine-ignite fallback)");
+                        }
+                    }
                 }
             }
         }
@@ -2832,6 +2939,115 @@ namespace Parsek
 
         #endregion
 
+        #region Atmosphere Boundary Detection
+
+        /// <summary>
+        /// Pure testable function: determines whether a recording should split at the atmosphere boundary.
+        /// Requires both sustained time (hysteresisSeconds) AND distance beyond boundary (hysteresisMeters).
+        /// </summary>
+        internal static bool ShouldSplitAtAtmosphereBoundary(
+            bool wasInAtmo, double altitude, double atmosphereDepth,
+            bool pendingCross, double pendingUT, double currentUT,
+            double hysteresisSeconds = 3.0, double hysteresisMeters = 1000.0)
+        {
+            if (atmosphereDepth <= 0) return false; // no atmosphere
+
+            bool nowInAtmo = altitude < atmosphereDepth;
+            if (nowInAtmo == wasInAtmo)
+                return false; // no boundary crossed
+
+            // Check distance beyond boundary
+            double distBeyond = nowInAtmo
+                ? (atmosphereDepth - altitude)
+                : (altitude - atmosphereDepth);
+            if (distBeyond < hysteresisMeters)
+                return false; // not far enough past boundary
+
+            // Check sustained time
+            if (!pendingCross)
+                return false; // first detection — caller should start the timer
+
+            return (currentUT - pendingUT) >= hysteresisSeconds;
+        }
+
+        /// <summary>
+        /// Called every physics frame to detect atmosphere boundary crossings.
+        /// Sets AtmosphereBoundaryCrossed and EnteredAtmosphere when confirmed.
+        /// </summary>
+        public void CheckAtmosphereBoundary(Vessel v)
+        {
+            if (!IsRecording || isOnRails) return;
+            if (v == null || v.mainBody == null || !v.mainBody.atmosphere) return;
+
+            double altitude = v.altitude;
+            double atmoDepth = v.mainBody.atmosphereDepth;
+            bool nowInAtmo = altitude < atmoDepth;
+            double currentUT = Planetarium.GetUniversalTime();
+
+            if (nowInAtmo == wasInAtmosphere)
+            {
+                // No boundary — reset pending if we drifted back
+                if (atmosphereBoundaryPending)
+                    ParsekLog.Verbose("Recorder", $"Atmosphere boundary pending reset — drifted back to same side (inAtmo={nowInAtmo})");
+                atmosphereBoundaryPending = false;
+                return;
+            }
+
+            // Boundary detected — check hysteresis
+            if (!atmosphereBoundaryPending)
+            {
+                // Start the timer
+                atmosphereBoundaryPending = true;
+                atmosphereBoundaryPendingUT = currentUT;
+                ParsekLog.Verbose("Recorder", $"Atmosphere boundary detected — starting hysteresis timer " +
+                    $"(body={v.mainBody.name}, {(nowInAtmo ? "entering" : "exiting")}, alt={altitude:F0}m, atmoDepth={atmoDepth:F0}m)");
+                return;
+            }
+
+            if (ShouldSplitAtAtmosphereBoundary(
+                wasInAtmosphere, altitude, atmoDepth,
+                atmosphereBoundaryPending, atmosphereBoundaryPendingUT, currentUT))
+            {
+                // Confirmed crossing — force-sample a boundary point to ensure >= 2 points
+                SamplePosition(v);
+
+                AtmosphereBoundaryCrossed = true;
+                EnteredAtmosphere = nowInAtmo;
+                wasInAtmosphere = nowInAtmo;
+                atmosphereBoundaryPending = false;
+                ParsekLog.Info("Recorder", $"Atmosphere boundary confirmed: {(nowInAtmo ? "entered" : "exited")} " +
+                    $"atmosphere of {v.mainBody.name} at alt {altitude:F0}m " +
+                    $"(hysteresis: {(currentUT - atmosphereBoundaryPendingUT):F1}s, {Math.Abs(altitude - atmoDepth):F0}m past boundary)");
+            }
+        }
+
+        /// <summary>
+        /// Reseeds atmosphere state from current vessel. Call on SOI change and off-rails.
+        /// </summary>
+        private void ReseedAtmosphereState(Vessel v)
+        {
+            bool oldState = wasInAtmosphere;
+            if (v == null || v.mainBody == null)
+            {
+                wasInAtmosphere = false;
+            }
+            else
+            {
+                wasInAtmosphere = v.mainBody.atmosphere && v.altitude < v.mainBody.atmosphereDepth;
+            }
+            atmosphereBoundaryPending = false;
+            AtmosphereBoundaryCrossed = false;
+            if (v?.mainBody != null)
+            {
+                ParsekLog.Verbose("Recorder", $"Atmosphere state reseeded: body={v.mainBody.name}, " +
+                    $"inAtmo={wasInAtmosphere} (was {oldState}), " +
+                    $"hasAtmo={v.mainBody.atmosphere}, alt={v.altitude:F0}m" +
+                    (v.mainBody.atmosphere ? $", atmoDepth={v.mainBody.atmosphereDepth:F0}m" : ""));
+            }
+        }
+
+        #endregion
+
         public void StartRecording()
         {
             if (Time.timeScale < 0.01f)
@@ -2853,6 +3069,8 @@ namespace Parsek
             PartEvents.Clear();
             parachuteStates.Clear();
             jettisonedShrouds.Clear();
+            jettisonNameRawCache.Clear();
+            parsedJettisonNamesCache.Clear();
             extendedDeployables.Clear();
             lightsOn.Clear();
             blinkingLights.Clear();
@@ -2938,6 +3156,17 @@ namespace Parsek
             RecordingStartedAsEva = v.isEVA;
             lastRecordedUT = -1;
             lastRecordedVelocity = Vector3.zero;
+
+            // Seed atmosphere state
+            wasInAtmosphere = v.mainBody != null && v.mainBody.atmosphere
+                && v.altitude < v.mainBody.atmosphereDepth;
+            atmosphereBoundaryPending = false;
+            AtmosphereBoundaryCrossed = false;
+            EnteredAtmosphere = false;
+            SoiChangePending = false;
+            SoiChangeFromBody = null;
+            ParsekLog.Verbose("Recorder", $"Boundary detection initialized: body={v.mainBody?.name}, " +
+                $"inAtmo={wasInAtmosphere}, hasAtmo={v.mainBody?.atmosphere}, alt={v.altitude:F0}m");
 
             // Insert boundary anchor from previous chain segment if present.
             // Must come AFTER the lastRecordedUT reset above so the anchor's
@@ -3180,6 +3409,9 @@ namespace Parsek
                 return;
             }
 
+            // Check atmosphere boundary (before part state polling)
+            CheckAtmosphereBoundary(v);
+
             // Poll parachute, jettison, engine, RCS, and deployable state every physics frame (before adaptive sampling skip)
             CheckParachuteState(v);
             CheckJettisonState(v);
@@ -3322,6 +3554,9 @@ namespace Parsek
             // Record a boundary TrajectoryPoint at current UT
             SamplePosition(v);
 
+            // Reseed atmosphere state for the current body
+            ReseedAtmosphereState(v);
+
             ParsekLog.Verbose("Recorder", $"Vessel went off rails — orbit segment closed " +
                 $"(UT {currentOrbitSegment.startUT:F0}-{currentOrbitSegment.endUT:F0})");
         }
@@ -3355,6 +3590,13 @@ namespace Parsek
                 epoch = v.orbit.epoch,
                 bodyName = v.mainBody.name
             };
+
+            // Reseed atmosphere state for the new body
+            ReseedAtmosphereState(v);
+
+            // Flag for ParsekFlight to trigger chain split in Update()
+            SoiChangePending = true;
+            SoiChangeFromBody = data.from.name;
 
             ParsekLog.Verbose("Recorder", $"SOI changed during orbit recording: {data.from.name} → {data.to.name}");
         }
@@ -3401,6 +3643,15 @@ namespace Parsek
             Patches.PhysicsFramePatch.ActiveRecorder = null;
             UnsubscribePartEvents();
             IsRecording = false;
+            PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+
+            double duration = Recording.Count > 0
+                ? Recording[Recording.Count - 1].ut - Recording[0].ut
+                : 0;
+
+            // Keep stop-line contract identical to normal StopRecording so live
+            // KSP.log validation does not require a manual in-flight stop.
+            ParsekLog.Info("Recorder", $"Recording stopped. {Recording.Count} points, {OrbitSegments.Count} orbit segments over {duration:F1}s");
             ParsekLog.Info("Recorder", "Auto-stopped recording due to scene change");
         }
 

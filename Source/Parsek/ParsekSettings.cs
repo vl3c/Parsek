@@ -21,6 +21,14 @@ namespace Parsek
             toolTip = "Stop time warp when a ghost playback is about to begin")]
         public bool autoWarpStop = true;
 
+        [GameParameters.CustomParameterUI("Auto-split at atmosphere boundary",
+            toolTip = "Automatically split recordings when crossing the atmosphere boundary")]
+        public bool autoSplitAtAtmosphere = true;
+
+        [GameParameters.CustomParameterUI("Auto-split at SOI change",
+            toolTip = "Automatically split recordings when entering a new sphere of influence")]
+        public bool autoSplitAtSoi = true;
+
         [GameParameters.CustomParameterUI("Verbose logging",
             toolTip = "When enabled, write detailed diagnostics to KSP.log (default for development)")]
         public bool verboseLogging = true;

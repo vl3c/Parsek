@@ -357,6 +357,52 @@ namespace Parsek
                 }
             }
 
+            // Atmosphere boundary: auto-split when crossing atmosphere edge
+            if (recorder != null && recorder.IsRecording && recorder.AtmosphereBoundaryCrossed &&
+                ParsekSettings.Current?.autoSplitAtAtmosphere != false)
+            {
+                string phase = recorder.EnteredAtmosphere ? "exo" : "atmo";
+                string newPhase = recorder.EnteredAtmosphere ? "atmo" : "exo";
+                string bodyName = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
+                ParsekLog.Info("Flight", $"Atmosphere auto-split triggered: {bodyName} {phase}→{newPhase} " +
+                    $"(chain={activeChainId ?? "(new)"}, points={recorder.Recording.Count})");
+                recorder.StopRecordingForChainBoundary();
+                CommitBoundarySplit(phase, bodyName);
+                recorder = null;
+                StartRecording();
+                if (IsRecording)
+                {
+                    recorder.UndockSiblingPid = undockContinuationPid;
+                    ParsekLog.Info("Flight", $"Recording continues after atmosphere boundary " +
+                        $"(chain={activeChainId}, idx={activeChainNextIndex}, {bodyName} {phase}→{newPhase})");
+                    ParsekLog.ScreenMessage($"Recording continues ({(newPhase == "atmo" ? "entering" : "exiting")} atmosphere)", 2f);
+                }
+            }
+
+            // SOI change: auto-split when transitioning between celestial bodies
+            if (recorder != null && recorder.IsRecording && recorder.SoiChangePending &&
+                ParsekSettings.Current?.autoSplitAtSoi != false)
+            {
+                string fromBody = recorder.SoiChangeFromBody ?? "Unknown";
+                string toBody = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
+                // Completed segment was at fromBody — tag as "exo" if it has atmosphere, "space" otherwise
+                CelestialBody fromCB = FlightGlobals.Bodies?.Find(b => b.name == fromBody);
+                string fromPhase = (fromCB != null && fromCB.atmosphere) ? "exo" : "space";
+                ParsekLog.Info("Flight", $"SOI auto-split triggered: {fromBody} ({fromPhase}) → {toBody} " +
+                    $"(chain={activeChainId ?? "(new)"}, points={recorder.Recording.Count})");
+                recorder.StopRecordingForChainBoundary();
+                CommitBoundarySplit(fromPhase, fromBody);
+                recorder = null;
+                StartRecording();
+                if (IsRecording)
+                {
+                    recorder.UndockSiblingPid = undockContinuationPid;
+                    ParsekLog.Info("Flight", $"Recording continues after SOI change " +
+                        $"({fromBody} → {toBody}, chain={activeChainId}, idx={activeChainNextIndex})");
+                    ParsekLog.ScreenMessage($"Recording continues (entering {toBody} SOI)", 2f);
+                }
+            }
+
             // Complete deferred auto-record for EVA (vessel switch may take a frame)
             if (pendingAutoRecord && !IsRecording &&
                 FlightGlobals.ActiveVessel != null && FlightGlobals.ActiveVessel.isEVA)
@@ -534,6 +580,22 @@ namespace Parsek
                         RecordingStore.Pending.ParentRecordingId = activeChainPrevId;
                         RecordingStore.Pending.EvaCrewName = activeChainCrewName;
                     }
+
+                    // Tag segment phase in fallback path
+                    if (RecordingStore.HasPending && string.IsNullOrEmpty(RecordingStore.Pending.SegmentPhase))
+                    {
+                        var v = FlightGlobals.ActiveVessel;
+                        if (v != null && v.mainBody != null)
+                        {
+                            RecordingStore.Pending.SegmentBodyName = v.mainBody.name;
+                            if (v.mainBody.atmosphere)
+                                RecordingStore.Pending.SegmentPhase = v.altitude < v.mainBody.atmosphereDepth ? "atmo" : "exo";
+                            else
+                                RecordingStore.Pending.SegmentPhase = "space";
+                            ParsekLog.Verbose("Flight", $"Final segment tagged (ForceStop): " +
+                                $"{RecordingStore.Pending.SegmentBodyName} {RecordingStore.Pending.SegmentPhase}");
+                        }
+                    }
                 }
 
                 // Clear chain fields after both paths have consumed them
@@ -551,6 +613,7 @@ namespace Parsek
             DestroyAllTimelineGhosts();
             GhostVisualBuilder.ClearCanopyCache();
             GhostVisualBuilder.ClearDeployableCache();
+            GhostVisualBuilder.ClearFxPrefabCache();
             GhostVisualBuilder.ClearGearCache();
             GhostVisualBuilder.ClearLadderCache();
             GhostVisualBuilder.ClearCargoBayCache();
@@ -1080,6 +1143,75 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Commits the current segment as an atmosphere boundary chain split.
+        /// Follows the same pattern as CommitDockUndockSegment.
+        /// </summary>
+        void CommitBoundarySplit(string completedPhase, string bodyName)
+        {
+            var captured = recorder.CaptureAtStop;
+            string segmentId = captured != null ? captured.RecordingId : null;
+            ParsekLog.Info("Flight", $"Boundary split: committing segment " +
+                $"(id={segmentId}, phase={completedPhase}, body={bodyName}, " +
+                $"points={recorder.Recording.Count}, orbits={recorder.OrbitSegments.Count})");
+
+            RecordingStore.StashPending(
+                recorder.Recording,
+                captured != null ? captured.VesselName : (FlightGlobals.ActiveVessel?.vesselName ?? "Unknown"),
+                recorder.OrbitSegments,
+                recordingId: segmentId,
+                recordingFormatVersion: captured != null ? (int?)captured.RecordingFormatVersion : null,
+                ghostGeometryVersion: captured != null ? (int?)captured.GhostGeometryVersion : null,
+                partEvents: recorder.PartEvents);
+
+            if (!RecordingStore.HasPending)
+            {
+                ParsekLog.Warn("Flight", "Boundary split: segment too short to stash — aborting " +
+                    $"(points={recorder.Recording.Count})");
+                return;
+            }
+
+            if (captured != null)
+                RecordingStore.Pending.ApplyPersistenceArtifactsFrom(captured);
+
+            // Tag segment with phase and body
+            RecordingStore.Pending.SegmentPhase = completedPhase;
+            RecordingStore.Pending.SegmentBodyName = bodyName;
+
+            // First transition: initialize chain
+            if (activeChainId == null)
+            {
+                activeChainId = System.Guid.NewGuid().ToString("N");
+                activeChainNextIndex = 0;
+                ParsekLog.Info("Flight", $"Boundary split: started new chain (id={activeChainId})");
+            }
+
+            // Tag segment with chain metadata
+            RecordingStore.Pending.ChainId = activeChainId;
+            RecordingStore.Pending.ChainIndex = activeChainNextIndex;
+            RecordingStore.Pending.ChainBranch = 0;
+            RecordingStore.Pending.ParentRecordingId = activeChainPrevId;
+            RecordingStore.Pending.EvaCrewName = activeChainCrewName;
+
+            // Mid-chain segments are ghost-only
+            RecordingStore.Pending.VesselSnapshot = null;
+
+            RecordingStore.CommitPending();
+            ParsekScenario.ReserveSnapshotCrew();
+            ParsekScenario.SwapReservedCrewInFlight();
+
+            // Prepare boundary anchor from last point of committed segment
+            if (recorder.Recording.Count > 0)
+                pendingBoundaryAnchor = recorder.Recording[recorder.Recording.Count - 1];
+
+            // Advance chain state
+            activeChainNextIndex++;
+            activeChainPrevId = segmentId;
+            ParsekLog.Verbose("Flight", $"Boundary split committed: chain={activeChainId}, " +
+                $"nextIdx={activeChainNextIndex}, segment={bodyName} {completedPhase}, " +
+                $"totalRecordings={RecordingStore.CommittedRecordings.Count}");
+        }
+
+        /// <summary>
         /// Starts ghost-only continuation recording for the "other" vessel after undock.
         /// This vessel gets ChainBranch = 1 so it plays back as a ghost but never spawns.
         /// </summary>
@@ -1411,6 +1543,22 @@ namespace Parsek
                 recorder.CaptureAtStop.ParentRecordingId = activeChainPrevId;
                 recorder.CaptureAtStop.EvaCrewName = activeChainCrewName;
             }
+
+            // Tag final segment phase if untagged
+            if (recorder?.CaptureAtStop != null && string.IsNullOrEmpty(recorder.CaptureAtStop.SegmentPhase))
+            {
+                var v = FlightGlobals.ActiveVessel;
+                if (v != null && v.mainBody != null)
+                {
+                    recorder.CaptureAtStop.SegmentBodyName = v.mainBody.name;
+                    if (v.mainBody.atmosphere)
+                        recorder.CaptureAtStop.SegmentPhase = v.altitude < v.mainBody.atmosphereDepth ? "atmo" : "exo";
+                    else
+                        recorder.CaptureAtStop.SegmentPhase = "space";
+                    ParsekLog.Verbose("Flight", $"Final segment tagged (StopRecording): " +
+                        $"{recorder.CaptureAtStop.SegmentBodyName} {recorder.CaptureAtStop.SegmentPhase}");
+                }
+            }
         }
 
         public void ClearRecording()
@@ -1629,6 +1777,7 @@ namespace Parsek
                     var rec = committed[i];
                     if (rec.Points.Count < 2) continue;
                     if (ShouldLoopPlayback(rec)) continue;
+                    if (!rec.PlaybackEnabled) continue;
                     if (rec.VesselSnapshot == null || rec.VesselSpawned || rec.VesselDestroyed ||
                         RecordingStore.IsChainMidSegment(rec)) continue;
 
@@ -1662,6 +1811,20 @@ namespace Parsek
                 ghostStates.TryGetValue(i, out state);
                 bool ghostActive = state != null && state.ghost != null;
 
+                // Disabled segments: destroy ghost if active, still apply resource deltas
+                if (!rec.PlaybackEnabled)
+                {
+                    if (ghostActive)
+                    {
+                        DestroyTimelineGhost(i);
+                        ParsekLog.Verbose("Flight", $"Ghost #{i} destroyed — segment disabled " +
+                            $"({rec.VesselName}, {RecordingStore.GetSegmentPhaseLabel(rec)})");
+                    }
+                    if (pastEnd)
+                        ApplyResourceDeltas(rec, currentUT);
+                    continue;
+                }
+
                 if (ShouldLoopPlayback(rec))
                 {
                     UpdateLoopingTimelinePlayback(i, rec, currentUT, state, ghostActive);
@@ -1689,6 +1852,14 @@ namespace Parsek
                     needsSpawn = false;
                     if (loggedGhostEnter.Add(i + 300000))
                         ParsekLog.Verbose("Flight", $"Spawn suppressed for #{i} ({rec.VesselName}): active chain being built");
+                }
+
+                // Suppress spawn for looping or fully-disabled chains
+                if (needsSpawn && !string.IsNullOrEmpty(rec.ChainId))
+                {
+                    if (RecordingStore.IsChainLooping(rec.ChainId) ||
+                        RecordingStore.IsChainFullyDisabled(rec.ChainId))
+                        needsSpawn = false;
                 }
 
                 // One-time chain spawn diagnostics when entering the spawn window
@@ -2509,6 +2680,49 @@ namespace Parsek
             Destroy(canopy);
         }
 
+        internal static string BuildEngineFxEmissionDiagnostic(
+            string partName,
+            uint partPersistentId,
+            int moduleIndex,
+            float power,
+            string particleName,
+            string parentName,
+            Vector3 localPosition,
+            Quaternion localRotation,
+            Vector3 worldPosition,
+            Vector3 worldForward,
+            Vector3 worldUp,
+            float emissionRate,
+            float startSpeed,
+            bool isPlaying)
+        {
+            string safePartName = string.IsNullOrEmpty(partName) ? "<unknown>" : partName;
+            string safeParticleName = string.IsNullOrEmpty(particleName) ? "<unknown>" : particleName;
+            string safeParentName = string.IsNullOrEmpty(parentName) ? "<none>" : parentName;
+            string localRotationRaw =
+                $"({localRotation.x.ToString("F4", CultureInfo.InvariantCulture)}," +
+                $"{localRotation.y.ToString("F4", CultureInfo.InvariantCulture)}," +
+                $"{localRotation.z.ToString("F4", CultureInfo.InvariantCulture)}," +
+                $"{localRotation.w.ToString("F4", CultureInfo.InvariantCulture)})";
+
+            return $"Engine FX emission diag: part='{safePartName}' pid={partPersistentId} midx={moduleIndex} " +
+                $"power={power.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"ps='{safeParticleName}' parent='{safeParentName}' " +
+                $"localPos={FormatVector3Invariant(localPosition)} localRot={localRotationRaw} " +
+                $"worldPos={FormatVector3Invariant(worldPosition)} " +
+                $"worldFwd={FormatVector3Invariant(worldForward)} " +
+                $"worldUp={FormatVector3Invariant(worldUp)} " +
+                $"rate={emissionRate.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"speed={startSpeed.ToString("F2", CultureInfo.InvariantCulture)} playing={isPlaying}";
+        }
+
+        private static string FormatVector3Invariant(Vector3 value)
+        {
+            return $"({value.x.ToString("F4", CultureInfo.InvariantCulture)}," +
+                $"{value.y.ToString("F4", CultureInfo.InvariantCulture)}," +
+                $"{value.z.ToString("F4", CultureInfo.InvariantCulture)})";
+        }
+
         static void SetEngineEmission(GhostPlaybackState state, PartEvent evt, float power)
         {
             if (state.engineInfos == null) return;
@@ -2525,6 +2739,7 @@ namespace Parsek
                 var emission = ps.emission;
                 if (power > 0f)
                 {
+                    emission.enabled = true;
                     float emRate = info.emissionCurve != null ? info.emissionCurve.Evaluate(power) : power * 100f;
                     emission.rateOverTimeMultiplier = emRate;
 
@@ -2532,13 +2747,54 @@ namespace Parsek
                     float spd = info.speedCurve != null ? info.speedCurve.Evaluate(power) : power * 10f;
                     main.startSpeedMultiplier = spd;
 
+                    SetParticleRenderersEnabled(ps, true);
                     if (!ps.isPlaying) ps.Play();
                 }
                 else
                 {
+                    emission.enabled = false;
                     emission.rateOverTimeMultiplier = 0;
-                    ps.Stop();
+                    ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                    ps.Clear(true);
+                    SetParticleRenderersEnabled(ps, false);
                 }
+
+                if (ParsekLog.IsVerboseEnabled)
+                {
+                    Transform t = ps.transform;
+                    string parentName = t != null && t.parent != null ? t.parent.name : "<none>";
+                    var diagMain = ps.main;
+                    string diagLine = BuildEngineFxEmissionDiagnostic(
+                        evt.partName,
+                        evt.partPersistentId,
+                        evt.moduleIndex,
+                        power,
+                        ps.name,
+                        parentName,
+                        t != null ? t.localPosition : Vector3.zero,
+                        t != null ? t.localRotation : Quaternion.identity,
+                        t != null ? t.position : Vector3.zero,
+                        t != null ? t.forward : Vector3.zero,
+                        t != null ? t.up : Vector3.zero,
+                        emission.rateOverTimeMultiplier,
+                        diagMain.startSpeedMultiplier,
+                        ps.isPlaying);
+                    string diagKey = $"engine-fx-{evt.partPersistentId}-{evt.moduleIndex}-{ps.GetInstanceID()}";
+                    ParsekLog.VerboseRateLimited("Flight", diagKey, diagLine, 0.5);
+                }
+            }
+        }
+
+        static void SetParticleRenderersEnabled(ParticleSystem ps, bool enabled)
+        {
+            if (ps == null)
+                return;
+
+            ParticleSystemRenderer[] renderers = ps.GetComponentsInChildren<ParticleSystemRenderer>(true);
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                if (renderers[i] != null)
+                    renderers[i].enabled = enabled;
             }
         }
 
@@ -2575,6 +2831,7 @@ namespace Parsek
                     float spd = ComputeScaledRcsSpeed(info.speedCurve, power, info.speedScale);
                     main.startSpeedMultiplier = spd;
 
+                    SetParticleRenderersEnabled(ps, true);
                     if (!ps.isPlaying) ps.Play();
 
                     if (sampleRate <= 0f)
@@ -2587,9 +2844,11 @@ namespace Parsek
                 }
                 else
                 {
+                    emission.enabled = false;
                     emission.rateOverTimeMultiplier = 0;
                     ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                     ps.Clear(true);
+                    SetParticleRenderersEnabled(ps, false);
                 }
 
                 if (ps.isPlaying) playingSystems++;

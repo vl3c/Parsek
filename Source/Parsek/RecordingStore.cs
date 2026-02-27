@@ -62,6 +62,11 @@ namespace Parsek
             public bool LoopPlayback;
             public double LoopPauseSeconds = 10.0;
 
+            // Atmosphere segment metadata
+            public string SegmentPhase;      // "atmo" or "exo" (null = untagged/legacy)
+            public string SegmentBodyName;   // body name at split point (e.g., "Kerbin", "Duna")
+            public bool PlaybackEnabled = true;  // false = skip ghost during playback
+
             // EVA child recording linkage
             public string ParentRecordingId;
             public string EvaCrewName;
@@ -144,6 +149,9 @@ namespace Parsek
                 PreLaunchFunds = source.PreLaunchFunds;
                 PreLaunchScience = source.PreLaunchScience;
                 PreLaunchReputation = source.PreLaunchReputation;
+                SegmentPhase = source.SegmentPhase;
+                SegmentBodyName = source.SegmentBodyName;
+                PlaybackEnabled = source.PlaybackEnabled;
             }
         }
 
@@ -372,6 +380,8 @@ namespace Parsek
                 list.Add(rec);
             }
 
+            ParsekLog.Verbose("RecordingStore", $"Validating chains: {branches.Count} branch group(s)");
+
             // Track which chainIds are invalid so we degrade all branches together
             var invalidChains = new HashSet<string>();
 
@@ -430,6 +440,9 @@ namespace Parsek
             }
 
             // Degrade all recordings belonging to invalid chains
+            if (invalidChains.Count == 0)
+                ParsekLog.Verbose("RecordingStore", "All chains validated OK");
+
             if (invalidChains.Count > 0)
             {
                 for (int i = 0; i < committedRecordings.Count; i++)
@@ -486,6 +499,53 @@ namespace Parsek
             DeleteRecordingFiles(rec);
             committedRecordings.RemoveAt(index);
             Log($"[Parsek] Removed recording '{rec.VesselName}' (id={rec.RecordingId}) at index {index}");
+        }
+
+        /// <summary>
+        /// Returns true if any branch-0 enabled segment in the chain has LoopPlayback set.
+        /// </summary>
+        internal static bool IsChainLooping(string chainId)
+        {
+            if (string.IsNullOrEmpty(chainId)) return false;
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                var rec = committedRecordings[i];
+                if (rec.ChainId == chainId && rec.ChainBranch == 0 &&
+                    rec.PlaybackEnabled && rec.LoopPlayback)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Returns true if all branch-0 segments in the chain have PlaybackEnabled == false.
+        /// </summary>
+        internal static bool IsChainFullyDisabled(string chainId)
+        {
+            if (string.IsNullOrEmpty(chainId)) return false;
+            bool anyBranch0 = false;
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                var rec = committedRecordings[i];
+                if (rec.ChainId == chainId && rec.ChainBranch == 0)
+                {
+                    anyBranch0 = true;
+                    if (rec.PlaybackEnabled) return false;
+                }
+            }
+            return anyBranch0; // false if no branch-0 segments found
+        }
+
+        /// <summary>
+        /// Returns a human-readable phase label like "Kerbin atmo" or "exo".
+        /// Returns empty string for untagged/legacy recordings.
+        /// </summary>
+        internal static string GetSegmentPhaseLabel(Recording rec)
+        {
+            if (string.IsNullOrEmpty(rec.SegmentPhase)) return "";
+            if (!string.IsNullOrEmpty(rec.SegmentBodyName))
+                return rec.SegmentBodyName + " " + rec.SegmentPhase;
+            return rec.SegmentPhase;
         }
 
         /// <summary>
