@@ -66,6 +66,17 @@ namespace Parsek
                    type == GameStateEventType.ReputationChanged;
         }
 
+        /// <summary>
+        /// Events that should be excluded from milestones and the Actions window.
+        /// Resource events are summarized by the budget; CrewStatusChanged is KSP
+        /// internal bookkeeping (Available↔Assigned) and not a player action.
+        /// </summary>
+        internal static bool IsMilestoneFilteredEvent(GameStateEventType type)
+        {
+            return IsResourceEvent(type) ||
+                   type == GameStateEventType.CrewStatusChanged;
+        }
+
         internal static void AddContractSnapshot(string guid, ConfigNode contractNode)
         {
             if (string.IsNullOrEmpty(guid) || contractNode == null)

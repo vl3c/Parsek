@@ -455,7 +455,7 @@ namespace Parsek
                 if (!m.Committed || m.Epoch != currentEpoch) continue;
                 for (int j = 0; j < m.Events.Count; j++)
                 {
-                    if (GameStateStore.IsResourceEvent(m.Events[j].eventType))
+                    if (GameStateStore.IsMilestoneFilteredEvent(m.Events[j].eventType))
                         continue;
                     bool replayed = j <= m.LastReplayedEventIndex;
                     allEvents.Add(System.Tuple.Create(m.Events[j], replayed));

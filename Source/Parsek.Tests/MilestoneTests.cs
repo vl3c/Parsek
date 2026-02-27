@@ -722,6 +722,36 @@ namespace Parsek.Tests
             Assert.Equal(0, MilestoneStore.GetPendingEventCount());
         }
 
+        [Fact]
+        public void GetPendingEventCount_ExcludesFilteredEvents()
+        {
+            MilestoneStore.CurrentEpoch = 0;
+
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 50,
+                eventType = GameStateEventType.TechResearched,
+                key = "basicRocketry",
+                detail = "cost=5"
+            });
+            // CrewStatusChanged should be filtered from milestones by CreateMilestone,
+            // but even if present in a deserialized milestone it should not be counted
+            MilestoneStore.CreateMilestone("rec1", 100);
+
+            // Manually inject a CrewStatusChanged event into the milestone
+            // (simulating a milestone deserialized from an older save)
+            MilestoneStore.Milestones[0].Events.Add(new GameStateEvent
+            {
+                ut = 55,
+                eventType = GameStateEventType.CrewStatusChanged,
+                key = "Jeb Kerman",
+                detail = "from=Available;to=Assigned"
+            });
+
+            // Only 1 counted — the injected CrewStatusChanged is filtered
+            Assert.Equal(1, MilestoneStore.GetPendingEventCount());
+        }
+
         #endregion
     }
 }

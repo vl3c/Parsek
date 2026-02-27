@@ -45,7 +45,7 @@ namespace Parsek
                 var e = events[i];
                 if (e.epoch != epoch) { skippedEpoch++; continue; }
                 if (e.ut <= startUT || e.ut > currentUT) { skippedWindow++; continue; }
-                if (GameStateStore.IsResourceEvent(e.eventType)) { skippedResource++; continue; }
+                if (GameStateStore.IsMilestoneFilteredEvent(e.eventType)) { skippedResource++; continue; }
                 filtered.Add(e);
             }
 
@@ -337,7 +337,11 @@ namespace Parsek
             {
                 var m = milestones[i];
                 if (!m.Committed || m.Epoch != epoch) continue;
-                count += m.Events.Count;
+                for (int j = 0; j < m.Events.Count; j++)
+                {
+                    if (!GameStateStore.IsMilestoneFilteredEvent(m.Events[j].eventType))
+                        count++;
+                }
             }
             return count;
         }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Text;
 
@@ -11,6 +12,9 @@ namespace Parsek.Tests.Generators
         private readonly List<RecordingBuilder> v3Builders = new List<RecordingBuilder>();
         private readonly List<(string original, string replacement)> crewReplacements
             = new List<(string, string)>();
+        private readonly List<Milestone> milestones = new List<Milestone>();
+        private readonly List<GameStateEvent> gameStateEvents = new List<GameStateEvent>();
+        private uint milestoneEpoch;
         private bool useV3Format;
 
         public ScenarioWriter AddRecording(ConfigNode recNode)
@@ -45,6 +49,24 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
+        public ScenarioWriter WithMilestoneEpoch(uint epoch)
+        {
+            milestoneEpoch = epoch;
+            return this;
+        }
+
+        internal ScenarioWriter AddMilestone(Milestone milestone)
+        {
+            milestones.Add(milestone);
+            return this;
+        }
+
+        internal ScenarioWriter AddGameStateEvent(GameStateEvent e)
+        {
+            gameStateEvents.Add(e);
+            return this;
+        }
+
         public ConfigNode BuildScenarioNode()
         {
             var node = new ConfigNode("SCENARIO");
@@ -62,6 +84,20 @@ namespace Parsek.Tests.Generators
                     var entry = crNode.AddNode("ENTRY");
                     entry.AddValue("original", original);
                     entry.AddValue("replacement", replacement);
+                }
+            }
+
+            if (milestones.Count > 0)
+            {
+                var ic = CultureInfo.InvariantCulture;
+                node.AddValue("milestoneEpoch", milestoneEpoch.ToString(ic));
+
+                foreach (var m in milestones)
+                {
+                    var stateNode = node.AddNode("MILESTONE_STATE");
+                    stateNode.AddValue("id", m.MilestoneId ?? "");
+                    stateNode.AddValue("lastReplayedIdx",
+                        m.LastReplayedEventIndex.ToString(ic));
                 }
             }
 
@@ -122,6 +158,13 @@ namespace Parsek.Tests.Generators
                 string saveDir = Path.GetDirectoryName(outputPath);
                 WriteSidecarFiles(saveDir);
             }
+
+            // Write milestone and event sidecar files
+            if (milestones.Count > 0 || gameStateEvents.Count > 0)
+            {
+                string saveDir = Path.GetDirectoryName(outputPath);
+                WriteGameStateFiles(saveDir);
+            }
         }
 
         /// <summary>
@@ -152,6 +195,41 @@ namespace Parsek.Tests.Generators
                 var ghostSnapshot = builder.GetGhostVisualSnapshot();
                 if (ghostSnapshot != null)
                     ghostSnapshot.Save(Path.Combine(recordingsDir, $"{id}_ghost.craft"));
+            }
+        }
+
+        /// <summary>
+        /// Writes milestones.pgsm and events.pgse sidecar files to the
+        /// Parsek/GameState/ subdirectory relative to the save directory.
+        /// </summary>
+        public void WriteGameStateFiles(string saveDir)
+        {
+            string gameStateDir = Path.Combine(saveDir, "Parsek", "GameState");
+            if (!Directory.Exists(gameStateDir))
+                Directory.CreateDirectory(gameStateDir);
+
+            if (milestones.Count > 0)
+            {
+                var rootNode = new ConfigNode("PARSEK_MILESTONES");
+                rootNode.AddValue("version", "1");
+                foreach (var m in milestones)
+                {
+                    ConfigNode milestoneNode = rootNode.AddNode("MILESTONE");
+                    m.SerializeInto(milestoneNode);
+                }
+                rootNode.Save(Path.Combine(gameStateDir, "milestones.pgsm"));
+            }
+
+            if (gameStateEvents.Count > 0)
+            {
+                var rootNode = new ConfigNode("PARSEK_GAME_STATE");
+                rootNode.AddValue("version", "1");
+                foreach (var e in gameStateEvents)
+                {
+                    ConfigNode eventNode = rootNode.AddNode("GAME_STATE_EVENT");
+                    e.SerializeInto(eventNode);
+                }
+                rootNode.Save(Path.Combine(gameStateDir, "events.pgse"));
             }
         }
 
