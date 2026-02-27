@@ -398,9 +398,9 @@ namespace Parsek
             // Position to the left of main window on first open
             if (actionsWindowRect.width < 1f)
             {
-                float x = mainWindowRect.x - 390;
+                float x = mainWindowRect.x - 405;
                 if (x < 0) x = mainWindowRect.x + mainWindowRect.width + 10;
-                actionsWindowRect = new Rect(x, mainWindowRect.y, 380, 350);
+                actionsWindowRect = new Rect(x, mainWindowRect.y, 395, 520);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI", $"Actions window initial position: x={x.ToString("F0", ic)} y={mainWindowRect.y.ToString("F0", ic)} (mainWindow.x={mainWindowRect.x.ToString("F0", ic)})");
             }
