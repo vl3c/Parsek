@@ -38,12 +38,18 @@ namespace Parsek
         private bool showActionsWindow;
         private Rect actionsWindowRect;
         private Vector2 actionsScrollPos;
+        private bool isResizingActionsWindow;
         private bool actionsWindowHasInputLock;
         private const string ActionsInputLockId = "Parsek_ActionsWindow";
 
         // Cached styles for actions window
         private GUIStyle actionsGrayStyle;
         private GUIStyle actionsWhiteStyle;
+
+        // Actions table sort state
+        private enum ActionsSortColumn { Time, Type, Description, Status }
+        private ActionsSortColumn actionsSortColumn = ActionsSortColumn.Time;
+        private bool actionsSortAscending = true;
 
         // Column widths — shared between header and body for alignment
         private const float ColW_Enable = 15f;
@@ -301,11 +307,12 @@ namespace Parsek
                 double currentFunds = 0;
                 try { if (Funding.Instance != null) currentFunds = Funding.Instance.Funds; } catch { }
                 double available = currentFunds - budget.reservedFunds;
+                double total = currentFunds;
                 bool over = available < 0;
                 if (over) anyOverCommitted = true;
                 Color prev = GUI.contentColor;
                 if (over) GUI.contentColor = Color.red;
-                GUILayout.Label($"Funds: {available.ToString("N0", ic)} available ({budget.reservedFunds.ToString("N0", ic)} committed)");
+                GUILayout.Label($"Funds: {available.ToString("N0", ic)} available to use ({budget.reservedFunds.ToString("N0", ic)} committed out of {total.ToString("N0", ic)} total)");
                 GUI.contentColor = prev;
             }
 
@@ -314,11 +321,12 @@ namespace Parsek
                 double currentScience = 0;
                 try { if (ResearchAndDevelopment.Instance != null) currentScience = ResearchAndDevelopment.Instance.Science; } catch { }
                 double available = currentScience - budget.reservedScience;
+                double total = currentScience;
                 bool over = available < 0;
                 if (over) anyOverCommitted = true;
                 Color prev = GUI.contentColor;
                 if (over) GUI.contentColor = Color.red;
-                GUILayout.Label($"Science: {available.ToString("F1", ic)} available ({budget.reservedScience.ToString("F1", ic)} committed)");
+                GUILayout.Label($"Science: {available.ToString("F1", ic)} available to use ({budget.reservedScience.ToString("F1", ic)} committed out of {total.ToString("F1", ic)} total)");
                 GUI.contentColor = prev;
             }
 
@@ -327,11 +335,12 @@ namespace Parsek
                 float currentRep = 0;
                 try { if (Reputation.Instance != null) currentRep = Reputation.Instance.reputation; } catch { }
                 double available = currentRep - budget.reservedReputation;
+                double total = (double)currentRep;
                 bool over = available < 0;
                 if (over) anyOverCommitted = true;
                 Color prev = GUI.contentColor;
                 if (over) GUI.contentColor = Color.red;
-                GUILayout.Label($"Reputation: {available.ToString("F0", ic)} available ({budget.reservedReputation.ToString("F0", ic)} committed)");
+                GUILayout.Label($"Reputation: {available.ToString("F0", ic)} available to use ({budget.reservedReputation.ToString("F0", ic)} committed out of {total.ToString("F0", ic)} total)");
                 GUI.contentColor = prev;
             }
 
@@ -394,6 +403,26 @@ namespace Parsek
                 actionsWindowRect = new Rect(x, mainWindowRect.y, 380, 350);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI", $"Actions window initial position: x={x.ToString("F0", ic)} y={mainWindowRect.y.ToString("F0", ic)} (mainWindow.x={mainWindowRect.x.ToString("F0", ic)})");
+            }
+
+            // Handle resize drag
+            if (isResizingActionsWindow)
+            {
+                if (Event.current.type == EventType.MouseDrag || Event.current.type == EventType.MouseUp)
+                {
+                    float newW = Mathf.Max(MinWindowWidth, Event.current.mousePosition.x - actionsWindowRect.x);
+                    float newH = Mathf.Max(MinWindowHeight, Event.current.mousePosition.y - actionsWindowRect.y);
+                    actionsWindowRect.width = newW;
+                    actionsWindowRect.height = newH;
+                }
+                if (Event.current.type == EventType.MouseUp)
+                {
+                    isResizingActionsWindow = false;
+                    var ic = System.Globalization.CultureInfo.InvariantCulture;
+                    ParsekLog.Verbose("UI", $"Actions window resize ended: w={actionsWindowRect.width.ToString("F0", ic)} h={actionsWindowRect.height.ToString("F0", ic)}");
+                }
+                if (Event.current.type == EventType.MouseDrag)
+                    Event.current.Use();
             }
 
             actionsWindowRect = ClickThruBlocker.GUILayoutWindow(
@@ -462,13 +491,58 @@ namespace Parsek
                 }
             }
 
-            // Sort by UT
-            allEvents.Sort((a, b) => a.Item1.ut.CompareTo(b.Item1.ut));
+            // Sort events
+            switch (actionsSortColumn)
+            {
+                case ActionsSortColumn.Time:
+                    allEvents.Sort((a, b) => actionsSortAscending
+                        ? a.Item1.ut.CompareTo(b.Item1.ut)
+                        : b.Item1.ut.CompareTo(a.Item1.ut));
+                    break;
+                case ActionsSortColumn.Type:
+                    allEvents.Sort((a, b) =>
+                    {
+                        int cmp = string.Compare(
+                            GameStateEventDisplay.GetDisplayCategory(a.Item1.eventType),
+                            GameStateEventDisplay.GetDisplayCategory(b.Item1.eventType),
+                            System.StringComparison.Ordinal);
+                        return actionsSortAscending ? cmp : -cmp;
+                    });
+                    break;
+                case ActionsSortColumn.Description:
+                    allEvents.Sort((a, b) =>
+                    {
+                        int cmp = string.Compare(
+                            GameStateEventDisplay.GetDisplayDescription(a.Item1),
+                            GameStateEventDisplay.GetDisplayDescription(b.Item1),
+                            System.StringComparison.Ordinal);
+                        return actionsSortAscending ? cmp : -cmp;
+                    });
+                    break;
+                case ActionsSortColumn.Status:
+                    allEvents.Sort((a, b) =>
+                    {
+                        int cmp = a.Item2.CompareTo(b.Item2); // false (Pending) < true (Replayed)
+                        return actionsSortAscending ? cmp : -cmp;
+                    });
+                    break;
+            }
 
             if (allEvents.Count > 0)
             {
                 GUILayout.Space(5);
-                GUILayout.Label("Committed Actions", GUI.skin.box);
+
+                // Column headers (clickable to sort)
+                GUILayout.BeginHorizontal();
+                if (GUILayout.Button(SortHeader("Time", ActionsSortColumn.Time), GUI.skin.label, GUILayout.Width(90)))
+                    ToggleActionsSort(ActionsSortColumn.Time);
+                if (GUILayout.Button(SortHeader("Type", ActionsSortColumn.Type), GUI.skin.label, GUILayout.Width(65)))
+                    ToggleActionsSort(ActionsSortColumn.Type);
+                if (GUILayout.Button(SortHeader("Description", ActionsSortColumn.Description), GUI.skin.label, GUILayout.ExpandWidth(true)))
+                    ToggleActionsSort(ActionsSortColumn.Description);
+                if (GUILayout.Button(SortHeader("Status", ActionsSortColumn.Status), GUI.skin.label, GUILayout.Width(55)))
+                    ToggleActionsSort(ActionsSortColumn.Status);
+                GUILayout.EndHorizontal();
 
                 actionsScrollPos = GUILayout.BeginScrollView(actionsScrollPos, GUILayout.ExpandHeight(true));
 
@@ -541,7 +615,39 @@ namespace Parsek
 
             GUILayout.EndHorizontal();
 
+            // Resize handle (bottom-right corner)
+            Rect handleRect = new Rect(
+                actionsWindowRect.width - ResizeHandleSize,
+                actionsWindowRect.height - ResizeHandleSize,
+                ResizeHandleSize, ResizeHandleSize);
+            GUI.Label(handleRect, "\u25e2"); // triangle
+            if (Event.current.type == EventType.MouseDown && handleRect.Contains(Event.current.mousePosition))
+            {
+                isResizingActionsWindow = true;
+                ParsekLog.Verbose("UI", "Actions window resize started");
+                Event.current.Use();
+            }
+
             GUI.DragWindow();
+        }
+
+        private string SortHeader(string label, ActionsSortColumn column)
+        {
+            if (actionsSortColumn == column)
+                return label + (actionsSortAscending ? " \u25b2" : " \u25bc"); // ▲ / ▼
+            return label;
+        }
+
+        private void ToggleActionsSort(ActionsSortColumn column)
+        {
+            if (actionsSortColumn == column)
+                actionsSortAscending = !actionsSortAscending;
+            else
+            {
+                actionsSortColumn = column;
+                actionsSortAscending = true;
+            }
+            ParsekLog.Verbose("UI", $"Actions sort changed: column={column} ascending={actionsSortAscending}");
         }
 
         public void DrawRecordingsWindowIfOpen(Rect mainWindowRect)
