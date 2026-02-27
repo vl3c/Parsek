@@ -325,6 +325,23 @@ namespace Parsek
 
         #endregion
 
+        /// <summary>
+        /// Counts non-resource events across all committed milestones in the current epoch.
+        /// Used for the Actions button badge in the main window.
+        /// </summary>
+        internal static int GetPendingEventCount()
+        {
+            int count = 0;
+            uint epoch = CurrentEpoch;
+            for (int i = 0; i < milestones.Count; i++)
+            {
+                var m = milestones[i];
+                if (!m.Committed || m.Epoch != epoch) continue;
+                count += m.Events.Count;
+            }
+            return count;
+        }
+
         #region Committed Action Queries
 
         /// <summary>

@@ -819,6 +819,114 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Disabled Segment + Resource Budget (cross-feature)
+
+        [Fact]
+        public void DisabledRecording_StillReservesResources()
+        {
+            // PlaybackEnabled=false suppresses the ghost but the mission still happened —
+            // resources must still be reserved.
+            var rec = MakeRecording(50000, 35000); // cost = 15000
+            rec.PlaybackEnabled = false;
+
+            var recordings = new List<RecordingStore.Recording> { rec };
+            var budget = ResourceBudget.ComputeTotal(recordings, new List<Milestone>());
+
+            Assert.Equal(15000, budget.reservedFunds);
+        }
+
+        [Fact]
+        public void DisabledChain_AllSegmentsStillReserve()
+        {
+            // A fully-disabled chain (all segments PlaybackEnabled=false) still reserves
+            // resources for each segment independently.
+            var seg0 = MakeRecording(50000, 45000); // cost = 5000 (launch)
+            seg0.ChainId = "chain-test";
+            seg0.ChainIndex = 0;
+            seg0.PlaybackEnabled = false;
+
+            var seg1 = MakeRecording(45000, 42000); // cost = 3000 (atmo segment)
+            seg1.ChainId = "chain-test";
+            seg1.ChainIndex = 1;
+            seg1.PlaybackEnabled = false;
+
+            var recordings = new List<RecordingStore.Recording> { seg0, seg1 };
+            var budget = ResourceBudget.ComputeTotal(recordings, new List<Milestone>());
+
+            Assert.Equal(8000, budget.reservedFunds); // 5000 + 3000
+        }
+
+        #endregion
+
+        #region Chain Split PreLaunchFunds Independence
+
+        [Fact]
+        public void ChainSegments_IndependentPreLaunchFunds_NoDoubleCounting()
+        {
+            // Atmosphere auto-split creates segments with independent PreLaunchFunds:
+            // seg0: PreLaunch=50000, end=45000 → cost 5000 (launch through atmo exit)
+            // seg1: PreLaunch=45000, end=42000 → cost 3000 (exo segment)
+            // Total should be 8000, not double-counted.
+            var seg0 = MakeRecording(50000, 45000); // cost = 5000
+            seg0.ChainId = "chain-split";
+            seg0.ChainIndex = 0;
+            seg0.SegmentPhase = "atmo";
+
+            var seg1 = MakeRecording(45000, 42000); // cost = 3000
+            seg1.ChainId = "chain-split";
+            seg1.ChainIndex = 1;
+            seg1.SegmentPhase = "exo";
+
+            var recordings = new List<RecordingStore.Recording> { seg0, seg1 };
+            var budget = ResourceBudget.ComputeTotal(recordings, new List<Milestone>());
+
+            Assert.Equal(8000, budget.reservedFunds);
+        }
+
+        [Fact]
+        public void ChainSegments_PartialReplay_IndependentTracking()
+        {
+            // Each segment tracks its own LastAppliedResourceIndex independently.
+            // seg0 fully applied, seg1 not yet applied.
+            var seg0 = MakeRecording(50000, 45000, lastAppliedResIdx: 1); // fully applied → cost 0
+            seg0.ChainId = "chain-partial";
+            seg0.ChainIndex = 0;
+
+            var seg1 = MakeRecording(45000, 42000); // not applied → cost 3000
+            seg1.ChainId = "chain-partial";
+            seg1.ChainIndex = 1;
+
+            var recordings = new List<RecordingStore.Recording> { seg0, seg1 };
+            var budget = ResourceBudget.ComputeTotal(recordings, new List<Milestone>());
+
+            Assert.Equal(3000, budget.reservedFunds); // only seg1's cost
+        }
+
+        [Fact]
+        public void ChainSegments_ScienceAndReputation_Independent()
+        {
+            var seg0 = MakeRecording(50000, 45000,
+                preLaunchScience: 100, endScience: 90,
+                preLaunchRep: 50, endRep: 48);
+            seg0.ChainId = "chain-sci";
+            seg0.ChainIndex = 0;
+
+            var seg1 = MakeRecording(45000, 42000,
+                preLaunchScience: 90, endScience: 85,
+                preLaunchRep: 48, endRep: 46);
+            seg1.ChainId = "chain-sci";
+            seg1.ChainIndex = 1;
+
+            var recordings = new List<RecordingStore.Recording> { seg0, seg1 };
+            var budget = ResourceBudget.ComputeTotal(recordings, new List<Milestone>());
+
+            Assert.Equal(8000, budget.reservedFunds);   // 5000 + 3000
+            Assert.Equal(15, budget.reservedScience);    // 10 + 5
+            Assert.Equal(4, budget.reservedReputation);  // 2 + 2
+        }
+
+        #endregion
+
         #region RecordingPaths
 
         [Fact]

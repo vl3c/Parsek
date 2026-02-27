@@ -659,5 +659,69 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region GetPendingEventCount
+
+        [Fact]
+        public void GetPendingEventCount_CountsCurrentEpochEvents()
+        {
+            MilestoneStore.CurrentEpoch = 0;
+
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 50,
+                eventType = GameStateEventType.TechResearched,
+                key = "basicRocketry",
+                detail = "cost=5"
+            });
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 60,
+                eventType = GameStateEventType.PartPurchased,
+                key = "mk1pod.v2",
+                detail = "cost=600"
+            });
+            MilestoneStore.CreateMilestone("rec1", 100);
+
+            Assert.Equal(2, MilestoneStore.GetPendingEventCount());
+        }
+
+        [Fact]
+        public void GetPendingEventCount_ExcludesOldEpochMilestones()
+        {
+            MilestoneStore.CurrentEpoch = 0;
+
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 50,
+                eventType = GameStateEventType.TechResearched,
+                key = "basicRocketry",
+                detail = "cost=5"
+            });
+            MilestoneStore.CreateMilestone("rec1", 100);
+
+            // Increment epoch (simulating revert)
+            MilestoneStore.CurrentEpoch = 1;
+
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 50,
+                eventType = GameStateEventType.PartPurchased,
+                key = "mk1pod.v2",
+                detail = "cost=600"
+            });
+            MilestoneStore.CreateMilestone("rec2", 100);
+
+            // Only the epoch=1 milestone counts (1 event)
+            Assert.Equal(1, MilestoneStore.GetPendingEventCount());
+        }
+
+        [Fact]
+        public void GetPendingEventCount_ZeroWhenEmpty()
+        {
+            Assert.Equal(0, MilestoneStore.GetPendingEventCount());
+        }
+
+        #endregion
     }
 }
