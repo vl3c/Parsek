@@ -21,6 +21,9 @@ namespace Parsek.Tests.Generators
         private int chainBranch = -1;
         private bool loopPlayback;
         private double loopPauseSeconds = 10.0;
+        private string segmentPhase;
+        private string segmentBodyName;
+        private bool playbackEnabled = true;
 
         // Default rotation for points that don't specify one explicitly
         private float defaultRotX, defaultRotY, defaultRotZ;
@@ -182,6 +185,24 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
+        public RecordingBuilder WithSegmentPhase(string phase)
+        {
+            segmentPhase = phase;
+            return this;
+        }
+
+        public RecordingBuilder WithSegmentBodyName(string body)
+        {
+            segmentBodyName = body;
+            return this;
+        }
+
+        public RecordingBuilder WithPlaybackEnabled(bool enabled)
+        {
+            playbackEnabled = enabled;
+            return this;
+        }
+
         public RecordingBuilder WithGhostVisualSnapshot(ConfigNode snapshot)
         {
             ghostVisualSnapshot = snapshot;
@@ -252,6 +273,14 @@ namespace Parsek.Tests.Generators
                 node.AddValue("spawnedPid", spawnedPid);
 
             node.AddValue("lastResIdx", lastResIdx);
+
+            // Atmosphere segment metadata
+            if (!string.IsNullOrEmpty(segmentPhase))
+                node.AddValue("segmentPhase", segmentPhase);
+            if (!string.IsNullOrEmpty(segmentBodyName))
+                node.AddValue("segmentBodyName", segmentBodyName);
+            if (!playbackEnabled)
+                node.AddValue("playbackEnabled", playbackEnabled.ToString());
 
             return node;
         }
