@@ -30,6 +30,8 @@ namespace Parsek
         // Part event tracking
         private Dictionary<uint, int> parachuteStates = new Dictionary<uint, int>(); // 0=stowed, 1=semi, 2=deployed
         private HashSet<uint> jettisonedShrouds = new HashSet<uint>();
+        private Dictionary<ulong, string> jettisonNameRawCache = new Dictionary<ulong, string>();
+        private Dictionary<ulong, string[]> parsedJettisonNamesCache = new Dictionary<ulong, string[]>();
         private HashSet<uint> extendedDeployables = new HashSet<uint>();
         private HashSet<uint> lightsOn = new HashSet<uint>();
         private HashSet<uint> blinkingLights = new HashSet<uint>();
@@ -293,6 +295,43 @@ namespace Parsek
             return null;
         }
 
+        private string[] GetCachedJettisonNames(ulong moduleKey, string rawNames)
+        {
+            rawNames = rawNames ?? string.Empty;
+            string cachedRaw;
+            if (jettisonNameRawCache.TryGetValue(moduleKey, out cachedRaw) &&
+                string.Equals(cachedRaw, rawNames, StringComparison.Ordinal) &&
+                parsedJettisonNamesCache.TryGetValue(moduleKey, out string[] cachedNames))
+            {
+                return cachedNames;
+            }
+
+            string[] parsedNames = ParseJettisonNames(rawNames);
+            jettisonNameRawCache[moduleKey] = rawNames;
+            parsedJettisonNamesCache[moduleKey] = parsedNames;
+            return parsedNames;
+        }
+
+        private static string[] ParseJettisonNames(string rawNames)
+        {
+            if (string.IsNullOrWhiteSpace(rawNames))
+                return Array.Empty<string>();
+
+            string[] split = rawNames.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+            if (split.Length == 0)
+                return Array.Empty<string>();
+
+            var cleaned = new List<string>(split.Length);
+            for (int i = 0; i < split.Length; i++)
+            {
+                string name = split[i].Trim();
+                if (!string.IsNullOrEmpty(name))
+                    cleaned.Add(name);
+            }
+
+            return cleaned.Count > 0 ? cleaned.ToArray() : Array.Empty<string>();
+        }
+
         private void CheckJettisonState(Vessel v)
         {
             if (v == null || v.parts == null) return;
@@ -305,11 +344,14 @@ namespace Parsek
 
                 bool hasJettisonModule = false;
                 bool isJettisoned = false;
+                int jettisonModuleIndex = 0;
                 for (int m = 0; m < p.Modules.Count; m++)
                 {
                     var jettison = p.Modules[m] as ModuleJettison;
                     if (jettison == null) continue;
                     hasJettisonModule = true;
+                    ulong moduleKey = EncodeEngineKey(p.persistentId, jettisonModuleIndex);
+                    jettisonModuleIndex++;
 
                     // Primary state flag.
                     if (jettison.isJettisoned)
@@ -324,15 +366,10 @@ namespace Parsek
                     if (string.IsNullOrWhiteSpace(jettisonNames))
                         continue;
 
-                    string[] names = jettisonNames.Split(
-                        new[] { ',' }, System.StringSplitOptions.RemoveEmptyEntries);
+                    string[] names = GetCachedJettisonNames(moduleKey, jettisonNames);
                     for (int n = 0; n < names.Length; n++)
                     {
-                        string jettisonName = names[n].Trim();
-                        if (string.IsNullOrEmpty(jettisonName))
-                            continue;
-
-                        Transform jt = p.FindModelTransform(jettisonName);
+                        Transform jt = p.FindModelTransform(names[n]);
                         if (jt != null && !jt.gameObject.activeInHierarchy)
                         {
                             isJettisoned = true;
@@ -2178,7 +2215,7 @@ namespace Parsek
                         if (shroudEvt.HasValue)
                         {
                             PartEvents.Add(shroudEvt.Value);
-                            ParsekLog.Log($"Part event: {shroudEvt.Value.eventType} '{shroudEvt.Value.partName}' " +
+                            ParsekLog.Info("Recorder", $"Part event: {shroudEvt.Value.eventType} '{shroudEvt.Value.partName}' " +
                                 $"pid={shroudEvt.Value.partPersistentId} (engine-ignite fallback)");
                         }
                     }
@@ -2909,6 +2946,8 @@ namespace Parsek
             PartEvents.Clear();
             parachuteStates.Clear();
             jettisonedShrouds.Clear();
+            jettisonNameRawCache.Clear();
+            parsedJettisonNamesCache.Clear();
             extendedDeployables.Clear();
             lightsOn.Clear();
             blinkingLights.Clear();

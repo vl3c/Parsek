@@ -87,7 +87,53 @@ namespace Parsek.Tests
 
             var violations = ParsekLogContractChecker.ValidateLatestSession(entries);
 
-            Assert.DoesNotContain(violations, v => v.Code == "REC-003");
+            Assert.Empty(violations);
+        }
+
+        [Fact]
+        public void MalformedSessionStart_ReportsSes002()
+        {
+            var entries = ParsekKspLogParser.ParseLines(new[]
+            {
+                "[LOG] [Parsek][INFO][Init] SessionStart runUtc=abc",
+                "[LOG] [Parsek][INFO][Recorder] Recording started (physics-frame sampling)",
+                "[LOG] [Parsek][INFO][Recorder] Recording stopped. 3 points, 0 orbit segments over 1.2s"
+            });
+
+            var violations = ParsekLogContractChecker.ValidateLatestSession(entries);
+
+            Assert.Contains(violations, v => v.Code == "SES-002");
+        }
+
+        [Fact]
+        public void InvalidLogLevel_ReportsFmt002()
+        {
+            var entries = ParsekKspLogParser.ParseLines(new[]
+            {
+                "[LOG] [Parsek][INFO][Init] SessionStart runUtc=3004",
+                "[LOG] [Parsek][DEBUG][Recorder] Recording started (physics-frame sampling)",
+                "[LOG] [Parsek][INFO][Recorder] Recording stopped. 3 points, 0 orbit segments over 1.2s"
+            });
+
+            var violations = ParsekLogContractChecker.ValidateLatestSession(entries);
+
+            Assert.Contains(violations, v => v.Code == "FMT-002");
+        }
+
+        [Fact]
+        public void UnparseableResourcePostValue_ReportsRes002()
+        {
+            var entries = ParsekKspLogParser.ParseLines(new[]
+            {
+                "[LOG] [Parsek][INFO][Init] SessionStart runUtc=3005",
+                "[LOG] [Parsek][INFO][Recorder] Recording started (physics-frame sampling)",
+                "[LOG] [Parsek][INFO][GameStateRecorder] Game state: FundsChanged +50 (Test) -> 9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
+                "[LOG] [Parsek][INFO][Recorder] Recording stopped. 3 points, 0 orbit segments over 1.2s"
+            });
+
+            var violations = ParsekLogContractChecker.ValidateLatestSession(entries);
+
+            Assert.Contains(violations, v => v.Code == "RES-002");
         }
 
         [Fact]

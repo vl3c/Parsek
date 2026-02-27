@@ -3,7 +3,6 @@ using Xunit;
 
 namespace Parsek.Tests
 {
-    [Collection("Sequential")]
     public class FxDiagnosticsTests
     {
         [Theory]
