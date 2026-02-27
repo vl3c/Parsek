@@ -24,6 +24,9 @@ namespace Parsek.Tests
         [InlineData("bad_suppressed_value.log", "RAT-001")]
         [InlineData("bad_recording_stop_values.log", "REC-002")]
         [InlineData("bad_negative_resource.log", "RES-001")]
+        [InlineData("bad_atmo_split_metrics.log", "REC-002")]
+        [InlineData("bad_atmo_warning.log", "WRN-001")]
+        [InlineData("bad_atmo_error.log", "ERR-001")]
         public void BadFixtures_ReportExpectedViolationCode(string fixtureName, string expectedCode)
         {
             var entries = ParsekKspLogParser.ParseFile(TestFixtureLoader.GetFixturePath(fixtureName));
@@ -150,6 +153,94 @@ namespace Parsek.Tests
             var violations = ParsekLogContractChecker.ValidateLatestSession(entries);
 
             Assert.Empty(violations);
+        }
+
+        [Fact]
+        public void AtmoSoiFixture_HasNoViolations()
+        {
+            var entries = ParsekKspLogParser.ParseFile(TestFixtureLoader.GetFixturePath("good_atmo_soi_session.log"));
+
+            var violations = ParsekLogContractChecker.ValidateLatestSession(entries);
+
+            Assert.Empty(violations);
+        }
+
+        [Fact]
+        public void AtmoSoiFixture_ContainsExpectedSubsystems()
+        {
+            var entries = ParsekKspLogParser.ParseFile(TestFixtureLoader.GetFixturePath("good_atmo_soi_session.log"));
+            var session = ParsekKspLogParser.SelectLatestSession(entries);
+
+            Assert.Contains(session, e => e.Subsystem == "Recorder" &&
+                (e.Message ?? "").Contains("Atmosphere boundary confirmed"));
+            Assert.Contains(session, e => e.Subsystem == "Recorder" &&
+                (e.Message ?? "").Contains("Atmosphere boundary detected"));
+            Assert.Contains(session, e => e.Subsystem == "Recorder" &&
+                (e.Message ?? "").Contains("Atmosphere state reseeded"));
+            Assert.Contains(session, e => e.Subsystem == "Recorder" &&
+                (e.Message ?? "").Contains("Boundary detection initialized"));
+            Assert.Contains(session, e => e.Subsystem == "Recorder" &&
+                (e.Message ?? "").Contains("SOI changed during orbit recording"));
+            Assert.Contains(session, e => e.Subsystem == "Flight" &&
+                (e.Message ?? "").Contains("Atmosphere auto-split triggered"));
+            Assert.Contains(session, e => e.Subsystem == "Flight" &&
+                (e.Message ?? "").Contains("SOI auto-split triggered"));
+            Assert.Contains(session, e => e.Subsystem == "Flight" &&
+                (e.Message ?? "").Contains("Boundary split: committing segment"));
+            Assert.Contains(session, e => e.Subsystem == "Flight" &&
+                (e.Message ?? "").Contains("Boundary split committed"));
+            Assert.Contains(session, e => e.Subsystem == "Scenario" &&
+                (e.Message ?? "").Contains("Saved metadata:") && (e.Message ?? "").Contains("phase=atmo"));
+            Assert.Contains(session, e => e.Subsystem == "Scenario" &&
+                (e.Message ?? "").Contains("Loaded metadata:") && (e.Message ?? "").Contains("phase=space"));
+            Assert.Contains(session, e => e.Subsystem == "RecordingStore" &&
+                (e.Message ?? "").Contains("Validating chains"));
+            Assert.Contains(session, e => e.Subsystem == "RecordingStore" &&
+                (e.Message ?? "").Contains("All chains validated OK"));
+            Assert.Contains(session, e => e.Subsystem == "Flight" &&
+                (e.Message ?? "").Contains("Ghost #0 destroyed") && (e.Message ?? "").Contains("segment disabled"));
+            Assert.Contains(session, e => e.Subsystem == "UI" &&
+                (e.Message ?? "").Contains("autoSplitAtAtmosphere"));
+            Assert.Contains(session, e => e.Subsystem == "UI" &&
+                (e.Message ?? "").Contains("autoSplitAtSoi"));
+        }
+
+        [Fact]
+        public void AtmoSoiFixture_ChainBoundaryStopMetricsValidated()
+        {
+            // Chain boundary stops must pass the same REC-002 metrics validation
+            var entries = ParsekKspLogParser.ParseFile(TestFixtureLoader.GetFixturePath("good_atmo_soi_session.log"));
+            var session = ParsekKspLogParser.SelectLatestSession(entries);
+
+            var chainBoundaryStops = session.Where(e =>
+                e.Subsystem == "Recorder" &&
+                (e.Message ?? "").Contains("Recording stopped (chain boundary)")).ToList();
+
+            Assert.True(chainBoundaryStops.Count >= 2,
+                $"Expected at least 2 chain boundary stops, found {chainBoundaryStops.Count}");
+        }
+
+        [Fact]
+        public void ChainBoundaryStopWithTooFewPoints_ReportsRec002()
+        {
+            var entries = ParsekKspLogParser.ParseFile(TestFixtureLoader.GetFixturePath("bad_atmo_split_metrics.log"));
+
+            var violations = ParsekLogContractChecker.ValidateLatestSession(entries);
+
+            Assert.Contains(violations, v => v.Code == "REC-002");
+        }
+
+        [Fact]
+        public void AtmoSoiSession_MultipleStartStopPairs_NoRecViolations()
+        {
+            // A session with atmosphere/SOI splits has multiple start/stop pairs;
+            // the contract checker should not report REC-001 or REC-003
+            var entries = ParsekKspLogParser.ParseFile(TestFixtureLoader.GetFixturePath("good_atmo_soi_session.log"));
+
+            var violations = ParsekLogContractChecker.ValidateLatestSession(entries);
+
+            Assert.DoesNotContain(violations, v => v.Code == "REC-001");
+            Assert.DoesNotContain(violations, v => v.Code == "REC-003");
         }
     }
 }

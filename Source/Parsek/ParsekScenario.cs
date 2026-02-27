@@ -178,6 +178,16 @@ namespace Parsek
                         string resIdxStr = savedRecNodes[i].GetValue("lastResIdx");
                         if (resIdxStr != null && !int.TryParse(resIdxStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out resIdx))
                             ParsekLog.Warn("Scenario", $"Failed to parse lastResIdx '{resIdxStr}' for recording #{i}");
+
+                        string playbackEnabledStr = savedRecNodes[i].GetValue("playbackEnabled");
+                        if (playbackEnabledStr != null)
+                        {
+                            bool savedPlaybackEnabled;
+                            if (bool.TryParse(playbackEnabledStr, out savedPlaybackEnabled))
+                                recordings[i].PlaybackEnabled = savedPlaybackEnabled;
+                            else
+                                ParsekLog.Warn("Scenario", $"Failed to parse playbackEnabled '{playbackEnabledStr}' for recording #{i}");
+                        }
                     }
                     recordings[i].SpawnedVesselPersistentId = savedPid;
                     recordings[i].TakenControl = savedTaken;
@@ -267,6 +277,11 @@ namespace Parsek
                 // Always add — even degraded recordings (missing .prec → 0 points)
                 // must occupy their slot to preserve index-based revert mapping.
                 recordings.Add(rec);
+                string phaseInfo = !string.IsNullOrEmpty(rec.SegmentPhase)
+                    ? $", phase={rec.SegmentBodyName} {rec.SegmentPhase}" : "";
+                string chainInfo = !string.IsNullOrEmpty(rec.ChainId)
+                    ? $", chain={rec.ChainId.Substring(0, System.Math.Min(8, rec.ChainId.Length))}../{rec.ChainIndex}" : "";
+                string enabledInfo = !rec.PlaybackEnabled ? ", DISABLED" : "";
                 ScenarioLog($"[Parsek Scenario] Loaded recording: {rec.VesselName}, " +
                     $"{rec.Points.Count} points, {rec.OrbitSegments.Count} orbit segments" +
                     (rec.Points.Count > 0 ? $", UT {rec.StartUT:F0}-{rec.EndUT:F0}" : ", degraded (0 points)") +
@@ -274,7 +289,8 @@ namespace Parsek
                      rec.GhostVisualSnapshot != null ? " (ghost-only)" : "") +
                     (!string.IsNullOrEmpty(rec.GhostGeometryRelativePath)
                         ? $" (ghost geometry: {(rec.GhostGeometryAvailable ? "ready" : "fallback")})"
-                        : ""));
+                        : "") +
+                    phaseInfo + chainInfo + enabledInfo);
             }
 
             // Validate chain integrity before any playback
@@ -360,6 +376,18 @@ namespace Parsek
             recNode.AddValue("ghostGeometryAvailable", rec.GhostGeometryAvailable);
             if (!string.IsNullOrEmpty(rec.GhostGeometryCaptureError))
                 recNode.AddValue("ghostGeometryError", rec.GhostGeometryCaptureError);
+
+            // Atmosphere segment metadata (only if set, saves space)
+            if (!string.IsNullOrEmpty(rec.SegmentPhase))
+                recNode.AddValue("segmentPhase", rec.SegmentPhase);
+            if (!string.IsNullOrEmpty(rec.SegmentBodyName))
+                recNode.AddValue("segmentBodyName", rec.SegmentBodyName);
+            if (!rec.PlaybackEnabled)
+                recNode.AddValue("playbackEnabled", rec.PlaybackEnabled.ToString());
+
+            ParsekLog.Verbose("Scenario", $"Saved metadata: id={rec.RecordingId}, " +
+                $"phase={rec.SegmentPhase ?? "(none)"}, body={rec.SegmentBodyName ?? "(none)"}, " +
+                $"playback={rec.PlaybackEnabled}, chain={rec.ChainId ?? "(none)"}/{rec.ChainIndex}");
         }
 
         /// <summary>
@@ -420,6 +448,21 @@ namespace Parsek
                     rec.GhostGeometryAvailable = geomAvailable;
             }
             rec.GhostGeometryCaptureError = recNode.GetValue("ghostGeometryError");
+
+            // Atmosphere segment metadata
+            rec.SegmentPhase = recNode.GetValue("segmentPhase");
+            rec.SegmentBodyName = recNode.GetValue("segmentBodyName");
+            string playbackEnabledStr = recNode.GetValue("playbackEnabled");
+            if (playbackEnabledStr != null)
+            {
+                bool playbackEnabled;
+                if (bool.TryParse(playbackEnabledStr, out playbackEnabled))
+                    rec.PlaybackEnabled = playbackEnabled;
+            }
+
+            ParsekLog.Verbose("Scenario", $"Loaded metadata: id={rec.RecordingId}, " +
+                $"phase={rec.SegmentPhase ?? "(none)"}, body={rec.SegmentBodyName ?? "(none)"}, " +
+                $"playback={rec.PlaybackEnabled}, chain={rec.ChainId ?? "(none)"}/{rec.ChainIndex}");
         }
 
         /// <summary>
@@ -437,6 +480,7 @@ namespace Parsek
                 foreach (var rec in RecordingStore.CommittedRecordings)
                 {
                     if (rec.LoopPlayback) continue;
+                    if (RecordingStore.IsChainFullyDisabled(rec.ChainId)) continue;
                     ReserveCrewIn(rec.VesselSnapshot, rec.VesselSpawned, roster);
                 }
 

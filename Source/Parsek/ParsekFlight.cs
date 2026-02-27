@@ -357,6 +357,52 @@ namespace Parsek
                 }
             }
 
+            // Atmosphere boundary: auto-split when crossing atmosphere edge
+            if (recorder != null && recorder.IsRecording && recorder.AtmosphereBoundaryCrossed &&
+                ParsekSettings.Current?.autoSplitAtAtmosphere != false)
+            {
+                string phase = recorder.EnteredAtmosphere ? "exo" : "atmo";
+                string newPhase = recorder.EnteredAtmosphere ? "atmo" : "exo";
+                string bodyName = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
+                ParsekLog.Info("Flight", $"Atmosphere auto-split triggered: {bodyName} {phase}→{newPhase} " +
+                    $"(chain={activeChainId ?? "(new)"}, points={recorder.Recording.Count})");
+                recorder.StopRecordingForChainBoundary();
+                CommitBoundarySplit(phase, bodyName);
+                recorder = null;
+                StartRecording();
+                if (IsRecording)
+                {
+                    recorder.UndockSiblingPid = undockContinuationPid;
+                    ParsekLog.Info("Flight", $"Recording continues after atmosphere boundary " +
+                        $"(chain={activeChainId}, idx={activeChainNextIndex}, {bodyName} {phase}→{newPhase})");
+                    ParsekLog.ScreenMessage($"Recording continues ({(newPhase == "atmo" ? "entering" : "exiting")} atmosphere)", 2f);
+                }
+            }
+
+            // SOI change: auto-split when transitioning between celestial bodies
+            if (recorder != null && recorder.IsRecording && recorder.SoiChangePending &&
+                ParsekSettings.Current?.autoSplitAtSoi != false)
+            {
+                string fromBody = recorder.SoiChangeFromBody ?? "Unknown";
+                string toBody = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
+                // Completed segment was at fromBody — tag as "exo" if it has atmosphere, "space" otherwise
+                CelestialBody fromCB = FlightGlobals.Bodies?.Find(b => b.name == fromBody);
+                string fromPhase = (fromCB != null && fromCB.atmosphere) ? "exo" : "space";
+                ParsekLog.Info("Flight", $"SOI auto-split triggered: {fromBody} ({fromPhase}) → {toBody} " +
+                    $"(chain={activeChainId ?? "(new)"}, points={recorder.Recording.Count})");
+                recorder.StopRecordingForChainBoundary();
+                CommitBoundarySplit(fromPhase, fromBody);
+                recorder = null;
+                StartRecording();
+                if (IsRecording)
+                {
+                    recorder.UndockSiblingPid = undockContinuationPid;
+                    ParsekLog.Info("Flight", $"Recording continues after SOI change " +
+                        $"({fromBody} → {toBody}, chain={activeChainId}, idx={activeChainNextIndex})");
+                    ParsekLog.ScreenMessage($"Recording continues (entering {toBody} SOI)", 2f);
+                }
+            }
+
             // Complete deferred auto-record for EVA (vessel switch may take a frame)
             if (pendingAutoRecord && !IsRecording &&
                 FlightGlobals.ActiveVessel != null && FlightGlobals.ActiveVessel.isEVA)
@@ -533,6 +579,22 @@ namespace Parsek
                         RecordingStore.Pending.ChainIndex = activeChainNextIndex;
                         RecordingStore.Pending.ParentRecordingId = activeChainPrevId;
                         RecordingStore.Pending.EvaCrewName = activeChainCrewName;
+                    }
+
+                    // Tag segment phase in fallback path
+                    if (RecordingStore.HasPending && string.IsNullOrEmpty(RecordingStore.Pending.SegmentPhase))
+                    {
+                        var v = FlightGlobals.ActiveVessel;
+                        if (v != null && v.mainBody != null)
+                        {
+                            RecordingStore.Pending.SegmentBodyName = v.mainBody.name;
+                            if (v.mainBody.atmosphere)
+                                RecordingStore.Pending.SegmentPhase = v.altitude < v.mainBody.atmosphereDepth ? "atmo" : "exo";
+                            else
+                                RecordingStore.Pending.SegmentPhase = "space";
+                            ParsekLog.Verbose("Flight", $"Final segment tagged (ForceStop): " +
+                                $"{RecordingStore.Pending.SegmentBodyName} {RecordingStore.Pending.SegmentPhase}");
+                        }
                     }
                 }
 
@@ -1081,6 +1143,75 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Commits the current segment as an atmosphere boundary chain split.
+        /// Follows the same pattern as CommitDockUndockSegment.
+        /// </summary>
+        void CommitBoundarySplit(string completedPhase, string bodyName)
+        {
+            var captured = recorder.CaptureAtStop;
+            string segmentId = captured != null ? captured.RecordingId : null;
+            ParsekLog.Info("Flight", $"Boundary split: committing segment " +
+                $"(id={segmentId}, phase={completedPhase}, body={bodyName}, " +
+                $"points={recorder.Recording.Count}, orbits={recorder.OrbitSegments.Count})");
+
+            RecordingStore.StashPending(
+                recorder.Recording,
+                captured != null ? captured.VesselName : (FlightGlobals.ActiveVessel?.vesselName ?? "Unknown"),
+                recorder.OrbitSegments,
+                recordingId: segmentId,
+                recordingFormatVersion: captured != null ? (int?)captured.RecordingFormatVersion : null,
+                ghostGeometryVersion: captured != null ? (int?)captured.GhostGeometryVersion : null,
+                partEvents: recorder.PartEvents);
+
+            if (!RecordingStore.HasPending)
+            {
+                ParsekLog.Warn("Flight", "Boundary split: segment too short to stash — aborting " +
+                    $"(points={recorder.Recording.Count})");
+                return;
+            }
+
+            if (captured != null)
+                RecordingStore.Pending.ApplyPersistenceArtifactsFrom(captured);
+
+            // Tag segment with phase and body
+            RecordingStore.Pending.SegmentPhase = completedPhase;
+            RecordingStore.Pending.SegmentBodyName = bodyName;
+
+            // First transition: initialize chain
+            if (activeChainId == null)
+            {
+                activeChainId = System.Guid.NewGuid().ToString("N");
+                activeChainNextIndex = 0;
+                ParsekLog.Info("Flight", $"Boundary split: started new chain (id={activeChainId})");
+            }
+
+            // Tag segment with chain metadata
+            RecordingStore.Pending.ChainId = activeChainId;
+            RecordingStore.Pending.ChainIndex = activeChainNextIndex;
+            RecordingStore.Pending.ChainBranch = 0;
+            RecordingStore.Pending.ParentRecordingId = activeChainPrevId;
+            RecordingStore.Pending.EvaCrewName = activeChainCrewName;
+
+            // Mid-chain segments are ghost-only
+            RecordingStore.Pending.VesselSnapshot = null;
+
+            RecordingStore.CommitPending();
+            ParsekScenario.ReserveSnapshotCrew();
+            ParsekScenario.SwapReservedCrewInFlight();
+
+            // Prepare boundary anchor from last point of committed segment
+            if (recorder.Recording.Count > 0)
+                pendingBoundaryAnchor = recorder.Recording[recorder.Recording.Count - 1];
+
+            // Advance chain state
+            activeChainNextIndex++;
+            activeChainPrevId = segmentId;
+            ParsekLog.Verbose("Flight", $"Boundary split committed: chain={activeChainId}, " +
+                $"nextIdx={activeChainNextIndex}, segment={bodyName} {completedPhase}, " +
+                $"totalRecordings={RecordingStore.CommittedRecordings.Count}");
+        }
+
+        /// <summary>
         /// Starts ghost-only continuation recording for the "other" vessel after undock.
         /// This vessel gets ChainBranch = 1 so it plays back as a ghost but never spawns.
         /// </summary>
@@ -1412,6 +1543,22 @@ namespace Parsek
                 recorder.CaptureAtStop.ParentRecordingId = activeChainPrevId;
                 recorder.CaptureAtStop.EvaCrewName = activeChainCrewName;
             }
+
+            // Tag final segment phase if untagged
+            if (recorder?.CaptureAtStop != null && string.IsNullOrEmpty(recorder.CaptureAtStop.SegmentPhase))
+            {
+                var v = FlightGlobals.ActiveVessel;
+                if (v != null && v.mainBody != null)
+                {
+                    recorder.CaptureAtStop.SegmentBodyName = v.mainBody.name;
+                    if (v.mainBody.atmosphere)
+                        recorder.CaptureAtStop.SegmentPhase = v.altitude < v.mainBody.atmosphereDepth ? "atmo" : "exo";
+                    else
+                        recorder.CaptureAtStop.SegmentPhase = "space";
+                    ParsekLog.Verbose("Flight", $"Final segment tagged (StopRecording): " +
+                        $"{recorder.CaptureAtStop.SegmentBodyName} {recorder.CaptureAtStop.SegmentPhase}");
+                }
+            }
         }
 
         public void ClearRecording()
@@ -1630,6 +1777,7 @@ namespace Parsek
                     var rec = committed[i];
                     if (rec.Points.Count < 2) continue;
                     if (ShouldLoopPlayback(rec)) continue;
+                    if (!rec.PlaybackEnabled) continue;
                     if (rec.VesselSnapshot == null || rec.VesselSpawned || rec.VesselDestroyed ||
                         RecordingStore.IsChainMidSegment(rec)) continue;
 
@@ -1663,6 +1811,20 @@ namespace Parsek
                 ghostStates.TryGetValue(i, out state);
                 bool ghostActive = state != null && state.ghost != null;
 
+                // Disabled segments: destroy ghost if active, still apply resource deltas
+                if (!rec.PlaybackEnabled)
+                {
+                    if (ghostActive)
+                    {
+                        DestroyTimelineGhost(i);
+                        ParsekLog.Verbose("Flight", $"Ghost #{i} destroyed — segment disabled " +
+                            $"({rec.VesselName}, {RecordingStore.GetSegmentPhaseLabel(rec)})");
+                    }
+                    if (pastEnd)
+                        ApplyResourceDeltas(rec, currentUT);
+                    continue;
+                }
+
                 if (ShouldLoopPlayback(rec))
                 {
                     UpdateLoopingTimelinePlayback(i, rec, currentUT, state, ghostActive);
@@ -1690,6 +1852,14 @@ namespace Parsek
                     needsSpawn = false;
                     if (loggedGhostEnter.Add(i + 300000))
                         ParsekLog.Verbose("Flight", $"Spawn suppressed for #{i} ({rec.VesselName}): active chain being built");
+                }
+
+                // Suppress spawn for looping or fully-disabled chains
+                if (needsSpawn && !string.IsNullOrEmpty(rec.ChainId))
+                {
+                    if (RecordingStore.IsChainLooping(rec.ChainId) ||
+                        RecordingStore.IsChainFullyDisabled(rec.ChainId))
+                        needsSpawn = false;
                 }
 
                 // One-time chain spawn diagnostics when entering the spawn window

@@ -554,6 +554,192 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// 3-segment atmosphere boundary chain: atmo ascent → exo coast → atmo reentry.
+        /// Tests SegmentPhase/SegmentBodyName serialization and chain grouping in UI.
+        /// </summary>
+        internal static RecordingBuilder[] KerbinAscentChain(double baseUT = 0)
+        {
+            string chainId = "chain-atmo-split-test";
+            double t = baseUT + 430;
+            double baseLat = -0.0972;
+            double baseLon = -74.5575;
+
+            // Segment 0: Atmospheric ascent (0-60s, 77m → 71000m)
+            var seg0 = new RecordingBuilder("Kerbin Ascent")
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
+                .WithRecordingId("chain-atmo-seg0")
+                .WithChainId(chainId)
+                .WithChainIndex(0)
+                .WithSegmentPhase("atmo")
+                .WithSegmentBodyName("Kerbin");
+
+            seg0.AddPoint(t,      baseLat, baseLon,            77);
+            seg0.AddPoint(t + 10, baseLat, baseLon + 0.001,    5000);
+            seg0.AddPoint(t + 20, baseLat, baseLon + 0.003,    15000);
+            seg0.AddPoint(t + 30, baseLat, baseLon + 0.007,    30000);
+            seg0.AddPoint(t + 40, baseLat, baseLon + 0.012,    50000);
+            seg0.AddPoint(t + 50, baseLat, baseLon + 0.018,    65000);
+            seg0.AddPoint(t + 60, baseLat, baseLon + 0.025,    71000); // boundary crossing
+
+            seg0.WithGhostVisualSnapshot(
+                VesselSnapshotBuilder.FleaRocket("Kerbin Ascent", "Valentina Kerman", pid: 77000000)
+                    .AsLanded(baseLat, baseLon, 77));
+
+            // Segment 1: Exo-atmospheric coast (60-120s, 71000m → 80000m → 71000m)
+            var seg1 = new RecordingBuilder("Kerbin Ascent")
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
+                .WithRecordingId("chain-atmo-seg1")
+                .WithChainId(chainId)
+                .WithChainIndex(1)
+                .WithParentRecordingId("chain-atmo-seg0")
+                .WithSegmentPhase("exo")
+                .WithSegmentBodyName("Kerbin");
+
+            seg1.AddPoint(t + 60,  baseLat, baseLon + 0.025,  71000); // boundary anchor
+            seg1.AddPoint(t + 70,  baseLat, baseLon + 0.032,  75000);
+            seg1.AddPoint(t + 80,  baseLat, baseLon + 0.040,  80000); // apoapsis
+            seg1.AddPoint(t + 90,  baseLat, baseLon + 0.048,  78000);
+            seg1.AddPoint(t + 100, baseLat, baseLon + 0.055,  74000);
+            seg1.AddPoint(t + 110, baseLat, baseLon + 0.062,  72000);
+            seg1.AddPoint(t + 120, baseLat, baseLon + 0.068,  71000); // re-entry boundary
+
+            seg1.WithGhostVisualSnapshot(
+                VesselSnapshotBuilder.FleaRocket("Kerbin Ascent", "Valentina Kerman", pid: 77000000)
+                    .AsLanded(baseLat, baseLon, 77));
+
+            // Segment 2: Atmospheric reentry (120-180s, 71000m → 55m landed)
+            var seg2 = new RecordingBuilder("Kerbin Ascent")
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
+                .WithRecordingId("chain-atmo-seg2")
+                .WithChainId(chainId)
+                .WithChainIndex(2)
+                .WithParentRecordingId("chain-atmo-seg1")
+                .WithSegmentPhase("atmo")
+                .WithSegmentBodyName("Kerbin");
+
+            double landLat = baseLat + 0.005;
+            double landLon = baseLon + 0.075;
+            seg2.AddPoint(t + 120, baseLat,           baseLon + 0.068, 71000); // boundary anchor
+            seg2.AddPoint(t + 130, baseLat + 0.001,   baseLon + 0.070, 55000);
+            seg2.AddPoint(t + 140, baseLat + 0.002,   baseLon + 0.072, 35000);
+            seg2.AddPoint(t + 150, baseLat + 0.003,   baseLon + 0.073, 15000);
+            seg2.AddPoint(t + 160, baseLat + 0.004,   baseLon + 0.074, 5000);
+            seg2.AddPoint(t + 170, landLat - 0.0005,  landLon - 0.0005, 500);
+            seg2.AddPoint(t + 180, landLat,            landLon,          55); // landed
+
+            seg2.WithVesselSnapshot(
+                VesselSnapshotBuilder.FleaRocket("Kerbin Ascent", "Valentina Kerman", pid: 77000000)
+                    .AsLanded(landLat, landLon, 55));
+            seg2.WithGhostVisualSnapshot(
+                VesselSnapshotBuilder.FleaRocket("Kerbin Ascent", "Valentina Kerman", pid: 77000000)
+                    .AsLanded(baseLat, baseLon, 77));
+
+            return new[] { seg0, seg1, seg2 };
+        }
+
+        /// <summary>
+        /// 4-segment chain: Kerbin atmo → Kerbin exo → Mun space → Kerbin exo (return).
+        /// Tests SOI-change auto-split with orbit segments at the Mun.
+        /// </summary>
+        internal static RecordingBuilder[] KerbinMunTransfer(double baseUT = 0)
+        {
+            string chainId = "chain-mun-transfer-test";
+            double t = baseUT + 630;
+            double baseLat = -0.0972;
+            double baseLon = -74.5575;
+
+            // Segment 0: Atmospheric ascent (0-60s)
+            var seg0 = new RecordingBuilder("Mun Transfer")
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
+                .WithRecordingId("chain-mun-seg0")
+                .WithChainId(chainId)
+                .WithChainIndex(0)
+                .WithSegmentPhase("atmo")
+                .WithSegmentBodyName("Kerbin");
+
+            seg0.AddPoint(t,      baseLat, baseLon,            77);
+            seg0.AddPoint(t + 20, baseLat, baseLon + 0.003,    25000);
+            seg0.AddPoint(t + 40, baseLat, baseLon + 0.012,    55000);
+            seg0.AddPoint(t + 60, baseLat, baseLon + 0.025,    71000);
+
+            seg0.WithGhostVisualSnapshot(
+                VesselSnapshotBuilder.FleaRocket("Mun Transfer", "Bill Kerman", pid: 88000000)
+                    .AsLanded(baseLat, baseLon, 77));
+
+            // Segment 1: Kerbin exo — coast to Mun SOI (60-300s, with orbit segment)
+            var seg1 = new RecordingBuilder("Mun Transfer")
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
+                .WithRecordingId("chain-mun-seg1")
+                .WithChainId(chainId)
+                .WithChainIndex(1)
+                .WithParentRecordingId("chain-mun-seg0")
+                .WithSegmentPhase("exo")
+                .WithSegmentBodyName("Kerbin");
+
+            seg1.AddPoint(t + 60,  baseLat, baseLon + 0.025, 71000);
+            seg1.AddPoint(t + 80,  baseLat, baseLon + 0.04,  100000);
+            seg1.AddPoint(t + 100, baseLat, baseLon + 0.06,  150000);
+            // Orbit segment for coast phase
+            seg1.AddOrbitSegment(t + 100, t + 300,
+                inc: 0, ecc: 0.7, sma: 3000000,
+                lan: 0, argPe: 0, mna: 0.5, epoch: t + 100,
+                body: "Kerbin");
+            seg1.AddPoint(t + 300, 5.0, -60.0, 500000); // approaching Mun SOI
+
+            seg1.WithGhostVisualSnapshot(
+                VesselSnapshotBuilder.FleaRocket("Mun Transfer", "Bill Kerman", pid: 88000000)
+                    .AsLanded(baseLat, baseLon, 77));
+
+            // Segment 2: Mun space — orbit the Mun (300-500s)
+            var seg2 = new RecordingBuilder("Mun Transfer")
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
+                .WithRecordingId("chain-mun-seg2")
+                .WithChainId(chainId)
+                .WithChainIndex(2)
+                .WithParentRecordingId("chain-mun-seg1")
+                .WithSegmentPhase("space")
+                .WithSegmentBodyName("Mun");
+
+            seg2.AddPoint(t + 300, 0.0, 0.0, 50000, body: "Mun");
+            // Orbit segment around the Mun
+            seg2.AddOrbitSegment(t + 300, t + 500,
+                inc: 5, ecc: 0.01, sma: 250000,
+                lan: 0, argPe: 90, mna: 0, epoch: t + 300,
+                body: "Mun");
+            seg2.AddPoint(t + 500, 0.0, 90.0, 50000, body: "Mun");
+
+            seg2.WithGhostVisualSnapshot(
+                VesselSnapshotBuilder.FleaRocket("Mun Transfer", "Bill Kerman", pid: 88000000)
+                    .AsLanded(baseLat, baseLon, 77));
+
+            // Segment 3: Return to Kerbin exo (500-700s)
+            var seg3 = new RecordingBuilder("Mun Transfer")
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
+                .WithRecordingId("chain-mun-seg3")
+                .WithChainId(chainId)
+                .WithChainIndex(3)
+                .WithParentRecordingId("chain-mun-seg2")
+                .WithSegmentPhase("exo")
+                .WithSegmentBodyName("Kerbin");
+
+            seg3.AddPoint(t + 500, 5.0, -60.0, 500000);
+            seg3.AddOrbitSegment(t + 500, t + 700,
+                inc: 0, ecc: 0.8, sma: 4000000,
+                lan: 0, argPe: 180, mna: 2.5, epoch: t + 500,
+                body: "Kerbin");
+            seg3.AddPoint(t + 700, baseLat + 1.0, baseLon + 2.0, 100000);
+
+            seg3.WithVesselSnapshot(
+                VesselSnapshotBuilder.FleaRocket("Mun Transfer", "Bill Kerman", pid: 88000000)
+                    .AsOrbiting(sma: 4000000, ecc: 0.8, inc: 0));
+            seg3.WithGhostVisualSnapshot(
+                VesselSnapshotBuilder.FleaRocket("Mun Transfer", "Bill Kerman", pid: 88000000)
+                    .AsLanded(baseLat, baseLon, 77));
+
+            return new[] { seg0, seg1, seg2, seg3 };
+        }
+
+        /// <summary>
         /// Generalized helper for building a static-trajectory, looping showcase recording
         /// that toggles a pair of part events every 3 seconds. Used for lights, deployables,
         /// gear, cargo bays, engines, and deployed science fixtures.
@@ -4583,6 +4769,12 @@ namespace Parsek.Tests
             var walkChainSegments = EvaWalkChain(baseUT);
             for (int i = 0; i < walkChainSegments.Length; i++)
                 writer.AddRecording(walkChainSegments[i].WithLoopPlayback());
+            var atmoChainSegments = KerbinAscentChain(baseUT);
+            for (int i = 0; i < atmoChainSegments.Length; i++)
+                writer.AddRecording(atmoChainSegments[i].WithLoopPlayback());
+            var munTransferSegments = KerbinMunTransfer(baseUT);
+            for (int i = 0; i < munTransferSegments.Length; i++)
+                writer.AddRecording(munTransferSegments[i].WithLoopPlayback());
 
             foreach (string file in targets)
             {
@@ -4798,6 +4990,11 @@ namespace Parsek.Tests
                     Assert.Contains("chainId = chain-eva-board-test", content);
                     Assert.Contains("vesselName = Landing Craft", content);
                     Assert.Contains("chainId = chain-eva-walk-test", content);
+                    Assert.Contains("vesselName = Kerbin Ascent", content);
+                    Assert.Contains("chainId = chain-atmo-split-test", content);
+                    Assert.Contains("segmentPhase = atmo", content);
+                    Assert.Contains("segmentPhase = exo", content);
+                    Assert.Contains("segmentBodyName = Kerbin", content);
                     Assert.Contains("FLIGHTSTATE", content);
 
                     // v3: no inline POINT data in .sfs
@@ -4824,8 +5021,8 @@ namespace Parsek.Tests
                     $"Expected Parsek/Recordings directory at {recordingsDir}");
 
                 string[] precFiles = Directory.GetFiles(recordingsDir, "*.prec");
-                Assert.True(precFiles.Length >= 225,
-                    $"Expected at least 225 .prec files (8 baseline + 10 lights + 18 deployables + 7 gear + 11 cargo + 45 engines + 2 ladders + 5 RCS + 5 fairings + 2 extra radiators + 2 drills + 8 deployed science + 2 animation-group + 5 parachutes + 12 special deploy animations + 9 jettison + 21 robotics + 1 aero-surface + 3 robot-arm-scanner + 24 control-surface + 6 wheel-dynamics + 13 animate-heat + 1 inventory-placement + 3 board-chain + 2 walk-chain), found {precFiles.Length}");
+                Assert.True(precFiles.Length >= 232,
+                    $"Expected at least 232 .prec files (8 baseline + 10 lights + 18 deployables + 7 gear + 11 cargo + 45 engines + 2 ladders + 5 RCS + 5 fairings + 2 extra radiators + 2 drills + 8 deployed science + 2 animation-group + 5 parachutes + 12 special deploy animations + 9 jettison + 21 robotics + 1 aero-surface + 3 robot-arm-scanner + 24 control-surface + 6 wheel-dynamics + 13 animate-heat + 1 inventory-placement + 3 board-chain + 2 walk-chain + 3 atmo-chain + 4 mun-transfer-chain), found {precFiles.Length}");
             }
         }
 
