@@ -1273,5 +1273,25 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region IsMilestoneFilteredEvent
+
+        [Theory]
+        [InlineData(GameStateEventType.FundsChanged, true)]
+        [InlineData(GameStateEventType.ScienceChanged, true)]
+        [InlineData(GameStateEventType.ReputationChanged, true)]
+        [InlineData(GameStateEventType.CrewStatusChanged, true)]
+        [InlineData(GameStateEventType.CrewHired, false)]
+        [InlineData(GameStateEventType.CrewRemoved, false)]
+        [InlineData(GameStateEventType.TechResearched, false)]
+        [InlineData(GameStateEventType.PartPurchased, false)]
+        [InlineData(GameStateEventType.ContractAccepted, false)]
+        [InlineData(GameStateEventType.FacilityUpgraded, false)]
+        public void IsMilestoneFilteredEvent_CorrectlyFilters(GameStateEventType type, bool expected)
+        {
+            Assert.Equal(expected, GameStateStore.IsMilestoneFilteredEvent(type));
+        }
+
+        #endregion
     }
 }
