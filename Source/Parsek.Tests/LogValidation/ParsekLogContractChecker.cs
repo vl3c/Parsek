@@ -177,7 +177,9 @@ namespace Parsek.Tests.LogValidation
             if (!string.Equals(entry.Subsystem, "Recorder", StringComparison.Ordinal))
                 return false;
 
-            return (entry.Message ?? string.Empty).StartsWith("Recording stopped", StringComparison.Ordinal);
+            string message = entry.Message ?? string.Empty;
+            return message.StartsWith("Recording stopped", StringComparison.Ordinal) ||
+                message.StartsWith("Auto-stopped recording due to scene change", StringComparison.Ordinal);
         }
 
         private static void ValidateSuppressedCount(KspLogEntry entry, List<LogViolation> violations)
@@ -246,6 +248,16 @@ namespace Parsek.Tests.LogValidation
                     code: "RES-002",
                     lineNumber: entry.LineNumber,
                     message: $"Unable to parse resource post-value '{match.Groups["value"].Value}'.",
+                    rawLine: entry.RawLine));
+                return;
+            }
+
+            if (double.IsNaN(value) || double.IsInfinity(value))
+            {
+                violations.Add(new LogViolation(
+                    code: "RES-002",
+                    lineNumber: entry.LineNumber,
+                    message: $"Resource post-value '{match.Groups["value"].Value}' is not finite.",
                     rawLine: entry.RawLine));
                 return;
             }
