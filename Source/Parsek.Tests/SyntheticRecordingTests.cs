@@ -758,19 +758,10 @@ namespace Parsek.Tests
             double rowOffsetMeters = 0.0,
             double distanceOffsetMeters = 0.0)
         {
-            const double metersPerDegree = (2.0 * Math.PI * 600000.0) / 360.0;
-            const double spacingMeters = 5.0;
-
             double t = baseUT + 30;
-            double baseLat = -0.0972;
-            double baseLon = -74.5575;
-            // Keep the row centered on the launchpad as we expand showcase coverage.
-            double rowCenterOffsetMeters = -((ShowcaseRowCount - 1) * spacingMeters * 0.5);
-            double lat = baseLat + ((rowIndex * spacingMeters + rowCenterOffsetMeters + rowOffsetMeters) / metersPerDegree);
-            double lon = baseLon + ((distanceFromPadMeters + distanceOffsetMeters) / metersPerDegree);
-            double alt = 66.0;
-            if (onEvent == PartEventType.ShroudJettisoned && offEvent == PartEventType.ShroudJettisoned)
-                alt += ShroudShowcaseAltitudeOffsetMeters;
+            ShowcasePosition(rowIndex, distanceFromPadMeters, out double lat, out double lon, out double alt,
+                rowOffsetMeters, distanceOffsetMeters);
+            alt += ShowcaseAltitudeOffset(partName);
 
             var b = new RecordingBuilder(vesselName)
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
@@ -832,18 +823,12 @@ namespace Parsek.Tests
         private static RecordingBuilder BuildInflatableHeatShieldShowcaseRecording(
             double baseUT, int rowIndex, double distanceFromPadMeters)
         {
-            const double metersPerDegree = (2.0 * Math.PI * 600000.0) / 360.0;
-            const double spacingMeters = 5.0;
             const string partName = "InflatableHeatShield";
             const string vesselName = "Part Showcase - Inflatable Heat Shield";
 
             double t = baseUT + 30;
-            double baseLat = -0.0972;
-            double baseLon = -74.5575;
-            double rowCenterOffsetMeters = -((ShowcaseRowCount - 1) * spacingMeters * 0.5);
-            double lat = baseLat + ((rowIndex * spacingMeters + rowCenterOffsetMeters) / metersPerDegree);
-            double lon = baseLon + (distanceFromPadMeters / metersPerDegree);
-            double alt = 66.0;
+            ShowcasePosition(rowIndex, distanceFromPadMeters, out double lat, out double lon, out double alt);
+            alt += ShowcaseAltitudeOffset(partName);
 
             var b = new RecordingBuilder(vesselName)
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
@@ -865,7 +850,7 @@ namespace Parsek.Tests
 
             var snap = new VesselSnapshotBuilder()
                 .WithName(vesselName)
-                .WithPersistentId((uint)(98400000 + rowIndex))
+                .WithPersistentId((uint)(SpecialDeployShowcasePidBase + rowIndex))
                 .AddPart(partName, rotation: "0,-0.7071068,0,0.7071068")
                 .AsLanded(lat, lon, alt)
                 .Build();
@@ -877,83 +862,524 @@ namespace Parsek.Tests
         // The first part added by VesselSnapshotBuilder gets persistentId = 100000.
         // Event PIDs must match this so the ghost visual builder can find the part.
         private const uint SinglePartPid = 100000;
+        private const uint LightShowcasePidBase = 88000000;
+        private const uint DeployableShowcasePidBase = 89000000;
+        private const uint GearShowcasePidBase = 90000000;
+        private const uint CargoBayShowcasePidBase = 91000000;
+        private const uint LadderShowcasePidBase = 93000000;
+        private const uint RcsShowcasePidBase = 94000000;
+        private const uint FairingShowcasePidBase = 95000000;
+        private const uint RadiatorShowcasePidBase = 96000000;
+        private const uint DrillShowcasePidBase = 97000000;
+        private const uint DeployedScienceShowcasePidBase = 98000000;
+        private const uint InventoryPlacementPid = 98100000;
+        private const uint AnimationGroupShowcasePidBase = 98200000;
+        private const uint ParachuteShowcasePidBase = 98300000;
+        private const uint SpecialDeployShowcasePidBase = 98400000;
+        private const uint JettisonShowcasePidBase = 98500000;
+        private const uint RoboticsShowcasePidBase = 98600000;
+        private const uint AeroSurfaceShowcasePidBase = 98700000;
+        private const uint RobotArmScannerShowcasePidBase = 98800000;
+        private const uint ControlSurfaceShowcasePidBase = 98900000;
+        private const uint WheelDynamicsShowcasePidBase = 99000000;
+        private const uint AnimateHeatShowcasePidBase = 99100000;
+        private const uint EngineShowcasePidBase = 99200000;
         // Optional companion part (e.g., kerbal actor) receives the second slot.
-        // Total visible showcase row entries (indices 0-185, including inventory placement).
-        private const int ShowcaseRowCount = 186;
+        // Total visible showcase row entries (indices 0-235, including inventory placement).
+        private const int ShowcaseRowCount = 237;
+        // Split showcase into two parallel lines to avoid runway clipping.
+        private static readonly int ShowcaseEntriesPerLine = (ShowcaseRowCount + 1) / 2;
+        private const double ShowcaseLineSpacingMeters = 20.0;
         // Keep showcases close to the launchpad centerline without overlapping pad geometry.
         private const double ShowcaseDistanceFromPadMeters = 200.0;
-        // Shroud-jettison showcase parts include tall engine plates and engines that clip at base altitude.
-        private const double ShroudShowcaseAltitudeOffsetMeters = 12.0;
+        // Target top height (meters above KSC ground level). Every part's top is placed at
+        // this height. With Clydesdale (topY=10.8, total ~22.3m) the bottom sits ~5.7m
+        // above ground. Small parts float at ~28m — fine at 200m viewing distance.
+        private const double ShowcaseTargetTopHeight = 28.0;
 
-        private static RecordingBuilder BuildLightShowcaseRecording(
+        // Maps partName -> topY (meters above part origin, from node_stack_top Y or visual
+        // estimate). Used to compute per-part altitude offset for top-aligned showcase layout.
+        // Surface-attach-only parts (lights, control surfaces, RCS, etc.) use 0.0.
+        private static readonly Dictionary<string, double> ShowcasePartTopY = new Dictionary<string, double>
+        {
+            // ── Lights (surface-attach) ──
+            { "domeLight1", 0.0 },
+            { "navLight1", 0.0 },
+            { "stripLight1", 0.0 },
+            { "spotLight3", 0.0 },
+            { "groundLight1", 0.0 },
+            { "groundLight2", 0.0 },
+            { "spotLight1", 0.0 },
+            { "spotLight1_v2", 0.0 },
+            { "spotLight2", 0.0 },
+            { "spotLight2_v2", 0.0 },
+
+            // ── Solar panels / Antennas / Radiator (surface-attach or radial) ──
+            { "solarPanels4", 0.0 },
+            { "largeSolarPanel", 0.0 },
+            { "LgRadialSolarPanel", 0.0 },
+            { "solarPanelOX10C", 0.0 },
+            { "solarPanelOX10L", 0.0 },
+            { "solarPanels1", 0.0 },
+            { "solarPanels2", 0.0 },
+            { "solarPanels3", 0.0 },
+            { "solarPanels5", 0.0 },
+            { "solarPanelSP10C", 0.0 },
+            { "solarPanelSP10L", 0.0 },
+            { "longAntenna", 0.0 },
+            { "commDish", 0.0 },
+            { "HighGainAntenna", 0.0 },
+            { "HighGainAntenna5", 0.0 },
+            { "HighGainAntenna5.v2", 0.0 },
+            { "mediumDishAntenna", 0.0 },
+            { "foldingRadSmall", 0.0 },
+            { "foldingRadMed", 0.0 },
+            { "foldingRadLarge", 0.0 },
+
+            // ── Landing gear (surface-attach) ──
+            { "SmallGearBay", 0.0 },
+            { "GearSmall", 0.0 },
+            { "GearMedium", 0.0 },
+            { "GearLarge", 0.0 },
+
+            // ── Landing legs (surface-attach) ──
+            { "landingLeg1", 0.0 },
+            { "landingLeg1-2", 0.0 },
+            { "miniLandingLeg", 0.0 },
+
+            // ── Service bays / Cargo bays ──
+            { "ServiceBay.125.v2", 0.3 },
+            { "ServiceBay.250.v2", 0.65 },
+            { "ServiceModule18", 0.75 },
+            { "ServiceModule25", 1.55 },
+            { "Size1to0ServiceModule", 0.3125 },
+            { "mk2CargoBayS", 0.9375 },
+            { "mk2CargoBayL", 1.875 },
+            { "mk3CargoBayS", 1.25 },
+            { "mk3CargoBayM", 2.5 },
+            { "mk3CargoBayL", 5.0 },
+            { "mk3CargoRamp", 3.0 },
+
+            // ── Engines (EngineShowcaseRecordings — shroud jettison + flame) ──
+            { "liquidEngineMainsail.v2", 1.01359 },
+            { "engineLargeSkipper.v2", 1.013 },
+            { "SSME", 0.0 },
+
+            // ── Ladders (surface-attach) ──
+            { "telescopicLadder", 0.0 },
+            { "telescopicLadderBay", 0.0 },
+
+            // ── RCS (surface-attach) ──
+            { "RCSBlock.v2", 0.0 },
+            { "RCSblock.01.small", 0.0 },
+            { "RCSLinearSmall", 0.0 },
+            { "linearRcs", 0.0 },
+            { "vernierEngine", 0.0 },
+
+            // ── Fairings ──
+            { "fairingSize1", 0.22 },
+            { "fairingSize1p5", 0.22 },
+            { "fairingSize2", 0.22 },
+            { "fairingSize3", 0.22 },
+            { "fairingSize4", 0.22 },
+
+            // ── Drills (surface-attach / radial) ──
+            { "MiniDrill", 0.0 },
+            { "RadialDrill", 0.0 },
+
+            // ── Deployed science (surface-attach) ──
+            { "DeployedCentralStation", 0.0 },
+            { "DeployedGoExOb", 0.0 },
+            { "DeployedIONExp", 0.0 },
+            { "DeployedRTG", 0.0 },
+            { "DeployedSatDish", 0.0 },
+            { "DeployedSeismicSensor", 0.0 },
+            { "DeployedSolarPanel", 0.0 },
+            { "DeployedWeatherStn", 0.0 },
+
+            // ── Animation group / Survey / Anchor ──
+            { "groundAnchor", 0.12236 },
+            { "SurveyScanner", 0.0 },
+
+            // ── Parachutes (surface-attach / radial) ──
+            { "parachuteSingle", 0.0 },
+            { "parachuteRadial", 0.0 },
+            { "parachuteDrogue", 0.0 },
+            { "radialDrogue", 0.0 },
+            { "parachuteLarge", 0.0 },
+
+            // ── Special deploy animations ──
+            { "roverWheelM1-F", 0.0 },
+            { "GooExperiment", 0.0 },
+            { "science_module", 0.49 },
+            { "Magnetometer", 0.0 },
+            { "InflatableHeatShield", 1.4 },       // Inverted nodes: real top is node_stack_bottom Y
+            { "InflatableAirlock", 0.0 },
+            { "dockingPort1", 0.0 },
+            { "dockingPortLateral", 0.5753132 },
+            { "GrapplingDevice", 0.0 },             // node_stack_top Y is negative; treat as 0.0
+            { "smallClaw", 0.0 },                    // node_stack_top Y is negative; treat as 0.0
+            { "mk2DockingPort", 0.625 },
+            { "mk2LanderCabin_v2", 0.751929 },
+
+            // ── Jets (part showcase, non-flame) ──
+            { "JetEngine", 0.972875 },
+            { "turboFanSize2", 2.0 },
+
+            // ── Robotics ──
+            { "hinge.01", 0.3125 },
+            { "hinge.01.s", 0.10348 },
+            { "hinge.03", 0.0 },                    // Negative node_stack_top; treat as 0.0
+            { "hinge.03.s", 0.0 },                  // Negative node_stack_top; treat as 0.0
+            { "hinge.04", 0.0 },                    // Negative node_stack_top; treat as 0.0
+            { "piston.01", 1.30408 },
+            { "piston.02", 0.643867 },
+            { "piston.03", 1.32439 },
+            { "piston.04", 0.662193 },
+            { "rotoServo.00", 0.21796 },
+            { "rotoServo.02", 0.21796 },
+            { "rotoServo.03", 0.62483 },
+            { "rotoServo.04", 0.9375 },
+            { "rotor.01", 0.415 },
+            { "rotor.01s", 0.343347 },
+            { "rotor.02", 0.42 },
+            { "rotor.02s", 0.42 },
+            { "rotor.03", 1.25 },
+            { "rotor.03s", 0.955512 },
+            { "RotorEngine.02", 0.415 },
+            { "RotorEngine.03", 0.415 },
+
+            // ── Airbrake (surface-attach) ──
+            { "airbrake1", 0.0 },
+
+            // ── Robot arm scanners (surface-attach) ──
+            { "RobotArmScanner_S1", 0.0 },
+            { "RobotArmScanner_S2", 0.0 },
+            { "RobotArmScanner_S3", 0.0 },
+
+            // ── Control surfaces (surface-attach) ──
+            { "AdvancedCanard", 0.0 },
+            { "airlinerCtrlSrf", 0.0 },
+            { "airlinerTailFin", 0.0 },
+            { "CanardController", 0.0 },
+            { "elevon2", 0.0 },
+            { "elevon3", 0.0 },
+            { "elevon5", 0.0 },
+            { "largeFanBlade", 0.0 },
+            { "largeHeliBlade", 0.0 },
+            { "largePropeller", 0.0 },
+            { "mediumFanBlade", 0.0 },
+            { "mediumHeliBlade", 0.0 },
+            { "mediumPropeller", 0.0 },
+            { "R8winglet", 0.0 },
+            { "smallCtrlSrf", 0.0 },
+            { "smallFanBlade", 0.0 },
+            { "smallHeliBlade", 0.0 },
+            { "smallPropeller", 0.0 },
+            { "StandardCtrlSrf", 0.0 },
+            { "tailfin", 0.0 },
+            { "winglet3", 0.0 },
+            { "wingShuttleElevon1", 0.0 },
+            { "wingShuttleElevon2", 0.0 },
+            { "wingShuttleRudder", 0.0 },
+
+            // ── Wheel dynamics (surface-attach) ──
+            { "GearFixed", 0.0 },
+            { "GearFree", 0.0 },
+            { "roverWheel1", 0.0 },
+            { "roverWheel2", 0.0 },
+            { "roverWheel3", 0.0 },
+            { "wheelMed", 0.0 },
+
+            // ── AnimateHeat parts ──
+            { "airplaneTail", 0.0 },
+            { "airplaneTailB", 0.0 },
+            { "avionicsNoseCone", 0.0 },
+            { "CircularIntake", 0.0 },
+            { "MK1IntakeFuselage", 0.9375 },
+            { "nacelleBody", 0.9375 },
+            { "noseConeAdapter", 1.125 },
+            { "pointyNoseConeA", 0.0 },
+            { "pointyNoseConeB", 0.0 },
+            { "radialEngineBody", 0.9375 },
+            { "ramAirIntake", 0.0 },
+            { "shockConeIntake", 0.0 },
+            { "standardNoseCone", 0.0 },
+
+            // ── Jettison coverage: engine plates ──
+            { "EnginePlate1p5", 0.15 },
+            { "EnginePlate2", 0.2 },
+            { "EnginePlate3", 0.3 },
+            { "EnginePlate4", 0.4 },
+            { "EnginePlate5", 0.1 },
+
+            // ── Jettison coverage: heat shields ──
+            { "HeatShield1", 0.022 },
+            { "HeatShield2", 0.034 },
+            { "HeatShield3", 0.25 },
+            { "HeatShield1p5", 0.125 },
+
+            // ── Jettison coverage: engines (v1 / v2 / MH) ──
+            { "liquidEngine", 0.721461 },           // scale=0.1 applied
+            { "liquidEngine.v2", 0.0 },
+            { "liquidEngine2", 0.721461 },           // scale=0.1 applied
+            { "liquidEngine2.v2", 0.0 },
+            { "liquidEngine2-2.v2", 0.0 },
+            { "liquidEngine3.v2", 0.0 },
+            { "liquidEngineMini.v2", 0.0 },
+            { "nuclearEngine", 1.40383 },
+            { "toroidalAerospike", 0.0 },
+            { "Mite", 0.874462 },
+            { "Shrimp", 1.98582 },
+            { "solidBooster.sm.v2", 0.7575 },
+            { "solidBooster.v2", 1.2818375 },
+            { "Size3AdvancedEngine", 1.487975 },
+            { "LiquidEngineKE-1", 0.8 },
+            { "LiquidEngineLV-T91", 0.84028 },
+            { "LiquidEngineLV-TX87", 0.76784 },
+            { "LiquidEngineRE-I2", 1.80521 },
+            { "LiquidEngineRE-J10", 0.361067 },
+            { "LiquidEngineRK-7", 0.75 },
+
+            // ── Engine flame showcase: additional liquid engines ──
+            { "microEngine.v2", 0.0 },
+            { "radialEngineMini.v2", 0.0 },
+            { "smallRadialEngine", 0.0 },
+            { "smallRadialEngine.v2", 0.0 },
+            { "radialLiquidEngine1-2", 0.0 },
+            { "omsEngine", 0.0 },
+            { "Size2LFB.v2", 4.356 },
+            { "Size3EngineCluster", 1.527248 },
+            { "LiquidEngineRV-1", 0.0 },
+            { "RAPIER", 0.741545 },
+
+            // ── SRB flame showcase: additional SRBs ──
+            { "solidBooster1-1", 3.92 },
+            { "MassiveBooster", 7.429159 },
+            { "Thoroughbred", 6.14614 },
+            { "Clydesdale", 10.8 },
+            { "Pollux", 7.83746 },
+            { "sepMotor1", 0.0 },
+
+            // ── Jet flame showcase ──
+            { "miniJetEngine", 0.0 },
+            { "turboFanEngine", 1.4 },
+            { "turboJet", 0.0 },
+            { "ionEngine", 0.2135562 },
+
+            // ── Inventory placement (kerbalEVA companion, not offset) ──
+            // DeployedWeatherStn already listed above.
+        };
+
+        /// <summary>
+        /// Returns the altitude offset (meters above base altitude) so the part's top aligns
+        /// with <see cref="ShowcaseTargetTopHeight"/> above KSC ground level.
+        /// </summary>
+        private static double ShowcaseAltitudeOffset(string partName)
+        {
+            if (ShowcasePartTopY.TryGetValue(partName, out double topY))
+                return ShowcaseTargetTopHeight - topY;
+            return ShowcaseTargetTopHeight; // fallback: assume origin is at top
+        }
+
+        /// <summary>
+        /// Computes lat/lon/alt for a showcase row, splitting rows across two parallel lines.
+        /// Rows 0 to ShowcaseEntriesPerLine-1 are on the back line (200m from pad),
+        /// rows ShowcaseEntriesPerLine to ShowcaseRowCount-1 are on the front line (220m from pad).
+        /// </summary>
+        private static void ShowcasePosition(int rowIndex, double distanceFromPadMeters,
+            out double lat, out double lon, out double alt,
+            double rowOffsetMeters = 0.0, double distanceOffsetMeters = 0.0)
+        {
+            const double metersPerDegree = (2.0 * Math.PI * 600000.0) / 360.0;
+            const double spacingMeters = 5.0;
+
+            int lineIndex = rowIndex / ShowcaseEntriesPerLine;
+            int lineRowIndex = rowIndex % ShowcaseEntriesPerLine;
+
+            double rowCenterOffsetMeters = -((ShowcaseEntriesPerLine - 1) * spacingMeters * 0.5);
+            lat = -0.0972 + ((lineRowIndex * spacingMeters + rowCenterOffsetMeters + rowOffsetMeters) / metersPerDegree);
+            lon = -74.5575 + ((distanceFromPadMeters + lineIndex * ShowcaseLineSpacingMeters + distanceOffsetMeters) / metersPerDegree);
+            alt = 66.0;
+        }
+
+        /// <summary>
+        /// Builds a light showcase recording with an on → blink → off cycle that exercises
+        /// all 5 light event types: LightOn, LightOff, LightBlinkEnabled, LightBlinkDisabled,
+        /// LightBlinkRate. 24s clip with 9 trajectory points.
+        /// </summary>
+        private static RecordingBuilder BuildLightBlinkShowcaseRecording(
             double baseUT, string vesselName, string lightPartName, int rowIndex)
         {
-            return BuildPartShowcaseRecording(baseUT, vesselName, lightPartName, rowIndex,
-                distanceFromPadMeters: ShowcaseDistanceFromPadMeters, onEvent: PartEventType.LightOn,
-                offEvent: PartEventType.LightOff, pidBase: 88000000, evtPid: SinglePartPid);
+            double t = baseUT + 30;
+            ShowcasePosition(rowIndex, ShowcaseDistanceFromPadMeters, out double lat, out double lon, out double alt);
+            alt += ShowcaseAltitudeOffset(lightPartName);
+
+            var b = new RecordingBuilder(vesselName)
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
+                .WithLoopPlayback(loop: true, pauseSeconds: 0.0);
+
+            // Static trajectory (24s).
+            for (int i = 0; i <= 8; i++)
+                b.AddPoint(t + (i * 3), lat, lon, alt);
+
+            // On → slow blink → solid → fast blink → faster blink → solid → off.
+            b.AddPartEvent(t + 0.0,  SinglePartPid, (int)PartEventType.LightOn, lightPartName);
+            b.AddPartEvent(t + 6.0,  SinglePartPid, (int)PartEventType.LightBlinkEnabled, lightPartName, value: 0.5f);
+            b.AddPartEvent(t + 12.0, SinglePartPid, (int)PartEventType.LightBlinkDisabled, lightPartName);
+            b.AddPartEvent(t + 15.0, SinglePartPid, (int)PartEventType.LightBlinkEnabled, lightPartName, value: 2.0f);
+            b.AddPartEvent(t + 18.0, SinglePartPid, (int)PartEventType.LightBlinkRate, lightPartName, value: 5.0f);
+            b.AddPartEvent(t + 21.0, SinglePartPid, (int)PartEventType.LightBlinkDisabled, lightPartName);
+            b.AddPartEvent(t + 22.0, SinglePartPid, (int)PartEventType.LightOff, lightPartName);
+
+            var snap = new VesselSnapshotBuilder()
+                .WithName(vesselName)
+                .WithPersistentId((uint)(LightShowcasePidBase + rowIndex))
+                .AddPart(lightPartName, rotation: "0,-0.7071068,0,0.7071068")
+                .AsLanded(lat, lon, alt)
+                .Build();
+
+            b.WithGhostVisualSnapshot(snap);
+            return b;
+        }
+
+        /// <summary>
+        /// Unified engine showcase builder. Handles liquid engines, SRBs, and jets with
+        /// optional shroud jettison before the flame cycle.
+        /// - Liquid/jet with shroud: ShroudJettisoned at t+0.5, then 7 throttle events (8 total)
+        /// - Liquid/jet without shroud: 8 throttle events (ignite→ramp→full→shutdown→restart cycle)
+        /// - SRB with shroud: ShroudJettisoned at t+0.5, then ignite+shutdown (3 total)
+        /// - SRB without shroud: ignite+shutdown (2 events)
+        /// 24s clip with 9 trajectory points.
+        /// </summary>
+        private static RecordingBuilder BuildCombinedEngineShowcaseRecording(
+            double baseUT, string vesselName, string enginePartName, int rowIndex,
+            uint pidBase, bool isSrb = false, bool hasShroud = false)
+        {
+            double t = baseUT + 30;
+            ShowcasePosition(rowIndex, ShowcaseDistanceFromPadMeters, out double lat, out double lon, out double alt);
+            alt += ShowcaseAltitudeOffset(enginePartName);
+
+            var b = new RecordingBuilder(vesselName)
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
+                .WithLoopPlayback(loop: true, pauseSeconds: 0.0);
+
+            for (int i = 0; i <= 8; i++)
+                b.AddPoint(t + (i * 3), lat, lon, alt);
+
+            if (isSrb)
+            {
+                if (hasShroud)
+                    b.AddPartEvent(t + 0.5, SinglePartPid, (int)PartEventType.ShroudJettisoned, enginePartName);
+                double igniteT = hasShroud ? t + 3 : t + 0;
+                b.AddPartEvent(igniteT,      SinglePartPid, (int)PartEventType.EngineIgnited,  enginePartName, value: 1.0f);
+                b.AddPartEvent(igniteT + 12, SinglePartPid, (int)PartEventType.EngineShutdown, enginePartName);
+            }
+            else
+            {
+                if (hasShroud)
+                {
+                    b.AddPartEvent(t + 0.5, SinglePartPid, (int)PartEventType.ShroudJettisoned, enginePartName);
+                    b.AddPartEvent(t + 3,   SinglePartPid, (int)PartEventType.EngineIgnited,  enginePartName, value: 0.3f);
+                    b.AddPartEvent(t + 6,   SinglePartPid, (int)PartEventType.EngineThrottle, enginePartName, value: 0.7f);
+                    b.AddPartEvent(t + 9,   SinglePartPid, (int)PartEventType.EngineThrottle, enginePartName, value: 1.0f);
+                    b.AddPartEvent(t + 12,  SinglePartPid, (int)PartEventType.EngineShutdown, enginePartName);
+                    b.AddPartEvent(t + 15,  SinglePartPid, (int)PartEventType.EngineIgnited,  enginePartName, value: 1.0f);
+                    b.AddPartEvent(t + 18,  SinglePartPid, (int)PartEventType.EngineThrottle, enginePartName, value: 0.5f);
+                    b.AddPartEvent(t + 21,  SinglePartPid, (int)PartEventType.EngineShutdown, enginePartName);
+                }
+                else
+                {
+                    b.AddPartEvent(t + 0,  SinglePartPid, (int)PartEventType.EngineIgnited,  enginePartName, value: 0.3f);
+                    b.AddPartEvent(t + 3,  SinglePartPid, (int)PartEventType.EngineThrottle, enginePartName, value: 0.7f);
+                    b.AddPartEvent(t + 6,  SinglePartPid, (int)PartEventType.EngineThrottle, enginePartName, value: 1.0f);
+                    b.AddPartEvent(t + 9,  SinglePartPid, (int)PartEventType.EngineShutdown, enginePartName);
+                    b.AddPartEvent(t + 12, SinglePartPid, (int)PartEventType.EngineIgnited,  enginePartName, value: 1.0f);
+                    b.AddPartEvent(t + 15, SinglePartPid, (int)PartEventType.EngineThrottle, enginePartName, value: 0.5f);
+                    b.AddPartEvent(t + 18, SinglePartPid, (int)PartEventType.EngineThrottle, enginePartName, value: 0.15f);
+                    b.AddPartEvent(t + 21, SinglePartPid, (int)PartEventType.EngineShutdown, enginePartName);
+                }
+            }
+
+            var snap = new VesselSnapshotBuilder()
+                .WithName(vesselName)
+                .WithPersistentId((uint)(pidBase + rowIndex))
+                .AddPart(enginePartName, rotation: "0,-0.7071068,0,0.7071068")
+                .AsLanded(lat, lon, alt)
+                .Build();
+
+            b.WithGhostVisualSnapshot(snap);
+            return b;
         }
 
         internal static RecordingBuilder[] LightShowcaseRecordings(double baseUT = 0)
         {
             return new[]
             {
-                BuildLightShowcaseRecording(baseUT, "Part Showcase - Lights v1", "domeLight1", rowIndex: 0),
-                BuildLightShowcaseRecording(baseUT, "Part Showcase - Light - Nav v1", "navLight1", rowIndex: 1),
-                BuildLightShowcaseRecording(baseUT, "Part Showcase - Light - Strip v1", "stripLight1", rowIndex: 2),
-                BuildLightShowcaseRecording(baseUT, "Part Showcase - Light - Spot v1", "spotLight3", rowIndex: 3),
-                BuildLightShowcaseRecording(baseUT, "Part Showcase - Light - Ground Small v1", "groundLight1", rowIndex: 4),
-                BuildLightShowcaseRecording(baseUT, "Part Showcase - Light - Ground Stand v1", "groundLight2", rowIndex: 5)
+                BuildLightBlinkShowcaseRecording(baseUT, "Part Showcase - Lights v1", "domeLight1", rowIndex: 0),
+                BuildLightBlinkShowcaseRecording(baseUT, "Part Showcase - Light - Nav v1", "navLight1", rowIndex: 1),
+                BuildLightBlinkShowcaseRecording(baseUT, "Part Showcase - Light - Strip v1", "stripLight1", rowIndex: 2),
+                BuildLightBlinkShowcaseRecording(baseUT, "Part Showcase - Light - Spot v1", "spotLight3", rowIndex: 3),
+                BuildLightBlinkShowcaseRecording(baseUT, "Part Showcase - Light - Ground Small v1", "groundLight1", rowIndex: 4),
+                BuildLightBlinkShowcaseRecording(baseUT, "Part Showcase - Light - Ground Stand v1", "groundLight2", rowIndex: 5),
+                BuildLightBlinkShowcaseRecording(baseUT, "Part Showcase - Light - Spot Mk1", "spotLight1", rowIndex: 185),
+                BuildLightBlinkShowcaseRecording(baseUT, "Part Showcase - Light - Spot Mk1 v2", "spotLight1_v2", rowIndex: 186),
+                BuildLightBlinkShowcaseRecording(baseUT, "Part Showcase - Light - Spot Mk2", "spotLight2", rowIndex: 187),
+                BuildLightBlinkShowcaseRecording(baseUT, "Part Showcase - Light - Spot Mk2 v2", "spotLight2_v2", rowIndex: 188)
             };
         }
 
-        // Row indices continue from lights (0-5) so all showcases form one line.
-        // Lights: 0-5, Deployables: 6-23, Airplane Gear: 24-27, Landing Legs: 28-30,
-        // Cargo: 31-41, Engines: 42-44, Ladders: 45-46, RCS: 47-49, Fairings: 50-54,
-        // Extra Radiators: 55-56, Drills: 57-58, Deployed Science: 59-66,
-        // Animation Group: 67-68, Parachutes: 69-73, Special Deploy Animations: 74-85 and 115-116,
-        // Jettison Coverage: 86-114, Robotics: 117-137, AeroSurface: 138, Robot Arm Scanners: 139-141,
-        // Control Surfaces: 142-165, Wheel Dynamics: 166-171, AnimateHeat: 172-184, Inventory Placement: 185.
+        // Two parallel lines (rows 0-118 at 200m, rows 119-236 at 220m from pad):
+        // Back line — Lights: 0-5, Deployables: 6-23, Airplane Gear: 24-27, Landing Legs: 28-30,
+        //   Cargo: 31-41, Engines (old unused): 42-44, Ladders: 45-46, RCS: 47-49, Fairings: 50-54,
+        //   Extra Radiators: 55-56, Drills: 57-58, Deployed Science: 59-66,
+        //   Animation Group: 67-68, Parachutes: 69-73, Special Deploy Animations: 74-85,
+        //   Jettison (non-engine): 86-94, Robotics: 117-118 (partial)
+        // Front line — Robotics: 119-137, AeroSurface: 138, Robot Arm Scanners: 139-141,
+        //   Control Surfaces: 142-165, Wheel Dynamics: 166-171, AnimateHeat: 172-184,
+        //   Lights (extra): 185-188, RCS (extra): 189-190,
+        //   Engines (all 45): 191-235, Inventory Placement: 236.
 
         internal static RecordingBuilder[] DeployableShowcaseRecordings(double baseUT = 0)
         {
             return new[]
             {
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Solar Tracking", "solarPanels4", 6,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 89000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, DeployableShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Solar Large", "largeSolarPanel", 7,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 89000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, DeployableShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Solar Radial XL", "LgRadialSolarPanel", 8,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 89000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, DeployableShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Solar OX-10C", "solarPanelOX10C", 9,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 89000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, DeployableShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Solar OX-10L", "solarPanelOX10L", 10,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 89000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, DeployableShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Solar 3x2 Shrouded", "solarPanels1", 11,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 89000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, DeployableShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Solar 1x6 Shrouded", "solarPanels2", 12,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 89000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, DeployableShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Solar 3x2", "solarPanels3", 13,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 89000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, DeployableShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Solar Flat", "solarPanels5", 14,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 89000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, DeployableShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Solar SP-10C", "solarPanelSP10C", 15,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 89000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, DeployableShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Solar SP-10L", "solarPanelSP10L", 16,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 89000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, DeployableShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Antenna Comm", "longAntenna", 17,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 89000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, DeployableShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Antenna Dish", "commDish", 18,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 89000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, DeployableShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Antenna High Gain", "HighGainAntenna", 19,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 89000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, DeployableShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Antenna HG-5", "HighGainAntenna5", 20,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 89000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, DeployableShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Antenna HG-5 v2", "HighGainAntenna5.v2", 21,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 89000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, DeployableShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Antenna Medium Dish", "mediumDishAntenna", 22,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 89000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, DeployableShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Radiator", "foldingRadSmall", 23,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 89000000, SinglePartPid)
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, DeployableShowcasePidBase, SinglePartPid)
             };
         }
 
@@ -962,19 +1388,19 @@ namespace Parsek.Tests
             return new[]
             {
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Gear Bay", "SmallGearBay", 24,
-                    ShowcaseDistanceFromPadMeters, PartEventType.GearDeployed, PartEventType.GearRetracted, 90000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.GearDeployed, PartEventType.GearRetracted, GearShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Gear Small", "GearSmall", 25,
-                    ShowcaseDistanceFromPadMeters, PartEventType.GearDeployed, PartEventType.GearRetracted, 90000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.GearDeployed, PartEventType.GearRetracted, GearShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Gear Medium", "GearMedium", 26,
-                    ShowcaseDistanceFromPadMeters, PartEventType.GearDeployed, PartEventType.GearRetracted, 90000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.GearDeployed, PartEventType.GearRetracted, GearShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Gear Large", "GearLarge", 27,
-                    ShowcaseDistanceFromPadMeters, PartEventType.GearDeployed, PartEventType.GearRetracted, 90000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.GearDeployed, PartEventType.GearRetracted, GearShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Landing Leg LT-1", "landingLeg1", 28,
-                    ShowcaseDistanceFromPadMeters, PartEventType.GearDeployed, PartEventType.GearRetracted, 90000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.GearDeployed, PartEventType.GearRetracted, GearShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Landing Leg LT-2", "landingLeg1-2", 29,
-                    ShowcaseDistanceFromPadMeters, PartEventType.GearDeployed, PartEventType.GearRetracted, 90000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.GearDeployed, PartEventType.GearRetracted, GearShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Landing Leg LT-05", "miniLandingLeg", 30,
-                    ShowcaseDistanceFromPadMeters, PartEventType.GearDeployed, PartEventType.GearRetracted, 90000000, SinglePartPid)
+                    ShowcaseDistanceFromPadMeters, PartEventType.GearDeployed, PartEventType.GearRetracted, GearShowcasePidBase, SinglePartPid)
             };
         }
 
@@ -983,43 +1409,92 @@ namespace Parsek.Tests
             return new[]
             {
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Service Bay", "ServiceBay.125.v2", 31,
-                    ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, 91000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, CargoBayShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Service Bay 2.5", "ServiceBay.250.v2", 32,
-                    ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, 91000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, CargoBayShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Service Module 1.8", "ServiceModule18", 33,
-                    ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, 91000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, CargoBayShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Service Module 2.5", "ServiceModule25", 34,
-                    ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, 91000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, CargoBayShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Service Module 1-0", "Size1to0ServiceModule", 35,
-                    ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, 91000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, CargoBayShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Cargo Mk2", "mk2CargoBayS", 36,
-                    ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, 91000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, CargoBayShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Cargo Mk2 Long", "mk2CargoBayL", 37,
-                    ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, 91000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, CargoBayShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Cargo Mk3", "mk3CargoBayS", 38,
-                    ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, 91000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, CargoBayShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Cargo Mk3 Medium", "mk3CargoBayM", 39,
-                    ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, 91000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, CargoBayShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Cargo Mk3 Long", "mk3CargoBayL", 40,
-                    ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, 91000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, CargoBayShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Cargo Mk3 Ramp", "mk3CargoRamp", 41,
-                    ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, 91000000, SinglePartPid)
+                    ShowcaseDistanceFromPadMeters, PartEventType.CargoBayOpened, PartEventType.CargoBayClosed, CargoBayShowcasePidBase, SinglePartPid)
             };
         }
 
         internal static RecordingBuilder[] EngineShowcaseRecordings(double baseUT = 0)
         {
+            const uint pidBase = EngineShowcasePidBase;
             return new[]
             {
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Mainsail", "liquidEngineMainsail.v2", 42,
-                    ShowcaseDistanceFromPadMeters, PartEventType.EngineIgnited, PartEventType.EngineShutdown, 92000000, SinglePartPid,
-                    eventValue: 1.0f),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Skipper", "engineLargeSkipper.v2", 43,
-                    ShowcaseDistanceFromPadMeters, PartEventType.EngineIgnited, PartEventType.EngineShutdown, 92000000, SinglePartPid,
-                    eventValue: 1.0f),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - SSME", "SSME", 44,
-                    ShowcaseDistanceFromPadMeters, PartEventType.EngineIgnited, PartEventType.EngineShutdown, 92000000, SinglePartPid,
-                    eventValue: 1.0f)
+                // ── Liquid engines with shroud jettison + flame (rows 191-210) ──
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - LV-T30", "liquidEngine", 191, pidBase, hasShroud: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - LV-T30 v2", "liquidEngine.v2", 192, pidBase, hasShroud: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - LV-T45", "liquidEngine2", 193, pidBase, hasShroud: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - LV-T45 v2", "liquidEngine2.v2", 194, pidBase, hasShroud: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Poodle v2", "liquidEngine2-2.v2", 195, pidBase, hasShroud: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Terrier v2", "liquidEngine3.v2", 196, pidBase, hasShroud: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Spark v2", "liquidEngineMini.v2", 197, pidBase, hasShroud: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - NERV", "nuclearEngine", 198, pidBase, hasShroud: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Aerospike", "toroidalAerospike", 199, pidBase, hasShroud: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Vector", "Size3AdvancedEngine", 200, pidBase, hasShroud: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Kodiak", "LiquidEngineKE-1", 201, pidBase, hasShroud: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Cheetah", "LiquidEngineLV-T91", 202, pidBase, hasShroud: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Wolfhound", "LiquidEngineLV-TX87", 203, pidBase, hasShroud: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Bobcat", "LiquidEngineRE-I2", 204, pidBase, hasShroud: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Skiff", "LiquidEngineRE-J10", 205, pidBase, hasShroud: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Mastodon", "LiquidEngineRK-7", 206, pidBase, hasShroud: true),
+                // SRBs with shroud (rows 207-210)
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Flea v2", "solidBooster.sm.v2", 207, pidBase, isSrb: true, hasShroud: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Hammer v2", "solidBooster.v2", 208, pidBase, isSrb: true, hasShroud: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Mite", "Mite", 209, pidBase, isSrb: true, hasShroud: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Shrimp", "Shrimp", 210, pidBase, isSrb: true, hasShroud: true),
+
+                // ── Liquid engines flame only (rows 211-216) ──
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Ant", "microEngine.v2", 211, pidBase),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Spider", "radialEngineMini.v2", 212, pidBase),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Twitch", "smallRadialEngine", 213, pidBase),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Twitch v2", "smallRadialEngine.v2", 214, pidBase),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Thud", "radialLiquidEngine1-2", 215, pidBase),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Cub", "omsEngine", 216, pidBase),
+
+                // ── Liquid engines with shroud jettison + flame (rows 217-219) ──
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Mainsail", "liquidEngineMainsail.v2", 217, pidBase, hasShroud: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Skipper", "engineLargeSkipper.v2", 218, pidBase, hasShroud: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - SSME", "SSME", 219, pidBase, hasShroud: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Twin-Boar", "Size2LFB.v2", 220, pidBase),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Mammoth", "Size3EngineCluster", 221, pidBase),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Pug", "LiquidEngineRV-1", 222, pidBase),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - RAPIER", "RAPIER", 223, pidBase),
+
+                // ── SRBs flame only (rows 224-229) ──
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Thumper", "solidBooster1-1", 224, pidBase, isSrb: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Kickback", "MassiveBooster", 225, pidBase, isSrb: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Thoroughbred", "Thoroughbred", 226, pidBase, isSrb: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Clydesdale", "Clydesdale", 227, pidBase, isSrb: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Pollux", "Pollux", 228, pidBase, isSrb: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Sepatron", "sepMotor1", 229, pidBase, isSrb: true),
+
+                // ── Jets (rows 230-234) ──
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Juno", "miniJetEngine", 230, pidBase),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Wheesley", "JetEngine", 231, pidBase),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Whiplash", "turboFanEngine", 232, pidBase),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Panther", "turboJet", 233, pidBase),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Goliath", "turboFanSize2", 234, pidBase),
+
+                // ── Special (row 235) ──
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Ion", "ionEngine", 235, pidBase)
             };
         }
 
@@ -1028,9 +1503,9 @@ namespace Parsek.Tests
             return new[]
             {
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Ladder Telescopic", "telescopicLadder", 45,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 93000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, LadderShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Ladder Bay", "telescopicLadderBay", 46,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 93000000, SinglePartPid)
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, LadderShowcasePidBase, SinglePartPid)
             };
         }
 
@@ -1039,15 +1514,23 @@ namespace Parsek.Tests
             return new[]
             {
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - RCS RV-105", "RCSBlock.v2", 47,
-                    ShowcaseDistanceFromPadMeters, PartEventType.RCSActivated, PartEventType.RCSStopped, 94000000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RCSActivated, PartEventType.RCSStopped, RcsShowcasePidBase, SinglePartPid,
                     eventValue: 1.0f, moduleIndex: 0,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - RCS RV-1X", "RCSblock.01.small", 48,
-                    ShowcaseDistanceFromPadMeters, PartEventType.RCSActivated, PartEventType.RCSStopped, 94000000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RCSActivated, PartEventType.RCSStopped, RcsShowcasePidBase, SinglePartPid,
                     eventValue: 1.0f, moduleIndex: 0,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - RCS Linear", "RCSLinearSmall", 49,
-                    ShowcaseDistanceFromPadMeters, PartEventType.RCSActivated, PartEventType.RCSStopped, 94000000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RCSActivated, PartEventType.RCSStopped, RcsShowcasePidBase, SinglePartPid,
+                    eventValue: 1.0f, moduleIndex: 0,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - RCS Linear Port", "linearRcs", 189,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RCSActivated, PartEventType.RCSStopped, RcsShowcasePidBase, SinglePartPid,
+                    eventValue: 1.0f, moduleIndex: 0,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - RCS Vernor", "vernierEngine", 190,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RCSActivated, PartEventType.RCSStopped, RcsShowcasePidBase, SinglePartPid,
                     eventValue: 1.0f, moduleIndex: 0,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
             };
@@ -1081,19 +1564,19 @@ namespace Parsek.Tests
             return new[]
             {
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Fairing Size 1", "fairingSize1", 50,
-                    ShowcaseDistanceFromPadMeters, PartEventType.FairingJettisoned, PartEventType.FairingJettisoned, 95000000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.FairingJettisoned, PartEventType.FairingJettisoned, FairingShowcasePidBase, SinglePartPid,
                     configureGhostPartNode: part => AddProceduralFairingModule(part, baseRadius: 0.625f, topHeight: 2.0f)),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Fairing Size 1.5", "fairingSize1p5", 51,
-                    ShowcaseDistanceFromPadMeters, PartEventType.FairingJettisoned, PartEventType.FairingJettisoned, 95000000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.FairingJettisoned, PartEventType.FairingJettisoned, FairingShowcasePidBase, SinglePartPid,
                     configureGhostPartNode: part => AddProceduralFairingModule(part, baseRadius: 0.9375f, topHeight: 2.8f)),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Fairing Size 2", "fairingSize2", 52,
-                    ShowcaseDistanceFromPadMeters, PartEventType.FairingJettisoned, PartEventType.FairingJettisoned, 95000000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.FairingJettisoned, PartEventType.FairingJettisoned, FairingShowcasePidBase, SinglePartPid,
                     configureGhostPartNode: part => AddProceduralFairingModule(part, baseRadius: 1.25f, topHeight: 3.2f)),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Fairing Size 3", "fairingSize3", 53,
-                    ShowcaseDistanceFromPadMeters, PartEventType.FairingJettisoned, PartEventType.FairingJettisoned, 95000000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.FairingJettisoned, PartEventType.FairingJettisoned, FairingShowcasePidBase, SinglePartPid,
                     configureGhostPartNode: part => AddProceduralFairingModule(part, baseRadius: 1.875f, topHeight: 4.5f)),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Fairing Size 4", "fairingSize4", 54,
-                    ShowcaseDistanceFromPadMeters, PartEventType.FairingJettisoned, PartEventType.FairingJettisoned, 95000000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.FairingJettisoned, PartEventType.FairingJettisoned, FairingShowcasePidBase, SinglePartPid,
                     configureGhostPartNode: part => AddProceduralFairingModule(part, baseRadius: 2.5f, topHeight: 6.0f))
             };
         }
@@ -1103,9 +1586,9 @@ namespace Parsek.Tests
             return new[]
             {
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Radiator Medium", "foldingRadMed", 55,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 96000000, SinglePartPid),
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, RadiatorShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Radiator Large", "foldingRadLarge", 56,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 96000000, SinglePartPid)
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, RadiatorShowcasePidBase, SinglePartPid)
             };
         }
 
@@ -1114,10 +1597,10 @@ namespace Parsek.Tests
             return new[]
             {
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Drill Junior", "MiniDrill", 57,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 97000000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, DrillShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Drill-O-Matic", "RadialDrill", 58,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 97000000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, DrillShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
             };
         }
@@ -1127,28 +1610,28 @@ namespace Parsek.Tests
             return new[]
             {
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Central Station", "DeployedCentralStation", 59,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, DeployedScienceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Goo Observation", "DeployedGoExOb", 60,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, DeployedScienceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Ion Collector", "DeployedIONExp", 61,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, DeployedScienceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed RTG", "DeployedRTG", 62,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, DeployedScienceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Sat Dish", "DeployedSatDish", 63,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, DeployedScienceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Seismic Sensor", "DeployedSeismicSensor", 64,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, DeployedScienceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Solar Panel", "DeployedSolarPanel", 65,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, DeployedScienceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Deployed Weather Station", "DeployedWeatherStn", 66,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98000000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, DeployedScienceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
             };
         }
@@ -1158,10 +1641,10 @@ namespace Parsek.Tests
             return new[]
             {
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Ground Anchor", "groundAnchor", 67,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98200000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, AnimationGroupShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Survey Scanner", "SurveyScanner", 68,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98200000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, AnimationGroupShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
             };
         }
@@ -1171,27 +1654,20 @@ namespace Parsek.Tests
             // 3-phase cycle: semi-deployed (streamer) → deployed (dome) → cut → repeat
             return new[]
             {
-                BuildParachuteShowcaseRecording(baseUT, "Part Showcase - Parachute Mk16", "parachuteSingle", 69, 98300000),
-                BuildParachuteShowcaseRecording(baseUT, "Part Showcase - Parachute Mk2-R", "parachuteRadial", 70, 98300000),
-                BuildParachuteShowcaseRecording(baseUT, "Part Showcase - Drogue Mk25", "parachuteDrogue", 71, 98300000),
-                BuildParachuteShowcaseRecording(baseUT, "Part Showcase - Drogue Mk12-R", "radialDrogue", 72, 98300000),
-                BuildParachuteShowcaseRecording(baseUT, "Part Showcase - Parachute Mk16-XL", "parachuteLarge", 73, 98300000)
+                BuildParachuteShowcaseRecording(baseUT, "Part Showcase - Parachute Mk16", "parachuteSingle", 69, ParachuteShowcasePidBase),
+                BuildParachuteShowcaseRecording(baseUT, "Part Showcase - Parachute Mk2-R", "parachuteRadial", 70, ParachuteShowcasePidBase),
+                BuildParachuteShowcaseRecording(baseUT, "Part Showcase - Drogue Mk25", "parachuteDrogue", 71, ParachuteShowcasePidBase),
+                BuildParachuteShowcaseRecording(baseUT, "Part Showcase - Drogue Mk12-R", "radialDrogue", 72, ParachuteShowcasePidBase),
+                BuildParachuteShowcaseRecording(baseUT, "Part Showcase - Parachute Mk16-XL", "parachuteLarge", 73, ParachuteShowcasePidBase)
             };
         }
 
         private static RecordingBuilder BuildParachuteShowcaseRecording(
             double baseUT, string vesselName, string partName, int rowIndex, uint pidBase)
         {
-            const double metersPerDegree = (2.0 * Math.PI * 600000.0) / 360.0;
-            const double spacingMeters = 5.0;
-
             double t = baseUT + 30;
-            double baseLat = -0.0972;
-            double baseLon = -74.5575;
-            double rowCenterOffsetMeters = -((ShowcaseRowCount - 1) * spacingMeters * 0.5);
-            double lat = baseLat + ((rowIndex * spacingMeters + rowCenterOffsetMeters) / metersPerDegree);
-            double lon = baseLon + ((ShowcaseDistanceFromPadMeters) / metersPerDegree);
-            double alt = 66.0;
+            ShowcasePosition(rowIndex, ShowcaseDistanceFromPadMeters, out double lat, out double lon, out double alt);
+            alt += ShowcaseAltitudeOffset(partName);
 
             var b = new RecordingBuilder(vesselName)
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
@@ -1229,45 +1705,39 @@ namespace Parsek.Tests
             return new[]
             {
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Rover Wheel M1-F", "roverWheelM1-F", 74,
-                    ShowcaseDistanceFromPadMeters, PartEventType.GearDeployed, PartEventType.GearRetracted, 98400000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.GearDeployed, PartEventType.GearRetracted, SpecialDeployShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Goo Experiment", "GooExperiment", 75,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98400000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, SpecialDeployShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Science Jr", "science_module", 76,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98400000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, SpecialDeployShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Magnetometer Boom", "Magnetometer", 77,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98400000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, SpecialDeployShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildInflatableHeatShieldShowcaseRecording(baseUT, 78, ShowcaseDistanceFromPadMeters),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Inflatable Airlock", "InflatableAirlock", 79,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98400000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, SpecialDeployShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Docking Port Shielded", "dockingPort1", 80,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98400000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, SpecialDeployShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Docking Port Inline", "dockingPortLateral", 81,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98400000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, SpecialDeployShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Grappling Device", "GrapplingDevice", 82,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98400000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, SpecialDeployShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Small Claw", "smallClaw", 83,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98400000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, SpecialDeployShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Mk2 Docking Port", "mk2DockingPort", 84,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98400000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, SpecialDeployShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Mk2 Lander Cabin", "mk2LanderCabin_v2", 85,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98400000, SinglePartPid,
-                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Jet Engine", "JetEngine", 115,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98400000, SinglePartPid,
-                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Turbofan Size 2", "turboFanSize2", 116,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0)
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, SpecialDeployShowcasePidBase, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
             };
         }
 
@@ -1276,67 +1746,67 @@ namespace Parsek.Tests
             return new[]
             {
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Hinge G-11", "hinge.01", 117,
-                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, RoboticsShowcasePidBase, SinglePartPid,
                     eventValue: 45f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Hinge G-00", "hinge.01.s", 118,
-                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, RoboticsShowcasePidBase, SinglePartPid,
                     eventValue: 45f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Hinge M-12", "hinge.03", 119,
-                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, RoboticsShowcasePidBase, SinglePartPid,
                     eventValue: 45f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Hinge M-06", "hinge.03.s", 120,
-                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, RoboticsShowcasePidBase, SinglePartPid,
                     eventValue: 45f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Hinge XL", "hinge.04", 121,
-                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, RoboticsShowcasePidBase, SinglePartPid,
                     eventValue: 45f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Piston 3P6", "piston.01", 122,
-                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, RoboticsShowcasePidBase, SinglePartPid,
                     eventValue: 0.3f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Piston 1P2", "piston.02", 123,
-                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, RoboticsShowcasePidBase, SinglePartPid,
                     eventValue: 0.2f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Piston 1P4", "piston.03", 124,
-                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, RoboticsShowcasePidBase, SinglePartPid,
                     eventValue: 0.4f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Piston 3P12", "piston.04", 125,
-                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, RoboticsShowcasePidBase, SinglePartPid,
                     eventValue: 0.9f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Rotation Servo M-06", "rotoServo.00", 126,
-                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, RoboticsShowcasePidBase, SinglePartPid,
                     eventValue: 90f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Rotation Servo M-12", "rotoServo.02", 127,
-                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, RoboticsShowcasePidBase, SinglePartPid,
                     eventValue: 90f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Rotation Servo F-12", "rotoServo.03", 128,
-                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, RoboticsShowcasePidBase, SinglePartPid,
                     eventValue: 90f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Rotation Servo F-33", "rotoServo.04", 129,
-                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, RoboticsShowcasePidBase, SinglePartPid,
                     eventValue: 90f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Rotor EM-16", "rotor.01", 130,
-                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, RoboticsShowcasePidBase, SinglePartPid,
                     eventValue: 240f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Rotor EM-16S", "rotor.01s", 131,
-                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, RoboticsShowcasePidBase, SinglePartPid,
                     eventValue: 240f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Rotor EM-32", "rotor.02", 132,
-                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, RoboticsShowcasePidBase, SinglePartPid,
                     eventValue: 240f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Rotor EM-32S", "rotor.02s", 133,
-                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, RoboticsShowcasePidBase, SinglePartPid,
                     eventValue: 240f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Rotor EM-64", "rotor.03", 134,
-                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, RoboticsShowcasePidBase, SinglePartPid,
                     eventValue: 240f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Rotor EM-64S", "rotor.03s", 135,
-                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, RoboticsShowcasePidBase, SinglePartPid,
                     eventValue: 240f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Rotor Motor R121", "RotorEngine.02", 136,
-                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, RoboticsShowcasePidBase, SinglePartPid,
                     eventValue: 240f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Robotics Rotor Motor R7000", "RotorEngine.03", 137,
-                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 98600000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, RoboticsShowcasePidBase, SinglePartPid,
                     eventValue: 240f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
             };
         }
@@ -1346,7 +1816,7 @@ namespace Parsek.Tests
             return new[]
             {
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Airbrake", "airbrake1", 138,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98700000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, AeroSurfaceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
             };
         }
@@ -1356,13 +1826,13 @@ namespace Parsek.Tests
             return new[]
             {
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Robot Arm Scanner S1", "RobotArmScanner_S1", 139,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98800000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, RobotArmScannerShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Robot Arm Scanner S2", "RobotArmScanner_S2", 140,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98800000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, RobotArmScannerShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Robot Arm Scanner S3", "RobotArmScanner_S3", 141,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98800000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, RobotArmScannerShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
             };
         }
@@ -1372,76 +1842,76 @@ namespace Parsek.Tests
             return new[]
             {
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Advanced Canard", "AdvancedCanard", 142,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, ControlSurfaceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Airliner", "airlinerCtrlSrf", 143,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, ControlSurfaceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Airliner Tail", "airlinerTailFin", 144,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, ControlSurfaceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Canard", "CanardController", 145,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, ControlSurfaceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Elevon 2", "elevon2", 146,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, ControlSurfaceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Elevon 3", "elevon3", 147,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, ControlSurfaceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Elevon 5", "elevon5", 148,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, ControlSurfaceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Large Fan Blade", "largeFanBlade", 149,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, ControlSurfaceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Large Heli Blade", "largeHeliBlade", 150,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, ControlSurfaceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Large Propeller", "largePropeller", 151,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, ControlSurfaceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Medium Fan Blade", "mediumFanBlade", 152,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, ControlSurfaceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Medium Heli Blade", "mediumHeliBlade", 153,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, ControlSurfaceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Medium Propeller", "mediumPropeller", 154,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, ControlSurfaceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface R8 Winglet", "R8winglet", 155,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, ControlSurfaceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Small", "smallCtrlSrf", 156,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, ControlSurfaceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Small Fan Blade", "smallFanBlade", 157,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, ControlSurfaceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Small Heli Blade", "smallHeliBlade", 158,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, ControlSurfaceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Small Propeller", "smallPropeller", 159,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, ControlSurfaceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Standard", "StandardCtrlSrf", 160,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, ControlSurfaceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Tailfin", "tailfin", 161,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, ControlSurfaceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Winglet", "winglet3", 162,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, ControlSurfaceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Shuttle Elevon 1", "wingShuttleElevon1", 163,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, ControlSurfaceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Shuttle Elevon 2", "wingShuttleElevon2", 164,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, ControlSurfaceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Control Surface Shuttle Rudder", "wingShuttleRudder", 165,
-                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, 98900000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, ControlSurfaceShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
             };
         }
@@ -1451,27 +1921,27 @@ namespace Parsek.Tests
             return new[]
             {
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Wheel Dynamics Gear Fixed", "GearFixed", 166,
-                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 99000000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, WheelDynamicsShowcasePidBase, SinglePartPid,
                     eventValue: 0.08f, moduleIndex: 0,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Wheel Dynamics Gear Free", "GearFree", 167,
-                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 99000000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, WheelDynamicsShowcasePidBase, SinglePartPid,
                     eventValue: 24f, moduleIndex: 1,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Wheel Dynamics Rover M1", "roverWheel1", 168,
-                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 99000000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, WheelDynamicsShowcasePidBase, SinglePartPid,
                     eventValue: 180f, moduleIndex: 2,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Wheel Dynamics Rover S2", "roverWheel2", 169,
-                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 99000000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, WheelDynamicsShowcasePidBase, SinglePartPid,
                     eventValue: 180f, moduleIndex: 2,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Wheel Dynamics Rover XL3", "roverWheel3", 170,
-                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 99000000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, WheelDynamicsShowcasePidBase, SinglePartPid,
                     eventValue: 120f, moduleIndex: 1,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Wheel Dynamics TR-2L", "wheelMed", 171,
-                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, 99000000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.RoboticMotionStarted, PartEventType.RoboticMotionStopped, WheelDynamicsShowcasePidBase, SinglePartPid,
                     eventValue: 180f, moduleIndex: 2,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
             };
@@ -1482,43 +1952,43 @@ namespace Parsek.Tests
             return new[]
             {
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Airplane Tail", "airplaneTail", 172,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, 99100000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
                     eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Airplane Tail B", "airplaneTailB", 173,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, 99100000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
                     eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Avionics Nose Cone", "avionicsNoseCone", 174,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, 99100000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
                     eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Circular Intake", "CircularIntake", 175,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, 99100000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
                     eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Mk1 Intake Fuselage", "MK1IntakeFuselage", 176,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, 99100000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
                     eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Nacelle Body", "nacelleBody", 177,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, 99100000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
                     eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Nose Cone Adapter", "noseConeAdapter", 178,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, 99100000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
                     eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Pointy Nose Cone A", "pointyNoseConeA", 179,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, 99100000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
                     eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Pointy Nose Cone B", "pointyNoseConeB", 180,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, 99100000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
                     eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Radial Engine Body", "radialEngineBody", 181,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, 99100000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
                     eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Ram Air Intake", "ramAirIntake", 182,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, 99100000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
                     eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Shock Cone Intake", "shockConeIntake", 183,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, 99100000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
                     eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Standard Nose Cone", "standardNoseCone", 184,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, 99100000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
                     eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
             };
         }
@@ -1528,111 +1998,42 @@ namespace Parsek.Tests
             return new[]
             {
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Engine Plate 1.5", "EnginePlate1p5", 86,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, JettisonShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 3.0),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Engine Plate 2", "EnginePlate2", 87,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, JettisonShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 3.0),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Engine Plate 3", "EnginePlate3", 88,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, JettisonShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 3.0),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Engine Plate 4", "EnginePlate4", 89,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, JettisonShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 3.0),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Engine Plate 5", "EnginePlate5", 90,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, JettisonShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 3.0),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Heat Shield 1", "HeatShield1", 91,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, JettisonShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 3.0),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Heat Shield 2", "HeatShield2", 92,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, JettisonShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 3.0),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Heat Shield 3", "HeatShield3", 93,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, JettisonShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 3.0),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Heat Shield 1.5", "HeatShield1p5", 94,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - LV-T30", "liquidEngine", 95,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - LV-T30 v2", "liquidEngine.v2", 96,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - LV-T45", "liquidEngine2", 97,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - LV-T45 v2", "liquidEngine2.v2", 98,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Poodle v2", "liquidEngine2-2.v2", 99,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Terrier v2", "liquidEngine3.v2", 100,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Spark v2", "liquidEngineMini.v2", 101,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - NERV", "nuclearEngine", 102,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Aerospike", "toroidalAerospike", 103,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Thud Mite", "Mite", 104,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Shrimp", "Shrimp", 105,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Flea v2", "solidBooster.sm.v2", 106,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Hammer v2", "solidBooster.v2", 107,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Vector", "Size3AdvancedEngine", 108,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Kodiak", "LiquidEngineKE-1", 109,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Cheetah", "LiquidEngineLV-T91", 110,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Wolfhound", "LiquidEngineLV-TX87", 111,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Bobcat", "LiquidEngineRE-I2", 112,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0, rowOffsetMeters: -1.0),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Skiff", "LiquidEngineRE-J10", 113,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
-                    firstEventOffsetSeconds: 3.0, rowOffsetMeters: 1.0),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Mastodon", "LiquidEngineRK-7", 114,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, 98500000, SinglePartPid,
+                    ShowcaseDistanceFromPadMeters, PartEventType.ShroudJettisoned, PartEventType.ShroudJettisoned, JettisonShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 3.0)
             };
         }
 
         internal static RecordingBuilder InventoryPlacementShowcaseRecording(double baseUT = 0)
         {
-            const double metersPerDegree = (2.0 * Math.PI * 600000.0) / 360.0;
-            const double spacingMeters = 5.0;
-
-            // Keep inventory placement inside the same centered showcase line.
             const int rowIndex = ShowcaseRowCount - 1;
-            double t = baseUT + 30;
-            double baseLat = -0.0972;
-            double baseLon = -74.5575;
-            double rowCenterOffsetMeters = -((ShowcaseRowCount - 1) * spacingMeters * 0.5);
-            double lat = baseLat + ((rowIndex * spacingMeters + rowCenterOffsetMeters) / metersPerDegree);
-            double lon = baseLon + (ShowcaseDistanceFromPadMeters / metersPerDegree);
-            double alt = 66.0;
-
             const string partName = "DeployedWeatherStn";
+            double t = baseUT + 30;
+            ShowcasePosition(rowIndex, ShowcaseDistanceFromPadMeters, out double lat, out double lon, out double alt);
+            alt += ShowcaseAltitudeOffset(partName);
             var b = new RecordingBuilder("Part Showcase - Inventory Placement")
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
                 .WithLoopPlayback(loop: true, pauseSeconds: 0.0);
@@ -1652,7 +2053,7 @@ namespace Parsek.Tests
 
             var snap = new VesselSnapshotBuilder()
                 .WithName("Part Showcase - Inventory Placement")
-                .WithPersistentId(98100000)
+                .WithPersistentId(InventoryPlacementPid)
                 .AddPart(partName, rotation: "0,-0.7071068,0,0.7071068")
                 .AddPart("kerbalEVA", position: "2.25,0,0", rotation: "0,0.7071068,0,0.7071068", parentIndex: 0)
                 .AsLanded(lat, lon, alt)
@@ -1665,6 +2066,76 @@ namespace Parsek.Tests
         #endregion
 
         #region Unit Tests
+
+        private const string ShowcasePrimaryRotation = "0,-0.7071068,0,0.7071068";
+
+        private static double ParseInvariantDouble(string value)
+        {
+            return double.Parse(value, CultureInfo.InvariantCulture);
+        }
+
+        private static float ParseInvariantFloat(string value)
+        {
+            return float.Parse(value, CultureInfo.InvariantCulture);
+        }
+
+        private static void AssertFloatClose(float expected, float actual, float tolerance = 0.0001f)
+        {
+            Assert.True(
+                Math.Abs(expected - actual) <= tolerance,
+                $"Expected {expected.ToString("R", CultureInfo.InvariantCulture)} but got {actual.ToString("R", CultureInfo.InvariantCulture)}");
+        }
+
+        private static void AssertEventTargetsPrimaryPart(ConfigNode eventNode, ConfigNode primaryPart)
+        {
+            Assert.Equal(primaryPart.GetValue("persistentId"), eventNode.GetValue("pid"));
+            Assert.Equal(primaryPart.GetValue("name"), eventNode.GetValue("part"));
+        }
+
+        private static void AssertAlternatingPartEvents(
+            ConfigNode recording,
+            PartEventType onEvent,
+            PartEventType offEvent,
+            double firstEventOffsetSeconds,
+            double onDurationSeconds,
+            double offDurationSeconds,
+            float expectedOnValue,
+            int expectedModuleIndex = 0,
+            int expectedEventCount = 8)
+        {
+            ConfigNode[] events = recording.GetNodes("PART_EVENT");
+            Assert.Equal(expectedEventCount, events.Length);
+
+            ConfigNode ghost = recording.GetNode("GHOST_VISUAL_SNAPSHOT");
+            Assert.NotNull(ghost);
+            ConfigNode[] parts = ghost.GetNodes("PART");
+            Assert.True(parts.Length >= 1, $"Missing ghost PART for {recording.GetValue("vesselName")}");
+            ConfigNode primaryPart = parts[0];
+
+            double baseUt = ParseInvariantDouble(events[0].GetValue("ut")) - firstEventOffsetSeconds;
+            double expectedOffset = firstEventOffsetSeconds;
+            for (int i = 0; i < events.Length; i++)
+            {
+                bool onPhase = (i % 2) == 0;
+                ConfigNode evt = events[i];
+
+                Assert.Equal(
+                    ((int)(onPhase ? onEvent : offEvent)).ToString(CultureInfo.InvariantCulture),
+                    evt.GetValue("type"));
+                AssertEventTargetsPrimaryPart(evt, primaryPart);
+                Assert.Equal(expectedModuleIndex.ToString(CultureInfo.InvariantCulture), evt.GetValue("midx"));
+
+                float expectedValue = onPhase ? expectedOnValue : 0f;
+                float actualValue = ParseInvariantFloat(evt.GetValue("value"));
+                AssertFloatClose(expectedValue, actualValue);
+
+                double expectedUt = baseUt + expectedOffset;
+                double actualUt = ParseInvariantDouble(evt.GetValue("ut"));
+                Assert.Equal(expectedUt, actualUt, 6);
+
+                expectedOffset += onPhase ? onDurationSeconds : offDurationSeconds;
+            }
+        }
 
         [Fact]
         public void PadWalk_HasEvaGhostSnapshot()
@@ -2185,14 +2656,14 @@ namespace Parsek.Tests
         public void LightShowcaseRecordings_BuildExpectedShape()
         {
             var recordings = LightShowcaseRecordings(baseUT: 17000);
-            Assert.Equal(6, recordings.Length);
+            Assert.Equal(10, recordings.Length);
 
             var first = recordings[0].Build();
             Assert.Equal("Part Showcase - Lights v1", first.GetValue("vesselName"));
             Assert.Equal("9", first.GetValue("pointCount"));
             Assert.Equal("True", first.GetValue("loopPlayback"));
             Assert.Equal("0", first.GetValue("loopPauseSeconds"));
-            Assert.Equal(8, first.GetNodes("PART_EVENT").Length);
+            Assert.Equal(7, first.GetNodes("PART_EVENT").Length);
 
             var ghost = first.GetNode("GHOST_VISUAL_SNAPSHOT");
             Assert.NotNull(ghost);
@@ -2306,39 +2777,205 @@ namespace Parsek.Tests
         public void EngineShowcaseRecordings_BuildExpectedShape()
         {
             var recordings = EngineShowcaseRecordings(baseUT: 17000);
-            Assert.Equal(3, recordings.Length);
+            Assert.Equal(45, recordings.Length);
 
+            // First entry: liquid with shroud (LV-T30) → 8 events, first is ShroudJettisoned
             var first = recordings[0].Build();
-            Assert.Equal("Part Showcase - Mainsail", first.GetValue("vesselName"));
+            Assert.Equal("Part Showcase - LV-T30", first.GetValue("vesselName"));
             Assert.Equal("True", first.GetValue("loopPlayback"));
             Assert.Equal(8, first.GetNodes("PART_EVENT").Length);
 
-            // Verify engine events have value=1 for ignition, 0 for shutdown
             var events = first.GetNodes("PART_EVENT");
-            Assert.Equal(((int)PartEventType.EngineIgnited).ToString(), events[0].GetValue("type"));
-            Assert.Equal("1", events[0].GetValue("value"));
-            Assert.Equal(((int)PartEventType.EngineShutdown).ToString(), events[1].GetValue("type"));
-            Assert.Equal("0", events[1].GetValue("value"));
+            Assert.Equal(((int)PartEventType.ShroudJettisoned).ToString(), events[0].GetValue("type"));
+            Assert.Equal(((int)PartEventType.EngineIgnited).ToString(), events[1].GetValue("type"));
+            Assert.Equal("0.3", events[1].GetValue("value"));
+            Assert.Equal(((int)PartEventType.EngineThrottle).ToString(), events[2].GetValue("type"));
 
-            // Uses dot-form part name
             var ghost = first.GetNode("GHOST_VISUAL_SNAPSHOT");
             Assert.NotNull(ghost);
-            Assert.Equal("liquidEngineMainsail.v2", ghost.GetNodes("PART")[0].GetValue("name"));
+            Assert.Equal("liquidEngine", ghost.GetNodes("PART")[0].GetValue("name"));
             Assert.Equal(ghost.GetNodes("PART")[0].GetValue("persistentId"), events[0].GetValue("pid"));
 
-            var names = new[] { "liquidEngineMainsail.v2", "engineLargeSkipper.v2", "SSME" };
+            // SRB with shroud (index 16 = Flea v2) → 3 events
+            var srbShroud = recordings[16].Build();
+            Assert.Equal("Part Showcase - Flea v2", srbShroud.GetValue("vesselName"));
+            Assert.Equal(3, srbShroud.GetNodes("PART_EVENT").Length);
+            var srbEvents = srbShroud.GetNodes("PART_EVENT");
+            Assert.Equal(((int)PartEventType.ShroudJettisoned).ToString(), srbEvents[0].GetValue("type"));
+            Assert.Equal(((int)PartEventType.EngineIgnited).ToString(), srbEvents[1].GetValue("type"));
+            Assert.Equal("1", srbEvents[1].GetValue("value"));
+            Assert.Equal(((int)PartEventType.EngineShutdown).ToString(), srbEvents[2].GetValue("type"));
+
+            // Liquid flame-only (index 20 = Ant) → 8 events, first is EngineIgnited
+            var flameOnly = recordings[20].Build();
+            Assert.Equal("Part Showcase - Ant", flameOnly.GetValue("vesselName"));
+            Assert.Equal(8, flameOnly.GetNodes("PART_EVENT").Length);
+            var flameEvents = flameOnly.GetNodes("PART_EVENT");
+            Assert.Equal(((int)PartEventType.EngineIgnited).ToString(), flameEvents[0].GetValue("type"));
+            Assert.Equal("0.3", flameEvents[0].GetValue("value"));
+
+            // Late large-liquid rows also use shroud+jettison (indices 26-28).
+            var mainsail = recordings[26].Build();
+            Assert.Equal("Part Showcase - Mainsail", mainsail.GetValue("vesselName"));
+            Assert.Equal(8, mainsail.GetNodes("PART_EVENT").Length);
+            Assert.Equal(((int)PartEventType.ShroudJettisoned).ToString(), mainsail.GetNodes("PART_EVENT")[0].GetValue("type"));
+
+            var skipper = recordings[27].Build();
+            Assert.Equal("Part Showcase - Skipper", skipper.GetValue("vesselName"));
+            Assert.Equal(8, skipper.GetNodes("PART_EVENT").Length);
+            Assert.Equal(((int)PartEventType.ShroudJettisoned).ToString(), skipper.GetNodes("PART_EVENT")[0].GetValue("type"));
+
+            var ssme = recordings[28].Build();
+            Assert.Equal("Part Showcase - SSME", ssme.GetValue("vesselName"));
+            Assert.Equal(8, ssme.GetNodes("PART_EVENT").Length);
+            Assert.Equal(((int)PartEventType.ShroudJettisoned).ToString(), ssme.GetNodes("PART_EVENT")[0].GetValue("type"));
+
+            // SRB flame-only (index 33 = Thumper) → 2 events
+            var srbFlame = recordings[33].Build();
+            Assert.Equal("Part Showcase - Thumper", srbFlame.GetValue("vesselName"));
+            Assert.Equal(2, srbFlame.GetNodes("PART_EVENT").Length);
+            var srbFlameEvents = srbFlame.GetNodes("PART_EVENT");
+            Assert.Equal(((int)PartEventType.EngineIgnited).ToString(), srbFlameEvents[0].GetValue("type"));
+            Assert.Equal("1", srbFlameEvents[0].GetValue("value"));
+            Assert.Equal(((int)PartEventType.EngineShutdown).ToString(), srbFlameEvents[1].GetValue("type"));
+
+            // Jet (index 39 = Juno) → 8 events
+            var jet = recordings[39].Build();
+            Assert.Equal("Part Showcase - Juno", jet.GetValue("vesselName"));
+            Assert.Equal(8, jet.GetNodes("PART_EVENT").Length);
+
+            // Ion (index 44) → 8 events
+            var ion = recordings[44].Build();
+            Assert.Equal("Part Showcase - Ion", ion.GetValue("vesselName"));
+            Assert.Equal(8, ion.GetNodes("PART_EVENT").Length);
+        }
+
+        [Fact]
+        public void EngineShowcaseRecordings_AllEntriesFollowExpectedEventProfiles()
+        {
+            var recordings = EngineShowcaseRecordings(baseUT: 17000);
+            Assert.Equal(45, recordings.Length);
+
             for (int i = 0; i < recordings.Length; i++)
             {
-                var g = recordings[i].Build().GetNode("GHOST_VISUAL_SNAPSHOT");
-                Assert.Equal(names[i], g.GetNodes("PART")[0].GetValue("name"));
+                ConfigNode built = recordings[i].Build();
+                ConfigNode[] events = built.GetNodes("PART_EVENT");
+                Assert.True(events.Length == 2 || events.Length == 3 || events.Length == 8,
+                    $"Unexpected event count {events.Length} for '{built.GetValue("vesselName")}'");
+
+                ConfigNode ghost = built.GetNode("GHOST_VISUAL_SNAPSHOT");
+                Assert.NotNull(ghost);
+                ConfigNode[] parts = ghost.GetNodes("PART");
+                Assert.Single(parts);
+                string expectedPid = parts[0].GetValue("persistentId");
+
+                double previousUt = double.MinValue;
+                for (int e = 0; e < events.Length; e++)
+                {
+                    Assert.Equal(expectedPid, events[e].GetValue("pid"));
+                    double ut = double.Parse(events[e].GetValue("ut"), CultureInfo.InvariantCulture);
+                    Assert.True(ut > previousUt,
+                        $"Non-monotonic UT in '{built.GetValue("vesselName")}' at event {e}");
+                    previousUt = ut;
+                }
+
+                if (events.Length == 2)
+                {
+                    Assert.Equal(((int)PartEventType.EngineIgnited).ToString(), events[0].GetValue("type"));
+                    Assert.Equal("1", events[0].GetValue("value"));
+                    Assert.Equal(((int)PartEventType.EngineShutdown).ToString(), events[1].GetValue("type"));
+                    continue;
+                }
+
+                if (events.Length == 3)
+                {
+                    Assert.Equal(((int)PartEventType.ShroudJettisoned).ToString(), events[0].GetValue("type"));
+                    Assert.Equal(((int)PartEventType.EngineIgnited).ToString(), events[1].GetValue("type"));
+                    Assert.Equal("1", events[1].GetValue("value"));
+                    Assert.Equal(((int)PartEventType.EngineShutdown).ToString(), events[2].GetValue("type"));
+                    continue;
+                }
+
+                int shroudCount = 0;
+                int igniteCount = 0;
+                int throttleCount = 0;
+                int shutdownCount = 0;
+                int firstIgniteIndex = -1;
+                for (int e = 0; e < events.Length; e++)
+                {
+                    int eventType = int.Parse(events[e].GetValue("type"), CultureInfo.InvariantCulture);
+                    if (eventType == (int)PartEventType.ShroudJettisoned)
+                        shroudCount++;
+                    else if (eventType == (int)PartEventType.EngineIgnited)
+                    {
+                        igniteCount++;
+                        if (firstIgniteIndex < 0)
+                            firstIgniteIndex = e;
+                    }
+                    else if (eventType == (int)PartEventType.EngineThrottle)
+                        throttleCount++;
+                    else if (eventType == (int)PartEventType.EngineShutdown)
+                        shutdownCount++;
+                }
+
+                Assert.True(shroudCount == 0 || shroudCount == 1);
+                Assert.Equal(2, igniteCount);
+                Assert.Equal(2, shutdownCount);
+                Assert.Equal(shroudCount == 1 ? 3 : 4, throttleCount);
+                Assert.True(firstIgniteIndex >= 0);
+                Assert.Equal("0.3", events[firstIgniteIndex].GetValue("value"));
+
+                int expectedFirstType = shroudCount == 1
+                    ? (int)PartEventType.ShroudJettisoned
+                    : (int)PartEventType.EngineIgnited;
+                Assert.Equal(expectedFirstType.ToString(CultureInfo.InvariantCulture), events[0].GetValue("type"));
             }
+        }
+
+        [Fact]
+        public void EngineShowcaseRecordings_KickbackMatchesThumperSrbProfile()
+        {
+            var recordings = EngineShowcaseRecordings(baseUT: 17000);
+            ConfigNode thumper = null;
+            ConfigNode kickback = null;
+
+            for (int i = 0; i < recordings.Length; i++)
+            {
+                ConfigNode built = recordings[i].Build();
+                string name = built.GetValue("vesselName");
+                if (name == "Part Showcase - Thumper")
+                    thumper = built;
+                else if (name == "Part Showcase - Kickback")
+                    kickback = built;
+            }
+
+            Assert.NotNull(thumper);
+            Assert.NotNull(kickback);
+
+            ConfigNode[] thumperEvents = thumper.GetNodes("PART_EVENT");
+            ConfigNode[] kickbackEvents = kickback.GetNodes("PART_EVENT");
+            Assert.Equal(2, thumperEvents.Length);
+            Assert.Equal(2, kickbackEvents.Length);
+
+            for (int i = 0; i < 2; i++)
+            {
+                Assert.Equal(thumperEvents[i].GetValue("type"), kickbackEvents[i].GetValue("type"));
+                Assert.Equal(thumperEvents[i].GetValue("value") ?? "", kickbackEvents[i].GetValue("value") ?? "");
+            }
+
+            double thumperDuration = double.Parse(thumperEvents[1].GetValue("ut"), CultureInfo.InvariantCulture) -
+                double.Parse(thumperEvents[0].GetValue("ut"), CultureInfo.InvariantCulture);
+            double kickbackDuration = double.Parse(kickbackEvents[1].GetValue("ut"), CultureInfo.InvariantCulture) -
+                double.Parse(kickbackEvents[0].GetValue("ut"), CultureInfo.InvariantCulture);
+
+            Assert.Equal(thumperDuration, kickbackDuration, 6);
         }
 
         [Fact]
         public void RcsShowcaseRecordings_BuildExpectedShape()
         {
             var recordings = RcsShowcaseRecordings(baseUT: 17000);
-            Assert.Equal(3, recordings.Length);
+            Assert.Equal(5, recordings.Length);
 
             var first = recordings[0].Build();
             Assert.Equal("Part Showcase - RCS RV-105", first.GetValue("vesselName"));
@@ -2357,7 +2994,7 @@ namespace Parsek.Tests
             Assert.Equal("RCSBlock.v2", ghost.GetNodes("PART")[0].GetValue("name"));
             Assert.Equal(ghost.GetNodes("PART")[0].GetValue("persistentId"), events[0].GetValue("pid"));
 
-            var names = new[] { "RCSBlock.v2", "RCSblock.01.small", "RCSLinearSmall" };
+            var names = new[] { "RCSBlock.v2", "RCSblock.01.small", "RCSLinearSmall", "linearRcs", "vernierEngine" };
             for (int i = 0; i < recordings.Length; i++)
             {
                 var g = recordings[i].Build().GetNode("GHOST_VISUAL_SNAPSHOT");
@@ -2389,6 +3026,44 @@ namespace Parsek.Tests
             Assert.Equal(((int)PartEventType.RCSActivated).ToString(), events[0].GetValue("type"));
             Assert.Equal(((int)PartEventType.RCSActivated).ToString(), events[6].GetValue("type"));
             Assert.Equal(((int)PartEventType.RCSStopped).ToString(), events[7].GetValue("type"));
+        }
+
+        [Fact]
+        public void RcsShowcaseRecordings_AllEntriesUseAlternatingCadenceAndPidBinding()
+        {
+            var recordings = RcsShowcaseRecordings(baseUT: 17000);
+            Assert.Equal(5, recordings.Length);
+
+            for (int i = 0; i < recordings.Length; i++)
+            {
+                ConfigNode built = recordings[i].Build();
+                ConfigNode[] events = built.GetNodes("PART_EVENT");
+                Assert.Equal(8, events.Length);
+
+                ConfigNode ghost = built.GetNode("GHOST_VISUAL_SNAPSHOT");
+                Assert.NotNull(ghost);
+                ConfigNode[] parts = ghost.GetNodes("PART");
+                Assert.Single(parts);
+                string expectedPid = parts[0].GetValue("persistentId");
+
+                for (int e = 0; e < events.Length; e++)
+                {
+                    bool onEvent = (e % 2) == 0;
+                    Assert.Equal(expectedPid, events[e].GetValue("pid"));
+                    Assert.Equal("0", events[e].GetValue("midx"));
+                    Assert.Equal((onEvent ? (int)PartEventType.RCSActivated : (int)PartEventType.RCSStopped)
+                        .ToString(CultureInfo.InvariantCulture), events[e].GetValue("type"));
+                    Assert.Equal(onEvent ? "1" : "0", events[e].GetValue("value"));
+                }
+
+                for (int e = 1; e < events.Length; e++)
+                {
+                    double prevUt = double.Parse(events[e - 1].GetValue("ut"), CultureInfo.InvariantCulture);
+                    double curUt = double.Parse(events[e].GetValue("ut"), CultureInfo.InvariantCulture);
+                    double expectedStep = ((e - 1) % 2) == 0 ? 4.5 : 1.5;
+                    Assert.Equal(expectedStep, curUt - prevUt, 3);
+                }
+            }
         }
 
         [Fact]
@@ -2553,7 +3228,7 @@ namespace Parsek.Tests
         public void SpecialDeployAnimationShowcaseRecordings_BuildExpectedShape()
         {
             var recordings = SpecialDeployAnimationShowcaseRecordings(baseUT: 17000);
-            Assert.Equal(14, recordings.Length);
+            Assert.Equal(12, recordings.Length);
 
             var first = recordings[0].Build();
             Assert.Equal("Part Showcase - Rover Wheel M1-F", first.GetValue("vesselName"));
@@ -2576,8 +3251,7 @@ namespace Parsek.Tests
             var names = new[]
             {
                 "roverWheelM1-F", "GooExperiment", "science_module", "Magnetometer", "InflatableHeatShield", "InflatableAirlock",
-                "dockingPort1", "dockingPortLateral", "GrapplingDevice", "smallClaw", "mk2DockingPort", "mk2LanderCabin_v2",
-                "JetEngine", "turboFanSize2"
+                "dockingPort1", "dockingPortLateral", "GrapplingDevice", "smallClaw", "mk2DockingPort", "mk2LanderCabin_v2"
             };
             for (int i = 0; i < recordings.Length; i++)
             {
@@ -2620,7 +3294,7 @@ namespace Parsek.Tests
         public void JettisonShowcaseRecordings_BuildExpectedShape()
         {
             var recordings = JettisonShowcaseRecordings(baseUT: 17000);
-            Assert.Equal(29, recordings.Length);
+            Assert.Equal(9, recordings.Length);
 
             var first = recordings[0].Build();
             Assert.Equal("Part Showcase - Engine Plate 1.5", first.GetValue("vesselName"));
@@ -2634,14 +3308,7 @@ namespace Parsek.Tests
             var names = new[]
             {
                 "EnginePlate1p5", "EnginePlate2", "EnginePlate3", "EnginePlate4", "EnginePlate5",
-                "HeatShield1", "HeatShield2", "HeatShield3", "HeatShield1p5",
-                "liquidEngine", "liquidEngine.v2", "liquidEngine2", "liquidEngine2.v2",
-                "liquidEngine2-2.v2", "liquidEngine3.v2", "liquidEngineMini.v2",
-                "nuclearEngine", "toroidalAerospike",
-                "Mite", "Shrimp", "solidBooster.sm.v2", "solidBooster.v2",
-                "Size3AdvancedEngine",
-                "LiquidEngineKE-1", "LiquidEngineLV-T91", "LiquidEngineLV-TX87",
-                "LiquidEngineRE-I2", "LiquidEngineRE-J10", "LiquidEngineRK-7"
+                "HeatShield1", "HeatShield2", "HeatShield3", "HeatShield1p5"
             };
             for (int i = 0; i < recordings.Length; i++)
             {
@@ -2820,6 +3487,610 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShowcaseRecordings_PrimaryPartRotationIsConsistent()
+        {
+            var allShowcases = new[]
+            {
+                LightShowcaseRecordings(17000),
+                DeployableShowcaseRecordings(17000),
+                GearShowcaseRecordings(17000),
+                CargoBayShowcaseRecordings(17000),
+                EngineShowcaseRecordings(17000),
+                LadderShowcaseRecordings(17000),
+                RcsShowcaseRecordings(17000),
+                FairingShowcaseRecordings(17000),
+                RadiatorShowcaseRecordings(17000),
+                DrillShowcaseRecordings(17000),
+                DeployedScienceShowcaseRecordings(17000),
+                AnimationGroupShowcaseRecordings(17000),
+                ParachuteShowcaseRecordings(17000),
+                SpecialDeployAnimationShowcaseRecordings(17000),
+                JettisonShowcaseRecordings(17000),
+                RoboticsShowcaseRecordings(17000),
+                AeroSurfaceShowcaseRecordings(17000),
+                RobotArmScannerShowcaseRecordings(17000),
+                ControlSurfaceShowcaseRecordings(17000),
+                WheelDynamicsShowcaseRecordings(17000),
+                AnimateHeatShowcaseRecordings(17000),
+                new[] { InventoryPlacementShowcaseRecording(17000) }
+            };
+
+            foreach (var category in allShowcases)
+            {
+                foreach (var rb in category)
+                {
+                    var rec = rb.Build();
+                    var ghost = rec.GetNode("GHOST_VISUAL_SNAPSHOT");
+                    Assert.NotNull(ghost);
+                    var primaryPart = ghost.GetNodes("PART")[0];
+                    Assert.Equal(ShowcasePrimaryRotation, primaryPart.GetValue("rotation"));
+                }
+            }
+        }
+
+        [Fact]
+        public void ShowcaseToggleRecordings_DefaultCadenceCategoriesUseExpectedStateMachine()
+        {
+            var categories = new[]
+            {
+                new
+                {
+                    Recordings = DeployableShowcaseRecordings(17000),
+                    OnEvent = PartEventType.DeployableExtended,
+                    OffEvent = PartEventType.DeployableRetracted
+                },
+                new
+                {
+                    Recordings = GearShowcaseRecordings(17000),
+                    OnEvent = PartEventType.GearDeployed,
+                    OffEvent = PartEventType.GearRetracted
+                },
+                new
+                {
+                    Recordings = CargoBayShowcaseRecordings(17000),
+                    OnEvent = PartEventType.CargoBayOpened,
+                    OffEvent = PartEventType.CargoBayClosed
+                },
+                new
+                {
+                    Recordings = LadderShowcaseRecordings(17000),
+                    OnEvent = PartEventType.DeployableExtended,
+                    OffEvent = PartEventType.DeployableRetracted
+                },
+                new
+                {
+                    Recordings = RadiatorShowcaseRecordings(17000),
+                    OnEvent = PartEventType.DeployableExtended,
+                    OffEvent = PartEventType.DeployableRetracted
+                }
+            };
+
+            foreach (var category in categories)
+            {
+                foreach (var rb in category.Recordings)
+                {
+                    AssertAlternatingPartEvents(
+                        rb.Build(),
+                        category.OnEvent,
+                        category.OffEvent,
+                        firstEventOffsetSeconds: 3.0,
+                        onDurationSeconds: 3.0,
+                        offDurationSeconds: 3.0,
+                        expectedOnValue: 0f);
+                }
+            }
+        }
+
+        [Fact]
+        public void ShowcaseToggleRecordings_FastCadenceCategoriesUseExpectedStateMachine()
+        {
+            var categories = new[]
+            {
+                new
+                {
+                    Recordings = RcsShowcaseRecordings(17000),
+                    OnEvent = PartEventType.RCSActivated,
+                    OffEvent = PartEventType.RCSStopped,
+                    OnValue = 1.0f
+                },
+                new
+                {
+                    Recordings = DrillShowcaseRecordings(17000),
+                    OnEvent = PartEventType.DeployableExtended,
+                    OffEvent = PartEventType.DeployableRetracted,
+                    OnValue = 0f
+                },
+                new
+                {
+                    Recordings = DeployedScienceShowcaseRecordings(17000),
+                    OnEvent = PartEventType.DeployableExtended,
+                    OffEvent = PartEventType.DeployableRetracted,
+                    OnValue = 0f
+                },
+                new
+                {
+                    Recordings = AnimationGroupShowcaseRecordings(17000),
+                    OnEvent = PartEventType.DeployableExtended,
+                    OffEvent = PartEventType.DeployableRetracted,
+                    OnValue = 0f
+                },
+                new
+                {
+                    Recordings = AeroSurfaceShowcaseRecordings(17000),
+                    OnEvent = PartEventType.DeployableExtended,
+                    OffEvent = PartEventType.DeployableRetracted,
+                    OnValue = 0f
+                },
+                new
+                {
+                    Recordings = RobotArmScannerShowcaseRecordings(17000),
+                    OnEvent = PartEventType.DeployableExtended,
+                    OffEvent = PartEventType.DeployableRetracted,
+                    OnValue = 0f
+                },
+                new
+                {
+                    Recordings = ControlSurfaceShowcaseRecordings(17000),
+                    OnEvent = PartEventType.DeployableExtended,
+                    OffEvent = PartEventType.DeployableRetracted,
+                    OnValue = 0f
+                },
+                new
+                {
+                    Recordings = AnimateHeatShowcaseRecordings(17000),
+                    OnEvent = PartEventType.ThermalAnimationHot,
+                    OffEvent = PartEventType.ThermalAnimationCold,
+                    OnValue = 1.0f
+                }
+            };
+
+            foreach (var category in categories)
+            {
+                foreach (var rb in category.Recordings)
+                {
+                    AssertAlternatingPartEvents(
+                        rb.Build(),
+                        category.OnEvent,
+                        category.OffEvent,
+                        firstEventOffsetSeconds: 0.0,
+                        onDurationSeconds: 4.5,
+                        offDurationSeconds: 1.5,
+                        expectedOnValue: category.OnValue);
+                }
+            }
+        }
+
+        [Fact]
+        public void SpecialDeployAnimationShowcases_NonHeatShieldEntriesUseFastAlternatingStateMachine()
+        {
+            var recordings = SpecialDeployAnimationShowcaseRecordings(17000);
+            Assert.Equal(12, recordings.Length);
+
+            foreach (var rb in recordings)
+            {
+                var rec = rb.Build();
+                string vesselName = rec.GetValue("vesselName");
+                if (vesselName == "Part Showcase - Inflatable Heat Shield")
+                    continue;
+
+                PartEventType onEvent = vesselName == "Part Showcase - Rover Wheel M1-F"
+                    ? PartEventType.GearDeployed
+                    : PartEventType.DeployableExtended;
+                PartEventType offEvent = vesselName == "Part Showcase - Rover Wheel M1-F"
+                    ? PartEventType.GearRetracted
+                    : PartEventType.DeployableRetracted;
+
+                AssertAlternatingPartEvents(
+                    rec,
+                    onEvent,
+                    offEvent,
+                    firstEventOffsetSeconds: 0.0,
+                    onDurationSeconds: 4.5,
+                    offDurationSeconds: 1.5,
+                    expectedOnValue: 0f);
+            }
+        }
+
+        [Fact]
+        public void SpecialDeployAnimationShowcases_InflatableHeatShieldUsesExpectedSequence()
+        {
+            var recordings = SpecialDeployAnimationShowcaseRecordings(17000);
+            ConfigNode heatShield = null;
+
+            foreach (var rb in recordings)
+            {
+                var rec = rb.Build();
+                if (rec.GetValue("vesselName") == "Part Showcase - Inflatable Heat Shield")
+                {
+                    heatShield = rec;
+                    break;
+                }
+            }
+
+            Assert.NotNull(heatShield);
+            var events = heatShield.GetNodes("PART_EVENT");
+            Assert.Equal(8, events.Length);
+
+            var expectedTypes = new[]
+            {
+                PartEventType.ShroudJettisoned,
+                PartEventType.DeployableExtended,
+                PartEventType.DeployableRetracted,
+                PartEventType.DeployableExtended,
+                PartEventType.DeployableRetracted,
+                PartEventType.DeployableExtended,
+                PartEventType.DeployableRetracted,
+                PartEventType.DeployableExtended
+            };
+            var expectedOffsets = new[] { 0.5, 1.0, 4.5, 7.5, 10.5, 13.5, 16.5, 19.5 };
+
+            var ghost = heatShield.GetNode("GHOST_VISUAL_SNAPSHOT");
+            var primaryPart = ghost.GetNodes("PART")[0];
+            double baseUt = ParseInvariantDouble(events[0].GetValue("ut")) - expectedOffsets[0];
+
+            for (int i = 0; i < events.Length; i++)
+            {
+                Assert.Equal(((int)expectedTypes[i]).ToString(CultureInfo.InvariantCulture), events[i].GetValue("type"));
+                AssertEventTargetsPrimaryPart(events[i], primaryPart);
+                Assert.Equal("0", events[i].GetValue("midx"));
+                AssertFloatClose(0f, ParseInvariantFloat(events[i].GetValue("value")));
+                Assert.Equal(baseUt + expectedOffsets[i], ParseInvariantDouble(events[i].GetValue("ut")), 6);
+            }
+        }
+
+        [Fact]
+        public void FairingShowcaseRecordings_UseExpectedModulesAndJettisonCadence()
+        {
+            var expectedBaseRadius = new Dictionary<string, float>
+            {
+                ["Part Showcase - Fairing Size 1"] = 0.625f,
+                ["Part Showcase - Fairing Size 1.5"] = 0.9375f,
+                ["Part Showcase - Fairing Size 2"] = 1.25f,
+                ["Part Showcase - Fairing Size 3"] = 1.875f,
+                ["Part Showcase - Fairing Size 4"] = 2.5f
+            };
+            var expectedTopHeight = new Dictionary<string, float>
+            {
+                ["Part Showcase - Fairing Size 1"] = 2.0f,
+                ["Part Showcase - Fairing Size 1.5"] = 2.8f,
+                ["Part Showcase - Fairing Size 2"] = 3.2f,
+                ["Part Showcase - Fairing Size 3"] = 4.5f,
+                ["Part Showcase - Fairing Size 4"] = 6.0f
+            };
+
+            foreach (var rb in FairingShowcaseRecordings(17000))
+            {
+                var rec = rb.Build();
+                AssertAlternatingPartEvents(
+                    rec,
+                    PartEventType.FairingJettisoned,
+                    PartEventType.FairingJettisoned,
+                    firstEventOffsetSeconds: 3.0,
+                    onDurationSeconds: 3.0,
+                    offDurationSeconds: 3.0,
+                    expectedOnValue: 0f);
+
+                var part = rec.GetNode("GHOST_VISUAL_SNAPSHOT").GetNodes("PART")[0];
+                ConfigNode fairingModule = null;
+                foreach (var module in part.GetNodes("MODULE"))
+                {
+                    if (module.GetValue("name") == "ModuleProceduralFairing")
+                    {
+                        fairingModule = module;
+                        break;
+                    }
+                }
+
+                Assert.NotNull(fairingModule);
+                var xsections = fairingModule.GetNodes("XSECTION");
+                Assert.Equal(2, xsections.Length);
+                AssertFloatClose(0f, ParseInvariantFloat(xsections[0].GetValue("h")));
+                AssertFloatClose(expectedBaseRadius[rec.GetValue("vesselName")], ParseInvariantFloat(xsections[0].GetValue("r")));
+                AssertFloatClose(expectedTopHeight[rec.GetValue("vesselName")], ParseInvariantFloat(xsections[1].GetValue("h")));
+                AssertFloatClose(0f, ParseInvariantFloat(xsections[1].GetValue("r")));
+            }
+        }
+
+        [Fact]
+        public void JettisonShowcaseRecordings_UseRepeatedShroudJettisonCadence()
+        {
+            foreach (var rb in JettisonShowcaseRecordings(17000))
+            {
+                AssertAlternatingPartEvents(
+                    rb.Build(),
+                    PartEventType.ShroudJettisoned,
+                    PartEventType.ShroudJettisoned,
+                    firstEventOffsetSeconds: 3.0,
+                    onDurationSeconds: 3.0,
+                    offDurationSeconds: 3.0,
+                    expectedOnValue: 0f);
+            }
+        }
+
+        [Fact]
+        public void LightShowcaseRecordings_AllEntriesFollowExpectedBlinkStateMachine()
+        {
+            var expectedTypes = new[]
+            {
+                PartEventType.LightOn,
+                PartEventType.LightBlinkEnabled,
+                PartEventType.LightBlinkDisabled,
+                PartEventType.LightBlinkEnabled,
+                PartEventType.LightBlinkRate,
+                PartEventType.LightBlinkDisabled,
+                PartEventType.LightOff
+            };
+            var expectedValues = new[] { 0f, 0.5f, 0f, 2.0f, 5.0f, 0f, 0f };
+            var expectedOffsets = new[] { 0.0, 6.0, 12.0, 15.0, 18.0, 21.0, 22.0 };
+
+            foreach (var rb in LightShowcaseRecordings(17000))
+            {
+                var rec = rb.Build();
+                var events = rec.GetNodes("PART_EVENT");
+                Assert.Equal(7, events.Length);
+                var primaryPart = rec.GetNode("GHOST_VISUAL_SNAPSHOT").GetNodes("PART")[0];
+                double baseUt = ParseInvariantDouble(events[0].GetValue("ut"));
+
+                for (int i = 0; i < events.Length; i++)
+                {
+                    Assert.Equal(((int)expectedTypes[i]).ToString(CultureInfo.InvariantCulture), events[i].GetValue("type"));
+                    AssertEventTargetsPrimaryPart(events[i], primaryPart);
+                    Assert.Equal("0", events[i].GetValue("midx"));
+                    AssertFloatClose(expectedValues[i], ParseInvariantFloat(events[i].GetValue("value")));
+                    Assert.Equal(baseUt + expectedOffsets[i], ParseInvariantDouble(events[i].GetValue("ut")), 6);
+                }
+            }
+        }
+
+        [Fact]
+        public void ParachuteShowcaseRecordings_AllEntriesFollowThreePhaseStateCycle()
+        {
+            var expectedTypes = new[]
+            {
+                PartEventType.ParachuteSemiDeployed,
+                PartEventType.ParachuteDeployed,
+                PartEventType.ParachuteCut,
+                PartEventType.ParachuteSemiDeployed,
+                PartEventType.ParachuteDeployed,
+                PartEventType.ParachuteCut,
+                PartEventType.ParachuteSemiDeployed,
+                PartEventType.ParachuteDeployed,
+                PartEventType.ParachuteCut
+            };
+            var expectedOffsets = new[] { 0.0, 3.0, 6.0, 8.0, 11.0, 14.0, 16.0, 19.0, 22.0 };
+
+            foreach (var rb in ParachuteShowcaseRecordings(17000))
+            {
+                var rec = rb.Build();
+                var events = rec.GetNodes("PART_EVENT");
+                Assert.Equal(9, events.Length);
+
+                var primaryPart = rec.GetNode("GHOST_VISUAL_SNAPSHOT").GetNodes("PART")[0];
+                double baseUt = ParseInvariantDouble(events[0].GetValue("ut"));
+                for (int i = 0; i < events.Length; i++)
+                {
+                    Assert.Equal(((int)expectedTypes[i]).ToString(CultureInfo.InvariantCulture), events[i].GetValue("type"));
+                    AssertEventTargetsPrimaryPart(events[i], primaryPart);
+                    Assert.Equal("0", events[i].GetValue("midx"));
+                    AssertFloatClose(0f, ParseInvariantFloat(events[i].GetValue("value")));
+                    Assert.Equal(baseUt + expectedOffsets[i], ParseInvariantDouble(events[i].GetValue("ut")), 6);
+                }
+            }
+        }
+
+        [Fact]
+        public void InventoryPlacementShowcaseRecording_UsesRepeatableLifecycleStateMachine()
+        {
+            var rec = InventoryPlacementShowcaseRecording(17000).Build();
+            var events = rec.GetNodes("PART_EVENT");
+            Assert.Equal(8, events.Length);
+
+            var expectedTypes = new[]
+            {
+                PartEventType.InventoryPartPlaced,
+                PartEventType.DeployableExtended,
+                PartEventType.DeployableRetracted,
+                PartEventType.InventoryPartRemoved,
+                PartEventType.InventoryPartPlaced,
+                PartEventType.DeployableExtended,
+                PartEventType.DeployableRetracted,
+                PartEventType.InventoryPartRemoved
+            };
+            var expectedOffsets = new[] { 0.5, 1.0, 4.0, 4.5, 12.5, 13.0, 16.0, 16.5 };
+            var primaryPart = rec.GetNode("GHOST_VISUAL_SNAPSHOT").GetNodes("PART")[0];
+            double baseUt = ParseInvariantDouble(events[0].GetValue("ut")) - expectedOffsets[0];
+
+            for (int i = 0; i < events.Length; i++)
+            {
+                Assert.Equal(((int)expectedTypes[i]).ToString(CultureInfo.InvariantCulture), events[i].GetValue("type"));
+                AssertEventTargetsPrimaryPart(events[i], primaryPart);
+                Assert.Equal("0", events[i].GetValue("midx"));
+                AssertFloatClose(0f, ParseInvariantFloat(events[i].GetValue("value")));
+                Assert.Equal(baseUt + expectedOffsets[i], ParseInvariantDouble(events[i].GetValue("ut")), 6);
+            }
+        }
+
+        [Fact]
+        public void EngineShowcaseRecordings_AllEntriesUseDeterministicTimelineAndValues()
+        {
+            var recordings = EngineShowcaseRecordings(17000);
+            Assert.Equal(45, recordings.Length);
+
+            var withShroudTypes = new[]
+            {
+                PartEventType.ShroudJettisoned,
+                PartEventType.EngineIgnited,
+                PartEventType.EngineThrottle,
+                PartEventType.EngineThrottle,
+                PartEventType.EngineShutdown,
+                PartEventType.EngineIgnited,
+                PartEventType.EngineThrottle,
+                PartEventType.EngineShutdown
+            };
+            var withShroudOffsets = new[] { 0.5, 3.0, 6.0, 9.0, 12.0, 15.0, 18.0, 21.0 };
+            var withShroudValues = new[] { 0f, 0.3f, 0.7f, 1.0f, 0f, 1.0f, 0.5f, 0f };
+
+            var flameOnlyTypes = new[]
+            {
+                PartEventType.EngineIgnited,
+                PartEventType.EngineThrottle,
+                PartEventType.EngineThrottle,
+                PartEventType.EngineShutdown,
+                PartEventType.EngineIgnited,
+                PartEventType.EngineThrottle,
+                PartEventType.EngineThrottle,
+                PartEventType.EngineShutdown
+            };
+            var flameOnlyOffsets = new[] { 0.0, 3.0, 6.0, 9.0, 12.0, 15.0, 18.0, 21.0 };
+            var flameOnlyValues = new[] { 0.3f, 0.7f, 1.0f, 0f, 1.0f, 0.5f, 0.15f, 0f };
+
+            foreach (var rb in recordings)
+            {
+                var rec = rb.Build();
+                var events = rec.GetNodes("PART_EVENT");
+                Assert.True(
+                    events.Length == 2 || events.Length == 3 || events.Length == 8,
+                    $"Unexpected event count {events.Length} for {rec.GetValue("vesselName")}");
+
+                var primaryPart = rec.GetNode("GHOST_VISUAL_SNAPSHOT").GetNodes("PART")[0];
+
+                if (events.Length == 2)
+                {
+                    double baseUt = ParseInvariantDouble(events[0].GetValue("ut"));
+                    var expectedTypes = new[] { PartEventType.EngineIgnited, PartEventType.EngineShutdown };
+                    var expectedOffsets = new[] { 0.0, 12.0 };
+                    var expectedValues = new[] { 1.0f, 0f };
+                    for (int i = 0; i < events.Length; i++)
+                    {
+                        Assert.Equal(((int)expectedTypes[i]).ToString(CultureInfo.InvariantCulture), events[i].GetValue("type"));
+                        AssertEventTargetsPrimaryPart(events[i], primaryPart);
+                        Assert.Equal("0", events[i].GetValue("midx"));
+                        AssertFloatClose(expectedValues[i], ParseInvariantFloat(events[i].GetValue("value")));
+                        Assert.Equal(baseUt + expectedOffsets[i], ParseInvariantDouble(events[i].GetValue("ut")), 6);
+                    }
+                    continue;
+                }
+
+                if (events.Length == 3)
+                {
+                    double baseUt = ParseInvariantDouble(events[0].GetValue("ut")) - 0.5;
+                    var expectedTypes = new[] { PartEventType.ShroudJettisoned, PartEventType.EngineIgnited, PartEventType.EngineShutdown };
+                    var expectedOffsets = new[] { 0.5, 3.0, 15.0 };
+                    var expectedValues = new[] { 0f, 1.0f, 0f };
+                    for (int i = 0; i < events.Length; i++)
+                    {
+                        Assert.Equal(((int)expectedTypes[i]).ToString(CultureInfo.InvariantCulture), events[i].GetValue("type"));
+                        AssertEventTargetsPrimaryPart(events[i], primaryPart);
+                        Assert.Equal("0", events[i].GetValue("midx"));
+                        AssertFloatClose(expectedValues[i], ParseInvariantFloat(events[i].GetValue("value")));
+                        Assert.Equal(baseUt + expectedOffsets[i], ParseInvariantDouble(events[i].GetValue("ut")), 6);
+                    }
+                    continue;
+                }
+
+                bool hasShroud = events[0].GetValue("type") ==
+                    ((int)PartEventType.ShroudJettisoned).ToString(CultureInfo.InvariantCulture);
+                var expectedTypes8 = hasShroud ? withShroudTypes : flameOnlyTypes;
+                var expectedOffsets8 = hasShroud ? withShroudOffsets : flameOnlyOffsets;
+                var expectedValues8 = hasShroud ? withShroudValues : flameOnlyValues;
+                double baseUt8 = ParseInvariantDouble(events[0].GetValue("ut")) - expectedOffsets8[0];
+
+                for (int i = 0; i < events.Length; i++)
+                {
+                    Assert.Equal(((int)expectedTypes8[i]).ToString(CultureInfo.InvariantCulture), events[i].GetValue("type"));
+                    AssertEventTargetsPrimaryPart(events[i], primaryPart);
+                    Assert.Equal("0", events[i].GetValue("midx"));
+                    AssertFloatClose(expectedValues8[i], ParseInvariantFloat(events[i].GetValue("value")));
+                    Assert.Equal(baseUt8 + expectedOffsets8[i], ParseInvariantDouble(events[i].GetValue("ut")), 6);
+                }
+            }
+        }
+
+        [Fact]
+        public void RoboticsShowcaseRecordings_UseExpectedMotionTargetsAndCadence()
+        {
+            var expectedOnValueByVessel = new Dictionary<string, float>
+            {
+                ["Part Showcase - Robotics Hinge G-11"] = 45f,
+                ["Part Showcase - Robotics Hinge G-00"] = 45f,
+                ["Part Showcase - Robotics Hinge M-12"] = 45f,
+                ["Part Showcase - Robotics Hinge M-06"] = 45f,
+                ["Part Showcase - Robotics Hinge XL"] = 45f,
+                ["Part Showcase - Robotics Piston 3P6"] = 0.3f,
+                ["Part Showcase - Robotics Piston 1P2"] = 0.2f,
+                ["Part Showcase - Robotics Piston 1P4"] = 0.4f,
+                ["Part Showcase - Robotics Piston 3P12"] = 0.9f,
+                ["Part Showcase - Robotics Rotation Servo M-06"] = 90f,
+                ["Part Showcase - Robotics Rotation Servo M-12"] = 90f,
+                ["Part Showcase - Robotics Rotation Servo F-12"] = 90f,
+                ["Part Showcase - Robotics Rotation Servo F-33"] = 90f,
+                ["Part Showcase - Robotics Rotor EM-16"] = 240f,
+                ["Part Showcase - Robotics Rotor EM-16S"] = 240f,
+                ["Part Showcase - Robotics Rotor EM-32"] = 240f,
+                ["Part Showcase - Robotics Rotor EM-32S"] = 240f,
+                ["Part Showcase - Robotics Rotor EM-64"] = 240f,
+                ["Part Showcase - Robotics Rotor EM-64S"] = 240f,
+                ["Part Showcase - Robotics Rotor Motor R121"] = 240f,
+                ["Part Showcase - Robotics Rotor Motor R7000"] = 240f
+            };
+
+            foreach (var rb in RoboticsShowcaseRecordings(17000))
+            {
+                var rec = rb.Build();
+                string vesselName = rec.GetValue("vesselName");
+                Assert.True(expectedOnValueByVessel.ContainsKey(vesselName), $"Missing expected motion target for {vesselName}");
+                AssertAlternatingPartEvents(
+                    rec,
+                    PartEventType.RoboticMotionStarted,
+                    PartEventType.RoboticMotionStopped,
+                    firstEventOffsetSeconds: 0.0,
+                    onDurationSeconds: 4.5,
+                    offDurationSeconds: 1.5,
+                    expectedOnValue: expectedOnValueByVessel[vesselName]);
+            }
+        }
+
+        [Fact]
+        public void WheelDynamicsShowcaseRecordings_UseExpectedModulesAndMotionTargets()
+        {
+            var expectedOnValueByVessel = new Dictionary<string, float>
+            {
+                ["Part Showcase - Wheel Dynamics Gear Fixed"] = 0.08f,
+                ["Part Showcase - Wheel Dynamics Gear Free"] = 24f,
+                ["Part Showcase - Wheel Dynamics Rover M1"] = 180f,
+                ["Part Showcase - Wheel Dynamics Rover S2"] = 180f,
+                ["Part Showcase - Wheel Dynamics Rover XL3"] = 120f,
+                ["Part Showcase - Wheel Dynamics TR-2L"] = 180f
+            };
+            var expectedModuleIndexByVessel = new Dictionary<string, int>
+            {
+                ["Part Showcase - Wheel Dynamics Gear Fixed"] = 0,
+                ["Part Showcase - Wheel Dynamics Gear Free"] = 1,
+                ["Part Showcase - Wheel Dynamics Rover M1"] = 2,
+                ["Part Showcase - Wheel Dynamics Rover S2"] = 2,
+                ["Part Showcase - Wheel Dynamics Rover XL3"] = 1,
+                ["Part Showcase - Wheel Dynamics TR-2L"] = 2
+            };
+
+            foreach (var rb in WheelDynamicsShowcaseRecordings(17000))
+            {
+                var rec = rb.Build();
+                string vesselName = rec.GetValue("vesselName");
+                Assert.True(expectedOnValueByVessel.ContainsKey(vesselName), $"Missing expected wheel target for {vesselName}");
+                Assert.True(expectedModuleIndexByVessel.ContainsKey(vesselName), $"Missing expected wheel module for {vesselName}");
+                AssertAlternatingPartEvents(
+                    rec,
+                    PartEventType.RoboticMotionStarted,
+                    PartEventType.RoboticMotionStopped,
+                    firstEventOffsetSeconds: 0.0,
+                    onDurationSeconds: 4.5,
+                    offDurationSeconds: 1.5,
+                    expectedOnValue: expectedOnValueByVessel[vesselName],
+                    expectedModuleIndex: expectedModuleIndexByVessel[vesselName]);
+            }
+        }
+
+        [Fact]
         public void AllShowcaseRecordings_EventPidMatchesGhostPartPid()
         {
             // Verify the critical invariant: every showcase recording's event PIDs
@@ -2896,12 +4167,15 @@ namespace Parsek.Tests
                 RobotArmScannerShowcaseRecordings(17000),
                 ControlSurfaceShowcaseRecordings(17000),
                 WheelDynamicsShowcaseRecordings(17000),
-                AnimateHeatShowcaseRecordings(17000)
+                AnimateHeatShowcaseRecordings(17000),
+                new[] { InventoryPlacementShowcaseRecording(17000) }
             };
 
             var positions = new HashSet<string>();
+            int expectedCount = 0;
             foreach (var category in allShowcases)
             {
+                expectedCount += category.Length;
                 foreach (var rb in category)
                 {
                     var rec = rb.Build();
@@ -2911,7 +4185,7 @@ namespace Parsek.Tests
                         $"Duplicate position in '{rec.GetValue("vesselName")}': {key}");
                 }
             }
-            Assert.Equal(185, positions.Count); // 6 + 18 + 7 + 11 + 3 + 2 + 3 + 5 + 2 + 2 + 8 + 2 + 5 + 14 + 29 + 21 + 1 + 3 + 24 + 6 + 13
+            Assert.Equal(expectedCount, positions.Count);
         }
 
         [Fact]
@@ -3529,6 +4803,10 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Part Showcase - Light - Spot v1", content);
                     Assert.Contains("vesselName = Part Showcase - Light - Ground Small v1", content);
                     Assert.Contains("vesselName = Part Showcase - Light - Ground Stand v1", content);
+                    Assert.Contains("vesselName = Part Showcase - Light - Spot Mk1", content);
+                    Assert.Contains("vesselName = Part Showcase - Light - Spot Mk1 v2", content);
+                    Assert.Contains("vesselName = Part Showcase - Light - Spot Mk2", content);
+                    Assert.Contains("vesselName = Part Showcase - Light - Spot Mk2 v2", content);
                     Assert.Contains("vesselName = Part Showcase - Solar Tracking", content);
                     Assert.Contains("vesselName = Part Showcase - Solar Large", content);
                     Assert.Contains("vesselName = Part Showcase - Solar Radial XL", content);
@@ -3565,14 +4843,15 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Part Showcase - Cargo Mk3 Medium", content);
                     Assert.Contains("vesselName = Part Showcase - Cargo Mk3 Long", content);
                     Assert.Contains("vesselName = Part Showcase - Cargo Mk3 Ramp", content);
-                    Assert.Contains("vesselName = Part Showcase - Mainsail", content);
-                    Assert.Contains("vesselName = Part Showcase - Skipper", content);
-                    Assert.Contains("vesselName = Part Showcase - SSME", content);
+                    Assert.Contains("vesselName = Part Showcase - LV-T30", content);
+                    Assert.Contains("vesselName = Part Showcase - Ion", content);
                     Assert.Contains("vesselName = Part Showcase - Ladder Telescopic", content);
                     Assert.Contains("vesselName = Part Showcase - Ladder Bay", content);
                     Assert.Contains("vesselName = Part Showcase - RCS RV-105", content);
                     Assert.Contains("vesselName = Part Showcase - RCS RV-1X", content);
                     Assert.Contains("vesselName = Part Showcase - RCS Linear", content);
+                    Assert.Contains("vesselName = Part Showcase - RCS Linear Port", content);
+                    Assert.Contains("vesselName = Part Showcase - RCS Vernor", content);
                     Assert.Contains("vesselName = Part Showcase - Fairing Size 1", content);
                     Assert.Contains("vesselName = Part Showcase - Fairing Size 1.5", content);
                     Assert.Contains("vesselName = Part Showcase - Fairing Size 2", content);
@@ -3609,8 +4888,6 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Part Showcase - Small Claw", content);
                     Assert.Contains("vesselName = Part Showcase - Mk2 Docking Port", content);
                     Assert.Contains("vesselName = Part Showcase - Mk2 Lander Cabin", content);
-                    Assert.Contains("vesselName = Part Showcase - Jet Engine", content);
-                    Assert.Contains("vesselName = Part Showcase - Turbofan Size 2", content);
                     Assert.Contains("vesselName = Part Showcase - Engine Plate 1.5", content);
                     Assert.Contains("vesselName = Part Showcase - Engine Plate 2", content);
                     Assert.Contains("vesselName = Part Showcase - Engine Plate 3", content);
@@ -3629,7 +4906,7 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Part Showcase - Spark v2", content);
                     Assert.Contains("vesselName = Part Showcase - NERV", content);
                     Assert.Contains("vesselName = Part Showcase - Aerospike", content);
-                    Assert.Contains("vesselName = Part Showcase - Thud Mite", content);
+                    Assert.Contains("vesselName = Part Showcase - Mite", content);
                     Assert.Contains("vesselName = Part Showcase - Shrimp", content);
                     Assert.Contains("vesselName = Part Showcase - Flea v2", content);
                     Assert.Contains("vesselName = Part Showcase - Hammer v2", content);
@@ -3744,8 +5021,8 @@ namespace Parsek.Tests
                     $"Expected Parsek/Recordings directory at {recordingsDir}");
 
                 string[] precFiles = Directory.GetFiles(recordingsDir, "*.prec");
-                Assert.True(precFiles.Length >= 185,
-                    $"Expected at least 185 .prec files (8 baseline + 6 lights + 18 deployables + 7 gear + 11 cargo + 3 engines + 2 ladders + 3 RCS + 5 fairings + 2 extra radiators + 2 drills + 8 deployed science + 2 animation-group + 5 parachutes + 14 special deploy animations + 29 jettison showcases + 21 robotics + 1 aero-surface + 3 robot-arm-scanner + 24 control-surface + 6 wheel-dynamics + 13 animate-heat + 1 inventory-placement + 3 board-chain + 2 walk-chain + 3 atmo-chain + 4 mun-transfer-chain), found {precFiles.Length}");
+                Assert.True(precFiles.Length >= 232,
+                    $"Expected at least 232 .prec files (8 baseline + 10 lights + 18 deployables + 7 gear + 11 cargo + 45 engines + 2 ladders + 5 RCS + 5 fairings + 2 extra radiators + 2 drills + 8 deployed science + 2 animation-group + 5 parachutes + 12 special deploy animations + 9 jettison + 21 robotics + 1 aero-surface + 3 robot-arm-scanner + 24 control-surface + 6 wheel-dynamics + 13 animate-heat + 1 inventory-placement + 3 board-chain + 2 walk-chain + 3 atmo-chain + 4 mun-transfer-chain), found {precFiles.Length}");
             }
         }
 

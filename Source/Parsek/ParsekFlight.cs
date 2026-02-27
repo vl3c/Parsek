@@ -613,6 +613,7 @@ namespace Parsek
             DestroyAllTimelineGhosts();
             GhostVisualBuilder.ClearCanopyCache();
             GhostVisualBuilder.ClearDeployableCache();
+            GhostVisualBuilder.ClearFxPrefabCache();
             GhostVisualBuilder.ClearGearCache();
             GhostVisualBuilder.ClearLadderCache();
             GhostVisualBuilder.ClearCargoBayCache();
@@ -2679,6 +2680,49 @@ namespace Parsek
             Destroy(canopy);
         }
 
+        internal static string BuildEngineFxEmissionDiagnostic(
+            string partName,
+            uint partPersistentId,
+            int moduleIndex,
+            float power,
+            string particleName,
+            string parentName,
+            Vector3 localPosition,
+            Quaternion localRotation,
+            Vector3 worldPosition,
+            Vector3 worldForward,
+            Vector3 worldUp,
+            float emissionRate,
+            float startSpeed,
+            bool isPlaying)
+        {
+            string safePartName = string.IsNullOrEmpty(partName) ? "<unknown>" : partName;
+            string safeParticleName = string.IsNullOrEmpty(particleName) ? "<unknown>" : particleName;
+            string safeParentName = string.IsNullOrEmpty(parentName) ? "<none>" : parentName;
+            string localRotationRaw =
+                $"({localRotation.x.ToString("F4", CultureInfo.InvariantCulture)}," +
+                $"{localRotation.y.ToString("F4", CultureInfo.InvariantCulture)}," +
+                $"{localRotation.z.ToString("F4", CultureInfo.InvariantCulture)}," +
+                $"{localRotation.w.ToString("F4", CultureInfo.InvariantCulture)})";
+
+            return $"Engine FX emission diag: part='{safePartName}' pid={partPersistentId} midx={moduleIndex} " +
+                $"power={power.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"ps='{safeParticleName}' parent='{safeParentName}' " +
+                $"localPos={FormatVector3Invariant(localPosition)} localRot={localRotationRaw} " +
+                $"worldPos={FormatVector3Invariant(worldPosition)} " +
+                $"worldFwd={FormatVector3Invariant(worldForward)} " +
+                $"worldUp={FormatVector3Invariant(worldUp)} " +
+                $"rate={emissionRate.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"speed={startSpeed.ToString("F2", CultureInfo.InvariantCulture)} playing={isPlaying}";
+        }
+
+        private static string FormatVector3Invariant(Vector3 value)
+        {
+            return $"({value.x.ToString("F4", CultureInfo.InvariantCulture)}," +
+                $"{value.y.ToString("F4", CultureInfo.InvariantCulture)}," +
+                $"{value.z.ToString("F4", CultureInfo.InvariantCulture)})";
+        }
+
         static void SetEngineEmission(GhostPlaybackState state, PartEvent evt, float power)
         {
             if (state.engineInfos == null) return;
@@ -2695,6 +2739,7 @@ namespace Parsek
                 var emission = ps.emission;
                 if (power > 0f)
                 {
+                    emission.enabled = true;
                     float emRate = info.emissionCurve != null ? info.emissionCurve.Evaluate(power) : power * 100f;
                     emission.rateOverTimeMultiplier = emRate;
 
@@ -2702,13 +2747,54 @@ namespace Parsek
                     float spd = info.speedCurve != null ? info.speedCurve.Evaluate(power) : power * 10f;
                     main.startSpeedMultiplier = spd;
 
+                    SetParticleRenderersEnabled(ps, true);
                     if (!ps.isPlaying) ps.Play();
                 }
                 else
                 {
+                    emission.enabled = false;
                     emission.rateOverTimeMultiplier = 0;
-                    ps.Stop();
+                    ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                    ps.Clear(true);
+                    SetParticleRenderersEnabled(ps, false);
                 }
+
+                if (ParsekLog.IsVerboseEnabled)
+                {
+                    Transform t = ps.transform;
+                    string parentName = t != null && t.parent != null ? t.parent.name : "<none>";
+                    var diagMain = ps.main;
+                    string diagLine = BuildEngineFxEmissionDiagnostic(
+                        evt.partName,
+                        evt.partPersistentId,
+                        evt.moduleIndex,
+                        power,
+                        ps.name,
+                        parentName,
+                        t != null ? t.localPosition : Vector3.zero,
+                        t != null ? t.localRotation : Quaternion.identity,
+                        t != null ? t.position : Vector3.zero,
+                        t != null ? t.forward : Vector3.zero,
+                        t != null ? t.up : Vector3.zero,
+                        emission.rateOverTimeMultiplier,
+                        diagMain.startSpeedMultiplier,
+                        ps.isPlaying);
+                    string diagKey = $"engine-fx-{evt.partPersistentId}-{evt.moduleIndex}-{ps.GetInstanceID()}";
+                    ParsekLog.VerboseRateLimited("Flight", diagKey, diagLine, 0.5);
+                }
+            }
+        }
+
+        static void SetParticleRenderersEnabled(ParticleSystem ps, bool enabled)
+        {
+            if (ps == null)
+                return;
+
+            ParticleSystemRenderer[] renderers = ps.GetComponentsInChildren<ParticleSystemRenderer>(true);
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                if (renderers[i] != null)
+                    renderers[i].enabled = enabled;
             }
         }
 
@@ -2745,6 +2831,7 @@ namespace Parsek
                     float spd = ComputeScaledRcsSpeed(info.speedCurve, power, info.speedScale);
                     main.startSpeedMultiplier = spd;
 
+                    SetParticleRenderersEnabled(ps, true);
                     if (!ps.isPlaying) ps.Play();
 
                     if (sampleRate <= 0f)
@@ -2757,9 +2844,11 @@ namespace Parsek
                 }
                 else
                 {
+                    emission.enabled = false;
                     emission.rateOverTimeMultiplier = 0;
                     ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                     ps.Clear(true);
+                    SetParticleRenderersEnabled(ps, false);
                 }
 
                 if (ps.isPlaying) playingSystems++;
