@@ -94,6 +94,12 @@ namespace Parsek
         private GUIStyle statusStyleActive;
         private GUIStyle statusStylePast;
 
+        // Window drag tracking for position logging
+        private Rect lastMainWindowRect;
+        private Rect lastRecordingsWindowRect;
+        private Rect lastActionsWindowRect;
+        private Rect lastSettingsWindowRect;
+
         public ParsekUI(ParsekFlight flight)
         {
             this.flight = flight;
@@ -123,11 +129,20 @@ namespace Parsek
             int actionCount = MilestoneStore.GetPendingEventCount();
             GUILayout.BeginHorizontal();
             if (GUILayout.Button($"Recordings ({committedCount})"))
+            {
                 showRecordingsWindow = !showRecordingsWindow;
+                ParsekLog.Verbose("UI", $"Recordings window toggled: {(showRecordingsWindow ? "open" : "closed")}");
+            }
             if (GUILayout.Button($"Actions ({actionCount})"))
+            {
                 showActionsWindow = !showActionsWindow;
+                ParsekLog.Verbose("UI", $"Actions window toggled: {(showActionsWindow ? "open" : "closed")}");
+            }
             if (GUILayout.Button("Settings"))
+            {
                 showSettingsWindow = !showSettingsWindow;
+                ParsekLog.Verbose("UI", $"Settings window toggled: {(showSettingsWindow ? "open" : "closed")}");
+            }
             GUILayout.EndHorizontal();
 
             // Compact budget summary (full display in Actions window)
@@ -145,7 +160,10 @@ namespace Parsek
                 GUILayout.BeginHorizontal();
                 GUILayout.Label(rec.VesselName, GUILayout.ExpandWidth(true));
                 if (GUILayout.Button("Take Control", GUILayout.Width(90)))
+                {
+                    ParsekLog.Verbose("UI", $"Take Control clicked for ghost index={i} vessel='{rec.VesselName}'");
                     flight.TakeControlOfGhost(i);
+                }
                 GUILayout.EndHorizontal();
             }
 
@@ -165,12 +183,18 @@ namespace Parsek
             if (!flight.IsRecording)
             {
                 if (GUILayout.Button("Start Recording"))
+                {
+                    ParsekLog.Verbose("UI", "Start Recording button clicked");
                     flight.StartRecording();
+                }
             }
             else
             {
                 if (GUILayout.Button("Stop Recording"))
+                {
+                    ParsekLog.Verbose("UI", "Stop Recording button clicked");
                     flight.StopRecording();
+                }
             }
 
             GUILayout.EndHorizontal();
@@ -179,11 +203,17 @@ namespace Parsek
 
             GUI.enabled = !flight.IsRecording && flight.recording.Count > 0 && !flight.IsPlaying;
             if (GUILayout.Button("Preview Playback"))
+            {
+                ParsekLog.Verbose("UI", "Preview Playback button clicked");
                 flight.StartPlayback();
+            }
 
             GUI.enabled = flight.IsPlaying;
             if (GUILayout.Button("Stop Preview"))
+            {
+                ParsekLog.Verbose("UI", "Stop Preview button clicked");
                 flight.StopPlayback();
+            }
 
             GUI.enabled = true;
 
@@ -194,6 +224,7 @@ namespace Parsek
             GUI.enabled = !flight.IsRecording && !flight.IsPlaying && flight.recording.Count > 0;
             if (GUILayout.Button("Clear Current Recording"))
             {
+                ParsekLog.Verbose("UI", "Clear Current Recording button clicked");
                 flight.ClearRecording();
             }
 
@@ -201,12 +232,14 @@ namespace Parsek
                 && flight.recording.Count >= 2 && !flight.HasActiveChain;
             if (GUILayout.Button("Commit Flight"))
             {
+                ParsekLog.Verbose("UI", "Commit Flight button clicked");
                 flight.CommitFlight();
             }
 
             GUI.enabled = activeGhosts > 0;
             if (GUILayout.Button($"Despawn Ghosts ({activeGhosts})"))
             {
+                ParsekLog.Verbose("UI", $"Despawn Ghosts button clicked, count={activeGhosts}");
                 flight.DestroyAllTimelineGhosts();
                 ParsekLog.Info("UI", "Ghosts despawned");
             }
@@ -214,6 +247,7 @@ namespace Parsek
             GUI.enabled = committedCount > 0;
             if (GUILayout.Button($"Wipe Recordings ({committedCount})"))
             {
+                ParsekLog.Verbose("UI", $"Wipe Recordings button clicked, count={committedCount}");
                 // Unreserve crew from all recordings before wiping
                 foreach (var rec in RecordingStore.CommittedRecordings)
                     ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
@@ -229,6 +263,22 @@ namespace Parsek
 
             // Make window draggable
             GUI.DragWindow();
+        }
+
+        /// <summary>
+        /// Call after each window's GUILayoutWindow to log position/size changes (rate-limited).
+        /// </summary>
+        private void LogWindowPosition(string windowName, ref Rect lastRect, Rect currentRect)
+        {
+            if (lastRect.x != currentRect.x || lastRect.y != currentRect.y ||
+                lastRect.width != currentRect.width || lastRect.height != currentRect.height)
+            {
+                var ic = System.Globalization.CultureInfo.InvariantCulture;
+                ParsekLog.VerboseRateLimited("UI", $"window.{windowName}",
+                    $"{windowName} window position: x={currentRect.x.ToString("F0", ic)} y={currentRect.y.ToString("F0", ic)} " +
+                    $"w={currentRect.width.ToString("F0", ic)} h={currentRect.height.ToString("F0", ic)}", 2.0);
+                lastRect = currentRect;
+            }
         }
 
         private void DrawResourceBudget()
@@ -294,6 +344,11 @@ namespace Parsek
             }
         }
 
+        public void LogMainWindowPosition(Rect currentRect)
+        {
+            LogWindowPosition("Main", ref lastMainWindowRect, currentRect);
+        }
+
         private void DrawCompactBudgetLine()
         {
             var budget = ResourceBudget.ComputeTotal(
@@ -316,7 +371,10 @@ namespace Parsek
             {
                 string line = "Reserved: " + string.Join("  ", parts);
                 if (GUILayout.Button(line, GUI.skin.label))
+                {
                     showActionsWindow = !showActionsWindow;
+                    ParsekLog.Verbose("UI", $"Budget line clicked — Actions window toggled: {(showActionsWindow ? "open" : "closed")}");
+                }
             }
         }
 
@@ -334,6 +392,8 @@ namespace Parsek
                 float x = mainWindowRect.x - 390;
                 if (x < 0) x = mainWindowRect.x + mainWindowRect.width + 10;
                 actionsWindowRect = new Rect(x, mainWindowRect.y, 380, 350);
+                var ic = System.Globalization.CultureInfo.InvariantCulture;
+                ParsekLog.Verbose("UI", $"Actions window initial position: x={x.ToString("F0", ic)} y={mainWindowRect.y.ToString("F0", ic)} (mainWindow.x={mainWindowRect.x.ToString("F0", ic)})");
             }
 
             actionsWindowRect = ClickThruBlocker.GUILayoutWindow(
@@ -344,6 +404,7 @@ namespace Parsek
                 GUILayout.Width(actionsWindowRect.width),
                 GUILayout.Height(actionsWindowRect.height)
             );
+            LogWindowPosition("Actions", ref lastActionsWindowRect, actionsWindowRect);
 
             if (actionsWindowRect.Contains(Event.current.mousePosition))
             {
@@ -458,6 +519,7 @@ namespace Parsek
             GUI.enabled = committedCount > 0 || MilestoneStore.MilestoneCount > 0;
             if (GUILayout.Button("Wipe All"))
             {
+                ParsekLog.Verbose("UI", $"Wipe All button clicked, recordings={committedCount} milestones={MilestoneStore.MilestoneCount}");
                 foreach (var rec in RecordingStore.CommittedRecordings)
                     ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
                 ParsekScenario.ClearReplacements();
@@ -472,7 +534,10 @@ namespace Parsek
             GUI.enabled = true;
 
             if (GUILayout.Button("Close"))
+            {
                 showActionsWindow = false;
+                ParsekLog.Verbose("UI", "Actions window closed via button");
+            }
 
             GUILayout.EndHorizontal();
 
@@ -494,6 +559,8 @@ namespace Parsek
                     mainWindowRect.x + mainWindowRect.width + 10,
                     mainWindowRect.y,
                     520, 350);
+                var ic = System.Globalization.CultureInfo.InvariantCulture;
+                ParsekLog.Verbose("UI", $"Recordings window initial position: x={recordingsWindowRect.x.ToString("F0", ic)} y={recordingsWindowRect.y.ToString("F0", ic)}");
             }
 
             // Handle resize drag (must be outside the window function to track across frames)
@@ -507,7 +574,11 @@ namespace Parsek
                     recordingsWindowRect.height = newH;
                 }
                 if (Event.current.type == EventType.MouseUp)
+                {
                     isResizingRecordingsWindow = false;
+                    var ic = System.Globalization.CultureInfo.InvariantCulture;
+                    ParsekLog.Verbose("UI", $"Recordings window resize ended: w={recordingsWindowRect.width.ToString("F0", ic)} h={recordingsWindowRect.height.ToString("F0", ic)}");
+                }
                 if (Event.current.type == EventType.MouseDrag)
                     Event.current.Use();
             }
@@ -520,6 +591,7 @@ namespace Parsek
                 GUILayout.Width(recordingsWindowRect.width),
                 GUILayout.Height(recordingsWindowRect.height)
             );
+            LogWindowPosition("Recordings", ref lastRecordingsWindowRect, recordingsWindowRect);
 
             // Lock camera controls (including scroll zoom) when mouse is over window.
             // ClickThroughBlocker uses ALLBUTCAMERAS which intentionally leaves camera
@@ -680,6 +752,7 @@ namespace Parsek
                         {
                             if (expanded) expandedChains.Remove(rec.ChainId);
                             else expandedChains.Add(rec.ChainId);
+                            ParsekLog.Verbose("UI", $"Chain '{chainName}' {(expanded ? "collapsed" : "expanded")} ({members.Count} segments)");
                         }
                         GUILayout.EndHorizontal();
 
@@ -716,12 +789,16 @@ namespace Parsek
             if (GUILayout.Button(statsLabel, GUILayout.Width(65)))
             {
                 showExpandedStats = !showExpandedStats;
+                ParsekLog.Verbose("UI", $"Recordings Stats toggled: {(showExpandedStats ? "expanded" : "collapsed")}");
                 if (showExpandedStats && recordingsWindowRect.width < 730f)
                     recordingsWindowRect.width = 730f;
             }
 
             if (GUILayout.Button("Close"))
+            {
                 showRecordingsWindow = false;
+                ParsekLog.Verbose("UI", "Recordings window closed via button");
+            }
 
             GUILayout.EndHorizontal();
 
@@ -743,6 +820,7 @@ namespace Parsek
             if (Event.current.type == EventType.MouseDown && handleRect.Contains(Event.current.mousePosition))
             {
                 isResizingRecordingsWindow = true;
+                ParsekLog.Verbose("UI", "Recordings window resize started");
                 Event.current.Use();
             }
 
@@ -906,6 +984,7 @@ namespace Parsek
                     sortAscending = true;
                 }
                 InvalidateSort();
+                ParsekLog.Verbose("UI", $"Sort column changed: {sortColumn} {(sortAscending ? "asc" : "desc")}");
             }
         }
 
@@ -1179,6 +1258,8 @@ namespace Parsek
                     mainWindowRect.x + mainWindowRect.width + 10,
                     mainWindowRect.y + 40,
                     280, 10);
+                var ic = System.Globalization.CultureInfo.InvariantCulture;
+                ParsekLog.Verbose("UI", $"Settings window initial position: x={settingsWindowRect.x.ToString("F0", ic)} y={settingsWindowRect.y.ToString("F0", ic)}");
             }
 
             settingsWindowRect = ClickThruBlocker.GUILayoutWindow(
@@ -1188,6 +1269,7 @@ namespace Parsek
                 "Parsek \u2014 Settings",
                 GUILayout.Width(280)
             );
+            LogWindowPosition("Settings", ref lastSettingsWindowRect, settingsWindowRect);
 
             if (settingsWindowRect.Contains(Event.current.mousePosition))
             {
@@ -1307,6 +1389,7 @@ namespace Parsek
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Defaults"))
             {
+                ParsekLog.Verbose("UI", "Settings Defaults button clicked");
                 s.autoRecordOnLaunch = true;
                 s.autoRecordOnEva = true;
                 s.autoWarpStop = true;
@@ -1319,7 +1402,10 @@ namespace Parsek
                 ParsekLog.Info("UI", "Settings reset to defaults");
             }
             if (GUILayout.Button("Close"))
+            {
                 showSettingsWindow = false;
+                ParsekLog.Verbose("UI", "Settings window closed via button");
+            }
             GUILayout.EndHorizontal();
 
             GUI.DragWindow();
