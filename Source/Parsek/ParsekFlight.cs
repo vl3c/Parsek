@@ -2538,10 +2538,19 @@ namespace Parsek
             return $"Engine FX emission diag: part='{safePartName}' pid={partPersistentId} midx={moduleIndex} " +
                 $"power={power.ToString("F2", CultureInfo.InvariantCulture)} " +
                 $"ps='{safeParticleName}' parent='{safeParentName}' " +
-                $"localPos={localPosition} localRot={localRotationRaw} " +
-                $"worldPos={worldPosition} worldFwd={worldForward} worldUp={worldUp} " +
+                $"localPos={FormatVector3Invariant(localPosition)} localRot={localRotationRaw} " +
+                $"worldPos={FormatVector3Invariant(worldPosition)} " +
+                $"worldFwd={FormatVector3Invariant(worldForward)} " +
+                $"worldUp={FormatVector3Invariant(worldUp)} " +
                 $"rate={emissionRate.ToString("F2", CultureInfo.InvariantCulture)} " +
                 $"speed={startSpeed.ToString("F2", CultureInfo.InvariantCulture)} playing={isPlaying}";
+        }
+
+        private static string FormatVector3Invariant(Vector3 value)
+        {
+            return $"({value.x.ToString("F4", CultureInfo.InvariantCulture)}," +
+                $"{value.y.ToString("F4", CultureInfo.InvariantCulture)}," +
+                $"{value.z.ToString("F4", CultureInfo.InvariantCulture)})";
         }
 
         static void SetEngineEmission(GhostPlaybackState state, PartEvent evt, float power)
@@ -2573,32 +2582,36 @@ namespace Parsek
                 }
                 else
                 {
+                    emission.enabled = false;
                     emission.rateOverTimeMultiplier = 0;
                     ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                     ps.Clear(true);
                     SetParticleRenderersEnabled(ps, false);
                 }
 
-                Transform t = ps.transform;
-                string parentName = t != null && t.parent != null ? t.parent.name : "<none>";
-                var diagMain = ps.main;
-                string diagLine = BuildEngineFxEmissionDiagnostic(
-                    evt.partName,
-                    evt.partPersistentId,
-                    evt.moduleIndex,
-                    power,
-                    ps.name,
-                    parentName,
-                    t != null ? t.localPosition : Vector3.zero,
-                    t != null ? t.localRotation : Quaternion.identity,
-                    t != null ? t.position : Vector3.zero,
-                    t != null ? t.forward : Vector3.zero,
-                    t != null ? t.up : Vector3.zero,
-                    emission.rateOverTimeMultiplier,
-                    diagMain.startSpeedMultiplier,
-                    ps.isPlaying);
-                string diagKey = $"engine-fx-{evt.partPersistentId}-{evt.moduleIndex}-{ps.GetInstanceID()}";
-                ParsekLog.VerboseRateLimited("Flight", diagKey, diagLine, 0.5);
+                if (ParsekLog.IsVerboseEnabled)
+                {
+                    Transform t = ps.transform;
+                    string parentName = t != null && t.parent != null ? t.parent.name : "<none>";
+                    var diagMain = ps.main;
+                    string diagLine = BuildEngineFxEmissionDiagnostic(
+                        evt.partName,
+                        evt.partPersistentId,
+                        evt.moduleIndex,
+                        power,
+                        ps.name,
+                        parentName,
+                        t != null ? t.localPosition : Vector3.zero,
+                        t != null ? t.localRotation : Quaternion.identity,
+                        t != null ? t.position : Vector3.zero,
+                        t != null ? t.forward : Vector3.zero,
+                        t != null ? t.up : Vector3.zero,
+                        emission.rateOverTimeMultiplier,
+                        diagMain.startSpeedMultiplier,
+                        ps.isPlaying);
+                    string diagKey = $"engine-fx-{evt.partPersistentId}-{evt.moduleIndex}-{ps.GetInstanceID()}";
+                    ParsekLog.VerboseRateLimited("Flight", diagKey, diagLine, 0.5);
+                }
             }
         }
 
@@ -2648,6 +2661,7 @@ namespace Parsek
                     float spd = ComputeScaledRcsSpeed(info.speedCurve, power, info.speedScale);
                     main.startSpeedMultiplier = spd;
 
+                    SetParticleRenderersEnabled(ps, true);
                     if (!ps.isPlaying) ps.Play();
 
                     if (sampleRate <= 0f)
@@ -2660,9 +2674,11 @@ namespace Parsek
                 }
                 else
                 {
+                    emission.enabled = false;
                     emission.rateOverTimeMultiplier = 0;
                     ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                     ps.Clear(true);
+                    SetParticleRenderersEnabled(ps, false);
                 }
 
                 if (ps.isPlaying) playingSystems++;

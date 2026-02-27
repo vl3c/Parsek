@@ -252,6 +252,16 @@ namespace Parsek.Tests.LogValidation
                 return;
             }
 
+            if (double.IsNaN(value) || double.IsInfinity(value))
+            {
+                violations.Add(new LogViolation(
+                    code: "RES-002",
+                    lineNumber: entry.LineNumber,
+                    message: $"Resource post-value '{match.Groups["value"].Value}' is not finite.",
+                    rawLine: entry.RawLine));
+                return;
+            }
+
             if (value < 0.0)
             {
                 violations.Add(new LogViolation(

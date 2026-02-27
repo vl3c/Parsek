@@ -163,6 +163,8 @@ namespace Parsek
                 { "Squad/FX/shockExhaust_blue_small", new Vector3(-90f, 0f, 0f) },
                 { "Squad/FX/shockExhaust_red_small", new Vector3(-90f, 0f, 0f) }
             };
+        private static readonly string[] EngineModelNodeTypes =
+            { "MODEL_MULTI_PARTICLE_PERSIST", "MODEL_MULTI_PARTICLE", "MODEL_PARTICLE" };
 
         /// <summary>
         /// Find a KSP fx_* prefab by name. These exist as children of legacy part
@@ -914,6 +916,7 @@ namespace Parsek
             fxHolder.transform.localPosition = srcFxTransform.localPosition;
             fxHolder.transform.localRotation = srcFxTransform.localRotation;
             fxHolder.transform.localScale = srcFxTransform.localScale;
+            cloneMap[srcFxTransform] = fxHolder.transform;
             return fxHolder.transform;
         }
 
@@ -2104,10 +2107,9 @@ namespace Parsek
                     // Scan for model FX nodes used by engines.
                     for (int g = 0; g < effectGroups.Length; g++)
                     {
-                        string[] modelNodeTypes = { "MODEL_MULTI_PARTICLE_PERSIST", "MODEL_MULTI_PARTICLE", "MODEL_PARTICLE" };
-                        for (int n = 0; n < modelNodeTypes.Length; n++)
+                        for (int n = 0; n < EngineModelNodeTypes.Length; n++)
                         {
-                            string nodeType = modelNodeTypes[n];
+                            string nodeType = EngineModelNodeTypes[n];
                             ConfigNode[] modelNodes = effectGroups[g].GetNodes(nodeType);
                             for (int mp = 0; mp < modelNodes.Length; mp++)
                             {
@@ -2189,6 +2191,112 @@ namespace Parsek
                     }
                 }
 
+                var namedTransformCache = new Dictionary<string, List<Transform>>(System.StringComparer.OrdinalIgnoreCase);
+
+                List<Transform> FindNamedTransformsCached(string transformName)
+                {
+                    if (string.IsNullOrEmpty(transformName))
+                        return new List<Transform>();
+
+                    if (namedTransformCache.TryGetValue(transformName, out List<Transform> cached))
+                        return cached;
+
+                    List<Transform> found = FindTransformsRecursive(prefab.transform, transformName);
+                    namedTransformCache[transformName] = found;
+                    return found;
+                }
+
+                bool HasNamedTransform(string transformName)
+                {
+                    return FindNamedTransformsCached(transformName).Count > 0;
+                }
+
+                bool HasPrefabMatch(System.Func<string, bool> matcher)
+                {
+                    for (int i = 0; i < prefabFxEntries.Count; i++)
+                    {
+                        string existingPrefab = NormalizeFxPrefabName(prefabFxEntries[i].prefabName);
+                        if (!string.IsNullOrEmpty(existingPrefab) && matcher(existingPrefab))
+                            return true;
+                    }
+
+                    return false;
+                }
+
+                string ResolveFallbackTransform(
+                    string preferredTransform,
+                    bool includeEngineTransform,
+                    params string[] alternateTransforms)
+                {
+                    if (!string.IsNullOrEmpty(preferredTransform) && HasNamedTransform(preferredTransform))
+                        return preferredTransform;
+
+                    if (includeEngineTransform &&
+                        engine != null &&
+                        !string.IsNullOrEmpty(engine.thrustVectorTransformName) &&
+                        HasNamedTransform(engine.thrustVectorTransformName))
+                    {
+                        return engine.thrustVectorTransformName;
+                    }
+
+                    for (int i = 0; i < alternateTransforms.Length; i++)
+                    {
+                        string candidate = alternateTransforms[i];
+                        if (!string.IsNullOrEmpty(candidate) && HasNamedTransform(candidate))
+                            return candidate;
+                    }
+
+                    return preferredTransform;
+                }
+
+                Vector3 ResolveFallbackOffset(
+                    string fallbackTransform,
+                    Vector3 defaultOffset,
+                    bool matchFxTransformAlias)
+                {
+                    for (int i = 0; i < modelFxEntries.Count; i++)
+                    {
+                        if (string.Equals(modelFxEntries[i].transformName, fallbackTransform, System.StringComparison.OrdinalIgnoreCase) ||
+                            (matchFxTransformAlias &&
+                             string.Equals(modelFxEntries[i].transformName, "FXTransform", System.StringComparison.OrdinalIgnoreCase)))
+                        {
+                            return modelFxEntries[i].localPos;
+                        }
+                    }
+
+                    return defaultOffset;
+                }
+
+                void AddPrefabFallbackIfMissing(
+                    System.Func<string, bool> hasExistingPrefab,
+                    string prefabName,
+                    string preferredTransform,
+                    bool includeEngineTransform,
+                    string[] alternateTransforms,
+                    Vector3 defaultOffset,
+                    bool matchFxTransformAlias,
+                    Quaternion localRotation,
+                    bool hasLocalRotation,
+                    string description)
+                {
+                    if (HasPrefabMatch(hasExistingPrefab))
+                        return;
+
+                    string fallbackTransform = ResolveFallbackTransform(
+                        preferredTransform,
+                        includeEngineTransform,
+                        alternateTransforms);
+                    Vector3 fallbackOffset = ResolveFallbackOffset(
+                        fallbackTransform,
+                        defaultOffset,
+                        matchFxTransformAlias);
+
+                    prefabFxEntries.Add((prefabName, fallbackTransform, fallbackOffset, localRotation, hasLocalRotation));
+                    string rotationSuffix = hasLocalRotation ? $" rot={localRotation.eulerAngles}" : "";
+                    ParsekLog.Log($"    Engine FX fallback: '{partName}' midx={moduleIndex} " +
+                        $"added {description} on '{fallbackTransform}' offset={fallbackOffset}{rotationSuffix}");
+                }
+
                 // Ant/Spider configs only define MODEL_MULTI_PARTICLE Monoprop_small in running FX.
                 // Add a Twitch-style prefab flame fallback so they render a visible plume like Twitch.
                 bool isAntOrSpider =
@@ -2200,44 +2308,19 @@ namespace Parsek
                     string.Equals(partName, "radialEngineMini", System.StringComparison.OrdinalIgnoreCase);
                 if (isAntOrSpider)
                 {
-                    bool hasFlamePrefab = false;
-                    for (int i = 0; i < prefabFxEntries.Count; i++)
-                    {
-                        string existingPrefab = NormalizeFxPrefabName(prefabFxEntries[i].prefabName);
-                        if (string.Equals(existingPrefab, "fx_exhaustFlame_yellow_tiny_Z", System.StringComparison.OrdinalIgnoreCase) ||
-                            string.Equals(existingPrefab, "fx_exhaustFlame_yellow_tiny", System.StringComparison.OrdinalIgnoreCase))
-                        {
-                            hasFlamePrefab = true;
-                            break;
-                        }
-                    }
-
-                    if (!hasFlamePrefab)
-                    {
-                        string fallbackTransform = "FXTransform";
-                        if (FindTransformsRecursive(prefab.transform, fallbackTransform).Count == 0)
-                        {
-                            if (engine != null && !string.IsNullOrEmpty(engine.thrustVectorTransformName))
-                                fallbackTransform = engine.thrustVectorTransformName;
-                            else if (FindTransformsRecursive(prefab.transform, "thrustTransform").Count > 0)
-                                fallbackTransform = "thrustTransform";
-                        }
-
-                        Vector3 fallbackOffset = new Vector3(0f, 0f, 0.08f);
-                        for (int i = 0; i < modelFxEntries.Count; i++)
-                        {
-                            if (string.Equals(modelFxEntries[i].transformName, fallbackTransform, System.StringComparison.OrdinalIgnoreCase) ||
-                                string.Equals(modelFxEntries[i].transformName, "FXTransform", System.StringComparison.OrdinalIgnoreCase))
-                            {
-                                fallbackOffset = modelFxEntries[i].localPos;
-                                break;
-                            }
-                        }
-
-                        prefabFxEntries.Add(("fx_exhaustFlame_yellow_tiny_Z", fallbackTransform, fallbackOffset, Quaternion.identity, false));
-                        ParsekLog.Log($"    Engine FX fallback: '{partName}' midx={moduleIndex} " +
-                            $"added Twitch plume prefab on '{fallbackTransform}' offset={fallbackOffset}");
-                    }
+                    AddPrefabFallbackIfMissing(
+                        existingPrefab =>
+                            string.Equals(existingPrefab, "fx_exhaustFlame_yellow_tiny_Z", System.StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(existingPrefab, "fx_exhaustFlame_yellow_tiny", System.StringComparison.OrdinalIgnoreCase),
+                        prefabName: "fx_exhaustFlame_yellow_tiny_Z",
+                        preferredTransform: "FXTransform",
+                        includeEngineTransform: true,
+                        alternateTransforms: new[] { "thrustTransform" },
+                        defaultOffset: new Vector3(0f, 0f, 0.08f),
+                        matchFxTransformAlias: true,
+                        localRotation: Quaternion.identity,
+                        hasLocalRotation: false,
+                        description: "Twitch plume prefab");
                 }
 
                 // Kickback: force Thumper-style FX so smoke/flame match solidBooster1-1 visuals.
@@ -2273,13 +2356,13 @@ namespace Parsek
                     string kickbackTransform = "thrustTransform";
                     if (engine != null && !string.IsNullOrEmpty(engine.thrustVectorTransformName))
                         kickbackTransform = engine.thrustVectorTransformName;
-                    if (FindTransformsRecursive(prefab.transform, kickbackTransform).Count == 0)
+                    if (!HasNamedTransform(kickbackTransform))
                     {
-                        if (FindTransformsRecursive(prefab.transform, "thrustTransform").Count > 0)
+                        if (HasNamedTransform("thrustTransform"))
                             kickbackTransform = "thrustTransform";
-                        else if (FindTransformsRecursive(prefab.transform, "smokePoint").Count > 0)
+                        else if (HasNamedTransform("smokePoint"))
                             kickbackTransform = "smokePoint";
-                        else if (FindTransformsRecursive(prefab.transform, "fxPoint").Count > 0)
+                        else if (HasNamedTransform("fxPoint"))
                             kickbackTransform = "fxPoint";
                     }
 
@@ -2287,7 +2370,7 @@ namespace Parsek
                     if (kickbackOffset.sqrMagnitude <= 0.000001f)
                         kickbackOffset = new Vector3(0f, 0f, 0.35f);
                     Quaternion kickbackThumperLocalRot = Quaternion.Euler(-90f, 0f, 0f);
-                    var kickbackAnchors = FindTransformsRecursive(prefab.transform, kickbackTransform);
+                    var kickbackAnchors = FindNamedTransformsCached(kickbackTransform);
                     if (kickbackAnchors.Count > 0)
                     {
                         Transform diagAnchor = kickbackAnchors[0];
@@ -2316,48 +2399,67 @@ namespace Parsek
                         $"(removed MODEL={removedKickbackModelFx}, PREFAB={removedKickbackPrefabs})");
                 }
 
-                // Puff (omsEngine) often renders only Monoprop_big model FX; add Thud-style blue flame.
+                // Puff (omsEngine) often renders only Monoprop_big model FX; add a compact blue flame core.
                 bool isPuff =
                     string.Equals(partName, "omsEngine", System.StringComparison.OrdinalIgnoreCase);
                 if (isPuff)
                 {
-                    bool hasFlamePrefab = false;
-                    for (int i = 0; i < prefabFxEntries.Count; i++)
+                    AddPrefabFallbackIfMissing(
+                        existingPrefab => existingPrefab.IndexOf("exhaustflame", System.StringComparison.OrdinalIgnoreCase) >= 0,
+                        prefabName: "fx_exhaustFlame_blue_small",
+                        preferredTransform: "FXTransform",
+                        includeEngineTransform: true,
+                        alternateTransforms: new[] { "thrustTransform" },
+                        defaultOffset: new Vector3(0f, 0f, 0.12f),
+                        matchFxTransformAlias: true,
+                        localRotation: Quaternion.identity,
+                        hasLocalRotation: false,
+                        description: "Puff blue flame prefab");
+                }
+
+                // Rhino: force a compact Mainsail-like plume profile (small yellow flame + light smoke),
+                // aligned to the actual nozzle thrust axis.
+                bool isRhino =
+                    string.Equals(partName, "Size3AdvancedEngine", System.StringComparison.OrdinalIgnoreCase);
+                if (isRhino)
+                {
+                    int removedRhinoModelFx = modelFxEntries.Count;
+                    modelFxEntries.Clear();
+
+                    int removedRhinoPrefabs = 0;
+                    for (int i = prefabFxEntries.Count - 1; i >= 0; i--)
                     {
                         string existingPrefab = NormalizeFxPrefabName(prefabFxEntries[i].prefabName);
-                        if (existingPrefab != null && existingPrefab.IndexOf("exhaustflame", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                        if (existingPrefab == null)
+                            continue;
+
+                        if (existingPrefab.IndexOf("smoketrail", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            existingPrefab.IndexOf("exhaustflame", System.StringComparison.OrdinalIgnoreCase) >= 0)
                         {
-                            hasFlamePrefab = true;
-                            break;
+                            prefabFxEntries.RemoveAt(i);
+                            removedRhinoPrefabs++;
                         }
                     }
 
-                    if (!hasFlamePrefab)
-                    {
-                        string fallbackTransform = "FXTransform";
-                        if (FindTransformsRecursive(prefab.transform, fallbackTransform).Count == 0)
-                        {
-                            if (engine != null && !string.IsNullOrEmpty(engine.thrustVectorTransformName))
-                                fallbackTransform = engine.thrustVectorTransformName;
-                            else if (FindTransformsRecursive(prefab.transform, "thrustTransform").Count > 0)
-                                fallbackTransform = "thrustTransform";
-                        }
+                    string rhinoPreferredTransform =
+                        (engine != null && !string.IsNullOrEmpty(engine.thrustVectorTransformName))
+                            ? engine.thrustVectorTransformName
+                            : "thrustTransform";
+                    string rhinoTransform = ResolveFallbackTransform(
+                        preferredTransform: rhinoPreferredTransform,
+                        includeEngineTransform: true,
+                        alternateTransforms: new[] { "thrustTransform", "smokePoint", "fxPoint" });
+                    Vector3 rhinoOffset = ResolveFallbackOffset(
+                        rhinoTransform,
+                        defaultOffset: engine != null ? engine.fxOffset : Vector3.zero,
+                        matchFxTransformAlias: false);
+                    Quaternion rhinoPlumeRotation = Quaternion.Euler(-90f, 0f, 0f);
 
-                        Vector3 fallbackOffset = new Vector3(0f, 0f, 0.12f);
-                        for (int i = 0; i < modelFxEntries.Count; i++)
-                        {
-                            if (string.Equals(modelFxEntries[i].transformName, fallbackTransform, System.StringComparison.OrdinalIgnoreCase) ||
-                                string.Equals(modelFxEntries[i].transformName, "FXTransform", System.StringComparison.OrdinalIgnoreCase))
-                            {
-                                fallbackOffset = modelFxEntries[i].localPos;
-                                break;
-                            }
-                        }
-
-                        prefabFxEntries.Add(("fx_exhaustFlame_blue_small", fallbackTransform, fallbackOffset, Quaternion.identity, false));
-                        ParsekLog.Log($"    Engine FX fallback: '{partName}' midx={moduleIndex} " +
-                            $"added Thud plume prefab on '{fallbackTransform}' offset={fallbackOffset}");
-                    }
+                    prefabFxEntries.Add(("fx_smokeTrail_light", rhinoTransform, rhinoOffset, rhinoPlumeRotation, true));
+                    prefabFxEntries.Add(("fx_exhaustFlame_yellow_medium", rhinoTransform, rhinoOffset, rhinoPlumeRotation, true));
+                    ParsekLog.Log($"    Engine FX fallback: '{partName}' midx={moduleIndex} " +
+                        $"forced compact Mainsail-like plume on '{rhinoTransform}' offset={rhinoOffset} " +
+                        $"(removed MODEL={removedRhinoModelFx}, PREFAB={removedRhinoPrefabs})");
                 }
 
                 // Rhino/Mammoth/Twin-Boar can show smoke without a visible core flame in ghost playback.
@@ -2370,50 +2472,24 @@ namespace Parsek
                     string.Equals(partName, "Size2LFB", System.StringComparison.OrdinalIgnoreCase);
                 if (isHeavyLargeEngine)
                 {
-                    bool hasFlamePrefab = false;
-                    for (int i = 0; i < prefabFxEntries.Count; i++)
-                    {
-                        string existingPrefab = NormalizeFxPrefabName(prefabFxEntries[i].prefabName);
-                        if (existingPrefab != null && existingPrefab.IndexOf("exhaustflame", System.StringComparison.OrdinalIgnoreCase) >= 0)
-                        {
-                            hasFlamePrefab = true;
-                            break;
-                        }
-                    }
+                    string preferredTransform = "thrustTransform";
+                    if (string.Equals(partName, "Size3AdvancedEngine", System.StringComparison.OrdinalIgnoreCase))
+                        preferredTransform = "fxPoint";
 
-                    if (!hasFlamePrefab)
-                    {
-                        string fallbackTransform = "thrustTransform";
-                        if (string.Equals(partName, "Size3AdvancedEngine", System.StringComparison.OrdinalIgnoreCase))
-                            fallbackTransform = "fxPoint";
-
-                        if (FindTransformsRecursive(prefab.transform, fallbackTransform).Count == 0)
-                        {
-                            if (engine != null && !string.IsNullOrEmpty(engine.thrustVectorTransformName))
-                                fallbackTransform = engine.thrustVectorTransformName;
-                            else if (FindTransformsRecursive(prefab.transform, "fxPoint").Count > 0)
-                                fallbackTransform = "fxPoint";
-                            else if (FindTransformsRecursive(prefab.transform, "thrustTransform").Count > 0)
-                                fallbackTransform = "thrustTransform";
-                        }
-
-                        Vector3 fallbackOffset = Vector3.zero;
-                        for (int i = 0; i < modelFxEntries.Count; i++)
-                        {
-                            if (string.Equals(modelFxEntries[i].transformName, fallbackTransform, System.StringComparison.OrdinalIgnoreCase))
-                            {
-                                fallbackOffset = modelFxEntries[i].localPos;
-                                break;
-                            }
-                        }
-
-                        // White flame prefab is authored in a Y-up frame; on these thrust/fx transforms
-                        // it needs a -90deg X adjustment to align with nozzle direction.
-                        Quaternion fallbackRotation = Quaternion.Euler(-90f, 0f, 0f);
-                        prefabFxEntries.Add(("fx_exhaustFlame_white", fallbackTransform, fallbackOffset, fallbackRotation, true));
-                        ParsekLog.Log($"    Engine FX fallback: '{partName}' midx={moduleIndex} " +
-                            $"added white flame prefab on '{fallbackTransform}' offset={fallbackOffset} rot={fallbackRotation.eulerAngles}");
-                    }
+                    // White flame prefab is authored in a Y-up frame; on these thrust/fx transforms
+                    // it needs a -90deg X adjustment to align with nozzle direction.
+                    Quaternion fallbackRotation = Quaternion.Euler(-90f, 0f, 0f);
+                    AddPrefabFallbackIfMissing(
+                        existingPrefab => existingPrefab.IndexOf("exhaustflame", System.StringComparison.OrdinalIgnoreCase) >= 0,
+                        prefabName: "fx_exhaustFlame_white",
+                        preferredTransform: preferredTransform,
+                        includeEngineTransform: true,
+                        alternateTransforms: new[] { "fxPoint", "thrustTransform" },
+                        defaultOffset: Vector3.zero,
+                        matchFxTransformAlias: false,
+                        localRotation: fallbackRotation,
+                        hasLocalRotation: true,
+                        description: "white flame prefab");
                 }
 
                 // Vector (SSME) can look underpowered with only blue_small + model flame.
@@ -2456,11 +2532,13 @@ namespace Parsek
                         }
 
                         if (!copiedFromExistingBlueSmall &&
-                            FindTransformsRecursive(prefab.transform, fallbackTransform).Count == 0)
+                            !HasNamedTransform(fallbackTransform))
                         {
-                            if (FindTransformsRecursive(prefab.transform, "thrustTransform").Count > 0)
+                            if (HasNamedTransform("thrustTransform"))
                                 fallbackTransform = "thrustTransform";
-                            else if (engine != null && !string.IsNullOrEmpty(engine.thrustVectorTransformName))
+                            else if (engine != null &&
+                                !string.IsNullOrEmpty(engine.thrustVectorTransformName) &&
+                                HasNamedTransform(engine.thrustVectorTransformName))
                                 fallbackTransform = engine.thrustVectorTransformName;
                         }
 
@@ -2472,9 +2550,7 @@ namespace Parsek
 
                 // RAPIER can resolve to dark/perpendicular smoke when aeroSpike smoke prefab falls back.
                 // Force a Vector-like visible plume: single large smoke + white flame core.
-                bool isRapier =
-                    string.Equals(partName, "RAPIER", System.StringComparison.OrdinalIgnoreCase);
-                if (isRapier)
+                if (isRapierPart)
                 {
                     string rapierSmokeTransform = "smokePoint";
                     Vector3 rapierSmokeOffset = new Vector3(0f, 0f, 1f);
@@ -2505,14 +2581,16 @@ namespace Parsek
 
                     if (!copiedRapierSmokeAnchor)
                     {
-                        if (FindTransformsRecursive(prefab.transform, rapierSmokeTransform).Count == 0)
+                        if (!HasNamedTransform(rapierSmokeTransform))
                         {
-                            if (FindTransformsRecursive(prefab.transform, "thrustTransform").Count > 0)
+                            if (HasNamedTransform("thrustTransform"))
                             {
                                 rapierSmokeTransform = "thrustTransform";
                                 rapierSmokeOffset = engine != null ? engine.fxOffset : Vector3.zero;
                             }
-                            else if (engine != null && !string.IsNullOrEmpty(engine.thrustVectorTransformName))
+                            else if (engine != null &&
+                                !string.IsNullOrEmpty(engine.thrustVectorTransformName) &&
+                                HasNamedTransform(engine.thrustVectorTransformName))
                             {
                                 rapierSmokeTransform = engine.thrustVectorTransformName;
                                 rapierSmokeOffset = engine.fxOffset;
@@ -2542,11 +2620,13 @@ namespace Parsek
                         // Keep it compact: anchor the added white core to the same smokePoint frame.
                         string flameTransform = rapierSmokeTransform;
                         Vector3 flameOffset = Vector3.zero;
-                        if (FindTransformsRecursive(prefab.transform, flameTransform).Count == 0)
+                        if (!HasNamedTransform(flameTransform))
                         {
                             flameTransform = "thrustTransform";
-                            if (FindTransformsRecursive(prefab.transform, flameTransform).Count == 0 &&
-                                engine != null && !string.IsNullOrEmpty(engine.thrustVectorTransformName))
+                            if (!HasNamedTransform(flameTransform) &&
+                                engine != null &&
+                                !string.IsNullOrEmpty(engine.thrustVectorTransformName) &&
+                                HasNamedTransform(engine.thrustVectorTransformName))
                             {
                                 flameTransform = engine.thrustVectorTransformName;
                             }

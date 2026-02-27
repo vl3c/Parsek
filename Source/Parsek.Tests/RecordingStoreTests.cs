@@ -528,6 +528,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryParseFxLocalRotation_AcceptsValidAxisAngle()
+        {
+            bool ok = GhostVisualBuilder.TryParseFxLocalRotation("0,0,0,90", out Quaternion parsed);
+
+            Assert.True(ok);
+            Assert.Equal(Quaternion.identity, parsed);
+        }
+
+        [Fact]
         public void GetPartTransformRaw_PrefersLegacyKeys_ButSupportsProtoKeys()
         {
             var node = new ConfigNode("PART");
