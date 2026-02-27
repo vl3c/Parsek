@@ -459,6 +459,7 @@ namespace Parsek
                     GUILayout.Width(250)
                 );
                 ui.DrawRecordingsWindowIfOpen(windowRect);
+                ui.DrawActionsWindowIfOpen(windowRect);
                 ui.DrawSettingsWindowIfOpen(windowRect);
             }
         }

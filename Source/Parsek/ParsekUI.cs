@@ -34,6 +34,17 @@ namespace Parsek
         private bool settingsWindowHasInputLock;
         private const string SettingsInputLockId = "Parsek_SettingsWindow";
 
+        // Actions window
+        private bool showActionsWindow;
+        private Rect actionsWindowRect;
+        private Vector2 actionsScrollPos;
+        private bool actionsWindowHasInputLock;
+        private const string ActionsInputLockId = "Parsek_ActionsWindow";
+
+        // Cached styles for actions window
+        private GUIStyle actionsGrayStyle;
+        private GUIStyle actionsWhiteStyle;
+
         // Column widths — shared between header and body for alignment
         private const float ColW_Enable = 15f;
         private const float ColW_Phase = 70f;
@@ -108,18 +119,19 @@ namespace Parsek
             int committedCount = RecordingStore.CommittedRecordings.Count;
             int activeGhosts = flight.TimelineGhostCount;
             GUILayout.Label($"Timeline: {committedCount} recording(s), {activeGhosts} active ghost(s)");
-            if (GameStateStore.EventCount > 0)
-                GUILayout.Label($"Events: {GameStateStore.EventCount}");
 
+            int actionCount = MilestoneStore.GetPendingEventCount();
             GUILayout.BeginHorizontal();
             if (GUILayout.Button($"Recordings ({committedCount})"))
                 showRecordingsWindow = !showRecordingsWindow;
+            if (GUILayout.Button($"Actions ({actionCount})"))
+                showActionsWindow = !showActionsWindow;
             if (GUILayout.Button("Settings"))
                 showSettingsWindow = !showSettingsWindow;
             GUILayout.EndHorizontal();
 
-            // Resource budget display (career mode with committed future items)
-            DrawResourceBudget();
+            // Compact budget summary (full display in Actions window)
+            DrawCompactBudgetLine();
 
             // Active ghost controls — Take Control buttons
             var committed = RecordingStore.CommittedRecordings;
@@ -211,20 +223,6 @@ namespace Parsek
                 ParsekLog.Info("UI", "All recordings wiped");
                 ParsekLog.ScreenMessage("All recordings wiped", 2f);
             }
-            GUI.enabled = committedCount > 0 || MilestoneStore.MilestoneCount > 0;
-            if (GUILayout.Button("Wipe All"))
-            {
-                foreach (var rec in RecordingStore.CommittedRecordings)
-                    ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
-                ParsekScenario.ClearReplacements();
-                flight.DestroyAllTimelineGhosts();
-                RecordingStore.ClearCommitted();
-                MilestoneStore.ClearAll();
-                GameStateStore.ClearEvents();
-                GameStateStore.ClearBaselines();
-                ParsekLog.Log("All recordings and game state wiped");
-                ParsekLog.ScreenMessage("All data wiped", 2f);
-            }
             GUI.enabled = true;
 
             GUILayout.EndVertical();
@@ -294,6 +292,191 @@ namespace Parsek
                 GUILayout.Label("Over-committed! Some timeline actions may fail.");
                 GUI.contentColor = prev;
             }
+        }
+
+        private void DrawCompactBudgetLine()
+        {
+            var budget = ResourceBudget.ComputeTotal(
+                RecordingStore.CommittedRecordings,
+                MilestoneStore.Milestones);
+
+            if (budget.reservedFunds <= 0 && budget.reservedScience <= 0 && budget.reservedReputation <= 0)
+                return;
+
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            var parts = new List<string>();
+            if (budget.reservedFunds > 0)
+                parts.Add(budget.reservedFunds.ToString("N0", ic) + "F");
+            if (budget.reservedScience > 0)
+                parts.Add(budget.reservedScience.ToString("F1", ic) + "S");
+            if (budget.reservedReputation > 0)
+                parts.Add(budget.reservedReputation.ToString("F0", ic) + "Rep");
+
+            if (parts.Count > 0)
+            {
+                string line = "Reserved: " + string.Join("  ", parts);
+                if (GUILayout.Button(line, GUI.skin.label))
+                    showActionsWindow = !showActionsWindow;
+            }
+        }
+
+        public void DrawActionsWindowIfOpen(Rect mainWindowRect)
+        {
+            if (!showActionsWindow)
+            {
+                ReleaseActionsInputLock();
+                return;
+            }
+
+            // Position to the left of main window on first open
+            if (actionsWindowRect.width < 1f)
+            {
+                float x = mainWindowRect.x - 390;
+                if (x < 0) x = mainWindowRect.x + mainWindowRect.width + 10;
+                actionsWindowRect = new Rect(x, mainWindowRect.y, 380, 350);
+            }
+
+            actionsWindowRect = ClickThruBlocker.GUILayoutWindow(
+                "ParsekActions".GetHashCode(),
+                actionsWindowRect,
+                DrawActionsWindow,
+                "Parsek \u2014 Game Actions",
+                GUILayout.Width(actionsWindowRect.width),
+                GUILayout.Height(actionsWindowRect.height)
+            );
+
+            if (actionsWindowRect.Contains(Event.current.mousePosition))
+            {
+                if (!actionsWindowHasInputLock)
+                {
+                    InputLockManager.SetControlLock(ControlTypes.CAMERACONTROLS, ActionsInputLockId);
+                    actionsWindowHasInputLock = true;
+                }
+            }
+            else
+            {
+                ReleaseActionsInputLock();
+            }
+        }
+
+        private void ReleaseActionsInputLock()
+        {
+            if (!actionsWindowHasInputLock) return;
+            InputLockManager.RemoveControlLock(ActionsInputLockId);
+            actionsWindowHasInputLock = false;
+        }
+
+        private void EnsureActionsStyles()
+        {
+            if (actionsGrayStyle != null) return;
+
+            actionsGrayStyle = new GUIStyle(GUI.skin.label);
+            actionsGrayStyle.normal.textColor = Color.gray;
+
+            actionsWhiteStyle = new GUIStyle(GUI.skin.label);
+            actionsWhiteStyle.normal.textColor = Color.white;
+        }
+
+        private void DrawActionsWindow(int windowID)
+        {
+            EnsureActionsStyles();
+
+            // A. Resource Budget Summary
+            DrawResourceBudget();
+
+            // B. Committed Actions List
+            var milestones = MilestoneStore.Milestones;
+            uint currentEpoch = MilestoneStore.CurrentEpoch;
+            var allEvents = new List<System.Tuple<GameStateEvent, bool>>(); // event, isReplayed
+            for (int i = 0; i < milestones.Count; i++)
+            {
+                var m = milestones[i];
+                if (!m.Committed || m.Epoch != currentEpoch) continue;
+                for (int j = 0; j < m.Events.Count; j++)
+                {
+                    if (GameStateStore.IsResourceEvent(m.Events[j].eventType))
+                        continue;
+                    bool replayed = j <= m.LastReplayedEventIndex;
+                    allEvents.Add(System.Tuple.Create(m.Events[j], replayed));
+                }
+            }
+
+            // Sort by UT
+            allEvents.Sort((a, b) => a.Item1.ut.CompareTo(b.Item1.ut));
+
+            if (allEvents.Count > 0)
+            {
+                GUILayout.Space(5);
+                GUILayout.Label("Committed Actions", GUI.skin.box);
+
+                actionsScrollPos = GUILayout.BeginScrollView(actionsScrollPos, GUILayout.ExpandHeight(true));
+
+                for (int i = 0; i < allEvents.Count; i++)
+                {
+                    var e = allEvents[i].Item1;
+                    bool replayed = allEvents[i].Item2;
+                    GUIStyle style = replayed ? actionsGrayStyle : actionsWhiteStyle;
+
+                    GUILayout.BeginHorizontal();
+
+                    string time = KSPUtil.PrintDateCompact(e.ut, true);
+                    GUILayout.Label(time, style, GUILayout.Width(90));
+
+                    string category = GameStateEventDisplay.GetDisplayCategory(e.eventType);
+                    GUILayout.Label(category, style, GUILayout.Width(65));
+
+                    string desc = GameStateEventDisplay.GetDisplayDescription(e);
+                    GUILayout.Label(desc, style, GUILayout.ExpandWidth(true));
+
+                    string status = replayed ? "Replayed" : "Pending";
+                    GUILayout.Label(status, style, GUILayout.Width(55));
+
+                    GUILayout.EndHorizontal();
+                }
+
+                GUILayout.EndScrollView();
+            }
+            else if (MilestoneStore.MilestoneCount == 0)
+            {
+                GUILayout.Space(5);
+                GUILayout.Label("No committed actions.");
+            }
+
+            // C. Bottom Bar
+            GUILayout.Space(5);
+
+            uint epoch = MilestoneStore.CurrentEpoch;
+            if (epoch > 0)
+            {
+                GUILayout.Label($"Epoch: {epoch} ({epoch} revert{(epoch == 1 ? "" : "s")})",
+                    actionsGrayStyle);
+            }
+
+            GUILayout.BeginHorizontal();
+
+            int committedCount = RecordingStore.CommittedRecordings.Count;
+            GUI.enabled = committedCount > 0 || MilestoneStore.MilestoneCount > 0;
+            if (GUILayout.Button("Wipe All"))
+            {
+                foreach (var rec in RecordingStore.CommittedRecordings)
+                    ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
+                ParsekScenario.ClearReplacements();
+                flight.DestroyAllTimelineGhosts();
+                RecordingStore.ClearCommitted();
+                MilestoneStore.ClearAll();
+                GameStateStore.ClearEvents();
+                GameStateStore.ClearBaselines();
+                ParsekLog.Log("All recordings and game state wiped");
+                ParsekLog.ScreenMessage("All data wiped", 2f);
+            }
+            GUI.enabled = true;
+
+            if (GUILayout.Button("Close"))
+                showActionsWindow = false;
+
+            GUILayout.EndHorizontal();
+
+            GUI.DragWindow();
         }
 
         public void DrawRecordingsWindowIfOpen(Rect mainWindowRect)
@@ -1177,6 +1360,7 @@ namespace Parsek
         public void Cleanup()
         {
             ReleaseRecordingsInputLock();
+            ReleaseActionsInputLock();
             ReleaseSettingsInputLock();
             if (mapMarkerTexture != null)
                 Object.Destroy(mapMarkerTexture);
