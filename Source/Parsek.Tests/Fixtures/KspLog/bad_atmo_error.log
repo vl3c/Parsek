@@ -1,0 +1,8 @@
+[LOG 14:50:01.000] [Parsek][INFO][Init] SessionStart runUtc=1700004000
+[LOG 14:50:10.100] [Parsek][INFO][Recorder] Recording started (physics-frame sampling)
+[LOG 14:50:10.110] [Parsek][VERBOSE][Recorder] Boundary detection initialized: body=Kerbin, inAtmo=True, hasAtmo=True, alt=75m
+[LOG 14:50:25.300] [Parsek][VERBOSE][Recorder] Atmosphere boundary detected — starting hysteresis timer (body=Kerbin, exiting, alt=71200m, atmoDepth=70000m)
+[LOG 14:50:28.500] [Parsek][ERROR][Flight] Boundary split failed: null recorder reference during SOI change
+[LOG 14:50:28.600] [Parsek][INFO][Recorder] Recording stopped (chain boundary). 48 points, 0 orbit segments over 18.4s
+[LOG 14:50:28.700] [Parsek][INFO][Recorder] Recording started (physics-frame sampling)
+[LOG 14:50:50.700] [Parsek][INFO][Recorder] Recording stopped. 35 points, 1 orbit segments over 40.4s
