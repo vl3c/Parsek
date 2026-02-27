@@ -1,0 +1,7 @@
+[LOG 14:40:01.000] [Parsek][INFO][Init] SessionStart runUtc=1700003000
+[LOG 14:40:10.100] [Parsek][INFO][Recorder] Recording started (physics-frame sampling)
+[LOG 14:40:10.110] [Parsek][VERBOSE][Recorder] Boundary detection initialized: body=Kerbin, inAtmo=True, hasAtmo=True, alt=75m
+[LOG 14:40:25.300] [Parsek][WARN][Recorder] WARNING: Atmosphere boundary timer reset — this should not use WARNING: prefix
+[LOG 14:40:28.500] [Parsek][INFO][Recorder] Recording stopped (chain boundary). 48 points, 0 orbit segments over 18.4s
+[LOG 14:40:28.600] [Parsek][INFO][Recorder] Recording started (physics-frame sampling)
+[LOG 14:40:50.700] [Parsek][INFO][Recorder] Recording stopped. 35 points, 1 orbit segments over 40.4s

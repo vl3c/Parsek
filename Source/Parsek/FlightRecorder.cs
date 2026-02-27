@@ -117,6 +117,17 @@ namespace Parsek
         private bool isOnRails;
         private OrbitSegment currentOrbitSegment;
 
+        // Atmosphere boundary detection
+        private bool wasInAtmosphere;
+        private bool atmosphereBoundaryPending;
+        private double atmosphereBoundaryPendingUT;
+        public bool AtmosphereBoundaryCrossed { get; private set; }
+        public bool EnteredAtmosphere { get; private set; }
+
+        // SOI change detection
+        public bool SoiChangePending { get; private set; }
+        public string SoiChangeFromBody { get; private set; }
+
         #region Part Event Subscription
 
         private void SubscribePartEvents()
@@ -2925,6 +2936,115 @@ namespace Parsek
 
         #endregion
 
+        #region Atmosphere Boundary Detection
+
+        /// <summary>
+        /// Pure testable function: determines whether a recording should split at the atmosphere boundary.
+        /// Requires both sustained time (hysteresisSeconds) AND distance beyond boundary (hysteresisMeters).
+        /// </summary>
+        internal static bool ShouldSplitAtAtmosphereBoundary(
+            bool wasInAtmo, double altitude, double atmosphereDepth,
+            bool pendingCross, double pendingUT, double currentUT,
+            double hysteresisSeconds = 3.0, double hysteresisMeters = 1000.0)
+        {
+            if (atmosphereDepth <= 0) return false; // no atmosphere
+
+            bool nowInAtmo = altitude < atmosphereDepth;
+            if (nowInAtmo == wasInAtmo)
+                return false; // no boundary crossed
+
+            // Check distance beyond boundary
+            double distBeyond = nowInAtmo
+                ? (atmosphereDepth - altitude)
+                : (altitude - atmosphereDepth);
+            if (distBeyond < hysteresisMeters)
+                return false; // not far enough past boundary
+
+            // Check sustained time
+            if (!pendingCross)
+                return false; // first detection — caller should start the timer
+
+            return (currentUT - pendingUT) >= hysteresisSeconds;
+        }
+
+        /// <summary>
+        /// Called every physics frame to detect atmosphere boundary crossings.
+        /// Sets AtmosphereBoundaryCrossed and EnteredAtmosphere when confirmed.
+        /// </summary>
+        public void CheckAtmosphereBoundary(Vessel v)
+        {
+            if (!IsRecording || isOnRails) return;
+            if (v == null || v.mainBody == null || !v.mainBody.atmosphere) return;
+
+            double altitude = v.altitude;
+            double atmoDepth = v.mainBody.atmosphereDepth;
+            bool nowInAtmo = altitude < atmoDepth;
+            double currentUT = Planetarium.GetUniversalTime();
+
+            if (nowInAtmo == wasInAtmosphere)
+            {
+                // No boundary — reset pending if we drifted back
+                if (atmosphereBoundaryPending)
+                    ParsekLog.Verbose("Recorder", $"Atmosphere boundary pending reset — drifted back to same side (inAtmo={nowInAtmo})");
+                atmosphereBoundaryPending = false;
+                return;
+            }
+
+            // Boundary detected — check hysteresis
+            if (!atmosphereBoundaryPending)
+            {
+                // Start the timer
+                atmosphereBoundaryPending = true;
+                atmosphereBoundaryPendingUT = currentUT;
+                ParsekLog.Verbose("Recorder", $"Atmosphere boundary detected — starting hysteresis timer " +
+                    $"(body={v.mainBody.name}, {(nowInAtmo ? "entering" : "exiting")}, alt={altitude:F0}m, atmoDepth={atmoDepth:F0}m)");
+                return;
+            }
+
+            if (ShouldSplitAtAtmosphereBoundary(
+                wasInAtmosphere, altitude, atmoDepth,
+                atmosphereBoundaryPending, atmosphereBoundaryPendingUT, currentUT))
+            {
+                // Confirmed crossing — force-sample a boundary point to ensure >= 2 points
+                SamplePosition(v);
+
+                AtmosphereBoundaryCrossed = true;
+                EnteredAtmosphere = nowInAtmo;
+                wasInAtmosphere = nowInAtmo;
+                atmosphereBoundaryPending = false;
+                ParsekLog.Info("Recorder", $"Atmosphere boundary confirmed: {(nowInAtmo ? "entered" : "exited")} " +
+                    $"atmosphere of {v.mainBody.name} at alt {altitude:F0}m " +
+                    $"(hysteresis: {(currentUT - atmosphereBoundaryPendingUT):F1}s, {Math.Abs(altitude - atmoDepth):F0}m past boundary)");
+            }
+        }
+
+        /// <summary>
+        /// Reseeds atmosphere state from current vessel. Call on SOI change and off-rails.
+        /// </summary>
+        private void ReseedAtmosphereState(Vessel v)
+        {
+            bool oldState = wasInAtmosphere;
+            if (v == null || v.mainBody == null)
+            {
+                wasInAtmosphere = false;
+            }
+            else
+            {
+                wasInAtmosphere = v.mainBody.atmosphere && v.altitude < v.mainBody.atmosphereDepth;
+            }
+            atmosphereBoundaryPending = false;
+            AtmosphereBoundaryCrossed = false;
+            if (v?.mainBody != null)
+            {
+                ParsekLog.Verbose("Recorder", $"Atmosphere state reseeded: body={v.mainBody.name}, " +
+                    $"inAtmo={wasInAtmosphere} (was {oldState}), " +
+                    $"hasAtmo={v.mainBody.atmosphere}, alt={v.altitude:F0}m" +
+                    (v.mainBody.atmosphere ? $", atmoDepth={v.mainBody.atmosphereDepth:F0}m" : ""));
+            }
+        }
+
+        #endregion
+
         public void StartRecording()
         {
             if (Time.timeScale < 0.01f)
@@ -3018,6 +3138,17 @@ namespace Parsek
             RecordingStartedAsEva = v.isEVA;
             lastRecordedUT = -1;
             lastRecordedVelocity = Vector3.zero;
+
+            // Seed atmosphere state
+            wasInAtmosphere = v.mainBody != null && v.mainBody.atmosphere
+                && v.altitude < v.mainBody.atmosphereDepth;
+            atmosphereBoundaryPending = false;
+            AtmosphereBoundaryCrossed = false;
+            EnteredAtmosphere = false;
+            SoiChangePending = false;
+            SoiChangeFromBody = null;
+            ParsekLog.Verbose("Recorder", $"Boundary detection initialized: body={v.mainBody?.name}, " +
+                $"inAtmo={wasInAtmosphere}, hasAtmo={v.mainBody?.atmosphere}, alt={v.altitude:F0}m");
 
             // Insert boundary anchor from previous chain segment if present.
             // Must come AFTER the lastRecordedUT reset above so the anchor's
@@ -3251,6 +3382,9 @@ namespace Parsek
                 return;
             }
 
+            // Check atmosphere boundary (before part state polling)
+            CheckAtmosphereBoundary(v);
+
             // Poll parachute, jettison, engine, RCS, and deployable state every physics frame (before adaptive sampling skip)
             CheckParachuteState(v);
             CheckJettisonState(v);
@@ -3393,6 +3527,9 @@ namespace Parsek
             // Record a boundary TrajectoryPoint at current UT
             SamplePosition(v);
 
+            // Reseed atmosphere state for the current body
+            ReseedAtmosphereState(v);
+
             ParsekLog.Verbose("Recorder", $"Vessel went off rails — orbit segment closed " +
                 $"(UT {currentOrbitSegment.startUT:F0}-{currentOrbitSegment.endUT:F0})");
         }
@@ -3426,6 +3563,13 @@ namespace Parsek
                 epoch = v.orbit.epoch,
                 bodyName = v.mainBody.name
             };
+
+            // Reseed atmosphere state for the new body
+            ReseedAtmosphereState(v);
+
+            // Flag for ParsekFlight to trigger chain split in Update()
+            SoiChangePending = true;
+            SoiChangeFromBody = data.from.name;
 
             ParsekLog.Verbose("Recorder", $"SOI changed during orbit recording: {data.from.name} → {data.to.name}");
         }
