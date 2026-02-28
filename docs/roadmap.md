@@ -58,9 +58,6 @@ Profile and optimize for 20+ recordings:
 - Particle system pooling for engine/RCS FX
 - Benchmark memory and frame time with synthetic recording stress tests
 
-### KAC integration
-Auto-create Kerbal Alarm Clock alarms for ghost playback windows. When a recording is committed, create an alarm at its StartUT so the player gets notified before a ghost appears. Optional — only active if KAC is installed.
-
 ### Recording export/import
 Share recordings as standalone files:
 - Export: bundle `.prec` + `.craft` + metadata into a single `.parsek` archive
