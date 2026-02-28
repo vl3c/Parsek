@@ -88,6 +88,11 @@ namespace Parsek
             internal RecordingStats? CachedStats;
             internal int CachedStatsPointCount;
 
+            // Pre-launch resource snapshot (captured before recording starts)
+            public double PreLaunchFunds;
+            public double PreLaunchScience;
+            public float PreLaunchReputation;
+
             // Tracks which point's resource deltas have been applied during playback.
             // -1 means no resources applied yet (start from point 0's delta).
             public int LastAppliedResourceIndex = -1;
@@ -141,6 +146,9 @@ namespace Parsek
                 ChainBranch = source.ChainBranch;
                 LoopPlayback = source.LoopPlayback;
                 LoopPauseSeconds = source.LoopPauseSeconds;
+                PreLaunchFunds = source.PreLaunchFunds;
+                PreLaunchScience = source.PreLaunchScience;
+                PreLaunchReputation = source.PreLaunchReputation;
                 SegmentPhase = source.SegmentPhase;
                 SegmentBodyName = source.SegmentBodyName;
                 PlaybackEnabled = source.PlaybackEnabled;
@@ -221,10 +229,16 @@ namespace Parsek
             committedRecordings.Add(pendingRecording);
             Log($"[Parsek] Committed recording from {pendingRecording.VesselName} " +
                 $"({pendingRecording.Points.Count} points). Total committed: {committedRecordings.Count}");
+
+            string recordingId = pendingRecording.RecordingId;
+            double endUT = pendingRecording.EndUT;
             pendingRecording = null;
 
             // Capture a game state baseline at each commit (single funnel point)
             GameStateStore.CaptureBaselineIfNeeded();
+
+            // Create a milestone bundling game state events since the previous milestone
+            MilestoneStore.CreateMilestone(recordingId, endUT);
         }
 
         public static void DiscardPending()

@@ -11,6 +11,8 @@ namespace Parsek.Tests
         {
             // Suppress Debug.Log calls outside Unity
             RecordingStore.SuppressLogging = true;
+            MilestoneStore.SuppressLogging = true;
+            MilestoneStore.ResetForTesting();
             GameStateStore.SuppressLogging = true;
             ParsekLog.SuppressLogging = true;
             // Start each test with a clean slate
@@ -568,6 +570,8 @@ namespace Parsek.Tests
         public CrewReplacementTests()
         {
             RecordingStore.SuppressLogging = true;
+            MilestoneStore.SuppressLogging = true;
+            MilestoneStore.ResetForTesting();
             GameStateStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
             ParsekScenario.ResetReplacementsForTesting();

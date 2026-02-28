@@ -1,8 +1,8 @@
 # Parsek: Preliminary Architecture
 
 ## Document Status
-**Version:** 0.5
-**Phase:** Post-Phase 2 (core part events implemented; some features are still experimental)
+**Version:** 0.6
+**Phase:** Post-Phase 5 foundation (milestones, resource budgeting, action blocking implemented)
 **Last Updated:** February 2026
 
 ---
@@ -310,7 +310,58 @@ public class PlaybackEngine : MonoBehaviour
 
 ---
 
-### 6. TimeController
+### 6. Game State Subsystem (Milestones, Resource Budget, Action Blocking)
+
+Captures career-mode events independently from flight recordings, computes resource budgets, and blocks conflicting player actions via Harmony patches.
+
+#### GameStateEvent / GameStateStore
+
+`GameStateEvent` is a struct capturing a single career event — tech research, part purchase, facility upgrade, contract lifecycle, crew change, or resource change. Each event has a `ut`, `eventType`, `key` (tech ID, facility ID, etc.), `detail` (semicolon-separated metadata like `cost=5`), `valueBefore`/`valueAfter`, and an `epoch` (branch isolation).
+
+`GameStateStore` is the static persistent event log. Events are stamped with `MilestoneStore.CurrentEpoch` on insertion. Resource events within 0.1s are coalesced. Raw resource events (`FundsChanged`, `ScienceChanged`, `ReputationChanged`) are excluded from milestones to prevent double-counting with recording trajectory deltas.
+
+File format: `saves/<save>/Parsek/GameState/events.pgse`
+
+#### GameStateRecorder
+
+Subscribes to KSP career GameEvents (contracts, tech, crew, resources, facilities) and records them into `GameStateStore`. Lifecycle managed by `ParsekScenario` — subscribe/unsubscribe on every `OnLoad` to handle reverts cleanly. Suppression flags (`SuppressCrewEvents`, `SuppressResourceEvents`) prevent recording Parsek's own internal mutations.
+
+Facility/building state is poll-based (seeded from current state, diffed on subscribe).
+
+#### GameStateBaseline
+
+Snapshot of full game state at a point in time: UT, funds, science, reputation, researched tech IDs, facility levels, building intact states, active contracts, crew roster. Captured at recording commit time. Used for audit/timeline visualization, not rollback.
+
+File format: `saves/<save>/Parsek/GameState/baseline_<UT>.pgsb`
+
+#### Milestone / MilestoneStore
+
+`Milestone` groups game state events into a committed timeline unit with `StartUT`/`EndUT`, an `Epoch`, a `LastReplayedEventIndex` (partial replay awareness), and an optional `RecordingId` link.
+
+`MilestoneStore` manages the collection:
+- `CreateMilestone(recordingId, currentUT)` — filters events by epoch and UT range, excludes raw resource events, creates milestone
+- `FlushPendingEvents(currentUT)` — captures uncaptured events on save (idempotent, called from `OnSave`)
+- `RestoreMutableState(node, resetUnmatched)` — on revert, milestones not in the quicksave are reset to unreplayed (`LastReplayedEventIndex = -1`)
+- `GetCommittedTechIds()` / `GetCommittedFacilityUpgrades()` — lookup helpers for action-blocking patches
+- `CurrentEpoch` — incremented on revert to isolate abandoned branches
+
+Milestones are **independent of recordings** — deleting a recording does not delete its milestone.
+
+File format: `saves/<save>/Parsek/GameState/milestones.pgsm`
+
+#### ResourceBudget
+
+Pure static computation: `ComputeTotal(recordings, milestones)` returns `BudgetSummary` with `reservedFunds`, `reservedScience`, `reservedReputation`. Sums unreplayed recording costs (via `LastAppliedResourceIndex`) and unreplayed milestone event costs (via `LastReplayedEventIndex`). Fully replayed items contribute 0.
+
+#### Action Blocking (Harmony Patches)
+
+- `TechResearchPatch` — prefix on `RDTech.UnlockTech`, blocks if tech ID is in unreplayed committed milestones
+- `FacilityUpgradePatch` — prefix on `UpgradeableFacility.SetLevel`, blocks upgrades (not downgrades) for committed facilities
+- Both show `CommittedActionDialog` — a `PopupDialog` explaining the block with UT and resource details
+
+---
+
+### 7. TimeController
 
 Manages time revert and warp operations.
 
@@ -466,6 +517,21 @@ saves/<save-name>/Parsek/Recordings/
 - Safe-write via `.tmp` + rename to prevent corruption
 - Stale vessel snapshots cleaned up on save when in-memory snapshot is null
 - `RecordingPaths.ValidateRecordingId` rejects path-traversal and invalid filename characters
+
+### External Game State Files
+
+```
+saves/<save-name>/Parsek/GameState/
+├── events.pgse                  # Game state event log (ConfigNode)
+├── milestones.pgsm              # Milestone definitions with embedded events
+└── baseline_<UT>.pgsb           # Game state baselines (one per commit point)
+```
+
+- `.pgse` = Parsek Game State Events — insertion-order event log (not UT-sorted, to preserve branch ordering after reverts)
+- `.pgsm` = Parsek Game State Milestones — each MILESTONE node contains GAME_STATE_EVENT children
+- `.pgsb` = Parsek Game State Baseline — full snapshot (funds, science, rep, tech, facilities, buildings, contracts, crew)
+- Mutable milestone state (`LastReplayedEventIndex`) stored separately in `.sfs` MILESTONE_STATE nodes for quicksave/revert correctness
+- All files use safe-write (`.tmp` + rename)
 
 ---
 
@@ -724,12 +790,22 @@ All planned part event types are now implemented. 28 event types are recorded; m
 - [ ] Recording export/import (share recordings as standalone `.parsek` files)
 - [ ] Recording file size optimization (compact keys, numeric encoding, optional compression)
 
-### Phase 5: Going Back in Time
+### Phase 5: Going Back in Time (Foundation Complete)
 
+**Done:**
+- [x] Game state event recording (`GameStateRecorder` + `GameStateStore` + `GameStateEvent`)
+- [x] Milestones (`Milestone` + `MilestoneStore`) — independent of recordings, epoch-isolated
+- [x] Resource budgeting (`ResourceBudget.ComputeTotal`) — on-the-fly from recordings + milestones, partial-replay aware
+- [x] Epoch isolation — revert increments `CurrentEpoch`, old-branch events excluded from new milestones
+- [x] Resource deduction on revert — committed costs deducted from game state
+- [x] Action blocking — Harmony patches on `RDTech.UnlockTech` and `UpgradeableFacility.SetLevel` with `CommittedActionDialog`
+- [x] UI resource budget display — red text for negative available, yellow "Over-committed!" warning
+- [x] Game state baselines (`GameStateBaseline`) — captured at commit points for future timeline visualization
+- [x] `FlushPendingEvents` — captures events that happen without a recording (research in R&D, facility upgrades)
+
+**Remaining:**
 - [ ] Auto-save restore points at recording commit points
 - [ ] "Go Back" UI — pick a restore point, load it, preserve recording state
-- [ ] Resource budgeting — committed recordings claim their costs, player can only spend what's available
-- [ ] `LastAppliedResourceIndex` reset for recordings after the restore point
 
 See `docs/design-going-back-in-time.md` for full design rationale. The mechanism is snapshot-based (like `git checkout`), not event-reversal-based. No timeline branching.
 
@@ -739,7 +815,7 @@ See `docs/design-going-back-in-time.md` for full design rationale. The mechanism
 
 Parsek is a **git-like recording system** for KSP missions. Players record flights sequentially, commit them to a single timeline, and they replay automatically as ghost vessels during future gameplay. Recordings are immutable — once committed, they play back exactly as flown.
 
-The long-term vision (Phase 5) extends this with the ability to go back to any earlier point and start new work, with resource budgeting to prevent conflicts. See `docs/design-going-back-in-time.md` for the planned design. There is no timeline branching — one timeline, always.
+Phase 5 (foundation complete) adds milestones, resource budgeting, epoch isolation, and action blocking — the accounting layer that prevents paradoxes when the player goes back in time. The restore point UI is future work. See `docs/design-going-back-in-time.md` for the full design. There is no timeline branching — one timeline, always.
 
 The architecture naturally enables use cases like racing your own ghosts, but the mod does not include dedicated racing modes, AI playback, or multiplayer features. Those are gameplay possibilities that emerge from the core recording/playback system.
 
@@ -754,4 +830,4 @@ The architecture naturally enables use cases like racing your own ghosts, but th
 
 ---
 
-*Document version: 1.3 — Added Phase 5 (going back in time), resource budgeting scope*
+*Document version: 1.4 — Phase 5 foundation (milestones, resource budget, epoch isolation, action blocking)*

@@ -2442,6 +2442,8 @@ namespace Parsek.Tests
         public void SerializeTrajectory_RoundTrip_PreservesData()
         {
             RecordingStore.SuppressLogging = true;
+            MilestoneStore.SuppressLogging = true;
+            MilestoneStore.ResetForTesting();
             GameStateStore.SuppressLogging = true;
             try
             {
@@ -2520,6 +2522,8 @@ namespace Parsek.Tests
         public void SerializeTrajectory_SaveToFile_WritesExpectedContent()
         {
             RecordingStore.SuppressLogging = true;
+            MilestoneStore.SuppressLogging = true;
+            MilestoneStore.ResetForTesting();
             GameStateStore.SuppressLogging = true;
             string tempDir = Path.Combine(Path.GetTempPath(), "parsek_test_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDir);
@@ -4776,6 +4780,9 @@ namespace Parsek.Tests
             for (int i = 0; i < munTransferSegments.Length; i++)
                 writer.AddRecording(munTransferSegments[i].WithLoopPlayback());
 
+            // Add synthetic game actions so the Actions window has visible entries
+            AddSyntheticGameActions(writer, baseUT);
+
             foreach (string file in targets)
             {
                 string savePath = Path.Combine(saveDir, file);
@@ -5003,6 +5010,10 @@ namespace Parsek.Tests
                         content.IndexOf("name = ParsekScenario"),
                         content.IndexOf("FLIGHTSTATE") - content.IndexOf("name = ParsekScenario")));
 
+                    // Game action milestone data in .sfs
+                    Assert.Contains("milestoneEpoch = 0", content);
+                    Assert.Contains("MILESTONE_STATE", content);
+
                     File.Copy(tempPath, savePath, overwrite: true);
                 }
                 finally
@@ -5023,7 +5034,162 @@ namespace Parsek.Tests
                 string[] precFiles = Directory.GetFiles(recordingsDir, "*.prec");
                 Assert.True(precFiles.Length >= 232,
                     $"Expected at least 232 .prec files (8 baseline + 10 lights + 18 deployables + 7 gear + 11 cargo + 45 engines + 2 ladders + 5 RCS + 5 fairings + 2 extra radiators + 2 drills + 8 deployed science + 2 animation-group + 5 parachutes + 12 special deploy animations + 9 jettison + 21 robotics + 1 aero-surface + 3 robot-arm-scanner + 24 control-surface + 6 wheel-dynamics + 13 animate-heat + 1 inventory-placement + 3 board-chain + 2 walk-chain + 3 atmo-chain + 4 mun-transfer-chain), found {precFiles.Length}");
+
+                // Verify game state sidecar files
+                string gameStateDir = Path.Combine(saveDir, "Parsek", "GameState");
+                Assert.True(Directory.Exists(gameStateDir),
+                    $"Expected Parsek/GameState directory at {gameStateDir}");
+                Assert.True(File.Exists(Path.Combine(gameStateDir, "milestones.pgsm")),
+                    "Expected milestones.pgsm file");
+                Assert.True(File.Exists(Path.Combine(gameStateDir, "events.pgse")),
+                    "Expected events.pgse file");
             }
+        }
+
+        private static void AddSyntheticGameActions(ScenarioWriter writer, double baseUT)
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+
+            // Create a milestone that looks like a typical first flight commit.
+            // Events represent career-mode actions: research tech, purchase parts,
+            // accept/complete contracts, hire crew, upgrade facility, resource changes.
+
+            string milestoneId = "synthetic-milestone-001";
+            double milestoneStart = 0;
+            double milestoneEnd = baseUT + 25; // just before first recording
+
+            var events = new List<GameStateEvent>();
+
+            // Tech research
+            events.Add(new GameStateEvent
+            {
+                ut = 100,
+                eventType = GameStateEventType.TechResearched,
+                key = "basicRocketry",
+                detail = "cost=5;parts=solidBooster.sm.v2,solidBooster",
+                valueBefore = 5, valueAfter = 0
+            });
+
+            // Part purchase
+            events.Add(new GameStateEvent
+            {
+                ut = 110,
+                eventType = GameStateEventType.PartPurchased,
+                key = "solidBooster.sm.v2",
+                detail = "cost=200",
+                valueBefore = 24800, valueAfter = 24600
+            });
+
+            // Contract accepted
+            events.Add(new GameStateEvent
+            {
+                ut = 200,
+                eventType = GameStateEventType.ContractAccepted,
+                key = "contract-guid-survey-001",
+                detail = "title=Survey Kerbin Shores"
+            });
+
+            // Contract completed
+            events.Add(new GameStateEvent
+            {
+                ut = baseUT + 10,
+                eventType = GameStateEventType.ContractCompleted,
+                key = "contract-guid-survey-001",
+                detail = "title=Survey Kerbin Shores"
+            });
+
+            // Crew hired
+            events.Add(new GameStateEvent
+            {
+                ut = 300,
+                eventType = GameStateEventType.CrewHired,
+                key = "Luzor Kerman",
+                detail = "trait=Pilot"
+            });
+
+            // Facility upgraded
+            events.Add(new GameStateEvent
+            {
+                ut = 500,
+                eventType = GameStateEventType.FacilityUpgraded,
+                key = "SpaceCenter/LaunchPad",
+                detail = "from=0;to=1",
+                valueBefore = 0, valueAfter = 1
+            });
+
+            // Contract offered (just noise — shows up as "offered")
+            events.Add(new GameStateEvent
+            {
+                ut = 600,
+                eventType = GameStateEventType.ContractOffered,
+                key = "contract-guid-orbit-001",
+                detail = "title=Orbit Kerbin"
+            });
+
+            // Another tech
+            events.Add(new GameStateEvent
+            {
+                ut = baseUT + 5,
+                eventType = GameStateEventType.TechResearched,
+                key = "engineering101",
+                detail = "cost=5;parts=structuralPylon",
+                valueBefore = 10, valueAfter = 5
+            });
+
+            // Resource events (NOT included in milestone — filtered by CreateMilestone,
+            // but included in the events file for budget computation)
+            var fundsSpent = new GameStateEvent
+            {
+                ut = 110,
+                eventType = GameStateEventType.FundsChanged,
+                key = "",
+                valueBefore = 25000, valueAfter = 24600
+            };
+            var fundsEarned = new GameStateEvent
+            {
+                ut = baseUT + 10,
+                eventType = GameStateEventType.FundsChanged,
+                key = "",
+                valueBefore = 24600, valueAfter = 30000
+            };
+            var scienceSpent = new GameStateEvent
+            {
+                ut = 100,
+                eventType = GameStateEventType.ScienceChanged,
+                key = "",
+                valueBefore = 10, valueAfter = 5
+            };
+            var repGained = new GameStateEvent
+            {
+                ut = baseUT + 10,
+                eventType = GameStateEventType.ReputationChanged,
+                key = "",
+                valueBefore = 0, valueAfter = 5
+            };
+
+            // Build the milestone (only non-resource, non-noise events)
+            var milestone = new Milestone
+            {
+                MilestoneId = milestoneId,
+                StartUT = milestoneStart,
+                EndUT = milestoneEnd,
+                RecordingId = "",
+                Epoch = 0,
+                Events = events,
+                Committed = true,
+                LastReplayedEventIndex = 3 // first 4 events replayed (tech, part, accept, complete)
+            };
+
+            writer.WithMilestoneEpoch(0);
+            writer.AddMilestone(milestone);
+
+            // Add ALL events to the events file (including resource events)
+            foreach (var e in events)
+                writer.AddGameStateEvent(e);
+            writer.AddGameStateEvent(fundsSpent);
+            writer.AddGameStateEvent(fundsEarned);
+            writer.AddGameStateEvent(scienceSpent);
+            writer.AddGameStateEvent(repGained);
         }
 
         #endregion

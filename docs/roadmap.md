@@ -77,26 +77,28 @@ Reduce sidecar file sizes for long recordings:
 
 ---
 
-## Phase 5: Going Back in Time
+## Phase 5: Going Back in Time (Foundation Complete)
 
-The headline feature: go back to any earlier point in time and launch new missions while existing recordings play out as ghosts.
+Foundation for going back in time — milestones, resource budgeting, epoch isolation, and action blocking are implemented. Restore point UI is future work.
 
-### How it works
-Like `git checkout` — the player picks a restore point, the game loads that earlier state, and all committed recordings remain on the timeline. Ghosts appear at their scheduled UTs as the player plays forward. No branching, no state reversal.
+### Milestones (done)
+Game state events (tech research, part purchases, facility upgrades, contracts, crew changes) are captured into milestones — immutable timeline commits independent of recordings. Created at recording commit time and on save (FlushPendingEvents captures events that happen without a flight). Deleting a recording does not delete its milestone.
 
-### Restore points
-Parsek auto-saves at recording commit points, creating tagged restore points. A "Go Back" UI lets the player pick any restore point and load it. Recording data (all recordings, crew reservations, resource commitments) is preserved across the load.
+### Resource budget (done)
+Computed on-the-fly from recordings + milestones, partial-replay aware. Displayed in the Parsek UI when any resources are reserved. Red text + yellow "Over-committed!" warning when available resources go negative.
 
-### Resource budgeting
-Committed recordings have already claimed their resource costs. When the player goes back in time, available funds/science/reputation = the game state at the restore point minus resources committed to future recordings. If a recording at UT 15000 costs 15,000 funds to launch, those funds are unavailable at UT 10000. The player cannot launch a mission they can't afford after accounting for future commitments.
+### Epoch isolation (done)
+Reverts increment CurrentEpoch. New events are stamped with the current epoch. Old-branch events are excluded from new milestones, preventing abandoned timeline branches from leaking.
 
-This prevents paradoxes through simple accounting: "you can't spend money you've already committed to future missions."
+### Resource deduction on revert (done)
+On revert, committed funds/science/reputation are deducted from game state so KSP's top bar and purchase checks reflect available resources.
 
-### What doesn't need to change
-- Recordings are immutable — they play back exactly as flown
-- Crew reservation already prevents double-booking
-- Ghost playback and vessel spawning work at any UT
-- Resource deltas re-apply naturally during ghost playback (reset `LastAppliedResourceIndex` for recordings after the restore point)
+### Action blocking (done)
+Harmony patches on `RDTech.UnlockTech` and `UpgradeableFacility.SetLevel` prevent re-researching committed tech or re-upgrading committed facilities. Explanatory popup dialog shows what's blocked and why.
+
+### Remaining
+- [ ] Auto-save restore points at recording commit points
+- [ ] "Go Back" UI — pick a restore point, load it, preserve recording state
 
 See `docs/design-going-back-in-time.md` for full design rationale.
 
