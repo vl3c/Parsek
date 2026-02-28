@@ -558,9 +558,9 @@ namespace Parsek.Tests
         {
             // destroyed=true takes priority over hasSnapshot=true
             var result = RecordingStore.GetRecommendedAction(
-                distance: 500, destroyed: true, hasSnapshot: true);
+                destroyed: true, hasSnapshot: true);
 
-            Assert.Equal(RecordingStore.MergeDefault.MergeOnly, result);
+            Assert.Equal(RecordingStore.MergeDefault.GhostOnly, result);
         }
     }
 
@@ -815,28 +815,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BuildMergeMessage_Recover_MentionsLaunchSite()
-        {
-            var rec = new RecordingStore.Recording { VesselName = "TestShip" };
-            rec.Points.AddRange(MakePoints(3));
-            rec.DistanceFromLaunch = 50;
-
-            string msg = MergeDialog.BuildMergeMessage(rec, 30,
-                RecordingStore.MergeDefault.Recover);
-
-            Assert.Contains("TestShip", msg);
-            Assert.Contains("launch site", msg);
-        }
-
-        [Fact]
-        public void BuildMergeMessage_MergeOnly_MentionsDestroyed()
+        public void BuildMergeMessage_GhostOnly_MentionsDestroyed()
         {
             var rec = new RecordingStore.Recording { VesselName = "Boom" };
             rec.Points.AddRange(MakePoints(5));
             rec.VesselDestroyed = true;
 
             string msg = MergeDialog.BuildMergeMessage(rec, 60,
-                RecordingStore.MergeDefault.MergeOnly);
+                RecordingStore.MergeDefault.GhostOnly);
 
             Assert.Contains("destroyed", msg);
         }
@@ -877,7 +863,7 @@ namespace Parsek.Tests
             rec.Points.AddRange(MakePoints(7));
 
             string msg = MergeDialog.BuildMergeMessage(rec, 60,
-                RecordingStore.MergeDefault.Recover);
+                RecordingStore.MergeDefault.GhostOnly);
 
             Assert.Contains("7", msg);
         }
@@ -889,7 +875,7 @@ namespace Parsek.Tests
             rec.Points.AddRange(MakePoints(3));
 
             string msg = MergeDialog.BuildMergeMessage(rec, 45.3,
-                RecordingStore.MergeDefault.Recover);
+                RecordingStore.MergeDefault.GhostOnly);
 
             // Duration is locale-formatted ("45.3" or "45,3"), just check it contains "45"
             Assert.Contains("45", msg);
