@@ -44,24 +44,24 @@ namespace Parsek
         Board  = 3
     }
 
-    public struct BranchPoint
+    public class BranchPoint
     {
         public string id;
         public double ut;
         public BranchPointType type;
-        public List<string> parentRecordingIds;   // 1 for Undock/EVA, 2 for Dock/Board
-        public List<string> childRecordingIds;    // 2 for Undock/EVA, 1 for Dock/Board
+        public List<string> parentRecordingIds = new List<string>();
+        public List<string> childRecordingIds = new List<string>();
 
         public override string ToString()
         {
             return $"BP id={id ?? "?"} type={type} ut={ut:F1} " +
-                   $"parents={parentRecordingIds?.Count ?? 0} children={childRecordingIds?.Count ?? 0}";
+                   $"parents={parentRecordingIds.Count} children={childRecordingIds.Count}";
         }
     }
 }
 ```
 
-**Design note:** `BranchPoint` is a `struct` following the pattern of `OrbitSegment` and `PartEvent`. However, it contains reference-type fields (`List<string>`, `string`). This is acceptable — the struct is never stored in hot-path arrays or used in tight loops. It is a small metadata object. Lists are used instead of arrays because the design document specifies variable-length parent/child id lists (1 or 2 entries). The alternative (fixed-size fields like `parentId1`/`parentId2`) was rejected because dock/board events have 2 parents while undock/EVA have 1, and future edge cases (multi-dock) might extend this.
+**Design note:** `BranchPoint` is a `class` (not struct) because it contains `List<string>` fields. A struct with reference-type fields has copy-semantics footguns — copying the struct shares the lists, leading to aliasing bugs. As a class, BranchPoint has clear reference semantics. Lists are initialized in field declarations to avoid null checks.
 
 ### 1.3 `Source/Parsek/SurfacePosition.cs`
 
@@ -191,15 +191,18 @@ public string ChildBranchPointId;              // null for leaf recordings
 // Explicit UT range for recordings that may have no trajectory points
 // (background-only recordings). When Points.Count > 0, these are ignored
 // in favor of Points[0].ut / Points[last].ut.
-public double ExplicitStartUT;
-public double ExplicitEndUT;
+// Default is double.NaN (not set). 0.0 is a valid KSP UT.
+public double ExplicitStartUT = double.NaN;
+public double ExplicitEndUT = double.NaN;
 ```
 
 Update the `StartUT`/`EndUT` properties:
 
 ```csharp
-public double StartUT => Points.Count > 0 ? Points[0].ut : ExplicitStartUT;
-public double EndUT => Points.Count > 0 ? Points[Points.Count - 1].ut : ExplicitEndUT;
+public double StartUT => Points.Count > 0 ? Points[0].ut :
+                         !double.IsNaN(ExplicitStartUT) ? ExplicitStartUT : 0.0;
+public double EndUT => Points.Count > 0 ? Points[Points.Count - 1].ut :
+                       !double.IsNaN(ExplicitEndUT) ? ExplicitEndUT : 0.0;
 ```
 
 ### 2.2 `Source/Parsek/RecordingStore.cs` — Static methods
@@ -251,8 +254,8 @@ RECORDING_TREE
         treeId = <guid-string>
         vesselName = <string>
         vesselPersistentId = <uint>            // 0 if not set
-        explicitStartUT = <double-R>
-        explicitEndUT = <double-R>
+        explicitStartUT = <double-R>           // omitted when NaN
+        explicitEndUT = <double-R>             // omitted when NaN
         terminalState = <int>                  // omitted when null (recording still active)
         parentBranchPointId = <guid-string>    // omitted when null (root)
         childBranchPointId = <guid-string>     // omitted when null (leaf)
@@ -362,8 +365,10 @@ All `float` and `double` values use `ToString("R", CultureInfo.InvariantCulture)
 | `ParentBranchPointId` | `string` | Omit key |
 | `ChildBranchPointId` | `string` | Omit key |
 | `TerminalOrbitBody` | `string` | Omit all `tOrb*` keys (they are a group) |
+| `ExplicitStartUT` | `double` | Omit when `double.IsNaN` |
+| `ExplicitEndUT` | `double` | Omit when `double.IsNaN` |
 
-On deserialization, missing keys leave fields at their default values (`null` for strings/nullable structs, `0` for numerics).
+On deserialization, missing keys leave fields at their default values (`null` for strings/nullable structs, `0` for numerics, `NaN` for ExplicitStartUT/ExplicitEndUT).
 
 ---
 
@@ -527,7 +532,7 @@ All `tOrb*` keys are written/read as a group. If `TerminalOrbitBody` is null or 
 
 These remain in external sidecar files (.prec, _vessel.craft, _ghost.craft) referenced by recordingId, exactly as today. The tree file (`RECORDING_TREE` node) holds metadata only. `RecordingStore.SaveRecordingFiles` / `LoadRecordingFiles` handle sidecar I/O unchanged.
 
-The `Save` method on RecordingTree calls `RecordingStore.SaveRecordingFiles(rec)` for each recording. The `Load` method calls `RecordingStore.LoadRecordingFiles(rec)` for each recording after deserializing metadata.
+**Note:** Task 1 does NOT call `SaveRecordingFiles`/`LoadRecordingFiles`. Task 1 is pure ConfigNode round-trip — no file I/O. The tree's `Save`/`Load` methods only handle the RECORDING_TREE ConfigNode structure. File I/O integration is deferred to Task 7/11 when the tree is integrated with `ParsekScenario`.
 
 ### 8.4 Nullable TerminalState
 
@@ -764,8 +769,8 @@ Task 1 does NOT modify the existing `ParsekScenario.OnSave`/`OnLoad` flow. The n
 | `SurfacePos` | `null` | Same |
 | `ParentBranchPointId` | `null` | Same |
 | `ChildBranchPointId` | `null` | Same |
-| `ExplicitStartUT` | `0.0` | `StartUT` property checks `Points.Count > 0` first |
-| `ExplicitEndUT` | `0.0` | `EndUT` property checks `Points.Count > 0` first |
+| `ExplicitStartUT` | `NaN` | `StartUT` property checks `Points.Count > 0` first |
+| `ExplicitEndUT` | `NaN` | `EndUT` property checks `Points.Count > 0` first |
 
 The `StartUT`/`EndUT` property change is safe because all existing recordings have `Points.Count >= 2` (enforced by `StashPending` which rejects recordings with fewer than 2 points). When `Points.Count > 0`, the explicit UT fields are ignored.
 
@@ -785,7 +790,7 @@ Deferred to Task 11. That task will:
 | File | Contents |
 |---|---|
 | `Source/Parsek/TerminalState.cs` | `TerminalState` enum |
-| `Source/Parsek/BranchPoint.cs` | `BranchPointType` enum + `BranchPoint` struct |
+| `Source/Parsek/BranchPoint.cs` | `BranchPointType` enum + `BranchPoint` class |
 | `Source/Parsek/SurfacePosition.cs` | `SurfaceSituation` enum + `SurfacePosition` struct + static Save/Load helpers |
 | `Source/Parsek/RecordingTree.cs` | `RecordingTree` class with Save/Load/RebuildBackgroundMap |
 
@@ -825,7 +830,7 @@ Deferred to Task 11. That task will:
 
 ## 13. Open Questions / Decisions Captured
 
-1. **BranchPoint as struct vs class:** Design says struct (following OrbitSegment/PartEvent). It contains List<string> fields (reference types in a struct). This is acceptable since BranchPoints are stored in a List<BranchPoint> and never copied by value in hot paths. If the List fields cause unexpected copy semantics, revisit and change to class.
+1. **BranchPoint as class (resolved):** Changed from struct to class because it contains `List<string>` fields. A struct with reference-type fields causes copy-semantics aliasing bugs. As a class, BranchPoint has clear reference semantics and list fields are initialized in declarations.
 
 2. **Tree file format:** The design says "each recording tree is stored as a sidecar file." Task 1 implements Save/Load to ConfigNode but does NOT implement file I/O for the tree sidecar. File I/O (writing the RECORDING_TREE ConfigNode to a `.ptree` file or similar) is deferred to integration with ParsekScenario (Task 7/11). Task 1 proves the ConfigNode round-trip works.
 
