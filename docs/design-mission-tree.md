@@ -438,16 +438,59 @@ Work is split into tasks that can be planned and implemented separately. Depende
 
 ### Per-task workflow
 
-Each task follows a multi-stage pipeline using Opus 4.6 agents, orchestrated by the main session:
+Each task follows a multi-stage pipeline using Opus 4.6 agents, orchestrated by the main session (you). The main session is the orchestrator — it reads this document, determines which task to work on next, runs each step, and tracks progress below.
 
-1. **Plan** — Opus 4.6 subagent explores the codebase and writes a detailed implementation plan in `docs/plans/`
-2. **Plan review** — Fresh Opus 4.6 subagent reviews the plan for correctness, completeness, and risk
-3. **Orchestrator review** — Main session reviews the plan with full project context and fixes issues
-4. **Implement** — Fresh Opus 4.6 subagent implements the approved plan
-5. **Implementation review** — Fresh Opus 4.6 subagent reviews the implementation and fixes issues
-6. **Final review** — Main session reviews the implementation considering the larger architectural context
-7. **Commit** — Main session commits the implementation
-8. **Next task briefing** — Main session presents the next task, explains its role and how it fits into the overall plan
+**Steps:**
+
+1. **Plan** — Launch an Opus 4.6 subagent (`subagent_type: "general-purpose"`, `model: "opus"`) to explore the codebase and write a detailed implementation plan to `docs/plans/task-N-<slug>.md`. The agent should read this design doc, the relevant source files, and existing plan files for completed tasks to understand patterns and avoid repeating mistakes. Tell the agent to write the plan file directly (not just return text).
+
+2. **Plan review** — Launch a *fresh* Opus 4.6 subagent to review the plan for correctness, completeness, and risk. The reviewer reads the plan file, the source files it references, and this design doc. It should verify claims about existing code against the actual source (e.g., "line N does X" — read and confirm). It writes its findings as corrections/additions directly into the plan file, or returns them for the orchestrator to apply.
+
+3. **Orchestrator review** — You (the main session) review the plan yourself. You have full project context from CLAUDE.md and memory. Verify the reviewer's findings against the code. Apply fixes to the plan file. Resolve any contradictions. The plan is now approved.
+
+4. **Implement** — Launch a *fresh* Opus 4.6 subagent to implement the approved plan. The agent reads the plan file and modifies the source files accordingly. It runs `dotnet test` from `Source/Parsek.Tests/` to verify all tests pass after implementation. Tell the agent to implement the plan (write code), not just analyze it.
+
+5. **Implementation review** — Launch a *fresh* Opus 4.6 subagent to review the implementation. The reviewer reads the plan, the modified source files, and the test results. It looks for bugs, missed edge cases, deviations from the plan, and code quality issues. It fixes any issues it finds directly in the source files and re-runs tests.
+
+6. **Final review** — You (the main session) review the implementation considering the larger architectural context. Read the key modified files, verify the changes make sense, run tests one more time. Note any issues found and fix them.
+
+7. **Commit** — Stage and commit all modified/new files with a descriptive commit message. Do NOT add Co-Authored-By lines (per CLAUDE.md).
+
+8. **Next task briefing** — Present the next task to the user: what it does, how it fits into the dependency graph, key design points, and scope boundaries. Update the progress tracker below.
+
+**Repository setup:**
+
+- **Branch:** `recording-tree`
+- **Worktree:** `Parsek-recording-tree` (a git worktree of the main `Parsek` repo)
+- **Working directory:** `C:\Users\vlad3\Documents\Code\Parsek\Parsek-recording-tree`
+- The main repo at `Parsek/` stays on `main`. This worktree isolates all recording tree work.
+
+**How to resume after context clear:**
+
+When starting a new session to continue this work:
+1. Verify you're in the correct worktree: working directory should be `Parsek-recording-tree`, branch should be `recording-tree`
+2. Read this document (`docs/design-mission-tree.md`) to understand the full design and task list
+3. Check the **Progress tracker** below to see which task to work on next
+4. Read `CLAUDE.md` for project conventions (build commands, test commands, git rules)
+5. Read `docs/plans/` for completed task plans — they contain lessons learned and architectural decisions
+6. Start the next task at step 1 (Plan) and work through all 8 steps
+7. If the user says "continue" or "next task", pick up from the progress tracker
+
+**Progress tracker:**
+
+| Task | Status | Commit | Notes |
+|------|--------|--------|-------|
+| Task 1: Data model + serialization | Done | `fd11bc9` | RecordingTree, BranchPoint, SurfacePosition, TerminalState |
+| Task 2: Vessel switch refactoring | Done | `a876cf7` | DecideOnVesselSwitch tree-aware, transition/promotion, 12 tests |
+| Task 3: Background recording | **Next** | — | — |
+| Task 4: Split event detection | Pending | — | Depends on 1, 2, 3 |
+| Task 5: Merge event detection | Pending | — | Depends on 1, 2, 3, 4 |
+| Task 6: Tree commit + vessel spawn | Pending | — | Depends on 1–5 |
+| Task 7: Tree-aware ghost playback | Pending | — | Depends on 6 |
+| Task 8: Tree-aware merge dialog | Pending | — | Depends on 6 |
+| Task 9: UI updates | Pending | — | Depends on 6 |
+| Task 10: Quicksave/quickload | Pending | — | Depends on 6 |
+| Task 11: Edge cases + polish | Pending | — | Depends on all |
 
 ### Task 1: RecordingTree data model + serialization
 
