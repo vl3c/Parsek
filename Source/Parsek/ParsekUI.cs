@@ -398,9 +398,9 @@ namespace Parsek
             // Position to the left of main window on first open
             if (actionsWindowRect.width < 1f)
             {
-                float x = mainWindowRect.x - 405;
+                float x = mainWindowRect.x - 552;
                 if (x < 0) x = mainWindowRect.x + mainWindowRect.width + 10;
-                actionsWindowRect = new Rect(x, mainWindowRect.y, 395, 520);
+                actionsWindowRect = new Rect(x, mainWindowRect.y, 542, 593);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI", $"Actions window initial position: x={x.ToString("F0", ic)} y={mainWindowRect.y.ToString("F0", ic)} (mainWindow.x={mainWindowRect.x.ToString("F0", ic)})");
             }
@@ -531,6 +531,7 @@ namespace Parsek
             if (allEvents.Count > 0)
             {
                 GUILayout.Space(5);
+                GUILayout.Label("Committed Actions", GUI.skin.box);
 
                 // Column headers (clickable to sort)
                 GUILayout.BeginHorizontal();
