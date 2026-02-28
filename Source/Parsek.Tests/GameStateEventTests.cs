@@ -1293,5 +1293,84 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region GetUncommittedEventCount
+
+        [Fact]
+        public void GetUncommittedEventCount_CountsEventsAfterLastMilestone()
+        {
+            MilestoneStore.CurrentEpoch = 0;
+
+            // Add events and create a milestone covering ut 0-100
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 50,
+                eventType = GameStateEventType.TechResearched,
+                key = "basicRocketry"
+            });
+            MilestoneStore.CreateMilestone("rec1", 100);
+
+            // Add events after the milestone
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 150,
+                eventType = GameStateEventType.ContractAccepted,
+                key = "guid-1"
+            });
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 200,
+                eventType = GameStateEventType.CrewHired,
+                key = "Val Kerman"
+            });
+            // Resource event — should be filtered
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 160,
+                eventType = GameStateEventType.FundsChanged,
+                valueBefore = 1000, valueAfter = 900
+            });
+
+            Assert.Equal(2, GameStateStore.GetUncommittedEventCount());
+        }
+
+        [Fact]
+        public void GetUncommittedEventCount_ZeroWhenAllCommitted()
+        {
+            MilestoneStore.CurrentEpoch = 0;
+
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 50,
+                eventType = GameStateEventType.TechResearched,
+                key = "basicRocketry"
+            });
+            MilestoneStore.CreateMilestone("rec1", 100);
+
+            Assert.Equal(0, GameStateStore.GetUncommittedEventCount());
+        }
+
+        [Fact]
+        public void GetUncommittedEventCount_AllUncommittedWhenNoMilestones()
+        {
+            MilestoneStore.CurrentEpoch = 0;
+
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 50,
+                eventType = GameStateEventType.ContractAccepted,
+                key = "guid-1"
+            });
+            GameStateStore.AddEvent(new GameStateEvent
+            {
+                ut = 60,
+                eventType = GameStateEventType.PartPurchased,
+                key = "mk1pod.v2"
+            });
+
+            Assert.Equal(2, GameStateStore.GetUncommittedEventCount());
+        }
+
+        #endregion
     }
 }

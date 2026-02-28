@@ -132,7 +132,7 @@ namespace Parsek
             int activeGhosts = flight.TimelineGhostCount;
             GUILayout.Label($"Timeline: {committedCount} recording(s), {activeGhosts} active ghost(s)");
 
-            int actionCount = MilestoneStore.GetPendingEventCount();
+            int actionCount = MilestoneStore.GetPendingEventCount() + GameStateStore.GetUncommittedEventCount();
             GUILayout.BeginHorizontal();
             if (GUILayout.Button($"Recordings ({committedCount})"))
             {
@@ -528,10 +528,33 @@ namespace Parsek
                     break;
             }
 
-            if (allEvents.Count > 0)
+            // C. Uncommitted events (not yet in any milestone)
+            double lastMilestoneEndUT = 0;
+            for (int i = 0; i < milestones.Count; i++)
+            {
+                if (milestones[i].Epoch == currentEpoch && milestones[i].EndUT > lastMilestoneEndUT)
+                    lastMilestoneEndUT = milestones[i].EndUT;
+            }
+
+            var storeEvents = GameStateStore.Events;
+            var uncommittedEvents = new List<GameStateEvent>();
+            for (int i = 0; i < storeEvents.Count; i++)
+            {
+                var e = storeEvents[i];
+                if (e.epoch != currentEpoch) continue;
+                if (e.ut <= lastMilestoneEndUT) continue;
+                if (GameStateStore.IsMilestoneFilteredEvent(e.eventType)) continue;
+                uncommittedEvents.Add(e);
+            }
+            uncommittedEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+
+            // Single scroll view for both sections
+            bool hasCommitted = allEvents.Count > 0;
+            bool hasUncommitted = uncommittedEvents.Count > 0;
+
+            if (hasCommitted || hasUncommitted)
             {
                 GUILayout.Space(5);
-                GUILayout.Label("Committed Actions", GUI.skin.box);
 
                 // Column headers (clickable to sort)
                 GUILayout.BeginHorizontal();
@@ -547,35 +570,66 @@ namespace Parsek
 
                 actionsScrollPos = GUILayout.BeginScrollView(actionsScrollPos, GUILayout.ExpandHeight(true));
 
-                for (int i = 0; i < allEvents.Count; i++)
+                if (hasCommitted)
                 {
-                    var e = allEvents[i].Item1;
-                    bool replayed = allEvents[i].Item2;
-                    GUIStyle style = replayed ? actionsGrayStyle : actionsWhiteStyle;
+                    GUILayout.Label("Committed Actions", GUI.skin.box);
 
-                    GUILayout.BeginHorizontal();
+                    for (int i = 0; i < allEvents.Count; i++)
+                    {
+                        var e = allEvents[i].Item1;
+                        bool replayed = allEvents[i].Item2;
+                        GUIStyle style = replayed ? actionsGrayStyle : actionsWhiteStyle;
 
-                    string time = KSPUtil.PrintDateCompact(e.ut, true);
-                    GUILayout.Label(time, style, GUILayout.Width(90));
+                        GUILayout.BeginHorizontal();
 
-                    string category = GameStateEventDisplay.GetDisplayCategory(e.eventType);
-                    GUILayout.Label(category, style, GUILayout.Width(65));
+                        string time = KSPUtil.PrintDateCompact(e.ut, true);
+                        GUILayout.Label(time, style, GUILayout.Width(90));
 
-                    string desc = GameStateEventDisplay.GetDisplayDescription(e);
-                    GUILayout.Label(desc, style, GUILayout.ExpandWidth(true));
+                        string category = GameStateEventDisplay.GetDisplayCategory(e.eventType);
+                        GUILayout.Label(category, style, GUILayout.Width(65));
 
-                    string status = replayed ? "Replayed" : "Pending";
-                    GUILayout.Label(status, style, GUILayout.Width(55));
+                        string desc = GameStateEventDisplay.GetDisplayDescription(e);
+                        GUILayout.Label(desc, style, GUILayout.ExpandWidth(true));
 
-                    GUILayout.EndHorizontal();
+                        string status = replayed ? "Replayed" : "Pending";
+                        GUILayout.Label(status, style, GUILayout.Width(55));
+
+                        GUILayout.EndHorizontal();
+                    }
+                }
+
+                if (hasUncommitted)
+                {
+                    if (hasCommitted)
+                        GUILayout.Space(5);
+                    GUILayout.Label("Uncommitted", GUI.skin.box);
+
+                    for (int i = 0; i < uncommittedEvents.Count; i++)
+                    {
+                        var e = uncommittedEvents[i];
+
+                        GUILayout.BeginHorizontal();
+
+                        string time = KSPUtil.PrintDateCompact(e.ut, true);
+                        GUILayout.Label(time, actionsWhiteStyle, GUILayout.Width(90));
+
+                        string category = GameStateEventDisplay.GetDisplayCategory(e.eventType);
+                        GUILayout.Label(category, actionsWhiteStyle, GUILayout.Width(65));
+
+                        string desc = GameStateEventDisplay.GetDisplayDescription(e);
+                        GUILayout.Label(desc, actionsWhiteStyle, GUILayout.ExpandWidth(true));
+
+                        GUILayout.Label("\u2014", actionsGrayStyle, GUILayout.Width(55)); // em dash
+                        GUILayout.EndHorizontal();
+                    }
                 }
 
                 GUILayout.EndScrollView();
             }
-            else if (MilestoneStore.MilestoneCount == 0)
+            else
             {
                 GUILayout.Space(5);
-                GUILayout.Label("No committed actions.");
+                GUILayout.Label("No actions recorded.");
             }
 
             // C. Bottom Bar
