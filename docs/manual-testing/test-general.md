@@ -18,28 +18,15 @@ Use career mode for all tests (resource tracking requires it).
 
 ## Merge Dialog Options
 
-### Vessel barely moved
-1. Launch, fly a few meters, F9 stop, revert
-2. Verify: dialog shows "Keep Vessel / Recover / Discard" buttons
-3. Verify: message says vessel hasn't moved far
-4. Pick "Merge + Recover" — vessel recovered for funds, no vessel in tracking station
-
-### Vessel returned to pad
-1. Launch, fly a suborbital hop (gain altitude, fly >100m away), land back on or near the pad
-2. F9 stop, revert
-3. Verify: dialog shows "Keep Vessel / Recover / Discard" buttons
-4. Verify: message mentions the vessel returned near the launch site and shows max distance traveled
-5. Pick "Merge + Keep Vessel" — vessel appears at pad after ghost finishes
-
 ### Vessel destroyed
 1. Launch, crash into the ground, revert
-2. Verify: dialog default is "Merge to Timeline"
+2. Verify: dialog shows "Merge to Timeline" and "Discard" buttons
 3. Pick "Merge to Timeline" — ghost plays back, no vessel spawns
 
-### Vessel intact, moved far
+### Vessel intact
 1. Launch to orbit, F9 stop, revert
-2. Verify: dialog shows "Keep Vessel / Recover / Discard" buttons (Keep Vessel first)
-3. Pick "Merge + Keep Vessel" — vessel appears in Tracking Station after ghost finishes
+2. Verify: dialog shows "Merge to Timeline" and "Discard" buttons
+3. Pick "Merge to Timeline" — vessel appears in Tracking Station after ghost finishes
 
 ### Discard
 1. Record anything, revert
@@ -47,9 +34,8 @@ Use career mode for all tests (resource tracking requires it).
 
 ## Vessel Persistence
 
-1. Launch to orbit → record → revert → "Merge + Keep Vessel"
+1. Launch to orbit → record → revert → "Merge to Timeline"
 2. Go to Tracking Station → verify vessel appears in orbit
-3. Alternatively: choose "Merge + Recover" → verify funds credited, no vessel in orbit
 
 ## Crew Replacement
 
@@ -57,7 +43,7 @@ Use career mode for all tests (resource tracking requires it).
 1. Launch a vessel with Jeb as pilot
 2. F9 start recording, fly around briefly, F9 stop
 3. Revert to Launch
-4. Merge dialog appears — pick "Merge + Keep Vessel"
+4. Merge dialog appears — pick "Merge to Timeline"
 5. **Verify on the pad:** the vessel's crew portrait should show a REPLACEMENT kerbal, NOT Jeb
    - If Jeb is still shown, the swap failed (this was the bug)
 6. Check `KSP.log` for `[Parsek Scenario] Swapped 'Jebediah Kerman' → '...'`
@@ -68,7 +54,7 @@ Use career mode for all tests (resource tracking requires it).
 9. Verify: replacement kerbal is removed from roster (Astronaut Complex)
 
 ### Astronaut Complex verification
-1. Record with Jeb → revert → "Merge + Keep Vessel"
+1. Record with Jeb → revert → "Merge to Timeline"
 2. Go to Space Center → Astronaut Complex
 3. Jeb should be Assigned (not Available)
 4. A new kerbal with Pilot trait should appear as Available
@@ -77,7 +63,7 @@ Use career mode for all tests (resource tracking requires it).
 
 ### Multi-crew vessel swap
 1. Build a vessel with 3 crew (e.g. Mk1-3 pod with Jeb, Bill, Valentina)
-2. Record → revert → "Merge + Keep Vessel"
+2. Record → revert → "Merge to Timeline"
 3. Verify: ALL three originals are swapped for replacements on the pad vessel
 4. Check log for three `Swapped` entries
 5. At EndUT: spawned vessel should have all three original kerbals
