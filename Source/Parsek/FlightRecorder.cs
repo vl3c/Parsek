@@ -2640,7 +2640,7 @@ namespace Parsek
             return TryParseQuaternionValue(field.GetValue(module), out value);
         }
 
-        private static bool TryGetRoboticMovingState(PartModule module, out bool moving)
+        internal static bool TryGetRoboticMovingState(PartModule module, out bool moving)
         {
             moving = false;
             string[] movingFields =
@@ -2661,7 +2661,7 @@ namespace Parsek
             return false;
         }
 
-        private static bool TryGetWheelRoboticPositionValue(
+        internal static bool TryGetWheelRoboticPositionValue(
             PartModule module,
             string moduleName,
             out float positionValue,
@@ -2741,7 +2741,7 @@ namespace Parsek
             return false;
         }
 
-        private static bool TryGetRoboticPositionValue(
+        internal static bool TryGetRoboticPositionValue(
             PartModule module, string moduleName, out float positionValue,
             out float deadband, out string sourceField)
         {

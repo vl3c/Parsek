@@ -413,9 +413,13 @@ Background vessel states must survive scene changes (player goes to Space Center
 
 ## Background recording depth
 
-Full part events require the vessel to be loaded (within physics range ~2.5km). Unloaded background vessels can only provide orbital/position data. Part events are only recorded for the active vessel. This means automated actions on background vessels (solar panels auto-deploying at sunrise, antenna extending on signal loss) are not captured and won't replay on the ghost. The background ghost shows the vessel's initial visual state at all times.
+Background vessels have two recording fidelity levels depending on their physics state:
 
-This is acceptable for v1 — background vessel ghosts only need to show position, not part animations. The player-controlled vessel gets the full visual replay. If the player wants full part event fidelity for a specific vessel, they can switch to it (making it active) before the events happen.
+**On-rails vessels** (outside physics range ~2.5km, or packed during time warp): Lightweight orbital/position data only. `OrbitSegment` for orbiting vessels, `SurfacePosition` for landed/splashed. No part events. The background ghost shows the vessel at its correct position but with its initial visual state.
+
+**Loaded/physics vessels** (within physics range, `vessel.loaded && !vessel.packed`): Full active recording — trajectory points, part events, adaptive sampling. These vessels have active rigidbodies and are fully simulated by KSP (inertia, thrust, drag, etc.). This happens during close-proximity operations like docking approaches. The Harmony postfix on `VesselPrecalculate.CalculatePhysicsStats()` already fires for all loaded vessels — the background recorder hooks into the non-active vessel dispatch path.
+
+This dual-mode approach ensures that close-proximity operations (where both vessels are visible and physically interacting) get full recording fidelity, while distant vessels get lightweight orbital tracking.
 
 ## Serialization
 
