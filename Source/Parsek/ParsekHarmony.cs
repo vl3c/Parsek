@@ -1,5 +1,6 @@
 using HarmonyLib;
 using System;
+using System.Linq;
 using UnityEngine;
 
 namespace Parsek
@@ -21,20 +22,33 @@ namespace Parsek
                 return;
             }
 
-            try
+            var assembly = typeof(ParsekHarmony).Assembly;
+            var harmony = new Harmony("com.parsek.mod");
+
+            // Apply patches individually so one failure doesn't block the rest
+            int applied = 0;
+            int failed = 0;
+            var patchTypes = assembly.GetTypes()
+                .Where(t => t.GetCustomAttributes(typeof(HarmonyPatch), false).Length > 0);
+
+            foreach (var patchType in patchTypes)
             {
-                var assembly = typeof(ParsekHarmony).Assembly;
-                var harmony = new Harmony("com.parsek.mod");
-                harmony.PatchAll(assembly);
-                initialized = true;
-                DontDestroyOnLoad(gameObject);
-                ParsekLog.Info("Init", $"SessionStart runUtc={DateTimeOffset.UtcNow.ToUnixTimeSeconds()}");
-                ParsekLog.Info("Harmony", $"Harmony patches applied for assembly '{assembly.GetName().Name}'");
+                try
+                {
+                    harmony.CreateClassProcessor(patchType).Patch();
+                    applied++;
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    ParsekLog.Error("Harmony", $"Failed to apply patch {patchType.Name}: {ex.Message}");
+                }
             }
-            catch (System.Exception ex)
-            {
-                ParsekLog.Error("Harmony", $"Failed to apply Harmony patches: {ex.Message}");
-            }
+
+            initialized = true;
+            DontDestroyOnLoad(gameObject);
+            ParsekLog.Info("Init", $"SessionStart runUtc={DateTimeOffset.UtcNow.ToUnixTimeSeconds()}");
+            ParsekLog.Info("Harmony", $"Harmony patches applied: {applied} succeeded, {failed} failed");
         }
     }
 }
