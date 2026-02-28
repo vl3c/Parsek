@@ -19,6 +19,13 @@ namespace Parsek.Patches
         internal static FlightRecorder ActiveRecorder;
         private static FlightRecorder lastObservedRecorder;
 
+        /// <summary>
+        /// Set by ParsekFlight when a recording tree is active.
+        /// Null when no tree is active. Enables background physics recording
+        /// for non-active vessels in the tree.
+        /// </summary>
+        internal static BackgroundRecorder BackgroundRecorderInstance;
+
         static void Postfix(VesselPrecalculate __instance)
         {
             if (ActiveRecorder != lastObservedRecorder)
@@ -30,27 +37,36 @@ namespace Parsek.Patches
                 lastObservedRecorder = ActiveRecorder;
             }
 
-            if (ActiveRecorder == null)
+            if (ActiveRecorder == null && BackgroundRecorderInstance == null)
                 return;
 
             // VesselPrecalculate.vessel is protected; resolve the vessel
             // via the GameObject instead.
             Vessel v = FlightGlobals.ActiveVessel;
-            if (v == null)
+
+            // Active vessel recording path
+            if (ActiveRecorder != null)
             {
-                ParsekLog.VerboseRateLimited("PhysicsPatch", "active-vessel-null",
-                    "Skipping physics callback: active vessel is null", 5.0);
-                return;
+                if (v == null)
+                {
+                    ParsekLog.VerboseRateLimited("PhysicsPatch", "active-vessel-null",
+                        "Skipping physics callback: active vessel is null", 5.0);
+                }
+                else if (__instance.gameObject == v.gameObject)
+                {
+                    ActiveRecorder.OnPhysicsFrame(v);
+                }
             }
 
-            if (__instance.gameObject != v.gameObject)
+            // Background physics recording for loaded vessels in tree
+            if (BackgroundRecorderInstance != null && __instance.gameObject != null)
             {
-                ParsekLog.VerboseRateLimited("PhysicsPatch", "non-active-vessel",
-                    "Skipping physics callback: patch fired for non-active vessel", 5.0);
-                return;
+                Vessel bgVessel = __instance.gameObject.GetComponent<Vessel>();
+                if (bgVessel != null && bgVessel != v)
+                {
+                    BackgroundRecorderInstance.OnBackgroundPhysicsFrame(bgVessel);
+                }
             }
-
-            ActiveRecorder.OnPhysicsFrame(v);
         }
     }
 }

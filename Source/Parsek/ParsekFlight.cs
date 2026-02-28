@@ -119,6 +119,9 @@ namespace Parsek
         // Recording tree mode (null when not in tree mode)
         private RecordingTree activeTree;
 
+        // Background recorder for tree mode (null when not in tree mode)
+        private BackgroundRecorder backgroundRecorder;
+
         // Timeline warp protection — tracks previous frame's UT
         private double lastTimelineUT = -1;
 
@@ -416,14 +419,23 @@ namespace Parsek
                 // Add old vessel to BackgroundMap
                 string oldRecId = activeTree.ActiveRecordingId;
                 RecordingStore.Recording oldRec;
+                uint bgPidUpdate = 0;
                 if (oldRecId != null && activeTree.Recordings.TryGetValue(oldRecId, out oldRec)
                     && oldRec.VesselPersistentId != 0)
                 {
                     activeTree.BackgroundMap[oldRec.VesselPersistentId] = oldRecId;
+                    bgPidUpdate = oldRec.VesselPersistentId;
                 }
                 activeTree.ActiveRecordingId = null;
                 recorder = null;
+                if (bgPidUpdate != 0) backgroundRecorder?.OnVesselBackgrounded(bgPidUpdate);
                 Log($"Tree: recorder flushed to background (recId={oldRecId})");
+            }
+
+            // Background recorder: update on-rails background vessels
+            if (backgroundRecorder != null)
+            {
+                backgroundRecorder.UpdateOnRails(Planetarium.GetUniversalTime());
             }
 
             // Complete deferred auto-record for EVA (vessel switch may take a frame)
@@ -562,6 +574,13 @@ namespace Parsek
                 FlushRecorderToTreeRecording(recorder, activeTree);
                 recorder = null;
             }
+            // Shutdown background recorder before clearing tree
+            if (backgroundRecorder != null)
+            {
+                backgroundRecorder.Shutdown();
+                Patches.PhysicsFramePatch.BackgroundRecorderInstance = null;
+                backgroundRecorder = null;
+            }
             activeTree = null;
 
             // If we have recording data and are leaving flight, stash it
@@ -662,6 +681,7 @@ namespace Parsek
         void OnVesselWillDestroy(Vessel v)
         {
             recorder?.OnVesselWillDestroy(v);
+            backgroundRecorder?.OnBackgroundVesselWillDestroy(v);
 
             // If the continuation vessel is destroyed, mark the recording and stop tracking
             if (continuationVesselPid != 0 && v.persistentId == continuationVesselPid)
@@ -719,7 +739,9 @@ namespace Parsek
                 }
                 activeTree.ActiveRecordingId = null;
                 recorder.IsRecording = false;
+                uint bgPid1 = recorder.RecordingVesselId;
                 recorder = null;
+                backgroundRecorder?.OnVesselBackgrounded(bgPid1);
                 Log($"Tree: onVesselSwitchComplete transitioned old recorder to background");
             }
             // OnPhysicsFrame already backgrounded the recorder (TransitionToBackgroundPending),
@@ -731,13 +753,16 @@ namespace Parsek
 
                 string oldRecId = activeTree.ActiveRecordingId;
                 RecordingStore.Recording oldRec;
+                uint bgPid2 = 0;
                 if (oldRecId != null && activeTree.Recordings.TryGetValue(oldRecId, out oldRec)
                     && oldRec.VesselPersistentId != 0)
                 {
                     activeTree.BackgroundMap[oldRec.VesselPersistentId] = oldRecId;
+                    bgPid2 = oldRec.VesselPersistentId;
                 }
                 activeTree.ActiveRecordingId = null;
                 recorder = null;
+                if (bgPid2 != 0) backgroundRecorder?.OnVesselBackgrounded(bgPid2);
                 Log($"Tree: onVesselSwitchComplete flushed backgrounded recorder (recId={oldRecId})");
             }
 
@@ -746,6 +771,7 @@ namespace Parsek
             string backgroundRecordingId;
             if (activeTree.BackgroundMap.TryGetValue(newPid, out backgroundRecordingId))
             {
+                backgroundRecorder?.OnVesselRemovedFromBackground(newPid);
                 PromoteRecordingFromBackground(backgroundRecordingId, newVessel);
             }
         }
@@ -1142,16 +1168,19 @@ namespace Parsek
         void OnVesselGoOnRails(Vessel v)
         {
             recorder?.OnVesselGoOnRails(v);
+            backgroundRecorder?.OnBackgroundVesselGoOnRails(v);
         }
 
         void OnVesselGoOffRails(Vessel v)
         {
             recorder?.OnVesselGoOffRails(v);
+            backgroundRecorder?.OnBackgroundVesselGoOffRails(v);
         }
 
         void OnVesselSOIChanged(GameEvents.HostedFromToAction<Vessel, CelestialBody> data)
         {
             recorder?.OnVesselSOIChanged(data);
+            backgroundRecorder?.OnBackgroundVesselSOIChanged(data.host, data.from);
         }
 
         void OnPartCouple(GameEvents.FromToAction<Part, Part> data)
@@ -1563,6 +1592,14 @@ namespace Parsek
         void OnFlightReady()
         {
             Log("Flight ready. Checking for pending recordings...");
+
+            // Shutdown background recorder before clearing tree
+            if (backgroundRecorder != null)
+            {
+                backgroundRecorder.Shutdown();
+                Patches.PhysicsFramePatch.BackgroundRecorderInstance = null;
+                backgroundRecorder = null;
+            }
 
             // Clear tree state on flight ready (revert resets everything)
             activeTree = null;
