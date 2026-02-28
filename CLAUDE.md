@@ -167,9 +167,8 @@ See `docs/synthetic-recordings.md` for builder API docs.
 4. Press **F9** to stop recording
 5. Revert to Launch (Esc → Revert to Launch)
 6. A context-aware merge dialog appears with recommended action:
-   - **Vessel barely moved (<100m):** "Merge + Recover" (default), "Merge + Keep Vessel", "Discard"
-   - **Vessel destroyed:** "Merge to Timeline" (default), "Discard"
-   - **Vessel intact, moved far:** "Merge + Keep Vessel" (default), "Merge + Recover", "Discard"
+   - **Vessel destroyed:** "Merge to Timeline", "Discard"
+   - **Vessel intact:** "Merge to Timeline", "Discard"
 7. Wait on the pad until UT reaches original recording timestamps
 8. Ghost vessel appears (opaque replica with original part textures) and replays previous flight
 9. Engine flames and smoke appear on the ghost during burn phases
@@ -177,12 +176,11 @@ See `docs/synthetic-recordings.md` for builder API docs.
 11. Funds/science/reputation deltas are applied at the correct UT
 
 **Vessel persistence test:**
-1. Launch to orbit → F9 record → revert → "Merge + Keep Vessel"
+1. Launch to orbit → F9 record → revert → "Merge to Timeline"
 2. Go to Tracking Station → vessel appears in orbit
-3. Or choose "Merge + Recover" → funds credited, no vessel in orbit
 
 **Crew replacement test:**
-1. Record with Jeb → revert → "Merge + Keep Vessel"
+1. Record with Jeb → revert → "Merge to Timeline"
 2. Check Astronaut Complex: Jeb is Assigned, a new kerbal with same trait appeared
 3. Launch new flight — replacement kerbal is available in crew selection
 4. Wait for EndUT → Jeb's vessel spawns, replacement is removed from roster

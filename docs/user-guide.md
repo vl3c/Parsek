@@ -37,17 +37,12 @@ If a kerbal goes EVA while recording a vessel, Parsek automatically:
 
 After reverting, a dialog appears with context-aware options:
 
-| Situation | Default Option | Other Options |
-|-----------|---------------|---------------|
-| Vessel barely moved (short duration or low max distance) | Merge + Keep Vessel | Merge + Recover, Discard |
-| Vessel returned to pad after a real mission | Merge + Keep Vessel | Merge + Recover, Discard |
-| Vessel destroyed, near pad | Merge + Recover | Discard |
-| Vessel destroyed, far from pad | Merge to Timeline | Discard |
-| Vessel intact, moved far | Merge + Keep Vessel | Merge + Recover, Discard |
+| Situation | Options |
+|-----------|---------|
+| Vessel destroyed or no snapshot | Merge to Timeline, Discard |
+| Vessel intact with snapshot | Merge to Timeline, Discard |
 
-- **Merge + Recover** — Recording is merged; vessel is recovered for funds immediately
-- **Merge + Keep Vessel** — Recording is merged; vessel will appear in the game world when the ghost finishes playing
-- **Merge to Timeline** — Recording is merged; no vessel spawned (for destroyed vessels)
+- **Merge to Timeline** — Recording is merged; if the vessel is intact, it will appear in the game world when the ghost finishes playing
 - **Discard** — Recording is thrown away
 
 ### Timeline Playback
@@ -70,7 +65,7 @@ After merging, wait on the pad (or time warp) until UT reaches the recording's t
 
 ### Crew Management
 
-When you choose "Merge + Keep Vessel", the recorded crew (e.g. Jeb) are reserved for the deferred vessel spawn. A replacement kerbal with the same trait is hired automatically so your available crew pool stays the same size. When the vessel spawns at EndUT, the original crew board it and the replacement is removed.
+When you choose "Merge to Timeline", the recorded crew (e.g. Jeb) are reserved for the deferred vessel spawn. A replacement kerbal with the same trait is hired automatically so your available crew pool stays the same size. When the vessel spawns at EndUT, the original crew board it and the replacement is removed.
 
 ### Take Control (Experimental)
 

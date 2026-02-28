@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using UnityEngine;
 
@@ -44,12 +45,9 @@ namespace Parsek
         {
             double duration = pending.EndUT - pending.StartUT;
             var recommended = RecordingStore.GetRecommendedAction(
-                pending.DistanceFromLaunch, pending.VesselDestroyed,
-                pending.VesselSnapshot != null,
-                duration, pending.MaxDistanceFromLaunch);
+                pending.VesselDestroyed, pending.VesselSnapshot != null);
 
-            ParsekLog.Info("MergeDialog", $"Merge dialog: distance={pending.DistanceFromLaunch:F0}m, " +
-                $"maxDistance={pending.MaxDistanceFromLaunch:F0}m, duration={duration:F1}s, " +
+            ParsekLog.Info("MergeDialog", $"Merge dialog: " +
                 $"destroyed={pending.VesselDestroyed}, hasSnapshot={pending.VesselSnapshot != null}, " +
                 $"recommended={recommended}");
 
@@ -57,7 +55,7 @@ namespace Parsek
 
             switch (recommended)
             {
-                case RecordingStore.MergeDefault.MergeOnly:
+                case RecordingStore.MergeDefault.GhostOnly:
                     // Vessel destroyed or no snapshot — no vessel to persist
                     buttons = new[]
                     {
@@ -80,30 +78,18 @@ namespace Parsek
                     };
                     break;
 
-                default: // Recover or Persist — vessel intact with snapshot
+                case RecordingStore.MergeDefault.Persist:
+                    // Vessel intact with snapshot — persist in timeline
                     buttons = new[]
                     {
-                        new DialogGUIButton("Merge + Keep Vessel", () =>
+                        new DialogGUIButton("Merge to Timeline", () =>
                         {
                             // Defer spawn — vessel appears when ghost finishes at EndUT
                             RecordingStore.CommitPending();
                             ParsekScenario.ReserveSnapshotCrew();
                             ParsekScenario.SwapReservedCrewInFlight();
                             ParsekLog.ScreenMessage("Recording merged — vessel will appear after ghost playback", 3f);
-                            ParsekLog.Info("MergeDialog", "User chose: Merge + Keep Vessel (deferred spawn)");
-                        }),
-                        new DialogGUIButton("Merge + Recover", () =>
-                        {
-                            RecordingStore.CommitPending();
-                            if (pending.VesselSnapshot != null)
-                            {
-                                ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
-                                VesselSpawner.RecoverVessel(pending.VesselSnapshot);
-                            }
-                            // Clear snapshot so ghost despawns normally at EndUT
-                            pending.VesselSnapshot = null;
-                            ParsekLog.ScreenMessage("Recording merged, vessel recovered!", 3f);
-                            ParsekLog.Info("MergeDialog", "User chose: Merge + Recover");
+                            ParsekLog.Info("MergeDialog", "User chose: Merge to Timeline (deferred spawn)");
                         }),
                         new DialogGUIButton("Discard", () =>
                         {
@@ -113,6 +99,11 @@ namespace Parsek
                             ParsekLog.Info("MergeDialog", "User chose: Discard");
                         })
                     };
+                    break;
+
+                default:
+                    ParsekLog.Warn("MergeDialog", $"Unexpected MergeDefault value: {recommended}");
+                    buttons = new DialogGUIButton[0];
                     break;
             }
 
@@ -138,13 +129,9 @@ namespace Parsek
         {
             string chainId = pending.ChainId;
             double duration = pending.EndUT - pending.StartUT;
-            var recommended = RecordingStore.GetRecommendedAction(
-                pending.DistanceFromLaunch, pending.VesselDestroyed,
-                pending.VesselSnapshot != null,
-                duration, pending.MaxDistanceFromLaunch);
 
             ParsekLog.Info("MergeDialog", $"Chain merge dialog: chain={chainId}, segments={totalSegments}, " +
-                $"recommended={recommended}, hasSnapshot={pending.VesselSnapshot != null}");
+                $"hasSnapshot={pending.VesselSnapshot != null}");
 
             DialogGUIButton[] buttons;
 
@@ -152,27 +139,13 @@ namespace Parsek
             {
                 buttons = new[]
                 {
-                    new DialogGUIButton("Merge + Keep Vessel", () =>
+                    new DialogGUIButton("Merge to Timeline", () =>
                     {
                         RecordingStore.CommitPending();
                         ParsekScenario.ReserveSnapshotCrew();
                         ParsekScenario.SwapReservedCrewInFlight();
                         ParsekLog.ScreenMessage($"Mission chain ({totalSegments} segments) merged — vessel will appear!", 3f);
-                        ParsekLog.Info("MergeDialog", $"User chose: Chain Merge + Keep Vessel ({totalSegments} segments)");
-                    }),
-                    new DialogGUIButton("Merge + Recover", () =>
-                    {
-                        RecordingStore.CommitPending();
-                        // Recover and null snapshots on ALL chain segments (siblings + pending)
-                        if (pending.VesselSnapshot != null)
-                        {
-                            ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
-                            VesselSpawner.RecoverVessel(pending.VesselSnapshot);
-                        }
-                        pending.VesselSnapshot = null;
-                        RecoverChainSiblingSnapshots(chainSiblings);
-                        ParsekLog.ScreenMessage($"Mission chain ({totalSegments} segments) merged, vessel recovered!", 3f);
-                        ParsekLog.Info("MergeDialog", $"User chose: Chain Merge + Recover ({totalSegments} segments)");
+                        ParsekLog.Info("MergeDialog", $"User chose: Chain Merge to Timeline ({totalSegments} segments)");
                     }),
                     new DialogGUIButton("Discard All", () =>
                     {
@@ -215,8 +188,8 @@ namespace Parsek
 
             string message = $"{segmentLabel}\n" +
                 $"Vessel: {pending.VesselName}\n" +
-                $"Duration: {duration:F1}s\n" +
-                $"Distance: {pending.DistanceFromLaunch:F0}m\n\n";
+                $"Duration: {duration.ToString("F1", CultureInfo.InvariantCulture)}s\n" +
+                $"Distance: {pending.DistanceFromLaunch.ToString("F0", CultureInfo.InvariantCulture)}m\n\n";
 
             if (pending.VesselSnapshot != null && !pending.VesselDestroyed)
                 message += "The final vessel will persist in the timeline.";
@@ -238,25 +211,6 @@ namespace Parsek
                 false,
                 HighLogic.UISkin
             );
-        }
-
-        /// <summary>
-        /// Unreserves crew, recovers vessels for funds, and nulls VesselSnapshot on siblings.
-        /// Used by the Recover path where the user expects funds back.
-        /// </summary>
-        static void RecoverChainSiblingSnapshots(List<RecordingStore.Recording> siblings)
-        {
-            if (siblings == null) return;
-            for (int i = 0; i < siblings.Count; i++)
-            {
-                if (siblings[i].VesselSnapshot != null)
-                {
-                    ParsekScenario.UnreserveCrewInSnapshot(siblings[i].VesselSnapshot);
-                    VesselSpawner.RecoverVessel(siblings[i].VesselSnapshot);
-                    siblings[i].VesselSnapshot = null;
-                    ParsekLog.Info("MergeDialog", $"Chain sibling #{i} snapshot recovered + nulled");
-                }
-            }
         }
 
         /// <summary>
@@ -314,23 +268,25 @@ namespace Parsek
         {
             string header = $"Vessel: {pending.VesselName}\n" +
                 $"Points: {pending.Points.Count}\n" +
-                $"Duration: {duration:F1}s\n" +
-                $"Distance from launch: {pending.DistanceFromLaunch:F0}m\n\n";
+                $"Duration: {duration.ToString("F1", CultureInfo.InvariantCulture)}s\n" +
+                $"Distance from launch: {pending.DistanceFromLaunch.ToString("F0", CultureInfo.InvariantCulture)}m\n\n";
 
             switch (recommended)
             {
-                case RecordingStore.MergeDefault.Recover:
-                    return header + "Your vessel hasn't moved far from the launch site.";
+                case RecordingStore.MergeDefault.GhostOnly:
+                    return header + (pending.VesselDestroyed
+                        ? "Your vessel was destroyed. Recording captured."
+                        : "Recording captured.");
 
-                case RecordingStore.MergeDefault.MergeOnly:
-                    return header + "Your vessel was destroyed. Recording captured.";
-
-                default: // Persist
+                case RecordingStore.MergeDefault.Persist:
                     string situation = pending.DistanceFromLaunch < 100.0
                         ? "Your vessel returned near the launch site after traveling " +
-                          $"{pending.MaxDistanceFromLaunch:F0}m."
+                          pending.MaxDistanceFromLaunch.ToString("F0", CultureInfo.InvariantCulture) + "m."
                         : $"Your vessel is {pending.VesselSituation}.";
                     return header + situation + "\nIt will persist in the timeline.";
+
+                default:
+                    return header;
             }
         }
     }
