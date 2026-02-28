@@ -61,6 +61,11 @@ namespace Parsek
             return dir;
         }
 
+        internal static string BuildMilestonesRelativePath()
+        {
+            return Path.Combine("Parsek", "GameState", "milestones.pgsm");
+        }
+
         internal static string BuildGameStateEventsRelativePath()
         {
             return Path.Combine("Parsek", "GameState", "events.pgse");

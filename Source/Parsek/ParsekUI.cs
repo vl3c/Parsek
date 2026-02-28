@@ -34,6 +34,23 @@ namespace Parsek
         private bool settingsWindowHasInputLock;
         private const string SettingsInputLockId = "Parsek_SettingsWindow";
 
+        // Actions window
+        private bool showActionsWindow;
+        private Rect actionsWindowRect;
+        private Vector2 actionsScrollPos;
+        private bool isResizingActionsWindow;
+        private bool actionsWindowHasInputLock;
+        private const string ActionsInputLockId = "Parsek_ActionsWindow";
+
+        // Cached styles for actions window
+        private GUIStyle actionsGrayStyle;
+        private GUIStyle actionsWhiteStyle;
+
+        // Actions table sort state
+        private enum ActionsSortColumn { Time, Type, Description, Status }
+        private ActionsSortColumn actionsSortColumn = ActionsSortColumn.Time;
+        private bool actionsSortAscending = true;
+
         // Column widths — shared between header and body for alignment
         private const float ColW_Enable = 15f;
         private const float ColW_Phase = 70f;
@@ -83,6 +100,12 @@ namespace Parsek
         private GUIStyle statusStyleActive;
         private GUIStyle statusStylePast;
 
+        // Window drag tracking for position logging
+        private Rect lastMainWindowRect;
+        private Rect lastRecordingsWindowRect;
+        private Rect lastActionsWindowRect;
+        private Rect lastSettingsWindowRect;
+
         public ParsekUI(ParsekFlight flight)
         {
             this.flight = flight;
@@ -108,15 +131,28 @@ namespace Parsek
             int committedCount = RecordingStore.CommittedRecordings.Count;
             int activeGhosts = flight.TimelineGhostCount;
             GUILayout.Label($"Timeline: {committedCount} recording(s), {activeGhosts} active ghost(s)");
-            if (GameStateStore.EventCount > 0)
-                GUILayout.Label($"Events: {GameStateStore.EventCount}");
 
+            int actionCount = MilestoneStore.GetPendingEventCount() + GameStateStore.GetUncommittedEventCount();
             GUILayout.BeginHorizontal();
             if (GUILayout.Button($"Recordings ({committedCount})"))
+            {
                 showRecordingsWindow = !showRecordingsWindow;
+                ParsekLog.Verbose("UI", $"Recordings window toggled: {(showRecordingsWindow ? "open" : "closed")}");
+            }
+            if (GUILayout.Button($"Actions ({actionCount})"))
+            {
+                showActionsWindow = !showActionsWindow;
+                ParsekLog.Verbose("UI", $"Actions window toggled: {(showActionsWindow ? "open" : "closed")}");
+            }
             if (GUILayout.Button("Settings"))
+            {
                 showSettingsWindow = !showSettingsWindow;
+                ParsekLog.Verbose("UI", $"Settings window toggled: {(showSettingsWindow ? "open" : "closed")}");
+            }
             GUILayout.EndHorizontal();
+
+            // Compact budget summary (full display in Actions window)
+            DrawCompactBudgetLine();
 
             // Active ghost controls — Take Control buttons
             var committed = RecordingStore.CommittedRecordings;
@@ -130,7 +166,10 @@ namespace Parsek
                 GUILayout.BeginHorizontal();
                 GUILayout.Label(rec.VesselName, GUILayout.ExpandWidth(true));
                 if (GUILayout.Button("Take Control", GUILayout.Width(90)))
+                {
+                    ParsekLog.Verbose("UI", $"Take Control clicked for ghost index={i} vessel='{rec.VesselName}'");
                     flight.TakeControlOfGhost(i);
+                }
                 GUILayout.EndHorizontal();
             }
 
@@ -150,12 +189,18 @@ namespace Parsek
             if (!flight.IsRecording)
             {
                 if (GUILayout.Button("Start Recording"))
+                {
+                    ParsekLog.Verbose("UI", "Start Recording button clicked");
                     flight.StartRecording();
+                }
             }
             else
             {
                 if (GUILayout.Button("Stop Recording"))
+                {
+                    ParsekLog.Verbose("UI", "Stop Recording button clicked");
                     flight.StopRecording();
+                }
             }
 
             GUILayout.EndHorizontal();
@@ -164,11 +209,17 @@ namespace Parsek
 
             GUI.enabled = !flight.IsRecording && flight.recording.Count > 0 && !flight.IsPlaying;
             if (GUILayout.Button("Preview Playback"))
+            {
+                ParsekLog.Verbose("UI", "Preview Playback button clicked");
                 flight.StartPlayback();
+            }
 
             GUI.enabled = flight.IsPlaying;
             if (GUILayout.Button("Stop Preview"))
+            {
+                ParsekLog.Verbose("UI", "Stop Preview button clicked");
                 flight.StopPlayback();
+            }
 
             GUI.enabled = true;
 
@@ -179,6 +230,7 @@ namespace Parsek
             GUI.enabled = !flight.IsRecording && !flight.IsPlaying && flight.recording.Count > 0;
             if (GUILayout.Button("Clear Current Recording"))
             {
+                ParsekLog.Verbose("UI", "Clear Current Recording button clicked");
                 flight.ClearRecording();
             }
 
@@ -186,12 +238,14 @@ namespace Parsek
                 && flight.recording.Count >= 2 && !flight.HasActiveChain;
             if (GUILayout.Button("Commit Flight"))
             {
+                ParsekLog.Verbose("UI", "Commit Flight button clicked");
                 flight.CommitFlight();
             }
 
             GUI.enabled = activeGhosts > 0;
             if (GUILayout.Button($"Despawn Ghosts ({activeGhosts})"))
             {
+                ParsekLog.Verbose("UI", $"Despawn Ghosts button clicked, count={activeGhosts}");
                 flight.DestroyAllTimelineGhosts();
                 ParsekLog.Info("UI", "Ghosts despawned");
             }
@@ -199,6 +253,7 @@ namespace Parsek
             GUI.enabled = committedCount > 0;
             if (GUILayout.Button($"Wipe Recordings ({committedCount})"))
             {
+                ParsekLog.Verbose("UI", $"Wipe Recordings button clicked, count={committedCount}");
                 // Unreserve crew from all recordings before wiping
                 foreach (var rec in RecordingStore.CommittedRecordings)
                     ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
@@ -216,6 +271,466 @@ namespace Parsek
             GUI.DragWindow();
         }
 
+        /// <summary>
+        /// Call after each window's GUILayoutWindow to log position/size changes (rate-limited).
+        /// </summary>
+        private void LogWindowPosition(string windowName, ref Rect lastRect, Rect currentRect)
+        {
+            if (lastRect.x != currentRect.x || lastRect.y != currentRect.y ||
+                lastRect.width != currentRect.width || lastRect.height != currentRect.height)
+            {
+                var ic = System.Globalization.CultureInfo.InvariantCulture;
+                ParsekLog.VerboseRateLimited("UI", $"window.{windowName}",
+                    $"{windowName} window position: x={currentRect.x.ToString("F0", ic)} y={currentRect.y.ToString("F0", ic)} " +
+                    $"w={currentRect.width.ToString("F0", ic)} h={currentRect.height.ToString("F0", ic)}", 2.0);
+                lastRect = currentRect;
+            }
+        }
+
+        private void DrawResourceBudget()
+        {
+            var budget = ResourceBudget.ComputeTotal(
+                RecordingStore.CommittedRecordings,
+                MilestoneStore.Milestones);
+
+            if (budget.reservedFunds <= 0 && budget.reservedScience <= 0 && budget.reservedReputation <= 0)
+                return;
+
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            GUILayout.Space(5);
+            GUILayout.Label("Resources", GUI.skin.box);
+
+            bool anyOverCommitted = false;
+
+            if (budget.reservedFunds > 0)
+            {
+                double currentFunds = 0;
+                try { if (Funding.Instance != null) currentFunds = Funding.Instance.Funds; } catch { }
+                double available = currentFunds - budget.reservedFunds;
+                double total = currentFunds;
+                bool over = available < 0;
+                if (over) anyOverCommitted = true;
+                Color prev = GUI.contentColor;
+                if (over) GUI.contentColor = Color.red;
+                GUILayout.Label($"Funds: {available.ToString("N0", ic)} available to use ({budget.reservedFunds.ToString("N0", ic)} committed out of {total.ToString("N0", ic)} total)");
+                GUI.contentColor = prev;
+            }
+
+            if (budget.reservedScience > 0)
+            {
+                double currentScience = 0;
+                try { if (ResearchAndDevelopment.Instance != null) currentScience = ResearchAndDevelopment.Instance.Science; } catch { }
+                double available = currentScience - budget.reservedScience;
+                double total = currentScience;
+                bool over = available < 0;
+                if (over) anyOverCommitted = true;
+                Color prev = GUI.contentColor;
+                if (over) GUI.contentColor = Color.red;
+                GUILayout.Label($"Science: {available.ToString("F1", ic)} available to use ({budget.reservedScience.ToString("F1", ic)} committed out of {total.ToString("F1", ic)} total)");
+                GUI.contentColor = prev;
+            }
+
+            if (budget.reservedReputation > 0)
+            {
+                float currentRep = 0;
+                try { if (Reputation.Instance != null) currentRep = Reputation.Instance.reputation; } catch { }
+                double available = currentRep - budget.reservedReputation;
+                double total = (double)currentRep;
+                bool over = available < 0;
+                if (over) anyOverCommitted = true;
+                Color prev = GUI.contentColor;
+                if (over) GUI.contentColor = Color.red;
+                GUILayout.Label($"Reputation: {available.ToString("F0", ic)} available to use ({budget.reservedReputation.ToString("F0", ic)} committed out of {total.ToString("F0", ic)} total)");
+                GUI.contentColor = prev;
+            }
+
+            if (anyOverCommitted)
+            {
+                Color prev = GUI.contentColor;
+                GUI.contentColor = Color.yellow;
+                GUILayout.Label("Over-committed! Some timeline actions may fail.");
+                GUI.contentColor = prev;
+            }
+        }
+
+        public void LogMainWindowPosition(Rect currentRect)
+        {
+            LogWindowPosition("Main", ref lastMainWindowRect, currentRect);
+        }
+
+        private void DrawCompactBudgetLine()
+        {
+            var budget = ResourceBudget.ComputeTotal(
+                RecordingStore.CommittedRecordings,
+                MilestoneStore.Milestones);
+
+            if (budget.reservedFunds <= 0 && budget.reservedScience <= 0 && budget.reservedReputation <= 0)
+                return;
+
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            var parts = new List<string>();
+            if (budget.reservedFunds > 0)
+                parts.Add(budget.reservedFunds.ToString("N0", ic) + " funds");
+            if (budget.reservedScience > 0)
+                parts.Add(budget.reservedScience.ToString("F1", ic) + " science");
+            if (budget.reservedReputation > 0)
+                parts.Add(budget.reservedReputation.ToString("F0", ic) + " reputation");
+
+            if (parts.Count > 0)
+            {
+                string line = "Reserved: " + string.Join("  ", parts);
+                if (GUILayout.Button(line, GUI.skin.label))
+                {
+                    showActionsWindow = !showActionsWindow;
+                    ParsekLog.Verbose("UI", $"Budget line clicked — Actions window toggled: {(showActionsWindow ? "open" : "closed")}");
+                }
+            }
+        }
+
+        public void DrawActionsWindowIfOpen(Rect mainWindowRect)
+        {
+            if (!showActionsWindow)
+            {
+                ReleaseActionsInputLock();
+                return;
+            }
+
+            // Position to the left of main window on first open
+            if (actionsWindowRect.width < 1f)
+            {
+                float x = mainWindowRect.x - 538;
+                if (x < 0) x = mainWindowRect.x + mainWindowRect.width + 10;
+                actionsWindowRect = new Rect(x, mainWindowRect.y, 528, mainWindowRect.height);
+                var ic = System.Globalization.CultureInfo.InvariantCulture;
+                ParsekLog.Verbose("UI", $"Actions window initial position: x={x.ToString("F0", ic)} y={mainWindowRect.y.ToString("F0", ic)} (mainWindow.x={mainWindowRect.x.ToString("F0", ic)})");
+            }
+
+            // Handle resize drag
+            if (isResizingActionsWindow)
+            {
+                if (Event.current.type == EventType.MouseDrag || Event.current.type == EventType.MouseUp)
+                {
+                    float newW = Mathf.Max(MinWindowWidth, Event.current.mousePosition.x - actionsWindowRect.x);
+                    float newH = Mathf.Max(MinWindowHeight, Event.current.mousePosition.y - actionsWindowRect.y);
+                    actionsWindowRect.width = newW;
+                    actionsWindowRect.height = newH;
+                }
+                if (Event.current.type == EventType.MouseUp)
+                {
+                    isResizingActionsWindow = false;
+                    var ic = System.Globalization.CultureInfo.InvariantCulture;
+                    ParsekLog.Verbose("UI", $"Actions window resize ended: w={actionsWindowRect.width.ToString("F0", ic)} h={actionsWindowRect.height.ToString("F0", ic)}");
+                }
+                if (Event.current.type == EventType.MouseDrag)
+                    Event.current.Use();
+            }
+
+            actionsWindowRect = ClickThruBlocker.GUILayoutWindow(
+                "ParsekActions".GetHashCode(),
+                actionsWindowRect,
+                DrawActionsWindow,
+                "Parsek \u2014 Game Actions",
+                GUILayout.Width(actionsWindowRect.width),
+                GUILayout.Height(actionsWindowRect.height)
+            );
+            LogWindowPosition("Actions", ref lastActionsWindowRect, actionsWindowRect);
+
+            if (actionsWindowRect.Contains(Event.current.mousePosition))
+            {
+                if (!actionsWindowHasInputLock)
+                {
+                    InputLockManager.SetControlLock(ControlTypes.CAMERACONTROLS, ActionsInputLockId);
+                    actionsWindowHasInputLock = true;
+                }
+            }
+            else
+            {
+                ReleaseActionsInputLock();
+            }
+        }
+
+        private void ReleaseActionsInputLock()
+        {
+            if (!actionsWindowHasInputLock) return;
+            InputLockManager.RemoveControlLock(ActionsInputLockId);
+            actionsWindowHasInputLock = false;
+        }
+
+        private void EnsureActionsStyles()
+        {
+            if (actionsGrayStyle != null) return;
+
+            actionsGrayStyle = new GUIStyle(GUI.skin.label);
+            actionsGrayStyle.normal.textColor = Color.gray;
+
+            actionsWhiteStyle = new GUIStyle(GUI.skin.label);
+            actionsWhiteStyle.normal.textColor = Color.white;
+        }
+
+        private void DrawActionsWindow(int windowID)
+        {
+            EnsureActionsStyles();
+
+            // A. Resource Budget Summary
+            DrawResourceBudget();
+
+            // B. Recorded Actions List
+            var milestones = MilestoneStore.Milestones;
+            uint currentEpoch = MilestoneStore.CurrentEpoch;
+            // event, isReplayed, isCommitted (true=milestone, false=uncommitted)
+            var allEvents = new List<System.Tuple<GameStateEvent, bool>>();
+            for (int i = 0; i < milestones.Count; i++)
+            {
+                var m = milestones[i];
+                if (!m.Committed || m.Epoch != currentEpoch) continue;
+                for (int j = 0; j < m.Events.Count; j++)
+                {
+                    if (GameStateStore.IsMilestoneFilteredEvent(m.Events[j].eventType))
+                        continue;
+                    bool replayed = j <= m.LastReplayedEventIndex;
+                    allEvents.Add(System.Tuple.Create(m.Events[j], replayed));
+                }
+            }
+
+            // Sort events
+            switch (actionsSortColumn)
+            {
+                case ActionsSortColumn.Time:
+                    allEvents.Sort((a, b) => actionsSortAscending
+                        ? a.Item1.ut.CompareTo(b.Item1.ut)
+                        : b.Item1.ut.CompareTo(a.Item1.ut));
+                    break;
+                case ActionsSortColumn.Type:
+                    allEvents.Sort((a, b) =>
+                    {
+                        int cmp = string.Compare(
+                            GameStateEventDisplay.GetDisplayCategory(a.Item1.eventType),
+                            GameStateEventDisplay.GetDisplayCategory(b.Item1.eventType),
+                            System.StringComparison.Ordinal);
+                        return actionsSortAscending ? cmp : -cmp;
+                    });
+                    break;
+                case ActionsSortColumn.Description:
+                    allEvents.Sort((a, b) =>
+                    {
+                        int cmp = string.Compare(
+                            GameStateEventDisplay.GetDisplayDescription(a.Item1),
+                            GameStateEventDisplay.GetDisplayDescription(b.Item1),
+                            System.StringComparison.Ordinal);
+                        return actionsSortAscending ? cmp : -cmp;
+                    });
+                    break;
+                case ActionsSortColumn.Status:
+                    allEvents.Sort((a, b) =>
+                    {
+                        int cmp = a.Item2.CompareTo(b.Item2); // false (Pending) < true (Replayed)
+                        return actionsSortAscending ? cmp : -cmp;
+                    });
+                    break;
+            }
+
+            // C. Uncommitted events (not yet in any milestone)
+            double lastMilestoneEndUT = 0;
+            for (int i = 0; i < milestones.Count; i++)
+            {
+                if (milestones[i].Epoch == currentEpoch && milestones[i].EndUT > lastMilestoneEndUT)
+                    lastMilestoneEndUT = milestones[i].EndUT;
+            }
+
+            var storeEvents = GameStateStore.Events;
+            var uncommittedEvents = new List<GameStateEvent>();
+            for (int i = 0; i < storeEvents.Count; i++)
+            {
+                var e = storeEvents[i];
+                if (e.epoch != currentEpoch) continue;
+                if (e.ut <= lastMilestoneEndUT) continue;
+                if (GameStateStore.IsMilestoneFilteredEvent(e.eventType)) continue;
+                uncommittedEvents.Add(e);
+            }
+            uncommittedEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+
+            // Single scroll view for both sections
+            bool hasCommitted = allEvents.Count > 0;
+            bool hasUncommitted = uncommittedEvents.Count > 0;
+
+            if (hasCommitted || hasUncommitted)
+            {
+                GUILayout.Space(5);
+
+                // Column headers (clickable to sort)
+                GUILayout.BeginHorizontal();
+                if (GUILayout.Button(SortHeader("Time", ActionsSortColumn.Time), GUI.skin.label, GUILayout.Width(90)))
+                    ToggleActionsSort(ActionsSortColumn.Time);
+                if (GUILayout.Button(SortHeader("Type", ActionsSortColumn.Type), GUI.skin.label, GUILayout.Width(65)))
+                    ToggleActionsSort(ActionsSortColumn.Type);
+                if (GUILayout.Button(SortHeader("Description", ActionsSortColumn.Description), GUI.skin.label, GUILayout.ExpandWidth(true)))
+                    ToggleActionsSort(ActionsSortColumn.Description);
+                if (GUILayout.Button(SortHeader("Status", ActionsSortColumn.Status), GUI.skin.label, GUILayout.Width(55)))
+                    ToggleActionsSort(ActionsSortColumn.Status);
+                GUILayout.Space(25); // space for delete column
+                GUILayout.EndHorizontal();
+
+                GameStateEvent? eventToDeleteCommitted = null;
+                GameStateEvent? eventToDeleteUncommitted = null;
+
+                actionsScrollPos = GUILayout.BeginScrollView(actionsScrollPos, GUILayout.ExpandHeight(true));
+
+                if (hasCommitted)
+                {
+                    GUILayout.Label("Recorded Actions", GUI.skin.box);
+
+                    for (int i = 0; i < allEvents.Count; i++)
+                    {
+                        var e = allEvents[i].Item1;
+                        bool replayed = allEvents[i].Item2;
+                        GUIStyle style = replayed ? actionsGrayStyle : actionsWhiteStyle;
+
+                        GUILayout.BeginHorizontal();
+
+                        string time = KSPUtil.PrintDateCompact(e.ut, true);
+                        GUILayout.Label(time, style, GUILayout.Width(90));
+
+                        string category = GameStateEventDisplay.GetDisplayCategory(e.eventType);
+                        GUILayout.Label(category, style, GUILayout.Width(65));
+
+                        string desc = GameStateEventDisplay.GetDisplayDescription(e);
+                        GUILayout.Label(desc, style, GUILayout.ExpandWidth(true));
+
+                        string status = replayed ? "Replayed" : "Pending";
+                        GUILayout.Label(status, style, GUILayout.Width(55));
+
+                        if (GUILayout.Button("x", GUILayout.Width(20)))
+                            eventToDeleteCommitted = e;
+
+                        GUILayout.EndHorizontal();
+                    }
+                }
+
+                if (hasUncommitted)
+                {
+                    if (hasCommitted)
+                        GUILayout.Space(5);
+                    GUILayout.Label("Uncommitted", GUI.skin.box);
+
+                    for (int i = 0; i < uncommittedEvents.Count; i++)
+                    {
+                        var e = uncommittedEvents[i];
+
+                        GUILayout.BeginHorizontal();
+
+                        string time = KSPUtil.PrintDateCompact(e.ut, true);
+                        GUILayout.Label(time, actionsWhiteStyle, GUILayout.Width(90));
+
+                        string category = GameStateEventDisplay.GetDisplayCategory(e.eventType);
+                        GUILayout.Label(category, actionsWhiteStyle, GUILayout.Width(65));
+
+                        string desc = GameStateEventDisplay.GetDisplayDescription(e);
+                        GUILayout.Label(desc, actionsWhiteStyle, GUILayout.ExpandWidth(true));
+
+                        GUILayout.Label("\u2014", actionsGrayStyle, GUILayout.Width(55)); // em dash
+
+                        if (GUILayout.Button("x", GUILayout.Width(20)))
+                            eventToDeleteUncommitted = e;
+
+                        GUILayout.EndHorizontal();
+                    }
+                }
+
+                GUILayout.EndScrollView();
+
+                // Process deletions outside the iteration loop
+                if (eventToDeleteCommitted.HasValue)
+                {
+                    var del = eventToDeleteCommitted.Value;
+                    ParsekLog.Verbose("UI", $"Delete committed action: {del.eventType} key='{del.key}' ut={del.ut:F1}");
+                    MilestoneStore.RemoveCommittedEvent(del);
+                }
+                if (eventToDeleteUncommitted.HasValue)
+                {
+                    var del = eventToDeleteUncommitted.Value;
+                    ParsekLog.Verbose("UI", $"Delete uncommitted action: {del.eventType} key='{del.key}' ut={del.ut:F1}");
+                    GameStateStore.RemoveEvent(del);
+                }
+            }
+            else
+            {
+                GUILayout.Space(5);
+                GUILayout.Label("No actions recorded.");
+            }
+
+            // C. Bottom Bar
+            GUILayout.Space(5);
+
+            uint epoch = MilestoneStore.CurrentEpoch;
+            if (epoch > 0)
+            {
+                GUILayout.Label($"Epoch: {epoch} ({epoch} revert{(epoch == 1 ? "" : "s")})",
+                    actionsGrayStyle);
+            }
+
+            GUILayout.BeginHorizontal();
+
+            int committedCount = RecordingStore.CommittedRecordings.Count;
+            GUI.enabled = committedCount > 0 || MilestoneStore.MilestoneCount > 0;
+            if (GUILayout.Button("Wipe All"))
+            {
+                ParsekLog.Verbose("UI", $"Wipe All button clicked, recordings={committedCount} milestones={MilestoneStore.MilestoneCount}");
+                foreach (var rec in RecordingStore.CommittedRecordings)
+                    ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
+                ParsekScenario.ClearReplacements();
+                flight.DestroyAllTimelineGhosts();
+                RecordingStore.ClearCommitted();
+                MilestoneStore.ClearAll();
+                GameStateStore.ClearEvents();
+                GameStateStore.ClearBaselines();
+                ParsekLog.Log("All recordings and game state wiped");
+                ParsekLog.ScreenMessage("All data wiped", 2f);
+            }
+            GUI.enabled = true;
+
+            if (GUILayout.Button("Close"))
+            {
+                showActionsWindow = false;
+                ParsekLog.Verbose("UI", "Actions window closed via button");
+            }
+
+            GUILayout.EndHorizontal();
+
+            // Resize handle (bottom-right corner)
+            Rect handleRect = new Rect(
+                actionsWindowRect.width - ResizeHandleSize,
+                actionsWindowRect.height - ResizeHandleSize,
+                ResizeHandleSize, ResizeHandleSize);
+            GUI.Label(handleRect, "\u25e2"); // triangle
+            if (Event.current.type == EventType.MouseDown && handleRect.Contains(Event.current.mousePosition))
+            {
+                isResizingActionsWindow = true;
+                ParsekLog.Verbose("UI", "Actions window resize started");
+                Event.current.Use();
+            }
+
+            GUI.DragWindow();
+        }
+
+        private string SortHeader(string label, ActionsSortColumn column)
+        {
+            if (actionsSortColumn == column)
+                return label + (actionsSortAscending ? " \u25b2" : " \u25bc"); // ▲ / ▼
+            return label;
+        }
+
+        private void ToggleActionsSort(ActionsSortColumn column)
+        {
+            if (actionsSortColumn == column)
+                actionsSortAscending = !actionsSortAscending;
+            else
+            {
+                actionsSortColumn = column;
+                actionsSortAscending = true;
+            }
+            ParsekLog.Verbose("UI", $"Actions sort changed: column={column} ascending={actionsSortAscending}");
+        }
+
         public void DrawRecordingsWindowIfOpen(Rect mainWindowRect)
         {
             if (!showRecordingsWindow)
@@ -230,7 +745,9 @@ namespace Parsek
                 recordingsWindowRect = new Rect(
                     mainWindowRect.x + mainWindowRect.width + 10,
                     mainWindowRect.y,
-                    520, 350);
+                    790, mainWindowRect.height);
+                var ic = System.Globalization.CultureInfo.InvariantCulture;
+                ParsekLog.Verbose("UI", $"Recordings window initial position: x={recordingsWindowRect.x.ToString("F0", ic)} y={recordingsWindowRect.y.ToString("F0", ic)}");
             }
 
             // Handle resize drag (must be outside the window function to track across frames)
@@ -244,7 +761,11 @@ namespace Parsek
                     recordingsWindowRect.height = newH;
                 }
                 if (Event.current.type == EventType.MouseUp)
+                {
                     isResizingRecordingsWindow = false;
+                    var ic = System.Globalization.CultureInfo.InvariantCulture;
+                    ParsekLog.Verbose("UI", $"Recordings window resize ended: w={recordingsWindowRect.width.ToString("F0", ic)} h={recordingsWindowRect.height.ToString("F0", ic)}");
+                }
                 if (Event.current.type == EventType.MouseDrag)
                     Event.current.Use();
             }
@@ -257,6 +778,7 @@ namespace Parsek
                 GUILayout.Width(recordingsWindowRect.width),
                 GUILayout.Height(recordingsWindowRect.height)
             );
+            LogWindowPosition("Recordings", ref lastRecordingsWindowRect, recordingsWindowRect);
 
             // Lock camera controls (including scroll zoom) when mouse is over window.
             // ClickThroughBlocker uses ALLBUTCAMERAS which intentionally leaves camera
@@ -417,6 +939,7 @@ namespace Parsek
                         {
                             if (expanded) expandedChains.Remove(rec.ChainId);
                             else expandedChains.Add(rec.ChainId);
+                            ParsekLog.Verbose("UI", $"Chain '{chainName}' {(expanded ? "collapsed" : "expanded")} ({members.Count} segments)");
                         }
                         GUILayout.EndHorizontal();
 
@@ -453,12 +976,16 @@ namespace Parsek
             if (GUILayout.Button(statsLabel, GUILayout.Width(65)))
             {
                 showExpandedStats = !showExpandedStats;
-                if (showExpandedStats && recordingsWindowRect.width < 730f)
-                    recordingsWindowRect.width = 730f;
+                ParsekLog.Verbose("UI", $"Recordings Stats toggled: {(showExpandedStats ? "expanded" : "collapsed")}");
+                if (showExpandedStats && recordingsWindowRect.width < 1015f)
+                    recordingsWindowRect.width = 1015f;
             }
 
             if (GUILayout.Button("Close"))
+            {
                 showRecordingsWindow = false;
+                ParsekLog.Verbose("UI", "Recordings window closed via button");
+            }
 
             GUILayout.EndHorizontal();
 
@@ -480,6 +1007,7 @@ namespace Parsek
             if (Event.current.type == EventType.MouseDown && handleRect.Contains(Event.current.mousePosition))
             {
                 isResizingRecordingsWindow = true;
+                ParsekLog.Verbose("UI", "Recordings window resize started");
                 Event.current.Use();
             }
 
@@ -643,6 +1171,7 @@ namespace Parsek
                     sortAscending = true;
                 }
                 InvalidateSort();
+                ParsekLog.Verbose("UI", $"Sort column changed: {sortColumn} {(sortAscending ? "asc" : "desc")}");
             }
         }
 
@@ -916,6 +1445,8 @@ namespace Parsek
                     mainWindowRect.x + mainWindowRect.width + 10,
                     mainWindowRect.y + 40,
                     280, 10);
+                var ic = System.Globalization.CultureInfo.InvariantCulture;
+                ParsekLog.Verbose("UI", $"Settings window initial position: x={settingsWindowRect.x.ToString("F0", ic)} y={settingsWindowRect.y.ToString("F0", ic)}");
             }
 
             settingsWindowRect = ClickThruBlocker.GUILayoutWindow(
@@ -925,6 +1456,7 @@ namespace Parsek
                 "Parsek \u2014 Settings",
                 GUILayout.Width(280)
             );
+            LogWindowPosition("Settings", ref lastSettingsWindowRect, settingsWindowRect);
 
             if (settingsWindowRect.Contains(Event.current.mousePosition))
             {
@@ -1044,6 +1576,7 @@ namespace Parsek
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Defaults"))
             {
+                ParsekLog.Verbose("UI", "Settings Defaults button clicked");
                 s.autoRecordOnLaunch = true;
                 s.autoRecordOnEva = true;
                 s.autoWarpStop = true;
@@ -1056,7 +1589,10 @@ namespace Parsek
                 ParsekLog.Info("UI", "Settings reset to defaults");
             }
             if (GUILayout.Button("Close"))
+            {
                 showSettingsWindow = false;
+                ParsekLog.Verbose("UI", "Settings window closed via button");
+            }
             GUILayout.EndHorizontal();
 
             GUI.DragWindow();
@@ -1097,6 +1633,7 @@ namespace Parsek
         public void Cleanup()
         {
             ReleaseRecordingsInputLock();
+            ReleaseActionsInputLock();
             ReleaseSettingsInputLock();
             if (mapMarkerTexture != null)
                 Object.Destroy(mapMarkerTexture);

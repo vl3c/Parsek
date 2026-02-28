@@ -86,6 +86,9 @@ namespace Parsek
         // Set by ParsekFlight to enable sibling vessel switch detection in OnPhysicsFrame
         public uint UndockSiblingPid { get; set; }
         public RecordingStore.Recording CaptureAtStop { get; private set; }
+        public double PreLaunchFunds { get; private set; }
+        public double PreLaunchScience { get; private set; }
+        public float PreLaunchReputation { get; private set; }
         public ConfigNode LastGoodVesselSnapshot => lastGoodVesselSnapshot;
         public ConfigNode InitialGhostVisualSnapshot => initialGhostVisualSnapshot;
 
@@ -3130,6 +3133,21 @@ namespace Parsek
 
             LogVisualRecordingCoverage(v);
 
+            // Capture pre-launch resource snapshot BEFORE recording starts
+            PreLaunchFunds = 0;
+            PreLaunchScience = 0;
+            PreLaunchReputation = 0;
+            try
+            {
+                if (Funding.Instance != null)
+                    PreLaunchFunds = Funding.Instance.Funds;
+                if (ResearchAndDevelopment.Instance != null)
+                    PreLaunchScience = ResearchAndDevelopment.Instance.Science;
+                if (Reputation.Instance != null)
+                    PreLaunchReputation = Reputation.Instance.reputation;
+            }
+            catch { }
+
             IsRecording = true;
             isOnRails = false;
             VesselDestroyedDuringRecording = false;
@@ -3236,7 +3254,10 @@ namespace Parsek
                     : "Unknown Vessel",
                 Points = new List<TrajectoryPoint>(Recording),
                 OrbitSegments = new List<OrbitSegment>(OrbitSegments),
-                PartEvents = new List<PartEvent>(PartEvents)
+                PartEvents = new List<PartEvent>(PartEvents),
+                PreLaunchFunds = PreLaunchFunds,
+                PreLaunchScience = PreLaunchScience,
+                PreLaunchReputation = PreLaunchReputation
             };
             VesselSpawner.SnapshotVessel(
                 CaptureAtStop,
@@ -3287,7 +3308,10 @@ namespace Parsek
                     : "Unknown Vessel",
                 Points = new List<TrajectoryPoint>(Recording),
                 OrbitSegments = new List<OrbitSegment>(OrbitSegments),
-                PartEvents = new List<PartEvent>(PartEvents)
+                PartEvents = new List<PartEvent>(PartEvents),
+                PreLaunchFunds = PreLaunchFunds,
+                PreLaunchScience = PreLaunchScience,
+                PreLaunchReputation = PreLaunchReputation
             };
             VesselSpawner.SnapshotVessel(
                 CaptureAtStop,
@@ -3339,7 +3363,10 @@ namespace Parsek
                     VesselName = recordedVessel != null ? recordedVessel.vesselName : v.vesselName,
                     Points = new List<TrajectoryPoint>(Recording),
                     OrbitSegments = new List<OrbitSegment>(OrbitSegments),
-                    PartEvents = new List<PartEvent>(PartEvents)
+                    PartEvents = new List<PartEvent>(PartEvents),
+                    PreLaunchFunds = PreLaunchFunds,
+                    PreLaunchScience = PreLaunchScience,
+                    PreLaunchReputation = PreLaunchReputation
                 };
                 VesselSpawner.SnapshotVessel(
                     CaptureAtStop,
