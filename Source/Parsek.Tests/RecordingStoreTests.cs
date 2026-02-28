@@ -815,7 +815,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BuildMergeMessage_GhostOnly_MentionsDestroyed()
+        public void BuildMergeMessage_GhostOnly_Destroyed_MentionsDestroyed()
         {
             var rec = new RecordingStore.Recording { VesselName = "Boom" };
             rec.Points.AddRange(MakePoints(5));
@@ -825,6 +825,20 @@ namespace Parsek.Tests
                 RecordingStore.MergeDefault.GhostOnly);
 
             Assert.Contains("destroyed", msg);
+        }
+
+        [Fact]
+        public void BuildMergeMessage_GhostOnly_NotDestroyed_DoesNotMentionDestroyed()
+        {
+            var rec = new RecordingStore.Recording { VesselName = "Phantom" };
+            rec.Points.AddRange(MakePoints(5));
+            rec.VesselDestroyed = false;
+
+            string msg = MergeDialog.BuildMergeMessage(rec, 60,
+                RecordingStore.MergeDefault.GhostOnly);
+
+            Assert.DoesNotContain("destroyed", msg);
+            Assert.Contains("Recording captured", msg);
         }
 
         [Fact]

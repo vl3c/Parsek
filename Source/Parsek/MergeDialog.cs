@@ -51,7 +51,7 @@ namespace Parsek
                 $"destroyed={pending.VesselDestroyed}, hasSnapshot={pending.VesselSnapshot != null}, " +
                 $"recommended={recommended}");
 
-            DialogGUIButton[] buttons = null;
+            DialogGUIButton[] buttons;
 
             switch (recommended)
             {
@@ -99,6 +99,10 @@ namespace Parsek
                             ParsekLog.Info("MergeDialog", "User chose: Discard");
                         })
                     };
+                    break;
+
+                default:
+                    buttons = new DialogGUIButton[0];
                     break;
             }
 
@@ -263,20 +267,25 @@ namespace Parsek
         {
             string header = $"Vessel: {pending.VesselName}\n" +
                 $"Points: {pending.Points.Count}\n" +
-                $"Duration: {duration:F1}s\n" +
-                $"Distance from launch: {pending.DistanceFromLaunch:F0}m\n\n";
+                $"Duration: {duration.ToString("F1", CultureInfo.InvariantCulture)}s\n" +
+                $"Distance from launch: {pending.DistanceFromLaunch.ToString("F0", CultureInfo.InvariantCulture)}m\n\n";
 
             switch (recommended)
             {
                 case RecordingStore.MergeDefault.GhostOnly:
-                    return header + "Your vessel was destroyed. Recording captured.";
+                    return header + (pending.VesselDestroyed
+                        ? "Your vessel was destroyed. Recording captured."
+                        : "Recording captured.");
 
-                default: // Persist
+                case RecordingStore.MergeDefault.Persist:
                     string situation = pending.DistanceFromLaunch < 100.0
                         ? "Your vessel returned near the launch site after traveling " +
-                          $"{pending.MaxDistanceFromLaunch:F0}m."
+                          pending.MaxDistanceFromLaunch.ToString("F0", CultureInfo.InvariantCulture) + "m."
                         : $"Your vessel is {pending.VesselSituation}.";
                     return header + situation + "\nIt will persist in the timeline.";
+
+                default:
+                    return header;
             }
         }
     }
