@@ -1,8 +1,8 @@
 # Parsek: Preliminary Architecture
 
 ## Document Status
-**Version:** 0.6
-**Phase:** Post-Phase 5 foundation (milestones, resource budgeting, action blocking implemented)
+**Version:** 0.8
+**Phase:** Phase 6 in progress (recording tree / multi-vessel recording)
 **Last Updated:** February 2026
 
 ---
@@ -699,7 +699,7 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 - [x] Position recording with geographic coordinates (lat/lon/alt per body)
 - [x] Kinematic ghost playback (sphere, with map view markers)
 - [x] Single recording at a time
-- [x] Context-aware merge dialog (Keep Vessel / Recover / Discard)
+- [x] Context-aware merge dialog (Merge to Timeline / Discard)
 - [x] Persistence to save game via ScenarioModule
 - [x] Scene transition cleanup (`onGameSceneLoadRequested`)
 - [x] Basic UI panel (toolbar button)
@@ -809,6 +809,27 @@ All planned part event types are now implemented. 28 event types are recorded; m
 
 See `docs/design-going-back-in-time.md` for full design rationale. The mechanism is snapshot-based (like `git checkout`), not event-reversal-based. No timeline branching.
 
+### Phase 6: Recording Tree / Multi-Vessel Recording (In Progress)
+
+Record entire multi-vessel missions as a single unit. Builds on top of the existing chain system — each tree node is a vessel's recording, which can itself be a chain of segments (atmospheric/SOI phase splits, dock sequences).
+
+**New components:**
+- `RecordingTree` — rooted DAG of recordings. Branches at undock/EVA, merges at dock/board.
+- `BranchPoint` — links parent recording(s) to child recording(s) at split/merge events
+- `TerminalState` — how a recording ended (Orbiting, Landed, Destroyed, Docked, etc.)
+- `SurfacePosition` — background recording data for landed/splashed vessels
+- Background recording — on-rails Keplerian orbit or surface position for non-active vessels
+
+**Key design principle:** the tree is additive. Existing chains, per-segment loop control, per-recording resources, atmospheric/SOI phase splits, merge dialogs — all preserved. Nothing removed.
+
+**Done:**
+- [x] Task 1: Data model + ConfigNode serialization (RecordingTree, BranchPoint, SurfacePosition, TerminalState, Recording extensions)
+
+**Remaining (11 tasks total):**
+- [ ] Task 2-11: vessel switch refactoring, background recording, split/merge/terminal event detection, tree commit + multi-leaf spawning, tree dialog, tree ghost playback, tree-level resources, backward compat
+
+See `docs/design-mission-tree.md` for full design and task breakdown.
+
 ---
 
 ## Scope
@@ -816,6 +837,8 @@ See `docs/design-going-back-in-time.md` for full design rationale. The mechanism
 Parsek is a **git-like recording system** for KSP missions. Players record flights sequentially, commit them to a single timeline, and they replay automatically as ghost vessels during future gameplay. Recordings are immutable — once committed, they play back exactly as flown.
 
 Phase 5 (foundation complete) adds milestones, resource budgeting, epoch isolation, and action blocking — the accounting layer that prevents paradoxes when the player goes back in time. The restore point UI is future work. See `docs/design-going-back-in-time.md` for the full design. There is no timeline branching — one timeline, always.
+
+Phase 6 (in progress) adds multi-vessel recording via a recording tree that tracks vessel splits and merges. See `docs/design-mission-tree.md` for the full design.
 
 The architecture naturally enables use cases like racing your own ghosts, but the mod does not include dedicated racing modes, AI playback, or multiplayer features. Those are gameplay possibilities that emerge from the core recording/playback system.
 
@@ -827,7 +850,8 @@ The architecture naturally enables use cases like racing your own ghosts, but th
 2. **Ghost vessel rendering:** Opaque replica from prefab meshes with original materials. No shader modification.
 3. **SOI transitions:** Body name (`string BodyName`) per TrajectoryFrame. Naturally handles multi-body trajectories.
 4. **Recording file size:** External sidecar files (v4) — bulk data in `.prec` and `.craft` files, lightweight metadata in `.sfs`.
+5. **Recording tree is additive:** The tree layer builds on top of existing chains. Chain fields, per-segment loop/enable control, atmospheric/SOI phase splits, per-recording resource tracking, and chain merge dialogs are all preserved. The tree adds vessel split/merge tracking, not replaces existing infrastructure.
 
 ---
 
-*Document version: 1.4 — Phase 5 foundation (milestones, resource budget, epoch isolation, action blocking)*
+*Document version: 0.8 — Phase 6 in progress (recording tree / multi-vessel recording)*
