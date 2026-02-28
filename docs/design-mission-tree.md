@@ -436,6 +436,19 @@ Each recording within the tree uses the existing recording serialization format 
 
 Work is split into tasks that can be planned and implemented separately. Dependencies are listed — a task can only start after its dependencies are complete. Each task should be implementable in a single focused session and testable in isolation.
 
+### Per-task workflow
+
+Each task follows a multi-stage pipeline using Opus 4.6 agents, orchestrated by the main session:
+
+1. **Plan** — Opus 4.6 subagent explores the codebase and writes a detailed implementation plan in `docs/plans/`
+2. **Plan review** — Fresh Opus 4.6 subagent reviews the plan for correctness, completeness, and risk
+3. **Orchestrator review** — Main session reviews the plan with full project context and fixes issues
+4. **Implement** — Fresh Opus 4.6 subagent implements the approved plan
+5. **Implementation review** — Fresh Opus 4.6 subagent reviews the implementation and fixes issues
+6. **Final review** — Main session reviews the implementation considering the larger architectural context
+7. **Commit** — Main session commits the implementation
+8. **Next task briefing** — Main session presents the next task, explains its role and how it fits into the overall plan
+
 ### Task 1: RecordingTree data model + serialization
 
 **No dependencies.**

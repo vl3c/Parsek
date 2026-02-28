@@ -19,7 +19,9 @@ namespace Parsek
             Stop,
             ChainToVessel,  // EVA recording → boarded a vessel
             DockMerge,      // Vessel absorbed into dock target (pid changed)
-            UndockSwitch    // Player switched to undocked sibling vessel
+            UndockSwitch,   // Player switched to undocked sibling vessel
+            TransitionToBackground,   // active recording → background (orbit segment)
+            PromoteFromBackground     // background recording → active (resume physics sampling)
         }
 
         // Recording output
@@ -76,7 +78,7 @@ namespace Parsek
         private HashSet<uint> loggedCargoBayClosedPositionIssues = new HashSet<uint>();
         private HashSet<uint> loggedFairingReadFailures = new HashSet<uint>();
         internal bool partEventsSubscribed;
-        public bool IsRecording { get; private set; }
+        public bool IsRecording { get; internal set; }
         public uint RecordingVesselId { get; private set; }
         public bool RecordingStartedAsEva { get; private set; }
         public bool VesselDestroyedDuringRecording { get; set; }
@@ -85,6 +87,17 @@ namespace Parsek
         public bool UndockSwitchPending { get; set; }
         // Set by ParsekFlight to enable sibling vessel switch detection in OnPhysicsFrame
         public uint UndockSiblingPid { get; set; }
+
+        // Tree mode: set by ParsekFlight when a recording tree is active
+        public RecordingTree ActiveTree { get; set; }
+        public bool TransitionToBackgroundPending { get; internal set; }
+
+        /// <summary>
+        /// True when the recorder is conceptually recording but not actively sampling
+        /// physics frames (e.g., vessel switched away in tree mode).
+        /// </summary>
+        public bool IsBackgrounded => IsRecording && Patches.PhysicsFramePatch.ActiveRecorder != this;
+
         public RecordingStore.Recording CaptureAtStop { get; private set; }
         public double PreLaunchFunds { get; private set; }
         public double PreLaunchScience { get; private set; }
@@ -3048,7 +3061,7 @@ namespace Parsek
 
         #endregion
 
-        public void StartRecording()
+        public void StartRecording(bool isPromotion = false)
         {
             if (Time.timeScale < 0.01f)
             {
@@ -3067,91 +3080,34 @@ namespace Parsek
             Recording.Clear();
             OrbitSegments.Clear();
             PartEvents.Clear();
-            parachuteStates.Clear();
-            jettisonedShrouds.Clear();
-            jettisonNameRawCache.Clear();
-            parsedJettisonNamesCache.Clear();
-            extendedDeployables.Clear();
-            lightsOn.Clear();
-            blinkingLights.Clear();
-            lightBlinkRates.Clear();
-            deployedGear.Clear();
-            openCargoBays.Clear();
-            deployedFairings.Clear();
-            deployedLadders.Clear();
-            deployedAnimationGroups.Clear();
-            deployedAnimateGenericModules.Clear();
-            deployedAeroSurfaceModules.Clear();
-            deployedControlSurfaceModules.Clear();
-            deployedRobotArmScannerModules.Clear();
-            hotAnimateHeatModules.Clear();
-            loggedLadderClassificationMisses.Clear();
-            loggedAnimationGroupClassificationMisses.Clear();
-            loggedAnimateGenericClassificationMisses.Clear();
-            loggedAeroSurfaceClassificationMisses.Clear();
-            loggedControlSurfaceClassificationMisses.Clear();
-            loggedRobotArmScannerClassificationMisses.Clear();
-            loggedAnimateHeatClassificationMisses.Clear();
-            loggedCargoBayDeployIndexIssues.Clear();
-            loggedCargoBayAnimationIssues.Clear();
-            loggedCargoBayClosedPositionIssues.Clear();
-            loggedFairingReadFailures.Clear();
-            cachedEngines = CacheEngineModules(v);
-            activeEngineKeys = new HashSet<ulong>();
-            lastThrottle = new Dictionary<ulong, float>();
-            loggedEngineModuleKeys.Clear();
-            cachedRcsModules = CacheRcsModules(v);
-            activeRcsKeys = new HashSet<ulong>();
-            lastRcsThrottle = new Dictionary<ulong, float>();
-            loggedRcsModuleKeys.Clear();
-            cachedRoboticModules = CacheRoboticModules(v);
-            activeRoboticKeys = new HashSet<ulong>();
-            lastRoboticPosition = new Dictionary<ulong, float>();
-            lastRoboticSampleUT = new Dictionary<ulong, double>();
-            loggedRoboticModuleKeys = new HashSet<ulong>();
-            ParsekLog.Info("Recorder",
-                $"Module caches seeded for vessel pid={v.persistentId}: engines={cachedEngines?.Count ?? 0}, " +
-                $"rcs={cachedRcsModules?.Count ?? 0}, robotics={cachedRoboticModules?.Count ?? 0}");
-
-            // Seed already-deployed fairings so we don't emit false events at first poll
-            if (v != null && v.parts != null)
-            {
-                for (int i = 0; i < v.parts.Count; i++)
-                {
-                    Part p = v.parts[i];
-                    if (p == null) continue;
-                    var fairing = p.FindModuleImplementing<ModuleProceduralFairing>();
-                    if (fairing == null) continue;
-                    try
-                    {
-                        if (fairing.GetScalar >= 0.5f)
-                            deployedFairings.Add(p.persistentId);
-                    }
-                    catch { }
-                }
-            }
+            ResetPartEventTrackingState(v);
 
             LogVisualRecordingCoverage(v);
 
             // Capture pre-launch resource snapshot BEFORE recording starts
-            PreLaunchFunds = 0;
-            PreLaunchScience = 0;
-            PreLaunchReputation = 0;
-            try
+            // (skip for promotion — resources belong to the tree root)
+            if (!isPromotion)
             {
-                if (Funding.Instance != null)
-                    PreLaunchFunds = Funding.Instance.Funds;
-                if (ResearchAndDevelopment.Instance != null)
-                    PreLaunchScience = ResearchAndDevelopment.Instance.Science;
-                if (Reputation.Instance != null)
-                    PreLaunchReputation = Reputation.Instance.reputation;
+                PreLaunchFunds = 0;
+                PreLaunchScience = 0;
+                PreLaunchReputation = 0;
+                try
+                {
+                    if (Funding.Instance != null)
+                        PreLaunchFunds = Funding.Instance.Funds;
+                    if (ResearchAndDevelopment.Instance != null)
+                        PreLaunchScience = ResearchAndDevelopment.Instance.Science;
+                    if (Reputation.Instance != null)
+                        PreLaunchReputation = Reputation.Instance.reputation;
+                }
+                catch { }
             }
-            catch { }
 
             IsRecording = true;
             isOnRails = false;
             VesselDestroyedDuringRecording = false;
             CaptureAtStop = null;
+            TransitionToBackgroundPending = false;
             RecordingVesselId = v.persistentId;
             RecordingStartedAsEva = v.isEVA;
             lastRecordedUT = -1;
@@ -3216,8 +3172,80 @@ namespace Parsek
 
             SubscribePartEvents();
 
-            ParsekLog.Info("Recorder", "Recording started (physics-frame sampling)");
-            ParsekLog.ScreenMessage("Recording STARTED", 2f);
+            ParsekLog.Info("Recorder", $"Recording started (physics-frame sampling{(isPromotion ? ", promotion" : "")})");
+            if (!isPromotion)
+                ParsekLog.ScreenMessage("Recording STARTED", 2f);
+        }
+
+        /// <summary>
+        /// Resets all part event tracking state and rebuilds module caches for the given vessel.
+        /// Extracted from StartRecording for reuse by the promotion path.
+        /// </summary>
+        private void ResetPartEventTrackingState(Vessel v)
+        {
+            parachuteStates.Clear();
+            jettisonedShrouds.Clear();
+            jettisonNameRawCache.Clear();
+            parsedJettisonNamesCache.Clear();
+            extendedDeployables.Clear();
+            lightsOn.Clear();
+            blinkingLights.Clear();
+            lightBlinkRates.Clear();
+            deployedGear.Clear();
+            openCargoBays.Clear();
+            deployedFairings.Clear();
+            deployedLadders.Clear();
+            deployedAnimationGroups.Clear();
+            deployedAnimateGenericModules.Clear();
+            deployedAeroSurfaceModules.Clear();
+            deployedControlSurfaceModules.Clear();
+            deployedRobotArmScannerModules.Clear();
+            hotAnimateHeatModules.Clear();
+            loggedLadderClassificationMisses.Clear();
+            loggedAnimationGroupClassificationMisses.Clear();
+            loggedAnimateGenericClassificationMisses.Clear();
+            loggedAeroSurfaceClassificationMisses.Clear();
+            loggedControlSurfaceClassificationMisses.Clear();
+            loggedRobotArmScannerClassificationMisses.Clear();
+            loggedAnimateHeatClassificationMisses.Clear();
+            loggedCargoBayDeployIndexIssues.Clear();
+            loggedCargoBayAnimationIssues.Clear();
+            loggedCargoBayClosedPositionIssues.Clear();
+            loggedFairingReadFailures.Clear();
+            cachedEngines = CacheEngineModules(v);
+            activeEngineKeys = new HashSet<ulong>();
+            lastThrottle = new Dictionary<ulong, float>();
+            loggedEngineModuleKeys.Clear();
+            cachedRcsModules = CacheRcsModules(v);
+            activeRcsKeys = new HashSet<ulong>();
+            lastRcsThrottle = new Dictionary<ulong, float>();
+            loggedRcsModuleKeys.Clear();
+            cachedRoboticModules = CacheRoboticModules(v);
+            activeRoboticKeys = new HashSet<ulong>();
+            lastRoboticPosition = new Dictionary<ulong, float>();
+            lastRoboticSampleUT = new Dictionary<ulong, double>();
+            loggedRoboticModuleKeys = new HashSet<ulong>();
+            ParsekLog.Info("Recorder",
+                $"Module caches seeded for vessel pid={v.persistentId}: engines={cachedEngines?.Count ?? 0}, " +
+                $"rcs={cachedRcsModules?.Count ?? 0}, robotics={cachedRoboticModules?.Count ?? 0}");
+
+            // Seed already-deployed fairings so we don't emit false events at first poll
+            if (v != null && v.parts != null)
+            {
+                for (int i = 0; i < v.parts.Count; i++)
+                {
+                    Part p = v.parts[i];
+                    if (p == null) continue;
+                    var fairing = p.FindModuleImplementing<ModuleProceduralFairing>();
+                    if (fairing == null) continue;
+                    try
+                    {
+                        if (fairing.GetScalar >= 0.5f)
+                            deployedFairings.Add(p.persistentId);
+                    }
+                    catch { }
+                }
+            }
         }
 
         public void StopRecording()
@@ -3338,12 +3366,16 @@ namespace Parsek
 
             if (v.persistentId != RecordingVesselId)
             {
-                VesselSwitchDecision decision = DecideOnVesselSwitch(
-                    RecordingVesselId, v.persistentId, v.isEVA, RecordingStartedAsEva,
-                    UndockSiblingPid);
+                // 1. Dock merge guard — must be first. DockMergePending was set by
+                //    OnPartCouple; let the existing capture+stop flow handle it below.
+                //    Do NOT enter tree decision logic for dock PID changes.
+                VesselSwitchDecision decision = DockMergePending
+                    ? VesselSwitchDecision.DockMerge
+                    : DecideOnVesselSwitch(
+                        RecordingVesselId, v.persistentId, v.isEVA, RecordingStartedAsEva,
+                        UndockSiblingPid, activeTree: ActiveTree);
 
-                // Keep recording across switch to EVA. This preserves player intent for
-                // launch -> EVA sequences until multi-track replay lands.
+                // 2. ContinueOnEva — early return (existing, unchanged)
                 if (decision == VesselSwitchDecision.ContinueOnEva)
                 {
                     RecordingVesselId = v.persistentId;
@@ -3353,6 +3385,27 @@ namespace Parsek
                     return;
                 }
 
+                // 3. Tree decisions — early return BEFORE CaptureAtStop
+                if (decision == VesselSwitchDecision.TransitionToBackground)
+                {
+                    TransitionToBackground();
+                    TransitionToBackgroundPending = true;
+                    ParsekLog.Verbose("Recorder", $"Tree: transition to background " +
+                        $"(was pid={RecordingVesselId}, now pid={v.persistentId})");
+                    return;
+                }
+                if (decision == VesselSwitchDecision.PromoteFromBackground)
+                {
+                    // Cannot promote here — vessel may not be loaded yet.
+                    // TransitionToBackground the current recorder, let onVesselSwitchComplete handle promotion.
+                    TransitionToBackground();
+                    TransitionToBackgroundPending = true;
+                    ParsekLog.Verbose("Recorder", $"Tree: promote from background " +
+                        $"(was pid={RecordingVesselId}, now pid={v.persistentId}) — backgrounding current, promotion deferred");
+                    return;
+                }
+
+                // 4. Existing CaptureAtStop + IsRecording=false block (unchanged)
                 Vessel recordedVessel = FindVesselByPid(RecordingVesselId);
 
                 CaptureAtStop = new RecordingStore.Recording
@@ -3381,6 +3434,7 @@ namespace Parsek
                 UnsubscribePartEvents();
                 IsRecording = false;
 
+                // 5. Existing decision dispatch (unchanged)
                 if (decision == VesselSwitchDecision.ChainToVessel)
                 {
                     ChainToVesselPending = true;
@@ -3655,6 +3709,73 @@ namespace Parsek
             ParsekLog.Info("Recorder", "Auto-stopped recording due to scene change");
         }
 
+        /// <summary>
+        /// Transitions the current recording to background mode (tree vessel switch).
+        /// Captures an orbit segment for the background phase. IsRecording stays true
+        /// but the Harmony patch is disconnected so OnPhysicsFrame won't fire.
+        /// </summary>
+        public void TransitionToBackground()
+        {
+            if (!IsRecording) return;
+
+            Vessel v = FindVesselByPid(RecordingVesselId);
+
+            // Sample a boundary point if vessel is still accessible
+            if (v != null)
+                SamplePosition(v);
+
+            // Finalize any in-progress orbit segment (if already on rails during switch)
+            if (isOnRails)
+            {
+                currentOrbitSegment.endUT = Planetarium.GetUniversalTime();
+                OrbitSegments.Add(currentOrbitSegment);
+                isOnRails = false;
+            }
+
+            // Start a new orbit segment for the background phase
+            if (v != null && v.orbit != null)
+            {
+                currentOrbitSegment = new OrbitSegment
+                {
+                    startUT = Planetarium.GetUniversalTime(),
+                    inclination = v.orbit.inclination,
+                    eccentricity = v.orbit.eccentricity,
+                    semiMajorAxis = v.orbit.semiMajorAxis,
+                    longitudeOfAscendingNode = v.orbit.LAN,
+                    argumentOfPeriapsis = v.orbit.argumentOfPeriapsis,
+                    meanAnomalyAtEpoch = v.orbit.meanAnomalyAtEpoch,
+                    epoch = v.orbit.epoch,
+                    bodyName = v.mainBody?.name ?? "Kerbin"
+                };
+                isOnRails = true;
+            }
+
+            // Disconnect from Harmony patch (stop physics-frame sampling)
+            Patches.PhysicsFramePatch.ActiveRecorder = null;
+            UnsubscribePartEvents();
+
+            // NOTE: IsRecording stays TRUE. The recording is still conceptually active,
+            // just in background mode. The Harmony patch is disconnected so OnPhysicsFrame
+            // won't fire.
+            ParsekLog.Info("Recorder", $"Transitioned to background (pid={RecordingVesselId}, " +
+                $"points={Recording.Count}, orbitSegments={OrbitSegments.Count})");
+        }
+
+        /// <summary>
+        /// Closes any open orbit segment (isOnRails=true) by setting endUT to current UT
+        /// and adding it to OrbitSegments. Called before flushing recorder data to a tree
+        /// recording so that background orbit segments are not lost.
+        /// </summary>
+        public void FinalizeOpenOrbitSegment()
+        {
+            if (isOnRails)
+            {
+                currentOrbitSegment.endUT = Planetarium.GetUniversalTime();
+                OrbitSegments.Add(currentOrbitSegment);
+                isOnRails = false;
+            }
+        }
+
         internal static Vessel FindVesselByPid(uint pid)
         {
             if (FlightGlobals.Vessels == null) return null;
@@ -3708,7 +3829,8 @@ namespace Parsek
 
         internal static VesselSwitchDecision DecideOnVesselSwitch(
             uint recordingVesselId, uint currentVesselId, bool currentIsEva,
-            bool recordingStartedAsEva, uint undockSiblingPid = 0)
+            bool recordingStartedAsEva, uint undockSiblingPid = 0,
+            RecordingTree activeTree = null)
         {
             if (currentVesselId == recordingVesselId)
                 return VesselSwitchDecision.None;
@@ -3724,6 +3846,14 @@ namespace Parsek
             // if not in a chain, this is treated as a normal stop.
             if (!currentIsEva && recordingStartedAsEva)
                 return VesselSwitchDecision.ChainToVessel;
+
+            // Tree mode: switching to a vessel already tracked in the tree
+            if (activeTree != null && activeTree.BackgroundMap.ContainsKey(currentVesselId))
+                return VesselSwitchDecision.PromoteFromBackground;
+            // Tree mode: switching to any other vessel (background the current recording)
+            if (activeTree != null)
+                return VesselSwitchDecision.TransitionToBackground;
+
             return VesselSwitchDecision.Stop;
         }
     }
