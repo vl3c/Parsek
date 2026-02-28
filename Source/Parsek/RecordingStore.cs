@@ -46,9 +46,8 @@ namespace Parsek
         /// </summary>
         public enum MergeDefault
         {
-            Recover,    // Vessel barely moved — recover for funds
-            MergeOnly,  // Vessel destroyed or snapshot missing — merge recording only
-            Persist     // Vessel intact and moved — respawn where it ended up
+            GhostOnly,  // Vessel destroyed or snapshot missing — merge recording only
+            Persist      // Vessel intact with snapshot — respawn where it ended up
         }
 
         public class Recording
@@ -158,21 +157,10 @@ namespace Parsek
         /// <summary>
         /// Determines the recommended merge action based on vessel state.
         /// </summary>
-        public static MergeDefault GetRecommendedAction(
-            double distance, bool destroyed, bool hasSnapshot,
-            double duration = 0, double maxDistance = 0)
+        public static MergeDefault GetRecommendedAction(bool destroyed, bool hasSnapshot)
         {
             if (destroyed || !hasSnapshot)
-            {
-                if (distance < 100.0)
-                    return MergeDefault.Recover;
-                return MergeDefault.MergeOnly;
-            }
-
-            // Vessel intact with snapshot — did it actually go somewhere?
-            if (distance < 100.0 && (duration <= 10.0 || maxDistance <= 100.0))
-                return MergeDefault.Recover;
-
+                return MergeDefault.GhostOnly;
             return MergeDefault.Persist;
         }
 
