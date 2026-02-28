@@ -118,48 +118,30 @@ namespace Parsek.Tests
         #region GetRecommendedAction
 
         [Fact]
-        public void GetRecommendedAction_DestroyedNearPad_ReturnsRecover()
+        public void GetRecommendedAction_Destroyed_ReturnsGhostOnly()
         {
-            var result = RecordingStore.GetRecommendedAction(50, destroyed: true, hasSnapshot: false);
-            Assert.Equal(RecordingStore.MergeDefault.Recover, result);
+            var result = RecordingStore.GetRecommendedAction(destroyed: true, hasSnapshot: false);
+            Assert.Equal(RecordingStore.MergeDefault.GhostOnly, result);
         }
 
         [Fact]
-        public void GetRecommendedAction_DestroyedFarAway_ReturnsMergeOnly()
+        public void GetRecommendedAction_DestroyedWithSnapshot_ReturnsGhostOnly()
         {
-            var result = RecordingStore.GetRecommendedAction(500, destroyed: true, hasSnapshot: false);
-            Assert.Equal(RecordingStore.MergeDefault.MergeOnly, result);
+            var result = RecordingStore.GetRecommendedAction(destroyed: true, hasSnapshot: true);
+            Assert.Equal(RecordingStore.MergeDefault.GhostOnly, result);
         }
 
         [Fact]
-        public void GetRecommendedAction_NoSnapshot_FarAway_ReturnsMergeOnly()
+        public void GetRecommendedAction_NoSnapshot_ReturnsGhostOnly()
         {
-            var result = RecordingStore.GetRecommendedAction(500, destroyed: false, hasSnapshot: false);
-            Assert.Equal(RecordingStore.MergeDefault.MergeOnly, result);
+            var result = RecordingStore.GetRecommendedAction(destroyed: false, hasSnapshot: false);
+            Assert.Equal(RecordingStore.MergeDefault.GhostOnly, result);
         }
 
         [Fact]
-        public void GetRecommendedAction_IntactNearPad_ShortDuration_ReturnsRecover()
+        public void GetRecommendedAction_IntactWithSnapshot_ReturnsPersist()
         {
-            var result = RecordingStore.GetRecommendedAction(50, destroyed: false, hasSnapshot: true,
-                duration: 5, maxDistance: 50);
-            Assert.Equal(RecordingStore.MergeDefault.Recover, result);
-        }
-
-        [Fact]
-        public void GetRecommendedAction_IntactFarAway_ReturnsPersist()
-        {
-            var result = RecordingStore.GetRecommendedAction(500, destroyed: false, hasSnapshot: true,
-                duration: 60, maxDistance: 500);
-            Assert.Equal(RecordingStore.MergeDefault.Persist, result);
-        }
-
-        [Fact]
-        public void GetRecommendedAction_IntactNearPad_LongDuration_HighMaxDist_ReturnsPersist()
-        {
-            // Near pad now but traveled far — still persist
-            var result = RecordingStore.GetRecommendedAction(50, destroyed: false, hasSnapshot: true,
-                duration: 60, maxDistance: 5000);
+            var result = RecordingStore.GetRecommendedAction(destroyed: false, hasSnapshot: true);
             Assert.Equal(RecordingStore.MergeDefault.Persist, result);
         }
 

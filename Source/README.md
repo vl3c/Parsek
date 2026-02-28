@@ -122,12 +122,8 @@ The script exits non-zero if required log contracts fail.
 
 **Persist in orbit:**
 1. Launch to orbit, F9 record, revert to launch
-2. Dialog defaults to "Merge + Keep Vessel" — click it
+2. Dialog defaults to "Merge to Timeline" — click it
 3. Go to Tracking Station — vessel should appear in orbit
-
-**Auto-recover on pad:**
-1. Sit on pad, F9 record briefly, revert
-2. Dialog defaults to "Merge + Recover" — funds returned
 
 **Destroyed vessel:**
 1. Launch, crash, revert
@@ -136,7 +132,7 @@ The script exits non-zero if required log contracts fail.
 ### Crew Replacement Tests
 
 **Basic flow:**
-1. Record with Jeb → revert → "Merge + Keep Vessel"
+1. Record with Jeb → revert → "Merge to Timeline"
 2. Check Astronaut Complex: Jeb is Assigned, a new kerbal with matching trait appeared
 3. Launch new flight — replacement kerbal is available in crew selection
 4. Wait for EndUT → Jeb's vessel spawns, replacement is cleaned up from roster
@@ -200,7 +196,7 @@ Vessel respawn uses `ProtoVessel` injection into `flightState.protoVessels`. Rec
 
 ### Crew Replacement System
 
-When a kerbal is reserved for a deferred vessel spawn ("Merge + Keep Vessel"), they're marked as `Assigned` and become unavailable in the VAB/SPH. To prevent the player from running out of crew, the system automatically hires a replacement kerbal with the same trait (Pilot/Engineer/Scientist).
+When a kerbal is reserved for a deferred vessel spawn ("Merge to Timeline"), they're marked as `Assigned` and become unavailable in the VAB/SPH. To prevent the player from running out of crew, the system automatically hires a replacement kerbal with the same trait (Pilot/Engineer/Scientist).
 
 **Lifecycle:**
 1. **Reserve** — `ReserveCrewIn()` sets kerbal to Assigned, hires replacement via `roster.GetNewKerbal()`, stores mapping in `crewReplacements[originalName] = replacementName`
