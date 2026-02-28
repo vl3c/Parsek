@@ -81,6 +81,41 @@ namespace Parsek
             public string GhostGeometryCaptureStrategy = "stub_v1";
             public string GhostGeometryProbeStatus = "uninitialized";
 
+            // --- Tree linkage (null for legacy/standalone recordings) ---
+            public string TreeId;                          // null = standalone (pre-tree recording)
+            public uint VesselPersistentId;                // 0 = not set
+
+            // --- Terminal state ---
+            public TerminalState? TerminalStateValue;      // null = not yet terminated (still recording or legacy)
+
+            // Terminal orbit (for Orbiting/SubOrbital terminal state)
+            // Stored as Keplerian elements to avoid runtime Orbit object dependency in tests.
+            public double TerminalOrbitInclination;
+            public double TerminalOrbitEccentricity;
+            public double TerminalOrbitSemiMajorAxis;
+            public double TerminalOrbitLAN;
+            public double TerminalOrbitArgumentOfPeriapsis;
+            public double TerminalOrbitMeanAnomalyAtEpoch;
+            public double TerminalOrbitEpoch;
+            public string TerminalOrbitBody;
+
+            // Terminal surface position (for Landed/Splashed terminal state)
+            public SurfacePosition? TerminalPosition;      // null if not landed/splashed
+
+            // Background recording: surface position for landed/splashed vessels
+            public SurfacePosition? SurfacePos;            // null if not a background landed vessel
+
+            // Branch linkage
+            public string ParentBranchPointId;             // null for root recording
+            public string ChildBranchPointId;              // null for leaf recordings
+
+            // Explicit UT range for recordings that may have no trajectory points
+            // (background-only recordings). When Points.Count > 0, these are ignored
+            // in favor of Points[0].ut / Points[last].ut.
+            // Default is double.NaN (not set). 0.0 is a valid KSP UT.
+            public double ExplicitStartUT = double.NaN;
+            public double ExplicitEndUT = double.NaN;
+
             // Cached recording statistics (transient, recomputed on demand).
             // Tracks point count at cache time so continuation (which appends
             // points after commit) automatically invalidates the cache.
@@ -108,8 +143,10 @@ namespace Parsek
             public uint SpawnedVesselPersistentId;  // persistentId of spawned vessel (0 = not yet spawned)
             public int SpawnAttempts;               // Number of failed spawn attempts (give up after 3)
 
-            public double StartUT => Points.Count > 0 ? Points[0].ut : 0;
-            public double EndUT => Points.Count > 0 ? Points[Points.Count - 1].ut : 0;
+            public double StartUT => Points.Count > 0 ? Points[0].ut :
+                                     !double.IsNaN(ExplicitStartUT) ? ExplicitStartUT : 0.0;
+            public double EndUT => Points.Count > 0 ? Points[Points.Count - 1].ut :
+                                   !double.IsNaN(ExplicitEndUT) ? ExplicitEndUT : 0.0;
 
             /// <summary>
             /// Copies persistence/capture artifacts from a stop-time captured recording.
@@ -151,6 +188,23 @@ namespace Parsek
                 SegmentPhase = source.SegmentPhase;
                 SegmentBodyName = source.SegmentBodyName;
                 PlaybackEnabled = source.PlaybackEnabled;
+                TreeId = source.TreeId;
+                VesselPersistentId = source.VesselPersistentId;
+                TerminalStateValue = source.TerminalStateValue;
+                TerminalOrbitInclination = source.TerminalOrbitInclination;
+                TerminalOrbitEccentricity = source.TerminalOrbitEccentricity;
+                TerminalOrbitSemiMajorAxis = source.TerminalOrbitSemiMajorAxis;
+                TerminalOrbitLAN = source.TerminalOrbitLAN;
+                TerminalOrbitArgumentOfPeriapsis = source.TerminalOrbitArgumentOfPeriapsis;
+                TerminalOrbitMeanAnomalyAtEpoch = source.TerminalOrbitMeanAnomalyAtEpoch;
+                TerminalOrbitEpoch = source.TerminalOrbitEpoch;
+                TerminalOrbitBody = source.TerminalOrbitBody;
+                TerminalPosition = source.TerminalPosition;
+                SurfacePos = source.SurfacePos;
+                ParentBranchPointId = source.ParentBranchPointId;
+                ChildBranchPointId = source.ChildBranchPointId;
+                ExplicitStartUT = source.ExplicitStartUT;
+                ExplicitEndUT = source.ExplicitEndUT;
             }
         }
 
