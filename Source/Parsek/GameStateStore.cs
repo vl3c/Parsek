@@ -77,6 +77,33 @@ namespace Parsek
                    type == GameStateEventType.CrewStatusChanged;
         }
 
+        /// <summary>
+        /// Counts events in the store that haven't been swept into any milestone yet.
+        /// Used for the Actions button badge alongside GetPendingEventCount.
+        /// </summary>
+        internal static int GetUncommittedEventCount()
+        {
+            uint epoch = MilestoneStore.CurrentEpoch;
+            double lastMilestoneEndUT = 0;
+            var milestones = MilestoneStore.Milestones;
+            for (int i = 0; i < milestones.Count; i++)
+            {
+                if (milestones[i].Epoch == epoch && milestones[i].EndUT > lastMilestoneEndUT)
+                    lastMilestoneEndUT = milestones[i].EndUT;
+            }
+
+            int count = 0;
+            for (int i = 0; i < events.Count; i++)
+            {
+                var e = events[i];
+                if (e.epoch != epoch) continue;
+                if (e.ut <= lastMilestoneEndUT) continue;
+                if (IsMilestoneFilteredEvent(e.eventType)) continue;
+                count++;
+            }
+            return count;
+        }
+
         internal static void AddContractSnapshot(string guid, ConfigNode contractNode)
         {
             if (string.IsNullOrEmpty(guid) || contractNode == null)
