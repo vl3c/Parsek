@@ -370,11 +370,11 @@ namespace Parsek
             var ic = System.Globalization.CultureInfo.InvariantCulture;
             var parts = new List<string>();
             if (budget.reservedFunds > 0)
-                parts.Add(budget.reservedFunds.ToString("N0", ic) + "F");
+                parts.Add(budget.reservedFunds.ToString("N0", ic) + " funds");
             if (budget.reservedScience > 0)
-                parts.Add(budget.reservedScience.ToString("F1", ic) + "S");
+                parts.Add(budget.reservedScience.ToString("F1", ic) + " science");
             if (budget.reservedReputation > 0)
-                parts.Add(budget.reservedReputation.ToString("F0", ic) + "Rep");
+                parts.Add(budget.reservedReputation.ToString("F0", ic) + " reputation");
 
             if (parts.Count > 0)
             {
@@ -474,10 +474,11 @@ namespace Parsek
             // A. Resource Budget Summary
             DrawResourceBudget();
 
-            // B. Committed Actions List
+            // B. Recorded Actions List
             var milestones = MilestoneStore.Milestones;
             uint currentEpoch = MilestoneStore.CurrentEpoch;
-            var allEvents = new List<System.Tuple<GameStateEvent, bool>>(); // event, isReplayed
+            // event, isReplayed, isCommitted (true=milestone, false=uncommitted)
+            var allEvents = new List<System.Tuple<GameStateEvent, bool>>();
             for (int i = 0; i < milestones.Count; i++)
             {
                 var m = milestones[i];
@@ -566,13 +567,17 @@ namespace Parsek
                     ToggleActionsSort(ActionsSortColumn.Description);
                 if (GUILayout.Button(SortHeader("Status", ActionsSortColumn.Status), GUI.skin.label, GUILayout.Width(55)))
                     ToggleActionsSort(ActionsSortColumn.Status);
+                GUILayout.Space(25); // space for delete column
                 GUILayout.EndHorizontal();
+
+                GameStateEvent? eventToDeleteCommitted = null;
+                GameStateEvent? eventToDeleteUncommitted = null;
 
                 actionsScrollPos = GUILayout.BeginScrollView(actionsScrollPos, GUILayout.ExpandHeight(true));
 
                 if (hasCommitted)
                 {
-                    GUILayout.Label("Committed Actions", GUI.skin.box);
+                    GUILayout.Label("Recorded Actions", GUI.skin.box);
 
                     for (int i = 0; i < allEvents.Count; i++)
                     {
@@ -593,6 +598,9 @@ namespace Parsek
 
                         string status = replayed ? "Replayed" : "Pending";
                         GUILayout.Label(status, style, GUILayout.Width(55));
+
+                        if (GUILayout.Button("x", GUILayout.Width(20)))
+                            eventToDeleteCommitted = e;
 
                         GUILayout.EndHorizontal();
                     }
@@ -620,11 +628,29 @@ namespace Parsek
                         GUILayout.Label(desc, actionsWhiteStyle, GUILayout.ExpandWidth(true));
 
                         GUILayout.Label("\u2014", actionsGrayStyle, GUILayout.Width(55)); // em dash
+
+                        if (GUILayout.Button("x", GUILayout.Width(20)))
+                            eventToDeleteUncommitted = e;
+
                         GUILayout.EndHorizontal();
                     }
                 }
 
                 GUILayout.EndScrollView();
+
+                // Process deletions outside the iteration loop
+                if (eventToDeleteCommitted.HasValue)
+                {
+                    var del = eventToDeleteCommitted.Value;
+                    ParsekLog.Verbose("UI", $"Delete committed action: {del.eventType} key='{del.key}' ut={del.ut:F1}");
+                    MilestoneStore.RemoveCommittedEvent(del);
+                }
+                if (eventToDeleteUncommitted.HasValue)
+                {
+                    var del = eventToDeleteUncommitted.Value;
+                    ParsekLog.Verbose("UI", $"Delete uncommitted action: {del.eventType} key='{del.key}' ut={del.ut:F1}");
+                    GameStateStore.RemoveEvent(del);
+                }
             }
             else
             {

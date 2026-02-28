@@ -147,6 +147,27 @@ namespace Parsek
             return null;
         }
 
+        /// <summary>
+        /// Removes an event by matching ut, eventType, and key.
+        /// Returns true if the event was found and removed.
+        /// </summary>
+        internal static bool RemoveEvent(GameStateEvent target)
+        {
+            for (int i = 0; i < events.Count; i++)
+            {
+                var e = events[i];
+                if (e.ut == target.ut && e.eventType == target.eventType &&
+                    e.key == target.key && e.epoch == target.epoch)
+                {
+                    events.RemoveAt(i);
+                    ParsekLog.Info("GameStateStore",
+                        $"Removed event: {target.eventType} key='{target.key}' ut={target.ut:F1}");
+                    return true;
+                }
+            }
+            return false;
+        }
+
         internal static void ClearEvents()
         {
             int eventCount = events.Count;

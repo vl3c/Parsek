@@ -346,6 +346,38 @@ namespace Parsek
             return count;
         }
 
+        /// <summary>
+        /// Removes a specific event from its milestone. Adjusts LastReplayedEventIndex
+        /// if the removed event was at or before it. Also removes from GameStateStore.
+        /// </summary>
+        internal static bool RemoveCommittedEvent(GameStateEvent target)
+        {
+            uint epoch = CurrentEpoch;
+            for (int i = 0; i < milestones.Count; i++)
+            {
+                var m = milestones[i];
+                if (!m.Committed || m.Epoch != epoch) continue;
+                for (int j = 0; j < m.Events.Count; j++)
+                {
+                    var e = m.Events[j];
+                    if (e.ut == target.ut && e.eventType == target.eventType &&
+                        e.key == target.key)
+                    {
+                        m.Events.RemoveAt(j);
+                        if (j <= m.LastReplayedEventIndex)
+                            m.LastReplayedEventIndex--;
+                        ParsekLog.Info("MilestoneStore",
+                            $"Removed event from milestone {ShortId(m.MilestoneId)}: {target.eventType} key='{target.key}' ut={target.ut:F1}");
+
+                        // Also remove from the event store
+                        GameStateStore.RemoveEvent(target);
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
         #region Committed Action Queries
 
         /// <summary>
