@@ -463,20 +463,6 @@ namespace Parsek
                 $"nearest vessel={closestDist:F0}m");
         }
 
-        public static void RecoverVessel(ConfigNode vesselNode)
-        {
-            try
-            {
-                ProtoVessel pv = new ProtoVessel(vesselNode, HighLogic.CurrentGame);
-                ShipConstruction.RecoverVesselFromFlight(pv, HighLogic.CurrentGame.flightState, true);
-                ParsekLog.Info("Spawner", "Vessel recovered for funds");
-            }
-            catch (System.Exception ex)
-            {
-                ParsekLog.Error("Spawner", $"Failed to recover vessel: {ex.Message}");
-            }
-        }
-
         public static void RemoveSpecificCrewFromSnapshot(ConfigNode snapshot, HashSet<string> crewNames)
         {
             if (snapshot == null || crewNames == null || crewNames.Count == 0)
