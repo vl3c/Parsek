@@ -102,6 +102,7 @@ namespace Parsek
                     break;
 
                 default:
+                    ParsekLog.Warn("MergeDialog", $"Unexpected MergeDefault value: {recommended}");
                     buttons = new DialogGUIButton[0];
                     break;
             }
