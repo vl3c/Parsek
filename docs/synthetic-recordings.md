@@ -77,10 +77,27 @@ Jeb's FleaRocket landed very near KSC. **Vessel spawns** at EndUT, offset ~250m 
 
 Val's FleaRocket flies southeast to the island airfield, cruising at ~1000m. **Vessel spawns** landed at the island (lat=-1.52, lon=-71.97).
 
+### Tree Recordings (RECORDING_TREE)
+
+The following 3 recordings are injected as `RECORDING_TREE` nodes, not standalone `RECORDING` nodes. Each tree contains multiple recordings connected by branch points.
+
+### 9. Undock Test Tree (+270 to +390) — Tree: Split
+
+Root vessel (composite) records from +270 to +330, then splits via undock. Two child recordings continue: an active child (orbiting, spawnable with snapshot) and a background child (destroyed, no spawn). Tests basic tree ghost playback with split.
+
+### 10. EVA Test Tree (+390 to +480) — Tree: EVA
+
+Root vessel on pad records from +390 to +420, then an EVA splits off. Two child recordings: vessel continues on pad (landed, spawnable) and EVA kerbal walks (landed). Tests EVA branch in tree context.
+
+### 11. Destruction Test Tree (+480 to +570) — Tree: Destroyed Child
+
+Root vessel records from +480 to +510, then splits via undock. Child A continues orbiting (spawnable with snapshot). Child B is destroyed at +540 (no spawn). Tests that destroyed children are excluded from spawning.
+
 ### Crew Assignment
 
 - **Ghost-only** recordings (PadWalk, KSC Hopper, Suborbital Arc) reuse stock kerbal names safely — `WithGhostVisualSnapshot` triggers no crew reservation.
 - **Vessel-spawn** recordings each use a unique stock kerbal: Bob (Flea Flight), Bill (Orbit-1), Jeb (Close Spawn), Val (Island Probe).
+- **Tree recordings** do not use crew reservation (no vessel snapshots with crew in synthetic trees).
 
 ### Timeline of Events
 
@@ -96,7 +113,14 @@ UT base+180   ─── Flea Flight vessel spawns (Bob) / Orbit-1 starts
 UT base+210   ─── Close Spawn Conflict ghost starts ────
 UT base+222   ─── Close Spawn Conflict spawns (Jeb) ────
 UT base+240   ─── Island Probe ghost starts ────────────
-UT base+420   ─── Suborbital Arc ends / Island Probe spawns (Val)
+UT base+270   ─── Undock Test Tree root starts ─────────
+UT base+330   ─── Undock Tree splits (2 children) ──────
+UT base+390   ─── Undock Tree ends / EVA Tree root starts
+UT base+420   ─── EVA Tree splits / Suborbital Arc ends / Island Probe spawns (Val)
+UT base+480   ─── EVA Tree ends / Destruction Tree root starts
+UT base+510   ─── Destruction Tree splits ──────────────
+UT base+540   ─── Destruction Tree child B destroyed ───
+UT base+570   ─── Destruction Tree ends ────────────────
 UT base+680   ─── Orbit-1 enters orbital segment ───────
 UT base+3180  ─── Orbit-1 vessel spawns (Bill) ─────────
 ```

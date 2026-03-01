@@ -101,52 +101,35 @@ See `docs/design-going-back-in-time.md` for full design rationale.
 
 ---
 
-## Phase 6: Recording Tree (Multi-Vessel Recording) — In Progress
+## Phase 6: Recording Tree (Multi-Vessel Recording) — Complete
 
 Record entire multi-vessel missions as a single unit. When the player undocks, goes EVA, or docks, Parsek tracks all resulting vessels simultaneously. On revert, all vessels spawn at their correct positions.
 
-**Branch:** `recording-tree`
 **Design:** `docs/design-mission-tree.md`
 
 The recording tree builds on top of the existing chain system. Each node in the tree is a vessel's recording, and each recording can itself be a chain of segments (atmospheric/SOI phase splits, dock sequences). The tree adds a new layer for tracking vessel splits and merges — it does not replace chains.
 
-### Task 1: RecordingTree data model + serialization (done)
-New data structures: `RecordingTree`, `BranchPoint`, `SurfacePosition`, `TerminalState`. ConfigNode round-trip serialization with 22 unit tests. No runtime behavior changes.
+**New components:** `RecordingTree` (rooted DAG), `BranchPoint` (split/merge linkage), `BackgroundRecorder` (on-rails capture), `TerminalState` (8 end conditions), `SurfacePosition` (landed/splashed state).
 
-### Task 2: Vessel switch refactoring
-Currently vessel switch stops recording. In tree mode, it transitions the active recording to background instead. New `TransitionToBackground` / `PromoteFromBackground` decisions.
+**13 tasks completed across ~21,000 lines:**
 
-### Task 3: Background recording infrastructure
-Capture on-rails state for non-active vessels: Keplerian orbit for orbiting vessels, surface position for landed/splashed. Background map (persistentId → recordingId) management.
+| Task | Summary |
+|------|---------|
+| 1. Data model + serialization | RecordingTree, BranchPoint, SurfacePosition, TerminalState structs. ConfigNode round-trip. |
+| 2. Vessel switch refactoring | Tree-aware TransitionToBackground / PromoteFromBackground decisions. |
+| 3. Background recording | Dual-mode: on-rails (OrbitSegment/SurfacePosition) + loaded/physics (full trajectory + part events). |
+| 4. Split event detection | Undock/EVA/joint break branching, debris filter, resume-on-false-alarm. |
+| 5. Merge event detection | Dock/board merges, dual-lookup for initiator/target, dockingInProgress guard. |
+| 6. Terminal event detection | Deferred destruction check, Destroyed/Recovered/Orbiting/Landed/Splashed/SubOrbital states. |
+| 7. Tree commit + leaf spawn | CommitTreeFlight, CommitTreeSceneExit, multi-vessel leaf spawning, tree persistence. |
+| 8. Tree-aware merge dialog | ShowTreeDialog, revert vs scene-exit branching, per-vessel situation display. |
+| 9. Tree ghost playback | Background orbit/surface ghosts, spawn suppression, surface rotation. |
+| 10. Tree-level resource tracking | Tree-level delta computation, lump sum playback, budget integration. |
+| 11. Backward compatibility | Verification only — existing saves load correctly, no production changes needed. |
+| 12. Tree verbose logging | 11 logging gaps filled across RecordingTree, ParsekFlight, ResourceBudget. |
+| 13. Tree test coverage | 18 non-vacuous tests + 3 synthetic tree recordings for in-game validation. |
 
-### Task 4: Split event detection (undock, EVA, joint break)
-Subscribe to `onPartUndock`, `onPartJointBreak`, EVA events. Create branch points + child recordings. Debris filter — only branch for vessels with command capability.
-
-### Task 5: Merge event detection (dock, board)
-Subscribe to `onPartCouple`. Handle the docking race condition (`dockingInProgress` set). Create merge branch points.
-
-### Task 6: Terminal event detection (destruction, recovery)
-`onVesselDestroy` with one-frame deferred check (unload vs destruction). Mark recordings as Destroyed/Recovered terminal state.
-
-### Task 7: Tree commit + multi-vessel leaf spawning
-Commit entire tree. Identify leaves. Spawn all leaf vessels at correct positions/orbits. Crew reservation for N vessels. Scene exit auto-commit.
-
-### Task 8: Tree merge dialog
-New `ShowTreeDialog` alongside existing standalone/chain dialogs. Shows all vessels with their situations.
-
-### Task 9: Tree ghost playback
-All recordings in a committed tree play as simultaneous ghosts. Background ghosts at orbit positions. Ghost transitions at branch points.
-
-### Task 10: Tree-level resource tracking
-Aggregate resource deltas at tree level. Per-recording resource fields stay for chain segment granularity.
-
-### Task 11: Backward compatibility
-Wrap existing recordings in single-node trees. Chain fields preserved — chains remain fully functional.
-
-### Dependency flow
-```
-Task 1 ──→ Task 2 ──→ Task 3 ──→ Task 4+5+6 ──→ Task 7 ──→ Task 8+9+10 ──→ Task 11
-```
+**Test coverage:** 1076 tests pass, 1 skipped, 0 failures.
 
 ---
 
