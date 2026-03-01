@@ -619,7 +619,8 @@ namespace Parsek
 
             var budget = ResourceBudget.ComputeTotal(
                 RecordingStore.CommittedRecordings,
-                MilestoneStore.Milestones);
+                MilestoneStore.Milestones,
+                RecordingStore.CommittedTrees);
 
             if (budget.reservedFunds <= 0 && budget.reservedScience <= 0
                 && budget.reservedReputation <= 0)
@@ -684,6 +685,19 @@ namespace Parsek
                 }
             }
 
+            // Mark all committed trees as ResourcesApplied (deduction already covers their costs)
+            var committedTrees = RecordingStore.CommittedTrees;
+            int treeMarked = 0;
+            for (int i = 0; i < committedTrees.Count; i++)
+            {
+                if (!committedTrees[i].ResourcesApplied)
+                {
+                    committedTrees[i].ResourcesApplied = true;
+                    treeMarked++;
+                }
+            }
+            ParsekLog.Verbose("Scenario", $"  Marked {treeMarked} tree(s) as ResourcesApplied");
+
             // Mark all milestones as fully replayed (deduction already covers their costs)
             var milestones = MilestoneStore.Milestones;
             int mileMarked = 0;
@@ -701,7 +715,7 @@ namespace Parsek
 
             ParsekLog.Info("Scenario",
                 $"Budget deduction applied for epoch {MilestoneStore.CurrentEpoch} — " +
-                $"{recMarked} recording(s) and {mileMarked} milestone(s) marked as fully applied");
+                $"{recMarked} recording(s), {treeMarked} tree(s), and {mileMarked} milestone(s) marked as fully applied");
         }
 
         #endregion

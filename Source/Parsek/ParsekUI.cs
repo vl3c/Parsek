@@ -296,7 +296,8 @@ namespace Parsek
         {
             var budget = ResourceBudget.ComputeTotal(
                 RecordingStore.CommittedRecordings,
-                MilestoneStore.Milestones);
+                MilestoneStore.Milestones,
+                RecordingStore.CommittedTrees);
 
             if (budget.reservedFunds <= 0 && budget.reservedScience <= 0 && budget.reservedReputation <= 0)
                 return;
@@ -367,7 +368,8 @@ namespace Parsek
         {
             var budget = ResourceBudget.ComputeTotal(
                 RecordingStore.CommittedRecordings,
-                MilestoneStore.Milestones);
+                MilestoneStore.Milestones,
+                RecordingStore.CommittedTrees);
 
             if (budget.reservedFunds <= 0 && budget.reservedScience <= 0 && budget.reservedReputation <= 0)
                 return;

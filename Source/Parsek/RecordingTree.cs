@@ -24,6 +24,7 @@ namespace Parsek
         public double DeltaFunds;
         public double DeltaScience;
         public float DeltaReputation;
+        public bool ResourcesApplied;
 
         // --- Runtime-only fields (not serialized) ---
         // Maps vessel persistentId -> recordingId for background vessel lookup.
@@ -48,6 +49,7 @@ namespace Parsek
             treeNode.AddValue("deltaFunds", DeltaFunds.ToString("R", ic));
             treeNode.AddValue("deltaScience", DeltaScience.ToString("R", ic));
             treeNode.AddValue("deltaRep", DeltaReputation.ToString("R", ic));
+            treeNode.AddValue("resourcesApplied", ResourcesApplied.ToString());
 
             // Serialize each recording
             foreach (var rec in Recordings.Values)
@@ -86,6 +88,14 @@ namespace Parsek
             float deltaRep;
             float.TryParse(treeNode.GetValue("deltaRep"), inv, ic, out deltaRep);
             tree.DeltaReputation = deltaRep;
+
+            string resourcesAppliedStr = treeNode.GetValue("resourcesApplied");
+            if (resourcesAppliedStr != null)
+            {
+                bool resourcesApplied;
+                if (bool.TryParse(resourcesAppliedStr, out resourcesApplied))
+                    tree.ResourcesApplied = resourcesApplied;
+            }
 
             // Load recordings
             ConfigNode[] recNodes = treeNode.GetNodes("RECORDING");

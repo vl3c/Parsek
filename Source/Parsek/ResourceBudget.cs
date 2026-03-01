@@ -159,22 +159,52 @@ namespace Parsek
             return cost;
         }
 
+        internal static double TreeCommittedFundsCost(RecordingTree tree)
+        {
+            if (tree == null || tree.ResourcesApplied) return 0;
+            return -tree.DeltaFunds; // negate: negative delta (spent) -> positive cost
+        }
+
+        internal static double TreeCommittedScienceCost(RecordingTree tree)
+        {
+            if (tree == null || tree.ResourcesApplied) return 0;
+            return -tree.DeltaScience;
+        }
+
+        internal static double TreeCommittedReputationCost(RecordingTree tree)
+        {
+            if (tree == null || tree.ResourcesApplied) return 0;
+            return -(double)tree.DeltaReputation;
+        }
+
         internal static BudgetSummary ComputeTotal(
             IList<RecordingStore.Recording> recordings,
-            IReadOnlyList<Milestone> milestones)
+            IReadOnlyList<Milestone> milestones,
+            IReadOnlyList<RecordingTree> trees = null)
         {
             var result = new BudgetSummary();
 
             ParsekLog.Verbose("ResourceBudget",
-                $"ComputeTotal: {recordings?.Count ?? 0} recordings, {milestones?.Count ?? 0} milestones");
+                $"ComputeTotal: {recordings?.Count ?? 0} recordings, {milestones?.Count ?? 0} milestones, {trees?.Count ?? 0} trees");
 
             if (recordings != null)
             {
                 for (int i = 0; i < recordings.Count; i++)
                 {
+                    if (recordings[i].TreeId != null) continue; // handled by tree-level delta
                     result.reservedFunds += CommittedFundsCost(recordings[i]);
                     result.reservedScience += CommittedScienceCost(recordings[i]);
                     result.reservedReputation += CommittedReputationCost(recordings[i]);
+                }
+            }
+
+            if (trees != null)
+            {
+                for (int i = 0; i < trees.Count; i++)
+                {
+                    result.reservedFunds += TreeCommittedFundsCost(trees[i]);
+                    result.reservedScience += TreeCommittedScienceCost(trees[i]);
+                    result.reservedReputation += TreeCommittedReputationCost(trees[i]);
                 }
             }
 

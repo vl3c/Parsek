@@ -927,6 +927,172 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Tree Resource Budget
+
+        [Fact]
+        public void TreeCommittedFundsCost_BasicCost()
+        {
+            // DeltaFunds=-5000 (spent money), ResourcesApplied=false -> cost=5000
+            var tree = new RecordingTree
+            {
+                Id = "tree1",
+                DeltaFunds = -5000,
+                ResourcesApplied = false
+            };
+            Assert.Equal(5000, ResourceBudget.TreeCommittedFundsCost(tree));
+        }
+
+        [Fact]
+        public void TreeCommittedFundsCost_Profit()
+        {
+            // DeltaFunds=+3000 (earned money), ResourcesApplied=false -> cost=-3000
+            var tree = new RecordingTree
+            {
+                Id = "tree2",
+                DeltaFunds = 3000,
+                ResourcesApplied = false
+            };
+            Assert.Equal(-3000, ResourceBudget.TreeCommittedFundsCost(tree));
+        }
+
+        [Fact]
+        public void TreeCommittedFundsCost_AlreadyApplied()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree3",
+                DeltaFunds = -5000,
+                ResourcesApplied = true
+            };
+            Assert.Equal(0, ResourceBudget.TreeCommittedFundsCost(tree));
+        }
+
+        [Fact]
+        public void TreeCommittedFundsCost_NullTree()
+        {
+            Assert.Equal(0, ResourceBudget.TreeCommittedFundsCost(null));
+        }
+
+        [Fact]
+        public void TreeCommittedScienceCost_Works()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree4",
+                DeltaScience = -25.5,
+                ResourcesApplied = false
+            };
+            Assert.Equal(25.5, ResourceBudget.TreeCommittedScienceCost(tree));
+        }
+
+        [Fact]
+        public void TreeCommittedReputationCost_Works()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree5",
+                DeltaReputation = -10.25f,
+                ResourcesApplied = false
+            };
+            Assert.Equal(10.25, ResourceBudget.TreeCommittedReputationCost(tree), 0.001);
+        }
+
+        [Fact]
+        public void ComputeTotal_TreeRecordingsSkipped()
+        {
+            // Tree recordings (TreeId != null) are excluded from per-recording sum
+            var rec = MakeRecording(50000, 35000); // cost would be 15000
+            rec.TreeId = "some_tree";
+
+            var recordings = new List<RecordingStore.Recording> { rec };
+            var budget = ResourceBudget.ComputeTotal(recordings, new List<Milestone>());
+
+            Assert.Equal(0, budget.reservedFunds); // skipped because TreeId != null
+        }
+
+        [Fact]
+        public void ComputeTotal_TreeDeltaAdded()
+        {
+            // Tree-level delta added to budget
+            var tree = new RecordingTree
+            {
+                Id = "tree_budget",
+                DeltaFunds = -8000,
+                DeltaScience = -15,
+                DeltaReputation = -5f,
+                ResourcesApplied = false
+            };
+
+            var trees = new List<RecordingTree> { tree };
+            var budget = ResourceBudget.ComputeTotal(
+                new List<RecordingStore.Recording>(),
+                new List<Milestone>(),
+                trees);
+
+            Assert.Equal(8000, budget.reservedFunds);
+            Assert.Equal(15, budget.reservedScience);
+            Assert.Equal(5, budget.reservedReputation);
+        }
+
+        [Fact]
+        public void ComputeTotal_MixedTreeAndStandalone()
+        {
+            // Standalone recording: cost 15000
+            var rec = MakeRecording(50000, 35000);
+
+            // Tree recording (should be skipped in per-recording sum)
+            var treeRec = MakeRecording(50000, 40000);
+            treeRec.TreeId = "tree_mixed";
+
+            // Tree delta: cost 3000
+            var tree = new RecordingTree
+            {
+                Id = "tree_mixed",
+                DeltaFunds = -3000,
+                ResourcesApplied = false
+            };
+
+            var recordings = new List<RecordingStore.Recording> { rec, treeRec };
+            var trees = new List<RecordingTree> { tree };
+            var budget = ResourceBudget.ComputeTotal(recordings, new List<Milestone>(), trees);
+
+            Assert.Equal(18000, budget.reservedFunds); // 15000 standalone + 3000 tree
+        }
+
+        [Fact]
+        public void ComputeTotal_TreeApplied_ZeroCost()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree_applied",
+                DeltaFunds = -5000,
+                ResourcesApplied = true
+            };
+
+            var trees = new List<RecordingTree> { tree };
+            var budget = ResourceBudget.ComputeTotal(
+                new List<RecordingStore.Recording>(),
+                new List<Milestone>(),
+                trees);
+
+            Assert.Equal(0, budget.reservedFunds);
+        }
+
+        [Fact]
+        public void ComputeTotal_BackwardCompat_NullTrees()
+        {
+            // trees=null works same as before
+            var rec = MakeRecording(50000, 35000);
+            var budget = ResourceBudget.ComputeTotal(
+                new List<RecordingStore.Recording> { rec },
+                new List<Milestone>(),
+                null);
+
+            Assert.Equal(15000, budget.reservedFunds);
+        }
+
+        #endregion
+
         #region RecordingPaths
 
         [Fact]
