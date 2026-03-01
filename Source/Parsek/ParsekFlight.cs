@@ -3310,6 +3310,10 @@ namespace Parsek
                             $"not found for recording '{rec.RecordingId}' — marking Destroyed");
                     }
                 }
+
+                // Warn if leaf has no playback data
+                if (isLeaf && rec.Points.Count == 0 && rec.OrbitSegments.Count == 0 && !rec.SurfacePos.HasValue)
+                    ParsekLog.Warn("Flight", $"FinalizeTreeRecordings: leaf '{rec.RecordingId}' has no playback data");
             }
         }
 
@@ -3517,11 +3521,19 @@ namespace Parsek
                 for (int i = 0; i < committed.Count; i++)
                 {
                     var rec = committed[i];
-                    if (rec.Points.Count < 2) continue;
+                    if (rec.Points.Count < 2 && rec.OrbitSegments.Count == 0 && !rec.SurfacePos.HasValue) continue;
                     if (ShouldLoopPlayback(rec)) continue;
                     if (!rec.PlaybackEnabled) continue;
                     if (rec.VesselSnapshot == null || rec.VesselSpawned || rec.VesselDestroyed ||
                         RecordingStore.IsChainMidSegment(rec)) continue;
+                    if (rec.ChildBranchPointId != null) continue;  // non-leaf, never spawns
+                    if (rec.TerminalStateValue.HasValue)
+                    {
+                        var ts = rec.TerminalStateValue.Value;
+                        if (ts == TerminalState.Destroyed || ts == TerminalState.Recovered
+                            || ts == TerminalState.Docked || ts == TerminalState.Boarded)
+                            continue;
+                    }
 
                     bool crossedInto = lastTimelineUT < rec.StartUT && currentUT >= rec.StartUT;
                     bool approaching = currentUT < rec.StartUT &&
@@ -3545,7 +3557,10 @@ namespace Parsek
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
-                if (rec.Points.Count < 2) continue;
+                bool hasPoints = rec.Points.Count >= 2;
+                bool hasOrbitData = rec.OrbitSegments.Count > 0;
+                bool hasSurfaceData = rec.SurfacePos.HasValue;
+                if (!hasPoints && !hasOrbitData && !hasSurfaceData) continue;
 
                 bool inRange = currentUT >= rec.StartUT && currentUT <= rec.EndUT;
                 bool pastEnd = currentUT > rec.EndUT;
@@ -3604,6 +3619,27 @@ namespace Parsek
                         needsSpawn = false;
                 }
 
+                // Non-leaf tree recordings should never spawn (they branched into children)
+                if (needsSpawn && rec.ChildBranchPointId != null)
+                {
+                    needsSpawn = false;
+                    if (loggedGhostEnter.Add(i + 400000))
+                        ParsekLog.Verbose("Flight", $"Spawn suppressed for #{i} ({rec.VesselName}): non-leaf tree recording");
+                }
+
+                // Terminal tree recordings (destroyed/recovered/docked/boarded) should not spawn
+                if (needsSpawn && rec.TerminalStateValue.HasValue)
+                {
+                    var ts = rec.TerminalStateValue.Value;
+                    if (ts == TerminalState.Destroyed || ts == TerminalState.Recovered
+                        || ts == TerminalState.Docked || ts == TerminalState.Boarded)
+                    {
+                        needsSpawn = false;
+                        if (loggedGhostEnter.Add(i + 500000))
+                            ParsekLog.Verbose("Flight", $"Spawn suppressed for #{i} ({rec.VesselName}): terminal state {ts}");
+                    }
+                }
+
                 // One-time chain spawn diagnostics when entering the spawn window
                 if (pastChainEnd && !string.IsNullOrEmpty(rec.ChainId) && loggedGhostEnter.Add(i + 100000))
                     Log($"Chain spawn check #{i} \"{rec.VesselName}\": chainId={rec.ChainId}, idx={rec.ChainIndex}, " +
@@ -3630,29 +3666,54 @@ namespace Parsek
 
                 if (inRange)
                 {
-                    // Normal ghost playback
-                    if (!ghostActive)
+                    if (hasPoints)
                     {
-                        SpawnTimelineGhost(i, rec);
-                        state = ghostStates[i];
-                        if (loggedGhostEnter.Add(i))
-                            Log($"Ghost ENTERED range: #{i} \"{rec.VesselName}\" at UT {currentUT:F1}");
+                        // Normal ghost playback (point-based, with optional orbit segments)
+                        if (!ghostActive)
+                        {
+                            SpawnTimelineGhost(i, rec);
+                            state = ghostStates[i];
+                            if (loggedGhostEnter.Add(i))
+                                Log($"Ghost ENTERED range: #{i} \"{rec.VesselName}\" at UT {currentUT:F1}");
+                        }
+
+                        int playbackIdx = state.playbackIndex;
+
+                        InterpolateAndPosition(state.ghost, rec.Points, rec.OrbitSegments,
+                            ref playbackIdx, currentUT, i * 10000);
+                        state.playbackIndex = playbackIdx;
+
+                        ApplyPartEvents(i, rec, currentUT, state);
+                        ApplyResourceDeltas(rec, currentUT);
                     }
-
-                    int playbackIdx = state.playbackIndex;
-
-                    InterpolateAndPosition(state.ghost, rec.Points, rec.OrbitSegments,
-                        ref playbackIdx, currentUT, i * 10000);
-                    state.playbackIndex = playbackIdx;
-
-                    ApplyPartEvents(i, rec, currentUT, state);
-                    ApplyResourceDeltas(rec, currentUT);
+                    else
+                    {
+                        // Background-only recording: orbit or surface positioning
+                        if (!ghostActive)
+                        {
+                            SpawnTimelineGhost(i, rec);
+                            state = ghostStates[i];
+                        }
+                        if (state != null && state.ghost != null)
+                        {
+                            if (hasOrbitData)
+                                PositionGhostFromOrbitOnly(state.ghost, rec, currentUT, i * 10000);
+                            else if (hasSurfaceData)
+                                PositionGhostAtSurface(state.ghost, rec.SurfacePos.Value);
+                        }
+                        if (loggedGhostEnter.Add(i))
+                            ParsekLog.Verbose("Flight", $"Ghost ENTERED range (background): #{i} \"{rec.VesselName}\" " +
+                                $"orbit={hasOrbitData} surface={hasSurfaceData}");
+                        ApplyPartEvents(i, rec, currentUT, state);
+                        ApplyResourceDeltas(rec, currentUT);
+                    }
                 }
                 else if (pastChainEnd && needsSpawn && ghostActive)
                 {
                     // Ghost was playing, UT crossed chain EndUT — spawn vessel, despawn ghost
                     Log($"Ghost EXITED range: #{i} \"{rec.VesselName}\" at UT {currentUT:F1} — spawning vessel");
-                    PositionGhostAt(state.ghost, rec.Points[rec.Points.Count - 1]);
+                    if (rec.Points.Count > 0)
+                        PositionGhostAt(state.ghost, rec.Points[rec.Points.Count - 1]);
                     VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
                     DestroyTimelineGhost(i);
                     ApplyResourceDeltas(rec, currentUT);
@@ -3668,7 +3729,8 @@ namespace Parsek
                 else if (pastEnd && ghostActive && isMidChain && !pastChainEnd)
                 {
                     // Mid-chain segment past its own EndUT but chain still playing — hold at final pos
-                    PositionGhostAt(state.ghost, rec.Points[rec.Points.Count - 1]);
+                    if (rec.Points.Count > 0)
+                        PositionGhostAt(state.ghost, rec.Points[rec.Points.Count - 1]);
                     if (pastEnd)
                         ApplyResourceDeltas(rec, currentUT);
                 }
@@ -5225,6 +5287,8 @@ namespace Parsek
 
         void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points, ref int cachedIndex, double targetUT)
         {
+            if (points == null || points.Count == 0) { ghost.SetActive(false); return; }
+
             int indexBefore = TrajectoryMath.FindWaypointIndex(points, ref cachedIndex, targetUT);
 
             if (indexBefore < 0)
@@ -5339,6 +5403,47 @@ namespace Parsek
             Vector3d velocity = orbit.getOrbitalVelocityAtUT(ut);
             if (velocity.sqrMagnitude > 0.001)
                 ghost.transform.rotation = Quaternion.LookRotation(velocity);
+        }
+
+        /// <summary>
+        /// Positions a ghost using only orbit segments (no trajectory points).
+        /// Used for background-only recordings (vessels that stayed on rails).
+        /// </summary>
+        void PositionGhostFromOrbitOnly(GameObject ghost, RecordingStore.Recording rec, double ut, int orbitCacheBase)
+        {
+            for (int s = 0; s < rec.OrbitSegments.Count; s++)
+            {
+                var seg = rec.OrbitSegments[s];
+                if (ut >= seg.startUT && ut <= seg.endUT)
+                {
+                    int cacheKey = orbitCacheBase + s;
+                    if (loggedOrbitSegments.Add(cacheKey))
+                        Log($"Orbit-only segment activated: cache={cacheKey}, body={seg.bodyName}, " +
+                            $"sma={seg.semiMajorAxis:F0}, UT {seg.startUT:F0}-{seg.endUT:F0}");
+                    PositionGhostFromOrbit(ghost, seg, ut, cacheKey);
+                    ghost.SetActive(true);
+                    return;
+                }
+            }
+            // UT falls in a gap between orbit segments — hide ghost
+            ghost.SetActive(false);
+        }
+
+        /// <summary>
+        /// Positions a ghost at a fixed surface position (body, lat, lon, alt, rotation).
+        /// Used for background vessels that are landed/splashed.
+        /// </summary>
+        void PositionGhostAtSurface(GameObject ghost, SurfacePosition surfPos)
+        {
+            CelestialBody body = FlightGlobals.Bodies.Find(b => b.name == surfPos.body);
+            if (body == null)
+            {
+                ghost.SetActive(false);
+                return;
+            }
+            ghost.transform.position = body.GetWorldSurfacePosition(surfPos.latitude, surfPos.longitude, surfPos.altitude);
+            ghost.transform.rotation = body.bodyTransform.rotation * surfPos.rotation;
+            ghost.SetActive(true);
         }
 
         void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points,
