@@ -492,8 +492,8 @@ When starting a new session to continue this work:
 | Task 6: Terminal event detection | Done | `686e927` | Deferred destruction check, no recovery handler (wrong scene) |
 | Task 7: Tree commit + leaf spawn | Done | `969a0b6` | CommitTreeFlight, CommitTreeSceneExit, leaf spawning, tree persistence, 33 tests |
 | Task 8: Tree-aware merge dialog | Done | `963ceec` | ShowTreeDialog, revert vs scene-exit branching, CommitTreeRevert |
-| Task 9: Tree ghost playback | **Next** | — | Depends on 7 |
-| Task 10: Tree-level resource tracking | Pending | — | Depends on 7 |
+| Task 9: Tree ghost playback | Done | `3f4b91c` | Background orbit/surface ghosts, spawn suppression, surface rotation fix |
+| Task 10: Tree-level resource tracking | **Next** | — | Depends on 7 |
 | Task 11: Backward compatibility + chain migration | Pending | — | Depends on all |
 
 ### Task 1: RecordingTree data model + serialization
