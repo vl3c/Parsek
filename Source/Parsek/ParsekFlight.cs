@@ -130,6 +130,14 @@ namespace Parsek
         // Vessel PIDs that existed before a joint break (for filtering pre-existing vessels)
         private HashSet<uint> preBreakVesselPids;
 
+        // Merge event detection (tree mode)
+        private bool pendingTreeDockMerge;           // true when a tree dock merge is pending
+        private uint pendingDockAbsorbedPid;         // PID of absorbed vessel in dock merge
+        private bool pendingBoardingTargetInTree;    // true if boarding target is in the tree
+
+        // Docking race condition guard (Task 5 sets, Task 6 checks)
+        internal HashSet<uint> dockingInProgress = new HashSet<uint>();
+
         // Timeline warp protection — tracks previous frame's UT
         private double lastTimelineUT = -1;
 
@@ -244,6 +252,49 @@ namespace Parsek
                 }
             }
 
+            // Tree mode: dock merge -- create merge branch point
+            if (activeTree != null && pendingTreeDockMerge && recorder != null
+                && !recorder.IsRecording && recorder.CaptureAtStop != null)
+            {
+                double mergeUT = Planetarium.GetUniversalTime();
+                if (recorder.CaptureAtStop.Points.Count > 0)
+                    mergeUT = recorder.CaptureAtStop.Points[recorder.CaptureAtStop.Points.Count - 1].ut;
+
+                // Determine parent recording IDs
+                string activeParentId = activeTree.ActiveRecordingId;
+                string bgParentId = null;
+                // The background partner is whichever vessel (absorbed OR merged) is in BackgroundMap.
+                // When we're the TARGET: absorbed vessel is in BackgroundMap.
+                // When we're the INITIATOR: merged (surviving) vessel is in BackgroundMap.
+                if (pendingDockAbsorbedPid != 0)
+                    activeTree.BackgroundMap.TryGetValue(pendingDockAbsorbedPid, out bgParentId);
+                if (bgParentId == null && pendingDockMergedPid != 0)
+                    activeTree.BackgroundMap.TryGetValue(pendingDockMergedPid, out bgParentId);
+
+                var stoppedRecorder = recorder;
+                recorder = null;
+
+                CreateMergeBranch(
+                    BranchPointType.Dock,
+                    pendingDockMergedPid,
+                    activeParentId,
+                    bgParentId,
+                    mergeUT,
+                    stoppedRecorder);
+
+                // Clean up
+                if (pendingDockAbsorbedPid != 0)
+                    dockingInProgress.Remove(pendingDockAbsorbedPid);
+
+                pendingTreeDockMerge = false;
+                pendingDockMergedPid = 0;
+                pendingDockAbsorbedPid = 0;
+                dockConfirmFrames = 0;
+                pendingDockAsTarget = false;
+
+                Log("Tree dock merge completed");
+            }
+
             // Dock: initiator (pid changed, recorder already stopped by OnPhysicsFrame)
             if (recorder != null && recorder.DockMergePending &&
                 !recorder.IsRecording && recorder.CaptureAtStop != null)
@@ -333,6 +384,45 @@ namespace Parsek
                 CommitChainSegment(recorder, pendingChainEvaName);
                 recorder = null;
                 // pendingAutoRecord is still true — will start child EVA recording next
+            }
+
+            // Tree mode: board merge -- create merge branch point
+            if (activeTree != null && recorder != null && recorder.ChainToVesselPending
+                && !recorder.IsRecording && recorder.CaptureAtStop != null
+                && pendingBoardingTargetPid != 0
+                && FlightGlobals.ActiveVessel != null
+                && FlightGlobals.ActiveVessel.persistentId == pendingBoardingTargetPid)
+            {
+                double mergeUT = Planetarium.GetUniversalTime();
+                if (recorder.CaptureAtStop.Points.Count > 0)
+                    mergeUT = recorder.CaptureAtStop.Points[recorder.CaptureAtStop.Points.Count - 1].ut;
+
+                uint mergedPid = pendingBoardingTargetPid;
+
+                string activeParentId = activeTree.ActiveRecordingId;
+                string bgParentId = null;
+                if (pendingBoardingTargetInTree)
+                    activeTree.BackgroundMap.TryGetValue(mergedPid, out bgParentId);
+
+                // Fix 5: clear ChainToVesselPending before CreateMergeBranch
+                recorder.ChainToVesselPending = false;
+                var stoppedRecorder = recorder;
+                recorder = null;
+
+                CreateMergeBranch(
+                    BranchPointType.Board,
+                    mergedPid,
+                    activeParentId,
+                    bgParentId,
+                    mergeUT,
+                    stoppedRecorder);
+
+                pendingBoardingTargetPid = 0;
+                boardingConfirmFrames = 0;
+                pendingBoardingTargetInTree = false;
+                activeChainCrewName = null;
+
+                Log("Tree board merge completed");
             }
 
             // Chain: auto-commit EVA segment when boarding detected (EVA→vessel)
@@ -606,6 +696,12 @@ namespace Parsek
             pendingUndockOtherPid = 0;
             undockConfirmFrames = 0;
 
+            // Clear merge event detection state
+            pendingTreeDockMerge = false;
+            pendingDockAbsorbedPid = 0;
+            pendingBoardingTargetInTree = false;
+            dockingInProgress.Clear();
+
             // Clear split event detection state
             lastBranchUT = -1;
             lastBranchVesselPids.Clear();
@@ -731,7 +827,11 @@ namespace Parsek
         void OnVesselWillDestroy(Vessel v)
         {
             recorder?.OnVesselWillDestroy(v);
-            backgroundRecorder?.OnBackgroundVesselWillDestroy(v);
+
+            // Skip background recorder cleanup for vessels being absorbed by docking.
+            // The merge handler (CreateMergeBranch) will clean up via OnVesselRemovedFromBackground.
+            if (!dockingInProgress.Contains(v.persistentId))
+                backgroundRecorder?.OnBackgroundVesselWillDestroy(v);
 
             // If the continuation vessel is destroyed, mark the recording and stop tracking
             if (continuationVesselPid != 0 && v.persistentId == continuationVesselPid)
@@ -770,6 +870,13 @@ namespace Parsek
         {
             if (activeTree == null) return;
             if (newVessel == null) return;
+
+            // Fix 1 (CRITICAL): Don't interfere with pending merge processing.
+            // Dock-induced vessel switches must not promote before Update() runs the merge handler.
+            if (pendingTreeDockMerge) return;
+
+            // Don't promote during pending board merge — the board handler in Update() owns this.
+            if (recorder != null && recorder.ChainToVesselPending) return;
 
             // If the current recorder is still active (OnPhysicsFrame didn't catch the switch,
             // e.g. because isOnRails was true), transition it to background now
@@ -1013,6 +1120,42 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure data-model method: creates the BranchPoint and one child Recording object
+        /// for a vessel merge (dock or board). Testable without Unity.
+        /// Takes a list of parent recording IDs (1 for foreign vessel merge, 2 for two-tree merge)
+        /// and returns a single child recording for the merged vessel.
+        /// </summary>
+        internal static (BranchPoint bp, RecordingStore.Recording mergedChild)
+            BuildMergeBranchData(
+                List<string> parentRecordingIds, string treeId, double mergeUT,
+                BranchPointType branchType, uint mergedVesselPid, string mergedVesselName)
+        {
+            string childId = Guid.NewGuid().ToString("N");
+            string bpId = Guid.NewGuid().ToString("N");
+
+            var bp = new BranchPoint
+            {
+                id = bpId,
+                ut = mergeUT,
+                type = branchType,
+                parentRecordingIds = new List<string>(parentRecordingIds),
+                childRecordingIds = new List<string> { childId }
+            };
+
+            var mergedChild = new RecordingStore.Recording
+            {
+                RecordingId = childId,
+                TreeId = treeId,
+                VesselPersistentId = mergedVesselPid,
+                VesselName = mergedVesselName,
+                ParentBranchPointId = bpId,
+                ExplicitStartUT = mergeUT
+            };
+
+            return (bp, mergedChild);
+        }
+
+        /// <summary>
         /// Creates a tree branch for a vessel split event.
         /// If no tree exists yet, wraps the current recording as the root node.
         /// Creates two child recordings (active + background), wires up BackgroundRecorder,
@@ -1178,6 +1321,143 @@ namespace Parsek
                 $"bp={bp.id}, activeChild={activeChild.RecordingId} (pid={activeChild.VesselPersistentId}), " +
                 $"bgChild={bgChild.RecordingId} (pid={bgChild.VesselPersistentId})" +
                 (evaCrewName != null ? $", evaCrew={evaCrewName}" : ""));
+        }
+
+        /// <summary>
+        /// When we are the dock target (our PID unchanged), finds the PID of the vessel
+        /// that was absorbed into us. Scans BackgroundMap for a vessel that is no longer
+        /// a separate entity (its Vessel object is gone or merged into ours).
+        /// Returns 0 if the partner is not in the tree (foreign vessel).
+        /// </summary>
+        uint FindAbsorbedDockPartnerPid(uint mergedPid, Vessel mergedVessel)
+        {
+            if (activeTree == null) return 0;
+
+            foreach (var kvp in activeTree.BackgroundMap)
+            {
+                uint bgPid = kvp.Key;
+                if (bgPid == mergedPid) continue; // skip ourselves
+
+                Vessel bgVessel = FlightRecorder.FindVesselByPid(bgPid);
+
+                // After coupling, the absorbed vessel either:
+                // (a) has its Vessel object destroyed (null)
+                // (b) has its Vessel reference pointing to the merged vessel (reparented parts)
+                // (c) still exists but with 0 parts (about to be destroyed)
+                if (bgVessel == null || bgVessel == mergedVessel
+                    || bgVessel.parts == null || bgVessel.parts.Count == 0)
+                {
+                    return bgPid;
+                }
+            }
+
+            // No background vessel was absorbed -- partner is a foreign vessel
+            return 0;
+        }
+
+        /// <summary>
+        /// Creates a tree merge branch point for a dock or board event.
+        /// Ends parent recordings, creates child recording for the merged vessel,
+        /// and starts a new FlightRecorder for the child.
+        /// Per Orchestrator Fix 3: absorbedVesselPid is NOT a parameter --
+        /// background vessel PID is derived from the background parent recording.
+        /// </summary>
+        void CreateMergeBranch(
+            BranchPointType branchType,
+            uint mergedVesselPid,
+            string activeParentRecordingId,      // from the active recorder (always present)
+            string backgroundParentRecordingId,  // from BackgroundMap lookup (null for foreign vessel)
+            double mergeUT,
+            FlightRecorder stoppedRecorder)
+        {
+            // 1. Build parent recording ID list
+            var parentIds = new List<string>();
+            parentIds.Add(activeParentRecordingId);
+            if (backgroundParentRecordingId != null)
+                parentIds.Add(backgroundParentRecordingId);
+
+            // 2. Flush captured data from stopped recorder into the active parent recording
+            RecordingStore.Recording activeParentRec = null;
+            if (activeTree.Recordings.TryGetValue(activeParentRecordingId, out activeParentRec))
+            {
+                if (stoppedRecorder.CaptureAtStop != null)
+                {
+                    activeParentRec.Points.AddRange(stoppedRecorder.CaptureAtStop.Points);
+                    activeParentRec.OrbitSegments.AddRange(stoppedRecorder.CaptureAtStop.OrbitSegments);
+                    activeParentRec.PartEvents.AddRange(stoppedRecorder.CaptureAtStop.PartEvents);
+                    activeParentRec.PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+                }
+                activeParentRec.ExplicitEndUT = mergeUT;
+                // Set terminal state based on merge type
+                activeParentRec.TerminalStateValue = (branchType == BranchPointType.Dock)
+                    ? TerminalState.Docked : TerminalState.Boarded;
+            }
+
+            // 3. End background parent recording (if two-parent merge)
+            // Per Fix 3: derive background vessel PID from the recording's VesselPersistentId
+            if (backgroundParentRecordingId != null)
+            {
+                RecordingStore.Recording bgParentRec;
+                if (activeTree.Recordings.TryGetValue(backgroundParentRecordingId, out bgParentRec))
+                {
+                    bgParentRec.ExplicitEndUT = mergeUT;
+                    bgParentRec.TerminalStateValue = (branchType == BranchPointType.Dock)
+                        ? TerminalState.Docked : TerminalState.Boarded;
+
+                    // Remove background vessel from BackgroundMap and notify BackgroundRecorder
+                    uint bgVesselPid = bgParentRec.VesselPersistentId;
+                    backgroundRecorder?.OnVesselRemovedFromBackground(bgVesselPid);
+                    activeTree.BackgroundMap.Remove(bgVesselPid);
+                }
+            }
+
+            // 4. Get merged vessel name
+            Vessel mergedVessel = FlightRecorder.FindVesselByPid(mergedVesselPid);
+            string mergedVesselName = mergedVessel?.vesselName ?? "Merged Vessel";
+
+            // 5. Build merge branch data
+            var (bp, mergedChild) = BuildMergeBranchData(
+                parentIds, activeTree.Id, mergeUT, branchType,
+                mergedVesselPid, mergedVesselName);
+
+            // 6. Take snapshot of merged vessel
+            ConfigNode mergedSnapshot = (mergedVessel != null)
+                ? VesselSpawner.TryBackupSnapshot(mergedVessel) : null;
+            mergedChild.GhostVisualSnapshot = mergedSnapshot;
+            mergedChild.VesselSnapshot = mergedSnapshot != null ? mergedSnapshot.CreateCopy() : null;
+
+            // 7. Set ChildBranchPointId on all parent recordings
+            if (activeParentRec != null)
+                activeParentRec.ChildBranchPointId = bp.id;
+            if (backgroundParentRecordingId != null)
+            {
+                RecordingStore.Recording bgParentRec2;
+                if (activeTree.Recordings.TryGetValue(backgroundParentRecordingId, out bgParentRec2))
+                    bgParentRec2.ChildBranchPointId = bp.id;
+            }
+
+            // 8. Add to tree
+            activeTree.BranchPoints.Add(bp);
+            activeTree.Recordings[mergedChild.RecordingId] = mergedChild;
+
+            // 9. Set active recording
+            activeTree.ActiveRecordingId = mergedChild.RecordingId;
+
+            // 10. Start new FlightRecorder for merged child
+            recorder = new FlightRecorder();
+            recorder.ActiveTree = activeTree;
+            recorder.StartRecording(isPromotion: true);
+
+            if (!recorder.IsRecording)
+            {
+                ParsekLog.Warn("Flight", "CreateMergeBranch: StartRecording failed for merged child");
+                recorder = null;
+            }
+
+            // 11. Log
+            ParsekLog.Info("Flight", $"Tree merge created: type={branchType}, " +
+                $"bp={bp.id}, parents=[{string.Join(",", parentIds)}], " +
+                $"child={mergedChild.RecordingId} (pid={mergedVesselPid})");
         }
 
         /// <summary>
@@ -1487,11 +1767,12 @@ namespace Parsek
 
         void OnCrewBoardVessel(GameEvents.FromToAction<Part, Part> data)
         {
-            if (activeChainId == null)
+            if (activeChainId == null && activeTree == null)
             {
-                ParsekLog.Verbose("Flight", "OnCrewBoardVessel: no active chain — ignoring");
+                ParsekLog.Verbose("Flight", "OnCrewBoardVessel: no active chain or tree — ignoring");
                 return;
             }
+            if (pendingSplitInProgress) return; // split must complete first
             if (data.to?.vessel == null)
             {
                 ParsekLog.Verbose("Flight", "OnCrewBoardVessel: target vessel is null — ignoring");
@@ -1500,7 +1781,13 @@ namespace Parsek
 
             pendingBoardingTargetPid = data.to.vessel.persistentId;
             boardingConfirmFrames = 0;
-            Log($"onCrewBoardVessel: target vessel pid={pendingBoardingTargetPid}");
+
+            // Store whether the boarding target is in the tree
+            pendingBoardingTargetInTree = (activeTree != null &&
+                activeTree.BackgroundMap.ContainsKey(data.to.vessel.persistentId));
+
+            Log($"onCrewBoardVessel: target vessel pid={pendingBoardingTargetPid}" +
+                (activeTree != null ? $", inTree={pendingBoardingTargetInTree}" : ""));
         }
 
         /// <summary>
@@ -1787,6 +2074,68 @@ namespace Parsek
             if (data.to?.vessel == null) return;
             uint mergedPid = data.to.vessel.persistentId;
 
+            // --- TREE MODE: create merge branch instead of chain segment ---
+            if (activeTree != null && recorder != null)
+            {
+                if (pendingSplitInProgress) return; // split must complete first
+
+                if (recorder.IsRecording)
+                {
+                    bool isTarget = (recorder.RecordingVesselId == mergedPid);
+                    uint absorbedPid;
+
+                    if (isTarget)
+                    {
+                        // We are the TARGET -- find the absorbed partner (Fix 2: pass Vessel)
+                        absorbedPid = FindAbsorbedDockPartnerPid(mergedPid, data.to.vessel);
+                    }
+                    else
+                    {
+                        // We are the INITIATOR -- we are being absorbed
+                        absorbedPid = recorder.RecordingVesselId;
+                    }
+
+                    // Stop recorder synchronously
+                    recorder.StopRecordingForChainBoundary();
+
+                    // Set pending state for tree merge
+                    pendingTreeDockMerge = true;
+                    pendingDockMergedPid = mergedPid;
+                    pendingDockAbsorbedPid = absorbedPid;
+                    dockConfirmFrames = 0;
+
+                    // Race condition guard: prevent Task 6 from misclassifying absorption as destruction
+                    if (absorbedPid != 0)
+                        dockingInProgress.Add(absorbedPid);
+
+                    Log($"onPartCouple (tree): dock merge pending " +
+                        $"(merged={mergedPid}, absorbed={absorbedPid}, isTarget={isTarget})");
+                    return;
+                }
+                else if (!recorder.IsRecording && recorder.CaptureAtStop != null)
+                {
+                    // OnPhysicsFrame already stopped us (initiator, late event)
+                    uint absorbedPid = recorder.RecordingVesselId;
+
+                    pendingTreeDockMerge = true;
+                    pendingDockMergedPid = mergedPid;
+                    pendingDockAbsorbedPid = absorbedPid;
+                    dockConfirmFrames = 0;
+
+                    // Clear DockMergePending to prevent chain handler
+                    recorder.DockMergePending = false;
+
+                    if (absorbedPid != 0)
+                        dockingInProgress.Add(absorbedPid);
+
+                    Log($"onPartCouple (tree, retroactive): dock merge pending " +
+                        $"(merged={mergedPid}, absorbed={absorbedPid})");
+                    return;
+                }
+                // else: recorder exists but in some other state -- fall through to legacy
+            }
+
+            // --- LEGACY (non-tree) chain mode: unchanged ---
             if (recorder != null && recorder.IsRecording)
             {
                 // We're actively recording
@@ -2230,6 +2579,12 @@ namespace Parsek
             undockContinuationPid = 0;
             undockContinuationRecIdx = -1;
             undockContinuationLastUT = -1;
+
+            // Clear merge event detection state
+            pendingTreeDockMerge = false;
+            pendingDockAbsorbedPid = 0;
+            pendingBoardingTargetInTree = false;
+            dockingInProgress.Clear();
 
             if (RecordingStore.HasPending)
             {
