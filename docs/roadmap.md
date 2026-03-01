@@ -140,6 +140,9 @@ Making "jump into a ghost and fly it" reliable is desirable but creates paradox 
 
 Current status: experimental button exists in UI, not recommended for normal play.
 
+### Camera follow for ghost vessels
+Allow the player to move the camera to a recorded vessel during playback. Clicking a ghost (or selecting it from the UI) anchors the camera on that vessel, letting the player watch the mission from that perspective without interrupting their current flight.
+
 ### Additional part event coverage
 - Control surface deflection (continuous float — thousands of events per flight, unclear visual value)
 - Robotics / Breaking Ground DLC (continuous servo motion, DLC-dependent)
