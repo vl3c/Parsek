@@ -496,6 +496,38 @@ namespace Parsek
             ParsekLog.Info("BgRecorder", "Shutdown complete — all background states cleared");
         }
 
+        /// <summary>
+        /// Finalizes all background recordings for tree commit.
+        /// Closes all open orbit segments, flushes any pending trajectory data,
+        /// and sets ExplicitEndUT on all background recordings.
+        /// Does NOT clear state — call Shutdown() after this if shutting down.
+        /// </summary>
+        public void FinalizeAllForCommit(double commitUT)
+        {
+            // Close all open orbit segments
+            foreach (var kvp in onRailsStates)
+            {
+                var state = kvp.Value;
+                if (state.hasOpenOrbitSegment)
+                {
+                    CloseOrbitSegment(state, commitUT);
+                }
+            }
+
+            // Update ExplicitEndUT on all background recordings
+            foreach (var kvp in tree.BackgroundMap)
+            {
+                RecordingStore.Recording treeRec;
+                if (tree.Recordings.TryGetValue(kvp.Value, out treeRec))
+                {
+                    treeRec.ExplicitEndUT = commitUT;
+                }
+            }
+
+            ParsekLog.Info("BgRecorder", $"FinalizeAllForCommit complete at UT={commitUT:F1} " +
+                $"({onRailsStates.Count} on-rails, {loadedStates.Count} loaded)");
+        }
+
         #endregion
 
         #region Internal State Management

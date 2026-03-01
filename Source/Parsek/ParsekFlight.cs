@@ -204,6 +204,7 @@ namespace Parsek
             }
         }
         public bool HasActiveChain => activeChainId != null;
+        public bool HasActiveTree => activeTree != null;
 
         #endregion
 
@@ -737,25 +738,27 @@ namespace Parsek
             pendingSplitRecorder = null;
             preBreakVesselPids = null;
 
-            // Tree mode cleanup: flush active recorder to tree, clear tree state.
-            // Full tree commit is deferred to Task 7.
-            if (activeTree != null && recorder != null && recorder.IsRecording)
+            // Tree mode: finalize and commit tree on scene exit.
+            // Background recorder must be finalized BEFORE the tree commit so
+            // its data is flushed to the tree recordings.
+            if (activeTree != null)
             {
-                if (recorder.IsBackgrounded)
-                    recorder.IsRecording = false;
-                else
-                    recorder.ForceStop();
-                FlushRecorderToTreeRecording(recorder, activeTree);
+                double commitUT = Planetarium.GetUniversalTime();
+
+                // CommitTreeSceneExit handles: stop/flush recorder, finalize background,
+                // capture terminal state, null snapshots, stash pending tree
+                CommitTreeSceneExit(commitUT);
+
+                // Clean up tree state
                 recorder = null;
+                if (backgroundRecorder != null)
+                {
+                    backgroundRecorder.Shutdown();
+                    Patches.PhysicsFramePatch.BackgroundRecorderInstance = null;
+                    backgroundRecorder = null;
+                }
+                activeTree = null;
             }
-            // Shutdown background recorder before clearing tree
-            if (backgroundRecorder != null)
-            {
-                backgroundRecorder.Shutdown();
-                Patches.PhysicsFramePatch.BackgroundRecorderInstance = null;
-                backgroundRecorder = null;
-            }
-            activeTree = null;
 
             // If we have recording data and are leaving flight, stash it
             if (recorder != null && recorder.Recording.Count > 0)
@@ -2793,6 +2796,16 @@ namespace Parsek
             pendingBoardingTargetInTree = false;
             dockingInProgress.Clear();
 
+            // Handle pending tree: auto-commit ghost-only for now.
+            // Task 8 will replace this with a tree merge dialog.
+            if (RecordingStore.HasPendingTree)
+            {
+                var pt = RecordingStore.PendingTree;
+                Log($"Found pending tree '{pt.TreeName}' — auto-committing ghost-only (Task 8 will add dialog)");
+                RecordingStore.CommitPendingTree();
+                ParsekScenario.ReserveSnapshotCrew();
+            }
+
             if (RecordingStore.HasPending)
             {
                 var pending = RecordingStore.Pending;
@@ -3060,6 +3073,317 @@ namespace Parsek
 
             Log($"CommitFlight: committed \"{vesselName}\" to timeline");
             ParsekLog.ScreenMessage("Flight committed to timeline!", 3f);
+        }
+
+        /// <summary>
+        /// Commits the active recording tree from the Commit Flight button.
+        /// Finalizes all recordings, spawns leaf vessels, reserves crew.
+        /// The active vessel stays live (VesselSpawned=true).
+        /// </summary>
+        public void CommitTreeFlight()
+        {
+            if (activeTree == null)
+            {
+                ParsekLog.ScreenMessage("No active tree to commit", 2f);
+                return;
+            }
+
+            double commitUT = Planetarium.GetUniversalTime();
+            ParsekLog.Info("Flight", $"CommitTreeFlight: starting tree commit at UT={commitUT:F1}");
+
+            // Stop continuations
+            if (continuationVesselPid != 0)
+            {
+                RefreshContinuationSnapshot();
+                StopContinuation("tree commit");
+            }
+            if (undockContinuationPid != 0)
+            {
+                RefreshUndockContinuationSnapshot();
+                StopUndockContinuation("tree commit");
+            }
+
+            // Finalize all recordings (active + background)
+            FinalizeTreeRecordings(activeTree, commitUT, isSceneExit: false);
+
+            // Identify the active vessel's recording
+            string activeRecId = activeTree.ActiveRecordingId;
+            RecordingStore.Recording activeRec = null;
+            if (activeRecId != null)
+                activeTree.Recordings.TryGetValue(activeRecId, out activeRec);
+
+            // Mark active vessel's recording as already spawned
+            if (activeRec != null)
+            {
+                activeRec.VesselSpawned = true;
+                activeRec.SpawnedVesselPersistentId = recorder != null ? recorder.RecordingVesselId :
+                    (FlightGlobals.ActiveVessel != null ? FlightGlobals.ActiveVessel.persistentId : 0u);
+                activeRec.LastAppliedResourceIndex = activeRec.Points.Count - 1;
+            }
+
+            // Reserve crew for all leaf vessels (except active vessel)
+            var spawnableLeaves = activeTree.GetSpawnableLeaves();
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster != null)
+            {
+                GameStateRecorder.SuppressCrewEvents = true;
+                try
+                {
+                    foreach (var leaf in spawnableLeaves)
+                    {
+                        if (leaf.VesselSpawned) continue;
+                        if (leaf.VesselSnapshot == null) continue;
+                        ParsekScenario.ReserveCrewIn(leaf.VesselSnapshot, false, roster);
+                    }
+                }
+                finally
+                {
+                    GameStateRecorder.SuppressCrewEvents = false;
+                }
+            }
+
+            // Commit tree to storage
+            RecordingStore.CommitTree(activeTree);
+
+            // Spawn all non-active leaf vessels
+            SpawnTreeLeaves(activeTree, activeRecId);
+
+            // Crew swap on active vessel
+            int swapped = ParsekScenario.SwapReservedCrewInFlight();
+            if (swapped > 0)
+                ParsekLog.Info("Flight", $"CommitTreeFlight: swapped {swapped} crew on active vessel");
+
+            int spawnCount = 0;
+            foreach (var leaf in spawnableLeaves)
+            {
+                if (leaf.RecordingId != activeRecId && leaf.VesselSpawned)
+                    spawnCount++;
+            }
+
+            // Clear state
+            var treeName = activeTree.TreeName;
+            activeTree = null;
+            if (backgroundRecorder != null)
+            {
+                Patches.PhysicsFramePatch.BackgroundRecorderInstance = null;
+                backgroundRecorder = null;
+            }
+            recorder = null;
+            lastPlaybackIndex = 0;
+
+            Log($"CommitTreeFlight: committed tree \"{treeName}\" — {spawnCount} vessel(s) spawned");
+            if (spawnCount > 0)
+                ParsekLog.ScreenMessage($"Tree committed to timeline! {spawnCount} vessel(s) spawned.", 3f);
+            else
+                ParsekLog.ScreenMessage("Tree committed to timeline!", 3f);
+        }
+
+        /// <summary>
+        /// Commits the active tree on scene exit (ghost-only, no spawning).
+        /// Finalizes all recordings and stashes the tree as pending.
+        /// </summary>
+        void CommitTreeSceneExit(double commitUT)
+        {
+            if (activeTree == null) return;
+
+            ParsekLog.Info("Flight", $"CommitTreeSceneExit: finalizing tree at UT={commitUT:F1}");
+
+            // Finalize all recordings
+            FinalizeTreeRecordings(activeTree, commitUT, isSceneExit: true);
+
+            // Null all vessel snapshots (no spawning on scene exit)
+            foreach (var rec in activeTree.Recordings.Values)
+            {
+                rec.VesselSnapshot = null;
+            }
+
+            // Stash as pending tree (Task 8 will show merge dialog;
+            // for now auto-commit ghost-only)
+            RecordingStore.StashPendingTree(activeTree);
+
+            ParsekLog.Info("Flight", $"CommitTreeSceneExit: stashed pending tree '{activeTree.TreeName}'");
+        }
+
+        /// <summary>
+        /// Finalizes all recordings in the tree: stops active recorder, flushes data,
+        /// captures terminal state/orbit/position for all recordings.
+        /// </summary>
+        void FinalizeTreeRecordings(RecordingTree tree, double commitUT, bool isSceneExit)
+        {
+            // 1. Stop and flush the active recorder
+            if (recorder != null)
+            {
+                if (recorder.IsRecording)
+                {
+                    if (recorder.IsBackgrounded)
+                        recorder.IsRecording = false;
+                    else
+                        recorder.ForceStop();
+                }
+                FlushRecorderToTreeRecording(recorder, tree);
+            }
+
+            // 2. Finalize background recorder (close orbit segments, flush data)
+            if (backgroundRecorder != null)
+                backgroundRecorder.FinalizeAllForCommit(commitUT);
+
+            // 3. Process each recording in the tree
+            foreach (var kvp in tree.Recordings)
+            {
+                var rec = kvp.Value;
+
+                // Set ExplicitStartUT if not already set
+                if (double.IsNaN(rec.ExplicitStartUT))
+                {
+                    if (rec.Points.Count > 0)
+                        rec.ExplicitStartUT = rec.Points[0].ut;
+                    else if (rec.OrbitSegments.Count > 0)
+                        rec.ExplicitStartUT = rec.OrbitSegments[0].startUT;
+                }
+
+                // Set ExplicitEndUT on leaf recordings without one
+                if (double.IsNaN(rec.ExplicitEndUT))
+                {
+                    if (rec.Points.Count > 0)
+                        rec.ExplicitEndUT = rec.Points[rec.Points.Count - 1].ut;
+                    else
+                        rec.ExplicitEndUT = commitUT;
+                }
+
+                // Determine terminal state for recordings that don't have one yet
+                bool isLeaf = rec.ChildBranchPointId == null;
+                if (isLeaf && !rec.TerminalStateValue.HasValue)
+                {
+                    // Try to find the vessel
+                    Vessel vessel = rec.VesselPersistentId != 0
+                        ? FlightRecorder.FindVesselByPid(rec.VesselPersistentId)
+                        : null;
+
+                    if (vessel != null)
+                    {
+                        rec.TerminalStateValue = RecordingTree.DetermineTerminalState((int)vessel.situation);
+                        CaptureTerminalOrbit(rec, vessel);
+                        CaptureTerminalPosition(rec, vessel);
+
+                        // Re-snapshot live vessels for Commit Flight path (fresh state)
+                        if (!isSceneExit)
+                        {
+                            ConfigNode freshSnapshot = VesselSpawner.TryBackupSnapshot(vessel);
+                            if (freshSnapshot != null)
+                            {
+                                rec.VesselSnapshot = freshSnapshot;
+                                if (rec.GhostVisualSnapshot == null)
+                                    rec.GhostVisualSnapshot = freshSnapshot.CreateCopy();
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // Vessel not found — mark as destroyed defensively
+                        rec.TerminalStateValue = TerminalState.Destroyed;
+                        rec.VesselSnapshot = null;
+                        ParsekLog.Warn("Flight", $"FinalizeTreeRecordings: vessel pid={rec.VesselPersistentId} " +
+                            $"not found for recording '{rec.RecordingId}' — marking Destroyed");
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Spawns all leaf vessels from a committed tree (except the active vessel).
+        /// Handles crew reservation (already done by caller), proximity offsets.
+        /// </summary>
+        void SpawnTreeLeaves(RecordingTree tree, string activeRecordingId)
+        {
+            var spawnableLeaves = tree.GetSpawnableLeaves();
+            if (spawnableLeaves.Count == 0)
+            {
+                ParsekLog.Info("Flight", "SpawnTreeLeaves: no spawnable leaves");
+                return;
+            }
+
+            ParsekLog.Info("Flight", $"SpawnTreeLeaves: {spawnableLeaves.Count} spawnable leaf/leaves");
+
+            foreach (var leaf in spawnableLeaves)
+            {
+                // Skip the active vessel — it's already in-game
+                if (leaf.RecordingId == activeRecordingId)
+                    continue;
+
+                if (leaf.VesselSnapshot == null)
+                {
+                    ParsekLog.Warn("Flight", $"SpawnTreeLeaves: leaf '{leaf.RecordingId}' has null snapshot — skipping");
+                    continue;
+                }
+
+                try
+                {
+                    uint spawnedPid = VesselSpawner.RespawnVessel(leaf.VesselSnapshot);
+                    if (spawnedPid != 0)
+                    {
+                        leaf.VesselSpawned = true;
+                        leaf.SpawnedVesselPersistentId = spawnedPid;
+                        leaf.LastAppliedResourceIndex = leaf.Points.Count - 1;
+                        ParsekLog.Info("Flight", $"SpawnTreeLeaves: spawned leaf '{leaf.VesselName}' pid={spawnedPid}");
+                    }
+                    else
+                    {
+                        ParsekLog.Warn("Flight", $"SpawnTreeLeaves: failed to spawn leaf '{leaf.VesselName}'");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn("Flight", $"SpawnTreeLeaves: exception spawning '{leaf.VesselName}': {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Captures terminal orbit parameters from a vessel's current orbit.
+        /// </summary>
+        static void CaptureTerminalOrbit(RecordingStore.Recording rec, Vessel vessel)
+        {
+            if (vessel == null || vessel.orbit == null) return;
+
+            var sit = vessel.situation;
+            if (sit == Vessel.Situations.ORBITING || sit == Vessel.Situations.SUB_ORBITAL
+                || sit == Vessel.Situations.FLYING || sit == Vessel.Situations.ESCAPING)
+            {
+                var orb = vessel.orbit;
+                rec.TerminalOrbitInclination = orb.inclination;
+                rec.TerminalOrbitEccentricity = orb.eccentricity;
+                rec.TerminalOrbitSemiMajorAxis = orb.semiMajorAxis;
+                rec.TerminalOrbitLAN = orb.LAN;
+                rec.TerminalOrbitArgumentOfPeriapsis = orb.argumentOfPeriapsis;
+                rec.TerminalOrbitMeanAnomalyAtEpoch = orb.meanAnomalyAtEpoch;
+                rec.TerminalOrbitEpoch = orb.epoch;
+                rec.TerminalOrbitBody = orb.referenceBody?.name ?? "Kerbin";
+            }
+        }
+
+        /// <summary>
+        /// Captures terminal surface position from a vessel's current state.
+        /// </summary>
+        static void CaptureTerminalPosition(RecordingStore.Recording rec, Vessel vessel)
+        {
+            if (vessel == null) return;
+
+            var sit = vessel.situation;
+            if (sit == Vessel.Situations.LANDED || sit == Vessel.Situations.SPLASHED
+                || sit == Vessel.Situations.PRELAUNCH)
+            {
+                rec.TerminalPosition = new SurfacePosition
+                {
+                    body = vessel.mainBody?.name ?? "Kerbin",
+                    latitude = vessel.latitude,
+                    longitude = vessel.longitude,
+                    altitude = vessel.altitude,
+                    rotation = vessel.srfRelRotation,
+                    situation = sit == Vessel.Situations.SPLASHED
+                        ? SurfaceSituation.Splashed
+                        : SurfaceSituation.Landed
+                };
+            }
         }
 
         #endregion

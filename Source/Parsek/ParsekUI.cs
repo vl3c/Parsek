@@ -234,12 +234,17 @@ namespace Parsek
                 flight.ClearRecording();
             }
 
-            GUI.enabled = !flight.IsRecording && !flight.IsPlaying
-                && flight.recording.Count >= 2 && !flight.HasActiveChain;
+            bool canCommitStandalone = !flight.IsRecording && !flight.IsPlaying
+                && flight.recording.Count >= 2 && !flight.HasActiveChain && !flight.HasActiveTree;
+            bool canCommitTree = flight.HasActiveTree;
+            GUI.enabled = canCommitStandalone || canCommitTree;
             if (GUILayout.Button("Commit Flight"))
             {
                 ParsekLog.Verbose("UI", "Commit Flight button clicked");
-                flight.CommitFlight();
+                if (flight.HasActiveTree)
+                    flight.CommitTreeFlight();
+                else
+                    flight.CommitFlight();
             }
 
             GUI.enabled = activeGhosts > 0;
