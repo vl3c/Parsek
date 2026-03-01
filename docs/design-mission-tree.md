@@ -490,10 +490,10 @@ When starting a new session to continue this work:
 | Task 4: Split event detection | Done | `f1fcb08` | Undock/EVA/joint break branching, debris filter, resume-on-false-alarm |
 | Task 5: Merge event detection | Done | `f1eecd8` | Dock/board merges, dual-lookup for initiator/target, dockingInProgress guard |
 | Task 6: Terminal event detection | Done | `686e927` | Deferred destruction check, no recovery handler (wrong scene) |
-| Task 7: Tree commit + leaf spawn | **Next** | — | Depends on 1-6 |
-| Task 8: Tree-aware merge dialog | Pending | — | Depends on 6 |
-| Task 9: UI updates | Pending | — | Depends on 6 |
-| Task 10: Quicksave/quickload | Pending | — | Depends on 6 |
+| Task 7: Tree commit + leaf spawn | Done | `969a0b6` | CommitTreeFlight, CommitTreeSceneExit, leaf spawning, tree persistence, 33 tests |
+| Task 8: Tree-aware merge dialog | **Next** | — | Depends on 7 |
+| Task 9: UI updates | Pending | — | Depends on 7 |
+| Task 10: Quicksave/quickload | Pending | — | Depends on 7 |
 | Task 11: Edge cases + polish | Pending | — | Depends on all |
 
 ### Task 1: RecordingTree data model + serialization
