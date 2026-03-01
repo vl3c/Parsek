@@ -141,6 +141,11 @@ namespace Parsek
         private static readonly Color HeatTintColor = new Color(1f, 0.45f, 0.2f, 1f);
         private static readonly Color HeatEmissionColor = new Color(1.5f, 0.6f, 0.15f, 1f);
 
+        // Reentry FX intensity thresholds
+        private const float ReentryQThresholdLow = 500f;
+        private const float ReentryQThresholdHigh = 20000f;
+        private const float ReentrySpeedThresholdLow = 400f;
+
         // Cache for PREFAB_PARTICLE fx_* prefabs found on PartLoader part prefabs.
         // Built once from PartLoader.LoadedPartsList (stable prefab templates).
         private static Dictionary<string, GameObject> fxPrefabCache;
@@ -5449,6 +5454,43 @@ namespace Parsek
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Computes reentry visual intensity from speed and dynamic pressure.
+        /// Pure function — no Unity dependencies, no side effects.
+        /// Returns 0-1 float: 0 = no effect, 1 = maximum reentry FX.
+        /// </summary>
+        internal static float ComputeReentryIntensity(float speed, float dynamicPressure)
+        {
+            // Guard: NaN or negative inputs
+            if (float.IsNaN(speed) || speed < 0f)
+                return 0f;
+            if (float.IsNaN(dynamicPressure) || dynamicPressure < 0f)
+                return 0f;
+
+            // Speed gate: slow flight in thick atmosphere should not glow
+            if (speed < ReentrySpeedThresholdLow)
+                return 0f;
+
+            // Handle infinity (e.g. extreme density values)
+            if (float.IsPositiveInfinity(dynamicPressure))
+                return 1f;
+
+            // Threshold ramp
+            if (dynamicPressure < ReentryQThresholdLow)
+                return 0f;
+            if (dynamicPressure >= ReentryQThresholdHigh)
+                return 1f;
+
+            // Linear ramp between low and high thresholds
+            float intensity = (dynamicPressure - ReentryQThresholdLow) / (ReentryQThresholdHigh - ReentryQThresholdLow);
+
+            // Clamp for safety (should already be in [0,1] from the guards above)
+            if (intensity < 0f) intensity = 0f;
+            if (intensity > 1f) intensity = 1f;
+
+            return intensity;
         }
     }
 }
