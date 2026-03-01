@@ -155,8 +155,19 @@ namespace Parsek
         private const float ReentryQThresholdLow = 500f;
         private const float ReentryQThresholdHigh = 20000f;
         private const float ReentrySpeedThresholdLow = 400f;
-        private static readonly Color ReentryHotEmissionLow = new Color(1.5f, 0.6f, 0.15f, 1f);
-        private static readonly Color ReentryHotEmissionHigh = new Color(2.0f, 1.5f, 0.8f, 1f);
+        internal static readonly Color ReentryHotEmissionLow = new Color(1.5f, 0.6f, 0.15f, 1f);
+        internal static readonly Color ReentryHotEmissionHigh = new Color(2.0f, 1.5f, 0.8f, 1f);
+        internal const float ReentrySmoothingRate = 5.0f;
+        internal const float ReentryLayerAThreshold = 0.05f;
+        internal const float ReentryLayerBThreshold = 0.15f;
+        internal const float ReentryLayerCThreshold = 0.3f;
+        internal const float ReentryLayerDThreshold = 0.1f;
+        internal const float ReentryFlameMaxEmission = 200f;
+        internal const float ReentrySmokeMaxEmission = 80f;
+        internal const float ReentryTrailMinWidth = 5f;
+        internal const float ReentryTrailMaxWidth = 20f;
+        internal const float ReentryTrailEndMinWidth = 1f;
+        internal const float ReentryTrailEndMaxWidth = 5f;
 
         // Cache for PREFAB_PARTICLE fx_* prefabs found on PartLoader part prefabs.
         // Built once from PartLoader.LoadedPartsList (stable prefab templates).
