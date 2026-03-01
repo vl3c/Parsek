@@ -495,8 +495,8 @@ When starting a new session to continue this work:
 | Task 9: Tree ghost playback | Done | `3f4b91c` | Background orbit/surface ghosts, spawn suppression, surface rotation fix |
 | Task 10: Tree-level resource tracking | Done | `e505523` | Tree-level delta computation, lump sum playback, budget integration, 15 tests |
 | Task 11: Backward compatibility + chain migration | Done | `1cba255` | Verification only — no production changes, 5 backward compat tests |
-| Task 12: Tree verbose logging | **Next** | — | Fill all logging gaps in tree code paths (10 gaps across 7 files) |
-| Task 13: Tree test coverage | Pending | — | 18 non-vacuous tests + 3 synthetic tree recordings. Depends on 12 |
+| Task 12: Tree verbose logging | Done | `4c806c1` | 11 logging gaps filled across RecordingTree, ParsekFlight, ResourceBudget |
+| Task 13: Tree test coverage | **Next** | — | 18 non-vacuous tests + 3 synthetic tree recordings. Depends on 12 |
 
 ### Task 1: RecordingTree data model + serialization
 
