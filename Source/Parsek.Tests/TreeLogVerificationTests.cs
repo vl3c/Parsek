@@ -159,11 +159,11 @@ namespace Parsek.Tests
             tree.Recordings["rec_1"] = MakeTreeRecording("rec_1", "tree_c5");
             tree.BranchPoints.Add(new BranchPoint
             {
-                id = "bp1",
-                ut = 150.0,
-                type = BranchPointType.Undock,
-                parentRecordingIds = new List<string> { "rec_0" },
-                childRecordingIds = new List<string> { "rec_1" }
+                Id = "bp1",
+                UT = 150.0,
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { "rec_0" },
+                ChildRecordingIds = new List<string> { "rec_1" }
             });
 
             var node = new ConfigNode("RECORDING_TREE");

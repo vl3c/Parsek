@@ -48,11 +48,12 @@ namespace Parsek
             double.TryParse(node.GetValue("lat"), inv, ic, out pos.latitude);
             double.TryParse(node.GetValue("lon"), inv, ic, out pos.longitude);
             double.TryParse(node.GetValue("alt"), inv, ic, out pos.altitude);
-            float rx, ry, rz, rw;
+            float rx = 0, ry = 0, rz = 0, rw = 1;  // default to identity quaternion
             float.TryParse(node.GetValue("rotX"), inv, ic, out rx);
             float.TryParse(node.GetValue("rotY"), inv, ic, out ry);
             float.TryParse(node.GetValue("rotZ"), inv, ic, out rz);
-            float.TryParse(node.GetValue("rotW"), inv, ic, out rw);
+            if (!float.TryParse(node.GetValue("rotW"), inv, ic, out rw))
+                rw = 1;  // preserve identity if only rotW fails to parse
             pos.rotation = new Quaternion(rx, ry, rz, rw);
             int sitInt;
             if (int.TryParse(node.GetValue("situation"), NumberStyles.Integer, ic, out sitInt)

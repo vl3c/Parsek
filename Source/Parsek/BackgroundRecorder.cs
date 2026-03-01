@@ -137,13 +137,11 @@ namespace Parsek
         {
             if (tree == null) return;
 
-            // Iterate a copy of keys in case the dictionary changes during iteration
-            var pids = new List<uint>(onRailsStates.Keys);
-            for (int i = 0; i < pids.Count; i++)
+            // Dictionary is not modified during this loop, safe to iterate directly
+            foreach (var kvp in onRailsStates)
             {
-                uint pid = pids[i];
-                BackgroundOnRailsState state;
-                if (!onRailsStates.TryGetValue(pid, out state)) continue;
+                uint pid = kvp.Key;
+                var state = kvp.Value;
 
                 // Update ExplicitEndUT periodically
                 if (currentUT - state.lastExplicitEndUpdate >= ExplicitEndUpdateInterval)
@@ -209,7 +207,7 @@ namespace Parsek
                 altitude = bgVessel.altitude,
                 rotation = bgVessel.transform.rotation,
                 velocity = currentVelocity,
-                bodyName = bgVessel.mainBody.name,
+                bodyName = bgVessel.mainBody?.name ?? "Unknown",
                 funds = Funding.Instance != null ? Funding.Instance.Funds : 0,
                 science = ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science : 0,
                 reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0
@@ -322,11 +320,8 @@ namespace Parsek
             if (v == null || tree == null) return;
 
             uint pid = v.persistentId;
-            if (!tree.BackgroundMap.ContainsKey(pid)) return;
-
             string recordingId;
-            tree.BackgroundMap.TryGetValue(pid, out recordingId);
-            if (recordingId == null) return;
+            if (!tree.BackgroundMap.TryGetValue(pid, out recordingId) || recordingId == null) return;
 
             double ut = Planetarium.GetUniversalTime();
 
@@ -358,11 +353,8 @@ namespace Parsek
             if (v == null || tree == null) return;
 
             uint pid = v.persistentId;
-            if (!tree.BackgroundMap.ContainsKey(pid)) return;
-
             string recordingId;
-            tree.BackgroundMap.TryGetValue(pid, out recordingId);
-            if (recordingId == null) return;
+            if (!tree.BackgroundMap.TryGetValue(pid, out recordingId) || recordingId == null) return;
 
             double ut = Planetarium.GetUniversalTime();
 
@@ -401,11 +393,8 @@ namespace Parsek
             if (v == null || tree == null) return;
 
             uint pid = v.persistentId;
-            if (!tree.BackgroundMap.ContainsKey(pid)) return;
-
             string recordingId;
-            tree.BackgroundMap.TryGetValue(pid, out recordingId);
-            if (recordingId == null) return;
+            if (!tree.BackgroundMap.TryGetValue(pid, out recordingId) || recordingId == null) return;
 
             double ut = Planetarium.GetUniversalTime();
 
@@ -451,7 +440,6 @@ namespace Parsek
 
             uint pid = v.persistentId;
             if (!tree.BackgroundMap.ContainsKey(pid)) return;
-
             double ut = Planetarium.GetUniversalTime();
 
             BackgroundOnRailsState railsState;
@@ -688,7 +676,7 @@ namespace Parsek
                 altitude = v.altitude,
                 rotation = v.transform.rotation,
                 velocity = velocity,
-                bodyName = v.mainBody.name,
+                bodyName = v.mainBody?.name ?? "Unknown",
                 funds = Funding.Instance != null ? Funding.Instance.Funds : 0,
                 science = ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science : 0,
                 reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0
@@ -1493,28 +1481,9 @@ namespace Parsek
             return parsedNames;
         }
 
-        /// <summary>
-        /// Duplicates FlightRecorder.ParseJettisonNames (private static).
-        /// </summary>
+        // ParseJettisonNames: use FlightRecorder.ParseJettisonNames (internal static)
         private static string[] ParseJettisonNames(string rawNames)
-        {
-            if (string.IsNullOrWhiteSpace(rawNames))
-                return Array.Empty<string>();
-
-            string[] split = rawNames.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
-            if (split.Length == 0)
-                return Array.Empty<string>();
-
-            var cleaned = new List<string>(split.Length);
-            for (int i = 0; i < split.Length; i++)
-            {
-                string name = split[i].Trim();
-                if (!string.IsNullOrEmpty(name))
-                    cleaned.Add(name);
-            }
-
-            return cleaned.Count > 0 ? cleaned.ToArray() : Array.Empty<string>();
-        }
+            => FlightRecorder.ParseJettisonNames(rawNames);
 
         #endregion
 

@@ -87,11 +87,11 @@ namespace Parsek.Tests
 
             tree.BranchPoints.Add(new BranchPoint
             {
-                id = "bp1",
-                ut = 17050.0,
-                type = BranchPointType.Undock,
-                parentRecordingIds = new List<string> { "root" },
-                childRecordingIds = new List<string> { "child1", "child2" }
+                Id = "bp1",
+                UT = 17050.0,
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { "root" },
+                ChildRecordingIds = new List<string> { "child1", "child2" }
             });
 
             return tree;
@@ -701,11 +701,11 @@ namespace Parsek.Tests
 
             tree.BranchPoints.Add(new BranchPoint
             {
-                id = "bp1",
-                ut = 17050.0,
-                type = BranchPointType.Undock,
-                parentRecordingIds = new List<string> { "root" },
-                childRecordingIds = new List<string> { "leaf1", "leaf2" }
+                Id = "bp1",
+                UT = 17050.0,
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { "root" },
+                ChildRecordingIds = new List<string> { "leaf1", "leaf2" }
             });
 
             var allLeaves = tree.GetAllLeaves();
@@ -752,19 +752,19 @@ namespace Parsek.Tests
 
             tree.BranchPoints.Add(new BranchPoint
             {
-                id = "bp1",
-                ut = 200.0,
-                type = BranchPointType.Undock,
-                parentRecordingIds = new List<string> { "root" },
-                childRecordingIds = new List<string> { "childA", "childB" }
+                Id = "bp1",
+                UT = 200.0,
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { "root" },
+                ChildRecordingIds = new List<string> { "childA", "childB" }
             });
             tree.BranchPoints.Add(new BranchPoint
             {
-                id = "bp2",
-                ut = 400.0,
-                type = BranchPointType.Dock,
-                parentRecordingIds = new List<string> { "childA", "childB" },
-                childRecordingIds = new List<string> { "merged" }
+                Id = "bp2",
+                UT = 400.0,
+                Type = BranchPointType.Dock,
+                ParentRecordingIds = new List<string> { "childA", "childB" },
+                ChildRecordingIds = new List<string> { "merged" }
             });
 
             var spawnable = tree.GetSpawnableLeaves();

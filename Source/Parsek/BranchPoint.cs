@@ -13,16 +13,16 @@ namespace Parsek
 
     public class BranchPoint
     {
-        public string id;
-        public double ut;
-        public BranchPointType type;
-        public List<string> parentRecordingIds = new List<string>();
-        public List<string> childRecordingIds = new List<string>();
+        public string Id;
+        public double UT;
+        public BranchPointType Type;
+        public List<string> ParentRecordingIds = new List<string>();
+        public List<string> ChildRecordingIds = new List<string>();
 
         public override string ToString()
         {
-            return $"BP id={id ?? "?"} type={type} ut={ut:F1} " +
-                   $"parents={parentRecordingIds.Count} children={childRecordingIds.Count}";
+            return $"BP id={Id ?? "?"} type={Type} ut={UT:F1} " +
+                   $"parents={ParentRecordingIds.Count} children={ChildRecordingIds.Count}";
         }
     }
 }

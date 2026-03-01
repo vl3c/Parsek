@@ -71,13 +71,13 @@ namespace Parsek.Tests
                 backgroundVesselName: "Debris Ship");
 
             Assert.NotNull(bp);
-            Assert.Equal(BranchPointType.Undock, bp.type);
-            Assert.Equal(1000.0, bp.ut);
-            Assert.Single(bp.parentRecordingIds);
-            Assert.Equal("parent_rec", bp.parentRecordingIds[0]);
-            Assert.Equal(2, bp.childRecordingIds.Count);
-            Assert.NotNull(bp.id);
-            Assert.NotEmpty(bp.id);
+            Assert.Equal(BranchPointType.Undock, bp.Type);
+            Assert.Equal(1000.0, bp.UT);
+            Assert.Single(bp.ParentRecordingIds);
+            Assert.Equal("parent_rec", bp.ParentRecordingIds[0]);
+            Assert.Equal(2, bp.ChildRecordingIds.Count);
+            Assert.NotNull(bp.Id);
+            Assert.NotEmpty(bp.Id);
         }
 
         [Fact]
@@ -98,7 +98,7 @@ namespace Parsek.Tests
             Assert.Equal("tree_1", activeChild.TreeId);
             Assert.Equal(100u, activeChild.VesselPersistentId);
             Assert.Equal("My Ship", activeChild.VesselName);
-            Assert.Equal(bp.id, activeChild.ParentBranchPointId);
+            Assert.Equal(bp.Id, activeChild.ParentBranchPointId);
             Assert.Equal(1000.0, activeChild.ExplicitStartUT);
             Assert.Null(activeChild.EvaCrewName);
             Assert.Null(activeChild.ParentRecordingId);
@@ -108,7 +108,7 @@ namespace Parsek.Tests
             Assert.Equal("tree_1", bgChild.TreeId);
             Assert.Equal(200u, bgChild.VesselPersistentId);
             Assert.Equal("Undocked Part", bgChild.VesselName);
-            Assert.Equal(bp.id, bgChild.ParentBranchPointId);
+            Assert.Equal(bp.Id, bgChild.ParentBranchPointId);
             Assert.Equal(1000.0, bgChild.ExplicitStartUT);
             Assert.Null(bgChild.EvaCrewName);
         }
@@ -126,8 +126,8 @@ namespace Parsek.Tests
                 backgroundVesselPid: 200,
                 backgroundVesselName: "Other");
 
-            Assert.Contains(activeChild.RecordingId, bp.childRecordingIds);
-            Assert.Contains(bgChild.RecordingId, bp.childRecordingIds);
+            Assert.Contains(activeChild.RecordingId, bp.ChildRecordingIds);
+            Assert.Contains(bgChild.RecordingId, bp.ChildRecordingIds);
         }
 
         [Fact]
@@ -145,8 +145,8 @@ namespace Parsek.Tests
 
             // All IDs should be different
             Assert.NotEqual(activeChild.RecordingId, bgChild.RecordingId);
-            Assert.NotEqual(activeChild.RecordingId, bp.id);
-            Assert.NotEqual(bgChild.RecordingId, bp.id);
+            Assert.NotEqual(activeChild.RecordingId, bp.Id);
+            Assert.NotEqual(bgChild.RecordingId, bp.Id);
         }
 
         #endregion
@@ -167,7 +167,7 @@ namespace Parsek.Tests
                 backgroundVesselName: "My Rocket",
                 evaCrewName: "Jeb Kerman");
 
-            Assert.Equal(BranchPointType.EVA, bp.type);
+            Assert.Equal(BranchPointType.EVA, bp.Type);
             Assert.Equal("Jeb Kerman", activeChild.EvaCrewName);
             Assert.Null(bgChild.EvaCrewName);
         }
@@ -248,8 +248,8 @@ namespace Parsek.Tests
                 backgroundVesselPid: 400,
                 backgroundVesselName: "Broken Section");
 
-            Assert.Equal(BranchPointType.JointBreak, bp.type);
-            Assert.Equal(3000.0, bp.ut);
+            Assert.Equal(BranchPointType.JointBreak, bp.Type);
+            Assert.Equal(3000.0, bp.UT);
             Assert.Null(activeChild.EvaCrewName);
             Assert.Null(bgChild.EvaCrewName);
         }
@@ -358,7 +358,7 @@ namespace Parsek.Tests
                 backgroundVesselName: "Ship B");
 
             // Set ChildBranchPointId on root (as CreateSplitBranch does at runtime)
-            tree.Recordings["root_rec"].ChildBranchPointId = bp.id;
+            tree.Recordings["root_rec"].ChildBranchPointId = bp.Id;
 
             tree.Recordings[activeChild.RecordingId] = activeChild;
             tree.Recordings[bgChild.RecordingId] = bgChild;
@@ -415,8 +415,8 @@ namespace Parsek.Tests
             // All IDs should be unique across calls
             var allIds = new HashSet<string>
             {
-                bp1.id, active1.RecordingId, bg1.RecordingId,
-                bp2.id, active2.RecordingId, bg2.RecordingId
+                bp1.Id, active1.RecordingId, bg1.RecordingId,
+                bp2.Id, active2.RecordingId, bg2.RecordingId
             };
             Assert.Equal(6, allIds.Count); // all 6 are unique
         }
