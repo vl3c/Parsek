@@ -122,6 +122,14 @@ namespace Parsek
         // Background recorder for tree mode (null when not in tree mode)
         private BackgroundRecorder backgroundRecorder;
 
+        // Split event detection: deduplication and race-condition guard
+        private double lastBranchUT = -1;
+        private HashSet<uint> lastBranchVesselPids = new HashSet<uint>();
+        private bool pendingSplitInProgress;
+        private FlightRecorder pendingSplitRecorder;
+        // Vessel PIDs that existed before a joint break (for filtering pre-existing vessels)
+        private HashSet<uint> preBreakVesselPids;
+
         // Timeline warp protection — tracks previous frame's UT
         private double lastTimelineUT = -1;
 
@@ -438,6 +446,41 @@ namespace Parsek
                 backgroundRecorder.UpdateOnRails(Planetarium.GetUniversalTime());
             }
 
+            // Joint break deferred check: if FlightRecorder signaled a joint break,
+            // stop recorder and start deferred vessel-creation check
+            if (!pendingSplitInProgress && recorder != null && recorder.IsRecording
+                && recorder.ConsumePendingJointBreakCheck())
+            {
+                // Snapshot existing vessel PIDs so the deferred check can identify NEW vessels
+                preBreakVesselPids = new HashSet<uint>();
+                if (FlightGlobals.Vessels != null)
+                {
+                    for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
+                    {
+                        Vessel v = FlightGlobals.Vessels[i];
+                        if (v != null) preBreakVesselPids.Add(v.persistentId);
+                    }
+                }
+                recorder.StopRecordingForChainBoundary();
+                pendingSplitRecorder = recorder;
+                recorder = null;
+                pendingSplitInProgress = true;
+                Log("Joint break detected — starting deferred vessel split check");
+                StartCoroutine(DeferredJointBreakCheck());
+            }
+
+            // Skip auto-record and chain handlers while a split is being processed
+            if (pendingSplitInProgress)
+            {
+                // Still run playback, input, and continuation sampling
+                UpdateContinuationSampling();
+                UpdateUndockContinuationSampling();
+                HandleInput();
+                if (isPlaying) UpdatePlayback();
+                UpdateTimelinePlayback();
+                return;
+            }
+
             // Complete deferred auto-record for EVA (vessel switch may take a frame)
             if (pendingAutoRecord && !IsRecording &&
                 FlightGlobals.ActiveVessel != null && FlightGlobals.ActiveVessel.isEVA)
@@ -562,6 +605,13 @@ namespace Parsek
             dockConfirmFrames = 0;
             pendingUndockOtherPid = 0;
             undockConfirmFrames = 0;
+
+            // Clear split event detection state
+            lastBranchUT = -1;
+            lastBranchVesselPids.Clear();
+            pendingSplitInProgress = false;
+            pendingSplitRecorder = null;
+            preBreakVesselPids = null;
 
             // Tree mode cleanup: flush active recorder to tree, clear tree state.
             // Full tree commit is deferred to Task 7.
@@ -863,6 +913,552 @@ namespace Parsek
                 $"(pid={newVessel.persistentId})");
         }
 
+        #region Split Event Detection (Tree Branching)
+
+        /// <summary>
+        /// Checks whether a vessel type alone qualifies as trackable.
+        /// SpaceObject (asteroids, comets) are always trackable.
+        /// Other types require a module check (see IsTrackableVessel).
+        /// </summary>
+        internal static bool IsTrackableVesselType(VesselType vesselType)
+        {
+            return vesselType == VesselType.SpaceObject;
+        }
+
+        /// <summary>
+        /// Determines whether a vessel is trackable (should get its own tree branch).
+        /// Trackable = SpaceObject OR has ModuleCommand (covers crewed pods and probe cores).
+        /// Debris, spent boosters, fairings, etc. are NOT trackable.
+        /// </summary>
+        internal static bool IsTrackableVessel(Vessel v)
+        {
+            if (v == null) return false;
+
+            // Space objects (asteroids, comets) are always trackable
+            if (v.vesselType == VesselType.SpaceObject) return true;
+
+            // Check for command capability (ModuleCommand covers both crewed pods and probe cores)
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p.FindModuleImplementing<ModuleCommand>() != null) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Pure data-model method: creates the BranchPoint and two child Recording objects
+        /// for a vessel split. Testable without Unity.
+        /// For EVA branches, evaVesselPid identifies which child is the kerbal (receives
+        /// EvaCrewName and ParentRecordingId). If 0, defaults to activeVesselPid.
+        /// </summary>
+        internal static (BranchPoint bp, RecordingStore.Recording activeChild, RecordingStore.Recording backgroundChild)
+            BuildSplitBranchData(
+                string parentRecordingId, string treeId, double branchUT,
+                BranchPointType branchType, uint activeVesselPid, string activeVesselName,
+                uint backgroundVesselPid, string backgroundVesselName,
+                string evaCrewName = null, uint evaVesselPid = 0)
+        {
+            string activeChildId = Guid.NewGuid().ToString("N");
+            string backgroundChildId = Guid.NewGuid().ToString("N");
+            string bpId = Guid.NewGuid().ToString("N");
+
+            var bp = new BranchPoint
+            {
+                id = bpId,
+                ut = branchUT,
+                type = branchType,
+                parentRecordingIds = new List<string> { parentRecordingId },
+                childRecordingIds = new List<string> { activeChildId, backgroundChildId }
+            };
+
+            var activeChild = new RecordingStore.Recording
+            {
+                RecordingId = activeChildId,
+                TreeId = treeId,
+                VesselPersistentId = activeVesselPid,
+                VesselName = activeVesselName,
+                ParentBranchPointId = bpId,
+                ExplicitStartUT = branchUT
+            };
+
+            var backgroundChild = new RecordingStore.Recording
+            {
+                RecordingId = backgroundChildId,
+                TreeId = treeId,
+                VesselPersistentId = backgroundVesselPid,
+                VesselName = backgroundVesselName,
+                ParentBranchPointId = bpId,
+                ExplicitStartUT = branchUT
+            };
+
+            // For EVA: kerbal child gets EvaCrewName and ParentRecordingId.
+            // Identify kerbal by PID match (handles both active and background kerbal cases).
+            if (branchType == BranchPointType.EVA && !string.IsNullOrEmpty(evaCrewName))
+            {
+                uint kerbalPid = evaVesselPid != 0 ? evaVesselPid : activeVesselPid;
+                if (kerbalPid == activeVesselPid)
+                {
+                    activeChild.EvaCrewName = evaCrewName;
+                    activeChild.ParentRecordingId = backgroundChildId;
+                }
+                else
+                {
+                    backgroundChild.EvaCrewName = evaCrewName;
+                    backgroundChild.ParentRecordingId = activeChildId;
+                }
+            }
+
+            return (bp, activeChild, backgroundChild);
+        }
+
+        /// <summary>
+        /// Creates a tree branch for a vessel split event.
+        /// If no tree exists yet, wraps the current recording as the root node.
+        /// Creates two child recordings (active + background), wires up BackgroundRecorder,
+        /// and starts a new FlightRecorder for the active child.
+        /// </summary>
+        void CreateSplitBranch(BranchPointType branchType, Vessel activeVessel, Vessel backgroundVessel,
+            double branchUT, string evaCrewName = null, uint evaVesselPid = 0)
+        {
+            if (pendingSplitRecorder == null)
+            {
+                ParsekLog.Warn("Flight", "CreateSplitBranch: no pending split recorder — aborting");
+                return;
+            }
+
+            var splitRecorder = pendingSplitRecorder;
+
+            // Determine parent recording ID
+            string parentRecordingId;
+
+            // First split: create the tree and wrap current recording as root
+            if (activeTree == null)
+            {
+                string treeId = Guid.NewGuid().ToString("N");
+                string rootRecId = Guid.NewGuid().ToString("N");
+
+                activeTree = new RecordingTree
+                {
+                    Id = treeId,
+                    TreeName = splitRecorder.CaptureAtStop?.VesselName
+                               ?? activeVessel?.vesselName ?? "Unknown",
+                    RootRecordingId = rootRecId,
+                    ActiveRecordingId = null // will be set below
+                };
+
+                // Capture pre-tree resources from the recorder
+                activeTree.PreTreeFunds = splitRecorder.PreLaunchFunds;
+                activeTree.PreTreeScience = splitRecorder.PreLaunchScience;
+                activeTree.PreTreeReputation = splitRecorder.PreLaunchReputation;
+
+                // Create root recording from captured data
+                var rootRec = new RecordingStore.Recording
+                {
+                    RecordingId = rootRecId,
+                    TreeId = treeId,
+                    VesselPersistentId = splitRecorder.RecordingVesselId,
+                    VesselName = splitRecorder.CaptureAtStop?.VesselName ?? "Unknown",
+                    ExplicitEndUT = branchUT
+                };
+
+                // Copy captured data into root recording
+                if (splitRecorder.CaptureAtStop != null)
+                {
+                    rootRec.Points = new List<TrajectoryPoint>(splitRecorder.CaptureAtStop.Points);
+                    rootRec.OrbitSegments = new List<OrbitSegment>(splitRecorder.CaptureAtStop.OrbitSegments);
+                    rootRec.PartEvents = new List<PartEvent>(splitRecorder.CaptureAtStop.PartEvents);
+                    rootRec.GhostVisualSnapshot = splitRecorder.CaptureAtStop.GhostVisualSnapshot;
+                    rootRec.VesselSnapshot = splitRecorder.CaptureAtStop.VesselSnapshot;
+                    if (rootRec.Points.Count > 0)
+                        rootRec.ExplicitStartUT = rootRec.Points[0].ut;
+                }
+
+                activeTree.Recordings[rootRecId] = rootRec;
+                parentRecordingId = rootRecId;
+
+                // Create BackgroundRecorder
+                backgroundRecorder = new BackgroundRecorder(activeTree);
+                Patches.PhysicsFramePatch.BackgroundRecorderInstance = backgroundRecorder;
+
+                ParsekLog.Info("Flight", $"Tree created: id={treeId}, root={rootRecId}, " +
+                    $"vesselPid={splitRecorder.RecordingVesselId}");
+            }
+            else
+            {
+                // Subsequent split: use the current active recording as parent
+                parentRecordingId = activeTree.ActiveRecordingId;
+
+                if (parentRecordingId == null)
+                {
+                    ParsekLog.Warn("Flight", "CreateSplitBranch: no active recording in existing tree — aborting");
+                    FallbackCommitSplitRecorder(splitRecorder);
+                    return;
+                }
+
+                // Flush captured data into the existing tree recording
+                RecordingStore.Recording parentRec;
+                if (activeTree.Recordings.TryGetValue(parentRecordingId, out parentRec))
+                {
+                    if (splitRecorder.CaptureAtStop != null)
+                    {
+                        parentRec.Points.AddRange(splitRecorder.CaptureAtStop.Points);
+                        parentRec.OrbitSegments.AddRange(splitRecorder.CaptureAtStop.OrbitSegments);
+                        parentRec.PartEvents.AddRange(splitRecorder.CaptureAtStop.PartEvents);
+                        parentRec.PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+                    }
+                    parentRec.ExplicitEndUT = branchUT;
+                }
+            }
+
+            // Set ChildBranchPointId on parent
+            RecordingStore.Recording parentRecording;
+            if (activeTree.Recordings.TryGetValue(parentRecordingId, out parentRecording))
+            {
+                // Will be set after we know the BP id
+            }
+
+            // Take snapshots for both child vessels
+            ConfigNode activeSnapshot = VesselSpawner.TryBackupSnapshot(activeVessel);
+            ConfigNode bgSnapshot = VesselSpawner.TryBackupSnapshot(backgroundVessel);
+
+            // Build the branch data
+            var (bp, activeChild, bgChild) = BuildSplitBranchData(
+                parentRecordingId, activeTree.Id, branchUT, branchType,
+                activeVessel != null ? activeVessel.persistentId : 0,
+                activeVessel != null ? activeVessel.vesselName : "Unknown",
+                backgroundVessel != null ? backgroundVessel.persistentId : 0,
+                backgroundVessel != null ? backgroundVessel.vesselName : "Unknown",
+                evaCrewName, evaVesselPid);
+
+            // Set snapshots on child recordings
+            activeChild.GhostVisualSnapshot = activeSnapshot;
+            activeChild.VesselSnapshot = activeSnapshot != null ? activeSnapshot.CreateCopy() : null;
+            bgChild.GhostVisualSnapshot = bgSnapshot;
+            bgChild.VesselSnapshot = bgSnapshot != null ? bgSnapshot.CreateCopy() : null;
+
+            // Set ChildBranchPointId on parent recording
+            if (parentRecording != null)
+                parentRecording.ChildBranchPointId = bp.id;
+
+            // Add to tree
+            activeTree.BranchPoints.Add(bp);
+            activeTree.Recordings[activeChild.RecordingId] = activeChild;
+            activeTree.Recordings[bgChild.RecordingId] = bgChild;
+
+            // Set active recording
+            activeTree.ActiveRecordingId = activeChild.RecordingId;
+
+            // Add background child to BackgroundMap FIRST, then notify BackgroundRecorder
+            if (backgroundVessel != null && backgroundVessel.persistentId != 0)
+            {
+                activeTree.BackgroundMap[backgroundVessel.persistentId] = bgChild.RecordingId;
+                backgroundRecorder?.OnVesselBackgrounded(backgroundVessel.persistentId);
+            }
+
+            // Stop any existing undock continuation and vessel continuation (tree handles them)
+            if (undockContinuationPid != 0)
+                StopUndockContinuation("tree branch");
+            if (continuationVesselPid != 0)
+                StopContinuation("tree branch");
+
+            // Create new FlightRecorder for active child
+            recorder = new FlightRecorder();
+            recorder.ActiveTree = activeTree;
+            recorder.StartRecording(isPromotion: true);
+            recorder.UndockSiblingPid = 0; // tree handles vessel tracking
+
+            if (!recorder.IsRecording)
+            {
+                ParsekLog.Warn("Flight", $"CreateSplitBranch: StartRecording failed for active child");
+                recorder = null;
+            }
+
+            ParsekLog.Info("Flight", $"Tree branch created: type={branchType}, " +
+                $"bp={bp.id}, activeChild={activeChild.RecordingId} (pid={activeChild.VesselPersistentId}), " +
+                $"bgChild={bgChild.RecordingId} (pid={bgChild.VesselPersistentId})" +
+                (evaCrewName != null ? $", evaCrew={evaCrewName}" : ""));
+        }
+
+        /// <summary>
+        /// Fallback: if tree creation fails, commit captured data as a standalone recording.
+        /// </summary>
+        void FallbackCommitSplitRecorder(FlightRecorder splitRec)
+        {
+            if (splitRec?.CaptureAtStop == null) return;
+
+            var captured = splitRec.CaptureAtStop;
+            if (captured.Points.Count >= 2)
+            {
+                RecordingStore.StashPending(
+                    captured.Points, captured.VesselName,
+                    orbitSegments: captured.OrbitSegments,
+                    partEvents: captured.PartEvents);
+                // Copy snapshot/vessel state to the pending recording
+                if (RecordingStore.HasPending)
+                {
+                    var pending = RecordingStore.Pending;
+                    pending.VesselSnapshot = captured.VesselSnapshot;
+                    pending.GhostVisualSnapshot = captured.GhostVisualSnapshot;
+                    pending.VesselDestroyed = captured.VesselDestroyed;
+                    pending.VesselSituation = captured.VesselSituation;
+                    pending.DistanceFromLaunch = captured.DistanceFromLaunch;
+                    pending.MaxDistanceFromLaunch = captured.MaxDistanceFromLaunch;
+                    pending.PreLaunchFunds = captured.PreLaunchFunds;
+                    pending.PreLaunchScience = captured.PreLaunchScience;
+                    pending.PreLaunchReputation = captured.PreLaunchReputation;
+                }
+                RecordingStore.CommitPending();
+                ParsekLog.Warn("Flight", "Split branch failed — fallback committed recording as standalone");
+            }
+            else
+            {
+                ParsekLog.Warn("Flight", "Split branch failed — recording too short to commit, data lost");
+            }
+        }
+
+        /// <summary>
+        /// Resumes recording after a false-alarm split detection (debris undock, joint break
+        /// that didn't produce a trackable vessel, deduplication skip). Re-enables the
+        /// stopped recorder and restores it as the active recorder.
+        /// </summary>
+        void ResumeSplitRecorder(FlightRecorder splitRec, string reason)
+        {
+            if (splitRec == null)
+            {
+                ParsekLog.Warn("Flight", $"ResumeSplitRecorder: no recorder to resume ({reason})");
+                return;
+            }
+
+            splitRec.ResumeAfterFalseAlarm();
+
+            if (splitRec.IsRecording)
+            {
+                recorder = splitRec;
+                // Restore tree mode if tree is active
+                if (activeTree != null)
+                    recorder.ActiveTree = activeTree;
+                ParsekLog.Info("Flight", $"Recording resumed after false alarm: {reason}");
+            }
+            else
+            {
+                // ResumeAfterFalseAlarm failed (no active vessel?) — fall back to commit
+                ParsekLog.Warn("Flight", $"ResumeSplitRecorder: resume failed ({reason}) — falling back to commit");
+                FallbackCommitSplitRecorder(splitRec);
+            }
+        }
+
+        /// <summary>
+        /// Checks the deduplication guard. Returns true if this branch should proceed.
+        /// </summary>
+        bool CheckBranchDeduplication(double branchUT, uint newVesselPid)
+        {
+            if (Math.Abs(branchUT - lastBranchUT) > 0.01)
+            {
+                lastBranchVesselPids.Clear();
+                lastBranchUT = branchUT;
+            }
+            if (lastBranchVesselPids.Contains(newVesselPid))
+            {
+                ParsekLog.Verbose("Flight", $"Skipping duplicate branch for pid={newVesselPid} at same UT");
+                return false;
+            }
+            lastBranchVesselPids.Add(newVesselPid);
+            return true;
+        }
+
+        IEnumerator DeferredUndockBranch(uint newVesselPid)
+        {
+            yield return null; // defer one frame for KSP to finalize the split
+
+            try
+            {
+                if (FlightGlobals.ActiveVessel == null || pendingSplitRecorder == null)
+                {
+                    ParsekLog.Warn("Flight", "DeferredUndockBranch: invalid state after deferral — aborting");
+                    FallbackCommitSplitRecorder(pendingSplitRecorder);
+                    yield break;
+                }
+
+                double branchUT = Planetarium.GetUniversalTime();
+
+                // Deduplication check
+                if (!CheckBranchDeduplication(branchUT, newVesselPid))
+                {
+                    ResumeSplitRecorder(pendingSplitRecorder, "undock dedup skip");
+                    yield break;
+                }
+
+                // Find the new vessel
+                Vessel newVessel = FlightRecorder.FindVesselByPid(newVesselPid);
+                if (newVessel == null)
+                {
+                    ParsekLog.Verbose("Flight", $"DeferredUndockBranch: vessel pid={newVesselPid} not found — debris destroyed, resuming recording");
+                    ResumeSplitRecorder(pendingSplitRecorder, "undocked vessel not found");
+                    yield break;
+                }
+
+                // Debris filter
+                if (!IsTrackableVessel(newVessel))
+                {
+                    ParsekLog.Verbose("Flight", $"DeferredUndockBranch: vessel pid={newVesselPid} is not trackable (debris) — resuming recording");
+                    ResumeSplitRecorder(pendingSplitRecorder, "undocked vessel is debris");
+                    yield break;
+                }
+
+                // Player stays on remaining vessel (active), undocked vessel goes to background
+                Vessel activeVessel = FlightGlobals.ActiveVessel;
+                CreateSplitBranch(BranchPointType.Undock, activeVessel, newVessel, branchUT);
+            }
+            finally
+            {
+                pendingSplitInProgress = false;
+                pendingSplitRecorder = null;
+            }
+        }
+
+        IEnumerator DeferredEvaBranch(string kerbalName, GameEvents.FromToAction<Part, Part> evaData)
+        {
+            yield return null; // defer one frame for vessel switch to complete
+
+            try
+            {
+                if (FlightGlobals.ActiveVessel == null || pendingSplitRecorder == null)
+                {
+                    ParsekLog.Warn("Flight", "DeferredEvaBranch: invalid state after deferral — aborting");
+                    FallbackCommitSplitRecorder(pendingSplitRecorder);
+                    yield break;
+                }
+
+                double branchUT = Planetarium.GetUniversalTime();
+
+                // Get the EVA kerbal vessel and the ship vessel
+                Vessel evaVessel = evaData.to?.vessel;
+                Vessel shipVessel = evaData.from?.vessel;
+
+                if (evaVessel == null)
+                {
+                    ParsekLog.Warn("Flight", "DeferredEvaBranch: EVA vessel is null — aborting");
+                    FallbackCommitSplitRecorder(pendingSplitRecorder);
+                    yield break;
+                }
+
+                uint evaPid = evaVessel.persistentId;
+                if (!CheckBranchDeduplication(branchUT, evaPid))
+                {
+                    ResumeSplitRecorder(pendingSplitRecorder, "EVA dedup skip");
+                    yield break;
+                }
+
+                // Determine which vessel is active by checking FlightGlobals.ActiveVessel
+                Vessel currentActive = FlightGlobals.ActiveVessel;
+                Vessel activeChild;
+                Vessel backgroundChild;
+
+                if (currentActive != null && currentActive.persistentId == evaPid)
+                {
+                    // KSP switched to the EVA kerbal (expected)
+                    activeChild = evaVessel;
+                    backgroundChild = shipVessel;
+                }
+                else if (currentActive != null && shipVessel != null &&
+                         currentActive.persistentId == shipVessel.persistentId)
+                {
+                    // KSP hasn't switched yet — ship is still active
+                    activeChild = shipVessel;
+                    backgroundChild = evaVessel;
+                    // Note: tree vessel switch handling will sort out promotion when KSP switches
+                }
+                else
+                {
+                    // Ambiguous — default to EVA kerbal as active (most common case)
+                    activeChild = evaVessel;
+                    backgroundChild = shipVessel;
+                }
+
+                CreateSplitBranch(BranchPointType.EVA, activeChild, backgroundChild, branchUT, kerbalName, evaPid);
+            }
+            finally
+            {
+                pendingSplitInProgress = false;
+                pendingSplitRecorder = null;
+            }
+        }
+
+        IEnumerator DeferredJointBreakCheck()
+        {
+            yield return null; // defer one frame for vessel split to finalize
+
+            try
+            {
+                if (FlightGlobals.ActiveVessel == null)
+                {
+                    ParsekLog.Verbose("Flight", "DeferredJointBreakCheck: no active vessel after deferral");
+                    FallbackCommitSplitRecorder(pendingSplitRecorder);
+                    yield break;
+                }
+
+                // If there's no pendingSplitRecorder, the recorder was re-established already
+                if (pendingSplitRecorder == null)
+                {
+                    ParsekLog.Verbose("Flight", "DeferredJointBreakCheck: no pending split recorder");
+                    yield break;
+                }
+
+                double branchUT = Planetarium.GetUniversalTime();
+
+                // Scan for NEW vessels created by the joint break.
+                // Only consider vessels whose PID was NOT in the pre-break snapshot,
+                // to avoid false matches with unrelated vessels (e.g., space stations).
+                uint recordedPid = pendingSplitRecorder.RecordingVesselId;
+                bool foundTrackable = false;
+
+                if (FlightGlobals.Vessels != null)
+                {
+                    for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
+                    {
+                        Vessel v = FlightGlobals.Vessels[i];
+                        if (v == null || v.persistentId == recordedPid) continue;
+
+                        // Only consider vessels that didn't exist before the break
+                        if (preBreakVesselPids != null && preBreakVesselPids.Contains(v.persistentId))
+                            continue;
+
+                        // Skip vessels we're already tracking in the tree
+                        if (activeTree != null && activeTree.BackgroundMap.ContainsKey(v.persistentId))
+                            continue;
+
+                        // Skip if not trackable
+                        if (!IsTrackableVessel(v)) continue;
+
+                        // Skip if already branched at this UT
+                        if (!CheckBranchDeduplication(branchUT, v.persistentId))
+                            continue;
+
+                        // Found a trackable vessel — create branch
+                        Vessel activeVessel = FlightGlobals.ActiveVessel;
+                        CreateSplitBranch(BranchPointType.JointBreak, activeVessel, v, branchUT);
+                        foundTrackable = true;
+                        break; // one branch per coroutine invocation
+                    }
+                }
+
+                if (!foundTrackable)
+                {
+                    // No trackable vessel split (debris only) — resume recording
+                    ResumeSplitRecorder(pendingSplitRecorder, "joint break produced no trackable vessel");
+                }
+            }
+            finally
+            {
+                pendingSplitInProgress = false;
+                pendingSplitRecorder = null;
+                preBreakVesselPids = null;
+            }
+        }
+
+        #endregion
+
         void OnVesselSituationChange(GameEvents.HostedFromToAction<Vessel, Vessel.Situations> data)
         {
             if (IsRecording) return;
@@ -1108,10 +1704,12 @@ namespace Parsek
 
         void OnCrewOnEva(GameEvents.FromToAction<Part, Part> data)
         {
-            // Mid-recording EVA: auto-stop parent, start chain child for EVA kerbal
+            // Mid-recording EVA: tree branch (replaces legacy chain continuation)
             if (IsRecording)
             {
-                // Only trigger chain flow if EVA is from the vessel we're recording
+                if (pendingSplitInProgress) return; // another split is being processed
+
+                // Only trigger if EVA is from the vessel we're recording
                 if (data.from?.vessel == null ||
                     data.from.vessel.persistentId != recorder.RecordingVesselId)
                 {
@@ -1125,12 +1723,13 @@ namespace Parsek
                     return;
                 }
 
-                pendingChainContinuation = true;
-                pendingChainIsBoarding = false;
-                pendingChainEvaName = kerbalName;
-                activeChainCrewName = kerbalName;
-                pendingAutoRecord = true;
-                Log($"Mid-recording EVA detected: '{kerbalName}' — pending chain continuation");
+                // Tree mode: stop recorder synchronously, defer tree branch creation
+                recorder.StopRecordingForChainBoundary();
+                pendingSplitRecorder = recorder;
+                recorder = null;
+                pendingSplitInProgress = true;
+                Log($"Mid-recording EVA detected: '{kerbalName}' — starting deferred tree branch");
+                StartCoroutine(DeferredEvaBranch(kerbalName, data));
                 return;
             }
 
@@ -1223,6 +1822,7 @@ namespace Parsek
         void OnPartUndock(Part undockedPart)
         {
             if (recorder == null || !recorder.IsRecording) return;
+            if (pendingSplitInProgress) return; // another split is already being processed
             if (undockedPart?.vessel == null)
             {
                 ParsekLog.Verbose("Flight", "OnPartUndock: undocked part or vessel is null — ignoring");
@@ -1230,19 +1830,16 @@ namespace Parsek
             }
 
             uint newPid = undockedPart.vessel.persistentId;
-            if (newPid != recorder.RecordingVesselId)
-            {
-                // Something undocked FROM us — we stay, other vessel splits off
-                pendingUndockOtherPid = newPid;
-                undockConfirmFrames = 0;
+            if (newPid == recorder.RecordingVesselId) return; // transient state, ignore
 
-                // Stop recording silently — Update() will commit and restart
-                recorder.StopRecordingForChainBoundary();
-                Log($"onPartUndock: vessel split off (otherPid={newPid})");
-            }
-            // else: undocked part still on our vessel (transient state) — ignore.
-            // If the player follows the undocked vessel, OnPhysicsFrame detects
-            // the pid mismatch and UndockSiblingPid handles it.
+            // Tree mode: create branch instead of chain segment.
+            // Stop recorder synchronously to prevent OnPhysicsFrame interference.
+            recorder.StopRecordingForChainBoundary();
+            pendingSplitRecorder = recorder;
+            recorder = null;
+            pendingSplitInProgress = true;
+            Log($"onPartUndock: vessel split off (otherPid={newPid}) — starting deferred tree branch");
+            StartCoroutine(DeferredUndockBranch(newPid));
         }
 
         void OnGroundSciencePartDeployed(ModuleGroundSciencePart deployedPart)
@@ -1604,6 +2201,13 @@ namespace Parsek
             // Clear tree state on flight ready (revert resets everything)
             activeTree = null;
 
+            // Clear split event detection state
+            lastBranchUT = -1;
+            lastBranchVesselPids.Clear();
+            pendingSplitInProgress = false;
+            pendingSplitRecorder = null;
+            preBreakVesselPids = null;
+
             // Clear chain state on flight ready (revert resets everything)
             activeChainId = null;
             activeChainNextIndex = 0;
@@ -1745,6 +2349,9 @@ namespace Parsek
                 recorder.BoundaryAnchor = pendingBoundaryAnchor;
                 pendingBoundaryAnchor = null;
             }
+            // Propagate tree mode to new recorder so DecideOnVesselSwitch uses tree decisions
+            if (activeTree != null)
+                recorder.ActiveTree = activeTree;
             recorder.StartRecording();
             if (!recorder.IsRecording)
             {
@@ -1753,7 +2360,7 @@ namespace Parsek
             }
 
             uint pid = FlightGlobals.ActiveVessel != null ? FlightGlobals.ActiveVessel.persistentId : 0;
-            ParsekLog.Info("Flight", $"StartRecording succeeded: pid={pid}, chainActive={activeChainId != null}");
+            ParsekLog.Info("Flight", $"StartRecording succeeded: pid={pid}, chainActive={activeChainId != null}, tree={activeTree != null}");
         }
 
         public void StopRecording()

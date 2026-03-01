@@ -92,6 +92,19 @@ namespace Parsek
         public RecordingTree ActiveTree { get; set; }
         public bool TransitionToBackgroundPending { get; internal set; }
 
+        // Joint break split detection: set by OnPartJointBreak, consumed by ParsekFlight.Update()
+        public bool HasPendingJointBreakCheck { get; private set; }
+
+        /// <summary>
+        /// Consumes the pending joint break flag, returning whether a check was pending.
+        /// </summary>
+        public bool ConsumePendingJointBreakCheck()
+        {
+            bool was = HasPendingJointBreakCheck;
+            HasPendingJointBreakCheck = false;
+            return was;
+        }
+
         /// <summary>
         /// True when the recorder is conceptually recording but not actively sampling
         /// physics frames (e.g., vessel switched away in tree mode).
@@ -219,6 +232,9 @@ namespace Parsek
                 partName = joint.Child.partInfo?.name ?? "unknown"
             });
             ParsekLog.Verbose("Recorder", $"Part event: Decoupled '{joint.Child.partInfo?.name}' pid={joint.Child.persistentId}");
+
+            // Signal potential vessel split for deferred check by ParsekFlight
+            HasPendingJointBreakCheck = true;
         }
 
         /// <summary>
@@ -3354,6 +3370,42 @@ namespace Parsek
                 : 0;
 
             ParsekLog.Info("Recorder", $"Recording stopped (chain boundary). {Recording.Count} points, {OrbitSegments.Count} orbit segments over {duration:F1}s");
+        }
+
+        /// <summary>
+        /// Re-enables recording after a false-alarm split detection (e.g., joint break that
+        /// only produced debris, undock of a non-trackable vessel). Restores the recorder to
+        /// the active state it was in before StopRecordingForChainBoundary() was called.
+        /// The internal Recording/OrbitSegments/PartEvents lists are still intact since
+        /// StopRecordingForChainBoundary only copies them into CaptureAtStop but does not clear them.
+        /// </summary>
+        public void ResumeAfterFalseAlarm()
+        {
+            if (IsRecording)
+            {
+                ParsekLog.Warn("Recorder", "ResumeAfterFalseAlarm called while already recording — ignoring");
+                return;
+            }
+
+            Vessel v = FlightGlobals.ActiveVessel;
+            if (v == null)
+            {
+                ParsekLog.Warn("Recorder", "ResumeAfterFalseAlarm: no active vessel — cannot resume");
+                return;
+            }
+
+            IsRecording = true;
+            CaptureAtStop = null;
+            HasPendingJointBreakCheck = false;
+
+            // Re-register the Harmony patch and part event hooks
+            Patches.PhysicsFramePatch.ActiveRecorder = this;
+            SubscribePartEvents();
+
+            // Update RecordingVesselId in case the vessel PID changed (unlikely but defensive)
+            RecordingVesselId = v.persistentId;
+
+            ParsekLog.Info("Recorder", $"Recording resumed after false alarm ({Recording.Count} points preserved)");
         }
 
         /// <summary>
