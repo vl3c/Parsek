@@ -123,6 +123,16 @@ namespace Parsek
         public GameObject fairingMeshObject;
     }
 
+    internal class ReentryFxInfo
+    {
+        public List<ParticleSystem> flameParticles = new List<ParticleSystem>();
+        public List<ParticleSystem> smokeParticles = new List<ParticleSystem>();
+        public TrailRenderer trailRenderer;
+        public List<HeatMaterialState> glowMaterials = new List<HeatMaterialState>();
+        public float lastIntensity;
+        public Vector3 lastVelocity;
+    }
+
     internal static class GhostVisualBuilder
     {
         private static readonly Regex trailingNumericSuffixRegex =
@@ -145,6 +155,8 @@ namespace Parsek
         private const float ReentryQThresholdLow = 500f;
         private const float ReentryQThresholdHigh = 20000f;
         private const float ReentrySpeedThresholdLow = 400f;
+        private static readonly Color ReentryHotEmissionLow = new Color(1.5f, 0.6f, 0.15f, 1f);
+        private static readonly Color ReentryHotEmissionHigh = new Color(2.0f, 1.5f, 0.8f, 1f);
 
         // Cache for PREFAB_PARTICLE fx_* prefabs found on PartLoader part prefabs.
         // Built once from PartLoader.LoadedPartsList (stable prefab templates).
@@ -5454,6 +5466,269 @@ namespace Parsek
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Creates all four reentry FX layers (glow materials, flame particles,
+        /// smoke trail, condensation trail) on a ghost root GameObject.
+        /// Called once at ghost spawn time; FX start dormant and are driven by UpdateReentryFx.
+        /// </summary>
+        internal static ReentryFxInfo TryBuildReentryFx(
+            GameObject ghostRoot,
+            Dictionary<uint, HeatGhostInfo> heatInfos)
+        {
+            var info = new ReentryFxInfo();
+            int skippedHeatCount = 0;
+
+            // --- Layer A: Collect glow materials ---
+            var heatPartIds = new HashSet<uint>();
+            if (heatInfos != null)
+            {
+                foreach (var kvp in heatInfos)
+                    heatPartIds.Add(kvp.Key);
+            }
+
+            var renderers = ghostRoot.GetComponentsInChildren<Renderer>(true);
+            if (renderers != null)
+            {
+                for (int r = 0; r < renderers.Length; r++)
+                {
+                    Renderer renderer = renderers[r];
+                    if (renderer == null) continue;
+
+                    // Walk up hierarchy to find ghost_part_{persistentId} parent
+                    uint partPid = 0;
+                    bool foundPart = false;
+                    Transform current = renderer.transform;
+                    while (current != null && current != ghostRoot.transform)
+                    {
+                        if (current.name.StartsWith("ghost_part_"))
+                        {
+                            string pidStr = current.name.Substring("ghost_part_".Length);
+                            uint parsed;
+                            if (uint.TryParse(pidStr, out parsed))
+                            {
+                                partPid = parsed;
+                                foundPart = true;
+                            }
+                            break;
+                        }
+                        current = current.parent;
+                    }
+
+                    // Skip renderers on parts managed by HeatGhostInfo
+                    if (foundPart && heatPartIds.Contains(partPid))
+                    {
+                        skippedHeatCount++;
+                        continue;
+                    }
+
+                    Material[] sourceMaterials = renderer.sharedMaterials;
+                    if (sourceMaterials == null || sourceMaterials.Length == 0)
+                        continue;
+
+                    var cloned = new Material[sourceMaterials.Length];
+                    bool hasAnyMaterial = false;
+                    for (int m = 0; m < sourceMaterials.Length; m++)
+                    {
+                        Material source = sourceMaterials[m];
+                        if (source == null)
+                        {
+                            cloned[m] = null;
+                            continue;
+                        }
+
+                        Material materialClone = new Material(source);
+                        cloned[m] = materialClone;
+                        hasAnyMaterial = true;
+
+                        string colorProperty = materialClone.HasProperty("_Color")
+                            ? "_Color"
+                            : null;
+                        string emissiveProperty = TryGetHeatEmissiveProperty(materialClone);
+
+                        if (colorProperty == null && emissiveProperty == null)
+                            continue;
+
+                        Color coldColor = colorProperty != null
+                            ? materialClone.GetColor(colorProperty)
+                            : Color.white;
+                        Color hotColor = colorProperty != null
+                            ? Color.Lerp(coldColor, HeatTintColor, 0.45f)
+                            : coldColor;
+
+                        Color coldEmission = emissiveProperty != null
+                            ? materialClone.GetColor(emissiveProperty)
+                            : Color.black;
+                        Color hotEmission = emissiveProperty != null
+                            ? coldEmission + ReentryHotEmissionLow
+                            : coldEmission;
+
+                        info.glowMaterials.Add(new HeatMaterialState
+                        {
+                            material = materialClone,
+                            colorProperty = colorProperty,
+                            coldColor = coldColor,
+                            hotColor = hotColor,
+                            emissiveProperty = emissiveProperty,
+                            coldEmission = coldEmission,
+                            hotEmission = hotEmission
+                        });
+                    }
+
+                    if (hasAnyMaterial)
+                        renderer.materials = cloned;
+                }
+            }
+
+            // --- Layer B: Flame particles (vessel-attached) ---
+            {
+                GameObject flameObj = new GameObject("ReentryFlame");
+                flameObj.transform.SetParent(ghostRoot.transform, false);
+
+                ParticleSystem flame = flameObj.AddComponent<ParticleSystem>();
+                var main = flame.main;
+                main.simulationSpace = ParticleSystemSimulationSpace.Local;
+                main.startLifetime = new ParticleSystem.MinMaxCurve(0.3f, 0.8f);
+                main.startColor = new ParticleSystem.MinMaxGradient(new Color(1f, 0.7f, 0.2f, 0.9f));
+                main.startSize = new ParticleSystem.MinMaxCurve(2f, 5f);
+                main.startSpeed = new ParticleSystem.MinMaxCurve(5f, 15f);
+                main.maxParticles = 500;
+                main.playOnAwake = false;
+
+                var emission = flame.emission;
+                emission.enabled = true;
+                emission.rateOverTime = 0f;
+
+                var shape = flame.shape;
+                shape.enabled = true;
+                shape.shapeType = ParticleSystemShapeType.Cone;
+                shape.angle = 25f;
+                shape.radius = 1f;
+
+                var flameRenderer = flameObj.GetComponent<ParticleSystemRenderer>();
+                if (flameRenderer != null)
+                {
+                    flameRenderer.maxParticleSize = 80f;
+                    Shader additiveShader = Shader.Find("KSP/Particles/Additive");
+                    if (additiveShader != null)
+                        flameRenderer.material = new Material(additiveShader);
+                }
+
+                flame.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                flame.Clear(true);
+                info.flameParticles.Add(flame);
+            }
+
+            // --- Layer C: Smoke trail (world-space) ---
+            {
+                GameObject smokeObj = new GameObject("ReentrySmoke");
+                smokeObj.transform.SetParent(ghostRoot.transform, false);
+
+                ParticleSystem smoke = smokeObj.AddComponent<ParticleSystem>();
+                var main = smoke.main;
+                main.simulationSpace = ParticleSystemSimulationSpace.World;
+                main.startLifetime = new ParticleSystem.MinMaxCurve(4f, 10f);
+                main.startColor = new ParticleSystem.MinMaxGradient(new Color(1f, 0.5f, 0.1f, 0.7f));
+                main.startSize = new ParticleSystem.MinMaxCurve(3f, 8f);
+                main.startSpeed = new ParticleSystem.MinMaxCurve(0f, 0.5f);
+                main.maxParticles = 2000;
+                main.gravityModifier = 0.03f;
+                main.playOnAwake = false;
+
+                var emission = smoke.emission;
+                emission.enabled = true;
+                emission.rateOverTime = 0f;
+
+                var shape = smoke.shape;
+                shape.enabled = true;
+                shape.shapeType = ParticleSystemShapeType.Sphere;
+                shape.radius = 0.5f;
+
+                var smokeRenderer = smokeObj.GetComponent<ParticleSystemRenderer>();
+                if (smokeRenderer != null)
+                {
+                    smokeRenderer.maxParticleSize = 80f;
+                    Shader alphaBlendedShader = Shader.Find("KSP/Particles/Alpha Blended");
+                    if (alphaBlendedShader != null)
+                        smokeRenderer.material = new Material(alphaBlendedShader);
+                }
+
+                // Color over lifetime: orange -> dark gray -> transparent
+                var colorOverLifetime = smoke.colorOverLifetime;
+                colorOverLifetime.enabled = true;
+                Gradient gradient = new Gradient();
+                gradient.SetKeys(
+                    new GradientColorKey[]
+                    {
+                        new GradientColorKey(new Color(1f, 0.5f, 0.1f), 0f),
+                        new GradientColorKey(new Color(0.3f, 0.3f, 0.3f), 0.5f),
+                        new GradientColorKey(new Color(0.2f, 0.2f, 0.2f), 1f)
+                    },
+                    new GradientAlphaKey[]
+                    {
+                        new GradientAlphaKey(0.7f, 0f),
+                        new GradientAlphaKey(0.4f, 0.5f),
+                        new GradientAlphaKey(0f, 1f)
+                    }
+                );
+                colorOverLifetime.color = new ParticleSystem.MinMaxGradient(gradient);
+
+                smoke.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                smoke.Clear(true);
+                info.smokeParticles.Add(smoke);
+            }
+
+            // --- Layer D: Condensation trail (TrailRenderer) ---
+            {
+                GameObject trailObj = new GameObject("ReentryTrail");
+                trailObj.transform.SetParent(ghostRoot.transform, false);
+
+                TrailRenderer trail = trailObj.AddComponent<TrailRenderer>();
+                trail.time = 5f;
+                trail.startWidth = 10f;
+                trail.endWidth = 2f;
+                trail.numCornerVertices = 2;
+                trail.numCapVertices = 2;
+                trail.minVertexDistance = 5f;
+
+                Shader trailShader = Shader.Find("KSP/Particles/Additive");
+                if (trailShader != null)
+                    trail.material = new Material(trailShader);
+
+                // Color gradient: bright orange-white -> transparent
+                Gradient trailGradient = new Gradient();
+                trailGradient.SetKeys(
+                    new GradientColorKey[]
+                    {
+                        new GradientColorKey(new Color(1f, 0.8f, 0.5f), 0f),
+                        new GradientColorKey(new Color(1f, 0.6f, 0.3f), 0.5f),
+                        new GradientColorKey(new Color(0.8f, 0.4f, 0.1f), 1f)
+                    },
+                    new GradientAlphaKey[]
+                    {
+                        new GradientAlphaKey(1f, 0f),
+                        new GradientAlphaKey(0.5f, 0.5f),
+                        new GradientAlphaKey(0f, 1f)
+                    }
+                );
+                trail.colorGradient = trailGradient;
+
+                // Start disabled (dormant)
+                trail.emitting = false;
+
+                info.trailRenderer = trail;
+            }
+
+            // --- Logging ---
+            ParsekLog.Verbose("ReentryFx",
+                $"Built — {info.flameParticles.Count} flame, {info.smokeParticles.Count} smoke, " +
+                $"trail={info.trailRenderer != null}, glow materials={info.glowMaterials.Count}");
+            if (skippedHeatCount > 0)
+                ParsekLog.Verbose("ReentryFx",
+                    $"Skipped {skippedHeatCount} renderers already managed by HeatGhostInfo");
+
+            return info;
         }
 
         /// <summary>
