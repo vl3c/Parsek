@@ -150,6 +150,37 @@ and gives reviewers confidence that existing behavior is preserved.
 
 ## Backward Compatibility
 How existing saves/recordings/data migrate or coexist.
+
+## Diagnostic Logging
+Every decision point, state transition, and edge case must produce a log line.
+For each section in Behavior and Edge Cases above, list the log lines it emits:
+- What subsystem tag to use (e.g., "Recorder", "Spawner", "GhostVisual")
+- Decision points: "if X, log why we chose path A vs B"
+- State transitions: "when state changes from X to Y, log old→new with context"
+- Edge case handling: "when edge case Z triggers, log the inputs that caused it"
+- Error/fallback paths: "when X fails, log what failed and what fallback was used"
+Goal: a developer reading the log should be able to reconstruct what the system
+did and why, without looking at source code. Every branch that silently picks
+one path over another is a debugging blind spot.
+
+## Test Plan
+List the tests this feature requires. Every test must have a concrete
+"what makes it fail" justification — if you can't state what bug the test
+would catch, the test is vacuous and shouldn't exist.
+
+Categories to cover:
+- **Unit tests**: pure logic, data transformations, serialization round-trips.
+  Each test: input → expected output → what regression it guards against.
+- **Integration tests**: multi-component interactions testable without the
+  full game runtime (e.g., synthetic recordings through store → scenario →
+  playback math). Use test generators (RecordingBuilder, VesselSnapshotBuilder,
+  ScenarioWriter) to build realistic fixtures.
+- **Log assertion tests**: capture log output via the test sink and assert
+  that specific decision points produce expected log lines. This verifies
+  both the behavior AND the diagnostic coverage — if a log line disappears,
+  the test fails, preventing silent loss of observability.
+- **Edge case tests**: one test per edge case listed above. The test
+  reproduces the edge case scenario and verifies the documented behavior.
 ```
 
 **Design doc principles (learned from this project):**
@@ -163,6 +194,10 @@ How existing saves/recordings/data migrate or coexist.
 4. **Show the data model.** Concrete struct/class layouts with field names and types. Not UML — just indented text showing the shape. This catches design issues that prose descriptions miss.
 
 5. **Include serialization.** If it persists (save files, sidecar files), show the ConfigNode/file format. Serialization bugs are the hardest to fix after release.
+
+6. **Design the logging, not just the code.** The Diagnostic Logging section isn't an afterthought — it's part of the design. Every behavior and edge case section entry should have a corresponding log line. If you can't describe what to log at a decision point, the decision itself isn't well-enough understood. A feature without diagnostic logging is a feature you can't debug in production.
+
+7. **Design the tests, not just the feature.** The Test Plan section forces you to think about verifiability during design, not after implementation. Every test must justify its existence: "this test catches the bug where X happens because Y." If you can't state what makes it fail, it's testing the compiler, not the feature. Include log assertion tests — they pull double duty by verifying behavior AND ensuring diagnostic coverage survives refactoring.
 
 **How to write it:**
 - Human and Claude already share the mental model from steps 1-2 — the heavy questioning is done
@@ -259,7 +294,8 @@ Agent(subagent_type=general-purpose, isolation=worktree):
 **Rules for implementation agents:**
 - Read the design doc before writing code
 - Follow existing code patterns (naming, error handling, serialization style)
-- Write tests alongside implementation (not after)
+- **Add diagnostic logging to every decision point and state transition.** Follow the Diagnostic Logging section of the design doc. Use the project's structured logging API with appropriate subsystem tags and levels (`Info` for state transitions visible in normal operation, `Verbose` for per-frame/high-frequency diagnostics, `Warn`/`Error` for unexpected conditions). Every `if/else` that picks a non-obvious path, every fallback, every skip gets a log line explaining why.
+- **Write tests alongside implementation (not after).** Follow the Test Plan section of the design doc. Every test must have a "what makes it fail" justification. Include log assertion tests that capture output via the test sink and verify that decision points produce expected diagnostic lines. Tests without a concrete regression they guard against are noise — don't write them.
 - Run `dotnet build` and `dotnet test` before committing
 - One logical change per commit
 
@@ -291,6 +327,8 @@ Agent(subagent_type=general-purpose):
 2. Synthetic recording injector — can `RecordingBuilder`/`VesselSnapshotBuilder`/`ScenarioWriter` produce test data for the new feature?
 3. New synthetic recording — does a new test recording exercise the feature end-to-end?
 4. All existing tests pass
+5. **Diagnostic logging coverage** — does every decision point, state transition, and edge case in the new code produce a log line? Compare against the design doc's Diagnostic Logging section. Silent branches are review failures. Check that log lines include enough context to reconstruct what happened (relevant IDs, old→new values, the "why" not just the "what").
+6. **Test quality** — does every new test have a concrete "what makes it fail" justification? Are there log assertion tests that verify diagnostic output via the test sink? Are edge cases from the design doc covered by dedicated tests? Reject vacuous tests that can't fail for any realistic bug.
 
 ### 4e. Fix (Implementation Agent — clean context, if issues found)
 
@@ -457,3 +495,7 @@ git worktree remove ../Parsek-<branch-name>
 **Parallelizing dependent work.** Two agents editing the same file or depending on each other's output will produce merge conflicts and inconsistent code. Use `blockedBy` relationships.
 
 **Not updating MEMORY.md.** Hard-won gotchas (like KSP converting underscores to dots in part names, or `GameScenes.TRACKSTATION` not `TRACKINGSTATION`) save hours on future tasks. If you learn something surprising, write it down.
+
+**Silent code paths.** An `if/else` with no logging on one branch is a debugging blind spot. When something goes wrong in-game, the only tool is KSP.log — if the code didn't log why it chose a particular path, you're left guessing. Every non-obvious branch should explain itself in the log. This is especially true for fallback paths and edge case handlers that rarely execute — those are exactly the paths that are hardest to debug without logging.
+
+**Vacuous tests.** A test that asserts `result != null` or `list.Count > 0` without checking the actual value guards against almost nothing. Every test should have a stated regression it catches — "this test fails if X is broken because Y." Tests without this justification are false confidence. Similarly, testing only the happy path while the design doc lists 15 edge cases means the most important scenarios are unverified. Log assertion tests (capturing output via the test sink and asserting specific log lines appear) serve double duty: they verify behavior AND ensure diagnostic coverage survives refactoring.
