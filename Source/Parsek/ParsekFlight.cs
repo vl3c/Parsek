@@ -4230,7 +4230,9 @@ namespace Parsek
 
             state.reentryFxInfo = GhostVisualBuilder.TryBuildReentryFx(
                 ghost,
-                state.heatInfos);
+                state.heatInfos,
+                index,
+                rec.VesselName);
 
             ghostStates[index] = state;
         }
@@ -5473,7 +5475,7 @@ namespace Parsek
 
         void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points, ref int cachedIndex, double targetUT, GhostPlaybackState state = null)
         {
-            if (points == null || points.Count == 0) { ghost.SetActive(false); return; }
+            if (points == null || points.Count == 0) { if (state != null) state.lastInterpolatedVelocity = Vector3.zero; ghost.SetActive(false); return; }
 
             int indexBefore = TrajectoryMath.FindWaypointIndex(points, ref cachedIndex, targetUT);
 
@@ -5503,6 +5505,7 @@ namespace Parsek
             if (bodyBefore == null || bodyAfter == null)
             {
                 Log($"Could not find body: {(bodyBefore == null ? before.bodyName : after.bodyName)}");
+                if (state != null) state.lastInterpolatedVelocity = Vector3.zero;
                 ghost.SetActive(false);
                 return;
             }
