@@ -138,6 +138,34 @@ namespace Parsek
         // Docking race condition guard (Task 5 sets, Task 6 checks)
         internal HashSet<uint> dockingInProgress = new HashSet<uint>();
 
+        /// <summary>
+        /// Holds captured vessel state between Phase 1 (synchronous, inside OnVesselWillDestroy)
+        /// and Phase 3 (deferred, after yield return null). Captured by the coroutine state machine
+        /// (heap-allocated, one per deferred check).
+        /// </summary>
+        internal struct PendingDestruction
+        {
+            public uint vesselPid;
+            public string recordingId;
+            public double capturedUT;
+            public Vessel.Situations situation;
+
+            // Orbit (captured from vessel.orbit before destruction)
+            public bool hasOrbit;
+            public double inclination;
+            public double eccentricity;
+            public double semiMajorAxis;
+            public double lan;
+            public double argumentOfPeriapsis;
+            public double meanAnomalyAtEpoch;
+            public double epoch;
+            public string bodyName;
+
+            // Surface position
+            public bool hasSurface;
+            public SurfacePosition surfacePosition;
+        }
+
         // Timeline warp protection — tracks previous frame's UT
         private double lastTimelineUT = -1;
 
@@ -832,6 +860,17 @@ namespace Parsek
             // The merge handler (CreateMergeBranch) will clean up via OnVesselRemovedFromBackground.
             if (!dockingInProgress.Contains(v.persistentId))
                 backgroundRecorder?.OnBackgroundVesselWillDestroy(v);
+
+            // Deferred destruction check for tree background vessels.
+            // Captures vessel state now (Phase 1) and defers the actual destruction confirmation
+            // by one frame (Phase 3) to distinguish real destruction from vessel unloading.
+            if (activeTree != null && ShouldDeferDestructionCheck(v.persistentId, true,
+                dockingInProgress, activeTree.BackgroundMap))
+            {
+                string recordingId = activeTree.BackgroundMap[v.persistentId];
+                var pending = CaptureVesselStateForTerminal(v, recordingId);
+                StartCoroutine(DeferredDestructionCheck(pending));
+            }
 
             // If the continuation vessel is destroyed, mark the recording and stop tracking
             if (continuationVesselPid != 0 && v.persistentId == continuationVesselPid)
@@ -1735,6 +1774,174 @@ namespace Parsek
                 pendingSplitRecorder = null;
                 preBreakVesselPids = null;
             }
+        }
+
+        #endregion
+
+        #region Terminal Event Detection (Destruction)
+
+        /// <summary>
+        /// Pure decision method: determines whether a deferred destruction check should be started.
+        /// Returns true if the vessel is in the BackgroundMap, not in dockingInProgress, and a tree exists.
+        /// </summary>
+        internal static bool ShouldDeferDestructionCheck(
+            uint vesselPid,
+            bool hasTree,
+            HashSet<uint> dockingInProgress,
+            Dictionary<uint, string> backgroundMap)
+        {
+            if (!hasTree) return false;
+            if (dockingInProgress.Contains(vesselPid)) return false;
+            return backgroundMap.ContainsKey(vesselPid);
+        }
+
+        /// <summary>
+        /// Pure decision method: determines whether a vessel is truly destroyed (not just unloaded
+        /// or absorbed by docking) after the one-frame deferral.
+        /// </summary>
+        internal static bool IsTrulyDestroyed(
+            uint vesselPid,
+            HashSet<uint> dockingInProgress,
+            bool vesselStillExists)
+        {
+            if (dockingInProgress.Contains(vesselPid)) return false;
+            return !vesselStillExists;
+        }
+
+        /// <summary>
+        /// Pure static method: applies terminal destruction state to a recording.
+        /// Sets TerminalStateValue = Destroyed, ExplicitEndUT, and copies orbital/surface data.
+        /// </summary>
+        internal static void ApplyTerminalDestruction(
+            PendingDestruction pending,
+            RecordingStore.Recording rec)
+        {
+            rec.TerminalStateValue = TerminalState.Destroyed;
+            rec.ExplicitEndUT = pending.capturedUT;
+            ApplyTerminalData(pending, rec);
+        }
+
+        /// <summary>
+        /// Pure static helper: copies orbital/surface data from a PendingDestruction to a recording.
+        /// </summary>
+        internal static void ApplyTerminalData(
+            PendingDestruction data,
+            RecordingStore.Recording rec)
+        {
+            if (data.hasOrbit)
+            {
+                rec.TerminalOrbitInclination = data.inclination;
+                rec.TerminalOrbitEccentricity = data.eccentricity;
+                rec.TerminalOrbitSemiMajorAxis = data.semiMajorAxis;
+                rec.TerminalOrbitLAN = data.lan;
+                rec.TerminalOrbitArgumentOfPeriapsis = data.argumentOfPeriapsis;
+                rec.TerminalOrbitMeanAnomalyAtEpoch = data.meanAnomalyAtEpoch;
+                rec.TerminalOrbitEpoch = data.epoch;
+                rec.TerminalOrbitBody = data.bodyName;
+            }
+            if (data.hasSurface)
+            {
+                rec.TerminalPosition = data.surfacePosition;
+            }
+        }
+
+        /// <summary>
+        /// Phase 1 capture: extracts vessel state before destruction for deferred processing.
+        /// Called synchronously from OnVesselWillDestroy while the Vessel object is still valid.
+        /// Handles ORBITING/SUB_ORBITAL/ESCAPING (orbit capture), LANDED/SPLASHED/PRELAUNCH
+        /// (surface capture), and FLYING (orbit as best-effort approximation).
+        /// </summary>
+        PendingDestruction CaptureVesselStateForTerminal(Vessel v, string recordingId)
+        {
+            var pending = new PendingDestruction
+            {
+                vesselPid = v.persistentId,
+                recordingId = recordingId,
+                capturedUT = Planetarium.GetUniversalTime(),
+                situation = v.situation
+            };
+
+            switch (v.situation)
+            {
+                case Vessel.Situations.ORBITING:
+                case Vessel.Situations.SUB_ORBITAL:
+                case Vessel.Situations.ESCAPING:
+                case Vessel.Situations.FLYING:
+                    // Capture orbit data (FLYING uses orbit as best-effort approximation)
+                    if (v.orbit != null)
+                    {
+                        pending.hasOrbit = true;
+                        pending.inclination = v.orbit.inclination;
+                        pending.eccentricity = v.orbit.eccentricity;
+                        pending.semiMajorAxis = v.orbit.semiMajorAxis;
+                        pending.lan = v.orbit.LAN;
+                        pending.argumentOfPeriapsis = v.orbit.argumentOfPeriapsis;
+                        pending.meanAnomalyAtEpoch = v.orbit.meanAnomalyAtEpoch;
+                        pending.epoch = v.orbit.epoch;
+                        pending.bodyName = v.mainBody?.name ?? "Kerbin";
+                    }
+                    break;
+
+                case Vessel.Situations.LANDED:
+                case Vessel.Situations.SPLASHED:
+                case Vessel.Situations.PRELAUNCH:
+                    // Capture surface position (PRELAUNCH treated as LANDED)
+                    pending.hasSurface = true;
+                    pending.surfacePosition = new SurfacePosition
+                    {
+                        body = v.mainBody?.name ?? "Kerbin",
+                        latitude = v.latitude,
+                        longitude = v.longitude,
+                        altitude = v.altitude,
+                        rotation = v.srfRelRotation,
+                        situation = v.situation == Vessel.Situations.SPLASHED
+                            ? SurfaceSituation.Splashed
+                            : SurfaceSituation.Landed
+                    };
+                    break;
+            }
+
+            return pending;
+        }
+
+        /// <summary>
+        /// Deferred destruction check coroutine. After one frame, verifies whether the vessel
+        /// was truly destroyed (not just unloaded or absorbed by docking). If confirmed destroyed,
+        /// applies terminal state and removes from BackgroundMap.
+        /// </summary>
+        IEnumerator DeferredDestructionCheck(PendingDestruction pending)
+        {
+            yield return null; // defer one frame for KSP to finalize the destroy
+
+            // Fix 2: activeTree could become null during scene change
+            if (activeTree == null) yield break;
+
+            // Fix 3: another handler (merge, promotion) may have already processed this vessel
+            if (!activeTree.BackgroundMap.ContainsKey(pending.vesselPid)) yield break;
+
+            // Use pure decision method to determine if vessel is truly destroyed
+            bool vesselStillExists = FlightRecorder.FindVesselByPid(pending.vesselPid) != null;
+            if (!IsTrulyDestroyed(pending.vesselPid, dockingInProgress, vesselStillExists))
+            {
+                if (dockingInProgress.Contains(pending.vesselPid))
+                    Log($"DeferredDestructionCheck: pid={pending.vesselPid} now in dockingInProgress — aborting");
+                else
+                    Log($"DeferredDestructionCheck: pid={pending.vesselPid} still exists — vessel unloaded, not destroyed");
+                yield break;
+            }
+
+            // Vessel is truly destroyed — apply terminal state
+            RecordingStore.Recording rec;
+            if (!activeTree.Recordings.TryGetValue(pending.recordingId, out rec))
+            {
+                ParsekLog.Warn("Flight", $"DeferredDestructionCheck: recording '{pending.recordingId}' not found in tree");
+                yield break;
+            }
+
+            ApplyTerminalDestruction(pending, rec);
+            activeTree.BackgroundMap.Remove(pending.vesselPid);
+
+            ParsekLog.Warn("Flight", $"Background vessel destroyed: pid={pending.vesselPid} recId={pending.recordingId}");
         }
 
         #endregion
