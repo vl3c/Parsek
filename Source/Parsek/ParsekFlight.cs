@@ -3130,11 +3130,17 @@ namespace Parsek
             activeTree.ResourcesApplied = true;
 
             // Mark all tree recordings' resource indices as fully applied
+            int markedCount = 0;
             foreach (var rec in activeTree.Recordings.Values)
             {
                 if (rec.Points.Count > 0)
+                {
                     rec.LastAppliedResourceIndex = rec.Points.Count - 1;
+                    markedCount++;
+                }
             }
+            ParsekLog.Info("Flight",
+                $"CommitTreeFlight: ResourcesApplied=true, marked {markedCount}/{activeTree.Recordings.Count} recordings as fully applied");
 
             // Reserve crew for all leaf vessels (except active vessel)
             var spawnableLeaves = activeTree.GetSpawnableLeaves();
@@ -3324,6 +3330,11 @@ namespace Parsek
                 // Warn if leaf has no playback data
                 if (isLeaf && rec.Points.Count == 0 && rec.OrbitSegments.Count == 0 && !rec.SurfacePos.HasValue)
                     ParsekLog.Warn("Flight", $"FinalizeTreeRecordings: leaf '{rec.RecordingId}' has no playback data");
+
+                Log($"FinalizeTreeRecordings: rec='{rec.RecordingId}' vessel='{rec.VesselName}' " +
+                    $"points={rec.Points.Count} orbitSegs={rec.OrbitSegments.Count} " +
+                    $"terminal={rec.TerminalStateValue?.ToString() ?? "none"} " +
+                    $"snapshot={rec.VesselSnapshot != null} leaf={isLeaf}");
             }
 
             // Compute tree-level resource delta
@@ -3992,7 +4003,12 @@ namespace Parsek
             for (int i = 0; i < trees.Count; i++)
             {
                 var tree = trees[i];
-                if (tree.ResourcesApplied) continue;
+                if (tree.ResourcesApplied)
+                {
+                    ParsekLog.VerboseRateLimited("Flight", "tree-res-skip-applied",
+                        $"ApplyTreeResourceDeltas: skipping tree '{tree.TreeName}' — already applied");
+                    continue;
+                }
 
                 // Compute tree EndUT: max EndUT across all recordings
                 double treeEndUT = 0;
@@ -4002,7 +4018,12 @@ namespace Parsek
                     if (recEnd > treeEndUT) treeEndUT = recEnd;
                 }
 
-                if (currentUT <= treeEndUT) continue;
+                if (currentUT <= treeEndUT)
+                {
+                    ParsekLog.VerboseRateLimited("Flight", "tree-res-wait-ut",
+                        $"ApplyTreeResourceDeltas: waiting for tree '{tree.TreeName}' — currentUT={currentUT:F1} treeEndUT={treeEndUT:F1}");
+                    continue;
+                }
 
                 // Apply lump sum delta (sets ResourcesApplied = true internally)
                 ApplyTreeLumpSum(tree);
@@ -4020,8 +4041,11 @@ namespace Parsek
                 if (tree.DeltaFunds != 0 && Funding.Instance != null)
                 {
                     double delta = tree.DeltaFunds;
+                    double originalFunds = delta;
                     if (delta < 0 && Funding.Instance.Funds + delta < 0)
                         delta = -Funding.Instance.Funds;
+                    if (delta != originalFunds)
+                        Log($"ApplyTreeLumpSum: funds clamped for '{tree.TreeName}': original={originalFunds:+0.0;-0.0} → clamped={delta:+0.0;-0.0} (balance={Funding.Instance.Funds:F0})");
                     Funding.Instance.AddFunds(delta, TransactionReasons.None);
                     Log($"Tree resource: funds {delta:+0.0;-0.0} (tree '{tree.TreeName}')");
                 }
@@ -4029,8 +4053,11 @@ namespace Parsek
                 if (tree.DeltaScience != 0 && ResearchAndDevelopment.Instance != null)
                 {
                     double delta = tree.DeltaScience;
+                    double originalScience = delta;
                     if (delta < 0 && ResearchAndDevelopment.Instance.Science + delta < 0)
                         delta = -ResearchAndDevelopment.Instance.Science;
+                    if (delta != originalScience)
+                        Log($"ApplyTreeLumpSum: science clamped for '{tree.TreeName}': original={originalScience:+0.0;-0.0} → clamped={delta:+0.0;-0.0} (balance={ResearchAndDevelopment.Instance.Science:F1})");
                     ResearchAndDevelopment.Instance.AddScience((float)delta, TransactionReasons.None);
                     Log($"Tree resource: science {delta:+0.0;-0.0} (tree '{tree.TreeName}')");
                 }
@@ -4038,8 +4065,11 @@ namespace Parsek
                 if (tree.DeltaReputation != 0 && Reputation.Instance != null)
                 {
                     float delta = tree.DeltaReputation;
+                    float originalRep = delta;
                     if (delta < 0 && Reputation.CurrentRep + delta < 0)
                         delta = -Reputation.CurrentRep;
+                    if (delta != originalRep)
+                        Log($"ApplyTreeLumpSum: reputation clamped for '{tree.TreeName}': original={originalRep:+0.0;-0.0} → clamped={delta:+0.0;-0.0} (balance={Reputation.CurrentRep:F1})");
                     Reputation.Instance.AddReputation(delta, TransactionReasons.None);
                     Log($"Tree resource: reputation {delta:+0.0;-0.0} (tree '{tree.TreeName}')");
                 }
@@ -4060,6 +4090,7 @@ namespace Parsek
             {
                 if (trees[i].Id == treeId) return trees[i];
             }
+            Log($"FindCommittedTree: treeId='{treeId}' not found (checked {trees.Count} committed trees)");
             return null;
         }
 
@@ -5327,8 +5358,22 @@ namespace Parsek
             if (rec.TreeId != null)
             {
                 var tree = FindCommittedTree(rec.TreeId);
-                if (tree != null && !tree.ResourcesApplied)
-                    ApplyTreeLumpSum(tree);
+                if (tree != null)
+                {
+                    if (!tree.ResourcesApplied)
+                    {
+                        Log($"TakeControlOfGhost: applying tree resources for '{tree.TreeName}'");
+                        ApplyTreeLumpSum(tree);
+                    }
+                    else
+                    {
+                        Log($"TakeControlOfGhost: tree resources already applied for '{tree.TreeName}' — skipping");
+                    }
+                }
+                else
+                {
+                    Log($"TakeControlOfGhost: tree not found for treeId='{rec.TreeId}'");
+                }
             }
             else
             {
@@ -5572,12 +5617,15 @@ namespace Parsek
             CelestialBody body = FlightGlobals.Bodies.Find(b => b.name == surfPos.body);
             if (body == null)
             {
+                ParsekLog.Warn("Flight", $"PositionGhostAtSurface: body '{surfPos.body}' not found");
                 ghost.SetActive(false);
                 return;
             }
             ghost.transform.position = body.GetWorldSurfacePosition(surfPos.latitude, surfPos.longitude, surfPos.altitude);
             ghost.transform.rotation = body.bodyTransform.rotation * surfPos.rotation;
             ghost.SetActive(true);
+            ParsekLog.VerboseRateLimited("Flight", "surface-ghost-positioned",
+                $"PositionGhostAtSurface: body={surfPos.body} lat={surfPos.latitude:F4} lon={surfPos.longitude:F4} alt={surfPos.altitude:F1}");
         }
 
         void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points,

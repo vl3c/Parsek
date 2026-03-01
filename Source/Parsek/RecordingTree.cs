@@ -64,6 +64,9 @@ namespace Parsek
                 ConfigNode bpNode = treeNode.AddNode("BRANCH_POINT");
                 SaveBranchPointInto(bpNode, BranchPoints[i]);
             }
+
+            ParsekLog.Verbose("RecordingTree",
+                $"Save: tree='{TreeName}' recordings={Recordings.Count} branchPoints={BranchPoints.Count} resourcesApplied={ResourcesApplied}");
         }
 
         public static RecordingTree Load(ConfigNode treeNode)
@@ -114,6 +117,11 @@ namespace Parsek
             }
 
             tree.RebuildBackgroundMap();
+
+            ParsekLog.Verbose("RecordingTree",
+                $"Load: id={tree.Id} tree='{tree.TreeName}' recordings={tree.Recordings.Count} " +
+                $"branchPoints={tree.BranchPoints.Count} resourcesApplied={tree.ResourcesApplied} " +
+                $"resourcesAppliedFieldPresent={resourcesAppliedStr != null}");
             return tree;
         }
 
@@ -131,6 +139,9 @@ namespace Parsek
                     BackgroundMap[rec.VesselPersistentId] = rec.RecordingId;
                 }
             }
+
+            ParsekLog.Verbose("RecordingTree",
+                $"RebuildBackgroundMap: entries={BackgroundMap.Count} totalRecordings={Recordings.Count}");
         }
 
         // --- Recording serialization helpers ---

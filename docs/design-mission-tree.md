@@ -495,6 +495,8 @@ When starting a new session to continue this work:
 | Task 9: Tree ghost playback | Done | `3f4b91c` | Background orbit/surface ghosts, spawn suppression, surface rotation fix |
 | Task 10: Tree-level resource tracking | Done | `e505523` | Tree-level delta computation, lump sum playback, budget integration, 15 tests |
 | Task 11: Backward compatibility + chain migration | Done | `1cba255` | Verification only — no production changes, 5 backward compat tests |
+| Task 12: Tree verbose logging | **Next** | — | Fill all logging gaps in tree code paths (10 gaps across 7 files) |
+| Task 13: Tree test coverage | Pending | — | 18 non-vacuous tests + 3 synthetic tree recordings. Depends on 12 |
 
 ### Task 1: RecordingTree data model + serialization
 
@@ -695,6 +697,68 @@ Ensure existing saves load correctly.
 
 **Test:** load existing save with committed recordings (including chains). Verify they load, play back, and spawn correctly. Verify chain merge dialog, per-segment loop, and per-segment resource display still work. Run full `dotnet test` suite.
 
+### Task 12: Tree verbose logging
+
+**Depends on:** Task 11
+
+Add verbose diagnostic logging to every tree-related code path that currently lacks it. The goal: every decision point, state transition, and edge case in the tree system produces a log line traceable in KSP.log or capturable by `ParsekLog.TestSinkForTesting`.
+
+**10 logging gaps to fill (see `docs/plans/task-12-test-ideas.md` Part A for details):**
+
+1. **A1 — RecordingTree.Save** — log tree name, recording count, branch point count, ResourcesApplied
+2. **A2 — RecordingTree.Load** — log tree ID, recording count, branch point count, which fields present/defaulted
+3. **A3 — ApplyTreeResourceDeltas** — log per-tree: skipped (applied), waiting (UT not past end), or applying. Use `VerboseRateLimited` (runs every frame)
+4. **A4 — ApplyTreeLumpSum clamping** — log when delta is clamped to prevent negative balance (original vs clamped value)
+5. **A5 — PositionGhostAtSurface** — log body name, lat/lon/alt, whether body found
+6. **A6 — FindCommittedTree miss** — log requested treeId and committed tree count when returning null
+7. **A7 — ResourceBudget.ComputeTotal tree loop** — log each tree's name, delta, applied/skipped, cost added
+8. **A8 — FinalizeTreeRecordings per-recording** — log each recording: ID, vessel name, point count, orbit segments, terminal state, snapshot, leaf status
+9. **A9 — CommitTreeFlight marking** — log recordings marked count, ResourcesApplied confirmation
+10. **A10 — TakeControlOfGhost tree branch** — log tree lookup result (found/not found, applied/not applied)
+
+**Files:** `RecordingTree.cs`, `ParsekFlight.cs`, `ResourceBudget.cs`
+
+**Test:** `dotnet build` clean, `dotnet test` all pass (no new tests — those come in Task 13).
+
+### Task 13: Tree test coverage
+
+**Depends on:** Task 12
+
+Maximize test coverage with meaningful, non-vacuous tests. Every test has a concrete "what makes it fail" justification. Also add synthetic tree recordings for in-game validation.
+
+**See `docs/plans/task-12-test-ideas.md` Parts B-E for full test specifications.**
+
+**18 new tests across 3 categories:**
+
+*Part B — Pure method tests (7):*
+- B1: `FormatDuration` — 10 cases covering all branches + exact boundaries (60, 3600)
+- B2: `GetLeafSituationText` — 13 cases covering all 8 terminal states + null-body fallbacks + legacy fallback
+- B3: `ComputeTotal` — multiple trees, mixed ResourcesApplied (only way to get correct value is correct filtering)
+- B4: `IsSpawnableLeaf` — 5 missing truth-table cases (Recovered, Landed, Splashed, SubOrbital, null-snapshot-no-terminal)
+- B5: `RebuildBackgroundMap` — realistic multi-level tree with one recording per exclusion reason
+- B6: `GetAllLeaves` vs `GetSpawnableLeaves` — Recovered leaf (not tested anywhere)
+- B7: `GetSpawnableLeaves` after dock merge — DAG case, only continuation is spawnable
+
+*Part C — Log verification tests (6):*
+- C1-C3: Verify existing log lines from `CommitTree`, `StashPendingTree`, `DiscardPendingTree` via `TestSinkForTesting`
+- C4-C6: Verify new log lines added in Task 12 (`ComputeTotal` tree loop, `RecordingTree.Save`, `RecordingTree.Load`)
+
+*Part D — Edge case tests (5):*
+- D1: Empty tree — `GetSpawnableLeaves` and `RebuildBackgroundMap` don't crash
+- D2: Forward-compat loading — extra/unknown ConfigNode fields silently ignored
+- D3: `CommitTree(null)` — no crash, no state change
+- D4: All-terminal-leaf tree — budget delta still counts
+- D5: BackgroundMap populated correctly after save/load round-trip
+
+*Part E — Synthetic tree recordings (3 builders):*
+- E1: Simple undock tree (2 ghosts, split at midpoint)
+- E2: EVA tree (vessel + kerbal ghost)
+- E3: Destruction tree (one child destroyed, one spawns)
+
+**Files:** `Source/Parsek.Tests/` (new + extended test files), `Source/Parsek.Tests/Generators/` (synthetic tree builders)
+
+**Test:** `dotnet test` — all existing + 18 new tests pass. `dotnet test --filter InjectAllRecordings` — injects tree recordings.
+
 ### Dependency graph
 
 ```
@@ -716,6 +780,12 @@ Task 1 (data model) ──→ Task 2 (vessel switch) ──→ Task 3 (backgroun
                                                 │
                                                 ▼
                                          Task 11 (backward compat)
+                                                │
+                                                ▼
+                                         Task 12 (logging)
+                                                │
+                                                ▼
+                                         Task 13 (tests)
 ```
 
 **Parallelizable groups:**
