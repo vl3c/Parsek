@@ -493,8 +493,8 @@ When starting a new session to continue this work:
 | Task 7: Tree commit + leaf spawn | Done | `969a0b6` | CommitTreeFlight, CommitTreeSceneExit, leaf spawning, tree persistence, 33 tests |
 | Task 8: Tree-aware merge dialog | Done | `963ceec` | ShowTreeDialog, revert vs scene-exit branching, CommitTreeRevert |
 | Task 9: Tree ghost playback | Done | `3f4b91c` | Background orbit/surface ghosts, spawn suppression, surface rotation fix |
-| Task 10: Tree-level resource tracking | **Next** | — | Depends on 7 |
-| Task 11: Backward compatibility + chain migration | Pending | — | Depends on all |
+| Task 10: Tree-level resource tracking | Done | `e505523` | Tree-level delta computation, lump sum playback, budget integration, 15 tests |
+| Task 11: Backward compatibility + chain migration | **Next** | — | Depends on all |
 
 ### Task 1: RecordingTree data model + serialization
 
