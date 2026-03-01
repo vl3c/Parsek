@@ -5475,7 +5475,9 @@ namespace Parsek
         /// </summary>
         internal static ReentryFxInfo TryBuildReentryFx(
             GameObject ghostRoot,
-            Dictionary<uint, HeatGhostInfo> heatInfos)
+            Dictionary<uint, HeatGhostInfo> heatInfos,
+            int ghostIndex,
+            string vesselName)
         {
             var info = new ReentryFxInfo();
             int skippedHeatCount = 0;
@@ -5722,11 +5724,12 @@ namespace Parsek
 
             // --- Logging ---
             ParsekLog.Verbose("ReentryFx",
-                $"Built — {info.flameParticles.Count} flame, {info.smokeParticles.Count} smoke, " +
-                $"trail={info.trailRenderer != null}, glow materials={info.glowMaterials.Count}");
+                $"Built for ghost #{ghostIndex} \"{vesselName}\" — {info.flameParticles.Count} flame systems, " +
+                $"{info.smokeParticles.Count} smoke systems, trail={info.trailRenderer != null}, " +
+                $"glow materials={info.glowMaterials.Count}");
             if (skippedHeatCount > 0)
                 ParsekLog.Verbose("ReentryFx",
-                    $"Skipped {skippedHeatCount} renderers already managed by HeatGhostInfo");
+                    $"Skipped {skippedHeatCount} renderers already managed by HeatGhostInfo for ghost #{ghostIndex}");
 
             return info;
         }
