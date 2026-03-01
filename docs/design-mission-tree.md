@@ -494,7 +494,7 @@ When starting a new session to continue this work:
 | Task 8: Tree-aware merge dialog | Done | `963ceec` | ShowTreeDialog, revert vs scene-exit branching, CommitTreeRevert |
 | Task 9: Tree ghost playback | Done | `3f4b91c` | Background orbit/surface ghosts, spawn suppression, surface rotation fix |
 | Task 10: Tree-level resource tracking | Done | `e505523` | Tree-level delta computation, lump sum playback, budget integration, 15 tests |
-| Task 11: Backward compatibility + chain migration | **Next** | — | Depends on all |
+| Task 11: Backward compatibility + chain migration | Done | `1cba255` | Verification only — no production changes, 5 backward compat tests |
 
 ### Task 1: RecordingTree data model + serialization
 
