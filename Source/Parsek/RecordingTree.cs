@@ -115,6 +115,7 @@ namespace Parsek
                 var rec = kvp.Value;
                 if (rec.VesselPersistentId != 0
                     && rec.TerminalStateValue == null
+                    && rec.ChildBranchPointId == null  // has branched → no longer a live recording
                     && rec.RecordingId != ActiveRecordingId)
                 {
                     BackgroundMap[rec.VesselPersistentId] = rec.RecordingId;

@@ -4,10 +4,11 @@ namespace Parsek
 {
     public enum BranchPointType
     {
-        Undock = 0,
-        EVA    = 1,
-        Dock   = 2,
-        Board  = 3
+        Undock     = 0,
+        EVA        = 1,
+        Dock       = 2,
+        Board      = 3,
+        JointBreak = 4
     }
 
     public class BranchPoint
