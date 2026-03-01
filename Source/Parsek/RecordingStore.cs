@@ -224,9 +224,18 @@ namespace Parsek
         // Merged to timeline — these auto-playback during flight
         private static List<Recording> committedRecordings = new List<Recording>();
 
+        // Committed recording trees (parallel storage — tree recordings also appear in committedRecordings)
+        private static List<RecordingTree> committedTrees = new List<RecordingTree>();
+
+        // Pending tree awaiting merge dialog (Task 8) or auto-commit
+        private static RecordingTree pendingTree;
+
         public static bool HasPending => pendingRecording != null;
         public static Recording Pending => pendingRecording;
         public static List<Recording> CommittedRecordings => committedRecordings;
+        public static List<RecordingTree> CommittedTrees => committedTrees;
+        public static bool HasPendingTree => pendingTree != null;
+        public static RecordingTree PendingTree => pendingTree;
 
         public static void StashPending(List<TrajectoryPoint> points, string vesselName,
             List<OrbitSegment> orbitSegments = null,
@@ -302,7 +311,8 @@ namespace Parsek
             for (int i = 0; i < committedRecordings.Count; i++)
                 DeleteRecordingFiles(committedRecordings[i]);
             committedRecordings.Clear();
-            Log($"[Parsek] Cleared {count} committed recordings");
+            committedTrees.Clear();
+            Log($"[Parsek] Cleared {count} committed recordings and all trees");
         }
 
         public static void Clear()
@@ -310,8 +320,93 @@ namespace Parsek
             if (pendingRecording != null)
                 DeleteRecordingFiles(pendingRecording);
             pendingRecording = null;
+            pendingTree = null;
             ClearCommitted();
             Log("[Parsek] All recordings cleared");
+        }
+
+        /// <summary>
+        /// Commits a recording tree directly to the timeline.
+        /// Adds all recordings to CommittedRecordings (for ghost playback)
+        /// and the tree itself to CommittedTrees (for tree-specific queries).
+        /// </summary>
+        public static void CommitTree(RecordingTree tree)
+        {
+            if (tree == null) return;
+
+            // Duplicate guard: skip if tree with same ID already committed
+            for (int i = 0; i < committedTrees.Count; i++)
+            {
+                if (committedTrees[i].Id == tree.Id)
+                {
+                    Log($"[Parsek] WARNING: Tree '{tree.Id}' already committed — skipping duplicate");
+                    return;
+                }
+            }
+
+            // Add all tree recordings to committedRecordings (enables ghost playback)
+            foreach (var rec in tree.Recordings.Values)
+            {
+                committedRecordings.Add(rec);
+            }
+
+            committedTrees.Add(tree);
+            Log($"[Parsek] Committed tree '{tree.TreeName}' ({tree.Recordings.Count} recordings). " +
+                $"Total committed: {committedRecordings.Count} recordings, {committedTrees.Count} trees");
+
+            // Capture a game state baseline at each commit
+            GameStateStore.CaptureBaselineIfNeeded();
+
+            // Create a milestone bundling game state events since the previous milestone
+            double endUT = 0;
+            foreach (var rec in tree.Recordings.Values)
+            {
+                double recEnd = rec.EndUT;
+                if (recEnd > endUT) endUT = recEnd;
+            }
+            MilestoneStore.CreateMilestone(tree.Id, endUT);
+        }
+
+        /// <summary>
+        /// Stashes a finalized tree as pending (for merge dialog on revert).
+        /// </summary>
+        public static void StashPendingTree(RecordingTree tree)
+        {
+            pendingTree = tree;
+            if (tree != null)
+                Log($"[Parsek] Stashed pending tree '{tree.TreeName}' ({tree.Recordings.Count} recordings)");
+        }
+
+        /// <summary>
+        /// Commits the pending tree to the timeline.
+        /// </summary>
+        public static void CommitPendingTree()
+        {
+            if (pendingTree == null)
+            {
+                ParsekLog.Verbose("RecordingStore", "CommitPendingTree called with no pending tree");
+                return;
+            }
+
+            CommitTree(pendingTree);
+            pendingTree = null;
+        }
+
+        /// <summary>
+        /// Discards the pending tree and cleans up its recording files.
+        /// </summary>
+        public static void DiscardPendingTree()
+        {
+            if (pendingTree == null)
+            {
+                ParsekLog.Verbose("RecordingStore", "DiscardPendingTree called with no pending tree");
+                return;
+            }
+
+            foreach (var rec in pendingTree.Recordings.Values)
+                DeleteRecordingFiles(rec);
+            Log($"[Parsek] Discarded pending tree '{pendingTree.TreeName}'");
+            pendingTree = null;
         }
 
         /// <summary>
@@ -597,6 +692,8 @@ namespace Parsek
         {
             pendingRecording = null;
             committedRecordings.Clear();
+            committedTrees.Clear();
+            pendingTree = null;
         }
 
         internal static void DeleteRecordingFiles(Recording rec)

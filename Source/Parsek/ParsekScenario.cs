@@ -44,6 +44,11 @@ namespace Parsek
             for (int r = 0; r < recordings.Count; r++)
             {
                 var rec = recordings[r];
+
+                // Skip tree recordings — they are saved under RECORDING_TREE nodes below
+                if (rec.TreeId != null)
+                    continue;
+
                 ConfigNode recNode = node.AddNode("RECORDING");
 
                 // Write bulk data to external files
@@ -81,6 +86,26 @@ namespace Parsek
 
                 // Persist resource index so quickload doesn't re-apply deltas
                 recNode.AddValue("lastResIdx", rec.LastAppliedResourceIndex);
+            }
+
+            // Save committed recording trees
+            node.RemoveNodes("RECORDING_TREE");
+            var committedTrees = RecordingStore.CommittedTrees;
+            ParsekLog.Info("Scenario", $"OnSave: saving {committedTrees.Count} committed tree(s)");
+            for (int t = 0; t < committedTrees.Count; t++)
+            {
+                var tree = committedTrees[t];
+
+                // Write bulk data to external files for each recording in the tree
+                foreach (var rec in tree.Recordings.Values)
+                {
+                    rec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+                    if (!RecordingStore.SaveRecordingFiles(rec))
+                        ScenarioLog($"[Parsek Scenario] WARNING: File write failed for tree recording '{rec.VesselName}'");
+                }
+
+                ConfigNode treeNode = node.AddNode("RECORDING_TREE");
+                tree.Save(treeNode);
             }
 
             // Persist crew replacement mappings
@@ -204,39 +229,58 @@ namespace Parsek
                 string savedEpochStr = node.GetValue("milestoneEpoch");
                 if (savedEpochStr != null)
                     uint.TryParse(savedEpochStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out savedEpoch);
+
+                // Count tree recordings from saved tree nodes for accurate revert detection.
+                // Tree recordings are in committedRecordings but NOT in standalone RECORDING nodes.
+                ConfigNode[] savedTreeNodesForRevert = node.GetNodes("RECORDING_TREE");
+                int savedTreeRecCount = 0;
+                for (int t = 0; t < savedTreeNodesForRevert.Length; t++)
+                    savedTreeRecCount += savedTreeNodesForRevert[t].GetNodes("RECORDING").Length;
+                int totalSavedRecCount = savedRecNodes.Length + savedTreeRecCount;
+
                 bool isRevert = savedEpoch < MilestoneStore.CurrentEpoch
-                                || savedRecNodes.Length < recordings.Count;
+                                || totalSavedRecCount < recordings.Count;
                 ParsekLog.Verbose("Scenario",
                     $"OnLoad: revert detection — savedEpoch={savedEpoch}, currentEpoch={MilestoneStore.CurrentEpoch}, " +
-                    $"savedRecNodes={savedRecNodes.Length}, memoryRecordings={recordings.Count}, isRevert={isRevert}");
+                    $"savedRecNodes={savedRecNodes.Length}, savedTreeRecs={savedTreeRecCount}, " +
+                    $"memoryRecordings={recordings.Count}, isRevert={isRevert}");
 
                 // Restore mutable state from save. On revert the launch quicksave has
                 // no spawnedPid / takenControl / lastResIdx, so they naturally reset.
                 // On non-revert scene changes (e.g. tracking station → flight) the
                 // save preserves these, preventing duplicate spawns and ghost replays.
+                // NOTE: This loop only covers standalone recordings (not tree recordings).
+                // Tree recordings get their mutable state from RECORDING_TREE nodes below.
+                // Use a separate counter (standaloneIdx) for savedRecNodes because tree
+                // recordings are interspersed in the in-memory list but absent from the
+                // saved RECORDING nodes.
+                int standaloneIdx = 0;
                 for (int i = 0; i < recordings.Count; i++)
                 {
+                    // Skip tree recordings — their mutable state is restored from tree nodes
+                    if (recordings[i].TreeId != null) continue;
+
                     recordings[i].VesselSpawned = false;
                     recordings[i].SpawnAttempts = 0;
 
                     uint savedPid = 0;
                     bool savedTaken = false;
                     int resIdx = -1;
-                    if (i < savedRecNodes.Length)
+                    if (standaloneIdx < savedRecNodes.Length)
                     {
-                        string pidStr = savedRecNodes[i].GetValue("spawnedPid");
+                        string pidStr = savedRecNodes[standaloneIdx].GetValue("spawnedPid");
                         if (pidStr != null && !uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out savedPid))
                             ParsekLog.Warn("Scenario", $"Failed to parse spawnedPid '{pidStr}' for recording #{i}");
 
-                        string takenStr = savedRecNodes[i].GetValue("takenControl");
+                        string takenStr = savedRecNodes[standaloneIdx].GetValue("takenControl");
                         if (takenStr != null && !bool.TryParse(takenStr, out savedTaken))
                             ParsekLog.Warn("Scenario", $"Failed to parse takenControl '{takenStr}' for recording #{i}");
 
-                        string resIdxStr = savedRecNodes[i].GetValue("lastResIdx");
+                        string resIdxStr = savedRecNodes[standaloneIdx].GetValue("lastResIdx");
                         if (resIdxStr != null && !int.TryParse(resIdxStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out resIdx))
                             ParsekLog.Warn("Scenario", $"Failed to parse lastResIdx '{resIdxStr}' for recording #{i}");
 
-                        string playbackEnabledStr = savedRecNodes[i].GetValue("playbackEnabled");
+                        string playbackEnabledStr = savedRecNodes[standaloneIdx].GetValue("playbackEnabled");
                         if (playbackEnabledStr != null)
                         {
                             bool savedPlaybackEnabled;
@@ -249,6 +293,66 @@ namespace Parsek
                     recordings[i].SpawnedVesselPersistentId = savedPid;
                     recordings[i].TakenControl = savedTaken;
                     recordings[i].LastAppliedResourceIndex = resIdx;
+                    standaloneIdx++;
+                }
+
+                // Restore tree recording mutable state from RECORDING_TREE nodes.
+                // First, reset ALL tree recordings to defaults. On revert, the launch
+                // quicksave has no tree nodes so this reset is the only thing that runs,
+                // ensuring VesselSpawned/SpawnedPid/etc. don't carry over from the
+                // committed flight (whose vessels were undone by the revert).
+                // On scene change, the reset is overwritten by the saved values below.
+                for (int i = 0; i < recordings.Count; i++)
+                {
+                    if (recordings[i].TreeId == null) continue;
+                    recordings[i].VesselSpawned = false;
+                    recordings[i].SpawnAttempts = 0;
+                    recordings[i].SpawnedVesselPersistentId = 0;
+                    recordings[i].TakenControl = false;
+                    recordings[i].LastAppliedResourceIndex = -1;
+                }
+
+                // Then restore from saved tree nodes (present on scene change, absent on revert)
+                ConfigNode[] savedTreeNodes = node.GetNodes("RECORDING_TREE");
+                if (savedTreeNodes.Length > 0)
+                {
+                    // Rebuild tree mutable state from saved tree nodes
+                    foreach (var savedTreeNode in savedTreeNodes)
+                    {
+                        ConfigNode[] savedTreeRecNodes = savedTreeNode.GetNodes("RECORDING");
+                        foreach (var savedTreeRecNode in savedTreeRecNodes)
+                        {
+                            string savedRecId = savedTreeRecNode.GetValue("recordingId");
+                            if (string.IsNullOrEmpty(savedRecId)) continue;
+
+                            // Find the in-memory recording by ID and restore mutable state
+                            for (int i = 0; i < recordings.Count; i++)
+                            {
+                                if (recordings[i].RecordingId == savedRecId)
+                                {
+                                    string pidStr = savedTreeRecNode.GetValue("spawnedPid");
+                                    uint savedPid = 0;
+                                    if (pidStr != null)
+                                        uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out savedPid);
+                                    recordings[i].SpawnedVesselPersistentId = savedPid;
+
+                                    string takenStr = savedTreeRecNode.GetValue("takenControl");
+                                    bool savedTaken = false;
+                                    if (takenStr != null)
+                                        bool.TryParse(takenStr, out savedTaken);
+                                    recordings[i].TakenControl = savedTaken;
+
+                                    string resIdxStr = savedTreeRecNode.GetValue("lastResIdx");
+                                    int resIdx = -1;
+                                    if (resIdxStr != null)
+                                        int.TryParse(resIdxStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out resIdx);
+                                    recordings[i].LastAppliedResourceIndex = resIdx;
+
+                                    break;
+                                }
+                            }
+                        }
+                    }
                 }
 
                 if (isRevert)
@@ -373,6 +477,37 @@ namespace Parsek
             // Validate chain integrity before any playback
             RecordingStore.ValidateChains();
 
+            // Load committed recording trees
+            ConfigNode[] treeNodes = node.GetNodes("RECORDING_TREE");
+            if (treeNodes.Length > 0)
+            {
+                ScenarioLog($"[Parsek Scenario] Loading {treeNodes.Length} committed tree(s)");
+                var committedTrees = RecordingStore.CommittedTrees;
+                committedTrees.Clear();
+
+                for (int t = 0; t < treeNodes.Length; t++)
+                {
+                    var tree = RecordingTree.Load(treeNodes[t]);
+
+                    // Load bulk data from external files for each recording in the tree
+                    foreach (var rec in tree.Recordings.Values)
+                    {
+                        RecordingStore.LoadRecordingFiles(rec);
+                    }
+
+                    committedTrees.Add(tree);
+
+                    // Add tree recordings to CommittedRecordings for ghost playback
+                    foreach (var rec in tree.Recordings.Values)
+                    {
+                        recordings.Add(rec);
+                    }
+
+                    ScenarioLog($"[Parsek Scenario] Loaded tree '{tree.TreeName}': " +
+                        $"{tree.Recordings.Count} recordings, {tree.BranchPoints.Count} branch points");
+                }
+            }
+
             // Restore milestone mutable state (LastReplayedEventIndex) from .sfs
             MilestoneStore.RestoreMutableState(node);
 
@@ -432,6 +567,22 @@ namespace Parsek
                 pending.VesselSnapshot = null;
                 RecordingStore.CommitPending();
                 ScenarioLog($"[Parsek Scenario] Auto-committed pending recording outside Flight " +
+                    $"(scene: {HighLogic.LoadedScene})");
+            }
+
+            // If pending tree exists but we're not in Flight, auto-commit ghost-only.
+            if (RecordingStore.HasPendingTree && HighLogic.LoadedScene != GameScenes.FLIGHT)
+            {
+                var pt = RecordingStore.PendingTree;
+                // Null all vessel snapshots (ghost-only commit — no spawning outside Flight)
+                foreach (var rec in pt.Recordings.Values)
+                {
+                    if (rec.VesselSnapshot != null)
+                        UnreserveCrewInSnapshot(rec.VesselSnapshot);
+                    rec.VesselSnapshot = null;
+                }
+                RecordingStore.CommitPendingTree();
+                ScenarioLog($"[Parsek Scenario] Auto-committed pending tree outside Flight " +
                     $"(scene: {HighLogic.LoadedScene})");
             }
         }
@@ -761,7 +912,7 @@ namespace Parsek
             }
         }
 
-        private static void ReserveCrewIn(ConfigNode snapshot, bool alreadySpawned, KerbalRoster roster)
+        internal static void ReserveCrewIn(ConfigNode snapshot, bool alreadySpawned, KerbalRoster roster)
         {
             if (snapshot == null || alreadySpawned) return;
 

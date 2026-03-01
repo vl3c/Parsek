@@ -219,6 +219,16 @@ namespace Parsek
             recNode.AddValue("ghostGeometryAvailable", rec.GhostGeometryAvailable);
             if (!string.IsNullOrEmpty(rec.GhostGeometryCaptureError))
                 recNode.AddValue("ghostGeometryError", rec.GhostGeometryCaptureError);
+
+            // Mutable playback state (parallels ParsekScenario.OnSave standalone fields)
+            if (rec.SpawnedVesselPersistentId != 0)
+                recNode.AddValue("spawnedPid", rec.SpawnedVesselPersistentId);
+            if (rec.VesselDestroyed)
+                recNode.AddValue("vesselDestroyed", rec.VesselDestroyed.ToString());
+            if (rec.TakenControl)
+                recNode.AddValue("takenControl", rec.TakenControl.ToString());
+            recNode.AddValue("lastResIdx", rec.LastAppliedResourceIndex);
+            recNode.AddValue("pointCount", rec.Points != null ? rec.Points.Count : 0);
         }
 
         internal static void LoadRecordingFrom(ConfigNode recNode, RecordingStore.Recording rec)
@@ -393,6 +403,37 @@ namespace Parsek
                     rec.GhostGeometryAvailable = geomAvailable;
             }
             rec.GhostGeometryCaptureError = recNode.GetValue("ghostGeometryError");
+
+            // Mutable playback state
+            string pidStr = recNode.GetValue("spawnedPid");
+            if (pidStr != null)
+            {
+                uint spawnedPid;
+                if (uint.TryParse(pidStr, NumberStyles.Integer, ic, out spawnedPid))
+                    rec.SpawnedVesselPersistentId = spawnedPid;
+            }
+            string destroyedStr = recNode.GetValue("vesselDestroyed");
+            if (destroyedStr != null)
+            {
+                bool destroyed;
+                if (bool.TryParse(destroyedStr, out destroyed))
+                    rec.VesselDestroyed = destroyed;
+            }
+            string takenStr = recNode.GetValue("takenControl");
+            if (takenStr != null)
+            {
+                bool taken;
+                if (bool.TryParse(takenStr, out taken))
+                    rec.TakenControl = taken;
+            }
+            string resIdxStr = recNode.GetValue("lastResIdx");
+            if (resIdxStr != null)
+            {
+                int resIdx;
+                if (int.TryParse(resIdxStr, NumberStyles.Integer, ic, out resIdx))
+                    rec.LastAppliedResourceIndex = resIdx;
+            }
+            // pointCount is informational — Points list is loaded from sidecar file
         }
 
         // --- BranchPoint serialization helpers ---
@@ -433,6 +474,90 @@ namespace Parsek
             bp.childRecordingIds = new List<string>(childIds);
 
             return bp;
+        }
+
+        // --- Leaf identification ---
+
+        /// <summary>
+        /// Identifies spawnable leaf recordings: no children, not terminal
+        /// (Destroyed/Recovered/Docked/Boarded), has vessel snapshot.
+        /// </summary>
+        public List<RecordingStore.Recording> GetSpawnableLeaves()
+        {
+            var leaves = new List<RecordingStore.Recording>();
+            foreach (var rec in Recordings.Values)
+            {
+                if (IsSpawnableLeaf(rec))
+                    leaves.Add(rec);
+            }
+            return leaves;
+        }
+
+        /// <summary>
+        /// Identifies ALL leaf recordings (including destroyed/recovered).
+        /// A leaf is any recording with ChildBranchPointId == null.
+        /// </summary>
+        public List<RecordingStore.Recording> GetAllLeaves()
+        {
+            var leaves = new List<RecordingStore.Recording>();
+            foreach (var rec in Recordings.Values)
+            {
+                if (rec.ChildBranchPointId == null)
+                    leaves.Add(rec);
+            }
+            return leaves;
+        }
+
+        /// <summary>
+        /// Checks whether a recording is a spawnable leaf:
+        /// 1. No children (ChildBranchPointId is null)
+        /// 2. Terminal state allows spawning (not Destroyed/Recovered/Docked/Boarded)
+        /// 3. Has a vessel snapshot
+        /// </summary>
+        internal static bool IsSpawnableLeaf(RecordingStore.Recording rec)
+        {
+            if (rec.ChildBranchPointId != null)
+                return false;
+
+            if (rec.TerminalStateValue.HasValue)
+            {
+                var ts = rec.TerminalStateValue.Value;
+                if (ts == TerminalState.Destroyed || ts == TerminalState.Recovered
+                    || ts == TerminalState.Docked || ts == TerminalState.Boarded)
+                    return false;
+            }
+
+            if (rec.VesselSnapshot == null)
+                return false;
+
+            return true;
+        }
+
+        /// <summary>
+        /// Assigns terminal state based on vessel situation.
+        /// Pure static method for testability.
+        /// </summary>
+        internal static TerminalState DetermineTerminalState(int situation)
+        {
+            // Vessel.Situations enum values: LANDED=1, SPLASHED=2, PRELAUNCH=4,
+            // FLYING=8, SUB_ORBITAL=16, ORBITING=32, ESCAPING=64, DOCKED=128
+            switch (situation)
+            {
+                case 32: // ORBITING
+                    return TerminalState.Orbiting;
+                case 1: // LANDED
+                    return TerminalState.Landed;
+                case 2: // SPLASHED
+                    return TerminalState.Splashed;
+                case 16: // SUB_ORBITAL
+                case 8:  // FLYING
+                case 64: // ESCAPING
+                    return TerminalState.SubOrbital;
+                case 4:  // PRELAUNCH
+                    return TerminalState.Landed;
+                default:
+                    return TerminalState.SubOrbital;
+            }
         }
     }
 }
