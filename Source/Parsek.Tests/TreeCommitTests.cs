@@ -613,5 +613,184 @@ namespace Parsek.Tests
             Assert.Empty(RecordingStore.CommittedTrees);
             Assert.False(RecordingStore.HasPendingTree);
         }
+
+        // ============================================================
+        // B4: IsSpawnableLeaf — 5 missing truth-table cases
+        // ============================================================
+
+        [Fact]
+        public void IsSpawnableLeaf_NullSnapshot_NoTerminal_False()
+        {
+            var rec = MakeRecording("r1", "t1",
+                terminalState: null,
+                vesselSnapshot: null);
+
+            Assert.False(RecordingTree.IsSpawnableLeaf(rec));
+        }
+
+        [Fact]
+        public void IsSpawnableLeaf_Recovered_WithSnapshot_False()
+        {
+            var rec = MakeRecording("r1", "t1",
+                terminalState: TerminalState.Recovered,
+                vesselSnapshot: MakeMinimalSnapshot());
+
+            Assert.False(RecordingTree.IsSpawnableLeaf(rec));
+        }
+
+        [Fact]
+        public void IsSpawnableLeaf_Landed_WithSnapshot_True()
+        {
+            var rec = MakeRecording("r1", "t1",
+                terminalState: TerminalState.Landed,
+                vesselSnapshot: MakeMinimalSnapshot());
+
+            Assert.True(RecordingTree.IsSpawnableLeaf(rec));
+        }
+
+        [Fact]
+        public void IsSpawnableLeaf_Splashed_WithSnapshot_True()
+        {
+            var rec = MakeRecording("r1", "t1",
+                terminalState: TerminalState.Splashed,
+                vesselSnapshot: MakeMinimalSnapshot());
+
+            Assert.True(RecordingTree.IsSpawnableLeaf(rec));
+        }
+
+        [Fact]
+        public void IsSpawnableLeaf_SubOrbital_WithSnapshot_True()
+        {
+            var rec = MakeRecording("r1", "t1",
+                terminalState: TerminalState.SubOrbital,
+                vesselSnapshot: MakeMinimalSnapshot());
+
+            Assert.True(RecordingTree.IsSpawnableLeaf(rec));
+        }
+
+        // ============================================================
+        // B6: GetAllLeaves vs GetSpawnableLeaves — Recovered leaf
+        // ============================================================
+
+        [Fact]
+        public void GetAllLeaves_IncludesRecovered_GetSpawnableExcludes()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree_recovered",
+                TreeName = "Recovered Test",
+                RootRecordingId = "root",
+                ActiveRecordingId = null
+            };
+
+            // Root branches to two children
+            tree.Recordings["root"] = MakeRecording("root", "tree_recovered",
+                childBranchPointId: "bp1", vesselSnapshot: MakeMinimalSnapshot());
+
+            // Leaf 1: Recovered, no snapshot
+            tree.Recordings["leaf1"] = MakeRecording("leaf1", "tree_recovered",
+                parentBranchPointId: "bp1",
+                terminalState: TerminalState.Recovered,
+                vesselSnapshot: null);
+
+            // Leaf 2: Orbiting, with snapshot
+            tree.Recordings["leaf2"] = MakeRecording("leaf2", "tree_recovered",
+                parentBranchPointId: "bp1",
+                terminalState: TerminalState.Orbiting,
+                vesselSnapshot: MakeMinimalSnapshot());
+
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                id = "bp1",
+                ut = 17050.0,
+                type = BranchPointType.Undock,
+                parentRecordingIds = new List<string> { "root" },
+                childRecordingIds = new List<string> { "leaf1", "leaf2" }
+            });
+
+            var allLeaves = tree.GetAllLeaves();
+            var spawnableLeaves = tree.GetSpawnableLeaves();
+
+            Assert.Equal(2, allLeaves.Count);
+            Assert.Single(spawnableLeaves);
+            Assert.Equal("leaf2", spawnableLeaves[0].RecordingId);
+        }
+
+        // ============================================================
+        // B7: GetSpawnableLeaves after dock merge — DAG
+        // ============================================================
+
+        [Fact]
+        public void GetSpawnableLeaves_DockMerge_DAG_ReturnsOnlyMergedChild()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree_dag",
+                TreeName = "DAG Test",
+                RootRecordingId = "root",
+                ActiveRecordingId = null
+            };
+
+            // root -> bp1 -> (childA, childB) -> bp2 (dock) -> merged
+            tree.Recordings["root"] = MakeRecording("root", "tree_dag",
+                childBranchPointId: "bp1", vesselSnapshot: MakeMinimalSnapshot());
+
+            tree.Recordings["childA"] = MakeRecording("childA", "tree_dag",
+                parentBranchPointId: "bp1", childBranchPointId: "bp2",
+                terminalState: TerminalState.Docked,
+                vesselSnapshot: MakeMinimalSnapshot());
+
+            tree.Recordings["childB"] = MakeRecording("childB", "tree_dag",
+                parentBranchPointId: "bp1", childBranchPointId: "bp2",
+                terminalState: TerminalState.Docked,
+                vesselSnapshot: MakeMinimalSnapshot());
+
+            tree.Recordings["merged"] = MakeRecording("merged", "tree_dag",
+                parentBranchPointId: "bp2",
+                terminalState: TerminalState.Orbiting,
+                vesselSnapshot: MakeMinimalSnapshot());
+
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                id = "bp1",
+                ut = 200.0,
+                type = BranchPointType.Undock,
+                parentRecordingIds = new List<string> { "root" },
+                childRecordingIds = new List<string> { "childA", "childB" }
+            });
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                id = "bp2",
+                ut = 400.0,
+                type = BranchPointType.Dock,
+                parentRecordingIds = new List<string> { "childA", "childB" },
+                childRecordingIds = new List<string> { "merged" }
+            });
+
+            var spawnable = tree.GetSpawnableLeaves();
+
+            Assert.Single(spawnable);
+            Assert.Equal("merged", spawnable[0].RecordingId);
+
+            // Verify root, childA, childB are NOT in spawnable
+            var allLeaves = tree.GetAllLeaves();
+            Assert.Single(allLeaves); // only "merged" has no child branch point
+        }
+
+        // ============================================================
+        // D3: CommitTree(null) — no crash, no state change
+        // ============================================================
+
+        [Fact]
+        public void CommitTree_Null_NoCrashNoStateChange()
+        {
+            int beforeRecordings = RecordingStore.CommittedRecordings.Count;
+            int beforeTrees = RecordingStore.CommittedTrees.Count;
+
+            RecordingStore.CommitTree(null);
+
+            Assert.Equal(beforeRecordings, RecordingStore.CommittedRecordings.Count);
+            Assert.Equal(beforeTrees, RecordingStore.CommittedTrees.Count);
+        }
     }
 }
