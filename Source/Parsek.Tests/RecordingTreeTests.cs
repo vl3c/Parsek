@@ -953,5 +953,195 @@ namespace Parsek.Tests
             var restored = RecordingTree.Load(node);
             Assert.Null(restored.ActiveRecordingId);
         }
+
+        // ============================================================
+        // B5: RebuildBackgroundMap — realistic multi-level integration
+        // ============================================================
+
+        [Fact]
+        public void RebuildBackgroundMap_MultiLevel_AllExcluded_ThenOneIncluded()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree_ml",
+                TreeName = "MultiLevel BG",
+                RootRecordingId = "root",
+                ActiveRecordingId = "grandchild2"
+            };
+
+            // root (pid=1, has child) — excluded: has child branch
+            tree.Recordings["root"] = new RecordingStore.Recording
+            {
+                RecordingId = "root",
+                VesselPersistentId = 1,
+                ChildBranchPointId = "bp1",
+                TerminalStateValue = null
+            };
+            // child1 (pid=2, Destroyed) — excluded: terminated
+            tree.Recordings["child1"] = new RecordingStore.Recording
+            {
+                RecordingId = "child1",
+                VesselPersistentId = 2,
+                TerminalStateValue = TerminalState.Destroyed,
+                ParentBranchPointId = "bp1"
+            };
+            // child2 (pid=3, has child bp2) — excluded: has child branch
+            tree.Recordings["child2"] = new RecordingStore.Recording
+            {
+                RecordingId = "child2",
+                VesselPersistentId = 3,
+                ChildBranchPointId = "bp2",
+                TerminalStateValue = null,
+                ParentBranchPointId = "bp1"
+            };
+            // grandchild1 (pid=4, Docked) — excluded: terminated
+            tree.Recordings["grandchild1"] = new RecordingStore.Recording
+            {
+                RecordingId = "grandchild1",
+                VesselPersistentId = 4,
+                TerminalStateValue = TerminalState.Docked,
+                ParentBranchPointId = "bp2"
+            };
+            // grandchild2 (pid=5, no terminal, no child) — excluded: is ActiveRecordingId
+            tree.Recordings["grandchild2"] = new RecordingStore.Recording
+            {
+                RecordingId = "grandchild2",
+                VesselPersistentId = 5,
+                TerminalStateValue = null,
+                ParentBranchPointId = "bp2"
+            };
+
+            tree.RebuildBackgroundMap();
+
+            // Every recording excluded for a different reason
+            Assert.Empty(tree.BackgroundMap);
+
+            // Now change ActiveRecordingId so grandchild2 is no longer excluded
+            tree.ActiveRecordingId = "root";
+            tree.RebuildBackgroundMap();
+
+            Assert.Single(tree.BackgroundMap);
+            Assert.True(tree.BackgroundMap.ContainsKey(5));
+            Assert.Equal("grandchild2", tree.BackgroundMap[5]);
+        }
+
+        // ============================================================
+        // D1: Empty tree — query methods safe
+        // ============================================================
+
+        [Fact]
+        public void EmptyTree_QueryMethods_Safe()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree_empty_q",
+                TreeName = "Empty Query",
+                RootRecordingId = ""
+            };
+
+            var spawnable = tree.GetSpawnableLeaves();
+            var all = tree.GetAllLeaves();
+            tree.RebuildBackgroundMap();
+
+            Assert.NotNull(spawnable);
+            Assert.Empty(spawnable);
+            Assert.NotNull(all);
+            Assert.Empty(all);
+            Assert.Empty(tree.BackgroundMap);
+        }
+
+        // ============================================================
+        // D2: Load with unknown fields — forward compat
+        // ============================================================
+
+        [Fact]
+        public void Load_UnknownFields_SilentlyIgnored()
+        {
+            // Build a ConfigNode with standard fields + unknown future fields
+            var node = new ConfigNode("RECORDING_TREE");
+            node.AddValue("id", "tree_fwd");
+            node.AddValue("treeName", "Forward Compat");
+            node.AddValue("rootRecordingId", "rec_fwd");
+            node.AddValue("preTreeFunds", "50000");
+            node.AddValue("preTreeScience", "100");
+            node.AddValue("preTreeRep", "50");
+            node.AddValue("deltaFunds", "-2000");
+            node.AddValue("deltaScience", "10");
+            node.AddValue("deltaRep", "-3");
+            node.AddValue("resourcesApplied", "False");
+
+            // Future/unknown fields
+            node.AddValue("futureFeatureFlag", "true");
+            node.AddValue("newMetric", "42.5");
+            node.AddValue("experimentalMode", "quantum");
+
+            // Add a recording
+            var recNode = node.AddNode("RECORDING");
+            recNode.AddValue("recordingId", "rec_fwd");
+            recNode.AddValue("vesselName", "Future Ship");
+            recNode.AddValue("vesselPersistentId", "999");
+            recNode.AddValue("recordingFormatVersion", "4");
+            recNode.AddValue("ghostGeometryVersion", "1");
+            recNode.AddValue("loopPlayback", "False");
+            recNode.AddValue("loopPauseSeconds", "10");
+            recNode.AddValue("ghostGeometryStrategy", "stub_v1");
+            recNode.AddValue("ghostGeometryProbeStatus", "unknown");
+            recNode.AddValue("ghostGeometryAvailable", "False");
+            recNode.AddValue("lastResIdx", "-1");
+            recNode.AddValue("pointCount", "0");
+
+            var tree = RecordingTree.Load(node);
+
+            // Standard fields loaded correctly
+            Assert.Equal("tree_fwd", tree.Id);
+            Assert.Equal("Forward Compat", tree.TreeName);
+            Assert.Equal("rec_fwd", tree.RootRecordingId);
+            Assert.Equal(50000, tree.PreTreeFunds);
+            Assert.Equal(-2000, tree.DeltaFunds);
+            Assert.False(tree.ResourcesApplied);
+
+            // Recording loaded correctly despite unknown fields on parent
+            Assert.Single(tree.Recordings);
+            Assert.True(tree.Recordings.ContainsKey("rec_fwd"));
+            Assert.Equal("Future Ship", tree.Recordings["rec_fwd"].VesselName);
+        }
+
+        // ============================================================
+        // D5: BackgroundMap after save/load round-trip
+        // ============================================================
+
+        [Fact]
+        public void BackgroundMap_PopulatedAfterSaveLoadRoundTrip()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree_bg_rt",
+                TreeName = "BG Round-Trip",
+                RootRecordingId = "rec_bg",
+                ActiveRecordingId = null // no active recording
+            };
+
+            // One background-eligible recording: non-active, non-terminated, no child, pid=42
+            tree.Recordings["rec_bg"] = new RecordingStore.Recording
+            {
+                RecordingId = "rec_bg",
+                VesselPersistentId = 42,
+                VesselName = "BG Ship",
+                TerminalStateValue = null,
+                ChildBranchPointId = null,
+                ExplicitStartUT = 100.0,
+                ExplicitEndUT = 200.0
+            };
+
+            // Save
+            var node = new ConfigNode("RECORDING_TREE");
+            tree.Save(node);
+
+            // Load — RebuildBackgroundMap should be called during Load
+            var restored = RecordingTree.Load(node);
+
+            Assert.True(restored.BackgroundMap.ContainsKey(42));
+            Assert.Equal("rec_bg", restored.BackgroundMap[42]);
+        }
     }
 }
