@@ -3740,7 +3740,7 @@ namespace Parsek
                         state.playbackIndex = playbackIdx;
 
                         ApplyPartEvents(i, rec, currentUT, state);
-                        UpdateReentryFx(i, state);
+                        UpdateReentryFx(i, state, rec.VesselName);
                         if (rec.TreeId == null)
                             ApplyResourceDeltas(rec, currentUT);
                     }
@@ -3763,7 +3763,7 @@ namespace Parsek
                             ParsekLog.Verbose("Flight", $"Ghost ENTERED range (background): #{i} \"{rec.VesselName}\" " +
                                 $"orbit={hasOrbitData} surface={hasSurfaceData}");
                         ApplyPartEvents(i, rec, currentUT, state);
-                        UpdateReentryFx(i, state);
+                        UpdateReentryFx(i, state, rec.VesselName);
                         if (rec.TreeId == null)
                             ApplyResourceDeltas(rec, currentUT);
                     }
@@ -3908,6 +3908,12 @@ namespace Parsek
             if (inPauseWindow)
             {
                 PositionGhostAt(state.ghost, rec.Points[rec.Points.Count - 1]);
+                if (state != null && state.reentryFxInfo != null)
+                {
+                    // During pause, velocity is zero — intensity drops to 0 via smoothing
+                    state.lastInterpolatedVelocity = Vector3.zero;
+                    UpdateReentryFx(recIdx, state, rec.VesselName);
+                }
                 return;
             }
 
@@ -3917,7 +3923,7 @@ namespace Parsek
             state.playbackIndex = playbackIdx;
 
             ApplyPartEvents(recIdx, rec, loopUT, state);
-            UpdateReentryFx(recIdx, state);
+            UpdateReentryFx(recIdx, state, rec.VesselName);
         }
 
         /// <summary>
@@ -5026,7 +5032,7 @@ namespace Parsek
             return applied;
         }
 
-        private void UpdateReentryFx(int recIdx, GhostPlaybackState state)
+        private void UpdateReentryFx(int recIdx, GhostPlaybackState state, string vesselName)
         {
             var info = state.reentryFxInfo;
             if (info == null || state.ghost == null) return;
@@ -5037,7 +5043,9 @@ namespace Parsek
 
             if (string.IsNullOrEmpty(bodyName))
             {
-                DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, 0.0);
+                DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, 0.0, 0f, vesselName);
+                info.lastIntensity = 0f;
+                info.lastVelocity = Vector3.zero;
                 return;
             }
 
@@ -5046,7 +5054,9 @@ namespace Parsek
             {
                 ParsekLog.VerboseRateLimited("Flight", $"ghost-{recIdx}-nobody",
                     $"ReentryFx: body '{bodyName}' not found — skipping");
-                DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, altitude);
+                DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, altitude, 0f, vesselName);
+                info.lastIntensity = 0f;
+                info.lastVelocity = Vector3.zero;
                 return;
             }
 
@@ -5057,7 +5067,9 @@ namespace Parsek
             {
                 ParsekLog.VerboseRateLimited("Flight", $"ghost-{recIdx}-noatmo",
                     $"ReentryFx: body {bodyName} has no atmosphere — skipping");
-                DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, altitude);
+                DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, altitude, 0f, vesselName);
+                info.lastIntensity = 0f;
+                info.lastVelocity = Vector3.zero;
                 return;
             }
 
@@ -5065,7 +5077,9 @@ namespace Parsek
             {
                 ParsekLog.VerboseRateLimited("Flight", $"ghost-{recIdx}-aboveatmo",
                     $"ReentryFx: altitude {altitude:F0} above atmosphereDepth {body.atmosphereDepth:F0} — skipping");
-                DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, altitude);
+                DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, altitude, 0f, vesselName);
+                info.lastIntensity = 0f;
+                info.lastVelocity = Vector3.zero;
                 return;
             }
 
@@ -5075,7 +5089,9 @@ namespace Parsek
             {
                 ParsekLog.VerboseRateLimited("Flight", $"ghost-{recIdx}-badatmo",
                     $"ReentryFx: GetPressure/GetTemperature returned invalid value for ghost #{recIdx} — density fallback to 0");
-                DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, altitude);
+                DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, altitude, 0f, vesselName);
+                info.lastIntensity = 0f;
+                info.lastVelocity = Vector3.zero;
                 return;
             }
 
@@ -5084,7 +5100,9 @@ namespace Parsek
             {
                 ParsekLog.VerboseRateLimited("Flight", $"ghost-{recIdx}-baddensity",
                     $"ReentryFx: GetDensity returned invalid value for ghost #{recIdx} — density fallback to 0");
-                DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, altitude);
+                DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, altitude, 0f, vesselName);
+                info.lastIntensity = 0f;
+                info.lastVelocity = Vector3.zero;
                 return;
             }
 
@@ -5096,13 +5114,13 @@ namespace Parsek
             if (smoothedIntensity < 0.001f && rawIntensity == 0f)
                 smoothedIntensity = 0f;
 
-            DriveReentryLayers(info, smoothedIntensity, surfaceVel, recIdx, bodyName, altitude);
+            DriveReentryLayers(info, smoothedIntensity, surfaceVel, recIdx, bodyName, altitude, q, vesselName);
             info.lastIntensity = smoothedIntensity;
             info.lastVelocity = surfaceVel;
         }
 
         private void DriveReentryLayers(ReentryFxInfo info, float intensity, Vector3 surfaceVel,
-            int recIdx, string bodyName, double altitude)
+            int recIdx, string bodyName, double altitude, float dynamicPressure, string vesselName)
         {
             bool wasActive = info.lastIntensity > 0f;
             bool isActive = intensity > 0f;
@@ -5111,7 +5129,7 @@ namespace Parsek
             {
                 float speed = surfaceVel.magnitude;
                 ParsekLog.Verbose("Flight",
-                    $"ReentryFx: Activated for ghost #{recIdx} — intensity={intensity:F2}, speed={speed:F0} m/s, alt={altitude:F0} m, body={bodyName}");
+                    $"ReentryFx: Activated for ghost #{recIdx} \"{vesselName}\" — intensity={intensity:F2}, q={dynamicPressure:F0} Pa, speed={speed:F0} m/s, alt={altitude:F0} m, body={bodyName}");
             }
             else if (!isActive && wasActive)
             {
