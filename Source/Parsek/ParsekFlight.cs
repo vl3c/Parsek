@@ -65,6 +65,8 @@ namespace Parsek
             public Dictionary<uint, GameObject> fakeCanopies;
             public ReentryFxInfo reentryFxInfo;
             public Vector3 lastInterpolatedVelocity;
+            public string lastInterpolatedBodyName;
+            public double lastInterpolatedAltitude;
         }
 
         private Dictionary<int, GhostPlaybackState> ghostStates = new Dictionary<int, GhostPlaybackState>();
@@ -3738,6 +3740,7 @@ namespace Parsek
                         state.playbackIndex = playbackIdx;
 
                         ApplyPartEvents(i, rec, currentUT, state);
+                        UpdateReentryFx(i, state);
                         if (rec.TreeId == null)
                             ApplyResourceDeltas(rec, currentUT);
                     }
@@ -3760,6 +3763,7 @@ namespace Parsek
                             ParsekLog.Verbose("Flight", $"Ghost ENTERED range (background): #{i} \"{rec.VesselName}\" " +
                                 $"orbit={hasOrbitData} surface={hasSurfaceData}");
                         ApplyPartEvents(i, rec, currentUT, state);
+                        UpdateReentryFx(i, state);
                         if (rec.TreeId == null)
                             ApplyResourceDeltas(rec, currentUT);
                     }
@@ -3883,6 +3887,7 @@ namespace Parsek
             bool cycleChanged = !ghostActive || state == null || state.loopCycleIndex != cycleIndex;
             if (cycleChanged && ghostActive)
             {
+                ResetReentryFx(state, recIdx);
                 DestroyTimelineGhost(recIdx);
                 ghostActive = false;
                 state = null;
@@ -3912,6 +3917,7 @@ namespace Parsek
             state.playbackIndex = playbackIdx;
 
             ApplyPartEvents(recIdx, rec, loopUT, state);
+            UpdateReentryFx(recIdx, state);
         }
 
         /// <summary>
@@ -5020,6 +5026,267 @@ namespace Parsek
             return applied;
         }
 
+        private void UpdateReentryFx(int recIdx, GhostPlaybackState state)
+        {
+            var info = state.reentryFxInfo;
+            if (info == null || state.ghost == null) return;
+
+            Vector3 interpolatedVel = state.lastInterpolatedVelocity;
+            string bodyName = state.lastInterpolatedBodyName;
+            double altitude = state.lastInterpolatedAltitude;
+
+            if (string.IsNullOrEmpty(bodyName))
+            {
+                DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, 0.0);
+                return;
+            }
+
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+            if (body == null)
+            {
+                ParsekLog.VerboseRateLimited("Flight", $"ghost-{recIdx}-nobody",
+                    $"ReentryFx: body '{bodyName}' not found — skipping");
+                DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, altitude);
+                return;
+            }
+
+            Vector3 surfaceVel = interpolatedVel - (Vector3)body.getRFrmVel(state.ghost.transform.position);
+            float speed = surfaceVel.magnitude;
+
+            if (!body.atmosphere)
+            {
+                ParsekLog.VerboseRateLimited("Flight", $"ghost-{recIdx}-noatmo",
+                    $"ReentryFx: body {bodyName} has no atmosphere — skipping");
+                DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, altitude);
+                return;
+            }
+
+            if (altitude >= body.atmosphereDepth)
+            {
+                ParsekLog.VerboseRateLimited("Flight", $"ghost-{recIdx}-aboveatmo",
+                    $"ReentryFx: altitude {altitude:F0} above atmosphereDepth {body.atmosphereDepth:F0} — skipping");
+                DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, altitude);
+                return;
+            }
+
+            double pressure = body.GetPressure(altitude);
+            double temperature = body.GetTemperature(altitude);
+            if (double.IsNaN(pressure) || pressure < 0 || double.IsNaN(temperature) || temperature < 0)
+            {
+                ParsekLog.VerboseRateLimited("Flight", $"ghost-{recIdx}-badatmo",
+                    $"ReentryFx: GetPressure/GetTemperature returned invalid value for ghost #{recIdx} — density fallback to 0");
+                DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, altitude);
+                return;
+            }
+
+            double density = body.GetDensity(pressure, temperature);
+            if (double.IsNaN(density) || density < 0)
+            {
+                ParsekLog.VerboseRateLimited("Flight", $"ghost-{recIdx}-baddensity",
+                    $"ReentryFx: GetDensity returned invalid value for ghost #{recIdx} — density fallback to 0");
+                DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, altitude);
+                return;
+            }
+
+            float q = (float)(0.5 * density * speed * speed);
+            float rawIntensity = GhostVisualBuilder.ComputeReentryIntensity(speed, q);
+
+            float smoothedIntensity = Mathf.Lerp(info.lastIntensity, rawIntensity,
+                1f - Mathf.Exp(-GhostVisualBuilder.ReentrySmoothingRate * Time.deltaTime));
+            if (smoothedIntensity < 0.001f && rawIntensity == 0f)
+                smoothedIntensity = 0f;
+
+            DriveReentryLayers(info, smoothedIntensity, surfaceVel, recIdx, bodyName, altitude);
+            info.lastIntensity = smoothedIntensity;
+            info.lastVelocity = surfaceVel;
+        }
+
+        private void DriveReentryLayers(ReentryFxInfo info, float intensity, Vector3 surfaceVel,
+            int recIdx, string bodyName, double altitude)
+        {
+            bool wasActive = info.lastIntensity > 0f;
+            bool isActive = intensity > 0f;
+
+            if (isActive && !wasActive)
+            {
+                float speed = surfaceVel.magnitude;
+                ParsekLog.Verbose("Flight",
+                    $"ReentryFx: Activated for ghost #{recIdx} — intensity={intensity:F2}, speed={speed:F0} m/s, alt={altitude:F0} m, body={bodyName}");
+            }
+            else if (!isActive && wasActive)
+            {
+                float speed = surfaceVel.magnitude;
+                ParsekLog.Verbose("Flight",
+                    $"ReentryFx: Deactivated for ghost #{recIdx} — intensity dropped to 0 (speed={speed:F0} m/s, alt={altitude:F0} m)");
+            }
+
+            if (isActive)
+            {
+                ParsekLog.VerboseRateLimited("Flight", $"ghost-{recIdx}-intensity",
+                    $"ReentryFx: ghost #{recIdx} intensity={intensity:F2} speed={surfaceVel.magnitude:F0} alt={altitude:F0}");
+            }
+
+            // Layer A: Heat glow (material emission)
+            if (info.glowMaterials != null)
+            {
+                for (int i = 0; i < info.glowMaterials.Count; i++)
+                {
+                    HeatMaterialState ms = info.glowMaterials[i];
+                    if (ms.material == null) continue;
+
+                    if (intensity <= GhostVisualBuilder.ReentryLayerAThreshold)
+                    {
+                        if (!string.IsNullOrEmpty(ms.emissiveProperty))
+                            ms.material.SetColor(ms.emissiveProperty, ms.coldEmission);
+                        if (!string.IsNullOrEmpty(ms.colorProperty))
+                            ms.material.SetColor(ms.colorProperty, ms.coldColor);
+                    }
+                    else
+                    {
+                        float glowFraction = Mathf.InverseLerp(GhostVisualBuilder.ReentryLayerAThreshold, 1f, intensity);
+                        Color targetEmission = Color.Lerp(GhostVisualBuilder.ReentryHotEmissionLow,
+                            GhostVisualBuilder.ReentryHotEmissionHigh, glowFraction);
+                        if (!string.IsNullOrEmpty(ms.emissiveProperty))
+                            ms.material.SetColor(ms.emissiveProperty,
+                                Color.Lerp(ms.coldEmission, ms.coldEmission + targetEmission, glowFraction));
+                        if (!string.IsNullOrEmpty(ms.colorProperty))
+                            ms.material.SetColor(ms.colorProperty,
+                                Color.Lerp(ms.coldColor, ms.hotColor, glowFraction));
+                    }
+                }
+            }
+
+            // Layer B: Flame particles
+            if (info.flameParticles != null)
+            {
+                for (int i = 0; i < info.flameParticles.Count; i++)
+                {
+                    ParticleSystem flame = info.flameParticles[i];
+                    if (flame == null) continue;
+
+                    if (intensity > GhostVisualBuilder.ReentryLayerBThreshold)
+                    {
+                        float flameFraction = Mathf.InverseLerp(GhostVisualBuilder.ReentryLayerBThreshold, 1f, intensity);
+                        var emission = flame.emission;
+                        emission.rateOverTime = flameFraction * GhostVisualBuilder.ReentryFlameMaxEmission;
+                        var main = flame.main;
+                        main.startSize = Mathf.Lerp(1f, 5f, flameFraction);
+                        if (surfaceVel.sqrMagnitude > 1f)
+                            flame.transform.rotation = Quaternion.LookRotation(surfaceVel.normalized);
+                        if (!flame.isPlaying) flame.Play();
+                    }
+                    else
+                    {
+                        var emission = flame.emission;
+                        emission.rateOverTime = 0f;
+                        if (flame.particleCount == 0 && flame.isPlaying)
+                            flame.Stop();
+                    }
+                }
+            }
+
+            // Layer C: Smoke/plasma trail
+            if (info.smokeParticles != null)
+            {
+                for (int i = 0; i < info.smokeParticles.Count; i++)
+                {
+                    ParticleSystem smoke = info.smokeParticles[i];
+                    if (smoke == null) continue;
+
+                    if (intensity > GhostVisualBuilder.ReentryLayerCThreshold)
+                    {
+                        float smokeFraction = Mathf.InverseLerp(GhostVisualBuilder.ReentryLayerCThreshold, 1f, intensity);
+                        var emission = smoke.emission;
+                        emission.rateOverTime = smokeFraction * GhostVisualBuilder.ReentrySmokeMaxEmission;
+                        var main = smoke.main;
+                        main.startSize = Mathf.Lerp(2f, 10f, smokeFraction);
+                        if (surfaceVel.sqrMagnitude > 1f)
+                            smoke.transform.rotation = Quaternion.LookRotation(surfaceVel.normalized);
+                        if (!smoke.isPlaying) smoke.Play();
+                    }
+                    else
+                    {
+                        var emission = smoke.emission;
+                        emission.rateOverTime = 0f;
+                        if (smoke.particleCount == 0 && smoke.isPlaying)
+                            smoke.Stop();
+                    }
+                }
+            }
+
+            // Layer D: Trail renderer
+            if (info.trailRenderer != null)
+            {
+                if (intensity > GhostVisualBuilder.ReentryLayerDThreshold)
+                {
+                    float trailFraction = Mathf.InverseLerp(GhostVisualBuilder.ReentryLayerDThreshold, 1f, intensity);
+                    info.trailRenderer.startWidth = Mathf.Lerp(
+                        GhostVisualBuilder.ReentryTrailMinWidth, GhostVisualBuilder.ReentryTrailMaxWidth, trailFraction);
+                    info.trailRenderer.endWidth = Mathf.Lerp(
+                        GhostVisualBuilder.ReentryTrailEndMinWidth, GhostVisualBuilder.ReentryTrailEndMaxWidth, trailFraction);
+                    info.trailRenderer.emitting = true;
+                }
+                else
+                {
+                    info.trailRenderer.emitting = false;
+                }
+            }
+        }
+
+        private static void ResetReentryFx(GhostPlaybackState state, int recIdx)
+        {
+            var info = state.reentryFxInfo;
+            if (info == null) return;
+
+            info.lastIntensity = 0f;
+            info.lastVelocity = Vector3.zero;
+
+            if (info.trailRenderer != null)
+            {
+                info.trailRenderer.Clear();
+                info.trailRenderer.emitting = false;
+            }
+
+            if (info.flameParticles != null)
+            {
+                for (int i = 0; i < info.flameParticles.Count; i++)
+                {
+                    if (info.flameParticles[i] != null)
+                    {
+                        info.flameParticles[i].Clear(true);
+                        info.flameParticles[i].Stop();
+                    }
+                }
+            }
+
+            if (info.smokeParticles != null)
+            {
+                for (int i = 0; i < info.smokeParticles.Count; i++)
+                {
+                    if (info.smokeParticles[i] != null)
+                    {
+                        info.smokeParticles[i].Clear(true);
+                        info.smokeParticles[i].Stop();
+                    }
+                }
+            }
+
+            if (info.glowMaterials != null)
+            {
+                for (int i = 0; i < info.glowMaterials.Count; i++)
+                {
+                    HeatMaterialState ms = info.glowMaterials[i];
+                    if (ms.material == null) continue;
+                    if (!string.IsNullOrEmpty(ms.emissiveProperty))
+                        ms.material.SetColor(ms.emissiveProperty, ms.coldEmission);
+                    if (!string.IsNullOrEmpty(ms.colorProperty))
+                        ms.material.SetColor(ms.colorProperty, ms.coldColor);
+                }
+            }
+
+            ParsekLog.Verbose("Flight", $"ReentryFx: Loop reset for ghost #{recIdx} — cleared trail and particles");
+        }
+
         static bool ApplyDeployableState(GhostPlaybackState state, PartEvent evt, bool deployed)
         {
             if (state.deployableInfos == null) return false;
@@ -5475,14 +5742,19 @@ namespace Parsek
 
         void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points, ref int cachedIndex, double targetUT, GhostPlaybackState state = null)
         {
-            if (points == null || points.Count == 0) { if (state != null) state.lastInterpolatedVelocity = Vector3.zero; ghost.SetActive(false); return; }
+            if (points == null || points.Count == 0) { if (state != null) { state.lastInterpolatedVelocity = Vector3.zero; state.lastInterpolatedBodyName = null; state.lastInterpolatedAltitude = 0; } ghost.SetActive(false); return; }
 
             int indexBefore = TrajectoryMath.FindWaypointIndex(points, ref cachedIndex, targetUT);
 
             if (indexBefore < 0)
             {
                 PositionGhostAt(ghost, points[0]);
-                if (state != null) state.lastInterpolatedVelocity = points[0].velocity;
+                if (state != null)
+                {
+                    state.lastInterpolatedVelocity = points[0].velocity;
+                    state.lastInterpolatedBodyName = points[0].bodyName;
+                    state.lastInterpolatedAltitude = points[0].altitude;
+                }
                 return;
             }
 
@@ -5493,7 +5765,12 @@ namespace Parsek
             if (segmentDuration <= 0.0001)
             {
                 PositionGhostAt(ghost, before);
-                if (state != null) state.lastInterpolatedVelocity = before.velocity;
+                if (state != null)
+                {
+                    state.lastInterpolatedVelocity = before.velocity;
+                    state.lastInterpolatedBodyName = before.bodyName;
+                    state.lastInterpolatedAltitude = before.altitude;
+                }
                 return;
             }
 
@@ -5505,7 +5782,7 @@ namespace Parsek
             if (bodyBefore == null || bodyAfter == null)
             {
                 Log($"Could not find body: {(bodyBefore == null ? before.bodyName : after.bodyName)}");
-                if (state != null) state.lastInterpolatedVelocity = Vector3.zero;
+                if (state != null) { state.lastInterpolatedVelocity = Vector3.zero; state.lastInterpolatedBodyName = null; state.lastInterpolatedAltitude = 0; }
                 ghost.SetActive(false);
                 return;
             }
@@ -5529,7 +5806,12 @@ namespace Parsek
 
             ghost.transform.position = interpolatedPos;
             ghost.transform.rotation = interpolatedRot;
-            if (state != null) state.lastInterpolatedVelocity = Vector3.Lerp(before.velocity, after.velocity, t);
+            if (state != null)
+            {
+                state.lastInterpolatedVelocity = Vector3.Lerp(before.velocity, after.velocity, t);
+                state.lastInterpolatedBodyName = after.bodyName;
+                state.lastInterpolatedAltitude = Mathf.Lerp((float)before.altitude, (float)after.altitude, t);
+            }
         }
 
         // Keep the old signature for backward compat with tests
@@ -5665,6 +5947,12 @@ namespace Parsek
                         {
                             state.lastInterpolatedVelocity = orbit.getOrbitalVelocityAtUT(targetUT);
                         }
+                        state.lastInterpolatedBodyName = seg.Value.bodyName;
+                        CelestialBody segBody = FlightGlobals.Bodies?.Find(b => b.name == seg.Value.bodyName);
+                        if (segBody != null)
+                            state.lastInterpolatedAltitude = segBody.GetAltitude(state.ghost.transform.position);
+                        else
+                            state.lastInterpolatedAltitude = 0;
                     }
                     return;
                 }
