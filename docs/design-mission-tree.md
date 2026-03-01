@@ -487,8 +487,8 @@ When starting a new session to continue this work:
 | Task 1: Data model + serialization | Done | `fd11bc9` | RecordingTree, BranchPoint, SurfacePosition, TerminalState |
 | Task 2: Vessel switch refactoring | Done | `a876cf7` | DecideOnVesselSwitch tree-aware, transition/promotion, 12 tests |
 | Task 3: Background recording | Done | `218779d` | Dual-mode: on-rails (OrbitSegment/SurfacePosition) + loaded/physics (full trajectory + part events) |
-| Task 4: Split event detection | **Next** | — | Depends on 1, 2, 3 |
-| Task 5: Merge event detection | Pending | — | Depends on 1, 2, 3, 4 |
+| Task 4: Split event detection | Done | `f1fcb08` | Undock/EVA/joint break branching, debris filter, resume-on-false-alarm |
+| Task 5: Merge event detection | **Next** | — | Depends on 1, 2, 3, 4 |
 | Task 6: Tree commit + vessel spawn | Pending | — | Depends on 1–5 |
 | Task 7: Tree-aware ghost playback | Pending | — | Depends on 6 |
 | Task 8: Tree-aware merge dialog | Pending | — | Depends on 6 |
