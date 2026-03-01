@@ -63,6 +63,8 @@ namespace Parsek
             public Dictionary<uint, LightPlaybackState> lightPlaybackStates;
             public Dictionary<uint, FairingGhostInfo> fairingInfos;
             public Dictionary<uint, GameObject> fakeCanopies;
+            public ReentryFxInfo reentryFxInfo;
+            public Vector3 lastInterpolatedVelocity;
         }
 
         private Dictionary<int, GhostPlaybackState> ghostStates = new Dictionary<int, GhostPlaybackState>();
@@ -3732,7 +3734,7 @@ namespace Parsek
                         int playbackIdx = state.playbackIndex;
 
                         InterpolateAndPosition(state.ghost, rec.Points, rec.OrbitSegments,
-                            ref playbackIdx, currentUT, i * 10000);
+                            ref playbackIdx, currentUT, i * 10000, state);
                         state.playbackIndex = playbackIdx;
 
                         ApplyPartEvents(i, rec, currentUT, state);
@@ -3906,7 +3908,7 @@ namespace Parsek
 
             int playbackIdx = state.playbackIndex;
             InterpolateAndPosition(state.ghost, rec.Points, rec.OrbitSegments,
-                ref playbackIdx, loopUT, recIdx * 10000);
+                ref playbackIdx, loopUT, recIdx * 10000, state);
             state.playbackIndex = playbackIdx;
 
             ApplyPartEvents(recIdx, rec, loopUT, state);
@@ -4225,6 +4227,11 @@ namespace Parsek
             }
 
             InitializeInventoryPlacementVisibility(rec, state);
+
+            state.reentryFxInfo = GhostVisualBuilder.TryBuildReentryFx(
+                ghost,
+                state.heatInfos);
+
             ghostStates[index] = state;
         }
 
@@ -5464,7 +5471,7 @@ namespace Parsek
             return ghost;
         }
 
-        void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points, ref int cachedIndex, double targetUT)
+        void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points, ref int cachedIndex, double targetUT, GhostPlaybackState state = null)
         {
             if (points == null || points.Count == 0) { ghost.SetActive(false); return; }
 
@@ -5473,6 +5480,7 @@ namespace Parsek
             if (indexBefore < 0)
             {
                 PositionGhostAt(ghost, points[0]);
+                if (state != null) state.lastInterpolatedVelocity = points[0].velocity;
                 return;
             }
 
@@ -5483,6 +5491,7 @@ namespace Parsek
             if (segmentDuration <= 0.0001)
             {
                 PositionGhostAt(ghost, before);
+                if (state != null) state.lastInterpolatedVelocity = before.velocity;
                 return;
             }
 
@@ -5517,6 +5526,7 @@ namespace Parsek
 
             ghost.transform.position = interpolatedPos;
             ghost.transform.rotation = interpolatedRot;
+            if (state != null) state.lastInterpolatedVelocity = Vector3.Lerp(before.velocity, after.velocity, t);
         }
 
         // Keep the old signature for backward compat with tests
@@ -5629,7 +5639,8 @@ namespace Parsek
         }
 
         void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points,
-            List<OrbitSegment> segments, ref int cachedIndex, double targetUT, int orbitCacheBase)
+            List<OrbitSegment> segments, ref int cachedIndex, double targetUT, int orbitCacheBase,
+            GhostPlaybackState state = null)
         {
             // Check orbit segments first
             if (segments != null && segments.Count > 0)
@@ -5644,12 +5655,20 @@ namespace Parsek
                         Log($"Orbit segment activated: cache={cacheKey}, body={seg.Value.bodyName}, " +
                             $"sma={seg.Value.semiMajorAxis:F0}, UT {seg.Value.startUT:F0}-{seg.Value.endUT:F0}");
                     PositionGhostFromOrbit(ghost, seg.Value, targetUT, cacheKey);
+                    if (state != null)
+                    {
+                        Orbit orbit;
+                        if (orbitCache.TryGetValue(cacheKey, out orbit))
+                        {
+                            state.lastInterpolatedVelocity = orbit.getOrbitalVelocityAtUT(targetUT);
+                        }
+                    }
                     return;
                 }
             }
 
             // Fall through to point-based interpolation
-            InterpolateAndPosition(ghost, points, ref cachedIndex, targetUT);
+            InterpolateAndPosition(ghost, points, ref cachedIndex, targetUT, state);
         }
 
         // Delegates to TrajectoryMath — kept for backward compatibility
