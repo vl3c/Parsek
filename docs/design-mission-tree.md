@@ -489,8 +489,8 @@ When starting a new session to continue this work:
 | Task 3: Background recording | Done | `218779d` | Dual-mode: on-rails (OrbitSegment/SurfacePosition) + loaded/physics (full trajectory + part events) |
 | Task 4: Split event detection | Done | `f1fcb08` | Undock/EVA/joint break branching, debris filter, resume-on-false-alarm |
 | Task 5: Merge event detection | Done | `f1eecd8` | Dock/board merges, dual-lookup for initiator/target, dockingInProgress guard |
-| Task 6: Terminal event detection | **Next** | — | Depends on 1, 3 |
-| Task 7: Tree-aware ghost playback | Pending | — | Depends on 6 |
+| Task 6: Terminal event detection | Done | `686e927` | Deferred destruction check, no recovery handler (wrong scene) |
+| Task 7: Tree commit + leaf spawn | **Next** | — | Depends on 1-6 |
 | Task 8: Tree-aware merge dialog | Pending | — | Depends on 6 |
 | Task 9: UI updates | Pending | — | Depends on 6 |
 | Task 10: Quicksave/quickload | Pending | — | Depends on 6 |
