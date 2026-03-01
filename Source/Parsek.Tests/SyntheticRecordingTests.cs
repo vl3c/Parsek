@@ -5291,11 +5291,11 @@ namespace Parsek.Tests
 
             tree.BranchPoints.Add(new BranchPoint
             {
-                id = "e1-bp1",
-                ut = tSplit,
-                type = BranchPointType.Undock,
-                parentRecordingIds = new List<string> { rootId },
-                childRecordingIds = new List<string> { childActiveId, childBgId }
+                Id = "e1-bp1",
+                UT = tSplit,
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { rootId },
+                ChildRecordingIds = new List<string> { childActiveId, childBgId }
             });
 
             var node = new ConfigNode("RECORDING_TREE");
@@ -5389,11 +5389,11 @@ namespace Parsek.Tests
 
             tree.BranchPoints.Add(new BranchPoint
             {
-                id = "e2-bp1",
-                ut = tEva,
-                type = BranchPointType.EVA,
-                parentRecordingIds = new List<string> { rootId },
-                childRecordingIds = new List<string> { vesselContinueId, evaChildId }
+                Id = "e2-bp1",
+                UT = tEva,
+                Type = BranchPointType.EVA,
+                ParentRecordingIds = new List<string> { rootId },
+                ChildRecordingIds = new List<string> { vesselContinueId, evaChildId }
             });
 
             var node = new ConfigNode("RECORDING_TREE");
@@ -5479,11 +5479,11 @@ namespace Parsek.Tests
 
             tree.BranchPoints.Add(new BranchPoint
             {
-                id = "e3-bp1",
-                ut = tSplit,
-                type = BranchPointType.Undock,
-                parentRecordingIds = new List<string> { rootId },
-                childRecordingIds = new List<string> { childOrbitId, childDestroyedId }
+                Id = "e3-bp1",
+                UT = tSplit,
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { rootId },
+                ChildRecordingIds = new List<string> { childOrbitId, childDestroyedId }
             });
 
             var node = new ConfigNode("RECORDING_TREE");

@@ -355,7 +355,7 @@ namespace Parsek
             return parsedNames;
         }
 
-        private static string[] ParseJettisonNames(string rawNames)
+        internal static string[] ParseJettisonNames(string rawNames)
         {
             if (string.IsNullOrWhiteSpace(rawNames))
                 return Array.Empty<string>();

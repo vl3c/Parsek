@@ -264,9 +264,13 @@ namespace Parsek
                 dockConfirmFrames++;
                 if (dockConfirmFrames > 5)
                 {
-                    ParsekLog.Info("Flight", $"Dock confirmation expired (mergedPid={pendingDockMergedPid})");
+                    ParsekLog.Info("Flight", $"Dock confirmation expired (mergedPid={pendingDockMergedPid}, treeDock={pendingTreeDockMerge}, absorbedPid={pendingDockAbsorbedPid})");
+                    if (pendingDockAbsorbedPid != 0)
+                        dockingInProgress.Remove(pendingDockAbsorbedPid);
                     pendingDockMergedPid = 0;
                     pendingDockAsTarget = false;
+                    pendingTreeDockMerge = false;
+                    pendingDockAbsorbedPid = 0;
                     dockConfirmFrames = 0;
                 }
             }
@@ -686,6 +690,13 @@ namespace Parsek
             GameEvents.onGroundSciencePartDeployed.Remove(OnGroundSciencePartDeployed);
             GameEvents.onGroundSciencePartRemoved.Remove(OnGroundSciencePartRemoved);
             GameEvents.onVesselChange.Remove(OnVesselSwitchComplete);
+
+            // Clean up background recorder if active
+            if (backgroundRecorder != null)
+            {
+                Patches.PhysicsFramePatch.BackgroundRecorderInstance = null;
+                backgroundRecorder = null;
+            }
 
             // Clean up recording if active
             if (IsRecording)
@@ -1121,11 +1132,11 @@ namespace Parsek
 
             var bp = new BranchPoint
             {
-                id = bpId,
-                ut = branchUT,
-                type = branchType,
-                parentRecordingIds = new List<string> { parentRecordingId },
-                childRecordingIds = new List<string> { activeChildId, backgroundChildId }
+                Id = bpId,
+                UT = branchUT,
+                Type = branchType,
+                ParentRecordingIds = new List<string> { parentRecordingId },
+                ChildRecordingIds = new List<string> { activeChildId, backgroundChildId }
             };
 
             var activeChild = new RecordingStore.Recording
@@ -1184,11 +1195,11 @@ namespace Parsek
 
             var bp = new BranchPoint
             {
-                id = bpId,
-                ut = mergeUT,
-                type = branchType,
-                parentRecordingIds = new List<string>(parentRecordingIds),
-                childRecordingIds = new List<string> { childId }
+                Id = bpId,
+                UT = mergeUT,
+                Type = branchType,
+                ParentRecordingIds = new List<string>(parentRecordingIds),
+                ChildRecordingIds = new List<string> { childId }
             };
 
             var mergedChild = new RecordingStore.Recording
@@ -1331,7 +1342,7 @@ namespace Parsek
 
             // Set ChildBranchPointId on parent recording
             if (parentRecording != null)
-                parentRecording.ChildBranchPointId = bp.id;
+                parentRecording.ChildBranchPointId = bp.Id;
 
             // Add to tree
             activeTree.BranchPoints.Add(bp);
@@ -1367,7 +1378,7 @@ namespace Parsek
             }
 
             ParsekLog.Info("Flight", $"Tree branch created: type={branchType}, " +
-                $"bp={bp.id}, activeChild={activeChild.RecordingId} (pid={activeChild.VesselPersistentId}), " +
+                $"bp={bp.Id}, activeChild={activeChild.RecordingId} (pid={activeChild.VesselPersistentId}), " +
                 $"bgChild={bgChild.RecordingId} (pid={bgChild.VesselPersistentId})" +
                 (evaCrewName != null ? $", evaCrew={evaCrewName}" : ""));
         }
@@ -1477,12 +1488,12 @@ namespace Parsek
 
             // 7. Set ChildBranchPointId on all parent recordings
             if (activeParentRec != null)
-                activeParentRec.ChildBranchPointId = bp.id;
+                activeParentRec.ChildBranchPointId = bp.Id;
             if (backgroundParentRecordingId != null)
             {
                 RecordingStore.Recording bgParentRec2;
                 if (activeTree.Recordings.TryGetValue(backgroundParentRecordingId, out bgParentRec2))
-                    bgParentRec2.ChildBranchPointId = bp.id;
+                    bgParentRec2.ChildBranchPointId = bp.Id;
             }
 
             // 8. Add to tree
@@ -1505,7 +1516,7 @@ namespace Parsek
 
             // 11. Log
             ParsekLog.Info("Flight", $"Tree merge created: type={branchType}, " +
-                $"bp={bp.id}, parents=[{string.Join(",", parentIds)}], " +
+                $"bp={bp.Id}, parents=[{string.Join(",", parentIds)}], " +
                 $"child={mergedChild.RecordingId} (pid={mergedVesselPid})");
         }
 
@@ -1582,7 +1593,7 @@ namespace Parsek
         /// </summary>
         bool CheckBranchDeduplication(double branchUT, uint newVesselPid)
         {
-            if (Math.Abs(branchUT - lastBranchUT) > 0.01)
+            if (Math.Abs(branchUT - lastBranchUT) > 0.1)
             {
                 lastBranchVesselPids.Clear();
                 lastBranchUT = branchUT;

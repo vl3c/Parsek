@@ -32,14 +32,14 @@ namespace Parsek.Tests
                 mergedVesselName: "Docked Vessel");
 
             Assert.NotNull(bp);
-            Assert.Equal(BranchPointType.Dock, bp.type);
-            Assert.Equal(5000.0, bp.ut);
-            Assert.Equal(2, bp.parentRecordingIds.Count);
-            Assert.Contains("parent_a", bp.parentRecordingIds);
-            Assert.Contains("parent_b", bp.parentRecordingIds);
-            Assert.Single(bp.childRecordingIds);
-            Assert.NotNull(bp.id);
-            Assert.NotEmpty(bp.id);
+            Assert.Equal(BranchPointType.Dock, bp.Type);
+            Assert.Equal(5000.0, bp.UT);
+            Assert.Equal(2, bp.ParentRecordingIds.Count);
+            Assert.Contains("parent_a", bp.ParentRecordingIds);
+            Assert.Contains("parent_b", bp.ParentRecordingIds);
+            Assert.Single(bp.ChildRecordingIds);
+            Assert.NotNull(bp.Id);
+            Assert.NotEmpty(bp.Id);
         }
 
         [Fact]
@@ -55,10 +55,10 @@ namespace Parsek.Tests
                 mergedVesselName: "Foreign Dock");
 
             Assert.NotNull(bp);
-            Assert.Equal(BranchPointType.Dock, bp.type);
-            Assert.Single(bp.parentRecordingIds);
-            Assert.Equal("parent_a", bp.parentRecordingIds[0]);
-            Assert.Single(bp.childRecordingIds);
+            Assert.Equal(BranchPointType.Dock, bp.Type);
+            Assert.Single(bp.ParentRecordingIds);
+            Assert.Equal("parent_a", bp.ParentRecordingIds[0]);
+            Assert.Single(bp.ChildRecordingIds);
         }
 
         #endregion
@@ -78,12 +78,12 @@ namespace Parsek.Tests
                 mergedVesselName: "Boarded Vessel");
 
             Assert.NotNull(bp);
-            Assert.Equal(BranchPointType.Board, bp.type);
-            Assert.Equal(7000.0, bp.ut);
-            Assert.Equal(2, bp.parentRecordingIds.Count);
-            Assert.Contains("kerbal_rec", bp.parentRecordingIds);
-            Assert.Contains("vessel_rec", bp.parentRecordingIds);
-            Assert.Single(bp.childRecordingIds);
+            Assert.Equal(BranchPointType.Board, bp.Type);
+            Assert.Equal(7000.0, bp.UT);
+            Assert.Equal(2, bp.ParentRecordingIds.Count);
+            Assert.Contains("kerbal_rec", bp.ParentRecordingIds);
+            Assert.Contains("vessel_rec", bp.ParentRecordingIds);
+            Assert.Single(bp.ChildRecordingIds);
         }
 
         #endregion
@@ -106,7 +106,7 @@ namespace Parsek.Tests
             Assert.Equal("tree_3", mergedChild.TreeId);
             Assert.Equal(400u, mergedChild.VesselPersistentId);
             Assert.Equal("Combined Ship", mergedChild.VesselName);
-            Assert.Equal(bp.id, mergedChild.ParentBranchPointId);
+            Assert.Equal(bp.Id, mergedChild.ParentBranchPointId);
             Assert.Equal(8000.0, mergedChild.ExplicitStartUT);
             // Merge children don't have EVA-specific fields
             Assert.Null(mergedChild.EvaCrewName);
@@ -130,8 +130,8 @@ namespace Parsek.Tests
             // All IDs should be unique across calls
             var allIds = new HashSet<string>
             {
-                bp1.id, child1.RecordingId,
-                bp2.id, child2.RecordingId
+                bp1.Id, child1.RecordingId,
+                bp2.Id, child2.RecordingId
             };
             Assert.Equal(4, allIds.Count);
         }
@@ -143,7 +143,7 @@ namespace Parsek.Tests
             var (bp, child) = ParsekFlight.BuildMergeBranchData(
                 parentIds, "tree", 1000.0, BranchPointType.Board, 50, "Vessel");
 
-            Assert.Equal(bp.id, child.ParentBranchPointId);
+            Assert.Equal(bp.Id, child.ParentBranchPointId);
         }
 
         [Fact]
@@ -153,8 +153,8 @@ namespace Parsek.Tests
             var (bp, child) = ParsekFlight.BuildMergeBranchData(
                 parentIds, "tree", 3000.0, BranchPointType.Dock, 60, "Merged");
 
-            Assert.Single(bp.childRecordingIds);
-            Assert.Equal(child.RecordingId, bp.childRecordingIds[0]);
+            Assert.Single(bp.ChildRecordingIds);
+            Assert.Equal(child.RecordingId, bp.ChildRecordingIds[0]);
         }
 
         #endregion
@@ -175,14 +175,14 @@ namespace Parsek.Tests
             // Deserialize
             var loaded = RecordingTree.LoadBranchPointFrom(node);
 
-            Assert.Equal(bp.id, loaded.id);
-            Assert.Equal(bp.ut, loaded.ut);
-            Assert.Equal(BranchPointType.Dock, loaded.type);
-            Assert.Equal(2, loaded.parentRecordingIds.Count);
-            Assert.Contains("parent_x", loaded.parentRecordingIds);
-            Assert.Contains("parent_y", loaded.parentRecordingIds);
-            Assert.Single(loaded.childRecordingIds);
-            Assert.Equal(bp.childRecordingIds[0], loaded.childRecordingIds[0]);
+            Assert.Equal(bp.Id, loaded.Id);
+            Assert.Equal(bp.UT, loaded.UT);
+            Assert.Equal(BranchPointType.Dock, loaded.Type);
+            Assert.Equal(2, loaded.ParentRecordingIds.Count);
+            Assert.Contains("parent_x", loaded.ParentRecordingIds);
+            Assert.Contains("parent_y", loaded.ParentRecordingIds);
+            Assert.Single(loaded.ChildRecordingIds);
+            Assert.Equal(bp.ChildRecordingIds[0], loaded.ChildRecordingIds[0]);
         }
 
         [Fact]
@@ -199,13 +199,13 @@ namespace Parsek.Tests
             // Deserialize
             var loaded = RecordingTree.LoadBranchPointFrom(node);
 
-            Assert.Equal(bp.id, loaded.id);
-            Assert.Equal(bp.ut, loaded.ut);
-            Assert.Equal(BranchPointType.Board, loaded.type);
-            Assert.Single(loaded.parentRecordingIds);
-            Assert.Equal("kerbal_only", loaded.parentRecordingIds[0]);
-            Assert.Single(loaded.childRecordingIds);
-            Assert.Equal(bp.childRecordingIds[0], loaded.childRecordingIds[0]);
+            Assert.Equal(bp.Id, loaded.Id);
+            Assert.Equal(bp.UT, loaded.UT);
+            Assert.Equal(BranchPointType.Board, loaded.Type);
+            Assert.Single(loaded.ParentRecordingIds);
+            Assert.Equal("kerbal_only", loaded.ParentRecordingIds[0]);
+            Assert.Single(loaded.ChildRecordingIds);
+            Assert.Equal(bp.ChildRecordingIds[0], loaded.ChildRecordingIds[0]);
         }
 
         #endregion
@@ -403,7 +403,7 @@ namespace Parsek.Tests
                 "root", tree.Id, 1000.0, BranchPointType.Undock,
                 100, "Ship A", 200, "Ship B");
 
-            tree.Recordings["root"].ChildBranchPointId = splitBp.id;
+            tree.Recordings["root"].ChildBranchPointId = splitBp.Id;
             tree.Recordings[activeChild.RecordingId] = activeChild;
             tree.Recordings[bgChild.RecordingId] = bgChild;
             tree.BranchPoints.Add(splitBp);
@@ -417,11 +417,11 @@ namespace Parsek.Tests
                 100, "Docked Ship");
 
             // Wire up parent recordings
-            activeChild.ChildBranchPointId = mergeBp.id;
+            activeChild.ChildBranchPointId = mergeBp.Id;
             activeChild.ExplicitEndUT = 2000.0;
             activeChild.TerminalStateValue = TerminalState.Docked;
 
-            bgChild.ChildBranchPointId = mergeBp.id;
+            bgChild.ChildBranchPointId = mergeBp.Id;
             bgChild.ExplicitEndUT = 2000.0;
             bgChild.TerminalStateValue = TerminalState.Docked;
 
@@ -435,22 +435,22 @@ namespace Parsek.Tests
             Assert.Equal(2, tree.BranchPoints.Count); // split + merge
 
             // Split branch point
-            Assert.Single(splitBp.parentRecordingIds);
-            Assert.Equal(2, splitBp.childRecordingIds.Count);
+            Assert.Single(splitBp.ParentRecordingIds);
+            Assert.Equal(2, splitBp.ChildRecordingIds.Count);
 
             // Merge branch point
-            Assert.Equal(2, mergeBp.parentRecordingIds.Count);
-            Assert.Single(mergeBp.childRecordingIds);
-            Assert.Equal(mergedChild.RecordingId, mergeBp.childRecordingIds[0]);
+            Assert.Equal(2, mergeBp.ParentRecordingIds.Count);
+            Assert.Single(mergeBp.ChildRecordingIds);
+            Assert.Equal(mergedChild.RecordingId, mergeBp.ChildRecordingIds[0]);
 
             // Parent recordings are terminated
             Assert.Equal(TerminalState.Docked, activeChild.TerminalStateValue);
             Assert.Equal(TerminalState.Docked, bgChild.TerminalStateValue);
-            Assert.Equal(mergeBp.id, activeChild.ChildBranchPointId);
-            Assert.Equal(mergeBp.id, bgChild.ChildBranchPointId);
+            Assert.Equal(mergeBp.Id, activeChild.ChildBranchPointId);
+            Assert.Equal(mergeBp.Id, bgChild.ChildBranchPointId);
 
             // Merged child links back
-            Assert.Equal(mergeBp.id, mergedChild.ParentBranchPointId);
+            Assert.Equal(mergeBp.Id, mergedChild.ParentBranchPointId);
             Assert.Equal(mergedChild.RecordingId, tree.ActiveRecordingId);
 
             // Rebuild and verify BackgroundMap exclusions
@@ -485,7 +485,7 @@ namespace Parsek.Tests
                 300, "Jeb Kerman", 50, "My Rocket",
                 evaCrewName: "Jeb Kerman");
 
-            tree.Recordings["root"].ChildBranchPointId = splitBp.id;
+            tree.Recordings["root"].ChildBranchPointId = splitBp.Id;
             tree.Recordings[kerbalChild.RecordingId] = kerbalChild;
             tree.Recordings[shipChild.RecordingId] = shipChild;
             tree.BranchPoints.Add(splitBp);
@@ -498,7 +498,7 @@ namespace Parsek.Tests
                 boardParents, tree.Id, 1500.0, BranchPointType.Board,
                 900, "Foreign Vessel"); // foreign vessel PID 900
 
-            kerbalChild.ChildBranchPointId = boardBp.id;
+            kerbalChild.ChildBranchPointId = boardBp.Id;
             kerbalChild.ExplicitEndUT = 1500.0;
             kerbalChild.TerminalStateValue = TerminalState.Boarded;
 
@@ -511,9 +511,9 @@ namespace Parsek.Tests
             Assert.Equal(2, tree.BranchPoints.Count);
 
             // Board branch point has 1 parent (foreign vessel has no recording)
-            Assert.Single(boardBp.parentRecordingIds);
-            Assert.Single(boardBp.childRecordingIds);
-            Assert.Equal(BranchPointType.Board, boardBp.type);
+            Assert.Single(boardBp.ParentRecordingIds);
+            Assert.Single(boardBp.ChildRecordingIds);
+            Assert.Equal(BranchPointType.Board, boardBp.Type);
 
             // Kerbal recording is terminated
             Assert.Equal(TerminalState.Boarded, kerbalChild.TerminalStateValue);

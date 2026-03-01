@@ -78,11 +78,11 @@ namespace Parsek.Tests
         {
             var bp = new BranchPoint
             {
-                id = "bp001",
-                ut = 17050.5,
-                type = BranchPointType.Undock,
-                parentRecordingIds = new List<string> { "rec_parent" },
-                childRecordingIds = new List<string> { "rec_child1", "rec_child2" }
+                Id = "bp001",
+                UT = 17050.5,
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { "rec_parent" },
+                ChildRecordingIds = new List<string> { "rec_child1", "rec_child2" }
             };
 
             var node = new ConfigNode("BRANCH_POINT");
@@ -90,14 +90,14 @@ namespace Parsek.Tests
 
             var restored = RecordingTree.LoadBranchPointFrom(node);
 
-            Assert.Equal("bp001", restored.id);
-            Assert.Equal(17050.5, restored.ut);
-            Assert.Equal(BranchPointType.Undock, restored.type);
-            Assert.Single(restored.parentRecordingIds);
-            Assert.Equal("rec_parent", restored.parentRecordingIds[0]);
-            Assert.Equal(2, restored.childRecordingIds.Count);
-            Assert.Equal("rec_child1", restored.childRecordingIds[0]);
-            Assert.Equal("rec_child2", restored.childRecordingIds[1]);
+            Assert.Equal("bp001", restored.Id);
+            Assert.Equal(17050.5, restored.UT);
+            Assert.Equal(BranchPointType.Undock, restored.Type);
+            Assert.Single(restored.ParentRecordingIds);
+            Assert.Equal("rec_parent", restored.ParentRecordingIds[0]);
+            Assert.Equal(2, restored.ChildRecordingIds.Count);
+            Assert.Equal("rec_child1", restored.ChildRecordingIds[0]);
+            Assert.Equal("rec_child2", restored.ChildRecordingIds[1]);
         }
 
         [Fact]
@@ -105,11 +105,11 @@ namespace Parsek.Tests
         {
             var bp = new BranchPoint
             {
-                id = "bp_dock",
-                ut = 18000.0,
-                type = BranchPointType.Dock,
-                parentRecordingIds = new List<string> { "rec_a", "rec_b" },
-                childRecordingIds = new List<string> { "rec_merged" }
+                Id = "bp_dock",
+                UT = 18000.0,
+                Type = BranchPointType.Dock,
+                ParentRecordingIds = new List<string> { "rec_a", "rec_b" },
+                ChildRecordingIds = new List<string> { "rec_merged" }
             };
 
             var node = new ConfigNode("BRANCH_POINT");
@@ -117,13 +117,13 @@ namespace Parsek.Tests
 
             var restored = RecordingTree.LoadBranchPointFrom(node);
 
-            Assert.Equal("bp_dock", restored.id);
-            Assert.Equal(BranchPointType.Dock, restored.type);
-            Assert.Equal(2, restored.parentRecordingIds.Count);
-            Assert.Equal("rec_a", restored.parentRecordingIds[0]);
-            Assert.Equal("rec_b", restored.parentRecordingIds[1]);
-            Assert.Single(restored.childRecordingIds);
-            Assert.Equal("rec_merged", restored.childRecordingIds[0]);
+            Assert.Equal("bp_dock", restored.Id);
+            Assert.Equal(BranchPointType.Dock, restored.Type);
+            Assert.Equal(2, restored.ParentRecordingIds.Count);
+            Assert.Equal("rec_a", restored.ParentRecordingIds[0]);
+            Assert.Equal("rec_b", restored.ParentRecordingIds[1]);
+            Assert.Single(restored.ChildRecordingIds);
+            Assert.Equal("rec_merged", restored.ChildRecordingIds[0]);
         }
 
         // --- TerminalState enum ---
@@ -252,11 +252,11 @@ namespace Parsek.Tests
 
             tree.BranchPoints.Add(new BranchPoint
             {
-                id = "BP1",
-                ut = 200.0,
-                type = BranchPointType.Undock,
-                parentRecordingIds = new List<string> { "R1" },
-                childRecordingIds = new List<string> { "R2", "R3" }
+                Id = "BP1",
+                UT = 200.0,
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { "R1" },
+                ChildRecordingIds = new List<string> { "R2", "R3" }
             });
 
             var node = new ConfigNode("RECORDING_TREE");
@@ -271,14 +271,14 @@ namespace Parsek.Tests
 
             Assert.Single(restored.BranchPoints);
             var bp = restored.BranchPoints[0];
-            Assert.Equal("BP1", bp.id);
-            Assert.Equal(200.0, bp.ut);
-            Assert.Equal(BranchPointType.Undock, bp.type);
-            Assert.Single(bp.parentRecordingIds);
-            Assert.Equal("R1", bp.parentRecordingIds[0]);
-            Assert.Equal(2, bp.childRecordingIds.Count);
-            Assert.Contains("R2", bp.childRecordingIds);
-            Assert.Contains("R3", bp.childRecordingIds);
+            Assert.Equal("BP1", bp.Id);
+            Assert.Equal(200.0, bp.UT);
+            Assert.Equal(BranchPointType.Undock, bp.Type);
+            Assert.Single(bp.ParentRecordingIds);
+            Assert.Equal("R1", bp.ParentRecordingIds[0]);
+            Assert.Equal(2, bp.ChildRecordingIds.Count);
+            Assert.Contains("R2", bp.ChildRecordingIds);
+            Assert.Contains("R3", bp.ChildRecordingIds);
         }
 
         // --- Recording tree with dock merge ---
@@ -340,19 +340,19 @@ namespace Parsek.Tests
 
             tree.BranchPoints.Add(new BranchPoint
             {
-                id = "BP1",
-                ut = 200.0,
-                type = BranchPointType.Undock,
-                parentRecordingIds = new List<string> { "R1" },
-                childRecordingIds = new List<string> { "R2", "R3" }
+                Id = "BP1",
+                UT = 200.0,
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { "R1" },
+                ChildRecordingIds = new List<string> { "R2", "R3" }
             });
             tree.BranchPoints.Add(new BranchPoint
             {
-                id = "BP2",
-                ut = 400.0,
-                type = BranchPointType.Dock,
-                parentRecordingIds = new List<string> { "R2", "R3" },
-                childRecordingIds = new List<string> { "R4" }
+                Id = "BP2",
+                UT = 400.0,
+                Type = BranchPointType.Dock,
+                ParentRecordingIds = new List<string> { "R2", "R3" },
+                ChildRecordingIds = new List<string> { "R4" }
             });
 
             var node = new ConfigNode("RECORDING_TREE");
@@ -378,19 +378,19 @@ namespace Parsek.Tests
             // Branch point checks
             Assert.Equal(2, restored.BranchPoints.Count);
 
-            var bp1 = restored.BranchPoints.Find(b => b.id == "BP1");
+            var bp1 = restored.BranchPoints.Find(b => b.Id == "BP1");
             Assert.NotNull(bp1);
-            Assert.Equal(BranchPointType.Undock, bp1.type);
-            Assert.Single(bp1.parentRecordingIds);
-            Assert.Equal("R1", bp1.parentRecordingIds[0]);
-            Assert.Equal(2, bp1.childRecordingIds.Count);
+            Assert.Equal(BranchPointType.Undock, bp1.Type);
+            Assert.Single(bp1.ParentRecordingIds);
+            Assert.Equal("R1", bp1.ParentRecordingIds[0]);
+            Assert.Equal(2, bp1.ChildRecordingIds.Count);
 
-            var bp2 = restored.BranchPoints.Find(b => b.id == "BP2");
+            var bp2 = restored.BranchPoints.Find(b => b.Id == "BP2");
             Assert.NotNull(bp2);
-            Assert.Equal(BranchPointType.Dock, bp2.type);
-            Assert.Equal(2, bp2.parentRecordingIds.Count);
-            Assert.Single(bp2.childRecordingIds);
-            Assert.Equal("R4", bp2.childRecordingIds[0]);
+            Assert.Equal(BranchPointType.Dock, bp2.Type);
+            Assert.Equal(2, bp2.ParentRecordingIds.Count);
+            Assert.Single(bp2.ChildRecordingIds);
+            Assert.Equal("R4", bp2.ChildRecordingIds[0]);
         }
 
         // --- Terminal state fields ---
@@ -906,9 +906,9 @@ namespace Parsek.Tests
         {
             var bp = new BranchPoint
             {
-                id = "bp_empty",
-                ut = 1000.0,
-                type = BranchPointType.EVA
+                Id = "bp_empty",
+                UT = 1000.0,
+                Type = BranchPointType.EVA
                 // parentRecordingIds and childRecordingIds left as empty lists
             };
 
@@ -917,12 +917,12 @@ namespace Parsek.Tests
 
             var restored = RecordingTree.LoadBranchPointFrom(node);
 
-            Assert.Equal("bp_empty", restored.id);
-            Assert.Equal(BranchPointType.EVA, restored.type);
-            Assert.NotNull(restored.parentRecordingIds);
-            Assert.Empty(restored.parentRecordingIds);
-            Assert.NotNull(restored.childRecordingIds);
-            Assert.Empty(restored.childRecordingIds);
+            Assert.Equal("bp_empty", restored.Id);
+            Assert.Equal(BranchPointType.EVA, restored.Type);
+            Assert.NotNull(restored.ParentRecordingIds);
+            Assert.Empty(restored.ParentRecordingIds);
+            Assert.NotNull(restored.ChildRecordingIds);
+            Assert.Empty(restored.ChildRecordingIds);
         }
 
         [Fact]
