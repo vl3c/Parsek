@@ -42,8 +42,8 @@ Computed from existing trajectory data: max altitude, max speed, max G-force, di
 ### ~~Non-revert recording commitment~~ (Done)
 "Commit Flight" UI button snapshots the current vessel state and adds the recording to the timeline without reverting. Unlocks the mod for players who don't revert.
 
-### Two-phase parachute deploy
-Visual distinction between SEMIDEPLOYED (streamer) and DEPLOYED (full canopy) on ghost vessels. Currently all chute states show the same mesh.
+### ~~Two-phase parachute deploy~~ (Done)
+`ParachuteSemiDeployed` and `ParachuteDeployed` as separate event types. Ghost playback shows streamer canopy for semi-deployed and real/fake canopy mesh for full deployed.
 
 ---
 
