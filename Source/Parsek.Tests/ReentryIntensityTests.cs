@@ -73,6 +73,23 @@ namespace Parsek.Tests
             Assert.Equal(0f, intensity);
         }
 
+        [Fact]
+        public void DynamicPressureNegativeInfinity_ReturnsZero()
+        {
+            float intensity = GhostVisualBuilder.ComputeReentryIntensity(speed: 2000f, dynamicPressure: float.NegativeInfinity);
+            Assert.Equal(0f, intensity);
+        }
+
+        [Fact]
+        public void SpeedPositiveInfinity_DependsOnPressure()
+        {
+            // Speed gate passes (infinity > 400), so result depends on q ramp
+            // q=10000 is mid-range between low (500) and high (20000) thresholds
+            float intensity = GhostVisualBuilder.ComputeReentryIntensity(speed: float.PositiveInfinity, dynamicPressure: 10000f);
+            Assert.True(intensity > 0f, $"Expected intensity > 0, got {intensity}");
+            Assert.True(intensity < 1f, $"Expected intensity < 1, got {intensity}");
+        }
+
         // --- Body-agnostic behavior ---
 
         [Fact]
@@ -175,16 +192,5 @@ namespace Parsek.Tests
             Assert.Equal(0f, intensity);
         }
 
-        // --- Direction-agnostic ---
-
-        [Fact]
-        public void SameSpeedAndPressure_SameIntensity_RegardlessOfDirection()
-        {
-            // ComputeReentryIntensity takes speed (scalar) and q (scalar) —
-            // direction is not an input, confirming direction-agnostic behavior
-            float intensity1 = GhostVisualBuilder.ComputeReentryIntensity(speed: 1500f, dynamicPressure: 12000f);
-            float intensity2 = GhostVisualBuilder.ComputeReentryIntensity(speed: 1500f, dynamicPressure: 12000f);
-            Assert.Equal(intensity1, intensity2);
-        }
     }
 }
