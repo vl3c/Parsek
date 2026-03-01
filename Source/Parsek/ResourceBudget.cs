@@ -202,9 +202,15 @@ namespace Parsek
             {
                 for (int i = 0; i < trees.Count; i++)
                 {
-                    result.reservedFunds += TreeCommittedFundsCost(trees[i]);
-                    result.reservedScience += TreeCommittedScienceCost(trees[i]);
-                    result.reservedReputation += TreeCommittedReputationCost(trees[i]);
+                    double treeFunds = TreeCommittedFundsCost(trees[i]);
+                    double treeScience = TreeCommittedScienceCost(trees[i]);
+                    double treeRep = TreeCommittedReputationCost(trees[i]);
+                    result.reservedFunds += treeFunds;
+                    result.reservedScience += treeScience;
+                    result.reservedReputation += treeRep;
+                    ParsekLog.Verbose("ResourceBudget",
+                        $"ComputeTotal tree: '{trees[i].TreeName}' resourcesApplied={trees[i].ResourcesApplied} " +
+                        $"funds={treeFunds:F0} science={treeScience:F1} rep={treeRep:F1}");
                 }
             }
 
