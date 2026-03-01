@@ -745,9 +745,16 @@ namespace Parsek
             {
                 double commitUT = Planetarium.GetUniversalTime();
 
-                // CommitTreeSceneExit handles: stop/flush recorder, finalize background,
-                // capture terminal state, null snapshots, stash pending tree
-                CommitTreeSceneExit(commitUT);
+                if (scene == GameScenes.FLIGHT)
+                {
+                    // Revert: preserve snapshots for merge dialog
+                    CommitTreeRevert(commitUT);
+                }
+                else
+                {
+                    // Scene exit: null snapshots (ghost-only, no spawning outside Flight)
+                    CommitTreeSceneExit(commitUT);
+                }
 
                 // Clean up tree state
                 recorder = null;
@@ -2796,14 +2803,12 @@ namespace Parsek
             pendingBoardingTargetInTree = false;
             dockingInProgress.Clear();
 
-            // Handle pending tree: auto-commit ghost-only for now.
-            // Task 8 will replace this with a tree merge dialog.
+            // Handle pending tree: show tree merge dialog
             if (RecordingStore.HasPendingTree)
             {
                 var pt = RecordingStore.PendingTree;
-                Log($"Found pending tree '{pt.TreeName}' — auto-committing ghost-only (Task 8 will add dialog)");
-                RecordingStore.CommitPendingTree();
-                ParsekScenario.ReserveSnapshotCrew();
+                Log($"Found pending tree '{pt.TreeName}' ({pt.Recordings.Count} recordings) — showing tree merge dialog");
+                MergeDialog.ShowTreeDialog(pt);
             }
 
             if (RecordingStore.HasPending)
@@ -3179,6 +3184,26 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Finalizes the active tree for a revert (Flight -> Flight).
+        /// Preserves vessel snapshots so the merge dialog can offer spawning.
+        /// </summary>
+        void CommitTreeRevert(double commitUT)
+        {
+            if (activeTree == null) return;
+
+            ParsekLog.Info("Flight", $"CommitTreeRevert: finalizing tree at UT={commitUT:F1}");
+
+            // Finalize all recordings (active + background)
+            FinalizeTreeRecordings(activeTree, commitUT, isSceneExit: false);
+
+            // Stash as pending tree -- snapshots preserved for merge dialog
+            RecordingStore.StashPendingTree(activeTree);
+
+            ParsekLog.Info("Flight",
+                $"CommitTreeRevert: stashed pending tree '{activeTree.TreeName}' with snapshots preserved");
+        }
+
+        /// <summary>
         /// Commits the active tree on scene exit (ghost-only, no spawning).
         /// Finalizes all recordings and stashes the tree as pending.
         /// </summary>
@@ -3197,8 +3222,7 @@ namespace Parsek
                 rec.VesselSnapshot = null;
             }
 
-            // Stash as pending tree (Task 8 will show merge dialog;
-            // for now auto-commit ghost-only)
+            // Stash as pending tree -- auto-committed ghost-only by ParsekScenario.OnLoad
             RecordingStore.StashPendingTree(activeTree);
 
             ParsekLog.Info("Flight", $"CommitTreeSceneExit: stashed pending tree '{activeTree.TreeName}'");

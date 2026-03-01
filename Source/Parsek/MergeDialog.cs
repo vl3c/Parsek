@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text;
 using UnityEngine;
 
 namespace Parsek
@@ -288,6 +289,183 @@ namespace Parsek
                 default:
                     return header;
             }
+        }
+
+        // ================================================================
+        // Tree merge dialog
+        // ================================================================
+
+        internal static void ShowTreeDialog(RecordingTree tree)
+        {
+            if (tree == null)
+            {
+                ParsekLog.Warn("MergeDialog", "Cannot show tree dialog: tree is null");
+                return;
+            }
+
+            var allLeaves = tree.GetAllLeaves();
+            var spawnableLeaves = tree.GetSpawnableLeaves();
+
+            // Compute total duration across all recordings in the tree
+            double minStartUT = double.MaxValue;
+            double maxEndUT = double.MinValue;
+            foreach (var rec in tree.Recordings.Values)
+            {
+                double start = rec.StartUT;
+                double end = rec.EndUT;
+                if (start < minStartUT) minStartUT = start;
+                if (end > maxEndUT) maxEndUT = end;
+            }
+            double duration = (minStartUT < double.MaxValue && maxEndUT > double.MinValue)
+                ? maxEndUT - minStartUT
+                : 0;
+
+            // Count destroyed leaves
+            int destroyedCount = 0;
+            for (int i = 0; i < allLeaves.Count; i++)
+            {
+                if (allLeaves[i].TerminalStateValue.HasValue
+                    && allLeaves[i].TerminalStateValue.Value == TerminalState.Destroyed)
+                    destroyedCount++;
+            }
+
+            int survivingCount = spawnableLeaves.Count;
+
+            ParsekLog.Info("MergeDialog",
+                $"Tree merge dialog: tree='{tree.TreeName}', recordings={tree.Recordings.Count}, " +
+                $"allLeaves={allLeaves.Count}, spawnable={survivingCount}, destroyed={destroyedCount}");
+
+            // Build vessel count text
+            string vesselCountText;
+            if (destroyedCount > 0)
+                vesselCountText = $"{survivingCount} vessel{(survivingCount != 1 ? "s" : "")} ({destroyedCount} destroyed)";
+            else
+                vesselCountText = $"{survivingCount} vessel{(survivingCount != 1 ? "s" : "")}";
+
+            // Build per-leaf summary
+            var sb = new StringBuilder();
+            for (int i = 0; i < allLeaves.Count; i++)
+            {
+                var leaf = allLeaves[i];
+                string situationText = GetLeafSituationText(leaf);
+                string marker = (leaf.RecordingId == tree.ActiveRecordingId) ? "  <-- you are here" : "";
+                sb.AppendLine($"  {leaf.VesselName} \u2014 {situationText}{marker}");
+            }
+
+            // Assemble message
+            string header = $"\"{tree.TreeName}\" \u2014 {vesselCountText}, {FormatDuration(duration)}\n\n";
+            string footer;
+            if (survivingCount > 0)
+                footer = "\nAll surviving vessels will appear after ghost playback.";
+            else
+                footer = "\nAll vessels were lost. Ghosts will replay the mission.";
+
+            string message = header + sb.ToString() + footer;
+
+            // Buttons — capture in locals for lambda closures
+            int spawnCount = survivingCount;
+
+            DialogGUIButton[] buttons = new[]
+            {
+                new DialogGUIButton("Merge to Timeline", () =>
+                {
+                    RecordingStore.CommitPendingTree();
+                    ParsekScenario.ReserveSnapshotCrew();
+                    ParsekScenario.SwapReservedCrewInFlight();
+                    if (spawnCount > 0)
+                        ParsekLog.ScreenMessage(
+                            $"Tree merged \u2014 {spawnCount} vessel(s) will appear after ghost playback", 3f);
+                    else
+                        ParsekLog.ScreenMessage("Tree merged to timeline!", 3f);
+                    ParsekLog.Info("MergeDialog",
+                        $"User chose: Tree Merge (tree='{tree.TreeName}', " +
+                        $"recordings={tree.Recordings.Count}, spawnable={spawnCount})");
+                }),
+                new DialogGUIButton("Discard", () =>
+                {
+                    foreach (var rec in tree.Recordings.Values)
+                    {
+                        if (rec.VesselSnapshot != null)
+                            ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
+                    }
+                    RecordingStore.DiscardPendingTree();
+                    ParsekLog.ScreenMessage("Recording tree discarded", 2f);
+                    ParsekLog.Info("MergeDialog",
+                        $"User chose: Tree Discard (tree='{tree.TreeName}', " +
+                        $"recordings={tree.Recordings.Count})");
+                })
+            };
+
+            PopupDialog.SpawnPopupDialog(
+                new Vector2(0.5f, 0.5f),
+                new Vector2(0.5f, 0.5f),
+                new MultiOptionDialog(
+                    "ParsekMerge",
+                    message,
+                    "Parsek \u2014 Merge Recording Tree",
+                    HighLogic.UISkin,
+                    buttons
+                ),
+                false,
+                HighLogic.UISkin
+            );
+        }
+
+        internal static string FormatDuration(double seconds)
+        {
+            if (double.IsNaN(seconds) || double.IsInfinity(seconds)) return "0s";
+            if (seconds < 0) seconds = 0;
+            if (seconds < 60)
+                return ((int)seconds).ToString(CultureInfo.InvariantCulture) + "s";
+            if (seconds < 3600)
+            {
+                int m = (int)(seconds / 60);
+                int s = (int)(seconds % 60);
+                return s > 0
+                    ? m.ToString(CultureInfo.InvariantCulture) + "m " +
+                      s.ToString(CultureInfo.InvariantCulture) + "s"
+                    : m.ToString(CultureInfo.InvariantCulture) + "m";
+            }
+            int h = (int)(seconds / 3600);
+            int min = (int)((seconds % 3600) / 60);
+            return min > 0
+                ? h.ToString(CultureInfo.InvariantCulture) + "h " +
+                  min.ToString(CultureInfo.InvariantCulture) + "m"
+                : h.ToString(CultureInfo.InvariantCulture) + "h";
+        }
+
+        internal static string GetLeafSituationText(RecordingStore.Recording leaf)
+        {
+            if (leaf.TerminalStateValue.HasValue)
+            {
+                switch (leaf.TerminalStateValue.Value)
+                {
+                    case TerminalState.Orbiting:
+                        return "Orbiting " + (leaf.TerminalOrbitBody ?? "unknown");
+                    case TerminalState.Landed:
+                        return "Landed on " + (leaf.TerminalPosition.HasValue
+                            ? leaf.TerminalPosition.Value.body : "unknown");
+                    case TerminalState.Splashed:
+                        return "Splashed on " + (leaf.TerminalPosition.HasValue
+                            ? leaf.TerminalPosition.Value.body : "unknown");
+                    case TerminalState.SubOrbital:
+                        return "Sub-orbital, " + (leaf.TerminalOrbitBody ?? "unknown");
+                    case TerminalState.Destroyed:
+                        return "Destroyed";
+                    case TerminalState.Recovered:
+                        return "Recovered";
+                    case TerminalState.Docked:
+                        return "Docked";
+                    case TerminalState.Boarded:
+                        return "Boarded";
+                }
+            }
+
+            // Fallback for legacy recordings or recordings without terminal state
+            if (!string.IsNullOrEmpty(leaf.VesselSituation))
+                return leaf.VesselSituation;
+
+            return "Unknown";
         }
     }
 }
