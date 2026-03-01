@@ -3126,6 +3126,16 @@ namespace Parsek
                 activeRec.LastAppliedResourceIndex = activeRec.Points.Count - 1;
             }
 
+            // Tree resources are already live in the game — mark as applied
+            activeTree.ResourcesApplied = true;
+
+            // Mark all tree recordings' resource indices as fully applied
+            foreach (var rec in activeTree.Recordings.Values)
+            {
+                if (rec.Points.Count > 0)
+                    rec.LastAppliedResourceIndex = rec.Points.Count - 1;
+            }
+
             // Reserve crew for all leaf vessels (except active vessel)
             var spawnableLeaves = activeTree.GetSpawnableLeaves();
             var roster = HighLogic.CurrentGame?.CrewRoster;
@@ -3315,6 +3325,37 @@ namespace Parsek
                 if (isLeaf && rec.Points.Count == 0 && rec.OrbitSegments.Count == 0 && !rec.SurfacePos.HasValue)
                     ParsekLog.Warn("Flight", $"FinalizeTreeRecordings: leaf '{rec.RecordingId}' has no playback data");
             }
+
+            // Compute tree-level resource delta
+            tree.DeltaFunds = ComputeTreeDeltaFunds(tree);
+            tree.DeltaScience = ComputeTreeDeltaScience(tree);
+            tree.DeltaReputation = ComputeTreeDeltaReputation(tree);
+
+            ParsekLog.Info("Flight",
+                $"FinalizeTreeRecordings: tree '{tree.TreeName}' resource delta: " +
+                $"funds={tree.DeltaFunds:+0.0;-0.0}, science={tree.DeltaScience:+0.0;-0.0}, " +
+                $"rep={tree.DeltaReputation:+0.0;-0.0}");
+        }
+
+        internal static double ComputeTreeDeltaFunds(RecordingTree tree)
+        {
+            double currentFunds = 0;
+            try { if (Funding.Instance != null) currentFunds = Funding.Instance.Funds; } catch { }
+            return currentFunds - tree.PreTreeFunds;
+        }
+
+        internal static double ComputeTreeDeltaScience(RecordingTree tree)
+        {
+            double currentScience = 0;
+            try { if (ResearchAndDevelopment.Instance != null) currentScience = ResearchAndDevelopment.Instance.Science; } catch { }
+            return currentScience - tree.PreTreeScience;
+        }
+
+        internal static float ComputeTreeDeltaReputation(RecordingTree tree)
+        {
+            float currentRep = 0;
+            try { if (Reputation.Instance != null) currentRep = Reputation.Instance.reputation; } catch { }
+            return currentRep - tree.PreTreeReputation;
         }
 
         /// <summary>
@@ -3577,7 +3618,7 @@ namespace Parsek
                         ParsekLog.Verbose("Flight", $"Ghost #{i} destroyed — segment disabled " +
                             $"({rec.VesselName}, {RecordingStore.GetSegmentPhaseLabel(rec)})");
                     }
-                    if (pastEnd)
+                    if (pastEnd && rec.TreeId == null)
                         ApplyResourceDeltas(rec, currentUT);
                     continue;
                 }
@@ -3684,7 +3725,8 @@ namespace Parsek
                         state.playbackIndex = playbackIdx;
 
                         ApplyPartEvents(i, rec, currentUT, state);
-                        ApplyResourceDeltas(rec, currentUT);
+                        if (rec.TreeId == null)
+                            ApplyResourceDeltas(rec, currentUT);
                     }
                     else
                     {
@@ -3705,7 +3747,8 @@ namespace Parsek
                             ParsekLog.Verbose("Flight", $"Ghost ENTERED range (background): #{i} \"{rec.VesselName}\" " +
                                 $"orbit={hasOrbitData} surface={hasSurfaceData}");
                         ApplyPartEvents(i, rec, currentUT, state);
-                        ApplyResourceDeltas(rec, currentUT);
+                        if (rec.TreeId == null)
+                            ApplyResourceDeltas(rec, currentUT);
                     }
                 }
                 else if (pastChainEnd && needsSpawn && ghostActive)
@@ -3716,7 +3759,8 @@ namespace Parsek
                         PositionGhostAt(state.ghost, rec.Points[rec.Points.Count - 1]);
                     VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
                     DestroyTimelineGhost(i);
-                    ApplyResourceDeltas(rec, currentUT);
+                    if (rec.TreeId == null)
+                        ApplyResourceDeltas(rec, currentUT);
                 }
                 else if (pastChainEnd && needsSpawn && !ghostActive)
                 {
@@ -3724,14 +3768,15 @@ namespace Parsek
                     Log($"Ghost SKIPPED (UT already past EndUT): #{i} \"{rec.VesselName}\" at UT {currentUT:F1} " +
                         $"(EndUT={rec.EndUT:F1}) — spawning vessel immediately");
                     VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
-                    ApplyResourceDeltas(rec, currentUT);
+                    if (rec.TreeId == null)
+                        ApplyResourceDeltas(rec, currentUT);
                 }
                 else if (pastEnd && ghostActive && isMidChain && !pastChainEnd)
                 {
                     // Mid-chain segment past its own EndUT but chain still playing — hold at final pos
                     if (rec.Points.Count > 0)
                         PositionGhostAt(state.ghost, rec.Points[rec.Points.Count - 1]);
-                    if (pastEnd)
+                    if (pastEnd && rec.TreeId == null)
                         ApplyResourceDeltas(rec, currentUT);
                 }
                 else
@@ -3743,10 +3788,13 @@ namespace Parsek
                         DestroyTimelineGhost(i);
                     }
                     // Catch up resource deltas for recordings we jumped past
-                    if (pastEnd)
+                    if (pastEnd && rec.TreeId == null)
                         ApplyResourceDeltas(rec, currentUT);
                 }
             }
+
+            // Apply tree-level resource deltas (lump sum when UT passes tree EndUT)
+            ApplyTreeResourceDeltas(currentUT);
         }
 
         private bool ShouldLoopPlayback(RecordingStore.Recording rec)
@@ -3936,6 +3984,83 @@ namespace Parsek
                         $"rep={toPoint.reputation - points[0].reputation:+0.0;-0.0}");
                 }
             }
+        }
+
+        void ApplyTreeResourceDeltas(double currentUT)
+        {
+            var trees = RecordingStore.CommittedTrees;
+            for (int i = 0; i < trees.Count; i++)
+            {
+                var tree = trees[i];
+                if (tree.ResourcesApplied) continue;
+
+                // Compute tree EndUT: max EndUT across all recordings
+                double treeEndUT = 0;
+                foreach (var rec in tree.Recordings.Values)
+                {
+                    double recEnd = rec.EndUT;
+                    if (recEnd > treeEndUT) treeEndUT = recEnd;
+                }
+
+                if (currentUT <= treeEndUT) continue;
+
+                // Apply lump sum delta (sets ResourcesApplied = true internally)
+                ApplyTreeLumpSum(tree);
+            }
+        }
+
+        void ApplyTreeLumpSum(RecordingTree tree)
+        {
+            if (ShouldPauseTimelineResourceReplay(IsRecording))
+                return; // retry next frame
+
+            GameStateRecorder.SuppressResourceEvents = true;
+            try
+            {
+                if (tree.DeltaFunds != 0 && Funding.Instance != null)
+                {
+                    double delta = tree.DeltaFunds;
+                    if (delta < 0 && Funding.Instance.Funds + delta < 0)
+                        delta = -Funding.Instance.Funds;
+                    Funding.Instance.AddFunds(delta, TransactionReasons.None);
+                    Log($"Tree resource: funds {delta:+0.0;-0.0} (tree '{tree.TreeName}')");
+                }
+
+                if (tree.DeltaScience != 0 && ResearchAndDevelopment.Instance != null)
+                {
+                    double delta = tree.DeltaScience;
+                    if (delta < 0 && ResearchAndDevelopment.Instance.Science + delta < 0)
+                        delta = -ResearchAndDevelopment.Instance.Science;
+                    ResearchAndDevelopment.Instance.AddScience((float)delta, TransactionReasons.None);
+                    Log($"Tree resource: science {delta:+0.0;-0.0} (tree '{tree.TreeName}')");
+                }
+
+                if (tree.DeltaReputation != 0 && Reputation.Instance != null)
+                {
+                    float delta = tree.DeltaReputation;
+                    if (delta < 0 && Reputation.CurrentRep + delta < 0)
+                        delta = -Reputation.CurrentRep;
+                    Reputation.Instance.AddReputation(delta, TransactionReasons.None);
+                    Log($"Tree resource: reputation {delta:+0.0;-0.0} (tree '{tree.TreeName}')");
+                }
+            }
+            finally
+            {
+                GameStateRecorder.SuppressResourceEvents = false;
+            }
+
+            tree.ResourcesApplied = true;
+            Log($"Tree resource lump sum applied for '{tree.TreeName}'");
+        }
+
+        RecordingTree FindCommittedTree(string treeId)
+        {
+            var trees = RecordingStore.CommittedTrees;
+            for (int i = 0; i < trees.Count; i++)
+            {
+                if (trees[i].Id == treeId) return trees[i];
+            }
+            return null;
         }
 
         void SpawnTimelineGhost(int index, RecordingStore.Recording rec)
@@ -5199,7 +5324,16 @@ namespace Parsek
             double alt = body.GetAltitude(ghostWorldPos);
 
             // Apply remaining resource deltas up to current UT
-            ApplyResourceDeltas(rec, ut);
+            if (rec.TreeId != null)
+            {
+                var tree = FindCommittedTree(rec.TreeId);
+                if (tree != null && !tree.ResourcesApplied)
+                    ApplyTreeLumpSum(tree);
+            }
+            else
+            {
+                ApplyResourceDeltas(rec, ut);
+            }
 
             // Build exclude crew set (same as EndUT spawn)
             HashSet<string> excludeCrew = VesselSpawner.BuildExcludeCrewSet(rec);

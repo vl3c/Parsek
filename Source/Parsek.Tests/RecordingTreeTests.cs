@@ -781,6 +781,103 @@ namespace Parsek.Tests
             Assert.Equal(400.0, rec.EndUT);
         }
 
+        // --- ResourcesApplied field ---
+
+        [Fact]
+        public void ResourcesApplied_SaveLoad_RoundTrips()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree_ra",
+                TreeName = "RA Test",
+                RootRecordingId = "rec_ra",
+                ResourcesApplied = true
+            };
+
+            var rec = new RecordingStore.Recording
+            {
+                RecordingId = "rec_ra",
+                VesselName = "Ship RA",
+                ExplicitStartUT = 100.0,
+                ExplicitEndUT = 200.0
+            };
+            tree.Recordings["rec_ra"] = rec;
+
+            var node = new ConfigNode("RECORDING_TREE");
+            tree.Save(node);
+
+            var restored = RecordingTree.Load(node);
+
+            Assert.True(restored.ResourcesApplied);
+        }
+
+        [Fact]
+        public void ResourcesApplied_DefaultsFalse()
+        {
+            var tree = new RecordingTree();
+            Assert.False(tree.ResourcesApplied);
+        }
+
+        [Fact]
+        public void ResourcesApplied_False_RoundTrips()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree_ra_f",
+                TreeName = "RA False Test",
+                RootRecordingId = "rec_ra_f",
+                ResourcesApplied = false
+            };
+
+            var rec = new RecordingStore.Recording
+            {
+                RecordingId = "rec_ra_f",
+                VesselName = "Ship",
+                ExplicitStartUT = 100.0,
+                ExplicitEndUT = 200.0
+            };
+            tree.Recordings["rec_ra_f"] = rec;
+
+            var node = new ConfigNode("RECORDING_TREE");
+            tree.Save(node);
+
+            var restored = RecordingTree.Load(node);
+
+            Assert.False(restored.ResourcesApplied);
+        }
+
+        [Fact]
+        public void DeltaFields_SaveLoad_RoundTrips()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree_delta",
+                TreeName = "Delta Test",
+                RootRecordingId = "rec_d",
+                DeltaFunds = -12345.6789,
+                DeltaScience = 543.21,
+                DeltaReputation = -7.5f
+            };
+
+            var rec = new RecordingStore.Recording
+            {
+                RecordingId = "rec_d",
+                VesselName = "Ship D",
+                ExplicitStartUT = 100.0,
+                ExplicitEndUT = 200.0
+            };
+            tree.Recordings["rec_d"] = rec;
+
+            var node = new ConfigNode("RECORDING_TREE");
+            tree.Save(node);
+
+            var restored = RecordingTree.Load(node);
+
+            Assert.Equal(-12345.6789, restored.DeltaFunds);
+            Assert.Equal(543.21, restored.DeltaScience);
+            Assert.Equal(-7.5f, restored.DeltaReputation);
+        }
+
         // --- Edge cases ---
 
         [Fact]
