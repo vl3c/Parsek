@@ -15,6 +15,7 @@ namespace Parsek.Tests
             GameStateStore.ResetForTesting();
             MilestoneStore.SuppressLogging = true;
             MilestoneStore.ResetForTesting();
+            ResourceBudget.Invalidate();
             ParsekLog.SuppressLogging = true;
         }
 
@@ -785,6 +786,7 @@ namespace Parsek.Tests
 
             // Remove recording, milestone survives
             recordings.Clear();
+            ResourceBudget.Invalidate();
             budget = ResourceBudget.ComputeTotal(recordings, milestones);
             Assert.Equal(600, budget.reservedFunds); // only milestone cost remains
         }

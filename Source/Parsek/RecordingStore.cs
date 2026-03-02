@@ -286,6 +286,8 @@ namespace Parsek
             double endUT = pendingRecording.EndUT;
             pendingRecording = null;
 
+            ResourceBudget.Invalidate();
+
             // Capture a game state baseline at each commit (single funnel point)
             GameStateStore.CaptureBaselineIfNeeded();
 
@@ -304,6 +306,7 @@ namespace Parsek
             DeleteRecordingFiles(pendingRecording);
             Log($"[Parsek] Discarded pending recording from {pendingRecording.VesselName}");
             pendingRecording = null;
+            ResourceBudget.Invalidate();
         }
 
         public static void ClearCommitted()
@@ -313,6 +316,7 @@ namespace Parsek
                 DeleteRecordingFiles(committedRecordings[i]);
             committedRecordings.Clear();
             committedTrees.Clear();
+            ResourceBudget.Invalidate();
             Log($"[Parsek] Cleared {count} committed recordings and all trees");
         }
 
@@ -354,6 +358,8 @@ namespace Parsek
             committedTrees.Add(tree);
             Log($"[Parsek] Committed tree '{tree.TreeName}' ({tree.Recordings.Count} recordings). " +
                 $"Total committed: {committedRecordings.Count} recordings, {committedTrees.Count} trees");
+
+            ResourceBudget.Invalidate();
 
             // Capture a game state baseline at each commit
             GameStateStore.CaptureBaselineIfNeeded();
@@ -408,6 +414,7 @@ namespace Parsek
                 DeleteRecordingFiles(rec);
             Log($"[Parsek] Discarded pending tree '{pendingTree.TreeName}'");
             pendingTree = null;
+            ResourceBudget.Invalidate();
         }
 
         /// <summary>

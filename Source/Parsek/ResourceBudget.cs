@@ -13,6 +13,11 @@ namespace Parsek
             public double reservedReputation;
         }
 
+        private static BudgetSummary cachedBudget;
+        private static bool budgetDirty = true;
+
+        internal static void Invalidate() { budgetDirty = true; }
+
         internal static double CommittedFundsCost(RecordingStore.Recording rec)
         {
             if (rec == null || rec.Points.Count == 0) return 0;
@@ -182,6 +187,10 @@ namespace Parsek
             IReadOnlyList<Milestone> milestones,
             IReadOnlyList<RecordingTree> trees = null)
         {
+            if (!budgetDirty)
+                return cachedBudget;
+
+            budgetDirty = false;
             var result = new BudgetSummary();
 
             ParsekLog.Verbose("ResourceBudget",
@@ -224,10 +233,11 @@ namespace Parsek
                 }
             }
 
-            ParsekLog.Info("ResourceBudget",
+            ParsekLog.Verbose("ResourceBudget",
                 $"ComputeTotal result: reservedFunds={result.reservedFunds:F0}, " +
                 $"reservedScience={result.reservedScience:F1}, reservedReputation={result.reservedReputation:F1}");
 
+            cachedBudget = result;
             return result;
         }
 

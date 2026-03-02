@@ -895,6 +895,15 @@ namespace Parsek
         {
             recorder?.OnVesselWillDestroy(v);
 
+            // Also propagate to pending split recorder — joint break may have already
+            // moved recorder to pendingSplitRecorder (making recorder null)
+            if (pendingSplitRecorder != null && v == FlightGlobals.ActiveVessel
+                && !pendingSplitRecorder.VesselDestroyedDuringRecording)
+            {
+                pendingSplitRecorder.VesselDestroyedDuringRecording = true;
+                ParsekLog.Info("Flight", "Vessel destroyed during pending split — flagged for commit");
+            }
+
             // Skip background recorder cleanup for vessels being absorbed by docking.
             // The merge handler (CreateMergeBranch) will clean up via OnVesselRemovedFromBackground.
             if (!dockingInProgress.Contains(v.persistentId))
@@ -1671,6 +1680,14 @@ namespace Parsek
                 return;
             }
 
+            // Don't resume on a destroyed vessel — fall back to commit
+            if (splitRec.VesselDestroyedDuringRecording)
+            {
+                ParsekLog.Info("Flight", $"ResumeSplitRecorder: vessel was destroyed ({reason}) — committing instead of resuming");
+                FallbackCommitSplitRecorder(splitRec);
+                return;
+            }
+
             splitRec.ResumeAfterFalseAlarm();
 
             if (splitRec.IsRecording)
@@ -2063,7 +2080,10 @@ namespace Parsek
             ApplyTerminalDestruction(pending, rec);
             activeTree.BackgroundMap.Remove(pending.vesselPid);
 
-            ParsekLog.Warn("Flight", $"Background vessel destroyed: pid={pending.vesselPid} recId={pending.recordingId}");
+            if (!string.IsNullOrEmpty(rec.EvaCrewName))
+                ParsekLog.Info("Flight", $"Background EVA vessel ended: pid={pending.vesselPid} recId={pending.recordingId}");
+            else
+                ParsekLog.Warn("Flight", $"Background vessel destroyed: pid={pending.vesselPid} recId={pending.recordingId}");
         }
 
         #endregion
@@ -3521,6 +3541,7 @@ namespace Parsek
                         leaf.VesselSpawned = true;
                         leaf.SpawnedVesselPersistentId = spawnedPid;
                         leaf.LastAppliedResourceIndex = leaf.Points.Count - 1;
+                        ResourceBudget.Invalidate();
                         ParsekLog.Info("Flight", $"SpawnTreeLeaves: spawned leaf '{leaf.VesselName}' pid={spawnedPid}");
                     }
                     else
@@ -4102,6 +4123,7 @@ namespace Parsek
                 }
 
                 rec.LastAppliedResourceIndex = targetIndex;
+                ResourceBudget.Invalidate();
 
                 // Log summary when all resource deltas have been applied
                 if (targetIndex == points.Count - 1 && startIdx < targetIndex)
@@ -4197,6 +4219,7 @@ namespace Parsek
             }
 
             tree.ResourcesApplied = true;
+            ResourceBudget.Invalidate();
             Log($"Tree resource lump sum applied for '{tree.TreeName}'");
         }
 

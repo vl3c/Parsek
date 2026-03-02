@@ -457,7 +457,10 @@ namespace Parsek
                 loadedStates.Remove(pid);
             }
 
-            ParsekLog.Warn("BgRecorder", $"Background vessel destroyed: pid={pid}");
+            if (v.vesselType == VesselType.EVA)
+                ParsekLog.Info("BgRecorder", $"Background EVA vessel ended: pid={pid}");
+            else
+                ParsekLog.Warn("BgRecorder", $"Background vessel destroyed: pid={pid}");
         }
 
         /// <summary>
