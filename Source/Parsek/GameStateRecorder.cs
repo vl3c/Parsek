@@ -31,6 +31,15 @@ namespace Parsek
         private Dictionary<string, float> lastFacilityLevels = new Dictionary<string, float>();
         private Dictionary<string, bool> lastBuildingIntact = new Dictionary<string, bool>();
 
+        // Crew status debouncing (filters EVA start/board bounce: Assigned→Available→Assigned)
+        private struct PendingCrewEvent
+        {
+            public GameStateEvent gameEvent;
+            public ProtoCrewMember.RosterStatus from;
+            public ProtoCrewMember.RosterStatus to;
+        }
+        private Dictionary<string, PendingCrewEvent> pendingCrewEvents = new Dictionary<string, PendingCrewEvent>();
+
         // Resource tracking for threshold checks
         private double lastFunds = double.NaN;
         private double lastScience = double.NaN;
@@ -46,6 +55,7 @@ namespace Parsek
         {
             if (subscribed) return;
             subscribed = true;
+            pendingCrewEvents.Clear();
 
             // Contracts
             GameEvents.Contract.onOffered.Add(OnContractOffered);
@@ -323,13 +333,31 @@ namespace Parsek
             if (crew == null) return;
             var name = crew.name ?? "";
 
-            GameStateStore.AddEvent(new GameStateEvent
+            double ut = Planetarium.GetUniversalTime();
+
+            // Debounce: if we have a pending event for this crew within 0.1s game time
+            // and this event reverses the previous one, cancel both.
+            PendingCrewEvent prev;
+            if (pendingCrewEvents.TryGetValue(name, out prev) && Math.Abs(prev.gameEvent.ut - ut) < 0.1)
             {
-                ut = Planetarium.GetUniversalTime(),
+                if (prev.to == oldStatus && newStatus == prev.from)
+                {
+                    GameStateStore.RemoveEvent(prev.gameEvent);
+                    pendingCrewEvents.Remove(name);
+                    ParsekLog.Verbose("GameStateRecorder", $"Debounced crew status bounce for '{name}'");
+                    return;
+                }
+            }
+
+            var evt = new GameStateEvent
+            {
+                ut = ut,
                 eventType = GameStateEventType.CrewStatusChanged,
                 key = name,
                 detail = $"from={oldStatus};to={newStatus}"
-            });
+            };
+            GameStateStore.AddEvent(evt);
+            pendingCrewEvents[name] = new PendingCrewEvent { gameEvent = evt, from = oldStatus, to = newStatus };
             ParsekLog.Info("GameStateRecorder", $"Game state: CrewStatusChanged '{name}' {oldStatus} → {newStatus}");
         }
 

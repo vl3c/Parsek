@@ -75,6 +75,7 @@ namespace Parsek
             };
 
             milestones.Add(milestone);
+            ResourceBudget.Invalidate();
             ParsekLog.Info("MilestoneStore",
                 $"Milestone created: id={ShortId(milestone.MilestoneId)}, {filtered.Count} events, " +
                 $"UT {startUT:F0}-{currentUT:F0}, epoch={epoch}");

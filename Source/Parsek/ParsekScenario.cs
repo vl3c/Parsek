@@ -1001,13 +1001,6 @@ namespace Parsek
                             ScenarioLog($"[Parsek Scenario] Rescued Missing crew '{name}' → Available for reservation");
                         }
 
-                        // Mark as Assigned if Available
-                        if (NeedsStatusChange(pcm.rosterStatus))
-                        {
-                            pcm.rosterStatus = ProtoCrewMember.RosterStatus.Assigned;
-                            ScenarioLog($"[Parsek Scenario] Reserved crew '{name}' for deferred vessel spawn");
-                        }
-
                         // Hire a replacement kerbal so the available pool stays constant.
                         // This also handles crew who are already Assigned (e.g. on the pad
                         // vessel after a revert) — they still need a replacement so the
@@ -1221,16 +1214,6 @@ namespace Parsek
         internal static bool ShouldProcessCrewForReservation(ProtoCrewMember.RosterStatus status)
         {
             return status != ProtoCrewMember.RosterStatus.Dead;
-        }
-
-        /// <summary>
-        /// Returns true if a crew member with the given roster status needs to be
-        /// marked as Assigned. Already-Assigned crew (e.g. on the pad vessel after
-        /// revert) still need replacements but don't need a status change.
-        /// </summary>
-        internal static bool NeedsStatusChange(ProtoCrewMember.RosterStatus status)
-        {
-            return status == ProtoCrewMember.RosterStatus.Available;
         }
 
         /// <summary>
