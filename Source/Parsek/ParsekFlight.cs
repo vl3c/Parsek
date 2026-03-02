@@ -857,6 +857,24 @@ namespace Parsek
                 activeChainPrevId = null;
                 activeChainCrewName = null;
 
+                // Capture vessel situation + PersistentId on the pending recording.
+                // VesselPersistentId: safety net for the fallback path where
+                // ApplyPersistenceArtifactsFrom didn't run.
+                // SceneExitSituation + TerminalState: enables auto-commit by
+                // ParsekScenario on non-revert scene exits.
+                if (RecordingStore.HasPending)
+                {
+                    RecordingStore.Pending.VesselPersistentId = recorder.RecordingVesselId;
+
+                    if (FlightGlobals.ActiveVessel != null)
+                    {
+                        var sit = FlightGlobals.ActiveVessel.situation;
+                        RecordingStore.Pending.SceneExitSituation = (int)sit;
+                        RecordingStore.Pending.TerminalStateValue =
+                            RecordingTree.DetermineTerminalState((int)sit);
+                    }
+                }
+
                 recorder = null;
                 lastPlaybackIndex = 0;
             }
@@ -893,6 +911,14 @@ namespace Parsek
                 StartCoroutine(DeferredDestructionCheck(pending));
             }
 
+            // Standalone mode: if the active recording vessel is destroyed, schedule a merge dialog.
+            // In tree mode, the deferred destruction check handles this already.
+            if (activeTree == null && recorder != null && recorder.IsRecording
+                && recorder.VesselDestroyedDuringRecording && v == FlightGlobals.ActiveVessel)
+            {
+                StartCoroutine(ShowPostDestructionMergeDialog());
+            }
+
             // If the continuation vessel is destroyed, mark the recording and stop tracking
             if (continuationVesselPid != 0 && v.persistentId == continuationVesselPid)
             {
@@ -918,6 +944,81 @@ namespace Parsek
                     Log($"Undock continuation vessel destroyed (pid={undockContinuationPid})");
                 }
                 StopUndockContinuation("vessel destroyed");
+            }
+        }
+
+        /// <summary>
+        /// Coroutine that shows a merge dialog after a vessel is destroyed during standalone recording.
+        /// Waits 2 seconds to avoid overlapping with mission results / flight log.
+        /// </summary>
+        IEnumerator ShowPostDestructionMergeDialog()
+        {
+            yield return new WaitForSeconds(2f);
+
+            // Guard: only proceed if recorder still exists and vessel was destroyed
+            if (recorder == null || !recorder.VesselDestroyedDuringRecording)
+                yield break;
+
+            // Guard: only for standalone recordings (tree mode has its own handling)
+            if (activeTree != null)
+                yield break;
+
+            if (recorder.Recording.Count == 0)
+                yield break;
+
+            // Guard: if OnSceneChangeRequested already stashed a pending, don't double-stash
+            if (RecordingStore.HasPending)
+                yield break;
+
+            Log("Post-destruction: stopping recorder and stashing pending recording");
+
+            // Stop recording
+            if (recorder.IsRecording)
+                recorder.ForceStop();
+
+            string vesselName = recorder.CaptureAtStop?.VesselName
+                ?? (FlightGlobals.ActiveVessel != null ? FlightGlobals.ActiveVessel.vesselName : "Unknown Vessel");
+
+            var captured = recorder.CaptureAtStop;
+            RecordingStore.StashPending(
+                recorder.Recording,
+                vesselName,
+                recorder.OrbitSegments,
+                recordingId: captured != null ? captured.RecordingId : null,
+                recordingFormatVersion: captured != null ? (int?)captured.RecordingFormatVersion : null,
+                ghostGeometryVersion: captured != null ? (int?)captured.GhostGeometryVersion : null,
+                partEvents: recorder.PartEvents);
+
+            if (captured != null)
+            {
+                RecordingStore.Pending.ApplyPersistenceArtifactsFrom(captured);
+            }
+            else
+            {
+                VesselSpawner.SnapshotVessel(
+                    RecordingStore.Pending,
+                    true, // destroyed
+                    destroyedFallbackSnapshot: recorder.InitialGhostVisualSnapshot ?? recorder.LastGoodVesselSnapshot);
+                RecordingStore.Pending.GhostVisualSnapshot = recorder.InitialGhostVisualSnapshot != null
+                    ? recorder.InitialGhostVisualSnapshot.CreateCopy()
+                    : null;
+            }
+
+            // Set terminal state
+            if (RecordingStore.HasPending)
+            {
+                RecordingStore.Pending.VesselPersistentId = recorder.RecordingVesselId;
+                RecordingStore.Pending.TerminalStateValue = TerminalState.Destroyed;
+            }
+
+            recorder = null;
+            lastPlaybackIndex = 0;
+
+            // Show merge dialog
+            if (RecordingStore.HasPending)
+            {
+                Log("Post-destruction: showing merge dialog");
+                MergeDialog.Show(RecordingStore.Pending);
             }
         }
 
@@ -2814,14 +2915,19 @@ namespace Parsek
             pendingBoardingTargetInTree = false;
             dockingInProgress.Clear();
 
-            // Handle pending tree: show tree merge dialog
+            // Handle pending tree: show tree merge dialog.
+            // On non-revert scene changes, pending trees are auto-committed by ParsekScenario.
+            // Reaching here means either a revert or a fallback (auto-commit missed).
             if (RecordingStore.HasPendingTree)
             {
                 var pt = RecordingStore.PendingTree;
-                Log($"Found pending tree '{pt.TreeName}' ({pt.Recordings.Count} recordings) — showing tree merge dialog");
+                ParsekLog.Warn("Flight", $"Pending tree '{pt.TreeName}' reached OnFlightReady — showing tree merge dialog (fallback)");
                 MergeDialog.ShowTreeDialog(pt);
             }
 
+            // Handle pending standalone recording.
+            // On non-revert scene changes, pending recordings are auto-committed by ParsekScenario.
+            // On reverts, the merge dialog is expected here (player chose to revert).
             if (RecordingStore.HasPending)
             {
                 var pending = RecordingStore.Pending;
@@ -3709,14 +3815,14 @@ namespace Parsek
                         $"isMidChain={isMidChain}, hasSnapshot={rec.VesselSnapshot != null}, needsSpawn={needsSpawn}, " +
                         $"chainEndUT={chainEndUT:F1}, currentUT={currentUT:F1}");
 
-                // Guard: if vessel was spawned before but VesselSpawned got reset (scene change),
-                // check if the vessel still exists by its persistentId to avoid duplicates.
-                if (needsSpawn && rec.SpawnedVesselPersistentId != 0 &&
-                    VesselSpawner.VesselExistsByPid(rec.SpawnedVesselPersistentId))
+                // Guard: if vessel was already spawned (PID recorded), never re-spawn.
+                // On revert, SpawnedVesselPersistentId resets to 0 from quicksave so reverts still work.
+                // Recovery/destruction sets TerminalState which blocks needsSpawn at the earlier check.
+                if (needsSpawn && rec.SpawnedVesselPersistentId != 0)
                 {
                     rec.VesselSpawned = true;
                     needsSpawn = false;
-                    Log($"Vessel pid={rec.SpawnedVesselPersistentId} still exists — skipping duplicate spawn for recording #{i}");
+                    Log($"Vessel already spawned (pid={rec.SpawnedVesselPersistentId}) — skipping duplicate spawn for recording #{i}");
                 }
 
                 // Skip ghost playback entirely for recordings where player took control
