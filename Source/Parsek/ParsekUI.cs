@@ -1267,6 +1267,7 @@ namespace Parsek
 
         internal static string FormatDuration(double seconds)
         {
+            if (double.IsNaN(seconds) || double.IsInfinity(seconds) || seconds < 0) seconds = 0;
             int total = (int)seconds;
             if (total < 60) return $"{total}s";
             if (total < 3600) return $"{total / 60}m {total % 60}s";

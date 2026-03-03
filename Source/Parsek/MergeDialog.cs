@@ -180,9 +180,10 @@ namespace Parsek
                 };
             }
 
-            int branchCount = 1 + (chainSiblings != null
-                ? new HashSet<int>(chainSiblings.Select(s => s.ChainBranch)).Count
-                : 0);
+            var branchSet = new HashSet<int> { pending.ChainBranch };
+            if (chainSiblings != null)
+                foreach (var s in chainSiblings) branchSet.Add(s.ChainBranch);
+            int branchCount = branchSet.Count;
             string segmentLabel = branchCount > 1
                 ? $"Mission chain ({totalSegments} segments, {branchCount} vessels tracked)"
                 : $"Mission chain ({totalSegments} segments)";
@@ -458,6 +459,8 @@ namespace Parsek
                         return "Docked";
                     case TerminalState.Boarded:
                         return "Boarded";
+                    default:
+                        return "Unknown";
                 }
             }
 
