@@ -4783,6 +4783,11 @@ namespace Parsek.Tests
             // Add synthetic game actions so the Actions window has visible entries
             AddSyntheticGameActions(writer, baseUT);
 
+            // Add synthetic tree recordings (E1-E3)
+            writer.AddTree(SimpleUndockTree(baseUT));
+            writer.AddTree(EvaTree(baseUT));
+            writer.AddTree(DestructionTree(baseUT));
+
             foreach (string file in targets)
             {
                 string savePath = Path.Combine(saveDir, file);
@@ -5002,13 +5007,26 @@ namespace Parsek.Tests
                     Assert.Contains("segmentPhase = atmo", content);
                     Assert.Contains("segmentPhase = exo", content);
                     Assert.Contains("segmentBodyName = Kerbin", content);
+                    // Tree recording assertions (E1-E3)
+                    Assert.Contains("RECORDING_TREE", content);
+                    Assert.Contains("treeName = Undock Test Tree", content);
+                    Assert.Contains("treeName = EVA Test Tree", content);
+                    Assert.Contains("treeName = Destruction Test Tree", content);
+                    Assert.Contains("vesselName = Undock Root", content);
+                    Assert.Contains("vesselName = Undock Upper Stage", content);
+                    Assert.Contains("vesselName = Surviving Capsule", content);
+                    Assert.Contains("vesselName = Destroyed Booster", content);
+
                     Assert.Contains("FLIGHTSTATE", content);
 
-                    // v3: no inline POINT data in .sfs
+                    // v3: no inline trajectory POINT data in .sfs
+                    // (BRANCH_POINT nodes in RECORDING_TREE are expected)
                     Assert.Contains("recordingFormatVersion = 4", content);
-                    Assert.DoesNotContain("POINT", content.Substring(
+                    var scenarioSection = content.Substring(
                         content.IndexOf("name = ParsekScenario"),
-                        content.IndexOf("FLIGHTSTATE") - content.IndexOf("name = ParsekScenario")));
+                        content.IndexOf("FLIGHTSTATE") - content.IndexOf("name = ParsekScenario"));
+                    Assert.DoesNotContain("\tPOINT\r\n", scenarioSection);
+                    Assert.DoesNotContain("\tPOINT\n", scenarioSection);
 
                     // Game action milestone data in .sfs
                     Assert.Contains("milestoneEpoch = 0", content);
@@ -5190,6 +5208,287 @@ namespace Parsek.Tests
             writer.AddGameStateEvent(fundsEarned);
             writer.AddGameStateEvent(scienceSpent);
             writer.AddGameStateEvent(repGained);
+        }
+
+        #endregion
+
+        #region Tree Recording Builders (E1-E3)
+
+        /// <summary>
+        /// E1: Simple Undock Tree — root recording splits into two children.
+        /// Root is a composite vessel (pod + SRB), active child continues in orbit,
+        /// background child has orbit segment data only.
+        /// Time: baseUT+270 to baseUT+390.
+        /// </summary>
+        internal static ConfigNode SimpleUndockTree(double baseUT = 0)
+        {
+            double t0 = baseUT + 270;
+            double tSplit = baseUT + 330;
+            double tEnd = baseUT + 390;
+            string treeId = "tree-undock-e1";
+            string rootId = "e1-root";
+            string childActiveId = "e1-child-active";
+            string childBgId = "e1-child-bg";
+
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = "Undock Test Tree",
+                RootRecordingId = rootId,
+                ActiveRecordingId = childActiveId,
+                PreTreeFunds = 50000,
+                DeltaFunds = -5000,
+                ResourcesApplied = false
+            };
+
+            // Root: composite vessel on pad, runs from t0 to tSplit
+            tree.Recordings[rootId] = new RecordingStore.Recording
+            {
+                RecordingId = rootId,
+                TreeId = treeId,
+                VesselName = "Undock Root",
+                VesselPersistentId = 5001,
+                ChildBranchPointId = "e1-bp1",
+                ExplicitStartUT = t0,
+                ExplicitEndUT = tSplit,
+                TerminalStateValue = null
+            };
+
+            // Active child: upper stage, continues orbiting
+            tree.Recordings[childActiveId] = new RecordingStore.Recording
+            {
+                RecordingId = childActiveId,
+                TreeId = treeId,
+                VesselName = "Undock Upper Stage",
+                VesselPersistentId = 5002,
+                ParentBranchPointId = "e1-bp1",
+                ExplicitStartUT = tSplit,
+                ExplicitEndUT = tEnd,
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalOrbitEccentricity = 0.001,
+                TerminalOrbitInclination = 28.5,
+                TerminalOrbitEpoch = tEnd,
+                VesselSnapshot = VesselSnapshotBuilder.CrewedShip("Undock Upper Stage", "Valentina Kerman", 5002)
+                    .AsOrbiting(700000, 0.001, 28.5, epoch: tEnd)
+                    .Build()
+            };
+
+            // Background child: lower stage (orbit segment only, no snapshot, destroyed)
+            tree.Recordings[childBgId] = new RecordingStore.Recording
+            {
+                RecordingId = childBgId,
+                TreeId = treeId,
+                VesselName = "Undock Lower Stage",
+                VesselPersistentId = 5003,
+                ParentBranchPointId = "e1-bp1",
+                ExplicitStartUT = tSplit,
+                ExplicitEndUT = tEnd,
+                TerminalStateValue = TerminalState.Destroyed,
+                VesselSnapshot = null
+            };
+
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "e1-bp1",
+                UT = tSplit,
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { rootId },
+                ChildRecordingIds = new List<string> { childActiveId, childBgId }
+            });
+
+            var node = new ConfigNode("RECORDING_TREE");
+            tree.Save(node);
+            return node;
+        }
+
+        /// <summary>
+        /// E2: EVA Tree — vessel on pad, EVA kerbal walks, vessel continues recording.
+        /// Time: baseUT+390 to baseUT+480.
+        /// </summary>
+        internal static ConfigNode EvaTree(double baseUT = 0)
+        {
+            double t0 = baseUT + 390;
+            double tEva = baseUT + 420;
+            double tEnd = baseUT + 480;
+            string treeId = "tree-eva-e2";
+            string rootId = "e2-root";
+            string vesselContinueId = "e2-vessel";
+            string evaChildId = "e2-eva";
+
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = "EVA Test Tree",
+                RootRecordingId = rootId,
+                ActiveRecordingId = evaChildId,
+                PreTreeFunds = 40000,
+                DeltaFunds = -1000,
+                ResourcesApplied = false
+            };
+
+            // Root: vessel on pad, runs from t0 to tEva
+            tree.Recordings[rootId] = new RecordingStore.Recording
+            {
+                RecordingId = rootId,
+                TreeId = treeId,
+                VesselName = "EVA Root Vessel",
+                VesselPersistentId = 6001,
+                ChildBranchPointId = "e2-bp1",
+                ExplicitStartUT = t0,
+                ExplicitEndUT = tEva,
+                TerminalStateValue = null
+            };
+
+            // Vessel continues after EVA
+            tree.Recordings[vesselContinueId] = new RecordingStore.Recording
+            {
+                RecordingId = vesselContinueId,
+                TreeId = treeId,
+                VesselName = "EVA Root Vessel",
+                VesselPersistentId = 6001,
+                ParentBranchPointId = "e2-bp1",
+                ExplicitStartUT = tEva,
+                ExplicitEndUT = tEnd,
+                TerminalStateValue = TerminalState.Landed,
+                TerminalPosition = new SurfacePosition
+                {
+                    body = "Kerbin",
+                    latitude = -0.0972,
+                    longitude = -74.5575,
+                    altitude = 75.0,
+                    situation = SurfaceSituation.Landed
+                },
+                VesselSnapshot = VesselSnapshotBuilder.CrewedShip("EVA Root Vessel", "Bill Kerman", 6001)
+                    .AsLanded(-0.0972, -74.5575, 75.0)
+                    .Build()
+            };
+
+            // EVA kerbal walks around
+            tree.Recordings[evaChildId] = new RecordingStore.Recording
+            {
+                RecordingId = evaChildId,
+                TreeId = treeId,
+                VesselName = "Jebediah Kerman",
+                VesselPersistentId = 6002,
+                ParentBranchPointId = "e2-bp1",
+                EvaCrewName = "Jebediah Kerman",
+                ExplicitStartUT = tEva,
+                ExplicitEndUT = tEnd,
+                TerminalStateValue = TerminalState.Landed,
+                TerminalPosition = new SurfacePosition
+                {
+                    body = "Kerbin",
+                    latitude = -0.0975,
+                    longitude = -74.5570,
+                    altitude = 75.0,
+                    situation = SurfaceSituation.Landed
+                }
+            };
+
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "e2-bp1",
+                UT = tEva,
+                Type = BranchPointType.EVA,
+                ParentRecordingIds = new List<string> { rootId },
+                ChildRecordingIds = new List<string> { vesselContinueId, evaChildId }
+            });
+
+            var node = new ConfigNode("RECORDING_TREE");
+            tree.Save(node);
+            return node;
+        }
+
+        /// <summary>
+        /// E3: Destruction Tree — root splits into two children, one orbiting (spawnable)
+        /// and one destroyed (not spawnable).
+        /// Time: baseUT+480 to baseUT+570.
+        /// </summary>
+        internal static ConfigNode DestructionTree(double baseUT = 0)
+        {
+            double t0 = baseUT + 480;
+            double tSplit = baseUT + 510;
+            double tDestroyed = baseUT + 540;
+            double tEnd = baseUT + 570;
+            string treeId = "tree-dest-e3";
+            string rootId = "e3-root";
+            string childOrbitId = "e3-child-orbit";
+            string childDestroyedId = "e3-child-destroyed";
+
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = "Destruction Test Tree",
+                RootRecordingId = rootId,
+                ActiveRecordingId = childOrbitId,
+                PreTreeFunds = 30000,
+                DeltaFunds = -8000,
+                ResourcesApplied = false
+            };
+
+            // Root: vessel flies, splits at tSplit
+            tree.Recordings[rootId] = new RecordingStore.Recording
+            {
+                RecordingId = rootId,
+                TreeId = treeId,
+                VesselName = "Destruction Root",
+                VesselPersistentId = 7001,
+                ChildBranchPointId = "e3-bp1",
+                ExplicitStartUT = t0,
+                ExplicitEndUT = tSplit,
+                TerminalStateValue = null
+            };
+
+            // Child A: continues orbiting (spawnable)
+            tree.Recordings[childOrbitId] = new RecordingStore.Recording
+            {
+                RecordingId = childOrbitId,
+                TreeId = treeId,
+                VesselName = "Surviving Capsule",
+                VesselPersistentId = 7002,
+                ParentBranchPointId = "e3-bp1",
+                ExplicitStartUT = tSplit,
+                ExplicitEndUT = tEnd,
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalOrbitEccentricity = 0.005,
+                TerminalOrbitInclination = 15.0,
+                TerminalOrbitEpoch = tEnd,
+                VesselSnapshot = VesselSnapshotBuilder.CrewedShip("Surviving Capsule", "Bob Kerman", 7002)
+                    .AsOrbiting(700000, 0.005, 15.0, epoch: tEnd)
+                    .Build()
+            };
+
+            // Child B: destroyed at tDestroyed (not spawnable)
+            tree.Recordings[childDestroyedId] = new RecordingStore.Recording
+            {
+                RecordingId = childDestroyedId,
+                TreeId = treeId,
+                VesselName = "Destroyed Booster",
+                VesselPersistentId = 7003,
+                ParentBranchPointId = "e3-bp1",
+                ExplicitStartUT = tSplit,
+                ExplicitEndUT = tDestroyed,
+                TerminalStateValue = TerminalState.Destroyed,
+                VesselSnapshot = null,
+                VesselDestroyed = true
+            };
+
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "e3-bp1",
+                UT = tSplit,
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { rootId },
+                ChildRecordingIds = new List<string> { childOrbitId, childDestroyedId }
+            });
+
+            var node = new ConfigNode("RECORDING_TREE");
+            tree.Save(node);
+            return node;
         }
 
         #endregion

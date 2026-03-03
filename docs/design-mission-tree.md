@@ -67,7 +67,7 @@ And ends at:
 - **Recovery** (terminal — no children, no spawn, e.g. StageRecovery mod)
 - **Revert/Commit** (terminal — leaf, eligible for spawning)
 
-**NOT a recording boundary:** atmospheric boundary crossings and SOI changes. The current system creates chain segments at these boundaries (`CommitBoundarySplit`). In the tree model, these are **eliminated as split points** — they are absorbed within a single recording using intra-recording orbit segments (which already handle on-rails SOI transitions). An atmospheric boundary crossing or SOI change for the same vessel does not create a branch point (one parent, one child, same vessel = not a branch).
+**Atmospheric/SOI chain splits (preserved):** atmospheric boundary crossings and SOI changes continue to create chain segments within a single recording node's timeline (`CommitBoundarySplit`). These splits give the player per-segment loop and enable/disable control (e.g., loop just the atmospheric ascent phase). They are **not** branch points — they are intra-node chain segments within a single vessel's recording. A branch point requires one vessel becoming two or two becoming one.
 
 **Branch point**: an event where one vessel becomes two (undock, EVA) or two become one (dock, board). Each branch point references the parent recording(s) and child recording(s).
 
@@ -281,7 +281,7 @@ Every leaf vessel that will spawn needs its crew reserved. The current single-ve
 
 ## Merge dialog
 
-Two options only: **Merge** or **Discard**. No recovery sub-question.
+The tree merge dialog appears **on revert** (same trigger as the existing merge dialog). When the player reverts with an active recording tree, the tree dialog is shown instead of the standalone/chain dialog. Scene exit auto-commits without dialog (same as current behavior). Two options only: **Merge** or **Discard**. No recovery sub-question.
 
 ```
 "Mun Expedition" — 5 vessels, 12m 30s
@@ -316,13 +316,20 @@ After revert, the player is back on the pad. None of the tree's vessels physical
 
 ## Resource tracking
 
-Resource deltas (funds, science, reputation) are tracked per-tree, not per-recording. The `RecordingTree` holds tree-level resource fields:
+Resource deltas (funds, science, reputation) are tracked at two levels:
+
+**Tree-level** (new): the `RecordingTree` holds aggregate resource fields:
 - `preTreeFunds / preTreeScience / preTreeReputation` — game state at tree creation (launch)
 - `deltaFunds / deltaScience / deltaReputation` — net change across the tree's lifetime
+- Computed at commit time as `(current game state) - (pre-tree state)`
+- Applied as a single lump at the tree's EndUT during playback
 
-Individual recordings within the tree do NOT track resource deltas independently. The tree-level delta is computed at commit time as `(current game state) - (pre-tree state)`. During playback, resource deltas are applied as a single lump at the tree's EndUT (not incrementally per trajectory point). This simplifies aggregation — the per-recording `PreLaunchFunds`/`Science`/`Reputation` fields from the current Recording class are removed in tree mode.
+**Per-recording** (preserved): existing per-recording resource fields (`PreLaunchFunds`, `PreLaunchScience`, `PreLaunchReputation`, `LastAppliedResourceIndex`) remain on each recording. These are needed for:
+- Per-segment resource display in the Actions window (each chain segment within a recording node shows its own cost)
+- Chain segment enable/disable affecting resource deltas
+- EVA child recording resource allocation (parent and child have separate baselines)
 
-Migration: existing single-recording commits keep their per-recording fields. When loaded as single-node trees, the tree-level delta is computed from the recording's existing resource fields.
+Migration: existing single-recording commits keep their per-recording fields unchanged. When loaded as single-node trees, the tree-level delta is computed from the recording's existing resource fields.
 
 ## What doesn't change
 
@@ -380,13 +387,13 @@ A kerbal on EVA can pick up, detach, move, and attach parts between vessels with
 
 **EVA-assembled vessels (building a rover from inventory parts):** A kerbal placing parts from inventory can create an entirely new vessel with no structural connection to any existing vessel — no dock/undock event fires. The new vessel appears in `FlightGlobals.Vessels` but Parsek has no branch for it. After revert + spawn, it won't exist. Potential fix: listen for `onVesselCreate` and start a background recording if the new vessel appears near an active EVA recording. Needs investigation — `onVesselCreate` also fires for debris and other irrelevant vessels.
 
-Flagged as a v1 investigation item.
+**Explicitly out of scope for v1.** EVA construction vessel creation is rare, hard to detect reliably, and the workaround (player docks the new vessel to an existing one) is acceptable.
 
 **Quicksave/quickload mid-tree:**
-The player can press F5 (quicksave) while a recording tree is actively being built, then F9 (quickload) to return to that state. The recording tree's in-progress state — all recordings, branch points, background recording map, active recording cursor — must be serialized into quicksaves via `ParsekScenario.OnSave`. On quickload, the tree state must be fully restored so recording can resume seamlessly. If this proves too complex for v1, quickload mid-tree can be treated as a mini-revert: discard the in-progress tree (same as "Discard") and restart cleanly from the quicksave state. The key constraint: no orphan vessels or leaked crew after quickload.
+**v1 behavior:** quickload mid-tree is treated as a mini-revert — discard the in-progress tree (same as "Discard") and restart cleanly from the quicksave state. The key constraint: no orphan vessels or leaked crew after quickload. Full tree state serialization into quicksaves (allowing seamless resume after quickload) is deferred to a future version.
 
 **Recording tree with 20+ vessels (space station assembly):**
-Performance concern. Background recording is cheap (just orbit snapshots), but ghost playback of 20 vessels needs the LOD/culling work from Phase 4.
+Performance concern. Background recording is cheap (just orbit snapshots), but ghost playback of 20 vessels may need LOD/culling work (future optimization, not part of the current task list).
 
 **Suborbital atmospheric background vessels:**
 A vessel in atmosphere cannot go on rails (KSP blocks time warp below ~70km on Kerbin). When the player switches away from a suborbital atmospheric vessel, KSP unloads it but may destroy it (decaying trajectory). The background recording captures the last known orbit at switch time. If the vessel is subsequently destroyed, `onVesselDestroy` fires and terminates the recording normally. If it survives (e.g. lands), the ghost is approximate (shows the last-known orbit, not the actual descent). This is an acceptable v1 limitation — atmospheric background vessels are rare edge cases (the player would normally stay on the vessel during descent).
@@ -398,7 +405,7 @@ A background vessel captured with orbit parameters at branch time might undergo 
 
 Existing single-recording commits work unchanged. A single recording with no branches is just a recording tree with one node and no branch points.
 
-The existing chain system (ChainId, ChainIndex, ChainBranch) is a flat approximation of the recording tree. **Simplest migration:** treat all pre-tree recordings as standalone single-node trees (ignore chain topology). Chains from before the tree system are rare — the mod is new. Full chain→tree conversion (inferring branch point types from `ParentRecordingId` and `EvaCrewName`) is possible but fiddly and not worth the complexity for v1.
+The existing chain system (ChainId, ChainIndex, ChainBranch) **remains fully intact**. Chains serve multiple active purposes: dock/undock/EVA multi-segment continuations, atmospheric/SOI phase splits with per-segment loop control, chain merge dialogs, and per-segment resource tracking. The recording tree is a **new layer on top of chains**, not a replacement. Each recording node in the tree may itself be a chain (multiple chained segments within one vessel's recording). Pre-tree recordings continue to work unchanged — no migration needed.
 
 ## Background recording persistence
 
@@ -406,9 +413,13 @@ Background vessel states must survive scene changes (player goes to Space Center
 
 ## Background recording depth
 
-Full part events require the vessel to be loaded (within physics range ~2.5km). Unloaded background vessels can only provide orbital/position data. Part events are only recorded for the active vessel. This means automated actions on background vessels (solar panels auto-deploying at sunrise, antenna extending on signal loss) are not captured and won't replay on the ghost. The background ghost shows the vessel's initial visual state at all times.
+Background vessels have two recording fidelity levels depending on their physics state:
 
-This is acceptable for v1 — background vessel ghosts only need to show position, not part animations. The player-controlled vessel gets the full visual replay. If the player wants full part event fidelity for a specific vessel, they can switch to it (making it active) before the events happen.
+**On-rails vessels** (outside physics range ~2.5km, or packed during time warp): Lightweight orbital/position data only. `OrbitSegment` for orbiting vessels, `SurfacePosition` for landed/splashed. No part events. The background ghost shows the vessel at its correct position but with its initial visual state.
+
+**Loaded/physics vessels** (within physics range, `vessel.loaded && !vessel.packed`): Full active recording — trajectory points, part events, adaptive sampling. These vessels have active rigidbodies and are fully simulated by KSP (inertia, thrust, drag, etc.). This happens during close-proximity operations like docking approaches. The Harmony postfix on `VesselPrecalculate.CalculatePhysicsStats()` already fires for all loaded vessels — the background recorder hooks into the non-active vessel dispatch path.
+
+This dual-mode approach ensures that close-proximity operations (where both vessels are visible and physically interacting) get full recording fidelity, while distant vessels get lightweight orbital tracking.
 
 ## Serialization
 
@@ -422,3 +433,361 @@ Each recording within the tree uses the existing recording serialization format 
 **ConfigNode list fields:** `parentRecordingIds` and `childRecordingIds` on `BRANCH_POINT` are serialized as repeated key values (one `parentId = <id>` per parent, one `childId = <id>` per child). This is the standard KSP ConfigNode pattern for variable-length lists (same as how `CREW` entries work in vessel nodes).
 
 **Thread safety:** All recording tree mutations (branch creation, recording start/stop, background map updates) happen on the main Unity thread. KSP's game events (`onPartUndock`, `onPartCouple`, `onVesselDestroy`, etc.) all fire on the main thread.
+
+---
+
+## Implementation Tasks
+
+Work is split into tasks that can be planned and implemented separately. Dependencies are listed — a task can only start after its dependencies are complete. Each task should be implementable in a single focused session and testable in isolation.
+
+### Per-task workflow
+
+Each task follows a multi-stage pipeline using Opus 4.6 agents, orchestrated by the main session (you). The main session is the orchestrator — it reads this document, determines which task to work on next, runs each step, and tracks progress below.
+
+**Steps:**
+
+1. **Plan** — Launch an Opus 4.6 subagent (`subagent_type: "general-purpose"`, `model: "opus"`) to explore the codebase and write a detailed implementation plan to `docs/plans/task-N-<slug>.md`. The agent should read this design doc, the relevant source files, and existing plan files for completed tasks to understand patterns and avoid repeating mistakes. Tell the agent to write the plan file directly (not just return text).
+
+2. **Plan review** — Launch a *fresh* Opus 4.6 subagent to review the plan for correctness, completeness, and risk. The reviewer reads the plan file, the source files it references, and this design doc. It should verify claims about existing code against the actual source (e.g., "line N does X" — read and confirm). It writes its findings as corrections/additions directly into the plan file, or returns them for the orchestrator to apply.
+
+3. **Orchestrator review** — You (the main session) review the plan yourself. You have full project context from CLAUDE.md and memory. Verify the reviewer's findings against the code. Apply fixes to the plan file. Resolve any contradictions. The plan is now approved.
+
+4. **Implement** — Launch a *fresh* Opus 4.6 subagent to implement the approved plan. The agent reads the plan file and modifies the source files accordingly. It runs `dotnet test` from `Source/Parsek.Tests/` to verify all tests pass after implementation. Tell the agent to implement the plan (write code), not just analyze it.
+
+5. **Implementation review** — Launch a *fresh* Opus 4.6 subagent to review the implementation. The reviewer reads the plan, the modified source files, and the test results. It looks for bugs, missed edge cases, deviations from the plan, and code quality issues. It fixes any issues it finds directly in the source files and re-runs tests.
+
+6. **Final review** — You (the main session) review the implementation considering the larger architectural context. Read the key modified files, verify the changes make sense, run tests one more time. Note any issues found and fix them.
+
+7. **Commit** — Stage and commit all modified/new files with a descriptive commit message. Do NOT add Co-Authored-By lines (per CLAUDE.md).
+
+8. **Next task briefing** — Present the next task to the user: what it does, how it fits into the dependency graph, key design points, and scope boundaries. Update the progress tracker below.
+
+**Repository setup:**
+
+- **Branch:** `recording-tree`
+- **Worktree:** `Parsek-recording-tree` (a git worktree of the main `Parsek` repo)
+- **Working directory:** `C:\Users\vlad3\Documents\Code\Parsek\Parsek-recording-tree`
+- The main repo at `Parsek/` stays on `main`. This worktree isolates all recording tree work.
+
+**How to resume after context clear:**
+
+When starting a new session to continue this work:
+1. Verify you're in the correct worktree: working directory should be `Parsek-recording-tree`, branch should be `recording-tree`
+2. Read this document (`docs/design-mission-tree.md`) to understand the full design and task list
+3. Check the **Progress tracker** below to see which task to work on next
+4. Read `CLAUDE.md` for project conventions (build commands, test commands, git rules)
+5. Read `docs/plans/` for completed task plans — they contain lessons learned and architectural decisions
+6. Start the next task at step 1 (Plan) and work through all 8 steps
+7. If the user says "continue" or "next task", pick up from the progress tracker
+
+**Progress tracker:**
+
+| Task | Status | Commit | Notes |
+|------|--------|--------|-------|
+| Task 1: Data model + serialization | Done | `fd11bc9` | RecordingTree, BranchPoint, SurfacePosition, TerminalState |
+| Task 2: Vessel switch refactoring | Done | `a876cf7` | DecideOnVesselSwitch tree-aware, transition/promotion, 12 tests |
+| Task 3: Background recording | Done | `218779d` | Dual-mode: on-rails (OrbitSegment/SurfacePosition) + loaded/physics (full trajectory + part events) |
+| Task 4: Split event detection | Done | `f1fcb08` | Undock/EVA/joint break branching, debris filter, resume-on-false-alarm |
+| Task 5: Merge event detection | Done | `f1eecd8` | Dock/board merges, dual-lookup for initiator/target, dockingInProgress guard |
+| Task 6: Terminal event detection | Done | `686e927` | Deferred destruction check, no recovery handler (wrong scene) |
+| Task 7: Tree commit + leaf spawn | Done | `969a0b6` | CommitTreeFlight, CommitTreeSceneExit, leaf spawning, tree persistence, 33 tests |
+| Task 8: Tree-aware merge dialog | Done | `963ceec` | ShowTreeDialog, revert vs scene-exit branching, CommitTreeRevert |
+| Task 9: Tree ghost playback | Done | `3f4b91c` | Background orbit/surface ghosts, spawn suppression, surface rotation fix |
+| Task 10: Tree-level resource tracking | Done | `e505523` | Tree-level delta computation, lump sum playback, budget integration, 15 tests |
+| Task 11: Backward compatibility + chain migration | Done | `1cba255` | Verification only — no production changes, 5 backward compat tests |
+| Task 12: Tree verbose logging | Done | `4c806c1` | 11 logging gaps filled across RecordingTree, ParsekFlight, ResourceBudget |
+| Task 13: Tree test coverage | Done | `70e4066` | 18 tests + 3 synthetic tree recordings, 1076 pass / 1 skip / 0 fail |
+
+### Task 1: RecordingTree data model + serialization
+
+**No dependencies.**
+
+Create the core data structures and prove they can round-trip through save/load.
+
+**Scope:**
+- `RecordingTree` class with all fields from the data model (id, treeName, rootRecordingId, activeRecordingId, recordings dict, branchPoints list)
+- `BranchPoint` struct (id, ut, type enum, parentRecordingIds, childRecordingIds)
+- `SurfacePosition` struct (body, lat, lon, alt, rotation, situation)
+- `TerminalState` enum (Orbiting, Landed, Splashed, SubOrbital, Destroyed, Recovered, Docked, Boarded)
+- New fields on Recording: treeId, vesselPersistentId, terminalState, terminalOrbit, terminalPosition, parentBranchPointId, childBranchPointId, ghostVisualSnapshot
+- Serialization: `RecordingTree.Save(ConfigNode)` / `Load(ConfigNode)` round-trip
+- Runtime `backgroundMap` rebuilt from recordings on load
+- Unit tests: create a tree with branches/merges, serialize, deserialize, verify all fields
+
+**Files:** new `RecordingTree.cs`, `BranchPoint.cs`, `SurfacePosition.cs`; modify `Recording` fields in `RecordingStore.cs`
+
+**Test:** build a synthetic tree (root → undock → two children, one docks back), serialize to ConfigNode, deserialize, assert equality.
+
+### Task 2: Vessel switch refactoring (active ↔ background transition)
+
+**Depends on:** Task 1 (needs RecordingTree data model)
+
+The single largest behavioral change. Currently vessel switch stops recording. In tree mode, it transitions the recording between active and background.
+
+**Scope:**
+- New `VesselSwitchDecision` values: `TransitionToBackground`, `PromoteFromBackground`
+- `FlightRecorder.DecideVesselSwitch` refactored: if a tree is active and target vessel is in the tree → `PromoteFromBackground`; if target is outside tree → `TransitionToBackground` (all tree recordings become background); scene exit → `Stop` (auto-commit tree)
+- Active → background: capture orbital parameters or surface position, stop physics sampling
+- Background → active: resume physics sampling after `onVesselSwitchComplete`
+- Use `onVesselSwitchComplete` (not `onVesselSwitch`) for timing safety
+- A single recording accumulates interleaved trajectory points and orbit segments across multiple active/background transitions
+
+**Files:** `FlightRecorder.cs`, `ParsekFlight.cs`
+
+**Test:** synthetic test: start tree, simulate vessel switch, verify recording has both trajectory points and orbit segments interleaved. In-game: undock two vessels, switch between them with `[`/`]`, verify both recordings continue.
+
+### Task 3: Background recording infrastructure
+
+**Depends on:** Task 1, Task 2
+
+Capture on-rails state for non-active vessels in the tree.
+
+**Scope:**
+- Background recording loop: on each FixedUpdate (or at regular interval), for each background recording in the tree, snapshot current orbit or surface position
+- Orbiting vessels: capture `OrbitSegment` from `vessel.orbit` (reuse existing orbit segment logic)
+- Landed/splashed vessels: capture `SurfacePosition` from `vessel.latitude/longitude/altitude`
+- `backgroundMap` (persistentId → recordingId) management: add on branch creation, remove on terminal events
+- Vessel lookup always by `persistentId` in `FlightGlobals.Vessels` — never cached references
+
+**Files:** new `BackgroundRecorder.cs` (or integrated into `FlightRecorder.cs`); `RecordingTree.cs`
+
+**Test:** in-game: launch, undock, switch to one vessel, time warp. Switch back — verify the other vessel's recording has orbit segments covering the background period.
+
+### Task 4: Split event detection (undock, EVA, joint break)
+
+**Depends on:** Task 1, Task 2, Task 3
+
+Detect vessel splits and create branch points + child recordings.
+
+**Scope:**
+- Subscribe to `onPartUndock`, `onPartJointBreak`, EVA events
+- **Debris filter:** at split time, check new vessel for `ModuleCommand`/`ModuleProbeCore`/`VesselType.SpaceObject`. If none → part event only (existing behavior), no branch
+- **Deduplication:** "last branch UT" guard per recording — skip duplicate events in same physics frame
+- **Deferred snapshot:** coroutine `yield return null` after split detected, then snapshot both child vessels
+- Create `BranchPoint` (type=Undock/EVA), end parent recording, start two child recordings (one active, one background)
+- `onPartJointBreak` → defer one frame → check if `FlightGlobals.Vessels` has a new vessel → apply debris filter → branch if controllable
+- Handle EVA as split: parent recording ends, two children start (vessel + kerbal)
+
+**Files:** `ParsekFlight.cs`, `FlightRecorder.cs`, `RecordingTree.cs`
+
+**Test:** in-game: launch multi-stage rocket with probe cores on upper stage. Stage → verify debris (booster) doesn't branch, probe-equipped stage does. EVA → verify two child recordings created.
+
+### Task 5: Merge event detection (dock, board)
+
+**Depends on:** Task 1, Task 2, Task 3
+
+Detect vessel merges and create merge branch points.
+
+**Scope:**
+- Subscribe to `onPartCouple` for docking, crew board events for boarding
+- **Docking race condition fix:** maintain `dockingInProgress` set of persistentIds. On `onPartCouple`, add absorbed vessel's ID before the deferred destruction check can see it. Clear after deferred check completes.
+- Identify docking partner by `persistentId`, look up in `backgroundMap`
+- End both parent recordings at merge UT, create `BranchPoint` (type=Dock/Board), start one child recording (active, merged vessel)
+- **Foreign vessel docking/boarding:** if partner is not in the tree → single-parent branch point
+- Capture ghost visual snapshot of merged vessel at dock time
+
+**Files:** `ParsekFlight.cs`, `FlightRecorder.cs`, `RecordingTree.cs`
+
+**Test:** in-game: undock two vessels, switch to one, approach and dock. Verify merge branch point created, both parent recordings ended, child recording started on merged vessel.
+
+### Task 6: Terminal event detection (destruction, recovery)
+
+**Depends on:** Task 1, Task 3
+
+Detect vessel destruction and recovery for background vessels.
+
+**Scope:**
+- `onVesselDestroy` handler with one-frame deferred check: vessel gone from `FlightGlobals.Vessels` → truly destroyed (mark recording as Destroyed terminal state). Still present → just unloaded (ignore).
+- Skip vessels in `dockingInProgress` set (from Task 5)
+- `onVesselRecoveryProcessing` handler: mark recording as Recovered terminal state
+- Remove from `backgroundMap` on terminal event
+- Capture `terminalOrbit` or `terminalPosition` at destruction/recovery time
+
+**Files:** `ParsekFlight.cs`, `RecordingTree.cs`
+
+**Test:** unit test: mock the deferred check logic. In-game: put a probe on a decaying orbit, switch away, time warp until it crashes — verify recording gets Destroyed terminal state.
+
+### Task 7: Tree commit + multi-vessel leaf spawning
+
+**Depends on:** Task 1, Task 4, Task 5, Task 6
+
+Commit the entire tree and spawn all leaf vessels.
+
+**Scope:**
+- `RecordingTree.Commit()`: finalize all recordings (set endUT), collect leaf vessels
+- Leaf identification: recordings with no `childBranchPointId` and terminalState not Destroyed/Recovered/Docked/Boarded
+- Orbital leaf spawn: propagate `terminalOrbit` to current UT via `Orbit.getPositionAtUT()`. Check for crash (altitude below terrain) → skip spawn, mark Destroyed
+- Landed/splashed leaf spawn: use `terminalPosition` directly
+- Proximity offset: extend existing 200m check to work across all leaf vessels being spawned simultaneously
+- Crew reservation for N leaves: iterate all leaf snapshots, reserve all crew, hire replacements
+- **Commit Flight button:** commit tree, current vessel stays active (`VesselSpawned=true`), spawn all other leaves
+- **Scene exit auto-commit:** finalize tree on leaving Flight scene (same as Commit but with all snapshots nulled — no spawning, same as commit path #9)
+
+**Files:** `RecordingTree.cs`, `VesselSpawner.cs`, `ParsekScenario.cs`, `ParsekFlight.cs`
+
+**Test:** synthetic test: build tree with 3 leaves (orbiting, landed, destroyed), commit, verify only 2 spawn with correct positions. In-game: full undock scenario, revert, merge, verify all vessels appear.
+
+### Task 8: Tree merge dialog
+
+**Depends on:** Task 7
+
+Show tree-aware merge dialog on revert with vessel summary.
+
+**Scope:**
+- Add new `MergeDialog.ShowTreeDialog` alongside existing `ShowStandaloneDialog` / `ShowChainDialog` (existing dialogs stay — they handle non-tree recordings and chain segments)
+- `ParsekFlight` calls `ShowTreeDialog` when reverting with an active recording tree (multi-vessel); existing dialogs used for standalone/chain recordings as before
+- Display: tree name, surviving leaf count (with destroyed count if any), duration, per-leaf summary (vessel name + situation)
+- Two buttons: "Merge to Timeline" (calls tree commit) and "Discard" (drops entire tree)
+- "← you are here" marker on the player's current vessel
+
+**Files:** `MergeDialog.cs`, `ParsekFlight.cs`
+
+**Test:** in-game: run a multi-vessel scenario (launch, undock, switch, revert). Verify tree dialog shows all vessels with correct states. Test both Merge and Discard. Verify standalone/chain recordings still show their original dialogs.
+
+### Task 9: Tree ghost playback
+
+**Depends on:** Task 1, Task 7
+
+Play back all recordings in a committed tree as simultaneous ghosts.
+
+**Scope:**
+- Extend `ParsekFlight` playback loop to iterate all recordings in a tree
+- Active-phase recordings: existing kinematic playback (trajectory points, part events, engine FX)
+- Background-phase recordings: analytical orbit position (reuse existing OrbitSegment playback) or static surface position
+- Ghost transitions at branch points: at undock UT, parent ghost disappears, two child ghosts appear. At dock UT, two parent ghosts disappear, child ghost appears.
+- Ghost visual snapshot: each recording uses its own `ghostVisualSnapshot` for mesh building
+- Warp stop: stop time warp once when UT enters any recording's range that has an unspawned leaf vessel
+
+**Files:** `ParsekFlight.cs`, `GhostVisualBuilder.cs`
+
+**Test:** synthetic recordings: inject a tree with multiple recordings into a save file, load, time warp, verify ghosts appear/disappear at correct times. In-game: commit a multi-vessel tree, start new flight, watch ghosts replay.
+
+### Task 10: Tree-level resource tracking
+
+**Depends on:** Task 7
+
+Migrate resource deltas from per-recording to per-tree.
+
+**Scope:**
+- `RecordingTree` fields: preTreeFunds/Science/Reputation, deltaFunds/Science/Reputation
+- Capture pre-tree state at tree creation (launch)
+- Compute delta at commit: `(current game state) - (pre-tree state)`
+- During playback: apply tree-level delta as lump sum at tree EndUT
+- **Keep per-recording resource fields** — they are still used by chain segments within each recording node for per-segment resource display, chain enable/disable affecting deltas, and EVA child recording resource allocation
+- Tree-level delta is the aggregate; per-recording deltas remain for granular display in Actions window
+
+**Files:** `RecordingTree.cs`, `ResourceBudget.cs`, `ParsekFlight.cs`
+
+**Test:** in-game: launch in career, spend funds/gain science during multi-vessel mission, revert, merge — verify resource budget shows correct tree-level delta and per-segment breakdown still works.
+
+### Task 11: Backward compatibility + chain migration
+
+**Depends on:** Task 1, Task 7, Task 9
+
+Ensure existing saves load correctly.
+
+**Scope:**
+- Single recordings with no tree ID → wrap in single-node RecordingTree on load
+- Existing chain recordings → wrap each chain as a single-node tree (chain segments stay as-is within each recording node)
+- **Chain fields (ChainId/ChainIndex/ChainBranch) are NOT removed** — chains remain fully functional for dock/undock/EVA continuations, atmospheric/SOI phase splits, per-segment loop control, and per-segment resource display
+- Existing committed recordings continue to play back as individual ghosts (no tree grouping needed for legacy data)
+- Verify all existing tests pass with the new data model
+
+**Files:** `RecordingStore.cs`, `ParsekScenario.cs`
+
+**Test:** load existing save with committed recordings (including chains). Verify they load, play back, and spawn correctly. Verify chain merge dialog, per-segment loop, and per-segment resource display still work. Run full `dotnet test` suite.
+
+### Task 12: Tree verbose logging
+
+**Depends on:** Task 11
+
+Add verbose diagnostic logging to every tree-related code path that currently lacks it. The goal: every decision point, state transition, and edge case in the tree system produces a log line traceable in KSP.log or capturable by `ParsekLog.TestSinkForTesting`.
+
+**10 logging gaps to fill (see `docs/plans/task-12-test-ideas.md` Part A for details):**
+
+1. **A1 — RecordingTree.Save** — log tree name, recording count, branch point count, ResourcesApplied
+2. **A2 — RecordingTree.Load** — log tree ID, recording count, branch point count, which fields present/defaulted
+3. **A3 — ApplyTreeResourceDeltas** — log per-tree: skipped (applied), waiting (UT not past end), or applying. Use `VerboseRateLimited` (runs every frame)
+4. **A4 — ApplyTreeLumpSum clamping** — log when delta is clamped to prevent negative balance (original vs clamped value)
+5. **A5 — PositionGhostAtSurface** — log body name, lat/lon/alt, whether body found
+6. **A6 — FindCommittedTree miss** — log requested treeId and committed tree count when returning null
+7. **A7 — ResourceBudget.ComputeTotal tree loop** — log each tree's name, delta, applied/skipped, cost added
+8. **A8 — FinalizeTreeRecordings per-recording** — log each recording: ID, vessel name, point count, orbit segments, terminal state, snapshot, leaf status
+9. **A9 — CommitTreeFlight marking** — log recordings marked count, ResourcesApplied confirmation
+10. **A10 — TakeControlOfGhost tree branch** — log tree lookup result (found/not found, applied/not applied)
+
+**Files:** `RecordingTree.cs`, `ParsekFlight.cs`, `ResourceBudget.cs`
+
+**Test:** `dotnet build` clean, `dotnet test` all pass (no new tests — those come in Task 13).
+
+### Task 13: Tree test coverage
+
+**Depends on:** Task 12
+
+Maximize test coverage with meaningful, non-vacuous tests. Every test has a concrete "what makes it fail" justification. Also add synthetic tree recordings for in-game validation.
+
+**See `docs/plans/task-12-test-ideas.md` Parts B-E for full test specifications.**
+
+**18 new tests across 3 categories:**
+
+*Part B — Pure method tests (7):*
+- B1: `FormatDuration` — 10 cases covering all branches + exact boundaries (60, 3600)
+- B2: `GetLeafSituationText` — 13 cases covering all 8 terminal states + null-body fallbacks + legacy fallback
+- B3: `ComputeTotal` — multiple trees, mixed ResourcesApplied (only way to get correct value is correct filtering)
+- B4: `IsSpawnableLeaf` — 5 missing truth-table cases (Recovered, Landed, Splashed, SubOrbital, null-snapshot-no-terminal)
+- B5: `RebuildBackgroundMap` — realistic multi-level tree with one recording per exclusion reason
+- B6: `GetAllLeaves` vs `GetSpawnableLeaves` — Recovered leaf (not tested anywhere)
+- B7: `GetSpawnableLeaves` after dock merge — DAG case, only continuation is spawnable
+
+*Part C — Log verification tests (6):*
+- C1-C3: Verify existing log lines from `CommitTree`, `StashPendingTree`, `DiscardPendingTree` via `TestSinkForTesting`
+- C4-C6: Verify new log lines added in Task 12 (`ComputeTotal` tree loop, `RecordingTree.Save`, `RecordingTree.Load`)
+
+*Part D — Edge case tests (5):*
+- D1: Empty tree — `GetSpawnableLeaves` and `RebuildBackgroundMap` don't crash
+- D2: Forward-compat loading — extra/unknown ConfigNode fields silently ignored
+- D3: `CommitTree(null)` — no crash, no state change
+- D4: All-terminal-leaf tree — budget delta still counts
+- D5: BackgroundMap populated correctly after save/load round-trip
+
+*Part E — Synthetic tree recordings (3 builders):*
+- E1: Simple undock tree (2 ghosts, split at midpoint)
+- E2: EVA tree (vessel + kerbal ghost)
+- E3: Destruction tree (one child destroyed, one spawns)
+
+**Files:** `Source/Parsek.Tests/` (new + extended test files), `Source/Parsek.Tests/Generators/` (synthetic tree builders)
+
+**Test:** `dotnet test` — all existing + 18 new tests pass. `dotnet test --filter InjectAllRecordings` — injects tree recordings.
+
+### Dependency graph
+
+```
+Task 1 (data model) ──→ Task 2 (vessel switch) ──→ Task 3 (background recording)
+                                                        │
+                             ┌──────────────────────────┤
+                             │                          │
+                             ▼                          ▼
+                        Task 4 (split events) ──┐  Task 6 (terminal events)
+                             │                  │       │
+                        Task 5 (merge events) ──┤       │
+                                                │       │
+                                                ▼       │
+                                         Task 7 (commit + spawn) ◄──┘
+                                                │
+                                  ┌─────────────┼─────────────┐
+                                  ▼             ▼             ▼
+                          Task 8 (dialog)  Task 9 (ghost)  Task 10 (resources)
+                                                │
+                                                ▼
+                                         Task 11 (backward compat)
+                                                │
+                                                ▼
+                                         Task 12 (logging)
+                                                │
+                                                ▼
+                                         Task 13 (tests)
+```
+
+**Parallelizable groups:**
+- Task 4 + Task 5 + Task 6 (all depend on Task 3, independent of each other)
+- Task 8 + Task 9 + Task 10 (all depend on Task 7, independent of each other)

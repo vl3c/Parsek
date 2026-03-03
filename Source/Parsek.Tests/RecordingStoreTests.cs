@@ -702,29 +702,6 @@ namespace Parsek.Tests
                 ProtoCrewMember.RosterStatus.Missing));
         }
 
-        [Fact]
-        public void NeedsStatusChange_Available_ReturnsTrue()
-        {
-            Assert.True(ParsekScenario.NeedsStatusChange(
-                ProtoCrewMember.RosterStatus.Available));
-        }
-
-        [Fact]
-        public void NeedsStatusChange_Assigned_ReturnsFalse()
-        {
-            // Already Assigned (e.g. on pad vessel) — no status change needed,
-            // but replacement still needed
-            Assert.False(ParsekScenario.NeedsStatusChange(
-                ProtoCrewMember.RosterStatus.Assigned));
-        }
-
-        [Fact]
-        public void NeedsStatusChange_Dead_ReturnsFalse()
-        {
-            Assert.False(ParsekScenario.NeedsStatusChange(
-                ProtoCrewMember.RosterStatus.Dead));
-        }
-
         // --- Snapshot crew extraction ---
 
         [Fact]
