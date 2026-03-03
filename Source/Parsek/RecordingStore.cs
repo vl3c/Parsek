@@ -142,6 +142,7 @@ namespace Parsek
             public bool TakenControl;               // True after player took control of ghost mid-playback
             public uint SpawnedVesselPersistentId;  // persistentId of spawned vessel (0 = not yet spawned)
             public int SpawnAttempts;               // Number of failed spawn attempts (give up after 3)
+            public int SceneExitSituation = -1;     // Vessel.Situations at scene exit (-1 = still in flight/unknown)
 
             public double StartUT => Points.Count > 0 ? Points[0].ut :
                                      !double.IsNaN(ExplicitStartUT) ? ExplicitStartUT : 0.0;
@@ -285,6 +286,8 @@ namespace Parsek
             double endUT = pendingRecording.EndUT;
             pendingRecording = null;
 
+            ResourceBudget.Invalidate();
+
             // Capture a game state baseline at each commit (single funnel point)
             GameStateStore.CaptureBaselineIfNeeded();
 
@@ -303,6 +306,7 @@ namespace Parsek
             DeleteRecordingFiles(pendingRecording);
             Log($"[Parsek] Discarded pending recording from {pendingRecording.VesselName}");
             pendingRecording = null;
+            ResourceBudget.Invalidate();
         }
 
         public static void ClearCommitted()
@@ -312,6 +316,7 @@ namespace Parsek
                 DeleteRecordingFiles(committedRecordings[i]);
             committedRecordings.Clear();
             committedTrees.Clear();
+            ResourceBudget.Invalidate();
             Log($"[Parsek] Cleared {count} committed recordings and all trees");
         }
 
@@ -353,6 +358,8 @@ namespace Parsek
             committedTrees.Add(tree);
             Log($"[Parsek] Committed tree '{tree.TreeName}' ({tree.Recordings.Count} recordings). " +
                 $"Total committed: {committedRecordings.Count} recordings, {committedTrees.Count} trees");
+
+            ResourceBudget.Invalidate();
 
             // Capture a game state baseline at each commit
             GameStateStore.CaptureBaselineIfNeeded();
@@ -407,6 +414,7 @@ namespace Parsek
                 DeleteRecordingFiles(rec);
             Log($"[Parsek] Discarded pending tree '{pendingTree.TreeName}'");
             pendingTree = null;
+            ResourceBudget.Invalidate();
         }
 
         /// <summary>

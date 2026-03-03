@@ -15,6 +15,7 @@ namespace Parsek.Tests
             GameStateStore.ResetForTesting();
             MilestoneStore.SuppressLogging = true;
             MilestoneStore.ResetForTesting();
+            ResourceBudget.Invalidate();
             ParsekLog.SuppressLogging = true;
         }
 
@@ -785,6 +786,7 @@ namespace Parsek.Tests
 
             // Remove recording, milestone survives
             recordings.Clear();
+            ResourceBudget.Invalidate();
             budget = ResourceBudget.ComputeTotal(recordings, milestones);
             Assert.Equal(600, budget.reservedFunds); // only milestone cost remains
         }
@@ -1100,6 +1102,93 @@ namespace Parsek.Tests
         {
             string path = RecordingPaths.BuildMilestonesRelativePath().Replace('\\', '/');
             Assert.Equal("Parsek/GameState/milestones.pgsm", path);
+        }
+
+        #endregion
+
+        #region B3: ComputeTotal — multiple trees, mixed ResourcesApplied
+
+        [Fact]
+        public void ComputeTotal_MultipleTrees_MixedResourcesApplied()
+        {
+            // Tree A: applied, DeltaFunds=-3000 (should NOT contribute)
+            var treeA = new RecordingTree
+            {
+                Id = "treeA",
+                TreeName = "Tree A",
+                DeltaFunds = -3000,
+                ResourcesApplied = true
+            };
+
+            // Tree B: not applied, DeltaFunds=-7000 (should contribute)
+            var treeB = new RecordingTree
+            {
+                Id = "treeB",
+                TreeName = "Tree B",
+                DeltaFunds = -7000,
+                ResourcesApplied = false
+            };
+
+            var trees = new List<RecordingTree> { treeA, treeB };
+            var budget = ResourceBudget.ComputeTotal(
+                new List<RecordingStore.Recording>(),
+                new List<Milestone>(),
+                trees);
+
+            // Only Tree B's cost (7000) should be reserved
+            Assert.Equal(7000, budget.reservedFunds);
+        }
+
+        #endregion
+
+        #region D4: All-terminal leaves — budget delta still counts
+
+        [Fact]
+        public void ComputeTotal_AllTerminalLeaves_DeltaStillCounts()
+        {
+            // Tree with all leaves being Destroyed/Recovered — resource delta should still count
+            var tree = new RecordingTree
+            {
+                Id = "tree_terminal",
+                TreeName = "All Terminal",
+                DeltaFunds = -3000,
+                ResourcesApplied = false,
+                RootRecordingId = "root"
+            };
+
+            // All recordings have terminal states that make them non-spawnable
+            tree.Recordings["root"] = new RecordingStore.Recording
+            {
+                RecordingId = "root",
+                VesselName = "Root",
+                ChildBranchPointId = "bp1"
+            };
+            tree.Recordings["leaf1"] = new RecordingStore.Recording
+            {
+                RecordingId = "leaf1",
+                VesselName = "Destroyed",
+                TerminalStateValue = TerminalState.Destroyed,
+                ParentBranchPointId = "bp1"
+            };
+            tree.Recordings["leaf2"] = new RecordingStore.Recording
+            {
+                RecordingId = "leaf2",
+                VesselName = "Recovered",
+                TerminalStateValue = TerminalState.Recovered,
+                ParentBranchPointId = "bp1"
+            };
+
+            // Verify no spawnable leaves
+            Assert.Empty(tree.GetSpawnableLeaves());
+
+            var trees = new List<RecordingTree> { tree };
+            var budget = ResourceBudget.ComputeTotal(
+                new List<RecordingStore.Recording>(),
+                new List<Milestone>(),
+                trees);
+
+            // Tree's resource delta still counted even though no spawnable leaves
+            Assert.Equal(3000, budget.reservedFunds);
         }
 
         #endregion

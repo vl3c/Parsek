@@ -136,6 +136,10 @@ namespace Parsek
                     && rec.ChildBranchPointId == null  // has branched → no longer a live recording
                     && rec.RecordingId != ActiveRecordingId)
                 {
+                    if (BackgroundMap.ContainsKey(rec.VesselPersistentId))
+                        ParsekLog.Warn("RecordingTree",
+                            $"RebuildBackgroundMap: duplicate PID={rec.VesselPersistentId} " +
+                            $"(existing={BackgroundMap[rec.VesselPersistentId]}, replacing with={rec.RecordingId})");
                     BackgroundMap[rec.VesselPersistentId] = rec.RecordingId;
                 }
             }
@@ -463,15 +467,15 @@ namespace Parsek
         {
             var ic = CultureInfo.InvariantCulture;
 
-            bpNode.AddValue("id", bp.id ?? "");
-            bpNode.AddValue("ut", bp.ut.ToString("R", ic));
-            bpNode.AddValue("type", ((int)bp.type).ToString(ic));
+            bpNode.AddValue("id", bp.Id ?? "");
+            bpNode.AddValue("ut", bp.UT.ToString("R", ic));
+            bpNode.AddValue("type", ((int)bp.Type).ToString(ic));
 
-            for (int i = 0; i < bp.parentRecordingIds.Count; i++)
-                bpNode.AddValue("parentId", bp.parentRecordingIds[i] ?? "");
+            for (int i = 0; i < bp.ParentRecordingIds.Count; i++)
+                bpNode.AddValue("parentId", bp.ParentRecordingIds[i] ?? "");
 
-            for (int i = 0; i < bp.childRecordingIds.Count; i++)
-                bpNode.AddValue("childId", bp.childRecordingIds[i] ?? "");
+            for (int i = 0; i < bp.ChildRecordingIds.Count; i++)
+                bpNode.AddValue("childId", bp.ChildRecordingIds[i] ?? "");
         }
 
         internal static BranchPoint LoadBranchPointFrom(ConfigNode bpNode)
@@ -480,19 +484,19 @@ namespace Parsek
             var ic = CultureInfo.InvariantCulture;
 
             var bp = new BranchPoint();
-            bp.id = bpNode.GetValue("id") ?? "";
-            double.TryParse(bpNode.GetValue("ut"), inv, ic, out bp.ut);
+            bp.Id = bpNode.GetValue("id") ?? "";
+            double.TryParse(bpNode.GetValue("ut"), inv, ic, out bp.UT);
 
             int typeInt;
             if (int.TryParse(bpNode.GetValue("type"), NumberStyles.Integer, ic, out typeInt)
                 && Enum.IsDefined(typeof(BranchPointType), typeInt))
-                bp.type = (BranchPointType)typeInt;
+                bp.Type = (BranchPointType)typeInt;
 
             string[] parentIds = bpNode.GetValues("parentId");
-            bp.parentRecordingIds = new List<string>(parentIds);
+            bp.ParentRecordingIds = new List<string>(parentIds);
 
             string[] childIds = bpNode.GetValues("childId");
-            bp.childRecordingIds = new List<string>(childIds);
+            bp.ChildRecordingIds = new List<string>(childIds);
 
             return bp;
         }
@@ -576,7 +580,10 @@ namespace Parsek
                     return TerminalState.SubOrbital;
                 case 4:  // PRELAUNCH
                     return TerminalState.Landed;
+                case 128: // DOCKED — handled via explicit TerminalState.Docked in merge logic
+                    return TerminalState.Orbiting;
                 default:
+                    ParsekLog.Warn("RecordingTree", $"DetermineTerminalState: unexpected situation={situation}, defaulting to SubOrbital");
                     return TerminalState.SubOrbital;
             }
         }

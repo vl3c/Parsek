@@ -15,6 +15,7 @@ namespace Parsek.Tests
             MilestoneStore.ResetForTesting();
             GameStateStore.SuppressLogging = true;
             GameStateStore.ResetForTesting();
+            ResourceBudget.Invalidate();
             ParsekLog.SuppressLogging = true;
         }
 

@@ -1,9 +1,9 @@
 # Parsek: Preliminary Architecture
 
 ## Document Status
-**Version:** 0.8
-**Phase:** Phase 6 in progress (recording tree / multi-vessel recording)
-**Last Updated:** February 2026
+**Version:** 0.9
+**Phase:** Phase 6 complete (recording tree / multi-vessel recording)
+**Last Updated:** March 2026
 
 ---
 
@@ -351,7 +351,7 @@ File format: `saves/<save>/Parsek/GameState/milestones.pgsm`
 
 #### ResourceBudget
 
-Pure static computation: `ComputeTotal(recordings, milestones)` returns `BudgetSummary` with `reservedFunds`, `reservedScience`, `reservedReputation`. Sums unreplayed recording costs (via `LastAppliedResourceIndex`) and unreplayed milestone event costs (via `LastReplayedEventIndex`). Fully replayed items contribute 0.
+Pure static computation: `ComputeTotal(recordings, milestones, trees)` returns `BudgetSummary` with `reservedFunds`, `reservedScience`, `reservedReputation`. Sums unreplayed recording costs (via `LastAppliedResourceIndex`), unreplayed milestone event costs (via `LastReplayedEventIndex`), and tree-level resource deltas (via `TreeCommittedFundsCost` etc., skipping trees where `ResourcesApplied=true`). Recordings with `TreeId != null` are excluded from per-recording sums — their costs are captured at the tree level instead.
 
 #### Action Blocking (Harmony Patches)
 
@@ -809,26 +809,29 @@ All planned part event types are now implemented. 28 event types are recorded; m
 
 See `docs/design-going-back-in-time.md` for full design rationale. The mechanism is snapshot-based (like `git checkout`), not event-reversal-based. No timeline branching.
 
-### Phase 6: Recording Tree / Multi-Vessel Recording (In Progress)
+### Phase 6: Recording Tree / Multi-Vessel Recording (Complete)
 
 Record entire multi-vessel missions as a single unit. Builds on top of the existing chain system — each tree node is a vessel's recording, which can itself be a chain of segments (atmospheric/SOI phase splits, dock sequences).
 
-**New components:**
-- `RecordingTree` — rooted DAG of recordings. Branches at undock/EVA, merges at dock/board.
-- `BranchPoint` — links parent recording(s) to child recording(s) at split/merge events
-- `TerminalState` — how a recording ended (Orbiting, Landed, Destroyed, Docked, etc.)
-- `SurfacePosition` — background recording data for landed/splashed vessels
-- Background recording — on-rails Keplerian orbit or surface position for non-active vessels
+**New source files:**
+- `RecordingTree.cs` — rooted DAG of recordings. Branches at undock/EVA, merges at dock/board. Save/Load serialization, background map, leaf queries.
+- `BranchPoint.cs` — links parent recording(s) to child recording(s) at split/merge events
+- `TerminalState.cs` — how a recording ended (Orbiting, Landed, Splashed, SubOrbital, Destroyed, Recovered, Docked, Boarded)
+- `SurfacePosition.cs` — background recording data for landed/splashed vessels
+- `BackgroundRecorder.cs` — dual-mode on-rails (OrbitSegment/SurfacePosition) + loaded/physics recording for non-active tree vessels
+
+**Modified source files:**
+- `ParsekFlight.cs` — tree commit flows (CommitTreeFlight, CommitTreeSceneExit), tree ghost playback, tree resource deltas, split/merge/terminal event handling
+- `FlightRecorder.cs` — vessel switch tree decisions, active/background transitions, tree-aware auto-recording
+- `MergeDialog.cs` — ShowTreeDialog with per-vessel situation display
+- `ParsekScenario.cs` — tree persistence (RECORDING_TREE ConfigNodes), tree resource deduction
+- `RecordingStore.cs` — CommitTree, StashPendingTree, DiscardPendingTree, tree storage
+- `ResourceBudget.cs` — ComputeTotal with tree-level delta integration
+- `Patches/PhysicsFramePatch.cs` — background recorder integration
 
 **Key design principle:** the tree is additive. Existing chains, per-segment loop control, per-recording resources, atmospheric/SOI phase splits, merge dialogs — all preserved. Nothing removed.
 
-**Done:**
-- [x] Task 1: Data model + ConfigNode serialization (RecordingTree, BranchPoint, SurfacePosition, TerminalState, Recording extensions)
-
-**Remaining (11 tasks total):**
-- [ ] Task 2-11: vessel switch refactoring, background recording, split/merge/terminal event detection, tree commit + multi-leaf spawning, tree dialog, tree ghost playback, tree-level resources, backward compat
-
-See `docs/design-mission-tree.md` for full design and task breakdown.
+**13 tasks completed.** 1076 tests pass. See `docs/design-mission-tree.md` for full design, task breakdown, and progress tracker.
 
 ---
 
@@ -838,7 +841,7 @@ Parsek is a **git-like recording system** for KSP missions. Players record fligh
 
 Phase 5 (foundation complete) adds milestones, resource budgeting, epoch isolation, and action blocking — the accounting layer that prevents paradoxes when the player goes back in time. The restore point UI is future work. See `docs/design-going-back-in-time.md` for the full design. There is no timeline branching — one timeline, always.
 
-Phase 6 (in progress) adds multi-vessel recording via a recording tree that tracks vessel splits and merges. See `docs/design-mission-tree.md` for the full design.
+Phase 6 (complete) adds multi-vessel recording via a recording tree that tracks vessel splits and merges. See `docs/design-mission-tree.md` for the full design.
 
 The architecture naturally enables use cases like racing your own ghosts, but the mod does not include dedicated racing modes, AI playback, or multiplayer features. Those are gameplay possibilities that emerge from the core recording/playback system.
 
@@ -854,4 +857,4 @@ The architecture naturally enables use cases like racing your own ghosts, but th
 
 ---
 
-*Document version: 0.8 — Phase 6 in progress (recording tree / multi-vessel recording)*
+*Document version: 0.9 — Phase 6 complete (recording tree / multi-vessel recording)*

@@ -496,7 +496,7 @@ When starting a new session to continue this work:
 | Task 10: Tree-level resource tracking | Done | `e505523` | Tree-level delta computation, lump sum playback, budget integration, 15 tests |
 | Task 11: Backward compatibility + chain migration | Done | `1cba255` | Verification only — no production changes, 5 backward compat tests |
 | Task 12: Tree verbose logging | Done | `4c806c1` | 11 logging gaps filled across RecordingTree, ParsekFlight, ResourceBudget |
-| Task 13: Tree test coverage | **Next** | — | 18 non-vacuous tests + 3 synthetic tree recordings. Depends on 12 |
+| Task 13: Tree test coverage | Done | `70e4066` | 18 tests + 3 synthetic tree recordings, 1076 pass / 1 skip / 0 fail |
 
 ### Task 1: RecordingTree data model + serialization
 

@@ -78,11 +78,11 @@ namespace Parsek.Tests
         {
             var bp = new BranchPoint
             {
-                id = "bp001",
-                ut = 17050.5,
-                type = BranchPointType.Undock,
-                parentRecordingIds = new List<string> { "rec_parent" },
-                childRecordingIds = new List<string> { "rec_child1", "rec_child2" }
+                Id = "bp001",
+                UT = 17050.5,
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { "rec_parent" },
+                ChildRecordingIds = new List<string> { "rec_child1", "rec_child2" }
             };
 
             var node = new ConfigNode("BRANCH_POINT");
@@ -90,14 +90,14 @@ namespace Parsek.Tests
 
             var restored = RecordingTree.LoadBranchPointFrom(node);
 
-            Assert.Equal("bp001", restored.id);
-            Assert.Equal(17050.5, restored.ut);
-            Assert.Equal(BranchPointType.Undock, restored.type);
-            Assert.Single(restored.parentRecordingIds);
-            Assert.Equal("rec_parent", restored.parentRecordingIds[0]);
-            Assert.Equal(2, restored.childRecordingIds.Count);
-            Assert.Equal("rec_child1", restored.childRecordingIds[0]);
-            Assert.Equal("rec_child2", restored.childRecordingIds[1]);
+            Assert.Equal("bp001", restored.Id);
+            Assert.Equal(17050.5, restored.UT);
+            Assert.Equal(BranchPointType.Undock, restored.Type);
+            Assert.Single(restored.ParentRecordingIds);
+            Assert.Equal("rec_parent", restored.ParentRecordingIds[0]);
+            Assert.Equal(2, restored.ChildRecordingIds.Count);
+            Assert.Equal("rec_child1", restored.ChildRecordingIds[0]);
+            Assert.Equal("rec_child2", restored.ChildRecordingIds[1]);
         }
 
         [Fact]
@@ -105,11 +105,11 @@ namespace Parsek.Tests
         {
             var bp = new BranchPoint
             {
-                id = "bp_dock",
-                ut = 18000.0,
-                type = BranchPointType.Dock,
-                parentRecordingIds = new List<string> { "rec_a", "rec_b" },
-                childRecordingIds = new List<string> { "rec_merged" }
+                Id = "bp_dock",
+                UT = 18000.0,
+                Type = BranchPointType.Dock,
+                ParentRecordingIds = new List<string> { "rec_a", "rec_b" },
+                ChildRecordingIds = new List<string> { "rec_merged" }
             };
 
             var node = new ConfigNode("BRANCH_POINT");
@@ -117,13 +117,13 @@ namespace Parsek.Tests
 
             var restored = RecordingTree.LoadBranchPointFrom(node);
 
-            Assert.Equal("bp_dock", restored.id);
-            Assert.Equal(BranchPointType.Dock, restored.type);
-            Assert.Equal(2, restored.parentRecordingIds.Count);
-            Assert.Equal("rec_a", restored.parentRecordingIds[0]);
-            Assert.Equal("rec_b", restored.parentRecordingIds[1]);
-            Assert.Single(restored.childRecordingIds);
-            Assert.Equal("rec_merged", restored.childRecordingIds[0]);
+            Assert.Equal("bp_dock", restored.Id);
+            Assert.Equal(BranchPointType.Dock, restored.Type);
+            Assert.Equal(2, restored.ParentRecordingIds.Count);
+            Assert.Equal("rec_a", restored.ParentRecordingIds[0]);
+            Assert.Equal("rec_b", restored.ParentRecordingIds[1]);
+            Assert.Single(restored.ChildRecordingIds);
+            Assert.Equal("rec_merged", restored.ChildRecordingIds[0]);
         }
 
         // --- TerminalState enum ---
@@ -252,11 +252,11 @@ namespace Parsek.Tests
 
             tree.BranchPoints.Add(new BranchPoint
             {
-                id = "BP1",
-                ut = 200.0,
-                type = BranchPointType.Undock,
-                parentRecordingIds = new List<string> { "R1" },
-                childRecordingIds = new List<string> { "R2", "R3" }
+                Id = "BP1",
+                UT = 200.0,
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { "R1" },
+                ChildRecordingIds = new List<string> { "R2", "R3" }
             });
 
             var node = new ConfigNode("RECORDING_TREE");
@@ -271,14 +271,14 @@ namespace Parsek.Tests
 
             Assert.Single(restored.BranchPoints);
             var bp = restored.BranchPoints[0];
-            Assert.Equal("BP1", bp.id);
-            Assert.Equal(200.0, bp.ut);
-            Assert.Equal(BranchPointType.Undock, bp.type);
-            Assert.Single(bp.parentRecordingIds);
-            Assert.Equal("R1", bp.parentRecordingIds[0]);
-            Assert.Equal(2, bp.childRecordingIds.Count);
-            Assert.Contains("R2", bp.childRecordingIds);
-            Assert.Contains("R3", bp.childRecordingIds);
+            Assert.Equal("BP1", bp.Id);
+            Assert.Equal(200.0, bp.UT);
+            Assert.Equal(BranchPointType.Undock, bp.Type);
+            Assert.Single(bp.ParentRecordingIds);
+            Assert.Equal("R1", bp.ParentRecordingIds[0]);
+            Assert.Equal(2, bp.ChildRecordingIds.Count);
+            Assert.Contains("R2", bp.ChildRecordingIds);
+            Assert.Contains("R3", bp.ChildRecordingIds);
         }
 
         // --- Recording tree with dock merge ---
@@ -340,19 +340,19 @@ namespace Parsek.Tests
 
             tree.BranchPoints.Add(new BranchPoint
             {
-                id = "BP1",
-                ut = 200.0,
-                type = BranchPointType.Undock,
-                parentRecordingIds = new List<string> { "R1" },
-                childRecordingIds = new List<string> { "R2", "R3" }
+                Id = "BP1",
+                UT = 200.0,
+                Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { "R1" },
+                ChildRecordingIds = new List<string> { "R2", "R3" }
             });
             tree.BranchPoints.Add(new BranchPoint
             {
-                id = "BP2",
-                ut = 400.0,
-                type = BranchPointType.Dock,
-                parentRecordingIds = new List<string> { "R2", "R3" },
-                childRecordingIds = new List<string> { "R4" }
+                Id = "BP2",
+                UT = 400.0,
+                Type = BranchPointType.Dock,
+                ParentRecordingIds = new List<string> { "R2", "R3" },
+                ChildRecordingIds = new List<string> { "R4" }
             });
 
             var node = new ConfigNode("RECORDING_TREE");
@@ -378,19 +378,19 @@ namespace Parsek.Tests
             // Branch point checks
             Assert.Equal(2, restored.BranchPoints.Count);
 
-            var bp1 = restored.BranchPoints.Find(b => b.id == "BP1");
+            var bp1 = restored.BranchPoints.Find(b => b.Id == "BP1");
             Assert.NotNull(bp1);
-            Assert.Equal(BranchPointType.Undock, bp1.type);
-            Assert.Single(bp1.parentRecordingIds);
-            Assert.Equal("R1", bp1.parentRecordingIds[0]);
-            Assert.Equal(2, bp1.childRecordingIds.Count);
+            Assert.Equal(BranchPointType.Undock, bp1.Type);
+            Assert.Single(bp1.ParentRecordingIds);
+            Assert.Equal("R1", bp1.ParentRecordingIds[0]);
+            Assert.Equal(2, bp1.ChildRecordingIds.Count);
 
-            var bp2 = restored.BranchPoints.Find(b => b.id == "BP2");
+            var bp2 = restored.BranchPoints.Find(b => b.Id == "BP2");
             Assert.NotNull(bp2);
-            Assert.Equal(BranchPointType.Dock, bp2.type);
-            Assert.Equal(2, bp2.parentRecordingIds.Count);
-            Assert.Single(bp2.childRecordingIds);
-            Assert.Equal("R4", bp2.childRecordingIds[0]);
+            Assert.Equal(BranchPointType.Dock, bp2.Type);
+            Assert.Equal(2, bp2.ParentRecordingIds.Count);
+            Assert.Single(bp2.ChildRecordingIds);
+            Assert.Equal("R4", bp2.ChildRecordingIds[0]);
         }
 
         // --- Terminal state fields ---
@@ -906,9 +906,9 @@ namespace Parsek.Tests
         {
             var bp = new BranchPoint
             {
-                id = "bp_empty",
-                ut = 1000.0,
-                type = BranchPointType.EVA
+                Id = "bp_empty",
+                UT = 1000.0,
+                Type = BranchPointType.EVA
                 // parentRecordingIds and childRecordingIds left as empty lists
             };
 
@@ -917,12 +917,12 @@ namespace Parsek.Tests
 
             var restored = RecordingTree.LoadBranchPointFrom(node);
 
-            Assert.Equal("bp_empty", restored.id);
-            Assert.Equal(BranchPointType.EVA, restored.type);
-            Assert.NotNull(restored.parentRecordingIds);
-            Assert.Empty(restored.parentRecordingIds);
-            Assert.NotNull(restored.childRecordingIds);
-            Assert.Empty(restored.childRecordingIds);
+            Assert.Equal("bp_empty", restored.Id);
+            Assert.Equal(BranchPointType.EVA, restored.Type);
+            Assert.NotNull(restored.ParentRecordingIds);
+            Assert.Empty(restored.ParentRecordingIds);
+            Assert.NotNull(restored.ChildRecordingIds);
+            Assert.Empty(restored.ChildRecordingIds);
         }
 
         [Fact]
@@ -952,6 +952,196 @@ namespace Parsek.Tests
 
             var restored = RecordingTree.Load(node);
             Assert.Null(restored.ActiveRecordingId);
+        }
+
+        // ============================================================
+        // B5: RebuildBackgroundMap — realistic multi-level integration
+        // ============================================================
+
+        [Fact]
+        public void RebuildBackgroundMap_MultiLevel_AllExcluded_ThenOneIncluded()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree_ml",
+                TreeName = "MultiLevel BG",
+                RootRecordingId = "root",
+                ActiveRecordingId = "grandchild2"
+            };
+
+            // root (pid=1, has child) — excluded: has child branch
+            tree.Recordings["root"] = new RecordingStore.Recording
+            {
+                RecordingId = "root",
+                VesselPersistentId = 1,
+                ChildBranchPointId = "bp1",
+                TerminalStateValue = null
+            };
+            // child1 (pid=2, Destroyed) — excluded: terminated
+            tree.Recordings["child1"] = new RecordingStore.Recording
+            {
+                RecordingId = "child1",
+                VesselPersistentId = 2,
+                TerminalStateValue = TerminalState.Destroyed,
+                ParentBranchPointId = "bp1"
+            };
+            // child2 (pid=3, has child bp2) — excluded: has child branch
+            tree.Recordings["child2"] = new RecordingStore.Recording
+            {
+                RecordingId = "child2",
+                VesselPersistentId = 3,
+                ChildBranchPointId = "bp2",
+                TerminalStateValue = null,
+                ParentBranchPointId = "bp1"
+            };
+            // grandchild1 (pid=4, Docked) — excluded: terminated
+            tree.Recordings["grandchild1"] = new RecordingStore.Recording
+            {
+                RecordingId = "grandchild1",
+                VesselPersistentId = 4,
+                TerminalStateValue = TerminalState.Docked,
+                ParentBranchPointId = "bp2"
+            };
+            // grandchild2 (pid=5, no terminal, no child) — excluded: is ActiveRecordingId
+            tree.Recordings["grandchild2"] = new RecordingStore.Recording
+            {
+                RecordingId = "grandchild2",
+                VesselPersistentId = 5,
+                TerminalStateValue = null,
+                ParentBranchPointId = "bp2"
+            };
+
+            tree.RebuildBackgroundMap();
+
+            // Every recording excluded for a different reason
+            Assert.Empty(tree.BackgroundMap);
+
+            // Now change ActiveRecordingId so grandchild2 is no longer excluded
+            tree.ActiveRecordingId = "root";
+            tree.RebuildBackgroundMap();
+
+            Assert.Single(tree.BackgroundMap);
+            Assert.True(tree.BackgroundMap.ContainsKey(5));
+            Assert.Equal("grandchild2", tree.BackgroundMap[5]);
+        }
+
+        // ============================================================
+        // D1: Empty tree — query methods safe
+        // ============================================================
+
+        [Fact]
+        public void EmptyTree_QueryMethods_Safe()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree_empty_q",
+                TreeName = "Empty Query",
+                RootRecordingId = ""
+            };
+
+            var spawnable = tree.GetSpawnableLeaves();
+            var all = tree.GetAllLeaves();
+            tree.RebuildBackgroundMap();
+
+            Assert.NotNull(spawnable);
+            Assert.Empty(spawnable);
+            Assert.NotNull(all);
+            Assert.Empty(all);
+            Assert.Empty(tree.BackgroundMap);
+        }
+
+        // ============================================================
+        // D2: Load with unknown fields — forward compat
+        // ============================================================
+
+        [Fact]
+        public void Load_UnknownFields_SilentlyIgnored()
+        {
+            // Build a ConfigNode with standard fields + unknown future fields
+            var node = new ConfigNode("RECORDING_TREE");
+            node.AddValue("id", "tree_fwd");
+            node.AddValue("treeName", "Forward Compat");
+            node.AddValue("rootRecordingId", "rec_fwd");
+            node.AddValue("preTreeFunds", "50000");
+            node.AddValue("preTreeScience", "100");
+            node.AddValue("preTreeRep", "50");
+            node.AddValue("deltaFunds", "-2000");
+            node.AddValue("deltaScience", "10");
+            node.AddValue("deltaRep", "-3");
+            node.AddValue("resourcesApplied", "False");
+
+            // Future/unknown fields
+            node.AddValue("futureFeatureFlag", "true");
+            node.AddValue("newMetric", "42.5");
+            node.AddValue("experimentalMode", "quantum");
+
+            // Add a recording
+            var recNode = node.AddNode("RECORDING");
+            recNode.AddValue("recordingId", "rec_fwd");
+            recNode.AddValue("vesselName", "Future Ship");
+            recNode.AddValue("vesselPersistentId", "999");
+            recNode.AddValue("recordingFormatVersion", "4");
+            recNode.AddValue("ghostGeometryVersion", "1");
+            recNode.AddValue("loopPlayback", "False");
+            recNode.AddValue("loopPauseSeconds", "10");
+            recNode.AddValue("ghostGeometryStrategy", "stub_v1");
+            recNode.AddValue("ghostGeometryProbeStatus", "unknown");
+            recNode.AddValue("ghostGeometryAvailable", "False");
+            recNode.AddValue("lastResIdx", "-1");
+            recNode.AddValue("pointCount", "0");
+
+            var tree = RecordingTree.Load(node);
+
+            // Standard fields loaded correctly
+            Assert.Equal("tree_fwd", tree.Id);
+            Assert.Equal("Forward Compat", tree.TreeName);
+            Assert.Equal("rec_fwd", tree.RootRecordingId);
+            Assert.Equal(50000, tree.PreTreeFunds);
+            Assert.Equal(-2000, tree.DeltaFunds);
+            Assert.False(tree.ResourcesApplied);
+
+            // Recording loaded correctly despite unknown fields on parent
+            Assert.Single(tree.Recordings);
+            Assert.True(tree.Recordings.ContainsKey("rec_fwd"));
+            Assert.Equal("Future Ship", tree.Recordings["rec_fwd"].VesselName);
+        }
+
+        // ============================================================
+        // D5: BackgroundMap after save/load round-trip
+        // ============================================================
+
+        [Fact]
+        public void BackgroundMap_PopulatedAfterSaveLoadRoundTrip()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree_bg_rt",
+                TreeName = "BG Round-Trip",
+                RootRecordingId = "rec_bg",
+                ActiveRecordingId = null // no active recording
+            };
+
+            // One background-eligible recording: non-active, non-terminated, no child, pid=42
+            tree.Recordings["rec_bg"] = new RecordingStore.Recording
+            {
+                RecordingId = "rec_bg",
+                VesselPersistentId = 42,
+                VesselName = "BG Ship",
+                TerminalStateValue = null,
+                ChildBranchPointId = null,
+                ExplicitStartUT = 100.0,
+                ExplicitEndUT = 200.0
+            };
+
+            // Save
+            var node = new ConfigNode("RECORDING_TREE");
+            tree.Save(node);
+
+            // Load — RebuildBackgroundMap should be called during Load
+            var restored = RecordingTree.Load(node);
+
+            Assert.True(restored.BackgroundMap.ContainsKey(42));
+            Assert.Equal("rec_bg", restored.BackgroundMap[42]);
         }
     }
 }

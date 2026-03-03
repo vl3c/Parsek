@@ -355,7 +355,7 @@ namespace Parsek
             return parsedNames;
         }
 
-        private static string[] ParseJettisonNames(string rawNames)
+        internal static string[] ParseJettisonNames(string rawNames)
         {
             if (string.IsNullOrWhiteSpace(rawNames))
                 return Array.Empty<string>();
@@ -1773,8 +1773,10 @@ namespace Parsek
                         ulong diagnosticKey = EncodeEngineKey(p.persistentId, m);
                         if (loggedAnimateGenericClassificationMisses.Add(diagnosticKey))
                         {
+                            string fields = DescribeModuleFields(animateModule);
+                            if (fields.Length > 200) fields = fields.Substring(0, 200) + "...";
                             ParsekLog.Verbose("Recorder", $"AnimateGeneric: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
-                                $"midx={m} anim='{animateModule.animationName}'; fields=[{DescribeModuleFields(animateModule)}]");
+                                $"midx={m} anim='{animateModule.animationName}'; fields=[{fields}]");
                         }
                         continue;
                     }
