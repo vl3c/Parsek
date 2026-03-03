@@ -10,6 +10,7 @@ namespace Parsek.Tests.Generators
     {
         private readonly List<ConfigNode> recordings = new List<ConfigNode>();
         private readonly List<RecordingBuilder> v3Builders = new List<RecordingBuilder>();
+        private readonly List<ConfigNode> trees = new List<ConfigNode>();
         private readonly List<(string original, string replacement)> crewReplacements
             = new List<(string, string)>();
         private readonly List<Milestone> milestones = new List<Milestone>();
@@ -34,6 +35,16 @@ namespace Parsek.Tests.Generators
             {
                 recordings.Add(builder.Build());
             }
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a pre-built RECORDING_TREE ConfigNode to be emitted in the scenario.
+        /// The node should be built via RecordingTree.Save().
+        /// </summary>
+        public ScenarioWriter AddTree(ConfigNode treeNode)
+        {
+            trees.Add(treeNode);
             return this;
         }
 
@@ -75,6 +86,9 @@ namespace Parsek.Tests.Generators
 
             foreach (var rec in recordings)
                 node.AddNode(rec);
+
+            foreach (var tree in trees)
+                node.AddNode("RECORDING_TREE", tree);
 
             if (crewReplacements.Count > 0)
             {

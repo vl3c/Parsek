@@ -14,7 +14,7 @@ Like git, you can go back to any earlier point and start new work. Existing reco
 
 - Position recording with geographic coordinates and adaptive sampling
 - Kinematic ghost playback with opaque vessel replicas
-- Context-aware merge dialog (Keep Vessel / Recover / Discard)
+- Context-aware merge dialog (Merge to Timeline / Discard)
 - Vessel persistence with deferred spawn, crew reservation, and resource deltas
 - Orbital/time-warp recording with analytical Keplerian orbits
 - Auto-recording on launch and EVA
@@ -101,6 +101,38 @@ See `docs/design-going-back-in-time.md` for full design rationale.
 
 ---
 
+## Phase 6: Recording Tree (Multi-Vessel Recording) — Complete
+
+Record entire multi-vessel missions as a single unit. When the player undocks, goes EVA, or docks, Parsek tracks all resulting vessels simultaneously. On revert, all vessels spawn at their correct positions.
+
+**Design:** `docs/design-mission-tree.md`
+
+The recording tree builds on top of the existing chain system. Each node in the tree is a vessel's recording, and each recording can itself be a chain of segments (atmospheric/SOI phase splits, dock sequences). The tree adds a new layer for tracking vessel splits and merges — it does not replace chains.
+
+**New components:** `RecordingTree` (rooted DAG), `BranchPoint` (split/merge linkage), `BackgroundRecorder` (on-rails capture), `TerminalState` (8 end conditions), `SurfacePosition` (landed/splashed state).
+
+**13 tasks completed across ~21,000 lines:**
+
+| Task | Summary |
+|------|---------|
+| 1. Data model + serialization | RecordingTree, BranchPoint, SurfacePosition, TerminalState structs. ConfigNode round-trip. |
+| 2. Vessel switch refactoring | Tree-aware TransitionToBackground / PromoteFromBackground decisions. |
+| 3. Background recording | Dual-mode: on-rails (OrbitSegment/SurfacePosition) + loaded/physics (full trajectory + part events). |
+| 4. Split event detection | Undock/EVA/joint break branching, debris filter, resume-on-false-alarm. |
+| 5. Merge event detection | Dock/board merges, dual-lookup for initiator/target, dockingInProgress guard. |
+| 6. Terminal event detection | Deferred destruction check, Destroyed/Recovered/Orbiting/Landed/Splashed/SubOrbital states. |
+| 7. Tree commit + leaf spawn | CommitTreeFlight, CommitTreeSceneExit, multi-vessel leaf spawning, tree persistence. |
+| 8. Tree-aware merge dialog | ShowTreeDialog, revert vs scene-exit branching, per-vessel situation display. |
+| 9. Tree ghost playback | Background orbit/surface ghosts, spawn suppression, surface rotation. |
+| 10. Tree-level resource tracking | Tree-level delta computation, lump sum playback, budget integration. |
+| 11. Backward compatibility | Verification only — existing saves load correctly, no production changes needed. |
+| 12. Tree verbose logging | 11 logging gaps filled across RecordingTree, ParsekFlight, ResourceBudget. |
+| 13. Tree test coverage | 18 non-vacuous tests + 3 synthetic tree recordings for in-game validation. |
+
+**Test coverage:** 1076 tests pass, 1 skipped, 0 failures.
+
+---
+
 ## Future
 
 ### Take Control stabilization
@@ -108,11 +140,8 @@ Making "jump into a ghost and fly it" reliable is desirable but creates paradox 
 
 Current status: experimental button exists in UI, not recommended for normal play.
 
-### Multiple concurrent recordings
-Playback already supports multiple simultaneous ghosts. Recording is currently serial (one vessel at a time). Enabling concurrent recording requires:
-- UI for managing multiple active recordings
-- Conflict detection (same vessel recorded twice)
-- Merge ordering when multiple recordings commit at once
+### Camera follow for ghost vessels
+Allow the player to move the camera to a recorded vessel during playback. Clicking a ghost (or selecting it from the UI) anchors the camera on that vessel, letting the player watch the mission from that perspective without interrupting their current flight.
 
 ### Additional part event coverage
 - Control surface deflection (continuous float — thousands of events per flight, unclear visual value)

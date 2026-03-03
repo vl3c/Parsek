@@ -234,12 +234,17 @@ namespace Parsek
                 flight.ClearRecording();
             }
 
-            GUI.enabled = !flight.IsRecording && !flight.IsPlaying
-                && flight.recording.Count >= 2 && !flight.HasActiveChain;
+            bool canCommitStandalone = !flight.IsRecording && !flight.IsPlaying
+                && flight.recording.Count >= 2 && !flight.HasActiveChain && !flight.HasActiveTree;
+            bool canCommitTree = flight.HasActiveTree;
+            GUI.enabled = canCommitStandalone || canCommitTree;
             if (GUILayout.Button("Commit Flight"))
             {
                 ParsekLog.Verbose("UI", "Commit Flight button clicked");
-                flight.CommitFlight();
+                if (flight.HasActiveTree)
+                    flight.CommitTreeFlight();
+                else
+                    flight.CommitFlight();
             }
 
             GUI.enabled = activeGhosts > 0;
@@ -291,7 +296,8 @@ namespace Parsek
         {
             var budget = ResourceBudget.ComputeTotal(
                 RecordingStore.CommittedRecordings,
-                MilestoneStore.Milestones);
+                MilestoneStore.Milestones,
+                RecordingStore.CommittedTrees);
 
             if (budget.reservedFunds <= 0 && budget.reservedScience <= 0 && budget.reservedReputation <= 0)
                 return;
@@ -362,7 +368,8 @@ namespace Parsek
         {
             var budget = ResourceBudget.ComputeTotal(
                 RecordingStore.CommittedRecordings,
-                MilestoneStore.Milestones);
+                MilestoneStore.Milestones,
+                RecordingStore.CommittedTrees);
 
             if (budget.reservedFunds <= 0 && budget.reservedScience <= 0 && budget.reservedReputation <= 0)
                 return;
@@ -1260,6 +1267,7 @@ namespace Parsek
 
         internal static string FormatDuration(double seconds)
         {
+            if (double.IsNaN(seconds) || double.IsInfinity(seconds) || seconds < 0) seconds = 0;
             int total = (int)seconds;
             if (total < 60) return $"{total}s";
             if (total < 3600) return $"{total / 60}m {total % 60}s";

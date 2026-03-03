@@ -81,6 +81,41 @@ namespace Parsek
             public string GhostGeometryCaptureStrategy = "stub_v1";
             public string GhostGeometryProbeStatus = "uninitialized";
 
+            // --- Tree linkage (null for legacy/standalone recordings) ---
+            public string TreeId;                          // null = standalone (pre-tree recording)
+            public uint VesselPersistentId;                // 0 = not set
+
+            // --- Terminal state ---
+            public TerminalState? TerminalStateValue;      // null = not yet terminated (still recording or legacy)
+
+            // Terminal orbit (for Orbiting/SubOrbital terminal state)
+            // Stored as Keplerian elements to avoid runtime Orbit object dependency in tests.
+            public double TerminalOrbitInclination;
+            public double TerminalOrbitEccentricity;
+            public double TerminalOrbitSemiMajorAxis;
+            public double TerminalOrbitLAN;
+            public double TerminalOrbitArgumentOfPeriapsis;
+            public double TerminalOrbitMeanAnomalyAtEpoch;
+            public double TerminalOrbitEpoch;
+            public string TerminalOrbitBody;
+
+            // Terminal surface position (for Landed/Splashed terminal state)
+            public SurfacePosition? TerminalPosition;      // null if not landed/splashed
+
+            // Background recording: surface position for landed/splashed vessels
+            public SurfacePosition? SurfacePos;            // null if not a background landed vessel
+
+            // Branch linkage
+            public string ParentBranchPointId;             // null for root recording
+            public string ChildBranchPointId;              // null for leaf recordings
+
+            // Explicit UT range for recordings that may have no trajectory points
+            // (background-only recordings). When Points.Count > 0, these are ignored
+            // in favor of Points[0].ut / Points[last].ut.
+            // Default is double.NaN (not set). 0.0 is a valid KSP UT.
+            public double ExplicitStartUT = double.NaN;
+            public double ExplicitEndUT = double.NaN;
+
             // Cached recording statistics (transient, recomputed on demand).
             // Tracks point count at cache time so continuation (which appends
             // points after commit) automatically invalidates the cache.
@@ -107,9 +142,12 @@ namespace Parsek
             public bool TakenControl;               // True after player took control of ghost mid-playback
             public uint SpawnedVesselPersistentId;  // persistentId of spawned vessel (0 = not yet spawned)
             public int SpawnAttempts;               // Number of failed spawn attempts (give up after 3)
+            public int SceneExitSituation = -1;     // Vessel.Situations at scene exit (-1 = still in flight/unknown)
 
-            public double StartUT => Points.Count > 0 ? Points[0].ut : 0;
-            public double EndUT => Points.Count > 0 ? Points[Points.Count - 1].ut : 0;
+            public double StartUT => Points.Count > 0 ? Points[0].ut :
+                                     !double.IsNaN(ExplicitStartUT) ? ExplicitStartUT : 0.0;
+            public double EndUT => Points.Count > 0 ? Points[Points.Count - 1].ut :
+                                   !double.IsNaN(ExplicitEndUT) ? ExplicitEndUT : 0.0;
 
             /// <summary>
             /// Copies persistence/capture artifacts from a stop-time captured recording.
@@ -151,6 +189,23 @@ namespace Parsek
                 SegmentPhase = source.SegmentPhase;
                 SegmentBodyName = source.SegmentBodyName;
                 PlaybackEnabled = source.PlaybackEnabled;
+                TreeId = source.TreeId;
+                VesselPersistentId = source.VesselPersistentId;
+                TerminalStateValue = source.TerminalStateValue;
+                TerminalOrbitInclination = source.TerminalOrbitInclination;
+                TerminalOrbitEccentricity = source.TerminalOrbitEccentricity;
+                TerminalOrbitSemiMajorAxis = source.TerminalOrbitSemiMajorAxis;
+                TerminalOrbitLAN = source.TerminalOrbitLAN;
+                TerminalOrbitArgumentOfPeriapsis = source.TerminalOrbitArgumentOfPeriapsis;
+                TerminalOrbitMeanAnomalyAtEpoch = source.TerminalOrbitMeanAnomalyAtEpoch;
+                TerminalOrbitEpoch = source.TerminalOrbitEpoch;
+                TerminalOrbitBody = source.TerminalOrbitBody;
+                TerminalPosition = source.TerminalPosition;
+                SurfacePos = source.SurfacePos;
+                ParentBranchPointId = source.ParentBranchPointId;
+                ChildBranchPointId = source.ChildBranchPointId;
+                ExplicitStartUT = source.ExplicitStartUT;
+                ExplicitEndUT = source.ExplicitEndUT;
             }
         }
 
@@ -170,9 +225,18 @@ namespace Parsek
         // Merged to timeline — these auto-playback during flight
         private static List<Recording> committedRecordings = new List<Recording>();
 
+        // Committed recording trees (parallel storage — tree recordings also appear in committedRecordings)
+        private static List<RecordingTree> committedTrees = new List<RecordingTree>();
+
+        // Pending tree awaiting merge dialog (Task 8) or auto-commit
+        private static RecordingTree pendingTree;
+
         public static bool HasPending => pendingRecording != null;
         public static Recording Pending => pendingRecording;
         public static List<Recording> CommittedRecordings => committedRecordings;
+        public static List<RecordingTree> CommittedTrees => committedTrees;
+        public static bool HasPendingTree => pendingTree != null;
+        public static RecordingTree PendingTree => pendingTree;
 
         public static void StashPending(List<TrajectoryPoint> points, string vesselName,
             List<OrbitSegment> orbitSegments = null,
@@ -222,6 +286,8 @@ namespace Parsek
             double endUT = pendingRecording.EndUT;
             pendingRecording = null;
 
+            ResourceBudget.Invalidate();
+
             // Capture a game state baseline at each commit (single funnel point)
             GameStateStore.CaptureBaselineIfNeeded();
 
@@ -240,6 +306,7 @@ namespace Parsek
             DeleteRecordingFiles(pendingRecording);
             Log($"[Parsek] Discarded pending recording from {pendingRecording.VesselName}");
             pendingRecording = null;
+            ResourceBudget.Invalidate();
         }
 
         public static void ClearCommitted()
@@ -248,7 +315,9 @@ namespace Parsek
             for (int i = 0; i < committedRecordings.Count; i++)
                 DeleteRecordingFiles(committedRecordings[i]);
             committedRecordings.Clear();
-            Log($"[Parsek] Cleared {count} committed recordings");
+            committedTrees.Clear();
+            ResourceBudget.Invalidate();
+            Log($"[Parsek] Cleared {count} committed recordings and all trees");
         }
 
         public static void Clear()
@@ -256,8 +325,96 @@ namespace Parsek
             if (pendingRecording != null)
                 DeleteRecordingFiles(pendingRecording);
             pendingRecording = null;
+            pendingTree = null;
             ClearCommitted();
             Log("[Parsek] All recordings cleared");
+        }
+
+        /// <summary>
+        /// Commits a recording tree directly to the timeline.
+        /// Adds all recordings to CommittedRecordings (for ghost playback)
+        /// and the tree itself to CommittedTrees (for tree-specific queries).
+        /// </summary>
+        public static void CommitTree(RecordingTree tree)
+        {
+            if (tree == null) return;
+
+            // Duplicate guard: skip if tree with same ID already committed
+            for (int i = 0; i < committedTrees.Count; i++)
+            {
+                if (committedTrees[i].Id == tree.Id)
+                {
+                    Log($"[Parsek] WARNING: Tree '{tree.Id}' already committed — skipping duplicate");
+                    return;
+                }
+            }
+
+            // Add all tree recordings to committedRecordings (enables ghost playback)
+            foreach (var rec in tree.Recordings.Values)
+            {
+                committedRecordings.Add(rec);
+            }
+
+            committedTrees.Add(tree);
+            Log($"[Parsek] Committed tree '{tree.TreeName}' ({tree.Recordings.Count} recordings). " +
+                $"Total committed: {committedRecordings.Count} recordings, {committedTrees.Count} trees");
+
+            ResourceBudget.Invalidate();
+
+            // Capture a game state baseline at each commit
+            GameStateStore.CaptureBaselineIfNeeded();
+
+            // Create a milestone bundling game state events since the previous milestone
+            double endUT = 0;
+            foreach (var rec in tree.Recordings.Values)
+            {
+                double recEnd = rec.EndUT;
+                if (recEnd > endUT) endUT = recEnd;
+            }
+            MilestoneStore.CreateMilestone(tree.Id, endUT);
+        }
+
+        /// <summary>
+        /// Stashes a finalized tree as pending (for merge dialog on revert).
+        /// </summary>
+        public static void StashPendingTree(RecordingTree tree)
+        {
+            pendingTree = tree;
+            if (tree != null)
+                Log($"[Parsek] Stashed pending tree '{tree.TreeName}' ({tree.Recordings.Count} recordings)");
+        }
+
+        /// <summary>
+        /// Commits the pending tree to the timeline.
+        /// </summary>
+        public static void CommitPendingTree()
+        {
+            if (pendingTree == null)
+            {
+                ParsekLog.Verbose("RecordingStore", "CommitPendingTree called with no pending tree");
+                return;
+            }
+
+            CommitTree(pendingTree);
+            pendingTree = null;
+        }
+
+        /// <summary>
+        /// Discards the pending tree and cleans up its recording files.
+        /// </summary>
+        public static void DiscardPendingTree()
+        {
+            if (pendingTree == null)
+            {
+                ParsekLog.Verbose("RecordingStore", "DiscardPendingTree called with no pending tree");
+                return;
+            }
+
+            foreach (var rec in pendingTree.Recordings.Values)
+                DeleteRecordingFiles(rec);
+            Log($"[Parsek] Discarded pending tree '{pendingTree.TreeName}'");
+            pendingTree = null;
+            ResourceBudget.Invalidate();
         }
 
         /// <summary>
@@ -543,6 +700,8 @@ namespace Parsek
         {
             pendingRecording = null;
             committedRecordings.Clear();
+            committedTrees.Clear();
+            pendingTree = null;
         }
 
         internal static void DeleteRecordingFiles(Recording rec)

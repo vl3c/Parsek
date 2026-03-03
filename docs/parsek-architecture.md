@@ -1,9 +1,9 @@
 # Parsek: Preliminary Architecture
 
 ## Document Status
-**Version:** 0.6
-**Phase:** Post-Phase 5 foundation (milestones, resource budgeting, action blocking implemented)
-**Last Updated:** February 2026
+**Version:** 0.9
+**Phase:** Phase 6 complete (recording tree / multi-vessel recording)
+**Last Updated:** March 2026
 
 ---
 
@@ -351,7 +351,7 @@ File format: `saves/<save>/Parsek/GameState/milestones.pgsm`
 
 #### ResourceBudget
 
-Pure static computation: `ComputeTotal(recordings, milestones)` returns `BudgetSummary` with `reservedFunds`, `reservedScience`, `reservedReputation`. Sums unreplayed recording costs (via `LastAppliedResourceIndex`) and unreplayed milestone event costs (via `LastReplayedEventIndex`). Fully replayed items contribute 0.
+Pure static computation: `ComputeTotal(recordings, milestones, trees)` returns `BudgetSummary` with `reservedFunds`, `reservedScience`, `reservedReputation`. Sums unreplayed recording costs (via `LastAppliedResourceIndex`), unreplayed milestone event costs (via `LastReplayedEventIndex`), and tree-level resource deltas (via `TreeCommittedFundsCost` etc., skipping trees where `ResourcesApplied=true`). Recordings with `TreeId != null` are excluded from per-recording sums — their costs are captured at the tree level instead.
 
 #### Action Blocking (Harmony Patches)
 
@@ -699,7 +699,7 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 - [x] Position recording with geographic coordinates (lat/lon/alt per body)
 - [x] Kinematic ghost playback (sphere, with map view markers)
 - [x] Single recording at a time
-- [x] Context-aware merge dialog (Keep Vessel / Recover / Discard)
+- [x] Context-aware merge dialog (Merge to Timeline / Discard)
 - [x] Persistence to save game via ScenarioModule
 - [x] Scene transition cleanup (`onGameSceneLoadRequested`)
 - [x] Basic UI panel (toolbar button)
@@ -809,6 +809,30 @@ All planned part event types are now implemented. 28 event types are recorded; m
 
 See `docs/design-going-back-in-time.md` for full design rationale. The mechanism is snapshot-based (like `git checkout`), not event-reversal-based. No timeline branching.
 
+### Phase 6: Recording Tree / Multi-Vessel Recording (Complete)
+
+Record entire multi-vessel missions as a single unit. Builds on top of the existing chain system — each tree node is a vessel's recording, which can itself be a chain of segments (atmospheric/SOI phase splits, dock sequences).
+
+**New source files:**
+- `RecordingTree.cs` — rooted DAG of recordings. Branches at undock/EVA, merges at dock/board. Save/Load serialization, background map, leaf queries.
+- `BranchPoint.cs` — links parent recording(s) to child recording(s) at split/merge events
+- `TerminalState.cs` — how a recording ended (Orbiting, Landed, Splashed, SubOrbital, Destroyed, Recovered, Docked, Boarded)
+- `SurfacePosition.cs` — background recording data for landed/splashed vessels
+- `BackgroundRecorder.cs` — dual-mode on-rails (OrbitSegment/SurfacePosition) + loaded/physics recording for non-active tree vessels
+
+**Modified source files:**
+- `ParsekFlight.cs` — tree commit flows (CommitTreeFlight, CommitTreeSceneExit), tree ghost playback, tree resource deltas, split/merge/terminal event handling
+- `FlightRecorder.cs` — vessel switch tree decisions, active/background transitions, tree-aware auto-recording
+- `MergeDialog.cs` — ShowTreeDialog with per-vessel situation display
+- `ParsekScenario.cs` — tree persistence (RECORDING_TREE ConfigNodes), tree resource deduction
+- `RecordingStore.cs` — CommitTree, StashPendingTree, DiscardPendingTree, tree storage
+- `ResourceBudget.cs` — ComputeTotal with tree-level delta integration
+- `Patches/PhysicsFramePatch.cs` — background recorder integration
+
+**Key design principle:** the tree is additive. Existing chains, per-segment loop control, per-recording resources, atmospheric/SOI phase splits, merge dialogs — all preserved. Nothing removed.
+
+**13 tasks completed.** 1076 tests pass. See `docs/design-mission-tree.md` for full design, task breakdown, and progress tracker.
+
 ---
 
 ## Scope
@@ -816,6 +840,8 @@ See `docs/design-going-back-in-time.md` for full design rationale. The mechanism
 Parsek is a **git-like recording system** for KSP missions. Players record flights sequentially, commit them to a single timeline, and they replay automatically as ghost vessels during future gameplay. Recordings are immutable — once committed, they play back exactly as flown.
 
 Phase 5 (foundation complete) adds milestones, resource budgeting, epoch isolation, and action blocking — the accounting layer that prevents paradoxes when the player goes back in time. The restore point UI is future work. See `docs/design-going-back-in-time.md` for the full design. There is no timeline branching — one timeline, always.
+
+Phase 6 (complete) adds multi-vessel recording via a recording tree that tracks vessel splits and merges. See `docs/design-mission-tree.md` for the full design.
 
 The architecture naturally enables use cases like racing your own ghosts, but the mod does not include dedicated racing modes, AI playback, or multiplayer features. Those are gameplay possibilities that emerge from the core recording/playback system.
 
@@ -827,7 +853,8 @@ The architecture naturally enables use cases like racing your own ghosts, but th
 2. **Ghost vessel rendering:** Opaque replica from prefab meshes with original materials. No shader modification.
 3. **SOI transitions:** Body name (`string BodyName`) per TrajectoryFrame. Naturally handles multi-body trajectories.
 4. **Recording file size:** External sidecar files (v4) — bulk data in `.prec` and `.craft` files, lightweight metadata in `.sfs`.
+5. **Recording tree is additive:** The tree layer builds on top of existing chains. Chain fields, per-segment loop/enable control, atmospheric/SOI phase splits, per-recording resource tracking, and chain merge dialogs are all preserved. The tree adds vessel split/merge tracking, not replaces existing infrastructure.
 
 ---
 
-*Document version: 1.4 — Phase 5 foundation (milestones, resource budget, epoch isolation, action blocking)*
+*Document version: 0.9 — Phase 6 complete (recording tree / multi-vessel recording)*
