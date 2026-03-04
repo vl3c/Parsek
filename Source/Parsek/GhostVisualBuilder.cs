@@ -129,6 +129,7 @@ namespace Parsek
         public List<ParticleSystem> smokeParticles = new List<ParticleSystem>();
         public TrailRenderer trailRenderer;
         public List<HeatMaterialState> glowMaterials = new List<HeatMaterialState>();
+        public List<Material> allClonedMaterials = new List<Material>();
         public float lastIntensity;
         public Vector3 lastVelocity;
     }
@@ -5553,6 +5554,7 @@ namespace Parsek
 
                         Material materialClone = new Material(source);
                         cloned[m] = materialClone;
+                        info.allClonedMaterials.Add(materialClone);
                         hasAnyMaterial = true;
 
                         string colorProperty = materialClone.HasProperty("_Color")
@@ -5625,7 +5627,11 @@ namespace Parsek
                     flameRenderer.maxParticleSize = 80f;
                     Shader additiveShader = Shader.Find("KSP/Particles/Additive");
                     if (additiveShader != null)
-                        flameRenderer.material = new Material(additiveShader);
+                    {
+                        var flameMat = new Material(additiveShader);
+                        flameRenderer.material = flameMat;
+                        info.allClonedMaterials.Add(flameMat);
+                    }
                 }
 
                 flame.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
@@ -5664,7 +5670,11 @@ namespace Parsek
                     smokeRenderer.maxParticleSize = 80f;
                     Shader alphaBlendedShader = Shader.Find("KSP/Particles/Alpha Blended");
                     if (alphaBlendedShader != null)
-                        smokeRenderer.material = new Material(alphaBlendedShader);
+                    {
+                        var smokeMat = new Material(alphaBlendedShader);
+                        smokeRenderer.material = smokeMat;
+                        info.allClonedMaterials.Add(smokeMat);
+                    }
                 }
 
                 // Color over lifetime: orange -> dark gray -> transparent
@@ -5707,7 +5717,11 @@ namespace Parsek
 
                 Shader trailShader = Shader.Find("KSP/Particles/Additive");
                 if (trailShader != null)
-                    trail.material = new Material(trailShader);
+                {
+                    var trailMat = new Material(trailShader);
+                    trail.material = trailMat;
+                    info.allClonedMaterials.Add(trailMat);
+                }
 
                 // Color gradient: bright orange-white -> transparent
                 Gradient trailGradient = new Gradient();

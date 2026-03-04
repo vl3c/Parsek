@@ -193,4 +193,43 @@ namespace Parsek.Tests
         }
 
     }
+
+    public class AltitudeInterpolationTests
+    {
+        [Fact]
+        public void Midpoint_PreservesDoublePrecision()
+        {
+            double alt = TrajectoryMath.InterpolateAltitude(199000.0, 200000.0, 0.5f);
+            Assert.Equal(199500.0, alt, 6);
+        }
+
+        [Fact]
+        public void HighValues_NoFloatLoss()
+        {
+            double alt = TrajectoryMath.InterpolateAltitude(199999.123, 200000.456, 0.5f);
+            double expected = 199999.123 + (200000.456 - 199999.123) * 0.5;
+            Assert.Equal(expected, alt, 10);
+        }
+
+        [Fact]
+        public void ZeroFraction_ReturnsBefore()
+        {
+            double alt = TrajectoryMath.InterpolateAltitude(100000.0, 200000.0, 0f);
+            Assert.Equal(100000.0, alt);
+        }
+
+        [Fact]
+        public void OneFraction_ReturnsAfter()
+        {
+            double alt = TrajectoryMath.InterpolateAltitude(100000.0, 200000.0, 1f);
+            Assert.Equal(200000.0, alt);
+        }
+
+        [Fact]
+        public void NegativeAltitudes_Work()
+        {
+            double alt = TrajectoryMath.InterpolateAltitude(-500.0, 500.0, 0.5f);
+            Assert.Equal(0.0, alt, 6);
+        }
+    }
 }
