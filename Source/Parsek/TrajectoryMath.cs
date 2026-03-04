@@ -307,6 +307,11 @@ namespace Parsek
             return radius * c;
         }
 
+        internal static double InterpolateAltitude(double altBefore, double altAfter, float t)
+        {
+            return altBefore + (altAfter - altBefore) * t;
+        }
+
         /// <summary>
         /// Sanitize a quaternion by replacing NaN/Infinity with safe values
         /// and normalizing. Returns identity if magnitude is near-zero.

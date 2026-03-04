@@ -67,6 +67,34 @@ namespace Parsek
             public Vector3 lastInterpolatedVelocity;
             public string lastInterpolatedBodyName;
             public double lastInterpolatedAltitude;
+
+            public void SetInterpolated(InterpolationResult r)
+            {
+                lastInterpolatedVelocity = r.velocity;
+                lastInterpolatedBodyName = r.bodyName;
+                lastInterpolatedAltitude = r.altitude;
+            }
+        }
+
+        private struct InterpolationResult
+        {
+            public Vector3 velocity;
+            public string bodyName;
+            public double altitude;
+
+            public static readonly InterpolationResult Zero = new InterpolationResult
+            {
+                velocity = Vector3.zero,
+                bodyName = null,
+                altitude = 0
+            };
+
+            public InterpolationResult(Vector3 vel, string body, double alt)
+            {
+                velocity = vel;
+                bodyName = body;
+                altitude = alt;
+            }
         }
 
         private Dictionary<int, GhostPlaybackState> ghostStates = new Dictionary<int, GhostPlaybackState>();
@@ -3694,8 +3722,9 @@ namespace Parsek
                 return;
             }
 
+            InterpolationResult unused;
             InterpolateAndPosition(ghostObject, recording, orbitSegments,
-                ref lastPlaybackIndex, recordingTime, 10000);
+                ref lastPlaybackIndex, recordingTime, 10000, out unused);
         }
 
         #endregion
@@ -3873,8 +3902,10 @@ namespace Parsek
 
                         int playbackIdx = state.playbackIndex;
 
+                        InterpolationResult interpResult;
                         InterpolateAndPosition(state.ghost, rec.Points, rec.OrbitSegments,
-                            ref playbackIdx, currentUT, i * 10000, state);
+                            ref playbackIdx, currentUT, i * 10000, out interpResult);
+                        state.SetInterpolated(interpResult);
                         state.playbackIndex = playbackIdx;
 
                         ApplyPartEvents(i, rec, currentUT, state);
@@ -3901,6 +3932,8 @@ namespace Parsek
                             ParsekLog.Verbose("Flight", $"Ghost ENTERED range (background): #{i} \"{rec.VesselName}\" " +
                                 $"orbit={hasOrbitData} surface={hasSurfaceData}");
                         ApplyPartEvents(i, rec, currentUT, state);
+                        // Reentry FX: no InterpolationResult set for background-only path — bodyName stays null,
+                        // so UpdateReentryFx will no-op. Intentional: on-rails vessels don't reenter.
                         UpdateReentryFx(i, state, rec.VesselName);
                         if (rec.TreeId == null)
                             ApplyResourceDeltas(rec, currentUT);
@@ -4048,7 +4081,7 @@ namespace Parsek
                 PositionGhostAt(state.ghost, rec.Points[rec.Points.Count - 1]);
                 if (state != null && state.reentryFxInfo != null)
                 {
-                    // During pause, velocity is zero — intensity drops to 0 via smoothing
+                    // Only zero velocity — keep body/altitude from last frame for smooth intensity decay
                     state.lastInterpolatedVelocity = Vector3.zero;
                     UpdateReentryFx(recIdx, state, rec.VesselName);
                 }
@@ -4056,8 +4089,10 @@ namespace Parsek
             }
 
             int playbackIdx = state.playbackIndex;
+            InterpolationResult interpResult;
             InterpolateAndPosition(state.ghost, rec.Points, rec.OrbitSegments,
-                ref playbackIdx, loopUT, recIdx * 10000, state);
+                ref playbackIdx, loopUT, recIdx * 10000, out interpResult);
+            state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
 
             ApplyPartEvents(recIdx, rec, loopUT, state);
@@ -4420,6 +4455,13 @@ namespace Parsek
                     for (int i = 0; i < info.particleSystems.Count; i++)
                         if (info.particleSystems[i] != null)
                             Destroy(info.particleSystems[i].gameObject);
+            }
+
+            if (state.reentryFxInfo != null && state.reentryFxInfo.allClonedMaterials != null)
+            {
+                for (int i = 0; i < state.reentryFxInfo.allClonedMaterials.Count; i++)
+                    if (state.reentryFxInfo.allClonedMaterials[i] != null)
+                        Destroy(state.reentryFxInfo.allClonedMaterials[i]);
             }
 
             if (state.ghost != null)
@@ -5172,6 +5214,13 @@ namespace Parsek
             return applied;
         }
 
+        private void DriveReentryToZero(ReentryFxInfo info, int recIdx, string bodyName, double altitude, string vesselName)
+        {
+            DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, altitude, 0f, vesselName);
+            info.lastIntensity = 0f;
+            info.lastVelocity = Vector3.zero;
+        }
+
         private void UpdateReentryFx(int recIdx, GhostPlaybackState state, string vesselName)
         {
             var info = state.reentryFxInfo;
@@ -5183,9 +5232,7 @@ namespace Parsek
 
             if (string.IsNullOrEmpty(bodyName))
             {
-                DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, 0.0, 0f, vesselName);
-                info.lastIntensity = 0f;
-                info.lastVelocity = Vector3.zero;
+                DriveReentryToZero(info, recIdx, bodyName, 0.0, vesselName);
                 return;
             }
 
@@ -5194,9 +5241,7 @@ namespace Parsek
             {
                 ParsekLog.VerboseRateLimited("Flight", $"ghost-{recIdx}-nobody",
                     $"ReentryFx: body '{bodyName}' not found — skipping");
-                DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, altitude, 0f, vesselName);
-                info.lastIntensity = 0f;
-                info.lastVelocity = Vector3.zero;
+                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName);
                 return;
             }
 
@@ -5207,9 +5252,7 @@ namespace Parsek
             {
                 ParsekLog.VerboseRateLimited("Flight", $"ghost-{recIdx}-noatmo",
                     $"ReentryFx: body {bodyName} has no atmosphere — skipping");
-                DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, altitude, 0f, vesselName);
-                info.lastIntensity = 0f;
-                info.lastVelocity = Vector3.zero;
+                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName);
                 return;
             }
 
@@ -5217,9 +5260,7 @@ namespace Parsek
             {
                 ParsekLog.VerboseRateLimited("Flight", $"ghost-{recIdx}-aboveatmo",
                     $"ReentryFx: altitude {altitude:F0} above atmosphereDepth {body.atmosphereDepth:F0} — skipping");
-                DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, altitude, 0f, vesselName);
-                info.lastIntensity = 0f;
-                info.lastVelocity = Vector3.zero;
+                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName);
                 return;
             }
 
@@ -5229,9 +5270,7 @@ namespace Parsek
             {
                 ParsekLog.VerboseRateLimited("Flight", $"ghost-{recIdx}-badatmo",
                     $"ReentryFx: GetPressure/GetTemperature returned invalid value for ghost #{recIdx} — density fallback to 0");
-                DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, altitude, 0f, vesselName);
-                info.lastIntensity = 0f;
-                info.lastVelocity = Vector3.zero;
+                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName);
                 return;
             }
 
@@ -5240,9 +5279,7 @@ namespace Parsek
             {
                 ParsekLog.VerboseRateLimited("Flight", $"ghost-{recIdx}-baddensity",
                     $"ReentryFx: GetDensity returned invalid value for ghost #{recIdx} — density fallback to 0");
-                DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, altitude, 0f, vesselName);
-                info.lastIntensity = 0f;
-                info.lastVelocity = Vector3.zero;
+                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName);
                 return;
             }
 
@@ -5898,21 +5935,16 @@ namespace Parsek
             return ghost;
         }
 
-        void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points, ref int cachedIndex, double targetUT, GhostPlaybackState state = null)
+        void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points, ref int cachedIndex, double targetUT, out InterpolationResult interpResult)
         {
-            if (points == null || points.Count == 0) { if (state != null) { state.lastInterpolatedVelocity = Vector3.zero; state.lastInterpolatedBodyName = null; state.lastInterpolatedAltitude = 0; } ghost.SetActive(false); return; }
+            if (points == null || points.Count == 0) { interpResult = InterpolationResult.Zero; ghost.SetActive(false); return; }
 
             int indexBefore = TrajectoryMath.FindWaypointIndex(points, ref cachedIndex, targetUT);
 
             if (indexBefore < 0)
             {
                 PositionGhostAt(ghost, points[0]);
-                if (state != null)
-                {
-                    state.lastInterpolatedVelocity = points[0].velocity;
-                    state.lastInterpolatedBodyName = points[0].bodyName;
-                    state.lastInterpolatedAltitude = points[0].altitude;
-                }
+                interpResult = new InterpolationResult(points[0].velocity, points[0].bodyName, points[0].altitude);
                 return;
             }
 
@@ -5923,12 +5955,7 @@ namespace Parsek
             if (segmentDuration <= 0.0001)
             {
                 PositionGhostAt(ghost, before);
-                if (state != null)
-                {
-                    state.lastInterpolatedVelocity = before.velocity;
-                    state.lastInterpolatedBodyName = before.bodyName;
-                    state.lastInterpolatedAltitude = before.altitude;
-                }
+                interpResult = new InterpolationResult(before.velocity, before.bodyName, before.altitude);
                 return;
             }
 
@@ -5940,7 +5967,7 @@ namespace Parsek
             if (bodyBefore == null || bodyAfter == null)
             {
                 Log($"Could not find body: {(bodyBefore == null ? before.bodyName : after.bodyName)}");
-                if (state != null) { state.lastInterpolatedVelocity = Vector3.zero; state.lastInterpolatedBodyName = null; state.lastInterpolatedAltitude = 0; }
+                interpResult = InterpolationResult.Zero;
                 ghost.SetActive(false);
                 return;
             }
@@ -5964,12 +5991,10 @@ namespace Parsek
 
             ghost.transform.position = interpolatedPos;
             ghost.transform.rotation = interpolatedRot;
-            if (state != null)
-            {
-                state.lastInterpolatedVelocity = Vector3.Lerp(before.velocity, after.velocity, t);
-                state.lastInterpolatedBodyName = after.bodyName;
-                state.lastInterpolatedAltitude = Mathf.Lerp((float)before.altitude, (float)after.altitude, t);
-            }
+            interpResult = new InterpolationResult(
+                Vector3.Lerp(before.velocity, after.velocity, t),
+                after.bodyName,
+                TrajectoryMath.InterpolateAltitude(before.altitude, after.altitude, t));
         }
 
         // Keep the old signature for backward compat with tests
@@ -6083,7 +6108,7 @@ namespace Parsek
 
         void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points,
             List<OrbitSegment> segments, ref int cachedIndex, double targetUT, int orbitCacheBase,
-            GhostPlaybackState state = null)
+            out InterpolationResult interpResult)
         {
             // Check orbit segments first
             if (segments != null && segments.Count > 0)
@@ -6098,26 +6123,19 @@ namespace Parsek
                         Log($"Orbit segment activated: cache={cacheKey}, body={seg.Value.bodyName}, " +
                             $"sma={seg.Value.semiMajorAxis:F0}, UT {seg.Value.startUT:F0}-{seg.Value.endUT:F0}");
                     PositionGhostFromOrbit(ghost, seg.Value, targetUT, cacheKey);
-                    if (state != null)
-                    {
-                        Orbit orbit;
-                        if (orbitCache.TryGetValue(cacheKey, out orbit))
-                        {
-                            state.lastInterpolatedVelocity = orbit.getOrbitalVelocityAtUT(targetUT);
-                        }
-                        state.lastInterpolatedBodyName = seg.Value.bodyName;
-                        CelestialBody segBody = FlightGlobals.Bodies?.Find(b => b.name == seg.Value.bodyName);
-                        if (segBody != null)
-                            state.lastInterpolatedAltitude = segBody.GetAltitude(state.ghost.transform.position);
-                        else
-                            state.lastInterpolatedAltitude = 0;
-                    }
+                    Vector3 vel = Vector3.zero;
+                    Orbit orbit;
+                    if (orbitCache.TryGetValue(cacheKey, out orbit))
+                        vel = orbit.getOrbitalVelocityAtUT(targetUT);
+                    CelestialBody segBody = FlightGlobals.Bodies?.Find(b => b.name == seg.Value.bodyName);
+                    double segAlt = segBody != null ? segBody.GetAltitude(ghost.transform.position) : 0;
+                    interpResult = new InterpolationResult(vel, seg.Value.bodyName, segAlt);
                     return;
                 }
             }
 
             // Fall through to point-based interpolation
-            InterpolateAndPosition(ghost, points, ref cachedIndex, targetUT, state);
+            InterpolateAndPosition(ghost, points, ref cachedIndex, targetUT, out interpResult);
         }
 
         // Delegates to TrajectoryMath — kept for backward compatibility
