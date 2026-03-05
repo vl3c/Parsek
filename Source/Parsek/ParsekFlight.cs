@@ -211,6 +211,15 @@ namespace Parsek
         private const double DefaultLoopPauseSeconds = 10.0;
         private const double MinLoopDurationSeconds = 0.001;
 
+        // Camera follow (watch mode) — transient, never serialized
+        int watchedRecordingIndex = -1;       // -1 = not watching
+        string watchedRecordingId = null;     // stable across index shifts
+        Vessel savedCameraVessel = null;
+        float savedCameraDistance = 0f;
+        float savedCameraPitch = 0f;
+        float savedCameraHeading = 0f;
+        double watchEndHoldUntilUT = -1;      // non-looped end hold timer
+
         // UI
         private Rect windowRect = new Rect(20, 100, 250, 250);
         private bool showUI = false;
@@ -237,6 +246,10 @@ namespace Parsek
         }
         public bool HasActiveChain => activeChainId != null;
         public bool HasActiveTree => activeTree != null;
+
+        // Camera follow (watch mode)
+        internal bool IsWatchingGhost => watchedRecordingIndex >= 0;
+        internal int WatchedRecordingIndex => watchedRecordingIndex;
 
         #endregion
 
@@ -736,6 +749,7 @@ namespace Parsek
                 recorder.ForceStop();
             }
             StopPlayback();
+            ExitWatchMode();
             DestroyAllTimelineGhosts();
 
             ui?.Cleanup();
@@ -748,6 +762,9 @@ namespace Parsek
         void OnSceneChangeRequested(GameScenes scene)
         {
             Log($"Scene change requested: {scene}");
+
+            // Exit watch mode on scene change
+            ExitWatchMode();
 
             // Finalize continuation sampling before anything else
             if (continuationVesselPid != 0)
@@ -4517,6 +4534,21 @@ namespace Parsek
             // Remove from store (handles chain degradation + file deletion)
             RecordingStore.RemoveRecordingAt(index);
 
+            // Update watch mode index if watching a ghost
+            if (watchedRecordingIndex >= 0)
+            {
+                var result = ComputeWatchIndexAfterDelete(
+                    watchedRecordingIndex, watchedRecordingId, index,
+                    RecordingStore.CommittedRecordings);
+                if (result.newIndex < 0)
+                    ExitWatchMode();
+                else
+                {
+                    watchedRecordingIndex = result.newIndex;
+                    watchedRecordingId = result.newId;
+                }
+            }
+
             // Rebuild ghost state keys — indices above the removed one shift down by 1
             var oldStates = new Dictionary<int, GhostPlaybackState>(ghostStates);
             ghostStates.Clear();
@@ -5731,6 +5763,128 @@ namespace Parsek
         internal static bool IsAnyWarpActive(int currentRateIndex, float currentRate)
         {
             return currentRateIndex > 0 || currentRate > 1f;
+        }
+
+        #endregion
+
+        #region Camera Follow (Watch Mode)
+
+        /// <summary>
+        /// Enter watch mode: point the camera at a ghost vessel.
+        /// Camera and UI calls are placeholders — filled in by later phases.
+        /// </summary>
+        internal void EnterWatchMode(int index)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            if (index < 0 || index >= committed.Count) return;
+
+            // Ghost must exist
+            GhostPlaybackState gs;
+            if (!ghostStates.TryGetValue(index, out gs) || gs == null || gs.ghost == null)
+                return;
+
+            // Ghost must be on the same body as the active vessel
+            string ghostBody = gs.lastInterpolatedBodyName;
+            string activeBody = FlightGlobals.ActiveVessel?.mainBody?.name;
+            if (string.IsNullOrEmpty(ghostBody) || string.IsNullOrEmpty(activeBody) || ghostBody != activeBody)
+                return;
+
+            // Cannot enter watch mode for a taken-control recording
+            if (committed[index].TakenControl)
+                return;
+
+            // If already watching a different recording, exit first (switch case)
+            if (watchedRecordingIndex >= 0 && watchedRecordingIndex != index)
+                ExitWatchMode(skipCameraRestore: true);
+
+            watchedRecordingIndex = index;
+            watchedRecordingId = committed[index].RecordingId;
+
+            // Save camera state (actual camera calls deferred to Phase 2)
+            savedCameraVessel = FlightGlobals.ActiveVessel;
+
+            // Clear hold timer
+            watchEndHoldUntilUT = -1;
+        }
+
+        /// <summary>
+        /// Exit watch mode: return camera to the active vessel.
+        /// Camera restore and control lock removal are placeholders — filled in by later phases.
+        /// </summary>
+        internal void ExitWatchMode(bool skipCameraRestore = false)
+        {
+            if (watchedRecordingIndex < 0) return;
+
+            // Camera restore placeholder (Phase 2)
+            // Control lock removal placeholder (Phase 4)
+
+            watchedRecordingIndex = -1;
+            watchedRecordingId = null;
+            savedCameraVessel = null;
+            savedCameraDistance = 0f;
+            savedCameraPitch = 0f;
+            savedCameraHeading = 0f;
+            watchEndHoldUntilUT = -1;
+        }
+
+        /// <summary>
+        /// Determines whether a vessel's flight situation is safe for unattended flight.
+        /// Safe means the vessel will not crash or deorbit while the player watches a ghost.
+        /// </summary>
+        internal static bool IsVesselSituationSafe(Vessel.Situations situation, double periapsis, double atmosphereAltitude)
+        {
+            switch (situation)
+            {
+                case Vessel.Situations.LANDED:
+                case Vessel.Situations.SPLASHED:
+                case Vessel.Situations.PRELAUNCH:
+                case Vessel.Situations.DOCKED:
+                    return true;
+
+                case Vessel.Situations.ORBITING:
+                    return periapsis > atmosphereAltitude;
+
+                case Vessel.Situations.FLYING:
+                case Vessel.Situations.SUB_ORBITAL:
+                case Vessel.Situations.ESCAPING:
+                    return false;
+
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Pure static helper: computes the new watch index after a recording is deleted.
+        /// Returns (newIndex, newId) where newIndex=-1 means watch mode should exit.
+        /// </summary>
+        internal static (int newIndex, string newId) ComputeWatchIndexAfterDelete(
+            int watchedIndex, string watchedId, int deletedIndex,
+            List<RecordingStore.Recording> recordings)
+        {
+            if (deletedIndex == watchedIndex)
+                return (-1, null);
+
+            int newIndex = watchedIndex;
+            if (deletedIndex < watchedIndex)
+                newIndex = watchedIndex - 1;
+
+            // Verify by ID — the recording at the new index should match
+            if (newIndex >= 0 && newIndex < recordings.Count &&
+                recordings[newIndex].RecordingId == watchedId)
+            {
+                return (newIndex, watchedId);
+            }
+
+            // ID mismatch — scan for correct index
+            for (int j = 0; j < recordings.Count; j++)
+            {
+                if (recordings[j].RecordingId == watchedId)
+                    return (j, watchedId);
+            }
+
+            // Not found — exit watch mode
+            return (-1, null);
         }
 
         #endregion
