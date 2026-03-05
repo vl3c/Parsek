@@ -63,6 +63,24 @@ namespace Parsek.Tests.Generators
             return b;
         }
 
+        public static VesselSnapshotBuilder ReentryCapsule(string name, string crew, uint pid)
+        {
+            var b = new VesselSnapshotBuilder();
+            b.name = name;
+            b.persistentId = pid;
+            b.AddPart("mk1pod.v2", crew);                                      // index 0: root
+            b.AddPart("HeatShield1", position: "0,-0.5,0");                   // index 1: heat shield below
+            b.AddPart("parachuteSingle", position: "0,0.657,0");               // index 2: parachute above
+
+            var parts = b.partsContainer.GetNodes("PART");
+            parts[0].AddValue("attN", "bottom, 1");
+            parts[0].AddValue("attN", "top, 2");
+            parts[1].AddValue("attN", "top, 0");
+            parts[2].AddValue("attN", "bottom, 0");
+
+            return b;
+        }
+
         public VesselSnapshotBuilder WithName(string n) { name = n; return this; }
         public VesselSnapshotBuilder WithPersistentId(uint pid) { persistentId = pid; return this; }
         public VesselSnapshotBuilder WithType(string t) { type = t; return this; }
