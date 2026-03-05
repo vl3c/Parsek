@@ -83,6 +83,11 @@ namespace Parsek.Tests
         // Island Probe:      +240s to +420s  (180s vessel spawn)
         // EVA Board Chain:   +270s to +340s  (3-segment chain, 70s total)
         // EVA Walk Chain:    +350s to +450s  (2-segment V→EVA chain, 100s total)
+        // Kerbin Ascent:     +430s to +610s  (3-segment chain, 180s total)
+        // Mun Transfer:      +630s to +1330s (4-segment chain, 700s total)
+        // Reentry East:      +0s   to +90s   (90s looped ghost, reentry FX)
+        // Reentry Shallow:   +0s   to +120s  (120s looped ghost, reentry FX)
+        // Reentry South:     +0s   to +90s   (90s looped ghost, reentry FX)
 
         // Approximate "upright on surface" rotation at KSC for UT ~17000.
         // From real recording data at UT=17285. Close enough for synthetic visuals
@@ -737,6 +742,105 @@ namespace Parsek.Tests
                     .AsLanded(baseLat, baseLon, 77));
 
             return new[] { seg0, seg1, seg2, seg3 };
+        }
+
+        /// <summary>
+        /// Steep reentry capsule descending over the sea east of KSC toward the island.
+        /// High speed + mid-atmosphere density produces bright reentry FX trail.
+        /// </summary>
+        internal static RecordingBuilder ReentryEast(double baseUT = 0)
+        {
+            double t = baseUT;
+            var b = new RecordingBuilder("Reentry East");
+            b.WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW);
+
+            // 70km → splashdown, heading east over sea toward island
+            b.AddPoint(t,      -0.35, -74.20, 70000);
+            b.AddPoint(t + 8,  -0.38, -73.80, 62000);
+            b.AddPoint(t + 16, -0.42, -73.35, 52000);
+            b.AddPoint(t + 24, -0.47, -72.90, 42000);
+            b.AddPoint(t + 32, -0.52, -72.50, 33000);
+            b.AddPoint(t + 40, -0.57, -72.20, 25000);
+            b.AddPoint(t + 48, -0.62, -71.98, 18000);
+            b.AddPoint(t + 56, -0.66, -71.82, 12000);
+            b.AddPoint(t + 66, -0.71, -71.70, 6000);
+            b.AddPoint(t + 76, -0.75, -71.64, 2000);
+            b.AddPoint(t + 90, -0.80, -71.60, 0);
+
+            // Parachute deploy during slow descent
+            b.AddPartEvent(t + 66, 102222, 2, "parachuteSingle"); // ParachuteDeployed
+
+            b.WithGhostVisualSnapshot(
+                VesselSnapshotBuilder.ReentryCapsule("Reentry East", "Jebediah Kerman", pid: 90000001)
+                    .AsLanded(-0.80, -71.60, 0));
+
+            return b;
+        }
+
+        /// <summary>
+        /// Shallow-angle reentry capsule on a long arc over the sea.
+        /// More horizontal travel produces a longer, more gradual reentry trail.
+        /// </summary>
+        internal static RecordingBuilder ReentryShallow(double baseUT = 0)
+        {
+            double t = baseUT;
+            var b = new RecordingBuilder("Reentry Shallow");
+            b.WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW);
+
+            // 68km → splashdown, shallow descent angle
+            b.AddPoint(t,       -0.20, -74.30, 68000);
+            b.AddPoint(t + 10,  -0.24, -73.80, 62000);
+            b.AddPoint(t + 20,  -0.30, -73.25, 54000);
+            b.AddPoint(t + 30,  -0.37, -72.70, 46000);
+            b.AddPoint(t + 40,  -0.45, -72.20, 38000);
+            b.AddPoint(t + 50,  -0.53, -71.80, 30000);
+            b.AddPoint(t + 60,  -0.60, -71.50, 23000);
+            b.AddPoint(t + 70,  -0.66, -71.28, 17000);
+            b.AddPoint(t + 80,  -0.72, -71.12, 12000);
+            b.AddPoint(t + 90,  -0.77, -71.00, 8000);
+            b.AddPoint(t + 105, -0.83, -70.92, 3000);
+            b.AddPoint(t + 120, -0.88, -70.88, 0);
+
+            // Parachute deploy
+            b.AddPartEvent(t + 90, 102222, 2, "parachuteSingle"); // ParachuteDeployed
+
+            b.WithGhostVisualSnapshot(
+                VesselSnapshotBuilder.ReentryCapsule("Reentry Shallow", "Bill Kerman", pid: 90000002)
+                    .AsLanded(-0.88, -70.88, 0));
+
+            return b;
+        }
+
+        /// <summary>
+        /// Reentry capsule approaching from the north, arcing south toward the island.
+        /// Different visual angle from the east-heading trajectories.
+        /// </summary>
+        internal static RecordingBuilder ReentrySouth(double baseUT = 0)
+        {
+            double t = baseUT;
+            var b = new RecordingBuilder("Reentry South");
+            b.WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW);
+
+            // 65km → splashdown, heading south over sea toward island
+            b.AddPoint(t,      0.20,  -73.20, 65000);
+            b.AddPoint(t + 8,  0.05,  -73.10, 57000);
+            b.AddPoint(t + 16, -0.12, -73.00, 48000);
+            b.AddPoint(t + 24, -0.30, -72.88, 39000);
+            b.AddPoint(t + 32, -0.48, -72.75, 30000);
+            b.AddPoint(t + 40, -0.65, -72.62, 22000);
+            b.AddPoint(t + 50, -0.85, -72.45, 14000);
+            b.AddPoint(t + 60, -1.00, -72.30, 7000);
+            b.AddPoint(t + 72, -1.12, -72.18, 2500);
+            b.AddPoint(t + 90, -1.22, -72.10, 0);
+
+            // Parachute deploy
+            b.AddPartEvent(t + 60, 102222, 2, "parachuteSingle"); // ParachuteDeployed
+
+            b.WithGhostVisualSnapshot(
+                VesselSnapshotBuilder.ReentryCapsule("Reentry South", "Valentina Kerman", pid: 90000003)
+                    .AsLanded(-1.22, -72.10, 0));
+
+            return b;
         }
 
         /// <summary>
@@ -4780,6 +4884,10 @@ namespace Parsek.Tests
             for (int i = 0; i < munTransferSegments.Length; i++)
                 writer.AddRecording(munTransferSegments[i].WithLoopPlayback());
 
+            writer.AddRecording(ReentryEast(baseUT).WithLoopPlayback());
+            writer.AddRecording(ReentryShallow(baseUT).WithLoopPlayback());
+            writer.AddRecording(ReentrySouth(baseUT).WithLoopPlayback());
+
             // Add synthetic game actions so the Actions window has visible entries
             AddSyntheticGameActions(writer, baseUT);
 
@@ -5007,6 +5115,9 @@ namespace Parsek.Tests
                     Assert.Contains("segmentPhase = atmo", content);
                     Assert.Contains("segmentPhase = exo", content);
                     Assert.Contains("segmentBodyName = Kerbin", content);
+                    Assert.Contains("vesselName = Reentry East", content);
+                    Assert.Contains("vesselName = Reentry Shallow", content);
+                    Assert.Contains("vesselName = Reentry South", content);
                     // Tree recording assertions (E1-E3)
                     Assert.Contains("RECORDING_TREE", content);
                     Assert.Contains("treeName = Undock Test Tree", content);
