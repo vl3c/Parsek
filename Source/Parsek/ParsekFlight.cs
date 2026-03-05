@@ -942,6 +942,14 @@ namespace Parsek
 
         void OnVesselWillDestroy(Vessel v)
         {
+            // Watch mode: null out saved camera vessel if it's being destroyed
+            if (watchedRecordingIndex >= 0 && savedCameraVessel != null && v == savedCameraVessel)
+                savedCameraVessel = null;
+
+            // Watch mode: if the active vessel is destroyed while watching, exit watch mode
+            if (watchedRecordingIndex >= 0 && v == FlightGlobals.ActiveVessel)
+                ExitWatchMode();
+
             recorder?.OnVesselWillDestroy(v);
 
             // Also propagate to pending split recorder — joint break may have already
@@ -1087,6 +1095,15 @@ namespace Parsek
         /// </summary>
         void OnVesselSwitchComplete(Vessel newVessel)
         {
+            // Watch mode: re-target camera to ghost — KSP reparents pivot on vessel switch
+            if (watchedRecordingIndex >= 0)
+            {
+                GhostPlaybackState ws;
+                if (ghostStates.TryGetValue(watchedRecordingIndex, out ws) && ws != null && ws.ghost != null)
+                    FlightCamera.fetch.SetTargetTransform(ws.ghost.transform);
+                return;  // Don't process tree vessel-switch logic while watching
+            }
+
             if (activeTree == null) return;
             if (newVessel == null) return;
 
@@ -3101,6 +3118,12 @@ namespace Parsek
                 }
             }
 
+            // Backspace - Exit watch mode (return to vessel)
+            if (watchedRecordingIndex >= 0 && Input.GetKeyDown(KeyCode.Backspace))
+            {
+                ExitWatchMode();
+            }
+
         }
 
         #endregion
@@ -3962,8 +3985,21 @@ namespace Parsek
                     Log($"Ghost EXITED range: #{i} \"{rec.VesselName}\" at UT {currentUT:F1} — spawning vessel");
                     if (rec.Points.Count > 0)
                         PositionGhostAt(state.ghost, rec.Points[rec.Points.Count - 1]);
-                    VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
-                    DestroyTimelineGhost(i);
+
+                    // Watch mode: exit and switch player to spawned vessel
+                    if (watchedRecordingIndex == i)
+                    {
+                        ExitWatchMode();
+                        VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
+                        DestroyTimelineGhost(i);
+                        if (rec.SpawnedVesselPersistentId != 0)
+                            StartCoroutine(DeferredActivateVessel(rec.SpawnedVesselPersistentId));
+                    }
+                    else
+                    {
+                        VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
+                        DestroyTimelineGhost(i);
+                    }
                     if (rec.TreeId == null)
                         ApplyResourceDeltas(rec, currentUT);
                 }
@@ -3989,6 +4025,31 @@ namespace Parsek
                     // Outside time range, no spawn needed — despawn ghost if active
                     if (ghostActive)
                     {
+                        // Watch mode: hold camera at last position for 3 seconds before destroying
+                        if (watchedRecordingIndex == i)
+                        {
+                            if (watchEndHoldUntilUT < 0)
+                            {
+                                watchEndHoldUntilUT = Planetarium.GetUniversalTime() + 3.0;
+                                // Keep ghost alive during hold — skip destroy
+                                if (pastEnd && rec.TreeId == null)
+                                    ApplyResourceDeltas(rec, currentUT);
+                                continue;
+                            }
+                            else if (Planetarium.GetUniversalTime() < watchEndHoldUntilUT)
+                            {
+                                // Still holding — keep ghost alive
+                                if (pastEnd && rec.TreeId == null)
+                                    ApplyResourceDeltas(rec, currentUT);
+                                continue;
+                            }
+                            else
+                            {
+                                // Hold expired — exit watch mode and destroy ghost
+                                ExitWatchMode();
+                            }
+                        }
+
                         Log($"Ghost EXITED range: #{i} \"{rec.VesselName}\" at UT {currentUT:F1} — no vessel to spawn");
                         DestroyTimelineGhost(i);
                     }
@@ -4000,6 +4061,16 @@ namespace Parsek
 
             // Apply tree-level resource deltas (lump sum when UT passes tree EndUT)
             ApplyTreeResourceDeltas(currentUT);
+
+            // Watch mode: verify ghost still exists
+            if (watchedRecordingIndex >= 0)
+            {
+                GhostPlaybackState ws;
+                bool ghostOk = ghostStates.TryGetValue(watchedRecordingIndex, out ws)
+                               && ws != null && ws.ghost != null;
+                if (!ghostOk)
+                    ExitWatchMode();
+            }
         }
 
         private bool ShouldLoopPlayback(RecordingStore.Recording rec)
@@ -4088,6 +4159,10 @@ namespace Parsek
                 state.loopCycleIndex = cycleIndex;
                 if (loggedGhostEnter.Add(recIdx))
                     Log($"Ghost ENTERED range: #{recIdx} \"{rec.VesselName}\" at UT {currentUT:F1} (loop)");
+
+                // Ghost was rebuilt for new loop cycle — re-target camera
+                if (watchedRecordingIndex == recIdx && state.ghost != null)
+                    FlightCamera.fetch.SetTargetTransform(state.ghost.transform);
             }
 
             if (state == null || state.ghost == null)
@@ -5771,12 +5846,20 @@ namespace Parsek
 
         /// <summary>
         /// Enter watch mode: point the camera at a ghost vessel.
-        /// Camera and UI calls are placeholders — filled in by later phases.
+        /// If already watching the same recording, toggles off (exits watch mode).
+        /// If watching a different recording, switches to the new one (preserves camera state).
         /// </summary>
         internal void EnterWatchMode(int index)
         {
             var committed = RecordingStore.CommittedRecordings;
             if (index < 0 || index >= committed.Count) return;
+
+            // Toggle off: if already watching this recording, exit
+            if (watchedRecordingIndex == index)
+            {
+                ExitWatchMode();
+                return;
+            }
 
             // Ghost must exist
             GhostPlaybackState gs;
@@ -5793,15 +5876,26 @@ namespace Parsek
             if (committed[index].TakenControl)
                 return;
 
-            // If already watching a different recording, exit first (switch case)
-            if (watchedRecordingIndex >= 0 && watchedRecordingIndex != index)
+            // If already watching a different recording, exit first (switch case — preserve camera state)
+            bool switching = watchedRecordingIndex >= 0 && watchedRecordingIndex != index;
+            if (switching)
                 ExitWatchMode(skipCameraRestore: true);
 
             watchedRecordingIndex = index;
             watchedRecordingId = committed[index].RecordingId;
 
-            // Save camera state (actual camera calls deferred to Phase 2)
-            savedCameraVessel = FlightGlobals.ActiveVessel;
+            // Save camera state only when entering fresh (not switching between ghosts)
+            if (!switching)
+            {
+                savedCameraVessel = FlightGlobals.ActiveVessel;
+                savedCameraDistance = FlightCamera.fetch.Distance;
+                savedCameraPitch = FlightCamera.fetch.camPitch;
+                savedCameraHeading = FlightCamera.fetch.camHdg;
+            }
+
+            // Point camera at ghost
+            FlightCamera.fetch.SetTargetTransform(gs.ghost.transform);
+            FlightCamera.fetch.SetDistance(50f);  // override [75,400] entry clamp
 
             // Clear hold timer
             watchEndHoldUntilUT = -1;
@@ -5809,13 +5903,28 @@ namespace Parsek
 
         /// <summary>
         /// Exit watch mode: return camera to the active vessel.
-        /// Camera restore and control lock removal are placeholders — filled in by later phases.
+        /// When skipCameraRestore is true (switching between ghosts), the camera is not restored.
         /// </summary>
         internal void ExitWatchMode(bool skipCameraRestore = false)
         {
             if (watchedRecordingIndex < 0) return;
 
-            // Camera restore placeholder (Phase 2)
+            // Restore camera to the active vessel (unless switching between ghosts)
+            if (!skipCameraRestore)
+            {
+                if (savedCameraVessel != null && savedCameraVessel.gameObject != null)
+                {
+                    FlightCamera.fetch.SetTargetVessel(savedCameraVessel);
+                    FlightCamera.fetch.SetDistance(savedCameraDistance);
+                    FlightCamera.fetch.camPitch = savedCameraPitch;
+                    FlightCamera.fetch.camHdg = savedCameraHeading;
+                }
+                else
+                {
+                    FlightCamera.fetch.SetTargetVessel(FlightGlobals.ActiveVessel);
+                }
+            }
+
             // Control lock removal placeholder (Phase 4)
 
             watchedRecordingIndex = -1;
