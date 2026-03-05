@@ -1095,13 +1095,15 @@ namespace Parsek
         /// </summary>
         void OnVesselSwitchComplete(Vessel newVessel)
         {
-            // Watch mode: re-target camera to ghost — KSP reparents pivot on vessel switch
+            // Watch mode: re-target camera to ghost — KSP reparents pivot on vessel switch.
+            // Don't early-return: tree vessel-switch logic below must still run so that
+            // programmatic switches (e.g. docking absorbs a vessel) properly transition
+            // the recorder state and background mapping.
             if (watchedRecordingIndex >= 0)
             {
                 GhostPlaybackState ws;
                 if (ghostStates.TryGetValue(watchedRecordingIndex, out ws) && ws != null && ws.ghost != null)
                     FlightCamera.fetch.SetTargetTransform(ws.ghost.transform);
-                return;  // Don't process tree vessel-switch logic while watching
             }
 
             if (activeTree == null) return;
