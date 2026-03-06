@@ -4506,6 +4506,126 @@ namespace Parsek.Tests
             return string.Join(sep, lines);
         }
 
+        /// <summary>
+        /// Reads all RDNode IDs from the ModuleManager-merged tech tree file
+        /// and ensures every one is present as state=Available in the save's
+        /// ResearchAndDevelopment scenario.  Handles Community Tech Tree and
+        /// similar mods that add nodes the stock save doesn't contain.
+        /// </summary>
+        private static string UnlockAllTechNodes(string content, string kspRoot)
+        {
+            string techTreePath = Path.Combine(kspRoot, "GameData", "ModuleManager.TechTree");
+            if (!File.Exists(techTreePath))
+                return content; // no merged tech tree — nothing to do
+
+            // Parse all RDNode IDs and costs from the merged tech tree
+            var techTreeLines = File.ReadAllLines(techTreePath);
+            var allNodes = new System.Collections.Generic.Dictionary<string, int>(); // id → cost
+            bool inRDNode = false;
+            string currentId = null;
+            int currentCost = 0;
+            for (int i = 0; i < techTreeLines.Length; i++)
+            {
+                string t = techTreeLines[i].Trim();
+                if (t == "RDNode" || t == "RDNode {" || t.StartsWith("RDNode"))
+                {
+                    inRDNode = true;
+                    currentId = null;
+                    currentCost = 0;
+                    if (t == "RDNode {") { } // inline brace — handled below
+                    continue;
+                }
+                if (!inRDNode) continue;
+                if (t == "{") continue;
+                if (t == "}" || t.StartsWith("}"))
+                {
+                    if (currentId != null && !allNodes.ContainsKey(currentId))
+                        allNodes[currentId] = currentCost;
+                    inRDNode = false;
+                    continue;
+                }
+                if (t.StartsWith("id = ", System.StringComparison.Ordinal))
+                    currentId = t.Substring(5).Trim();
+                else if (t.StartsWith("cost = ", System.StringComparison.Ordinal))
+                    int.TryParse(t.Substring(7).Trim(), out currentCost);
+            }
+
+            if (allNodes.Count == 0)
+                return content;
+
+            // Find existing Tech node IDs in the ResearchAndDevelopment scenario
+            var saveLines = content.Split(new[] { "\r\n", "\n" }, System.StringSplitOptions.None);
+            var existingIds = new System.Collections.Generic.HashSet<string>();
+            bool inRD = false;
+            int rdDepth = 0;
+            int rdCloseLineIdx = -1; // line index of the closing brace of R&D scenario
+
+            for (int i = 0; i < saveLines.Length; i++)
+            {
+                string t = saveLines[i].Trim();
+                if (!inRD && t == "name = ResearchAndDevelopment")
+                {
+                    inRD = true;
+                    continue;
+                }
+                if (inRD)
+                {
+                    if (t == "{") rdDepth++;
+                    else if (t == "}")
+                    {
+                        rdDepth--;
+                        if (rdDepth < 0)
+                        {
+                            rdCloseLineIdx = i;
+                            inRD = false;
+                        }
+                    }
+                    else if (t.StartsWith("id = ", System.StringComparison.Ordinal) && rdDepth > 0)
+                    {
+                        existingIds.Add(t.Substring(5).Trim());
+                    }
+                }
+            }
+
+            if (rdCloseLineIdx < 0)
+                return content; // no ResearchAndDevelopment scenario found
+
+            // Build Tech blocks for missing nodes
+            var missing = new System.Text.StringBuilder();
+            foreach (var kv in allNodes)
+            {
+                if (existingIds.Contains(kv.Key))
+                    continue;
+                missing.AppendLine("\t\tTech");
+                missing.AppendLine("\t\t{");
+                missing.AppendLine($"\t\t\tid = {kv.Key}");
+                missing.AppendLine("\t\t\tstate = Available");
+                missing.AppendLine($"\t\t\tcost = {kv.Value}");
+                missing.AppendLine("\t\t}");
+            }
+
+            if (missing.Length == 0)
+                return content; // all nodes already present
+
+            // Insert before the closing brace of the R&D scenario
+            var result = new System.Collections.Generic.List<string>(saveLines.Length + 100);
+            for (int i = 0; i < saveLines.Length; i++)
+            {
+                if (i == rdCloseLineIdx)
+                {
+                    // Insert missing Tech blocks before the closing brace
+                    string[] newLines = missing.ToString().Split(
+                        new[] { "\r\n", "\n" }, System.StringSplitOptions.RemoveEmptyEntries);
+                    for (int j = 0; j < newLines.Length; j++)
+                        result.Add(newLines[j]);
+                }
+                result.Add(saveLines[i]);
+            }
+
+            string sep = content.Contains("\r\n") ? "\r\n" : "\n";
+            return string.Join(sep, result);
+        }
+
         private static string RemoveSpawnedPidLines(string content)
         {
             var lines = content.Split(new[] { "\r\n", "\n" }, System.StringSplitOptions.None);
@@ -4740,6 +4860,8 @@ namespace Parsek.Tests
             content = ResetVeteranCrewStatus(content);
             content = SetUT(content, KscMorningUT);
             content = MaxFacilityLevels(content);
+            string kspRoot = ResolveKspRoot();
+            content = UnlockAllTechNodes(content, kspRoot);
             File.WriteAllText(savePath, content);
 
             // Clean stale recording sidecar files

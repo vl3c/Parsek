@@ -85,7 +85,7 @@ namespace Parsek
         /// <summary>
         /// Spawn a vessel from a snapshot at a specific position and velocity,
         /// overriding the snapshot's stored orbit and location.
-        /// Used by Take Control to spawn at the ghost's current position.
+        /// Spawns at a specific position overriding the snapshot's stored orbit.
         /// </summary>
         public static uint SpawnAtPosition(ConfigNode vesselNode, CelestialBody body,
             double lat, double lon, double alt,
