@@ -695,6 +695,9 @@ namespace Parsek
             if (MapView.MapIsEnabled)
                 ui.DrawMapMarkers();
 
+            if (watchedRecordingIndex >= 0)
+                DrawWatchModeOverlay();
+
             if (showUI)
             {
                 windowRect = ClickThruBlocker.GUILayoutWindow(
@@ -5846,6 +5849,73 @@ namespace Parsek
 
         #region Camera Follow (Watch Mode)
 
+        // Lazy-initialized styles for the watch mode overlay
+        private GUIStyle watchOverlayStyle;
+        private GUIStyle watchOverlayHintStyle;
+
+        /// <summary>
+        /// Returns true if recording at index has an active ghost (exists and not null).
+        /// </summary>
+        internal bool HasActiveGhost(int index)
+        {
+            GhostPlaybackState s;
+            return ghostStates.TryGetValue(index, out s) && s != null && s.ghost != null;
+        }
+
+        /// <summary>
+        /// Returns true if the ghost at index is on the same celestial body as the active vessel.
+        /// </summary>
+        internal bool IsGhostOnSameBody(int index)
+        {
+            GhostPlaybackState s;
+            if (!ghostStates.TryGetValue(index, out s) || s == null) return false;
+            string ghostBody = s.lastInterpolatedBodyName;
+            string activeBody = FlightGlobals.ActiveVessel?.mainBody?.name;
+            if (string.IsNullOrEmpty(ghostBody) || string.IsNullOrEmpty(activeBody)) return false;
+            return ghostBody == activeBody;
+        }
+
+        /// <summary>
+        /// Draws the on-screen overlay when in watch mode: vessel name and return hint.
+        /// Called from OnGUI when watchedRecordingIndex >= 0.
+        /// </summary>
+        void DrawWatchModeOverlay()
+        {
+            if (watchOverlayStyle == null)
+            {
+                watchOverlayStyle = new GUIStyle(GUI.skin.label)
+                {
+                    fontSize = 16,
+                    fontStyle = FontStyle.Bold,
+                    alignment = TextAnchor.UpperCenter,
+                    normal = { textColor = Color.white }
+                };
+                watchOverlayHintStyle = new GUIStyle(GUI.skin.label)
+                {
+                    fontSize = 12,
+                    alignment = TextAnchor.UpperCenter,
+                    normal = { textColor = new Color(1f, 1f, 1f, 0.7f) }
+                };
+            }
+
+            string vesselName = "";
+            var committed = RecordingStore.CommittedRecordings;
+            if (watchedRecordingIndex >= 0 && watchedRecordingIndex < committed.Count)
+                vesselName = committed[watchedRecordingIndex].VesselName;
+
+            float boxW = 300f, boxH = 50f;
+            float x = (Screen.width - boxW) / 2f;
+            float y = 10f;
+            Rect bgRect = new Rect(x, y, boxW, boxH);
+
+            GUI.color = new Color(0f, 0f, 0f, 0.5f);
+            GUI.DrawTexture(bgRect, Texture2D.whiteTexture);
+            GUI.color = Color.white;
+
+            GUI.Label(new Rect(x, y + 5, boxW, 22f), "Watching: " + vesselName, watchOverlayStyle);
+            GUI.Label(new Rect(x, y + 27, boxW, 18f), "[Backspace] Return to vessel", watchOverlayHintStyle);
+        }
+
         /// <summary>
         /// Enter watch mode: point the camera at a ghost vessel.
         /// If already watching the same recording, toggles off (exits watch mode).
@@ -5877,6 +5947,16 @@ namespace Parsek
             // Cannot enter watch mode for a taken-control recording
             if (committed[index].TakenControl)
                 return;
+
+            // Flight warning: if active vessel is in an unsafe state, show a brief screen message
+            var av = FlightGlobals.ActiveVessel;
+            if (av != null)
+            {
+                double pe = av.orbit != null ? av.orbit.PeA : 0;
+                double atmoHeight = av.mainBody != null ? av.mainBody.atmosphereDepth : 0;
+                if (!IsVesselSituationSafe(av.situation, pe, atmoHeight))
+                    ScreenMessage("Your vessel continues unattended", 3f);
+            }
 
             // If already watching a different recording, exit first (switch case — preserve camera state)
             bool switching = watchedRecordingIndex >= 0 && watchedRecordingIndex != index;

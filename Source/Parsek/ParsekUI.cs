@@ -60,6 +60,7 @@ namespace Parsek
         private const float ColW_Status = 45f;
         private const float ColW_LoopLabel = 30f;
         private const float ColW_LoopToggle = 15f;
+        private const float ColW_Watch = 40f;
         private const float ColW_Delete = 25f;
         private const float ScrollbarWidth = 16f;
 
@@ -878,6 +879,7 @@ namespace Parsek
 
                 GUILayout.Label("Period", GUILayout.Width(ColW_Period));
 
+                GUILayout.Label("W", GUILayout.Width(ColW_Watch));
                 GUILayout.Button("", GUI.skin.label, GUILayout.Width(ColW_Delete)); // placeholder
                 GUILayout.Space(ScrollbarWidth);
                 GUILayout.EndHorizontal();
@@ -1116,6 +1118,25 @@ namespace Parsek
 
             // Period
             DrawLoopPeriodCell(rec, ri, dur);
+
+            // Watch button
+            {
+                bool hasGhost = flight.HasActiveGhost(ri);
+                bool sameBody = flight.IsGhostOnSameBody(ri);
+                bool isWatching = flight.WatchedRecordingIndex == ri;
+                bool canWatch = hasGhost && sameBody && !committed[ri].TakenControl;
+
+                GUI.enabled = canWatch;
+                string watchLabel = isWatching ? "W*" : "W";
+                if (GUILayout.Button(watchLabel, GUILayout.Width(ColW_Watch)))
+                {
+                    if (isWatching)
+                        flight.ExitWatchMode();
+                    else
+                        flight.EnterWatchMode(ri);
+                }
+                GUI.enabled = true;
+            }
 
             // Delete button
             GUI.enabled = flight.CanDeleteRecording;
