@@ -958,12 +958,14 @@ namespace Parsek
             if (watchedRecordingIndex >= 0 && savedCameraVessel != null && v == savedCameraVessel)
                 savedCameraVessel = null;
 
-            // Watch mode: if the active vessel is destroyed while watching, exit watch mode
+            // Watch mode: if the active vessel is destroyed while watching, exit watch mode.
+            // Skip camera restore because ActiveVessel is the dying vessel — KSP will
+            // assign a new active vessel and handle the camera itself.
             if (watchedRecordingIndex >= 0 && v == FlightGlobals.ActiveVessel)
             {
                 ParsekLog.Warn("CameraFollow",
-                    $"Active vessel destroyed while watching ghost #{watchedRecordingIndex} \u2014 savedCameraVessel is null, falling back to FlightGlobals.ActiveVessel");
-                ExitWatchMode();
+                    $"Active vessel destroyed while watching ghost #{watchedRecordingIndex} \u2014 skipping camera restore (dying vessel), KSP will reassign");
+                ExitWatchMode(skipCameraRestore: true);
             }
 
             recorder?.OnVesselWillDestroy(v);
@@ -6285,6 +6287,10 @@ namespace Parsek
             // Clean up crew reservations (same as EndUT path)
             ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
             rec.VesselSnapshot = null;
+
+            // Exit watch mode if we're watching this ghost (before destroying it)
+            if (watchedRecordingIndex == index)
+                ExitWatchMode();
 
             // Destroy ghost
             DestroyTimelineGhost(index);
