@@ -1128,7 +1128,9 @@ namespace Parsek
 
                 GUI.enabled = canWatch;
                 string watchLabel = isWatching ? "W*" : "W";
-                if (GUILayout.Button(watchLabel, GUILayout.Width(ColW_Watch)))
+                string watchTooltip = (hasGhost && !sameBody) ? "Ghost is on a different body" : "";
+                var watchContent = new GUIContent(watchLabel, watchTooltip);
+                if (GUILayout.Button(watchContent, GUILayout.Width(ColW_Watch)))
                 {
                     if (isWatching)
                         flight.ExitWatchMode();
