@@ -99,6 +99,73 @@ namespace Parsek.Tests
                 Vessel.Situations.ORBITING, 10000, 0));
         }
 
+        [Fact]
+        public void IsVesselSituationSafe_Orbiting_NegativePeriapsis_ReturnsFalse()
+        {
+            // Periapsis below surface (negative altitude): unsafe regardless of atmosphere
+            Assert.False(ParsekFlight.IsVesselSituationSafe(
+                Vessel.Situations.ORBITING, -1000, 70000));
+        }
+
+        [Fact]
+        public void IsVesselSituationSafe_Orbiting_JustAboveAtmosphere_ReturnsTrue()
+        {
+            // Periapsis just barely above atmosphere boundary: safe
+            Assert.True(ParsekFlight.IsVesselSituationSafe(
+                Vessel.Situations.ORBITING, 70001, 70000));
+        }
+
+        [Fact]
+        public void IsVesselSituationSafe_Orbiting_ZeroPeZeroAtmo_ReturnsFalse()
+        {
+            // Airless body with zero periapsis: 0 > 0 is false, so unsafe
+            // (orbit grazes the surface)
+            Assert.False(ParsekFlight.IsVesselSituationSafe(
+                Vessel.Situations.ORBITING, 0, 0));
+        }
+
+        [Fact]
+        public void IsVesselSituationSafe_Landed_IgnoresPeriapsisAndAtmo()
+        {
+            // Surface situations are safe regardless of periapsis/atmosphere values
+            Assert.True(ParsekFlight.IsVesselSituationSafe(
+                Vessel.Situations.LANDED, -50000, 70000));
+            Assert.True(ParsekFlight.IsVesselSituationSafe(
+                Vessel.Situations.LANDED, double.NaN, double.NaN));
+        }
+
+        [Fact]
+        public void IsVesselSituationSafe_Orbiting_VeryHighPeriapsis_ReturnsTrue()
+        {
+            // Very high orbit (e.g., Minmus transfer): clearly safe
+            Assert.True(ParsekFlight.IsVesselSituationSafe(
+                Vessel.Situations.ORBITING, 46000000, 70000));
+        }
+
+        [Fact]
+        public void IsVesselSituationSafe_Flying_IgnoresPeriapsis()
+        {
+            // Flying is always unsafe, even with high periapsis values
+            Assert.False(ParsekFlight.IsVesselSituationSafe(
+                Vessel.Situations.FLYING, 100000, 70000));
+        }
+
+        [Fact]
+        public void IsVesselSituationSafe_SubOrbital_IgnoresPeriapsis()
+        {
+            // Sub-orbital is always unsafe, even with high periapsis values
+            Assert.False(ParsekFlight.IsVesselSituationSafe(
+                Vessel.Situations.SUB_ORBITAL, 100000, 70000));
+        }
+
+        [Fact]
+        public void IsVesselSituationSafe_Escaping_IgnoresPeriapsis()
+        {
+            // Escaping is always unsafe, even with high periapsis values
+            Assert.False(ParsekFlight.IsVesselSituationSafe(
+                Vessel.Situations.ESCAPING, 100000, 70000));
+        }
+
         #endregion
 
         #region ComputeWatchIndexAfterDelete
@@ -182,6 +249,73 @@ namespace Parsek.Tests
             var result = ParsekFlight.ComputeWatchIndexAfterDelete(2, "rec_gone", 0, recordings);
             Assert.Equal(-1, result.newIndex);
             Assert.Null(result.newId);
+        }
+
+        [Fact]
+        public void ComputeWatchIndex_DeleteFirstWhenWatchingFirst_ExitsToMinusOne()
+        {
+            // Watching index 0, delete index 0 — watched recording itself is deleted
+            var recordings = MakeRecordings("rec_b", "rec_c");
+            var result = ParsekFlight.ComputeWatchIndexAfterDelete(0, "rec_a", 0, recordings);
+            Assert.Equal(-1, result.newIndex);
+            Assert.Null(result.newId);
+        }
+
+        [Fact]
+        public void ComputeWatchIndex_EmptyListAfterDelete_ExitsToMinusOne()
+        {
+            // After deletion, no recordings remain — ID not found, should exit
+            var recordings = new List<RecordingStore.Recording>();
+            var result = ParsekFlight.ComputeWatchIndexAfterDelete(1, "rec_a", 0, recordings);
+            Assert.Equal(-1, result.newIndex);
+            Assert.Null(result.newId);
+        }
+
+        [Fact]
+        public void ComputeWatchIndex_WatchingLast_DeleteFirst_ShiftsDown()
+        {
+            // Watching last element (index 1, "rec_b"), delete first (index 0, "rec_a")
+            // After deletion, list is [b] — "rec_b" at index 0
+            var recordings = MakeRecordings("rec_b");
+            var result = ParsekFlight.ComputeWatchIndexAfterDelete(1, "rec_b", 0, recordings);
+            Assert.Equal(0, result.newIndex);
+            Assert.Equal("rec_b", result.newId);
+            Assert.Equal("rec_b", recordings[result.newIndex].RecordingId);
+        }
+
+        [Fact]
+        public void ComputeWatchIndex_AdjacentDeleteBelow_ShiftsDownByOne()
+        {
+            // Watching index 1 ("rec_b"), delete index 0 ("rec_a")
+            // After deletion, list is [b, c] — "rec_b" at index 0
+            var recordings = MakeRecordings("rec_b", "rec_c");
+            var result = ParsekFlight.ComputeWatchIndexAfterDelete(1, "rec_b", 0, recordings);
+            Assert.Equal(0, result.newIndex);
+            Assert.Equal("rec_b", result.newId);
+            Assert.Equal("rec_b", recordings[result.newIndex].RecordingId);
+        }
+
+        [Fact]
+        public void ComputeWatchIndex_DeleteFarAbove_NoChange()
+        {
+            // Watching index 0, delete index 10 (far above)
+            // After deletion, list is [a, b, c] — "rec_a" still at index 0
+            var recordings = MakeRecordings("rec_a", "rec_b", "rec_c");
+            var result = ParsekFlight.ComputeWatchIndexAfterDelete(0, "rec_a", 10, recordings);
+            Assert.Equal(0, result.newIndex);
+            Assert.Equal("rec_a", result.newId);
+        }
+
+        [Fact]
+        public void ComputeWatchIndex_LargeList_DeleteFirst_ShiftsCorrectly()
+        {
+            // Watching index 4 ("rec_e") in a 5-item list, delete index 0 ("rec_a")
+            // After deletion, list is [b, c, d, e] — "rec_e" at index 3
+            var recordings = MakeRecordings("rec_b", "rec_c", "rec_d", "rec_e");
+            var result = ParsekFlight.ComputeWatchIndexAfterDelete(4, "rec_e", 0, recordings);
+            Assert.Equal(3, result.newIndex);
+            Assert.Equal("rec_e", result.newId);
+            Assert.Equal("rec_e", recordings[result.newIndex].RecordingId);
         }
 
         #endregion
