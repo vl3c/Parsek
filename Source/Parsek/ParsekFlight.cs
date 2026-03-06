@@ -773,6 +773,8 @@ namespace Parsek
             Log($"Scene change requested: {scene}");
 
             // Exit watch mode on scene change
+            if (watchedRecordingIndex >= 0)
+                ParsekLog.Info("CameraFollow", "Watch mode cleared on scene change");
             ExitWatchMode();
             InputLockManager.RemoveControlLock(WatchModeLockId); // safety net
 
@@ -958,7 +960,11 @@ namespace Parsek
 
             // Watch mode: if the active vessel is destroyed while watching, exit watch mode
             if (watchedRecordingIndex >= 0 && v == FlightGlobals.ActiveVessel)
+            {
+                ParsekLog.Warn("CameraFollow",
+                    $"Active vessel destroyed while watching ghost #{watchedRecordingIndex} \u2014 savedCameraVessel is null, falling back to FlightGlobals.ActiveVessel");
                 ExitWatchMode();
+            }
 
             recorder?.OnVesselWillDestroy(v);
 
@@ -1114,6 +1120,8 @@ namespace Parsek
                 GhostPlaybackState ws;
                 if (ghostStates.TryGetValue(watchedRecordingIndex, out ws) && ws != null && ws.ghost != null)
                     FlightCamera.fetch.SetTargetTransform(ws.ghost.transform);
+                ParsekLog.Verbose("CameraFollow",
+                    $"onVesselChange fired while watching \u2014 re-targeting camera to ghost #{watchedRecordingIndex}");
             }
 
             if (activeTree == null) return;
@@ -4005,7 +4013,11 @@ namespace Parsek
                         VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
                         DestroyTimelineGhost(i);
                         if (rec.SpawnedVesselPersistentId != 0)
+                        {
+                            ParsekLog.Info("CameraFollow",
+                                $"Recording #{i} spawned vessel pid={rec.SpawnedVesselPersistentId} \u2014 switching active vessel");
                             StartCoroutine(DeferredActivateVessel(rec.SpawnedVesselPersistentId));
+                        }
                     }
                     else
                     {
@@ -4043,6 +4055,8 @@ namespace Parsek
                             if (watchEndHoldUntilUT < 0)
                             {
                                 watchEndHoldUntilUT = Planetarium.GetUniversalTime() + 3.0;
+                                ParsekLog.Info("CameraFollow",
+                                    $"Recording #{i} ended \u2014 holding camera at last position until UT {watchEndHoldUntilUT.ToString("F1", CultureInfo.InvariantCulture)}");
                                 // Keep ghost alive during hold — skip destroy
                                 if (pastEnd && rec.TreeId == null)
                                     ApplyResourceDeltas(rec, currentUT);
@@ -4058,6 +4072,8 @@ namespace Parsek
                             else
                             {
                                 // Hold expired — exit watch mode and destroy ghost
+                                ParsekLog.Info("CameraFollow",
+                                    $"Hold expired for recording #{i} \u2014 returning to active vessel");
                                 ExitWatchMode();
                             }
                         }
@@ -4081,7 +4097,11 @@ namespace Parsek
                 bool ghostOk = ghostStates.TryGetValue(watchedRecordingIndex, out ws)
                                && ws != null && ws.ghost != null;
                 if (!ghostOk)
+                {
+                    ParsekLog.Warn("CameraFollow",
+                        $"Watched ghost #{watchedRecordingIndex} destroyed \u2014 auto-exiting watch mode");
                     ExitWatchMode();
+                }
             }
         }
 
@@ -4628,11 +4648,19 @@ namespace Parsek
                     watchedRecordingIndex, watchedRecordingId, index,
                     RecordingStore.CommittedRecordings);
                 if (result.newIndex < 0)
+                {
+                    ParsekLog.Warn("CameraFollow",
+                        $"Watched recording \"{watchedRecordingId}\" deleted \u2014 auto-exiting watch mode");
                     ExitWatchMode();
+                }
                 else
                 {
+                    int oldIdx = watchedRecordingIndex;
                     watchedRecordingIndex = result.newIndex;
                     watchedRecordingId = result.newId;
+                    if (oldIdx != result.newIndex)
+                        ParsekLog.Info("CameraFollow",
+                            $"Recording deleted at #{index} \u2014 watchedRecordingIndex adjusted from {oldIdx} to {result.newIndex}");
                 }
             }
 
@@ -5962,13 +5990,19 @@ namespace Parsek
                 double pe = av.orbit != null ? av.orbit.PeA : 0;
                 double atmoHeight = av.mainBody != null ? av.mainBody.atmosphereDepth : 0;
                 if (!IsVesselSituationSafe(av.situation, pe, atmoHeight))
+                {
+                    ParsekLog.Verbose("CameraFollow", $"Showing flight warning \u2014 active vessel situation: {av.situation}");
                     ScreenMessage("Your vessel continues unattended", 3f);
+                }
             }
 
             // If already watching a different recording, exit first (switch case — preserve camera state)
             bool switching = watchedRecordingIndex >= 0 && watchedRecordingIndex != index;
             if (switching)
+            {
+                ParsekLog.Info("CameraFollow", $"Switching watch from #{watchedRecordingIndex} to #{index} \"{committed[index].VesselName}\"");
                 ExitWatchMode(skipCameraRestore: true);
+            }
 
             watchedRecordingIndex = index;
             watchedRecordingId = committed[index].RecordingId;
@@ -5985,12 +6019,20 @@ namespace Parsek
             // Point camera at ghost
             FlightCamera.fetch.SetTargetTransform(gs.ghost.transform);
             FlightCamera.fetch.SetDistance(50f);  // override [75,400] entry clamp
+            ParsekLog.Verbose("CameraFollow",
+                $"FlightCamera.SetTargetTransform on ghost #{index} at {gs.ghost.transform.position}, distance={FlightCamera.fetch.Distance.ToString("F1", CultureInfo.InvariantCulture)}");
 
             // Block inputs that could affect the active vessel
             InputLockManager.SetControlLock(WatchModeLockMask, WatchModeLockId);
+            ParsekLog.Verbose("CameraFollow", $"InputLockManager control lock \"{WatchModeLockId}\" set: {WatchModeLockMask}");
 
             // Clear hold timer
             watchEndHoldUntilUT = -1;
+
+            string body = gs.lastInterpolatedBodyName ?? "?";
+            string altStr = gs.lastInterpolatedAltitude.ToString("F0", CultureInfo.InvariantCulture);
+            ParsekLog.Info("CameraFollow",
+                $"Entering watch mode for recording #{index} \"{committed[index].VesselName}\" \u2014 ghost at alt {altStr}m on {body}");
         }
 
         /// <summary>
@@ -6004,21 +6046,35 @@ namespace Parsek
             // Restore camera to the active vessel (unless switching between ghosts)
             if (!skipCameraRestore)
             {
+                var committed = RecordingStore.CommittedRecordings;
+                string recVesselName = watchedRecordingIndex < committed.Count
+                    ? committed[watchedRecordingIndex].VesselName : "?";
+                string targetName = savedCameraVessel != null
+                    ? savedCameraVessel.vesselName
+                    : (FlightGlobals.ActiveVessel?.vesselName ?? "unknown");
+                ParsekLog.Info("CameraFollow",
+                    $"Exiting watch mode for recording #{watchedRecordingIndex} \"{recVesselName}\" \u2014 returning to {targetName}");
+
                 if (savedCameraVessel != null && savedCameraVessel.gameObject != null)
                 {
                     FlightCamera.fetch.SetTargetVessel(savedCameraVessel);
                     FlightCamera.fetch.SetDistance(savedCameraDistance);
                     FlightCamera.fetch.camPitch = savedCameraPitch;
                     FlightCamera.fetch.camHdg = savedCameraHeading;
+                    ParsekLog.Verbose("CameraFollow",
+                        $"FlightCamera.SetTargetVessel restored to {savedCameraVessel.vesselName}, distance={savedCameraDistance.ToString("F1", CultureInfo.InvariantCulture)}");
                 }
                 else
                 {
                     FlightCamera.fetch.SetTargetVessel(FlightGlobals.ActiveVessel);
+                    ParsekLog.Verbose("CameraFollow",
+                        $"FlightCamera.SetTargetVessel restored to {FlightGlobals.ActiveVessel?.vesselName ?? "unknown"}, distance={savedCameraDistance.ToString("F1", CultureInfo.InvariantCulture)}");
                 }
             }
 
             // Remove input locks
             InputLockManager.RemoveControlLock(WatchModeLockId);
+            ParsekLog.Verbose("CameraFollow", $"InputLockManager control lock \"{WatchModeLockId}\" removed");
 
             watchedRecordingIndex = -1;
             watchedRecordingId = null;
