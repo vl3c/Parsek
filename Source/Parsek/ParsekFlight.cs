@@ -212,6 +212,11 @@ namespace Parsek
         private const double MinLoopDurationSeconds = 0.001;
 
         // Camera follow (watch mode) — transient, never serialized
+        private const string WatchModeLockId = "ParsekWatch";
+        private const ControlTypes WatchModeLockMask =
+            ControlTypes.STAGING | ControlTypes.THROTTLE |
+            ControlTypes.VESSEL_SWITCHING | ControlTypes.EVA_INPUT |
+            ControlTypes.CAMERAMODES;
         int watchedRecordingIndex = -1;       // -1 = not watching
         string watchedRecordingId = null;     // stable across index shifts
         Vessel savedCameraVessel = null;
@@ -753,6 +758,7 @@ namespace Parsek
             }
             StopPlayback();
             ExitWatchMode();
+            InputLockManager.RemoveControlLock(WatchModeLockId); // safety net
             DestroyAllTimelineGhosts();
 
             ui?.Cleanup();
@@ -768,6 +774,7 @@ namespace Parsek
 
             // Exit watch mode on scene change
             ExitWatchMode();
+            InputLockManager.RemoveControlLock(WatchModeLockId); // safety net
 
             // Finalize continuation sampling before anything else
             if (continuationVesselPid != 0)
@@ -5979,6 +5986,9 @@ namespace Parsek
             FlightCamera.fetch.SetTargetTransform(gs.ghost.transform);
             FlightCamera.fetch.SetDistance(50f);  // override [75,400] entry clamp
 
+            // Block inputs that could affect the active vessel
+            InputLockManager.SetControlLock(WatchModeLockMask, WatchModeLockId);
+
             // Clear hold timer
             watchEndHoldUntilUT = -1;
         }
@@ -6007,7 +6017,8 @@ namespace Parsek
                 }
             }
 
-            // Control lock removal placeholder (Phase 4)
+            // Remove input locks
+            InputLockManager.RemoveControlLock(WatchModeLockId);
 
             watchedRecordingIndex = -1;
             watchedRecordingId = null;
