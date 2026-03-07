@@ -241,6 +241,128 @@ namespace Parsek
             return result;
         }
 
+        // --- Full cost helpers (ignore application state) ---
+
+        internal static double FullCommittedFundsCost(RecordingStore.Recording rec)
+        {
+            if (rec == null || rec.Points.Count == 0) return 0;
+            return rec.PreLaunchFunds - rec.Points[rec.Points.Count - 1].funds;
+        }
+
+        internal static double FullCommittedScienceCost(RecordingStore.Recording rec)
+        {
+            if (rec == null || rec.Points.Count == 0) return 0;
+            return rec.PreLaunchScience - rec.Points[rec.Points.Count - 1].science;
+        }
+
+        internal static double FullCommittedReputationCost(RecordingStore.Recording rec)
+        {
+            if (rec == null || rec.Points.Count == 0) return 0;
+            return rec.PreLaunchReputation - rec.Points[rec.Points.Count - 1].reputation;
+        }
+
+        internal static double FullTreeCommittedFundsCost(RecordingTree tree)
+        {
+            if (tree == null) return 0;
+            return -tree.DeltaFunds;
+        }
+
+        internal static double FullTreeCommittedScienceCost(RecordingTree tree)
+        {
+            if (tree == null) return 0;
+            return -tree.DeltaScience;
+        }
+
+        internal static double FullTreeCommittedReputationCost(RecordingTree tree)
+        {
+            if (tree == null) return 0;
+            return -(double)tree.DeltaReputation;
+        }
+
+        internal static double FullMilestoneCommittedFunds(Milestone m)
+        {
+            if (m == null || m.Events.Count == 0) return 0;
+
+            double cost = 0;
+            for (int i = 0; i < m.Events.Count; i++)
+            {
+                var e = m.Events[i];
+                switch (e.eventType)
+                {
+                    case GameStateEventType.PartPurchased:
+                        cost += ParseCostFromDetail(e.detail);
+                        break;
+                    case GameStateEventType.FacilityUpgraded:
+                        cost += ComputeFacilityUpgradeCost(e.valueBefore, e.valueAfter);
+                        break;
+                }
+            }
+            return cost;
+        }
+
+        internal static double FullMilestoneCommittedScience(Milestone m)
+        {
+            if (m == null || m.Events.Count == 0) return 0;
+
+            double cost = 0;
+            for (int i = 0; i < m.Events.Count; i++)
+            {
+                var e = m.Events[i];
+                if (e.eventType == GameStateEventType.TechResearched)
+                    cost += ParseCostFromDetail(e.detail);
+            }
+            return cost;
+        }
+
+        internal static double FullMilestoneCommittedReputation(Milestone m)
+        {
+            // Currently no milestone event types affect reputation,
+            // but included for API symmetry with ComputeTotalFullCost.
+            return 0;
+        }
+
+        internal static BudgetSummary ComputeTotalFullCost(
+            IList<RecordingStore.Recording> recordings,
+            IReadOnlyList<Milestone> milestones,
+            IReadOnlyList<RecordingTree> trees = null)
+        {
+            var result = new BudgetSummary();
+
+            if (recordings != null)
+            {
+                for (int i = 0; i < recordings.Count; i++)
+                {
+                    if (recordings[i].TreeId != null) continue;
+                    result.reservedFunds += FullCommittedFundsCost(recordings[i]);
+                    result.reservedScience += FullCommittedScienceCost(recordings[i]);
+                    result.reservedReputation += FullCommittedReputationCost(recordings[i]);
+                }
+            }
+
+            if (trees != null)
+            {
+                for (int i = 0; i < trees.Count; i++)
+                {
+                    result.reservedFunds += FullTreeCommittedFundsCost(trees[i]);
+                    result.reservedScience += FullTreeCommittedScienceCost(trees[i]);
+                    result.reservedReputation += FullTreeCommittedReputationCost(trees[i]);
+                }
+            }
+
+            if (milestones != null)
+            {
+                for (int i = 0; i < milestones.Count; i++)
+                {
+                    if (!milestones[i].Committed) continue;
+                    result.reservedFunds += FullMilestoneCommittedFunds(milestones[i]);
+                    result.reservedScience += FullMilestoneCommittedScience(milestones[i]);
+                    result.reservedReputation += (double)FullMilestoneCommittedReputation(milestones[i]);
+                }
+            }
+
+            return result;
+        }
+
         internal static double ParseCostFromDetail(string detail)
         {
             if (string.IsNullOrEmpty(detail)) return 0;
