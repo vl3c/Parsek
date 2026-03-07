@@ -66,6 +66,11 @@ namespace Parsek
             return Path.Combine("Parsek", "GameState", "milestones.pgsm");
         }
 
+        internal static string BuildRestorePointsRelativePath()
+        {
+            return Path.Combine("Parsek", "GameState", "restore_points.pgrp");
+        }
+
         internal static string BuildGameStateEventsRelativePath()
         {
             return Path.Combine("Parsek", "GameState", "events.pgse");
