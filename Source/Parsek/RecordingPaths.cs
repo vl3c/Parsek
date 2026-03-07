@@ -66,9 +66,30 @@ namespace Parsek
             return Path.Combine("Parsek", "GameState", "milestones.pgsm");
         }
 
-        internal static string BuildRestorePointsRelativePath()
+        internal static string BuildRewindSaveRelativePath(string saveFileName)
         {
-            return Path.Combine("Parsek", "GameState", "restore_points.pgrp");
+            return Path.Combine("Parsek", "Saves", saveFileName + ".sfs");
+        }
+
+        internal static string EnsureRewindSavesDirectory()
+        {
+            string root = KSPUtil.ApplicationRootPath ?? "";
+            string saveFolder = HighLogic.SaveFolder ?? "";
+            if (string.IsNullOrEmpty(root) || string.IsNullOrEmpty(saveFolder))
+            {
+                ParsekLog.VerboseRateLimited("Paths", "ensure-rewindsaves-missing-context",
+                    $"EnsureRewindSavesDirectory missing context: rootSet={!string.IsNullOrEmpty(root)}, " +
+                    $"saveSet={!string.IsNullOrEmpty(saveFolder)}", 5.0);
+                return null;
+            }
+
+            string dir = Path.GetFullPath(Path.Combine(root, "saves", saveFolder, "Parsek", "Saves"));
+            if (!Directory.Exists(dir))
+            {
+                Directory.CreateDirectory(dir);
+                ParsekLog.Info("Paths", $"Created rewind saves directory '{dir}'");
+            }
+            return dir;
         }
 
         internal static string BuildGameStateEventsRelativePath()
