@@ -706,34 +706,11 @@ namespace Parsek
                     actionsGrayStyle);
             }
 
-            GUILayout.BeginHorizontal();
-
-            int committedCount = RecordingStore.CommittedRecordings.Count;
-            GUI.enabled = committedCount > 0 || MilestoneStore.MilestoneCount > 0;
-            if (GUILayout.Button("Wipe All"))
-            {
-                ParsekLog.Verbose("UI", $"Wipe All button clicked, recordings={committedCount} milestones={MilestoneStore.MilestoneCount}");
-                foreach (var rec in RecordingStore.CommittedRecordings)
-                    ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
-                ParsekScenario.ClearReplacements();
-                flight.DestroyAllTimelineGhosts();
-                RecordingStore.ClearCommitted();
-                RestorePointStore.ClearAll();
-                MilestoneStore.ClearAll();
-                GameStateStore.ClearEvents();
-                GameStateStore.ClearBaselines();
-                ParsekLog.Log("All recordings and game state wiped");
-                ParsekLog.ScreenMessage("All data wiped", 2f);
-            }
-            GUI.enabled = true;
-
             if (GUILayout.Button("Close"))
             {
                 showActionsWindow = false;
                 ParsekLog.Verbose("UI", "Actions window closed via button");
             }
-
-            GUILayout.EndHorizontal();
 
             // Resize handle (bottom-right corner)
             Rect handleRect = new Rect(
@@ -910,7 +887,7 @@ namespace Parsek
 
                 GUILayout.Label("Period", GUILayout.Width(ColW_Period));
 
-                GUILayout.Label("W", GUILayout.Width(ColW_Watch));
+                GUILayout.Label("Watch", GUILayout.Width(ColW_Watch));
                 GUILayout.Button("", GUI.skin.label, GUILayout.Width(ColW_Delete)); // placeholder
                 GUILayout.Space(ScrollbarWidth);
                 GUILayout.EndHorizontal();
