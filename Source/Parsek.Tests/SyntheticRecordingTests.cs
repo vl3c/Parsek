@@ -4910,13 +4910,22 @@ namespace Parsek.Tests
 
             var writer = new ScenarioWriter().WithV3Format();
             writer.AddRecording(PadWalk(baseUT).WithLoopPlayback());
-            writer.AddRecording(KscHopper(baseUT).WithLoopPlayback());
-            writer.AddRecording(FleaFlight(baseUT).WithLoopPlayback());
-            writer.AddRecording(SuborbitalArc(baseUT).WithLoopPlayback());
-            writer.AddRecording(KscPadDestroyed(baseUT).WithLoopPlayback());
-            writer.AddRecording(Orbit1(baseUT).WithLoopPlayback());
+
+            // Pad-launch recordings — capture builders for restore point generation
+            var kscHopper = KscHopper(baseUT).WithLoopPlayback();
+            var fleaFlight = FleaFlight(baseUT).WithLoopPlayback();
+            var suborbitalArc = SuborbitalArc(baseUT).WithLoopPlayback();
+            var kscPadDestroyed = KscPadDestroyed(baseUT).WithLoopPlayback();
+            var orbit1 = Orbit1(baseUT).WithLoopPlayback();
+            var islandProbe = IslandProbe(baseUT).WithLoopPlayback();
+
+            writer.AddRecording(kscHopper);
+            writer.AddRecording(fleaFlight);
+            writer.AddRecording(suborbitalArc);
+            writer.AddRecording(kscPadDestroyed);
+            writer.AddRecording(orbit1);
             writer.AddRecording(CloseSpawnConflict(baseUT).WithLoopPlayback());
-            writer.AddRecording(IslandProbe(baseUT).WithLoopPlayback());
+            writer.AddRecording(islandProbe);
 
             var lightShowcases = LightShowcaseRecordings(baseUT);
             for (int i = 0; i < lightShowcases.Length; i++)
@@ -5017,6 +5026,18 @@ namespace Parsek.Tests
             writer.AddTree(SimpleUndockTree(baseUT));
             writer.AddTree(EvaTree(baseUT));
             writer.AddTree(DestructionTree(baseUT));
+
+            // Add restore points for pad-launch recordings
+            writer.AddRestorePoint(kscHopper);
+            writer.AddRestorePoint(fleaFlight);
+            writer.AddRestorePoint(suborbitalArc);
+            writer.AddRestorePoint(kscPadDestroyed);
+            writer.AddRestorePoint(orbit1);
+            writer.AddRestorePoint(islandProbe);
+            writer.AddRestorePoint(chainSegments[0]);
+            writer.AddRestorePoint(walkChainSegments[0]);
+            writer.AddRestorePoint(atmoChainSegments[0]);
+            writer.AddRestorePoint(munTransferSegments[0]);
 
             foreach (string file in targets)
             {
