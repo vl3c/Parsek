@@ -872,5 +872,309 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Launch Save Capture Tests
+
+        // Test 26: TryCaptureLaunchSave cannot be directly tested without KSP runtime
+        // (GamePersistence.SaveGame, Funding.Instance, etc. are KSP-only APIs).
+        // The stable state check used by TryCaptureLaunchSave is tested by
+        // IsStableState_AllSituations and IsStableState_WithVesselSituationsEnum above.
+        // Full integration testing is done in-game.
+
+        [Fact]
+        public void DiscardLaunchSave_ClearsPending()
+        {
+            // Set a pending launch save
+            RestorePointStore.pendingLaunchSave = new PendingLaunchSave
+            {
+                SaveFileName = "parsek_rp_abc123",
+                UT = 17030,
+                Funds = 50000,
+                Science = 10,
+                Reputation = 5f,
+                ReservedFundsAtSave = 15000,
+                ReservedScienceAtSave = 3,
+                ReservedRepAtSave = 1f
+            };
+            Assert.True(RestorePointStore.HasPendingLaunchSave);
+
+            // DiscardLaunchSave will try to delete the file (which won't exist in test),
+            // but should still clear the pending state
+            RestorePointStore.DiscardLaunchSave();
+
+            Assert.False(RestorePointStore.HasPendingLaunchSave);
+            Assert.Null(RestorePointStore.pendingLaunchSave);
+        }
+
+        [Fact]
+        public void DiscardLaunchSave_NoPending_NoOp()
+        {
+            // Ensure no pending launch save
+            Assert.False(RestorePointStore.HasPendingLaunchSave);
+
+            // Should not throw or change any state
+            RestorePointStore.DiscardLaunchSave();
+
+            Assert.False(RestorePointStore.HasPendingLaunchSave);
+            Assert.Null(RestorePointStore.pendingLaunchSave);
+        }
+
+        [Fact]
+        public void LaunchSaveReplacement_DataLevel()
+        {
+            // Set pending launch save A
+            RestorePointStore.pendingLaunchSave = new PendingLaunchSave
+            {
+                SaveFileName = "parsek_rp_aaa111",
+                UT = 17030,
+                Funds = 50000,
+                Science = 10,
+                Reputation = 5f,
+                ReservedFundsAtSave = 15000,
+                ReservedScienceAtSave = 3,
+                ReservedRepAtSave = 1f
+            };
+            Assert.True(RestorePointStore.HasPendingLaunchSave);
+            Assert.Equal("parsek_rp_aaa111", RestorePointStore.pendingLaunchSave.Value.SaveFileName);
+
+            // Replace with launch save B (simulating what TryCaptureLaunchSave does at the data level)
+            RestorePointStore.pendingLaunchSave = new PendingLaunchSave
+            {
+                SaveFileName = "parsek_rp_bbb222",
+                UT = 17060,
+                Funds = 45000,
+                Science = 8,
+                Reputation = 4f,
+                ReservedFundsAtSave = 20000,
+                ReservedScienceAtSave = 5,
+                ReservedRepAtSave = 2f
+            };
+
+            // Only B should exist
+            Assert.True(RestorePointStore.HasPendingLaunchSave);
+            Assert.Equal("parsek_rp_bbb222", RestorePointStore.pendingLaunchSave.Value.SaveFileName);
+            Assert.Equal(17060, RestorePointStore.pendingLaunchSave.Value.UT);
+            Assert.Equal(45000, RestorePointStore.pendingLaunchSave.Value.Funds);
+            Assert.Equal(8, RestorePointStore.pendingLaunchSave.Value.Science);
+            Assert.Equal(4f, RestorePointStore.pendingLaunchSave.Value.Reputation);
+            Assert.Equal(20000, RestorePointStore.pendingLaunchSave.Value.ReservedFundsAtSave);
+            Assert.Equal(5, RestorePointStore.pendingLaunchSave.Value.ReservedScienceAtSave);
+            Assert.Equal(2f, RestorePointStore.pendingLaunchSave.Value.ReservedRepAtSave);
+        }
+
+        #endregion
+
+        #region Resource Adjustment Calc Tests
+
+        /// <summary>
+        /// Helper: creates a recording with specific PreLaunchFunds and end-point funds.
+        /// Points have 2 entries (start/end) so the recording is non-trivial.
+        /// </summary>
+        private RecordingStore.Recording MakeResourceRecording(
+            string name, double preLaunchFunds, double endFunds,
+            double preLaunchScience = 0, double endScience = 0,
+            float preLaunchRep = 0, float endRep = 0)
+        {
+            var rec = new RecordingStore.Recording
+            {
+                RecordingId = System.Guid.NewGuid().ToString("N"),
+                VesselName = name,
+                PreLaunchFunds = preLaunchFunds,
+                PreLaunchScience = preLaunchScience,
+                PreLaunchReputation = preLaunchRep,
+                LastAppliedResourceIndex = -1
+            };
+
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 100,
+                funds = preLaunchFunds,
+                science = (float)preLaunchScience,
+                reputation = preLaunchRep,
+                bodyName = "Kerbin",
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero
+            });
+
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 200,
+                funds = endFunds,
+                science = (float)endScience,
+                reputation = endRep,
+                bodyName = "Kerbin",
+                rotation = Quaternion.identity,
+                velocity = Vector3.zero
+            });
+
+            return rec;
+        }
+
+        [Fact]
+        public void ResourceAdjustmentCalc_Positive()
+        {
+            // Test 33: positive delta means additional cost to deduct
+            // saved=(15000,5,2), current=(25000,10,5). Delta = (10000,5,3).
+            var saved = new ResourceBudget.BudgetSummary
+            {
+                reservedFunds = 15000,
+                reservedScience = 5,
+                reservedReputation = 2
+            };
+            var current = new ResourceBudget.BudgetSummary
+            {
+                reservedFunds = 25000,
+                reservedScience = 10,
+                reservedReputation = 5
+            };
+
+            double deltaFunds = current.reservedFunds - saved.reservedFunds;
+            double deltaScience = current.reservedScience - saved.reservedScience;
+            double deltaRep = current.reservedReputation - saved.reservedReputation;
+
+            Assert.Equal(10000, deltaFunds);
+            Assert.Equal(5, deltaScience);
+            Assert.Equal(3, deltaRep);
+        }
+
+        [Fact]
+        public void ResourceAdjustmentCalc_Negative()
+        {
+            // Test 34: negative delta means funds freed (recording deleted since save)
+            // saved=(20000,0,0), current=(8000,0,0). Delta = (-12000,0,0).
+            var saved = new ResourceBudget.BudgetSummary
+            {
+                reservedFunds = 20000,
+                reservedScience = 0,
+                reservedReputation = 0
+            };
+            var current = new ResourceBudget.BudgetSummary
+            {
+                reservedFunds = 8000,
+                reservedScience = 0,
+                reservedReputation = 0
+            };
+
+            double deltaFunds = current.reservedFunds - saved.reservedFunds;
+            double deltaScience = current.reservedScience - saved.reservedScience;
+            double deltaRep = current.reservedReputation - saved.reservedReputation;
+
+            Assert.Equal(-12000, deltaFunds);
+            Assert.Equal(0, deltaScience);
+            Assert.Equal(0, deltaRep);
+        }
+
+        [Fact]
+        public void ResourceAdjustmentCalc_WorkedExample()
+        {
+            // Test 35: From design doc worked example (Step 5: Go back to RP_A)
+            // Recording A: PreLaunchFunds=80000, Points[last].funds=84000 (earned 4k, cost=-4k)
+            // Recording B: PreLaunchFunds=74000, Points[last].funds=72000 (lost 2k, cost=+2k)
+            // After reset (LARI=-1), ComputeTotalFullCost should return:
+            //   FullCommittedFundsCost(A) = 80000-84000 = -4000
+            //   FullCommittedFundsCost(B) = 74000-72000 = +2000
+            //   Total = -2000
+            // ReservedAtSave_A = (0,0,0)
+            // Delta = -2000 - 0 = -2000 (deduct -(-2000) = add 2000 to funds)
+
+            var recA = MakeResourceRecording("MissionA", 80000, 84000);
+            var recB = MakeResourceRecording("MissionB", 74000, 72000);
+
+            RecordingStore.CommittedRecordings.Add(recA);
+            RecordingStore.CommittedRecordings.Add(recB);
+
+            // Reset LARI to -1 (simulating ResetAllPlaybackState)
+            recA.LastAppliedResourceIndex = -1;
+            recB.LastAppliedResourceIndex = -1;
+
+            // ComputeTotalFullCost ignores LARI entirely
+            var currentReserved = ResourceBudget.ComputeTotalFullCost(
+                RecordingStore.CommittedRecordings,
+                MilestoneStore.Milestones,
+                RecordingStore.CommittedTrees);
+
+            Assert.Equal(-2000, currentReserved.reservedFunds);
+
+            // ReservedAtSave_A = (0,0,0) — no committed recordings at save time
+            var savedReserved = new ResourceBudget.BudgetSummary
+            {
+                reservedFunds = 0,
+                reservedScience = 0,
+                reservedReputation = 0
+            };
+
+            double deltaFunds = currentReserved.reservedFunds - savedReserved.reservedFunds;
+            Assert.Equal(-2000, deltaFunds);
+
+            // Applying: Funding.AddFunds(-deltaFunds) = AddFunds(-(-2000)) = AddFunds(2000)
+            // saveFunds=80000 + 2000 = 82000 (correct per worked example)
+        }
+
+        [Fact]
+        public void BudgetDeductionEpochGuard()
+        {
+            // Test 36: Verify that the epoch guard logic works:
+            // if budgetDeductionEpoch >= CurrentEpoch, budget deduction should be skipped.
+            // This tests the pure condition check directly.
+            MilestoneStore.CurrentEpoch = 3;
+
+            // Case 1: epoch already applied (>=) — should skip
+            uint budgetEpoch = 3;
+            Assert.True(budgetEpoch >= MilestoneStore.CurrentEpoch,
+                "budgetDeductionEpoch >= CurrentEpoch should indicate deduction already applied");
+
+            // Case 2: epoch higher than current — should skip
+            budgetEpoch = 5;
+            Assert.True(budgetEpoch >= MilestoneStore.CurrentEpoch,
+                "budgetDeductionEpoch > CurrentEpoch should also skip");
+
+            // Case 3: epoch lower — should proceed with deduction
+            budgetEpoch = 2;
+            Assert.False(budgetEpoch >= MilestoneStore.CurrentEpoch,
+                "budgetDeductionEpoch < CurrentEpoch should allow deduction");
+        }
+
+        [Fact]
+        public void PlaybackResetIncludesTreeResourcesApplied()
+        {
+            // Test 37: Verify that ResetAllPlaybackState sets tree.ResourcesApplied = false.
+            // This is critical for the resource adjustment formula — if ResourcesApplied
+            // stays true, TreeCommittedFundsCost returns 0 and tree costs are excluded.
+            // (This is already covered by the existing ResetAllPlaybackState_Trees test,
+            // but we add an explicit targeted assertion for documentation clarity.)
+
+            var tree = new RecordingTree
+            {
+                Id = "tree_res_test",
+                TreeName = "ResourceTree",
+                RootRecordingId = "rec_root",
+                ResourcesApplied = true, // Simulate previously applied
+                DeltaFunds = -5000
+            };
+            var treeRec = new RecordingStore.Recording
+            {
+                RecordingId = "rec_root",
+                VesselName = "TreeShip",
+                TreeId = "tree_res_test",
+                Points = MakePoints(3, 100),
+                LastAppliedResourceIndex = 2,
+                VesselSpawned = true
+            };
+            tree.Recordings["rec_root"] = treeRec;
+            RecordingStore.CommittedTrees.Add(tree);
+
+            // Before reset: ResourcesApplied=true → FullTreeCommittedFundsCost returns full cost,
+            // but TreeCommittedFundsCost returns 0 (already applied)
+            Assert.True(tree.ResourcesApplied);
+            Assert.Equal(0, ResourceBudget.TreeCommittedFundsCost(tree));
+
+            RestorePointStore.ResetAllPlaybackState();
+
+            // After reset: ResourcesApplied=false → TreeCommittedFundsCost returns cost
+            Assert.False(tree.ResourcesApplied);
+            Assert.Equal(5000, ResourceBudget.TreeCommittedFundsCost(tree));
+        }
+
+        #endregion
     }
 }

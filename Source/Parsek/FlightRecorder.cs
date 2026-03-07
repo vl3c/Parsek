@@ -3121,6 +3121,9 @@ namespace Parsek
                 catch { }
             }
 
+            // Capture launch save for restore point (handles isPromotion and stable state checks internally)
+            RestorePointStore.TryCaptureLaunchSave(v, isPromotion, Planetarium.GetUniversalTime());
+
             IsRecording = true;
             isOnRails = false;
             VesselDestroyedDuringRecording = false;
