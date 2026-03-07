@@ -293,4 +293,10 @@ namespace Parsek
             return snap;
         }
     }
+
+    public struct PendingScienceSubject
+    {
+        public string subjectId;
+        public float science;
+    }
 }
