@@ -54,7 +54,7 @@ The player starts a new career. They build a small Flea rocket, launch it, fly a
 
 They build a second rocket, launch it, fly higher, revert, merge. A second restore point appears.
 
-Now they want to re-fly the first mission differently. They open the Parsek window, click "Go Back," see both restore points listed chronologically. They pick the first one. A confirmation dialog warns that 2 future recordings will replay as ghosts and uncommitted progress will be lost. They confirm.
+Now they want to re-fly the first mission differently. They open the Parsek window, click "Go Back," see both restore points listed chronologically. They pick the first one. A confirmation dialog warns that 1 future recording will replay as a ghost and uncommitted progress will be lost. They confirm.
 
 The game loads to the pad at the moment of the first launch. Both committed recordings begin replaying as ghosts — the first ghost launches alongside them, the second ghost appears later at its scheduled UT. The player launches a new rocket and watches the two ghost missions fly while they do their own thing.
 
@@ -100,7 +100,7 @@ They launch Mission B (vessel cost 15,000, loses 5,000 in-flight). Commit. Avail
 
 They go back to RP_A (UT of Mission A launch). Game loads with 30,000 funds (50,000 - 20,000 vessel cost at launch). Resource adjustment adds the net committed delta: A earns 10k, B loses 5k, net +5k → adjustment deducts -5k (adds 5k). Funds = 35,000.
 
-They try to launch a 40,000 rocket. Blocked — only 35,000 available. They can either build cheaper or delete Mission B from the Recordings window to free its 5,000 commitment (and the 15,000 vessel cost is also freed since B no longer exists in the timeline).
+They try to launch a 40,000 rocket. Blocked — only 35,000 available. They build a cheaper 30,000 rocket instead.
 
 ## Design Decisions
 
@@ -441,7 +441,7 @@ Each restore point entry is a row with info + "Go Back" and "Delete" buttons. En
 │  Going back to Year 1, Day 1  03:22              │
 │  ("Flea Rocket" launch point).                   │
 │                                                   │
-│  • 2 future recordings will replay as ghosts     │
+│  • 1 future recording will replay as a ghost      │
 │  • Game state (funds, tech, facilities) will      │
 │    revert to this launch point                    │
 │  • Any uncommitted progress will be lost          │
@@ -516,7 +516,6 @@ If any precondition fails, the "Go Back" button is disabled with a tooltip expla
    - **Skip merge dialog** — no pending recording exists
    - Run normal timeline setup (subscribe events, initialize playback)
    - Apply crew swaps via `ParsekScenario.SwapReservedCrewInFlight()`
-   - Re-reserve snapshot crew via `ParsekScenario.ReserveSnapshotCrew()`
    - **Clear `GoBackUT`**
 
 **After go-back completes:**
@@ -576,7 +575,7 @@ If any precondition fails, the "Go Back" button is disabled with a tooltip expla
 
 7. **Recordings with EndUT < restoreUT**
    - Vessel spawns immediately on first Update tick (currentUT > EndUT).
-   - Resource deltas do NOT re-apply during playback — LARI was set to max by the go-back resource adjustment (step 4). The adjustment already pre-applied all costs.
+   - Resource deltas do NOT re-apply during playback — LARI was set to max by step 4 of the resource adjustment pseudocode (in "Resource adjustment on go-back"). The adjustment already pre-applied all costs.
    - Existing playback logic handles this.
 
 8. **Chain recordings spanning the restore UT**
@@ -722,7 +721,13 @@ If any precondition fails, the "Go Back" button is disabled with a tooltip expla
     - The existing `ApplyBudgetDeductionWhenReady` solves this by waiting up to 120 frames. The go-back resource adjustment must use the same pattern: defer via `StartCoroutine` and wait for singletons before applying.
     - The adjustment logic is inline (not reusing `ApplyBudgetDeductionWhenReady`), but follows the same wait pattern.
 
-36. **pendingLaunchSave across scene changes (launch → tracking station → new launch)**
+36. **Delete a recording after go-back (costs already pre-applied)**
+    - Player goes back to RP_A. Resource adjustment pre-applies all costs (LARI=max for all recordings). Player then deletes recording B from the Recordings window.
+    - B's cost was already baked into the adjusted funds. Deleting B removes it from the committed list and prevents its vessel from spawning, but does NOT refund the pre-applied cost.
+    - Acceptable v1 limitation. The player has slightly less funds than they "should." The workaround is to delete recordings before going back, not after.
+    - Future enhancement: trigger a budget re-adjustment when a recording is deleted after go-back.
+
+37. **pendingLaunchSave across scene changes (launch → tracking station → new launch)**
     - Player launches (launch save captured), goes to tracking station.
     - `OnSceneChangeRequested`: active recording stashed as pending (or auto-committed if going to non-flight).
     - If auto-committed (CommitTreeSceneExit / ghost-only): `pendingLaunchSave` consumed → restore point created.
@@ -1056,6 +1061,10 @@ Phases A and B are foundation. Phase C is the highest-risk and most complex. Pha
     - Create RP at UT 100 with RecordingCount=3. Delete 2 recordings (1 before UT 100, 1 after).
     - Assert "future recordings" count = count of recordings with StartUT > 100, not `total - RecordingCount`.
     - Guards against: negative or stale future recordings display.
+
+32. **budgetDeductionEpoch guard prevents double-deduction**
+    - Simulate go-back (sets `budgetDeductionEpoch = CurrentEpoch`). Then trigger `ApplyBudgetDeductionWhenReady`. Assert the coroutine exits early without modifying funds (epoch guard blocks it).
+    - Guards against: `ApplyBudgetDeductionWhenReady` running after go-back and applying a second deduction on top of the go-back adjustment.
 
 ## Open Questions
 
