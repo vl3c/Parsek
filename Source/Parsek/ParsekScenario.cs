@@ -270,10 +270,6 @@ namespace Parsek
                     // Re-reserve crew from all recording snapshots
                     ReserveSnapshotCrew();
 
-                    // No-op during go-back (initialLoadDone guard returns early).
-                    // In-memory restore point list is the source of truth, same as recordings.
-                    RestorePointStore.LoadRestorePointFile();
-
                     // Clear IsGoingBack, preserve GoBackUT for OnFlightReady
                     RestorePointStore.IsGoingBack = false;
 
@@ -821,6 +817,10 @@ namespace Parsek
         /// </summary>
         private IEnumerator ApplyGoBackResourceAdjustment()
         {
+            // Capture before yielding — GoBackReserved could theoretically be overwritten
+            // if another go-back starts before the coroutine completes.
+            var saved = RestorePointStore.GoBackReserved;
+
             // Wait until ALL resource singletons are available (same pattern as ApplyBudgetDeductionWhenReady)
             int maxWait = 120; // ~2 seconds at 60fps
             while (maxWait-- > 0
@@ -842,8 +842,7 @@ namespace Parsek
                 MilestoneStore.Milestones,
                 RecordingStore.CommittedTrees);
 
-            // Differential deduction
-            var saved = RestorePointStore.GoBackReserved;
+            // Differential deduction (saved was captured before yielding)
             double deltaFunds = currentReserved.reservedFunds - saved.reservedFunds;
             double deltaScience = currentReserved.reservedScience - saved.reservedScience;
             double deltaRep = currentReserved.reservedReputation - saved.reservedReputation;

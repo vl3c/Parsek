@@ -3024,12 +3024,13 @@ namespace Parsek
             dockingInProgress.Clear();
 
             // Go-back: skip merge dialog checks — CanGoBack guarantees no pending recordings.
+            // Must be BEFORE HasPendingTree/HasPending to avoid stale pending state from quicksave.
             if (RestorePointStore.GoBackUT > 0)
             {
                 ParsekLog.Info("RestorePoint",
                     $"OnFlightReady: go-back complete at UT {RestorePointStore.GoBackUT}. Timeline: {RecordingStore.CommittedRecordings.Count} recordings, {RestorePointStore.RestorePoints.Count} restore points");
                 RestorePointStore.GoBackUT = 0;
-                // Fall through to normal timeline setup (crew swap, event subscription, etc.)
+                goto postMergeDialog; // Skip merge dialog checks, continue to crew swap + event subscription
             }
 
             // Handle pending tree: show tree merge dialog.
@@ -3089,6 +3090,8 @@ namespace Parsek
                     MergeDialog.Show(pending);
                 }
             }
+
+            postMergeDialog:
 
             // Swap reserved crew out of the active vessel so the player
             // can't record with them again (they belong to deferred-spawn vessels)
