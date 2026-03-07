@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using UnityEngine;
 
 namespace Parsek
@@ -18,6 +19,11 @@ namespace Parsek
 
         // When true, suppresses logging calls (for unit testing outside Unity)
         internal static bool SuppressLogging;
+
+        // Rewind flags (survive scene change via static fields)
+        internal static bool IsRewinding;
+        internal static double RewindUT;
+        internal static ResourceBudget.BudgetSummary RewindReserved;
 
         private const string LegacyPrefix = "[Parsek] ";
 
@@ -127,6 +133,12 @@ namespace Parsek
             public double PreLaunchScience;
             public float PreLaunchReputation;
 
+            // Rewind save (quicksave captured at recording start, stored in Parsek/Saves/)
+            public string RewindSaveFileName;
+            public double RewindReservedFunds;
+            public double RewindReservedScience;
+            public float RewindReservedRep;
+
             // Tracks which point's resource deltas have been applied during playback.
             // -1 means no resources applied yet (start from point 0's delta).
             public int LastAppliedResourceIndex = -1;
@@ -186,6 +198,10 @@ namespace Parsek
                 PreLaunchFunds = source.PreLaunchFunds;
                 PreLaunchScience = source.PreLaunchScience;
                 PreLaunchReputation = source.PreLaunchReputation;
+                RewindSaveFileName = source.RewindSaveFileName;
+                RewindReservedFunds = source.RewindReservedFunds;
+                RewindReservedScience = source.RewindReservedScience;
+                RewindReservedRep = source.RewindReservedRep;
                 SegmentPhase = source.SegmentPhase;
                 SegmentBodyName = source.SegmentBodyName;
                 PlaybackEnabled = source.PlaybackEnabled;
@@ -282,8 +298,6 @@ namespace Parsek
             Log($"[Parsek] Committed recording from {pendingRecording.VesselName} " +
                 $"({pendingRecording.Points.Count} points). Total committed: {committedRecordings.Count}");
 
-            RestorePointStore.TryPromoteLaunchSave(pendingRecording.VesselName, committedRecordings.Count, false, pendingRecording.ParentRecordingId);
-
             string recordingId = pendingRecording.RecordingId;
             double endUT = pendingRecording.EndUT;
             pendingRecording = null;
@@ -306,9 +320,16 @@ namespace Parsek
             }
 
             DeleteRecordingFiles(pendingRecording);
+
+            // Delete rewind save file if present
+            if (!string.IsNullOrEmpty(pendingRecording.RewindSaveFileName))
+            {
+                DeleteFileIfExists(RecordingPaths.BuildRewindSaveRelativePath(pendingRecording.RewindSaveFileName));
+                Log($"[Parsek] Deleted rewind save for discarded recording: {pendingRecording.RewindSaveFileName}");
+            }
+
             Log($"[Parsek] Discarded pending recording from {pendingRecording.VesselName}");
             pendingRecording = null;
-            RestorePointStore.DiscardLaunchSave();
             ResourceBudget.Invalidate();
         }
 
@@ -362,8 +383,6 @@ namespace Parsek
             Log($"[Parsek] Committed tree '{tree.TreeName}' ({tree.Recordings.Count} recordings). " +
                 $"Total committed: {committedRecordings.Count} recordings, {committedTrees.Count} trees");
 
-            RestorePointStore.TryPromoteLaunchSave(tree.TreeName, committedRecordings.Count, true, null);
-
             ResourceBudget.Invalidate();
 
             // Capture a game state baseline at each commit
@@ -415,11 +434,21 @@ namespace Parsek
                 return;
             }
 
+            // Delete rewind save for root recording if present
+            foreach (var rec in pendingTree.Recordings.Values)
+            {
+                if (!string.IsNullOrEmpty(rec.RewindSaveFileName))
+                {
+                    DeleteFileIfExists(RecordingPaths.BuildRewindSaveRelativePath(rec.RewindSaveFileName));
+                    Log($"[Parsek] Deleted rewind save for discarded tree: {rec.RewindSaveFileName}");
+                    break; // only root owns the rewind save
+                }
+            }
+
             foreach (var rec in pendingTree.Recordings.Values)
                 DeleteRecordingFiles(rec);
             Log($"[Parsek] Discarded pending tree '{pendingTree.TreeName}'");
             pendingTree = null;
-            RestorePointStore.DiscardLaunchSave();
             ResourceBudget.Invalidate();
         }
 
@@ -708,6 +737,9 @@ namespace Parsek
             committedRecordings.Clear();
             committedTrees.Clear();
             pendingTree = null;
+            IsRewinding = false;
+            RewindUT = 0;
+            RewindReserved = default(ResourceBudget.BudgetSummary);
         }
 
         internal static void DeleteRecordingFiles(Recording rec)
@@ -727,6 +759,9 @@ namespace Parsek
             DeleteFileIfExists(RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
             DeleteFileIfExists(RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
             DeleteFileIfExists(RecordingPaths.BuildGhostGeometryRelativePath(rec.RecordingId));
+
+            if (!string.IsNullOrEmpty(rec.RewindSaveFileName))
+                DeleteFileIfExists(RecordingPaths.BuildRewindSaveRelativePath(rec.RewindSaveFileName));
         }
 
         private static void DeleteFileIfExists(string relativePath)
@@ -742,6 +777,265 @@ namespace Parsek
                 Log($"[Parsek] WARNING: Failed to delete file '{relativePath}': {ex.Message}");
             }
         }
+
+        #region Rewind
+
+        /// <summary>
+        /// Returns true if the given vessel situation (as int) represents a stable state
+        /// suitable for Commit Flight or rewind save capture.
+        /// Stable: PRELAUNCH(4), LANDED(1), SPLASHED(2), ORBITING(32).
+        /// Unstable: FLYING(8), SUB_ORBITAL(16), ESCAPING(64).
+        /// </summary>
+        internal static bool IsStableState(int situation)
+        {
+            switch (situation)
+            {
+                case 1:  // LANDED
+                case 2:  // SPLASHED
+                case 4:  // PRELAUNCH
+                case 32: // ORBITING
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Resets all playback state on committed recordings (standalone and tree).
+        /// Called during rewind to prepare all recordings for fresh replay.
+        /// </summary>
+        internal static (int standaloneCount, int treeCount) ResetAllPlaybackState()
+        {
+            int standaloneCount = 0;
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                if (committedRecordings[i].TreeId == null)
+                    standaloneCount++;
+                ResetRecordingPlaybackFields(committedRecordings[i]);
+            }
+
+            for (int i = 0; i < committedTrees.Count; i++)
+            {
+                committedTrees[i].ResourcesApplied = false;
+                foreach (var rec in committedTrees[i].Recordings.Values)
+                    ResetRecordingPlaybackFields(rec);
+            }
+
+            ResourceBudget.Invalidate();
+
+            if (!SuppressLogging)
+                ParsekLog.Info("Rewind",
+                    $"Playback state reset: {standaloneCount} standalone recording(s), {committedTrees.Count} tree(s)");
+
+            return (standaloneCount, committedTrees.Count);
+        }
+
+        private static void ResetRecordingPlaybackFields(Recording rec)
+        {
+            rec.VesselSpawned = false;
+            rec.SpawnAttempts = 0;
+            rec.SpawnedVesselPersistentId = 0;
+            rec.LastAppliedResourceIndex = -1;
+            rec.TakenControl = false;
+            rec.SceneExitSituation = -1;
+        }
+
+        /// <summary>
+        /// Marks all committed recordings, trees, and milestones as fully applied.
+        /// Called after rewind resource adjustment to prevent double-application.
+        /// </summary>
+        internal static (int recCount, int treeCount) MarkAllFullyApplied()
+        {
+            int recCount = 0;
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                if (committedRecordings[i].Points.Count > 0)
+                {
+                    committedRecordings[i].LastAppliedResourceIndex = committedRecordings[i].Points.Count - 1;
+                    recCount++;
+                }
+            }
+
+            int treeCount = 0;
+            for (int i = 0; i < committedTrees.Count; i++)
+            {
+                if (!committedTrees[i].ResourcesApplied)
+                {
+                    committedTrees[i].ResourcesApplied = true;
+                    treeCount++;
+                }
+            }
+
+            var milestones = MilestoneStore.Milestones;
+            int mileCount = 0;
+            for (int i = 0; i < milestones.Count; i++)
+            {
+                if (milestones[i].Committed && milestones[i].Events.Count > 0)
+                {
+                    milestones[i].LastReplayedEventIndex = milestones[i].Events.Count - 1;
+                    mileCount++;
+                }
+            }
+
+            ResourceBudget.Invalidate();
+
+            if (!SuppressLogging)
+                ParsekLog.Info("Rewind",
+                    $"Marked fully applied: {recCount} recording(s), {treeCount} tree(s), {mileCount} milestone(s)");
+
+            return (recCount, treeCount);
+        }
+
+        /// <summary>
+        /// Counts committed recordings whose StartUT is after the given UT.
+        /// Used to display how many future recordings will replay as ghosts after rewind.
+        /// </summary>
+        internal static int CountFutureRecordings(double ut)
+        {
+            int count = 0;
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                if (committedRecordings[i].StartUT > ut)
+                    count++;
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// Checks whether the player can rewind to a given recording's launch point.
+        /// </summary>
+        internal static bool CanRewind(Recording rec, out string reason, bool isRecording)
+        {
+            if (IsRewinding)
+            {
+                reason = "Rewind already in progress";
+                return false;
+            }
+
+            if (string.IsNullOrEmpty(rec.RewindSaveFileName))
+            {
+                reason = "No rewind save available";
+                return false;
+            }
+
+            if (isRecording)
+            {
+                reason = "Stop recording before rewinding";
+                return false;
+            }
+
+            if (HasPending)
+            {
+                reason = "Merge or discard pending recording first";
+                return false;
+            }
+
+            if (HasPendingTree)
+            {
+                reason = "Merge or discard pending tree first";
+                return false;
+            }
+
+            // Verify the save file exists
+            string savePath = RecordingPaths.ResolveSaveScopedPath(
+                RecordingPaths.BuildRewindSaveRelativePath(rec.RewindSaveFileName));
+            if (string.IsNullOrEmpty(savePath) || !File.Exists(savePath))
+            {
+                reason = "Rewind save file missing";
+                return false;
+            }
+
+            reason = "";
+            return true;
+        }
+
+        /// <summary>
+        /// Initiates a rewind to the given recording's launch point.
+        /// Sets rewind flags, copies the save file to the root saves dir (KSP's LoadGame
+        /// doesn't support subdirectory paths), loads it, then deletes the temp copy.
+        /// </summary>
+        internal static void InitiateRewind(Recording rec)
+        {
+            IsRewinding = true;
+            RewindUT = rec.StartUT;
+            RewindReserved = new ResourceBudget.BudgetSummary
+            {
+                reservedFunds = rec.RewindReservedFunds,
+                reservedScience = rec.RewindReservedScience,
+                reservedReputation = rec.RewindReservedRep
+            };
+
+            if (!SuppressLogging)
+                ParsekLog.Info("Rewind",
+                    $"Rewind initiated to UT {rec.StartUT} (save: {rec.RewindSaveFileName})");
+
+            string tempCopyName = null;
+            try
+            {
+                string savesDir = Path.Combine(
+                    KSPUtil.ApplicationRootPath ?? "",
+                    "saves",
+                    HighLogic.SaveFolder ?? "");
+
+                string sourcePath = Path.Combine(savesDir,
+                    RecordingPaths.BuildRewindSaveRelativePath(rec.RewindSaveFileName));
+                tempCopyName = rec.RewindSaveFileName;
+                string tempPath = Path.Combine(savesDir, tempCopyName + ".sfs");
+
+                // Copy from Parsek/Saves/ to root saves dir
+                File.Copy(sourcePath, tempPath, true);
+
+                Game game = GamePersistence.LoadGame(tempCopyName, HighLogic.SaveFolder, true, false);
+
+                // Delete the temp copy (file already parsed into Game object)
+                try { File.Delete(tempPath); }
+                catch { }
+
+                if (game == null)
+                {
+                    IsRewinding = false;
+                    RewindUT = 0;
+                    RewindReserved = default(ResourceBudget.BudgetSummary);
+                    if (!SuppressLogging)
+                        ParsekLog.Error("Rewind",
+                            $"Rewind failed: LoadGame returned null for save '{rec.RewindSaveFileName}'");
+                    return;
+                }
+
+                FlightDriver.StartAndFocusVessel(game, game.flightState.activeVesselIdx);
+
+                if (!SuppressLogging)
+                    ParsekLog.Info("Rewind",
+                        $"Rewind: loading save '{rec.RewindSaveFileName}' (activeVesselIdx={game.flightState.activeVesselIdx})");
+            }
+            catch (Exception ex)
+            {
+                IsRewinding = false;
+                RewindUT = 0;
+                RewindReserved = default(ResourceBudget.BudgetSummary);
+
+                // Clean up temp copy on failure
+                if (tempCopyName != null)
+                {
+                    try
+                    {
+                        string savesDir = Path.Combine(
+                            KSPUtil.ApplicationRootPath ?? "",
+                            "saves",
+                            HighLogic.SaveFolder ?? "");
+                        string tempPath = Path.Combine(savesDir, tempCopyName + ".sfs");
+                        if (File.Exists(tempPath))
+                            File.Delete(tempPath);
+                    }
+                    catch { }
+                }
+
+                if (!SuppressLogging)
+                    ParsekLog.Error("Rewind", $"Rewind failed: {ex.Message}");
+            }
+        }
+
+        #endregion
 
         #region Trajectory Serialization
 

@@ -15,7 +15,6 @@ namespace Parsek.Tests.Generators
             = new List<(string, string)>();
         private readonly List<Milestone> milestones = new List<Milestone>();
         private readonly List<GameStateEvent> gameStateEvents = new List<GameStateEvent>();
-        private readonly List<RestorePoint> restorePoints = new List<RestorePoint>();
         private uint milestoneEpoch;
         private bool useV3Format;
 
@@ -76,33 +75,6 @@ namespace Parsek.Tests.Generators
         internal ScenarioWriter AddGameStateEvent(GameStateEvent e)
         {
             gameStateEvents.Add(e);
-            return this;
-        }
-
-        /// <summary>
-        /// Adds a restore point for a pad-launch recording.
-        /// The restore point references a quicksave file that will be created
-        /// by copying the target save file during injection.
-        /// </summary>
-        public ScenarioWriter AddRestorePoint(RecordingBuilder builder, int recordingCount = 1,
-            double funds = 0, double science = 0, float reputation = 0)
-        {
-            string shortId = Guid.NewGuid().ToString("N").Substring(0, 6);
-            var rp = new RestorePoint(true)
-            {
-                Id = Guid.NewGuid().ToString("N"),
-                UT = builder.GetStartUT(),
-                SaveFileName = RestorePointStore.RestorePointSaveName(shortId),
-                Label = RestorePointStore.BuildLabel(builder.GetVesselName(), recordingCount, false),
-                RecordingCount = recordingCount,
-                Funds = funds,
-                Science = science,
-                Reputation = reputation,
-                ReservedFundsAtSave = 0,
-                ReservedScienceAtSave = 0,
-                ReservedRepAtSave = 0
-            };
-            restorePoints.Add(rp);
             return this;
         }
 
@@ -208,11 +180,11 @@ namespace Parsek.Tests.Generators
                 WriteGameStateFiles(saveDir);
             }
 
-            // Write restore point metadata and quicksave files
-            if (restorePoints.Count > 0)
+            // Write rewind save files for v3 recordings that have rewind saves
+            if (useV3Format)
             {
                 string saveDir = Path.GetDirectoryName(outputPath);
-                WriteRestorePointFiles(saveDir, inputPath);
+                WriteRewindSaveFiles(saveDir, inputPath);
             }
         }
 
@@ -283,29 +255,24 @@ namespace Parsek.Tests.Generators
         }
 
         /// <summary>
-        /// Writes restore_points.pgrp metadata file and copies the source save
-        /// as each restore point's quicksave .sfs file.
+        /// Copies the source save as each v3 recording's rewind quicksave .sfs file
+        /// in the Parsek/Saves/ subdirectory.
         /// </summary>
-        public void WriteRestorePointFiles(string saveDir, string sourceSavePath)
+        public void WriteRewindSaveFiles(string saveDir, string sourceSavePath)
         {
-            string gameStateDir = Path.Combine(saveDir, "Parsek", "GameState");
-            if (!Directory.Exists(gameStateDir))
-                Directory.CreateDirectory(gameStateDir);
+            if (!File.Exists(sourceSavePath)) return;
 
-            // Write metadata file
-            var rootNode = new ConfigNode("RESTORE_POINTS");
-            foreach (var rp in restorePoints)
-                rp.SerializeInto(rootNode);
-            rootNode.Save(Path.Combine(gameStateDir, "restore_points.pgrp"));
-
-            // Copy source save as each restore point's quicksave
-            if (File.Exists(sourceSavePath))
+            foreach (var builder in v3Builders)
             {
-                foreach (var rp in restorePoints)
-                {
-                    string destPath = Path.Combine(saveDir, rp.SaveFileName + ".sfs");
-                    File.Copy(sourceSavePath, destPath, true);
-                }
+                string rewindName = builder.GetRewindSaveFileName();
+                if (string.IsNullOrEmpty(rewindName)) continue;
+
+                string savesDir = Path.Combine(saveDir, "Parsek", "Saves");
+                if (!Directory.Exists(savesDir))
+                    Directory.CreateDirectory(savesDir);
+
+                string destPath = Path.Combine(savesDir, rewindName + ".sfs");
+                File.Copy(sourceSavePath, destPath, true);
             }
         }
 

@@ -60,8 +60,9 @@ namespace Parsek
         private const float ColW_Status = 45f;
         private const float ColW_LoopLabel = 30f;
         private const float ColW_LoopToggle = 15f;
-        private const float ColW_Watch = 40f;
-        private const float ColW_Delete = 25f;
+        private const float ColW_Watch = 30f;
+        private const float ColW_Rewind = 30f;
+        private const float ColW_Delete = 30f;
         private const float ScrollbarWidth = 16f;
 
         // Chain grouping state
@@ -220,7 +221,7 @@ namespace Parsek
                 && flight.recording.Count >= 2 && !flight.HasActiveChain && !flight.HasActiveTree;
             bool canCommitTree = flight.HasActiveTree;
             bool stableSituation = FlightGlobals.ActiveVessel != null
-                && RestorePointStore.IsStableState((int)FlightGlobals.ActiveVessel.situation);
+                && RecordingStore.IsStableState((int)FlightGlobals.ActiveVessel.situation);
             GUI.enabled = (canCommitStandalone || canCommitTree) && stableSituation;
             if (GUILayout.Button(stableSituation
                 ? new GUIContent("Commit Flight")
@@ -251,26 +252,8 @@ namespace Parsek
                 ParsekScenario.ClearReplacements();
                 flight.DestroyAllTimelineGhosts();
                 RecordingStore.ClearCommitted();
-                RestorePointStore.ClearAll();
                 ParsekLog.Info("UI", "All recordings wiped");
                 ParsekLog.ScreenMessage("All recordings wiped", 2f);
-            }
-
-            // Go Back button
-            if (RestorePointStore.HasRestorePoints)
-            {
-                string goBackReason;
-                bool canGoBack = RestorePointStore.CanGoBack(out goBackReason,
-                    isRecording: flight.IsRecording,
-                    isInFlight: true);
-                GUI.enabled = canGoBack;
-                if (GUILayout.Button(canGoBack
-                    ? new GUIContent("Go Back")
-                    : new GUIContent("Go Back", goBackReason)))
-                {
-                    ParsekLog.Verbose("UI", "Go Back button clicked");
-                    RestorePointDialog.ShowPicker();
-                }
             }
 
             GUI.enabled = true;
@@ -861,7 +844,8 @@ namespace Parsek
 
                 GUILayout.Label("Period", GUILayout.Width(ColW_Period));
 
-                GUILayout.Label("Watch", GUILayout.Width(ColW_Watch));
+                GUILayout.Label("W", GUILayout.Width(ColW_Watch));
+                GUILayout.Label("R", GUILayout.Width(ColW_Rewind));
                 GUILayout.Button("", GUI.skin.label, GUILayout.Width(ColW_Delete)); // placeholder
                 GUILayout.Space(ScrollbarWidth);
                 GUILayout.EndHorizontal();
@@ -1122,6 +1106,25 @@ namespace Parsek
                 GUI.enabled = true;
             }
 
+            // Rewind button
+            {
+                bool hasRewindSave = !string.IsNullOrEmpty(rec.RewindSaveFileName);
+                if (hasRewindSave)
+                {
+                    string rewindReason;
+                    bool canRewind = RecordingStore.CanRewind(rec, out rewindReason, isRecording: flight.IsRecording);
+                    GUI.enabled = canRewind;
+                    string tooltip = canRewind ? "Rewind to this launch" : rewindReason;
+                    if (GUILayout.Button(new GUIContent("R", tooltip), GUILayout.Width(ColW_Rewind)))
+                        ShowRewindConfirmation(rec);
+                    GUI.enabled = true;
+                }
+                else
+                {
+                    GUILayout.Label("", GUILayout.Width(ColW_Rewind));
+                }
+            }
+
             // Delete button
             GUI.enabled = flight.CanDeleteRecording;
             if (deleteConfirmIndex == ri)
@@ -1162,6 +1165,42 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        private void ShowRewindConfirmation(RecordingStore.Recording rec)
+        {
+            int futureCount = RecordingStore.CountFutureRecordings(rec.StartUT);
+            string futureText = futureCount > 0
+                ? $"\n\n{futureCount} recording(s) after this launch will replay as ghosts."
+                : "";
+
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            string launchDate = KSPUtil.PrintDateCompact(rec.StartUT, true);
+            string message = $"Rewind to \"{rec.VesselName}\" launch at {launchDate}?" +
+                futureText +
+                "\n\nAny uncommitted progress will be lost.";
+
+            var capturedRec = rec;
+            PopupDialog.SpawnPopupDialog(
+                new Vector2(0.5f, 0.5f),
+                new Vector2(0.5f, 0.5f),
+                new MultiOptionDialog(
+                    "ParsekRewindConfirm",
+                    message,
+                    "Confirm Rewind",
+                    HighLogic.UISkin,
+                    new DialogGUIButton("Rewind", () =>
+                    {
+                        ParsekLog.Info("Rewind",
+                            $"User confirmed rewind to \"{capturedRec.VesselName}\" at UT {capturedRec.StartUT}");
+                        RecordingStore.InitiateRewind(capturedRec);
+                    }),
+                    new DialogGUIButton("Cancel", () =>
+                    {
+                        ParsekLog.Info("Rewind", "User cancelled rewind confirmation");
+                    })
+                ),
+                false, HighLogic.UISkin);
         }
 
         private void DrawSortableHeader(string label, SortColumn col, float width, bool expand = false)
