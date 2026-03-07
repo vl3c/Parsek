@@ -699,6 +699,107 @@ If any precondition fails, the "Go Back" button is disabled with a tooltip expla
 - ParsekScenario.OnLoad: `IsGoingBack` check is a new code path that doesn't affect existing revert/scene-change paths
 - Commit Flight stationary constraint is a new UI restriction — no data migration needed
 
+## Implementation Phases
+
+Suggested phase ordering for the Plan agent. Each phase produces a working, testable increment. Phases are ordered by dependency — each builds on the previous.
+
+### Phase A: Data model + static store + serialization
+
+New code, no integration with existing systems yet.
+
+- `RestorePoint` struct with all fields + ConfigNode serialization
+- `PendingLaunchSave` struct
+- `RestorePointStore` static class (parallel to `MilestoneStore`): list management, `initialLoadDone`/`lastSaveFolder`, `pendingLaunchSave` singleton, go-back static flags
+- `ResourceBudget.ComputeTotalFullCost()` — new method alongside existing `ComputeTotal()`
+- File path additions to `RecordingPaths`
+- External file persistence: `SaveRestorePointFile()` / `LoadRestorePointFile()` with safe-write
+- Validation on load (missing .sfs detection)
+
+**Tests:** serialization round-trip, label generation, save file name validation, `ComputeTotalFullCost` vs `ComputeTotal` consistency, metadata file round-trip, playback state reset (standalone + trees).
+
+**Review focus:** serialization keys, locale-safe formatting, file path construction, `ComputeTotalFullCost` correctness.
+
+### Phase B: Launch save capture + restore point creation
+
+Integration with recording lifecycle — where launch saves are captured and promoted.
+
+- Launch save capture at recording start (stable state check, `GamePersistence.SaveGame`, resource snapshot via `ComputeTotalFullCost`)
+- Restore point creation on commit (all commit paths: merge dialog, Commit Flight, auto-commit, tree commit)
+- Root guard: only root recordings consume `pendingLaunchSave` (not EVA child, not chain continuation)
+- Discard cleanup: delete launch save on recording discard
+- Launch save replacement: delete old when new mission starts
+- Commit Flight stationary constraint (new situation check on the button)
+
+**Tests:** launch save lifecycle (capture→commit→promote, capture→discard→cleanup, replacement), stable state check, EVA child guard, Commit Flight situation check.
+
+**Review focus:** correct ordering of save capture vs recording start, root guard logic, all commit paths wired up, no launch save leak on discard.
+
+### Phase C: Go Back mechanism (OnLoad + resource adjustment)
+
+The core go-back code path in `ParsekScenario.OnLoad`.
+
+- `IsGoingBack` detection at top of OnLoad (before `LoadCrewReplacements`, before revert detection)
+- Skip crew/recording loading from .sfs
+- Epoch increment (in-memory, not from .sfs)
+- Milestone mutable state restoration with `resetUnmatched = true`
+- Playback state reset: all recordings (LARI, VesselSpawned, SpawnAttempts, etc.) + all trees (`ResourcesApplied`)
+- `ApplyGoBackResourceAdjustment()` coroutine: wait for singletons, compute `ComputeTotalFullCost`, differential deduction with `SuppressResourceEvents`, mark everything as fully applied, set `budgetDeductionEpoch`
+- `GameStateRecorder` recreation
+- `ReserveSnapshotCrew()`
+- `OnFlightReady` go-back path: detect `GoBackUT`, skip merge dialog, clear flag
+- KSP save load API: `GamePersistence.LoadGame` + `FlightDriver.StartAndFocusVessel`
+
+**Tests:** resource adjustment calculation (positive/negative deltas), epoch increment, playback state reset including tree `ResourcesApplied`, `budgetDeductionEpoch` guard, worked example end-to-end.
+
+**Review focus:** OnLoad ordering (IsGoingBack before LoadCrewReplacements), milestoneEpoch NOT read from .sfs, SuppressResourceEvents set, LARI set to max after adjustment, tree ResourcesApplied reset, budgetDeductionEpoch set. This is the highest-risk phase — compare every step against the existing revert path in `ApplyBudgetDeductionWhenReady` to ensure parity.
+
+### Phase D: Go Back UI
+
+UI-only, depends on phases A-C.
+
+- "Go Back" button in main Parsek window (visibility/disabled logic)
+- Picker dialog: sorted restore point list with Go Back/Delete buttons, missing-save-file handling
+- Confirmation dialog: future recordings count (computed live from `StartUT > restorePoint.UT`), warning text
+- Delete restore point flow: remove from list, delete .sfs, save metadata
+- Wipe recordings integration: also wipe all restore points
+
+**Tests:** precondition logic (`CanGoBack()`), no restore points → UI hidden, missing save file → unavailable, wipe also wipes restore points, future recordings count with deleted recordings.
+
+**Review focus:** disabled state logic covers all preconditions, confirmation dialog information is accurate, delete doesn't cascade to recordings.
+
+### Phase E: Edge cases + hardening
+
+Final phase — handle remaining edge cases and add robustness.
+
+- Multiple rapid go-backs (state consistency)
+- Go-back flags survive scene transition correctly
+- Existing revert path still works (IsGoingBack check doesn't interfere)
+- Restore points survive metadata save/load cycle across game restarts
+- Log coverage for all decision points
+- Synthetic recording for in-game manual testing (optional)
+
+**Tests:** multiple rapid go-backs, restore points survive save/load cycle, precondition failure logs, launch save capture logs, resource adjustment logs, go-back state reset logs, missing save file warning logs.
+
+**Review focus:** existing revert path regression (critical — run full test suite), log coverage matches the Diagnostic Logging section of this doc.
+
+### Phase dependencies
+
+```
+A (data model) → B (capture/create) → C (go-back mechanism) → D (UI) → E (hardening)
+                                                                 ↑
+                                                          D can start after C
+```
+
+Phases A and B are foundation. Phase C is the highest-risk and most complex. Phase D is UI-only and relatively safe. Phase E is hardening and can partially overlap with D.
+
+### Review strategy
+
+- **Phase A:** standard review — serialization, file I/O, method signatures
+- **Phase B:** review all commit paths are wired up, no launch save leak
+- **Phase C:** **deep review required** — compare every step against existing revert path. This phase has the most subtle correctness requirements (LARI, budgetDeductionEpoch, SuppressResourceEvents, epoch handling). The review agent should trace through the worked example from this design doc and verify the implementation matches.
+- **Phase D:** UI review — disabled states, dialog content, user-facing text
+- **Phase E:** regression review — run full test suite, check logs
+
 ## Diagnostic Logging
 
 ### Launch save capture
