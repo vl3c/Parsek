@@ -281,6 +281,24 @@ namespace Parsek
                 ParsekLog.Info("UI", "All recordings wiped");
                 ParsekLog.ScreenMessage("All recordings wiped", 2f);
             }
+
+            // Go Back button
+            if (RestorePointStore.HasRestorePoints)
+            {
+                string goBackReason;
+                bool canGoBack = RestorePointStore.CanGoBack(out goBackReason,
+                    isRecording: flight.IsRecording,
+                    isInFlight: true);
+                GUI.enabled = canGoBack;
+                if (GUILayout.Button(canGoBack
+                    ? new GUIContent("Go Back")
+                    : new GUIContent("Go Back", goBackReason)))
+                {
+                    ParsekLog.Verbose("UI", "Go Back button clicked");
+                    RestorePointDialog.ShowPicker();
+                }
+            }
+
             GUI.enabled = true;
 
             GUILayout.EndVertical();
