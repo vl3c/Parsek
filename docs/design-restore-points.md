@@ -46,6 +46,62 @@ replay as ghosts alongside the new flight.
 
 There is no concept of a "present" or "timeline head." Restore points are just a bag of launch snapshots. The player can jump to any of them in any order. The existing Recordings window shows all committed recordings and their status — no additional awareness UI is needed.
 
+## Gameplay Scenarios
+
+### Scenario 1: Early career — launch, commit, go back, launch again
+
+The player starts a new career. They build a small Flea rocket, launch it, fly a suborbital hop, revert to launch, and merge the recording. Parsek auto-creates a restore point at the launch moment.
+
+They build a second rocket, launch it, fly higher, revert, merge. A second restore point appears.
+
+Now they want to re-fly the first mission differently. They open the Parsek window, click "Go Back," see both restore points listed chronologically. They pick the first one. A confirmation dialog warns that 2 future recordings will replay as ghosts and uncommitted progress will be lost. They confirm.
+
+The game loads to the pad at the moment of the first launch. Both committed recordings begin replaying as ghosts — the first ghost launches alongside them, the second ghost appears later at its scheduled UT. The player launches a new rocket and watches the two ghost missions fly while they do their own thing.
+
+The resource budget shows committed costs for both existing recordings. If they try to spend more than available, they're blocked. They can delete a recording from the Recordings window to free resources.
+
+### Scenario 2: Mun expedition — commit from orbit, go back to pad
+
+The player builds a Mun lander, launches, transfers to Mun, lands, plants a flag, and returns to Munar orbit. They're now in a stable orbit around Mun. They don't want to revert — they want to keep the vessel where it is. They click "Commit Flight."
+
+Because they're in `ORBITING` (stable state), the button is enabled. The recording commits. A restore point is created at the original launch time (on the pad at KSC), not at the current orbital position — because the launch save was captured when auto-recording started at launch.
+
+Later, the player wants to start a supply mission. They go back to the pad restore point. The game loads to the KSC pad. The Mun lander mission replays as a ghost — they watch its trajectory arc toward Mun while they build and launch a supply ship.
+
+### Scenario 3: Multiple go-backs — building a space station
+
+The player launches Core Module (UT 100). Commits. RP_1 at UT 100.
+
+Launches Solar Array (UT 200). Docks with core. Commits (tree recording — undock events created branches). RP_2 at UT 200.
+
+Launches Crew Module (UT 300). Docks. Commits. RP_3 at UT 300.
+
+The player realizes they want the solar array to be bigger. They go back to RP_2 (UT 200). The game loads to the pad before the solar array launch. The Core Module ghost plays from UT 100. The old Solar Array and Crew Module ghosts play at their scheduled times.
+
+The player launches a new, bigger solar array. They dock with the ghost core (or nearby). Commit. New RP_4 at UT 200.
+
+Now they go back to RP_3 (UT 300) — this loads the original timeline's state at UT 300. The old solar array and crew module are on the station. The new bigger solar array recording also replays as a ghost. The player now has two overlapping solar array ghosts (old and new) — they'd need to delete the old recording to clean up. This is expected: recordings are immutable, and the player manages the timeline through the Recordings window.
+
+### Scenario 4: Manual recording from orbit
+
+The player is at a space station in LKO. No active recording. They press F9 to start recording manually. The vessel is `ORBITING` — a stable state — so a launch save is captured.
+
+They perform an EVA, do some repairs, board back. The EVA child recording auto-commits but does NOT consume the launch save (root guard: EVA is a child recording).
+
+They finish their work and click "Commit Flight" (vessel is orbiting, button enabled). The recording commits, the launch save promotes to a restore point.
+
+Going back to this restore point puts the player at the station in LKO — not on the pad. The game state (funds, tech, crew) reflects the moment they pressed F9. Any recordings committed after that point replay as ghosts.
+
+### Scenario 5: Resource pressure — can't afford a mission
+
+The player has 50,000 funds. They launch Mission A (vessel cost 20,000, earns 10,000 in-flight). Commit. Available: 50,000 - 20,000(vessel) + 10,000(earnings pre-applied) = 40,000.
+
+They launch Mission B (vessel cost 15,000, loses 5,000 in-flight). Commit. Available: 40,000 - 15,000 - 5,000(budget deduction) = 20,000.
+
+They go back to RP_A (UT of Mission A launch). Game loads with 30,000 funds (50,000 - 20,000 vessel cost at launch). Resource adjustment adds the net committed delta: A earns 10k, B loses 5k, net +5k → adjustment deducts -5k (adds 5k). Funds = 35,000.
+
+They try to launch a 40,000 rocket. Blocked — only 35,000 available. They can either build cheaper or delete Mission B from the Recordings window to free its 5,000 commitment (and the 15,000 vessel cost is also freed since B no longer exists in the timeline).
+
 ## Design Decisions
 
 ### Commit Flight requires stationary vessel
