@@ -1192,5 +1192,176 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region ComputeTotalFullCost
+
+        [Fact]
+        public void ComputeTotalFullCost_EqualsComputeTotal_WhenNothingApplied()
+        {
+            // 3 recordings with LARI=-1 (nothing applied). Both methods should return identical results.
+            var rec1 = MakeRecording(50000, 35000); // cost = 15000
+            var rec2 = MakeRecording(30000, 25000); // cost = 5000
+            var rec3 = MakeRecording(80000, 90000); // cost = -10000 (profit)
+
+            var recordings = new List<RecordingStore.Recording> { rec1, rec2, rec3 };
+            var milestones = new List<Milestone>();
+
+            var total = ResourceBudget.ComputeTotal(recordings, milestones);
+            ResourceBudget.Invalidate();
+            var fullCost = ResourceBudget.ComputeTotalFullCost(recordings, milestones);
+
+            Assert.Equal(total.reservedFunds, fullCost.reservedFunds);
+            Assert.Equal(total.reservedScience, fullCost.reservedScience);
+            Assert.Equal(total.reservedReputation, fullCost.reservedReputation);
+        }
+
+        [Fact]
+        public void ComputeTotalFullCost_IgnoresLARI()
+        {
+            // Recording with PreLaunchFunds=100000, Points[last].funds=96000 (cost=4000).
+            // Set LARI=Points.Count-1 (fully applied).
+            // ComputeTotal funds cost for this recording = 0.
+            // ComputeTotalFullCost funds cost = 4000.
+            var rec = MakeRecording(100000, 96000, lastAppliedResIdx: 1);
+
+            var recordings = new List<RecordingStore.Recording> { rec };
+            var milestones = new List<Milestone>();
+
+            var total = ResourceBudget.ComputeTotal(recordings, milestones);
+            Assert.Equal(0, total.reservedFunds); // fully applied, cost = 0
+
+            ResourceBudget.Invalidate();
+            var fullCost = ResourceBudget.ComputeTotalFullCost(recordings, milestones);
+            Assert.Equal(4000, fullCost.reservedFunds); // ignores LARI, full cost
+        }
+
+        [Fact]
+        public void ComputeTotalFullCost_IgnoresTreeResourcesApplied()
+        {
+            // Tree with ResourcesApplied=true.
+            // ComputeTotal returns 0 (already applied).
+            // ComputeTotalFullCost returns full cost.
+            var tree = new RecordingTree
+            {
+                Id = "tree_full",
+                TreeName = "Full Tree",
+                DeltaFunds = -5000,
+                DeltaScience = -10,
+                DeltaReputation = -3f,
+                ResourcesApplied = true
+            };
+
+            var recordings = new List<RecordingStore.Recording>();
+            var milestones = new List<Milestone>();
+            var trees = new List<RecordingTree> { tree };
+
+            var total = ResourceBudget.ComputeTotal(recordings, milestones, trees);
+            Assert.Equal(0, total.reservedFunds); // already applied
+
+            ResourceBudget.Invalidate();
+            var fullCost = ResourceBudget.ComputeTotalFullCost(recordings, milestones, trees);
+            Assert.Equal(5000, fullCost.reservedFunds);
+            Assert.Equal(10, fullCost.reservedScience);
+            Assert.Equal(3, fullCost.reservedReputation, 0.001);
+        }
+
+        [Fact]
+        public void ComputeTotalFullCost_IgnoresMilestoneLastReplayedIndex()
+        {
+            // Milestone with LastReplayedEventIndex=max (all replayed).
+            // ComputeTotal returns 0 (all events replayed).
+            // ComputeTotalFullCost returns full cost (iterates from index 0).
+            var m = new Milestone
+            {
+                MilestoneId = "full_milestone",
+                Committed = true,
+                LastReplayedEventIndex = 1, // all replayed (2 events)
+                Events = new List<GameStateEvent>
+                {
+                    new GameStateEvent
+                    {
+                        ut = 50,
+                        eventType = GameStateEventType.TechResearched,
+                        key = "basicRocketry",
+                        detail = "cost=5"
+                    },
+                    new GameStateEvent
+                    {
+                        ut = 60,
+                        eventType = GameStateEventType.PartPurchased,
+                        key = "mk1pod.v2",
+                        detail = "cost=600"
+                    }
+                }
+            };
+
+            var recordings = new List<RecordingStore.Recording>();
+            var milestones = new List<Milestone> { m };
+
+            var total = ResourceBudget.ComputeTotal(recordings, milestones);
+            Assert.Equal(0, total.reservedFunds); // all replayed
+            Assert.Equal(0, total.reservedScience);
+
+            ResourceBudget.Invalidate();
+            var fullCost = ResourceBudget.ComputeTotalFullCost(recordings, milestones);
+            Assert.Equal(600, fullCost.reservedFunds); // full cost (PartPurchased)
+            Assert.Equal(5, fullCost.reservedScience);  // full cost (TechResearched)
+        }
+
+        [Fact]
+        public void ResourceAdjustmentFormula_WorkedExample()
+        {
+            // From design doc worked example:
+            // Recording A: PreLaunchFunds=80000, endpoint funds=84000 -> cost = -4000 (earned)
+            // Recording B: PreLaunchFunds=74000, endpoint funds=72000 -> cost = 2000 (lost)
+            // ComputeTotalFullCost with both -> reservedFunds = -4000 + 2000 = -2000
+            var recA = new RecordingStore.Recording
+            {
+                PreLaunchFunds = 80000,
+                LastAppliedResourceIndex = -1
+            };
+            recA.Points.Add(new TrajectoryPoint
+            {
+                ut = 100, funds = 75000, bodyName = "Kerbin",
+                rotation = UnityEngine.Quaternion.identity,
+                velocity = UnityEngine.Vector3.zero
+            });
+            recA.Points.Add(new TrajectoryPoint
+            {
+                ut = 200, funds = 84000, bodyName = "Kerbin",
+                rotation = UnityEngine.Quaternion.identity,
+                velocity = UnityEngine.Vector3.zero
+            });
+
+            var recB = new RecordingStore.Recording
+            {
+                PreLaunchFunds = 74000,
+                LastAppliedResourceIndex = -1
+            };
+            recB.Points.Add(new TrajectoryPoint
+            {
+                ut = 250, funds = 74000, bodyName = "Kerbin",
+                rotation = UnityEngine.Quaternion.identity,
+                velocity = UnityEngine.Vector3.zero
+            });
+            recB.Points.Add(new TrajectoryPoint
+            {
+                ut = 350, funds = 72000, bodyName = "Kerbin",
+                rotation = UnityEngine.Quaternion.identity,
+                velocity = UnityEngine.Vector3.zero
+            });
+
+            var recordings = new List<RecordingStore.Recording> { recA, recB };
+            var milestones = new List<Milestone>();
+
+            var fullCost = ResourceBudget.ComputeTotalFullCost(recordings, milestones);
+
+            // A: 80000 - 84000 = -4000 (earned)
+            // B: 74000 - 72000 = 2000 (lost)
+            // Total: -4000 + 2000 = -2000
+            Assert.Equal(-2000, fullCost.reservedFunds);
+        }
+
+        #endregion
     }
 }
