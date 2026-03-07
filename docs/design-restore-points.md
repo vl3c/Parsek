@@ -73,24 +73,105 @@ For tree commits, the restore point uses the root recording's launch save. For c
 
 ### Resource adjustment on go-back
 
-The quicksave captures funds at the launch point. Budget deductions from prior committed recordings are already reflected in the save's funds. On go-back:
+The quicksave captures funds at the launch point. Prior budget deductions (from `ApplyBudgetDeductionWhenReady` on earlier reverts) may or may not be baked into the save's funds, depending on when the launch save was captured relative to those deductions. To handle this correctly regardless of save timing, the restore point stores a `ReservedAtSave` snapshot computed with a consistent baseline.
 
-1. Load the save → game funds reflect the launch-point state (with prior deductions baked in)
-2. Parsek needs to deduct costs for recordings committed AFTER this restore point
+#### ReservedAtSave computation (at launch save capture time)
 
-To compute the correct deduction, the restore point stores `ReservedFundsAtSave` / `ReservedScienceAtSave` / `ReservedRepAtSave` — the total reserved amount from `ResourceBudget.ComputeTotal()` at save time. On go-back:
+`ReservedAtSave` is computed using a new method `ResourceBudget.ComputeTotalFullCost()` that evaluates all committed costs as if nothing has been applied yet:
+- All recordings: `CommittedFundsCost` with LARI treated as -1 (full `PreLaunchFunds - Points[last].funds`)
+- All trees: `TreeCommittedFundsCost` with `ResourcesApplied` treated as false (full `-DeltaFunds`)
+- All milestones: `MilestoneCommittedFunds` with `LastReplayedEventIndex` treated as -1 (all events)
+
+This ensures `ReservedAtSave` always represents the full committed cost at save time, regardless of how much has been applied via playback or budget deduction. The same method is used after go-back, making the comparison consistent.
+
+#### Go-back resource adjustment
 
 ```
-currentReserved  = ResourceBudget.ComputeTotal()  // all recordings, LARI reset to -1
+// Step 1: Reset all playback state (LARI=-1, ResourcesApplied=false, etc.)
+// Step 2: Compute current full cost (same method as at save time)
+currentReserved  = ResourceBudget.ComputeTotalFullCost()
+
+// Step 3: Differential deduction
 additionalCost   = currentReserved - restorePoint.ReservedAtSave
+SuppressResourceEvents = true
 game.Funds      -= additionalCost.funds
 game.Science    -= additionalCost.science
 game.Reputation -= additionalCost.rep
+SuppressResourceEvents = false
+
+// Step 4: Mark everything as fully applied (prevents ghost playback from re-applying)
+foreach recording: LARI = Points.Count - 1
+foreach tree: ResourcesApplied = true
+foreach milestone: LastReplayedEventIndex = Events.Count - 1
+
+// Step 5: Prevent double-deduction from existing revert mechanism
+budgetDeductionEpoch = MilestoneStore.CurrentEpoch
 ```
 
 If recordings were deleted since the restore point, `additionalCost` can be negative (funds freed). This is correct — the player deleted recordings to free resources.
 
-**Implementation note:** The exact interaction between budget deductions, playback resource application, and LARI reset needs careful investigation during the Plan phase. The formula above captures the intent; the Plan agent should trace through the existing `ApplyBudgetDeductionWhenReady()` and `UpdateTimelinePlayback()` resource flows to verify correctness or adjust the approach.
+**Why `SuppressResourceEvents`:** Without suppression, the funds/science/reputation changes would be captured by `GameStateRecorder` as game state events, polluting the milestone system with synthetic deductions.
+
+**Why mark everything as fully applied (step 4):** Ghost playback calls `ApplyResourceDeltas` every frame, advancing LARI and modifying funds. If LARI were left at -1 after the budget adjustment, playback would re-apply the same deltas — double-deduction. Setting LARI to max and `ResourcesApplied = true` ensures playback sees "nothing left to apply."
+
+**Why set `budgetDeductionEpoch` (step 5):** The go-back path bypasses `ApplyBudgetDeductionWhenReady` (no revert detection triggers it). But if something unexpected triggers the coroutine later, the epoch guard prevents it from running again.
+
+#### Worked example: two recordings, go back to first
+
+```
+Timeline: Mission A (UT 100-200, earns 4k), Mission B (UT 250-350, loses 2k)
+
+=== Step 1: Launch A ===
+  Start: 100,000 funds
+  KSP deducts vessel cost (20k) → funds = 80,000
+  Launch save captured: saveFunds = 80,000
+  No committed recordings → ComputeTotalFullCost() = 0
+  ReservedAtSave_A = (0, 0, 0)
+
+=== Step 2: Fly A, revert, commit ===
+  Recording A: PreLaunchFunds=80k, Points[last].funds=84k (earned 4k in-flight)
+  Revert to launch → funds = 80,000 (from quicksave)
+  ApplyBudgetDeductionWhenReady:
+    ComputeTotal: CommittedFundsCost(A) = 80k - 84k = -4k
+    Deduct -(-4k) = +4k → funds = 84,000
+    LARI_A = max
+  Merge A to timeline. RP_A created.
+
+=== Step 3: Launch B ===
+  KSP deducts vessel cost (10k) → funds = 74,000
+  Launch save captured: saveFunds = 74,000
+  ComputeTotalFullCost(): CommittedFundsCost(A) with LARI=-1 = -4k
+  ReservedAtSave_B = (-4000, 0, 0)
+
+=== Step 4: Fly B, revert, commit ===
+  Recording B: PreLaunchFunds=74k, Points[last].funds=72k (lost 2k)
+  Revert → funds = 74,000. Budget deduction: CommittedFundsCost(B) = 2k
+  Deduct 2k → funds = 72,000. LARI_A = max, LARI_B = max.
+  Merge B. RP_B created.
+
+=== Step 5: Go back to RP_A (UT 100) ===
+  Load A's quicksave → funds = 80,000
+  Reset: LARI_A = -1, LARI_B = -1
+  ComputeTotalFullCost(): A=-4k, B=+2k → total = -2k
+  additionalCost = -2k - 0 = -2k
+  Deduct -(-2k) = +2k → funds = 82,000
+  Set LARI_A = max, LARI_B = max
+
+  Verify: 82k = 80k(save) - (-4k + 2k)(net committed cost) ✓
+  Player can spend 82k. A's earnings and B's losses are pre-applied.
+  Ghost playback: no additional resource changes (LARI = max).
+
+=== Step 6: Go back to RP_B (UT 250) ===
+  Load B's quicksave → funds = 74,000
+  Reset: LARI_A = -1, LARI_B = -1
+  ComputeTotalFullCost(): A=-4k, B=+2k → total = -2k
+  additionalCost = -2k - (-4k) = +2k
+  Deduct 2k → funds = 72,000
+  Set LARI_A = max, LARI_B = max
+
+  Verify: 72k = 74k(save) - 2k(B's cost, the only one not baked in) ✓
+  A's cost was already baked into the 74k save. Only B's cost is new.
+```
 
 ## Data Model
 
@@ -146,7 +227,7 @@ Parallel structure to `MilestoneStore` — static fields for in-memory state, ex
 
 ### Serialization
 
-External file: `saves/<saveName>/Parsek/restore_points.pgrp`
+External file: `saves/<saveName>/Parsek/GameState/restore_points.pgrp`
 
 ```
 RESTORE_POINTS
@@ -173,7 +254,7 @@ KSP quicksave files: `saves/<saveName>/parsek_rp_<shortId>.sfs` (standard KSP sa
 ### File path additions to RecordingPaths
 
 ```
-RestorePointFilePath  → saves/<saveName>/Parsek/restore_points.pgrp
+RestorePointFilePath  → saves/<saveName>/Parsek/GameState/restore_points.pgrp
 RestorePointSaveName  → parsek_rp_<shortId>  (no .sfs extension)
 ```
 
@@ -182,7 +263,7 @@ RestorePointSaveName  → parsek_rp_<shortId>  (no .sfs extension)
 ### Commit Flight stationary constraint
 
 **Check:** `Commit Flight` button enabled only when:
-- `FlightGlobals.ActiveVessel.situation` is `PRELAUNCH`, `LANDED`, or `SPLASHED`
+- `FlightGlobals.ActiveVessel.situation` is `PRELAUNCH`, `LANDED`, `SPLASHED`, or `ORBITING`
 - Active recording exists with at least 2 points
 
 When disabled due to vessel situation, tooltip: "Land or stop before committing."
@@ -209,26 +290,37 @@ When disabled due to vessel situation, tooltip: "Land or stop before committing.
 4. Build save file name: `parsek_rp_{shortId}`
 5. Call `GamePersistence.SaveGame(saveFileName, HighLogic.SaveFolder, SaveMode.OVERWRITE)`
 6. Capture resource snapshot: current funds/science/reputation
-7. Capture `reservedAtSave` from `ResourceBudget.ComputeTotal()` (with all LARI treated as -1 for consistency)
+7. Capture `reservedAtSave` from `ResourceBudget.ComputeTotalFullCost()` (full costs, ignoring LARI/ResourcesApplied/LastReplayedEventIndex)
 8. Store as `RestorePointStore.pendingLaunchSave`
+
+**Side effect of SaveGame:** `GamePersistence.SaveGame` triggers `ParsekScenario.OnSave`, which flushes pending game state events via `MilestoneStore.FlushPendingEvents`. This is harmless — events accumulated since the last save are correctly captured into milestones. No pending recording data is saved (the recording just started).
+
+**Performance:** Quicksaving serializes the entire game state (typically 100-500ms on complex saves). This happens at recording start — usually the moment of launch, which is already a busy frame. If the hitch is noticeable, the save can be deferred by 2-3 frames via `StartCoroutine` to avoid compounding with physics initialization. v1: save immediately, measure impact.
 
 ### Creating restore points
 
-**Trigger:** any recording commit to the timeline. ALL commit paths create restore points:
-- Merge dialog → "Merge to Timeline" (standalone, chain, or tree)
-- "Commit Flight" button
+**Trigger:** a root recording commit to the timeline. ALL commit paths promote the launch save:
+- Merge dialog → "Merge to Timeline" (standalone or chain — the committed recording has no `ParentRecordingId`)
+- "Commit Flight" button (standalone or tree)
 - Auto-commit on scene exit (CommitTreeSceneExit)
-- EVA child auto-commit
+- Tree merge dialog → "Merge to Timeline"
 
-**Condition:** `pendingLaunchSave` exists. If there is no pending launch save (recording started from unstable state, or child/continuation recording), no restore point is created.
+**What does NOT promote the launch save:**
+- EVA child auto-commit — the EVA is a child recording (`ParentRecordingId != null`), not the root mission. The launch save belongs to the parent mission.
+- Chain continuation segment commits — these are intermediate; only the final chain commit matters.
+
+**Guard:** only promote `pendingLaunchSave` if the committed recording is a root: `rec.ParentRecordingId == null` for standalone/chain, or the tree commit itself for trees.
+
+**Condition:** `pendingLaunchSave` exists AND the committed recording is a root. If there is no pending launch save (recording started from unstable state), no restore point is created.
 
 **Steps (executed after CommitPending / CommitTreePending / CommitTreeSceneExit completes):**
-1. Check `RestorePointStore.pendingLaunchSave` — if null, skip (no launch save for this recording)
-2. Build label: `"\"{vesselName}\" launch ({N} recordings)"`
-3. Create `RestorePoint` from `pendingLaunchSave` fields (UT, save file, resources, reserved amounts)
-4. Add to `RestorePointStore.restorePoints`
-5. Save metadata to external file (safe-write: `.tmp` + rename)
-6. Clear `pendingLaunchSave` (consumed — now a permanent restore point)
+1. Check `RestorePointStore.pendingLaunchSave` — if null, skip
+2. Check root guard — if the committed recording is a child (EVA, continuation), skip
+3. Build label: `"\"{vesselName}\" launch ({N} recordings)"`
+4. Create `RestorePoint` from `pendingLaunchSave` fields (UT, save file, resources, reserved amounts)
+5. Add to `RestorePointStore.restorePoints`
+6. Save metadata to external file (safe-write: `.tmp` + rename)
+7. Clear `pendingLaunchSave` (consumed — now a permanent restore point)
 
 **Discarding recordings:**
 - When a recording is discarded (merge dialog "Discard", or recording cleared), and `pendingLaunchSave` exists:
@@ -242,7 +334,7 @@ When disabled due to vessel situation, tooltip: "Land or stop before committing.
 
 ### Persisting restore point metadata
 
-**Save:** `RestorePointStore.SaveRestorePointFile()` — called after creating/deleting a restore point. Uses safe-write pattern (write `.tmp`, rename). Not called from ParsekScenario.OnSave — restore point metadata is managed independently to avoid coupling with the quicksave's own OnSave cycle.
+**Save:** `RestorePointStore.SaveRestorePointFile()` — called after creating/deleting a restore point. Uses safe-write pattern (write `.tmp`, rename). Not called from `ParsekScenario.OnSave` — this is an intentional divergence from `MilestoneStore`/`GameStateStore` (which save from OnSave). Reason: the launch save quicksave itself triggers OnSave, which would create a circular dependency if restore point metadata were also saved from OnSave. Instead, restore point metadata is saved at the point of mutation (create/delete), which is simpler and avoids the circular trigger.
 
 **Load:** `RestorePointStore.LoadRestorePointFile()` — called on initial load (once per save game, guarded by `initialLoadDone` + `lastSaveFolder`). Same pattern as MilestoneStore/GameStateStore.
 
@@ -302,7 +394,7 @@ Each restore point entry is a row with info + "Go Back" and "Delete" buttons. En
 └──────────────────────────────────────────────────┘
 ```
 
-The "future recordings" count = total committed recordings minus the restore point's `RecordingCount`.
+The "future recordings" count = count of committed recordings whose `StartUT > restorePoint.UT`. Computed live from in-memory recordings, not from `RecordingCount` (which can become stale if recordings are deleted after the restore point was created).
 
 ### Go Back mechanism
 
@@ -331,22 +423,38 @@ If any precondition fails, the "Go Back" button is disabled with a tooltip expla
    - Existing logic runs but there's no active recording to stash
    - Ghost cleanup runs normally
 5. New scene loads → `ParsekScenario.OnLoad` fires
-   - **Detect `IsGoingBack` flag** (new code path, checked before revert detection)
+   - **Detect `IsGoingBack` flag at the VERY TOP of OnLoad** — before `LoadCrewReplacements`, before revert detection, before anything else in the `initialLoadDone == true` branch. This is critical: `LoadCrewReplacements` is currently called unconditionally and would overwrite in-memory crew data with stale .sfs data.
+   - **Skip `LoadCrewReplacements`** — in-memory `crewReplacements` is the source of truth (it has replacements for recordings committed after this quicksave)
    - **Skip loading recordings from .sfs** — in-memory `committedRecordings` and `committedTrees` already have ALL recordings (including ones committed after this quicksave)
-   - **Skip loading crew replacements from .sfs** — in-memory `crewReplacements` is the source of truth
-   - **Increment epoch** — isolates game state events from the abandoned future branch
-   - **Reset milestone mutable state** with `resetUnmatched = true` — milestones created after the restore point are reset to unreplayed
-   - **Reset ALL recording playback state:**
+   - **Skip revert detection** — go-back is not a revert; it has its own handling
+   - **Do NOT read `milestoneEpoch` from the loaded .sfs** — the quicksave has an old epoch value. Instead, increment the current in-memory `MilestoneStore.CurrentEpoch` (which has been maintained across all reverts/go-backs in this session)
+   - **Reset milestone mutable state** with `resetUnmatched = true` — milestones created after the restore point are reset to unreplayed. Pass the loaded ConfigNode so milestones present in the quicksave get their saved `LastReplayedEventIndex`.
+   - **Reset ALL recording playback state (standalone):**
      - `VesselSpawned = false`
+     - `SpawnAttempts = 0`
      - `SpawnedVesselPersistentId = 0`
      - `LastAppliedResourceIndex = -1`
      - `TakenControl = false`
      - `SceneExitSituation = -1`
-   - **Apply resource adjustment:**
-     - `currentReserved = ResourceBudget.ComputeTotal()` (with LARI reset)
+   - **Reset ALL tree playback state:**
+     - All tree recordings: same fields as standalone above
+     - `tree.ResourcesApplied = false` (critical — without this, `TreeCommittedFundsCost` returns 0 and tree costs are excluded from the adjustment)
+   - **Schedule resource adjustment via `StartCoroutine(ApplyGoBackResourceAdjustment())`:**
+     The adjustment runs as a deferred coroutine (not inline in OnLoad) because `Funding.Instance`, `ResearchAndDevelopment.Instance`, and `Reputation.Instance` may not be initialized yet during OnLoad. The coroutine follows the same wait-for-singletons pattern as `ApplyBudgetDeductionWhenReady` (wait up to 120 frames).
+     Once singletons are available:
+     - `currentReserved = ResourceBudget.ComputeTotalFullCost()` (same method used at save time — consistent baseline)
      - `additional = currentReserved - GoBackReserved`
-     - Deduct `additional` from game funds/science/reputation
+     - `GameStateRecorder.SuppressResourceEvents = true` (prevent synthetic game state events)
+     - Deduct `additional` from game funds/science/reputation via `Funding.Instance.AddFunds` etc.
+     - `GameStateRecorder.SuppressResourceEvents = false`
+     - Mark everything as fully applied (same as `ApplyBudgetDeductionWhenReady` step 5):
+       - All recordings: `LARI = Points.Count - 1`
+       - All trees: `ResourcesApplied = true`
+       - All milestones: `LastReplayedEventIndex = Events.Count - 1`
+   - **Set `budgetDeductionEpoch = MilestoneStore.CurrentEpoch`** — prevents any accidental `ApplyBudgetDeductionWhenReady` from double-deducting (set in OnLoad, before the coroutine runs)
+   - **`ReserveSnapshotCrew()`** — re-reserves crew from all recording snapshots
    - **Clear `IsGoingBack` flag**, preserve `GoBackUT` for OnFlightReady
+   - **Recreate `GameStateRecorder`** — the loaded save has different game state; the recorder needs fresh facility cache seeding and event subscriptions. Follow the same pattern as the existing OnLoad path (unsubscribe old, create new, seed, subscribe).
 6. `OnFlightReady` fires
    - **Detect `GoBackUT` is set** (non-zero)
    - **Skip merge dialog** — no pending recording exists
@@ -356,7 +464,7 @@ If any precondition fails, the "Go Back" button is disabled with a tooltip expla
    - **Clear `GoBackUT`**
 
 **After go-back completes:**
-- Player is on the pad at the recording's launch UT
+- Player is at the recording's launch state (on the pad for launch recordings, in orbit for manually-started orbital recordings)
 - All committed recordings exist in the timeline
 - Recordings whose EndUT < currentUT: vessels spawn on first Update (currentUT > EndUT check passes immediately)
 - Recordings whose StartUT > currentUT: ghosts appear when time reaches their StartUT
@@ -376,7 +484,7 @@ If any precondition fails, the "Go Back" button is disabled with a tooltip expla
 
 ### Scene restrictions
 
-**v1:** "Go Back" UI only accessible from the flight scene. The toolbar button and Parsek window are flight-scene controls. Going back always loads a flight-scene save (player on the pad).
+**v1:** "Go Back" UI only accessible from the flight scene. The toolbar button and Parsek window are flight-scene controls. Going back loads a flight-scene save — usually on the pad (auto-recorded launches), but possibly in orbit (manually-started orbital recordings).
 
 **Future enhancement:** allow going back from Space Center or Tracking Station.
 
@@ -412,7 +520,7 @@ If any precondition fails, the "Go Back" button is disabled with a tooltip expla
 
 7. **Recordings with EndUT < restoreUT**
    - Vessel spawns immediately on first Update tick (currentUT > EndUT).
-   - Resource deltas re-apply during playback (LastAppliedResourceIndex was reset).
+   - Resource deltas do NOT re-apply during playback — LARI was set to max by the go-back resource adjustment (step 4). The adjustment already pre-applied all costs.
    - Existing playback logic handles this.
 
 8. **Chain recordings spanning the restore UT**
@@ -517,11 +625,53 @@ If any precondition fails, the "Go Back" button is disabled with a tooltip expla
     - This handles the case where a player launches, discards mid-flight without using the UI, and launches again.
 
 28. **Resource adjustment with partially-applied recordings**
-    - At save time, some recordings may be partially played (LARI > -1), so `ReservedAtSave` reflects partial costs.
-    - After go-back, LARI resets to -1 (full costs). `currentReserved` uses full costs.
-    - The adjustment `currentReserved - ReservedAtSave` may over-deduct because it treats partially-applied costs as new costs.
-    - **Mitigation:** at save time, compute `ReservedAtSave` as if LARI were -1 for all recordings (full costs, not partial). This makes the comparison consistent.
-    - The Plan agent must verify this approach against the existing `ResourceBudget.ComputeTotal()` implementation.
+    - At save time, some recordings may have LARI > -1 (partially played) or LARI = max (fully applied via budget deduction).
+    - `ReservedAtSave` is computed via `ComputeTotalFullCost()` which ignores LARI — it always returns the full cost. After go-back, the same method is used. The comparison is always full-cost vs full-cost, so partial application state is irrelevant.
+    - This is why `ComputeTotalFullCost()` exists: it provides a consistent baseline regardless of playback progress at save time.
+
+29. **EVA child auto-commit while parent recording active**
+    - EVA child auto-commits when the player boards back. `pendingLaunchSave` may exist from the parent mission's launch.
+    - The root guard (step 2 in "Creating restore points") prevents the EVA commit from consuming the launch save. The parent mission's commit later consumes it.
+    - Log: `[Parsek][RestorePoint] Skipping restore point for child recording {id} (ParentRecordingId={parentId})`
+
+30. **Commit Flight during active tree recording**
+    - Tree mode has its own commit path (`CommitTreeFlight`). The stationary vessel constraint applies equally: vessel must be in `PRELAUNCH`, `LANDED`, `SPLASHED`, or `ORBITING`.
+    - Tree commit consumes the root's `pendingLaunchSave`, creating one restore point for the entire tree.
+
+31. **Restore point label becomes stale after recording deletion**
+    - RP_A's label says `"Flea Rocket" launch (3 recordings)`. Player deletes 2 recordings.
+    - The label is frozen at creation time and becomes misleading. Acceptable v1 — labels are for human identification, not live status. `RecordingCount` is metadata, not an invariant.
+    - The "future recordings" count in the confirmation dialog IS computed live, so the player gets accurate information before confirming.
+
+32. **Go back, commit new recording, go back to older restore point**
+    - Player at UT 500. Goes back to RP_A (UT 100). Launches D (UT 100-150). Commits D → RP_D created.
+    - Goes back to RP_B (UT 250, from original timeline).
+    - RP_B's quicksave has the original game state from UT 250 (before D existed).
+    - Resource adjustment: `ComputeTotalFullCost(A,B,C,D) - ReservedAtSave_B(A's cost)` = B+C+D costs. Correctly accounts for D.
+    - Game state (tech, facilities): from RP_B's snapshot. Any tech researched after going back to A is lost (inherent to snapshot restore). Action blocking prevents re-researching committed tech.
+
+33. **Overlapping UT ranges from go-back**
+    - Player commits A (UT 100-200), goes back to RP_A (UT 100), launches B (UT 100-300).
+    - A and B overlap in UT range. Both ghosts play simultaneously from UT 100. This is expected — recordings are independent.
+    - RP_A and RP_B both at UT 100 but with different save files (different game states). Both shown in picker.
+
+34. **KSP crash mid-flight with pending launch save**
+    - Launch save .sfs exists on disk, `pendingLaunchSave` lost (static field).
+    - Same as edge case 26 (quit without committing), but crash-triggered. The .sfs file is orphaned.
+    - The active recording is also lost (not saved).
+    - Acceptable v1 limitation. Future: cleanup scan on load.
+
+35. **Resource adjustment timing — Funding.Instance not yet available in OnLoad**
+    - `Funding.Instance`, `ResearchAndDevelopment.Instance`, and `Reputation.Instance` may not be initialized during `OnLoad`.
+    - The existing `ApplyBudgetDeductionWhenReady` solves this by waiting up to 120 frames. The go-back resource adjustment must use the same pattern: defer via `StartCoroutine` and wait for singletons before applying.
+    - The adjustment logic is inline (not reusing `ApplyBudgetDeductionWhenReady`), but follows the same wait pattern.
+
+36. **pendingLaunchSave across scene changes (launch → tracking station → new launch)**
+    - Player launches (launch save captured), goes to tracking station.
+    - `OnSceneChangeRequested`: active recording stashed as pending (or auto-committed if going to non-flight).
+    - If auto-committed (CommitTreeSceneExit / ghost-only): `pendingLaunchSave` consumed → restore point created.
+    - If stashed as pending (going to flight): `pendingLaunchSave` remains. Merge dialog on next flight ready, commit consumes it.
+    - If player launches new vessel without committing pending: pending is still in RecordingStore, merge dialog shows first. Launch save for new vessel replaces the old one (edge case 27).
 
 ## What Doesn't Change
 
@@ -531,7 +681,7 @@ If any precondition fails, the "Go Back" button is disabled with a tooltip expla
 - Engine/RCS/parachute/fairing FX — unchanged
 - Merge dialog — unchanged (creates restore point after commit, but dialog logic itself is unchanged)
 - Existing revert detection — still works for normal reverts (IsGoingBack check is upstream)
-- Resource budget computation — ComputeTotal unchanged
+- Resource budget computation — `ComputeTotal` unchanged; new sibling method `ComputeTotalFullCost` added (same logic but ignores LARI/ResourcesApplied/LastReplayedEventIndex)
 - Action blocking — tech/facility Harmony patches unchanged
 - Milestone and game state event system — unchanged
 - Recording tree system — unchanged
@@ -560,6 +710,7 @@ If any precondition fails, the "Go Back" button is disabled with a tooltip expla
 ### Restore point creation (at commit time)
 - `[Parsek][RestorePoint] Promoting launch save to restore point at UT {ut}: "{label}" (save: {saveFile})`
 - `[Parsek][RestorePoint] No launch save for recording {id} — no restore point created`
+- `[Parsek][RestorePoint] Skipping restore point for child recording {id} (ParentRecordingId={parentId})`
 - `[Parsek][RestorePoint] Metadata saved: {count} restore points to {path}`
 
 ### Launch save cleanup
@@ -568,10 +719,12 @@ If any precondition fails, the "Go Back" button is disabled with a tooltip expla
 ### Go Back execution
 - `[Parsek][RestorePoint] Go Back initiated to UT {ut} (restore point {id}, save: {saveFile})`
 - `[Parsek][RestorePoint] Loading save file: {saveFile}`
-- `[Parsek][RestorePoint] OnLoad: go-back detected, skipping .sfs recording load (using {count} in-memory recordings)`
+- `[Parsek][RestorePoint] OnLoad: go-back detected, skipping .sfs recording/crew load (using {count} in-memory recordings)`
 - `[Parsek][RestorePoint] OnLoad: resetting playback state for {standaloneCount} recordings + {treeCount} trees`
 - `[Parsek][RestorePoint] OnLoad: epoch incremented to {epoch}`
-- `[Parsek][RestorePoint] OnLoad: resource adjustment: reserved {savedReserved} → {currentReserved}, delta {delta}`
+- `[Parsek][RestorePoint] OnLoad: resource adjustment deferred (waiting for singletons)`
+- `[Parsek][RestorePoint] Resource adjustment: reserved {savedReserved} → {currentReserved}, delta {delta}`
+- `[Parsek][RestorePoint] Resource adjustment: marking {recCount} recordings + {treeCount} trees as fully applied`
 - `[Parsek][RestorePoint] OnFlightReady: go-back complete at UT {ut}. Timeline: {recCount} recordings, {rpCount} restore points`
 
 ### Commit Flight constraint
@@ -719,12 +872,40 @@ If any precondition fails, the "Go Back" button is disabled with a tooltip expla
     - Create 3 restore points → save file → simulate new session (reset initialLoadDone) → load file → assert all 3 preserved.
     - Guards against: metadata not persisted across game restarts.
 
+27. **ComputeTotalFullCost vs ComputeTotal consistency**
+    - Given 3 recordings all with LARI=-1, ResourcesApplied=false, LastReplayedEventIndex=-1.
+    - Assert `ComputeTotalFullCost() == ComputeTotal()` (when nothing is applied, both should agree).
+    - Then set LARI=max on one, ResourcesApplied=true on a tree. Assert `ComputeTotalFullCost()` still returns the full cost while `ComputeTotal()` returns less.
+    - Guards against: `ComputeTotalFullCost` not ignoring application state correctly.
+
+28. **Resource adjustment worked example end-to-end**
+    - Create 2 recordings with known PreLaunchFunds and endpoint funds.
+    - Set RP_A with ReservedAtSave = (0, 0, 0), RP_B with ReservedAtSave = (-4000, 0, 0).
+    - Simulate go-back to RP_A: assert adjustment matches worked example in design doc.
+    - Simulate go-back to RP_B: assert adjustment matches worked example in design doc.
+    - Guards against: formula error in resource adjustment calculation.
+
+29. **EVA child commit does not consume launch save**
+    - Capture launch save → commit EVA child recording (ParentRecordingId != null) → assert pendingLaunchSave still exists.
+    - Then commit root recording → assert pendingLaunchSave consumed and restore point created.
+    - Guards against: EVA auto-commit stealing parent's launch save.
+
+30. **Tree reset includes ResourcesApplied**
+    - Given tree with ResourcesApplied=true and recordings with LARI=max.
+    - After `ResetAllPlaybackState()`: assert tree.ResourcesApplied=false and all LARI=-1.
+    - Guards against: tree costs excluded from budget after go-back.
+
+31. **Future recordings count computed live**
+    - Create RP at UT 100 with RecordingCount=3. Delete 2 recordings (1 before UT 100, 1 after).
+    - Assert "future recordings" count = count of recordings with StartUT > 100, not `total - RecordingCount`.
+    - Guards against: negative or stale future recordings display.
+
 ## Open Questions
 
 1. **Should there be a maximum number of restore points?** v1: no limit. Monitor storage impact. Add configurable limit with auto-prune of oldest if needed.
 
 2. **Should the player be able to create manual restore points?** v1: auto-only. Manual creation is a natural future enhancement (button in UI or hotkey).
 
-3. **Exact KSP API for loading a save programmatically.** `GamePersistence.LoadGame` + `FlightDriver.StartAndFocusVessel` is the expected approach but needs verification during implementation. Other mods (e.g., quicksave mods) may provide reference implementations.
+3. **Exact KSP API for loading a save programmatically.** `GamePersistence.LoadGame` + `FlightDriver.StartAndFocusVessel` is the expected approach but needs verification during implementation. This triggers a FLIGHT→FLIGHT scene transition: `OnSceneChangeRequested(FLIGHT)` → all MonoBehaviours destroyed → `ParsekScenario.OnLoad` from loaded save → `ParsekFlight.Start` fresh → `OnFlightReady`. Other mods (e.g., quicksave mods) may provide reference implementations.
 
-4. **DOCKED situation for Commit Flight.** Should docked vessels be allowed to commit? Docked is technically stable. v1: treat as the underlying situation (if the combined vessel is orbiting, allow it).
+4. **Launch save performance deferral.** If the `GamePersistence.SaveGame` call at recording start causes a noticeable frame hitch, defer it by 2-3 frames via `StartCoroutine`. v1: try immediate save first, measure impact.
