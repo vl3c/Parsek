@@ -803,11 +803,12 @@ All planned part event types are now implemented. 28 event types are recorded; m
 - [x] Game state baselines (`GameStateBaseline`) — captured at commit points for future timeline visualization
 - [x] `FlushPendingEvents` — captures events that happen without a recording (research in R&D, facility upgrades)
 
-**Remaining:**
-- [ ] Auto-save restore points at recording commit points
-- [ ] "Go Back" UI — pick a restore point, load it, preserve recording state
+**Restore points (done):**
+Auto-saved quicksaves at recording commit points. Launch save captured at recording start, promoted on commit, discarded if recording is discarded. "Go Back" UI loads a restore point, increments epoch, resets playback state, defers resource adjustment, re-reserves crew. All committed recordings replay as ghosts.
 
-See `docs/design-going-back-in-time.md` for full design rationale. The mechanism is snapshot-based (like `git checkout`), not event-reversal-based. No timeline branching.
+**New source files:** `RestorePointStore.cs` (data model, static store, go-back flags, file I/O), `RestorePointDialog.cs` (picker, confirmation, delete dialogs).
+
+See `docs/done/design-going-back-in-time.md` and `docs/done/design-restore-points.md` for full design rationale. The mechanism is snapshot-based (like `git checkout`), not event-reversal-based. No timeline branching.
 
 ### Phase 6: Recording Tree / Multi-Vessel Recording (Complete)
 
@@ -839,7 +840,7 @@ Record entire multi-vessel missions as a single unit. Builds on top of the exist
 
 Parsek is a **git-like recording system** for KSP missions. Players record flights sequentially, commit them to a single timeline, and they replay automatically as ghost vessels during future gameplay. Recordings are immutable — once committed, they play back exactly as flown.
 
-Phase 5 (foundation complete) adds milestones, resource budgeting, epoch isolation, and action blocking — the accounting layer that prevents paradoxes when the player goes back in time. The restore point UI is future work. See `docs/design-going-back-in-time.md` for the full design. There is no timeline branching — one timeline, always.
+Phase 5 (complete) adds milestones, resource budgeting, epoch isolation, action blocking, restore points, and a Go Back UI — the full accounting and time-travel layer that prevents paradoxes when the player goes back in time. See `docs/done/design-going-back-in-time.md` and `docs/done/design-restore-points.md` for full design. There is no timeline branching — one timeline, always.
 
 Phase 6 (complete) adds multi-vessel recording via a recording tree that tracks vessel splits and merges. See `docs/design-mission-tree.md` for the full design.
 

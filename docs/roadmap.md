@@ -74,9 +74,9 @@ Reduce sidecar file sizes for long recordings:
 
 ---
 
-## Phase 5: Going Back in Time (Foundation Complete)
+## Phase 5: Going Back in Time — Complete
 
-Foundation for going back in time — milestones, resource budgeting, epoch isolation, and action blocking are implemented. Restore point UI is future work.
+Full going-back-in-time system: milestones, resource budgeting, epoch isolation, action blocking, restore points, and Go Back UI.
 
 ### Milestones (done)
 Game state events (tech research, part purchases, facility upgrades, contracts, crew changes) are captured into milestones — immutable timeline commits independent of recordings. Created at recording commit time and on save (FlushPendingEvents captures events that happen without a flight). Deleting a recording does not delete its milestone.
@@ -93,11 +93,15 @@ On revert, committed funds/science/reputation are deducted from game state so KS
 ### Action blocking (done)
 Harmony patches on `RDTech.UnlockTech` and `UpgradeableFacility.SetLevel` prevent re-researching committed tech or re-upgrading committed facilities. Explanatory popup dialog shows what's blocked and why.
 
-### Remaining
-- [ ] Auto-save restore points at recording commit points
-- [ ] "Go Back" UI — pick a restore point, load it, preserve recording state
+### Restore points (done)
+Auto-saved quicksaves at recording commit points. Launch save captured when recording starts (stable vessel), promoted to restore point on commit, discarded if recording is discarded. Commit Flight button gated by stable vessel situation. Restore point metadata persisted in sidecar file, bulk save data in per-RP `.sfs` quicksaves. Count warning at >20.
 
-See `docs/design-going-back-in-time.md` for full design rationale.
+### Go Back UI (done)
+"Go Back" button in Parsek UI opens a picker dialog listing all restore points. Confirmation dialog shows future recording count and warnings. On confirm: loads the quicksave, increments epoch, resets milestone mutable state, resets playback state, defers resource adjustment coroutine (differential deduction with SuppressResourceEvents), re-reserves crew, marks all recordings fully applied. All committed recordings replay as ghosts from the restored point.
+
+**Design:** `docs/done/design-restore-points.md`, `docs/done/design-going-back-in-time.md`
+
+**Test coverage:** 1200 tests pass, 1 skipped, 0 failures.
 
 ---
 

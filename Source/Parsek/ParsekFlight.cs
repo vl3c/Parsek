@@ -3023,6 +3023,15 @@ namespace Parsek
             pendingBoardingTargetInTree = false;
             dockingInProgress.Clear();
 
+            // Go-back: skip merge dialog checks — CanGoBack guarantees no pending recordings.
+            if (RestorePointStore.GoBackUT > 0)
+            {
+                ParsekLog.Info("RestorePoint",
+                    $"OnFlightReady: go-back complete at UT {RestorePointStore.GoBackUT}. Timeline: {RecordingStore.CommittedRecordings.Count} recordings, {RestorePointStore.RestorePoints.Count} restore points");
+                RestorePointStore.GoBackUT = 0;
+                // Fall through to normal timeline setup (crew swap, event subscription, etc.)
+            }
+
             // Handle pending tree: show tree merge dialog.
             // On non-revert scene changes, pending trees are auto-committed by ParsekScenario.
             // Reaching here means either a revert or a fallback (auto-commit missed).
@@ -3079,16 +3088,6 @@ namespace Parsek
                     Log($"Found pending recording from {pending.VesselName} ({pending.Points.Count} points)");
                     MergeDialog.Show(pending);
                 }
-            }
-
-            // Go-back completion: if GoBackUT > 0, the scene was reloaded by InitiateGoBack.
-            // Log and clear the flag; fall through to normal timeline setup (crew swap, event subscription, etc.)
-            if (RestorePointStore.GoBackUT > 0)
-            {
-                ParsekLog.Info("RestorePoint",
-                    $"OnFlightReady: go-back complete at UT {RestorePointStore.GoBackUT}. Timeline: {RecordingStore.CommittedRecordings.Count} recordings, {RestorePointStore.RestorePoints.Count} restore points");
-                RestorePointStore.GoBackUT = 0;
-                // Fall through to normal timeline setup (crew swap, event subscription, etc.)
             }
 
             // Swap reserved crew out of the active vessel so the player
