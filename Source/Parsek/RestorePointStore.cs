@@ -632,8 +632,13 @@ namespace Parsek
                 SafeWriteConfigNode(rootNode, path);
 
                 if (!SuppressLogging)
+                {
                     ParsekLog.Info("RestorePoint",
                         $"Metadata saved: {restorePoints.Count} restore points to {path}");
+                    if (restorePoints.Count > 20)
+                        ParsekLog.Warn("RestorePoint",
+                            $"Restore point count ({restorePoints.Count}) exceeds recommended limit of 20 — consider deleting old ones");
+                }
             }
             catch (Exception ex)
             {
