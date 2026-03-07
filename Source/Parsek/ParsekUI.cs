@@ -60,9 +60,9 @@ namespace Parsek
         private const float ColW_Status = 45f;
         private const float ColW_LoopLabel = 30f;
         private const float ColW_LoopToggle = 15f;
-        private const float ColW_Watch = 30f;
-        private const float ColW_Rewind = 30f;
-        private const float ColW_Delete = 30f;
+        private const float ColW_Watch = 50f;
+        private const float ColW_Rewind = 55f;
+        private const float ColW_Delete = 50f;
         private const float ScrollbarWidth = 16f;
 
         // Chain grouping state
@@ -844,9 +844,9 @@ namespace Parsek
 
                 GUILayout.Label("Period", GUILayout.Width(ColW_Period));
 
-                GUILayout.Label("W", GUILayout.Width(ColW_Watch));
-                GUILayout.Label("R", GUILayout.Width(ColW_Rewind));
-                GUILayout.Button("", GUI.skin.label, GUILayout.Width(ColW_Delete)); // placeholder
+                GUILayout.Label("Watch", GUILayout.Width(ColW_Watch));
+                GUILayout.Label("Rewind", GUILayout.Width(ColW_Rewind));
+                GUILayout.Label("Delete", GUILayout.Width(ColW_Delete));
                 GUILayout.Space(ScrollbarWidth);
                 GUILayout.EndHorizontal();
 
