@@ -228,7 +228,7 @@ namespace Parsek
         // UI
         private Rect windowRect = new Rect(20, 100, 250, 250);
         private bool showUI = false;
-        private ToolbarControl toolbarControl;
+        private static ToolbarControl toolbarControl;
         private ParsekUI ui;
 
         #endregion
@@ -281,6 +281,14 @@ namespace Parsek
             GameEvents.onVesselChange.Add(OnVesselSwitchComplete);
 
             ui = new ParsekUI(this);
+
+            // Clean up any orphaned toolbar from rapid scene transitions (e.g. rewind)
+            if (toolbarControl != null)
+            {
+                toolbarControl.OnDestroy();
+                Destroy(toolbarControl);
+                toolbarControl = null;
+            }
 
             toolbarControl = gameObject.AddComponent<ToolbarControl>();
             toolbarControl.AddToAllToolbars(
@@ -895,6 +903,15 @@ namespace Parsek
                         RecordingStore.Pending.EvaCrewName = activeChainCrewName;
                     }
 
+                    // Copy rewind fields from recorder (ForceStop bypasses ApplyPersistenceArtifactsFrom)
+                    if (RecordingStore.HasPending)
+                    {
+                        RecordingStore.Pending.RewindSaveFileName = recorder.RewindSaveFileName;
+                        RecordingStore.Pending.RewindReservedFunds = recorder.RewindReservedFunds;
+                        RecordingStore.Pending.RewindReservedScience = recorder.RewindReservedScience;
+                        RecordingStore.Pending.RewindReservedRep = recorder.RewindReservedRep;
+                    }
+
                     // Tag segment phase in fallback path
                     if (RecordingStore.HasPending && string.IsNullOrEmpty(RecordingStore.Pending.SegmentPhase))
                     {
@@ -1086,6 +1103,12 @@ namespace Parsek
                 RecordingStore.Pending.GhostVisualSnapshot = recorder.InitialGhostVisualSnapshot != null
                     ? recorder.InitialGhostVisualSnapshot.CreateCopy()
                     : null;
+
+                // Copy rewind fields from recorder (ForceStop bypasses ApplyPersistenceArtifactsFrom)
+                RecordingStore.Pending.RewindSaveFileName = recorder.RewindSaveFileName;
+                RecordingStore.Pending.RewindReservedFunds = recorder.RewindReservedFunds;
+                RecordingStore.Pending.RewindReservedScience = recorder.RewindReservedScience;
+                RecordingStore.Pending.RewindReservedRep = recorder.RewindReservedRep;
             }
 
             // Set terminal state
@@ -3023,13 +3046,14 @@ namespace Parsek
             pendingBoardingTargetInTree = false;
             dockingInProgress.Clear();
 
-            // Go-back: skip merge dialog checks — CanGoBack guarantees no pending recordings.
+            // Rewind: skip merge dialog checks — CanRewind guarantees no pending recordings.
             // Must be BEFORE HasPendingTree/HasPending to avoid stale pending state from quicksave.
-            if (RestorePointStore.GoBackUT > 0)
+            if (RecordingStore.RewindUT > 0)
             {
-                ParsekLog.Info("RestorePoint",
-                    $"OnFlightReady: go-back complete at UT {RestorePointStore.GoBackUT}. Timeline: {RecordingStore.CommittedRecordings.Count} recordings, {RestorePointStore.RestorePoints.Count} restore points");
-                RestorePointStore.GoBackUT = 0;
+                ParsekLog.Info("Rewind",
+                    $"OnFlightReady: rewind complete at UT {RecordingStore.RewindUT}. " +
+                    $"Timeline: {RecordingStore.CommittedRecordings.Count} recordings");
+                RecordingStore.RewindUT = 0;
                 goto postMergeDialog; // Skip merge dialog checks, continue to crew swap + event subscription
             }
 
