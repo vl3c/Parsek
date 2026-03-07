@@ -455,6 +455,59 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Promotes the pending launch save to a full restore point on commit.
+        /// Skipped for child recordings (they share the parent's restore point).
+        /// </summary>
+        internal static void TryPromoteLaunchSave(string vesselName, int recordingCount, bool isTree, string parentRecordingId)
+        {
+            if (pendingLaunchSave == null)
+            {
+                if (!SuppressLogging)
+                    ParsekLog.Info("RestorePoint", "No launch save for recording — no restore point created");
+                return;
+            }
+
+            if (parentRecordingId != null)
+            {
+                if (!SuppressLogging)
+                    ParsekLog.Info("RestorePoint",
+                        $"Skipping restore point for child recording {parentRecordingId} (child recordings share parent's restore point)");
+                return;
+            }
+
+            string label = BuildLabel(vesselName, recordingCount, isTree);
+
+            var rp = new RestorePoint(true)
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                UT = pendingLaunchSave.Value.UT,
+                SaveFileName = pendingLaunchSave.Value.SaveFileName,
+                Label = label,
+                RecordingCount = recordingCount,
+                Funds = pendingLaunchSave.Value.Funds,
+                Science = pendingLaunchSave.Value.Science,
+                Reputation = pendingLaunchSave.Value.Reputation,
+                ReservedFundsAtSave = pendingLaunchSave.Value.ReservedFundsAtSave,
+                ReservedScienceAtSave = pendingLaunchSave.Value.ReservedScienceAtSave,
+                ReservedRepAtSave = pendingLaunchSave.Value.ReservedRepAtSave
+            };
+
+            restorePoints.Add(rp);
+            if (!SuppressLogging)
+                SaveRestorePointFile();
+
+            double ut = pendingLaunchSave.Value.UT;
+            string saveFile = pendingLaunchSave.Value.SaveFileName;
+            pendingLaunchSave = null;
+
+            if (!SuppressLogging)
+                ParsekLog.Info("RestorePoint",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Promoting launch save to restore point at UT {0}: \"{1}\" (save: {2})",
+                        ut, label, saveFile));
+        }
+
+        /// <summary>
         /// Discards the pending launch save (deletes the quicksave file and clears the pending state).
         /// Called when a recording is discarded without committing.
         /// </summary>
@@ -487,6 +540,63 @@ namespace Parsek
             if (!SuppressLogging)
                 ParsekLog.Info("RestorePoint",
                     $"Launch save discarded: {saveFileName}");
+        }
+
+        #endregion
+
+        #region Go Back
+
+        /// <summary>
+        /// Initiates a go-back to the given restore point.
+        /// Sets go-back flags, then loads the restore point's quicksave via KSP API.
+        /// On success, KSP will reload the flight scene and OnFlightReady will detect GoBackUT > 0.
+        /// </summary>
+        internal static void InitiateGoBack(RestorePoint rp)
+        {
+            IsGoingBack = true;
+            GoBackUT = rp.UT;
+            GoBackReserved = new ResourceBudget.BudgetSummary
+            {
+                reservedFunds = rp.ReservedFundsAtSave,
+                reservedScience = rp.ReservedScienceAtSave,
+                reservedReputation = rp.ReservedRepAtSave
+            };
+
+            if (!SuppressLogging)
+                ParsekLog.Info("RestorePoint",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Go Back initiated to UT {0} (restore point {1}, save: {2})",
+                        rp.UT, rp.Id, rp.SaveFileName));
+
+            try
+            {
+                Game game = GamePersistence.LoadGame(rp.SaveFileName, HighLogic.SaveFolder, true, false);
+                if (game == null)
+                {
+                    IsGoingBack = false;
+                    GoBackUT = 0;
+                    GoBackReserved = default(ResourceBudget.BudgetSummary);
+                    if (!SuppressLogging)
+                        ParsekLog.Error("RestorePoint",
+                            $"Go Back failed: LoadGame returned null for save '{rp.SaveFileName}'");
+                    return;
+                }
+
+                FlightDriver.StartAndFocusVessel(game, game.flightState.activeVesselIdx);
+
+                if (!SuppressLogging)
+                    ParsekLog.Info("RestorePoint",
+                        $"Go Back: loading save '{rp.SaveFileName}' (activeVesselIdx={game.flightState.activeVesselIdx})");
+            }
+            catch (Exception ex)
+            {
+                IsGoingBack = false;
+                GoBackUT = 0;
+                GoBackReserved = default(ResourceBudget.BudgetSummary);
+                if (!SuppressLogging)
+                    ParsekLog.Error("RestorePoint",
+                        $"Go Back failed: {ex.Message}");
+            }
         }
 
         #endregion

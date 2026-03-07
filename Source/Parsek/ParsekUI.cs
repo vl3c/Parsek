@@ -245,8 +245,12 @@ namespace Parsek
             bool canCommitStandalone = !flight.IsRecording && !flight.IsPlaying
                 && flight.recording.Count >= 2 && !flight.HasActiveChain && !flight.HasActiveTree;
             bool canCommitTree = flight.HasActiveTree;
-            GUI.enabled = canCommitStandalone || canCommitTree;
-            if (GUILayout.Button("Commit Flight"))
+            bool stableSituation = FlightGlobals.ActiveVessel != null
+                && RestorePointStore.IsStableState((int)FlightGlobals.ActiveVessel.situation);
+            GUI.enabled = (canCommitStandalone || canCommitTree) && stableSituation;
+            if (GUILayout.Button(stableSituation
+                ? new GUIContent("Commit Flight")
+                : new GUIContent("Commit Flight", "Land or stop before committing.")))
             {
                 ParsekLog.Verbose("UI", "Commit Flight button clicked");
                 if (flight.HasActiveTree)
@@ -273,6 +277,7 @@ namespace Parsek
                 ParsekScenario.ClearReplacements();
                 flight.DestroyAllTimelineGhosts();
                 RecordingStore.ClearCommitted();
+                RestorePointStore.ClearAll();
                 ParsekLog.Info("UI", "All recordings wiped");
                 ParsekLog.ScreenMessage("All recordings wiped", 2f);
             }
