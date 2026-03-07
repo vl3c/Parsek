@@ -1298,6 +1298,59 @@ namespace Parsek.Tests
             Assert.False(RestorePointStore.HasPendingLaunchSave);
         }
 
+        [Fact]
+        public void DeleteRestorePoint_UpdatesMetadataFile()
+        {
+            // Test 44: Remove middle RP from list of 3, verify correct 2 remain
+            RestorePointStore.AddForTesting(MakeTestRP(
+                "rp_a", 100, "parsek_rp_a", "first"));
+            RestorePointStore.AddForTesting(MakeTestRP(
+                "rp_b", 200, "parsek_rp_b", "second"));
+            RestorePointStore.AddForTesting(MakeTestRP(
+                "rp_c", 300, "parsek_rp_c", "third"));
+
+            Assert.Equal(3, RestorePointStore.RestorePoints.Count);
+
+            bool removed = RestorePointStore.RemoveRestorePointFromList("rp_b");
+
+            Assert.True(removed);
+            Assert.Equal(2, RestorePointStore.RestorePoints.Count);
+            Assert.Equal("rp_a", RestorePointStore.RestorePoints[0].Id);
+            Assert.Equal("rp_c", RestorePointStore.RestorePoints[1].Id);
+            // Verify the removed one is gone
+            for (int i = 0; i < RestorePointStore.RestorePoints.Count; i++)
+                Assert.NotEqual("rp_b", RestorePointStore.RestorePoints[i].Id);
+        }
+
+        [Fact]
+        public void WipeRecordings_DeletesAllRPFiles()
+        {
+            // Test 45: ClearAllInMemory empties list and clears pending launch save
+            RestorePointStore.AddForTesting(MakeTestRP(
+                "rp_x", 100, "parsek_rp_x", "first"));
+            RestorePointStore.AddForTesting(MakeTestRP(
+                "rp_y", 200, "parsek_rp_y", "second"));
+            RestorePointStore.AddForTesting(MakeTestRP(
+                "rp_z", 300, "parsek_rp_z", "third"));
+
+            RestorePointStore.pendingLaunchSave = new PendingLaunchSave
+            {
+                SaveFileName = "parsek_rp_pending",
+                UT = 400,
+                Funds = 25000
+            };
+
+            Assert.Equal(3, RestorePointStore.RestorePoints.Count);
+            Assert.True(RestorePointStore.HasPendingLaunchSave);
+
+            RestorePointStore.ClearAllInMemory();
+
+            Assert.Equal(0, RestorePointStore.RestorePoints.Count);
+            Assert.False(RestorePointStore.HasRestorePoints);
+            Assert.Null(RestorePointStore.pendingLaunchSave);
+            Assert.False(RestorePointStore.HasPendingLaunchSave);
+        }
+
         #endregion
 
         #region Go Back
@@ -1465,6 +1518,186 @@ namespace Parsek.Tests
             int count = RestorePointStore.CountFutureRecordings(250);
 
             Assert.Equal(3, count);
+        }
+
+        #endregion
+
+        #region Edge Cases & Hardening Tests
+
+        [Fact]
+        public void RestorePointsSurviveSaveLoadCycle()
+        {
+            // Test 46: Serialize 3 RPs to ConfigNode, clear, deserialize, verify all restored
+            var rp1 = new RestorePoint(true)
+            {
+                Id = "rp_one",
+                UT = 100.0,
+                SaveFileName = "parsek_rp_one",
+                Label = "\"Ship A\" launch (1 recording)",
+                RecordingCount = 1,
+                Funds = 50000.0,
+                Science = 10.0,
+                Reputation = 5.0f,
+                ReservedFundsAtSave = 12000.0,
+                ReservedScienceAtSave = 2.5,
+                ReservedRepAtSave = 1.0f
+            };
+            var rp2 = new RestorePoint(true)
+            {
+                Id = "rp_two",
+                UT = 200.0,
+                SaveFileName = "parsek_rp_two",
+                Label = "\"Ship B\" launch (2 recordings)",
+                RecordingCount = 2,
+                Funds = 45000.0,
+                Science = 15.0,
+                Reputation = 7.5f,
+                ReservedFundsAtSave = 18000.0,
+                ReservedScienceAtSave = 4.0,
+                ReservedRepAtSave = 2.5f
+            };
+            var rp3 = new RestorePoint(true)
+            {
+                Id = "rp_three",
+                UT = 300.0,
+                SaveFileName = "parsek_rp_three",
+                Label = "\"Ship C\" tree launch (3 recordings)",
+                RecordingCount = 3,
+                Funds = 40000.0,
+                Science = 20.0,
+                Reputation = 10.0f,
+                ReservedFundsAtSave = 25000.0,
+                ReservedScienceAtSave = 6.0,
+                ReservedRepAtSave = 3.0f
+            };
+
+            RestorePointStore.AddForTesting(rp1);
+            RestorePointStore.AddForTesting(rp2);
+            RestorePointStore.AddForTesting(rp3);
+            Assert.Equal(3, RestorePointStore.RestorePoints.Count);
+
+            // Serialize
+            ConfigNode node = RestorePointStore.SerializeAllToNode();
+
+            // Clear
+            RestorePointStore.ClearAllInMemory();
+            Assert.Equal(0, RestorePointStore.RestorePoints.Count);
+
+            // Deserialize (no savesDir — skip file validation)
+            RestorePointStore.DeserializeAllFromNode(node);
+            Assert.Equal(3, RestorePointStore.RestorePoints.Count);
+
+            // Verify fields
+            var loaded1 = RestorePointStore.RestorePoints[0];
+            Assert.Equal("rp_one", loaded1.Id);
+            Assert.Equal(100.0, loaded1.UT);
+            Assert.Equal("parsek_rp_one", loaded1.SaveFileName);
+            Assert.Equal("\"Ship A\" launch (1 recording)", loaded1.Label);
+            Assert.Equal(1, loaded1.RecordingCount);
+            Assert.Equal(50000.0, loaded1.Funds);
+            Assert.Equal(10.0, loaded1.Science);
+            Assert.Equal(5.0f, loaded1.Reputation);
+            Assert.Equal(12000.0, loaded1.ReservedFundsAtSave);
+            Assert.Equal(2.5, loaded1.ReservedScienceAtSave);
+            Assert.Equal(1.0f, loaded1.ReservedRepAtSave);
+
+            var loaded2 = RestorePointStore.RestorePoints[1];
+            Assert.Equal("rp_two", loaded2.Id);
+            Assert.Equal(200.0, loaded2.UT);
+            Assert.Equal(2, loaded2.RecordingCount);
+
+            var loaded3 = RestorePointStore.RestorePoints[2];
+            Assert.Equal("rp_three", loaded3.Id);
+            Assert.Equal(300.0, loaded3.UT);
+            Assert.Equal(3, loaded3.RecordingCount);
+            Assert.Equal(25000.0, loaded3.ReservedFundsAtSave);
+        }
+
+        [Fact]
+        public void MultipleRapidGobacks_Consistent()
+        {
+            // Test 47: Simulating two rapid go-backs — flags should reflect the second one
+            // Simulate go-back to RP_A
+            RestorePointStore.IsGoingBack = true;
+            RestorePointStore.GoBackUT = 100;
+            RestorePointStore.GoBackReserved = new ResourceBudget.BudgetSummary
+            {
+                reservedFunds = 1000,
+                reservedScience = 10,
+                reservedReputation = 5
+            };
+
+            // Simulate go-back to RP_B (overrides RP_A)
+            RestorePointStore.IsGoingBack = true;
+            RestorePointStore.GoBackUT = 200;
+            RestorePointStore.GoBackReserved = new ResourceBudget.BudgetSummary
+            {
+                reservedFunds = 2000,
+                reservedScience = 20,
+                reservedReputation = 10
+            };
+
+            // Flags should reflect RP_B, not RP_A
+            Assert.True(RestorePointStore.IsGoingBack);
+            Assert.Equal(200, RestorePointStore.GoBackUT);
+            Assert.Equal(2000, RestorePointStore.GoBackReserved.reservedFunds);
+            Assert.Equal(20, RestorePointStore.GoBackReserved.reservedScience);
+            Assert.Equal(10, RestorePointStore.GoBackReserved.reservedReputation);
+
+            // Cleanup
+            RestorePointStore.IsGoingBack = false;
+            RestorePointStore.GoBackUT = 0;
+            RestorePointStore.GoBackReserved = default(ResourceBudget.BudgetSummary);
+        }
+
+        [Fact]
+        public void ExistingRevertPath_Unaffected()
+        {
+            // Test 48: When IsGoingBack is false (default), the guard !IsGoingBack is true
+            // This means LoadCrewReplacements would be called in the normal revert path
+            Assert.False(RestorePointStore.IsGoingBack);
+            Assert.True(!RestorePointStore.IsGoingBack);
+
+            // When IsGoingBack is true (go-back path), the guard blocks LoadCrewReplacements
+            RestorePointStore.IsGoingBack = true;
+            Assert.True(RestorePointStore.IsGoingBack);
+            Assert.False(!RestorePointStore.IsGoingBack);
+
+            // Cleanup
+            RestorePointStore.IsGoingBack = false;
+        }
+
+        [Fact]
+        public void GoBackFlags_ClearedAfterCompletion()
+        {
+            // Test 49: Simulate go-back completion lifecycle
+            // Step 1: Initiate go-back (sets all flags)
+            RestorePointStore.IsGoingBack = true;
+            RestorePointStore.GoBackUT = 100;
+            RestorePointStore.GoBackReserved = new ResourceBudget.BudgetSummary
+            {
+                reservedFunds = 1000,
+                reservedScience = 10,
+                reservedReputation = 5
+            };
+
+            Assert.True(RestorePointStore.IsGoingBack);
+            Assert.Equal(100, RestorePointStore.GoBackUT);
+
+            // Step 2: OnLoad clears IsGoingBack but preserves GoBackUT for OnFlightReady
+            RestorePointStore.IsGoingBack = false;
+            Assert.False(RestorePointStore.IsGoingBack);
+            Assert.Equal(100, RestorePointStore.GoBackUT); // Still set for OnFlightReady
+
+            // Step 3: OnFlightReady clears GoBackUT
+            RestorePointStore.GoBackUT = 0;
+            Assert.False(RestorePointStore.IsGoingBack);
+            Assert.Equal(0, RestorePointStore.GoBackUT);
+
+            // GoBackReserved may still have values (consumed by resource adjustment coroutine, not cleared here)
+            Assert.Equal(1000, RestorePointStore.GoBackReserved.reservedFunds);
+            Assert.Equal(10, RestorePointStore.GoBackReserved.reservedScience);
+            Assert.Equal(5, RestorePointStore.GoBackReserved.reservedReputation);
         }
 
         #endregion

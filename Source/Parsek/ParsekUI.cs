@@ -718,6 +718,7 @@ namespace Parsek
                 ParsekScenario.ClearReplacements();
                 flight.DestroyAllTimelineGhosts();
                 RecordingStore.ClearCommitted();
+                RestorePointStore.ClearAll();
                 MilestoneStore.ClearAll();
                 GameStateStore.ClearEvents();
                 GameStateStore.ClearBaselines();
