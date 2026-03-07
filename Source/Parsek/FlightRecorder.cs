@@ -3095,13 +3095,6 @@ namespace Parsek
                 return;
             }
 
-            if (!RecordingStore.IsStableState((int)v.situation))
-            {
-                ParsekLog.Info("Recorder",
-                    $"Rewind save skipped: vessel in {v.situation} (not stable)");
-                return;
-            }
-
             // Clean up orphaned rewind save from a previous aborted recording
             if (!string.IsNullOrEmpty(RewindSaveFileName))
             {
