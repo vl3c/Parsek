@@ -155,32 +155,6 @@ namespace Parsek
             // Compact budget summary (full display in Actions window)
             DrawCompactBudgetLine();
 
-            // Active ghost controls — Watch buttons
-            var committed = RecordingStore.CommittedRecordings;
-            var ghosts = flight.TimelineGhosts;
-            for (int i = 0; i < committed.Count; i++)
-            {
-                if (!ghosts.ContainsKey(i) || ghosts[i] == null) continue;
-                var rec = committed[i];
-                if (rec.TakenControl) continue;
-
-                bool sameBody = flight.IsGhostOnSameBody(i);
-                bool isWatching = flight.WatchedRecordingIndex == i;
-
-                GUILayout.BeginHorizontal();
-                GUILayout.Label(rec.VesselName, GUILayout.ExpandWidth(true));
-                GUI.enabled = sameBody;
-                if (GUILayout.Button(isWatching ? "Watching" : "Watch", GUILayout.Width(90)))
-                {
-                    if (isWatching)
-                        flight.ExitWatchMode();
-                    else
-                        flight.EnterWatchMode(i);
-                }
-                GUI.enabled = true;
-                GUILayout.EndHorizontal();
-            }
-
             GUILayout.Space(10);
 
             // Controls
