@@ -270,8 +270,8 @@ namespace Parsek
                     // Re-reserve crew from all recording snapshots
                     ReserveSnapshotCrew();
 
-                    // Load restore point metadata (may have changed if player committed
-                    // after the save was captured)
+                    // No-op during go-back (initialLoadDone guard returns early).
+                    // In-memory restore point list is the source of truth, same as recordings.
                     RestorePointStore.LoadRestorePointFile();
 
                     // Clear IsGoingBack, preserve GoBackUT for OnFlightReady
