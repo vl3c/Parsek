@@ -346,6 +346,151 @@ namespace Parsek
             return count;
         }
 
+        #region Launch Save Capture
+
+        /// <summary>
+        /// Captures a launch save (quicksave) at recording start if the vessel is in a stable state.
+        /// Skipped for tree branch/chain promotions (which use the root's launch save).
+        /// </summary>
+        internal static void TryCaptureLaunchSave(Vessel v, bool isPromotion, double recordingStartUT)
+        {
+            if (isPromotion)
+            {
+                if (!SuppressLogging)
+                    ParsekLog.Verbose("RestorePoint", "Launch save skipped: tree branch/chain promotion");
+                return;
+            }
+
+            if (!IsStableState((int)v.situation))
+            {
+                if (!SuppressLogging)
+                    ParsekLog.Info("RestorePoint",
+                        $"Launch save skipped: vessel in {v.situation} (not stable)");
+                return;
+            }
+
+            // If a previous launch save exists, delete its quicksave file (orphaned)
+            if (pendingLaunchSave.HasValue)
+            {
+                try
+                {
+                    string savesDir = Path.Combine(
+                        KSPUtil.ApplicationRootPath ?? "",
+                        "saves",
+                        HighLogic.SaveFolder ?? "");
+                    string oldSaveFile = pendingLaunchSave.Value.SaveFileName;
+                    string oldPath = Path.Combine(savesDir, oldSaveFile + ".sfs");
+                    if (File.Exists(oldPath))
+                        File.Delete(oldPath);
+                    if (!SuppressLogging)
+                        ParsekLog.Info("RestorePoint",
+                            $"Replacing orphaned launch save: deleting {oldSaveFile}");
+                }
+                catch (Exception ex)
+                {
+                    if (!SuppressLogging)
+                        ParsekLog.Warn("RestorePoint",
+                            $"Failed to delete orphaned launch save: {ex.Message}");
+                }
+                pendingLaunchSave = null;
+            }
+
+            string shortId = Guid.NewGuid().ToString("N").Substring(0, 6);
+            string saveFileName = RestorePointSaveName(shortId);
+
+            // Capture quicksave
+            try
+            {
+                string result = GamePersistence.SaveGame(saveFileName, HighLogic.SaveFolder, SaveMode.OVERWRITE);
+                if (string.IsNullOrEmpty(result))
+                {
+                    if (!SuppressLogging)
+                        ParsekLog.Error("RestorePoint", "Failed to capture launch save: SaveGame returned null");
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                if (!SuppressLogging)
+                    ParsekLog.Error("RestorePoint", $"Failed to capture launch save: {ex.Message}");
+                return;
+            }
+
+            // Capture resource snapshot
+            double funds = 0;
+            double science = 0;
+            float reputation = 0;
+            try
+            {
+                if (Funding.Instance != null)
+                    funds = Funding.Instance.Funds;
+                if (ResearchAndDevelopment.Instance != null)
+                    science = ResearchAndDevelopment.Instance.Science;
+                if (Reputation.Instance != null)
+                    reputation = Reputation.Instance.reputation;
+            }
+            catch { }
+
+            // Capture reserved amounts (full cost, ignoring application state)
+            var reserved = ResourceBudget.ComputeTotalFullCost(
+                RecordingStore.CommittedRecordings,
+                MilestoneStore.Milestones,
+                RecordingStore.CommittedTrees);
+
+            pendingLaunchSave = new PendingLaunchSave
+            {
+                SaveFileName = saveFileName,
+                UT = recordingStartUT,
+                Funds = funds,
+                Science = science,
+                Reputation = reputation,
+                ReservedFundsAtSave = reserved.reservedFunds,
+                ReservedScienceAtSave = reserved.reservedScience,
+                ReservedRepAtSave = (float)reserved.reservedReputation
+            };
+
+            if (!SuppressLogging)
+                ParsekLog.Info("RestorePoint",
+                    $"Captured launch save at UT {recordingStartUT}: vessel \"{v.vesselName}\" in {v.situation} (save: {saveFileName})");
+        }
+
+        /// <summary>
+        /// Discards the pending launch save (deletes the quicksave file and clears the pending state).
+        /// Called when a recording is discarded without committing.
+        /// </summary>
+        internal static void DiscardLaunchSave()
+        {
+            if (!pendingLaunchSave.HasValue)
+                return;
+
+            string saveFileName = pendingLaunchSave.Value.SaveFileName;
+
+            try
+            {
+                string savesDir = Path.Combine(
+                    KSPUtil.ApplicationRootPath ?? "",
+                    "saves",
+                    HighLogic.SaveFolder ?? "");
+                string saveFilePath = Path.Combine(savesDir, saveFileName + ".sfs");
+                if (File.Exists(saveFilePath))
+                    File.Delete(saveFilePath);
+            }
+            catch (Exception ex)
+            {
+                if (!SuppressLogging)
+                    ParsekLog.Warn("RestorePoint",
+                        $"Failed to delete launch save file {saveFileName}: {ex.Message}");
+            }
+
+            pendingLaunchSave = null;
+
+            if (!SuppressLogging)
+                ParsekLog.Info("RestorePoint",
+                    $"Launch save discarded: {saveFileName}");
+        }
+
+        #endregion
+
         #region File I/O
 
         internal static void SaveRestorePointFile()
