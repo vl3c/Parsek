@@ -493,8 +493,7 @@ namespace Parsek
             };
 
             restorePoints.Add(rp);
-            if (!SuppressLogging)
-                SaveRestorePointFile();
+            SaveRestorePointFile();
 
             double ut = pendingLaunchSave.Value.UT;
             string saveFile = pendingLaunchSave.Value.SaveFileName;
@@ -605,8 +604,18 @@ namespace Parsek
 
         internal static void SaveRestorePointFile()
         {
-            string path = RecordingPaths.ResolveSaveScopedPath(
-                RecordingPaths.BuildRestorePointsRelativePath());
+            string path;
+            try
+            {
+                path = RecordingPaths.ResolveSaveScopedPath(
+                    RecordingPaths.BuildRestorePointsRelativePath());
+            }
+            catch
+            {
+                // KSP runtime not available (unit test environment)
+                return;
+            }
+
             if (path == null)
             {
                 if (!SuppressLogging)
