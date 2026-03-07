@@ -1378,5 +1378,95 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Go Back Dialog Tests
+
+        [Fact]
+        public void CanGoBack_RecordingActive_False()
+        {
+            // Test 40: CanGoBack returns false when recording is active
+            RestorePointStore.AddForTesting(new RestorePoint(true)
+            {
+                Id = "rp_active",
+                UT = 17030.0,
+                SaveFileName = "parsek_rp_active",
+                Label = "\"Ship\" launch (1 recording)",
+                RecordingCount = 1
+            });
+
+            string reason;
+            bool result = RestorePointStore.CanGoBack(out reason, isRecording: true, isInFlight: true);
+
+            Assert.False(result);
+            Assert.Contains("recording", reason, System.StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public void CanGoBack_PendingTreeExists_False()
+        {
+            // Test 41: CanGoBack returns false when a pending tree exists
+            RestorePointStore.AddForTesting(new RestorePoint(true)
+            {
+                Id = "rp_pending",
+                UT = 17030.0,
+                SaveFileName = "parsek_rp_pending",
+                Label = "\"Ship\" launch (1 recording)",
+                RecordingCount = 1
+            });
+
+            // Stash a pending tree
+            var tree = new RecordingTree
+            {
+                Id = "tree_pending_test",
+                TreeName = "PendingTree",
+                RootRecordingId = "rec_root"
+            };
+            RecordingStore.StashPendingTree(tree);
+
+            string reason;
+            bool result = RestorePointStore.CanGoBack(out reason, isRecording: false, isInFlight: true);
+
+            Assert.False(result);
+            Assert.Contains("pending", reason, System.StringComparison.OrdinalIgnoreCase);
+
+            // Cleanup
+            RecordingStore.StashPendingTree(null);
+        }
+
+        [Fact]
+        public void CanGoBack_NoRestorePoints_False()
+        {
+            // Test 42: CanGoBack returns false when no restore points exist
+            // Constructor already clears all restore points
+
+            string reason;
+            bool result = RestorePointStore.CanGoBack(out reason, isRecording: false, isInFlight: true);
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void FutureRecordingsCount_Accurate()
+        {
+            // Test 43: CountFutureRecordings returns correct count
+            // Create 5 recordings with StartUT at 100, 200, 300, 400, 500
+            for (int i = 1; i <= 5; i++)
+            {
+                var rec = new RecordingStore.Recording
+                {
+                    RecordingId = $"rec_{i}",
+                    VesselName = $"Ship{i}"
+                };
+                rec.Points.AddRange(MakePoints(3, i * 100));
+                RecordingStore.CommittedRecordings.Add(rec);
+            }
+
+            // Recordings at 300, 400, 500 have StartUT > 250
+            int count = RestorePointStore.CountFutureRecordings(250);
+
+            Assert.Equal(3, count);
+        }
+
+        #endregion
     }
 }
