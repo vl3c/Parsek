@@ -722,6 +722,7 @@ namespace Parsek
                 MilestoneStore.ClearAll();
                 GameStateStore.ClearEvents();
                 GameStateStore.ClearBaselines();
+                GameStateStore.ClearScienceSubjects();
                 ParsekLog.Log("All recordings and game state wiped");
                 ParsekLog.ScreenMessage("All data wiped", 2f);
             }

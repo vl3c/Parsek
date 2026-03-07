@@ -25,6 +25,12 @@ namespace Parsek
         /// </summary>
         internal static bool SuppressResourceEvents = false;
 
+        /// <summary>
+        /// Science subjects captured during the current recording session.
+        /// Transferred to GameStateStore.committedScienceSubjects on commit.
+        /// </summary>
+        internal static List<PendingScienceSubject> PendingScienceSubjects = new List<PendingScienceSubject>();
+
         private bool subscribed = false;
 
         // Cached facility/building state for polling on scene change
@@ -79,6 +85,9 @@ namespace Parsek
             GameEvents.OnScienceChanged.Add(OnScienceChanged);
             GameEvents.OnReputationChanged.Add(OnReputationChanged);
 
+            // Science subjects (per-experiment tracking for duplication prevention)
+            GameEvents.OnScienceRecieved.Add(OnScienceReceived);
+
             // Initialize resource tracking from current state
             SeedResourceState();
 
@@ -114,6 +123,9 @@ namespace Parsek
             GameEvents.OnFundsChanged.Remove(OnFundsChanged);
             GameEvents.OnScienceChanged.Remove(OnScienceChanged);
             GameEvents.OnReputationChanged.Remove(OnReputationChanged);
+
+            // Science subjects
+            GameEvents.OnScienceRecieved.Remove(OnScienceReceived);
 
             ParsekLog.Info("GameStateRecorder", "GameStateRecorder unsubscribed");
         }
@@ -466,6 +478,36 @@ namespace Parsek
                 valueAfter = newReputation
             });
             ParsekLog.Info("GameStateRecorder", $"Game state: ReputationChanged {delta:+0.0;-0.0} ({reason}) → {newReputation:F1}");
+        }
+
+        #endregion
+
+        #region Science Subject Tracking
+
+        private void OnScienceReceived(float amount, ScienceSubject subject, ProtoVessel vessel, bool reverseEngineered)
+        {
+            // SuppressResourceEvents is set during timeline replay (ApplyResourceDeltas,
+            // ApplyTreeLumpSum) where AddScience replays pool deltas. We must not
+            // re-capture subjects during replay — they are already committed.
+            if (SuppressResourceEvents)
+            {
+                ParsekLog.VerboseRateLimited("GameStateRecorder", "suppress-science-subject",
+                    "Suppressed OnScienceReceived during timeline replay", 5.0);
+                return;
+            }
+
+            if (subject == null || string.IsNullOrEmpty(subject.id)) return;
+            if (amount <= 0) return;
+
+            // Record the cumulative science earned for this subject
+            PendingScienceSubjects.Add(new PendingScienceSubject
+            {
+                subjectId = subject.id,
+                science = subject.science
+            });
+
+            ParsekLog.Info("GameStateRecorder",
+                $"Science subject captured: {subject.id} amount={amount:F1} total={subject.science:F1}");
         }
 
         #endregion

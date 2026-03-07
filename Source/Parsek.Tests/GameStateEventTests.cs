@@ -1372,5 +1372,147 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Committed Science Subjects
+
+        [Fact]
+        public void CommitScienceSubjects_AddsNew()
+        {
+            GameStateStore.ResetForTesting();
+
+            var pending = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLandedLaunchPad", science = 3.0f },
+                new PendingScienceSubject { subjectId = "temperatureScan@KerbinSrfLandedLaunchPad", science = 4.0f }
+            };
+
+            GameStateStore.CommitScienceSubjects(pending);
+
+            Assert.Equal(2, GameStateStore.CommittedScienceSubjectCount);
+
+            float sci;
+            Assert.True(GameStateStore.TryGetCommittedSubjectScience("crewReport@KerbinSrfLandedLaunchPad", out sci));
+            Assert.Equal(3.0f, sci);
+            Assert.True(GameStateStore.TryGetCommittedSubjectScience("temperatureScan@KerbinSrfLandedLaunchPad", out sci));
+            Assert.Equal(4.0f, sci);
+        }
+
+        [Fact]
+        public void CommitScienceSubjects_MaxWins()
+        {
+            GameStateStore.ResetForTesting();
+
+            var batch1 = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLandedLaunchPad", science = 3.0f }
+            };
+            GameStateStore.CommitScienceSubjects(batch1);
+
+            // Second commit with higher value — should update
+            var batch2 = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLandedLaunchPad", science = 5.0f }
+            };
+            GameStateStore.CommitScienceSubjects(batch2);
+
+            float sci;
+            Assert.True(GameStateStore.TryGetCommittedSubjectScience("crewReport@KerbinSrfLandedLaunchPad", out sci));
+            Assert.Equal(5.0f, sci);
+        }
+
+        [Fact]
+        public void CommitScienceSubjects_LowerValueIgnored()
+        {
+            GameStateStore.ResetForTesting();
+
+            var batch1 = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLandedLaunchPad", science = 5.0f }
+            };
+            GameStateStore.CommitScienceSubjects(batch1);
+
+            // Second commit with lower value — should NOT downgrade
+            var batch2 = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLandedLaunchPad", science = 2.0f }
+            };
+            GameStateStore.CommitScienceSubjects(batch2);
+
+            float sci;
+            Assert.True(GameStateStore.TryGetCommittedSubjectScience("crewReport@KerbinSrfLandedLaunchPad", out sci));
+            Assert.Equal(5.0f, sci);
+        }
+
+        [Fact]
+        public void CommitScienceSubjects_NullOrEmpty_NoOp()
+        {
+            GameStateStore.ResetForTesting();
+
+            GameStateStore.CommitScienceSubjects(null);
+            Assert.Equal(0, GameStateStore.CommittedScienceSubjectCount);
+
+            GameStateStore.CommitScienceSubjects(new List<PendingScienceSubject>());
+            Assert.Equal(0, GameStateStore.CommittedScienceSubjectCount);
+        }
+
+        [Fact]
+        public void TryGetCommittedSubjectScience_MissingKey_ReturnsFalse()
+        {
+            GameStateStore.ResetForTesting();
+
+            float sci;
+            Assert.False(GameStateStore.TryGetCommittedSubjectScience("nonexistent", out sci));
+        }
+
+        [Fact]
+        public void ClearScienceSubjects_RemovesAll()
+        {
+            GameStateStore.ResetForTesting();
+
+            GameStateStore.CommitScienceSubjects(new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject { subjectId = "test1", science = 1.0f },
+                new PendingScienceSubject { subjectId = "test2", science = 2.0f }
+            });
+            Assert.Equal(2, GameStateStore.CommittedScienceSubjectCount);
+
+            GameStateStore.ClearScienceSubjects();
+            Assert.Equal(0, GameStateStore.CommittedScienceSubjectCount);
+        }
+
+        [Fact]
+        public void CommitScienceSubjects_MultipleEntriesSameSubject_MaxWins()
+        {
+            GameStateStore.ResetForTesting();
+
+            // Simulates multiple transmissions of same experiment in one session
+            var pending = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLandedLaunchPad", science = 2.0f },
+                new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLandedLaunchPad", science = 4.5f },
+                new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLandedLaunchPad", science = 3.0f }
+            };
+
+            GameStateStore.CommitScienceSubjects(pending);
+
+            Assert.Equal(1, GameStateStore.CommittedScienceSubjectCount);
+            float sci;
+            Assert.True(GameStateStore.TryGetCommittedSubjectScience("crewReport@KerbinSrfLandedLaunchPad", out sci));
+            Assert.Equal(4.5f, sci);
+        }
+
+        [Fact]
+        public void ResetForTesting_ClearsScienceSubjects()
+        {
+            GameStateStore.CommitScienceSubjects(new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject { subjectId = "test", science = 1.0f }
+            });
+
+            GameStateStore.ResetForTesting();
+            Assert.Equal(0, GameStateStore.CommittedScienceSubjectCount);
+        }
+
+        #endregion
     }
 }

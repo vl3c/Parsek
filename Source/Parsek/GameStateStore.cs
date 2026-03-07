@@ -10,6 +10,7 @@ namespace Parsek
         private static List<GameStateEvent> events = new List<GameStateEvent>();
         private static List<ContractSnapshot> contractSnapshots = new List<ContractSnapshot>();
         private static List<GameStateBaseline> baselines = new List<GameStateBaseline>();
+        private static Dictionary<string, float> committedScienceSubjects = new Dictionary<string, float>();
 
         private static bool initialLoadDone = false;
         private static string lastSaveFolder = null;
@@ -179,6 +180,62 @@ namespace Parsek
 
         #endregion
 
+        #region Committed Science Subjects
+
+        /// <summary>
+        /// Merges pending science subjects into the committed store.
+        /// For each subject, keeps the maximum science value (handles partial experiments).
+        /// </summary>
+        internal static void CommitScienceSubjects(List<PendingScienceSubject> pending)
+        {
+            if (pending == null || pending.Count == 0) return;
+
+            int added = 0, updated = 0;
+            for (int i = 0; i < pending.Count; i++)
+            {
+                string id = pending[i].subjectId;
+                float science = pending[i].science;
+
+                float existing;
+                if (committedScienceSubjects.TryGetValue(id, out existing))
+                {
+                    if (science > existing)
+                    {
+                        committedScienceSubjects[id] = science;
+                        updated++;
+                    }
+                }
+                else
+                {
+                    committedScienceSubjects[id] = science;
+                    added++;
+                }
+            }
+
+            ParsekLog.Info("GameStateStore",
+                $"CommitScienceSubjects: {added} added, {updated} updated (total={committedScienceSubjects.Count})");
+        }
+
+        /// <summary>
+        /// Tries to get the committed science value for a subject.
+        /// Returns false if the subject has not been committed.
+        /// </summary>
+        internal static bool TryGetCommittedSubjectScience(string subjectId, out float science)
+        {
+            return committedScienceSubjects.TryGetValue(subjectId, out science);
+        }
+
+        internal static int CommittedScienceSubjectCount => committedScienceSubjects.Count;
+
+        internal static void ClearScienceSubjects()
+        {
+            int count = committedScienceSubjects.Count;
+            committedScienceSubjects.Clear();
+            ParsekLog.Info("GameStateStore", $"Cleared {count} committed science subjects");
+        }
+
+        #endregion
+
         #region Baseline Management
 
         internal static void AddBaseline(GameStateBaseline baseline)
@@ -257,10 +314,22 @@ namespace Parsek
                 foreach (var snap in contractSnapshots)
                     snap.SerializeInto(rootNode);
 
+                if (committedScienceSubjects.Count > 0)
+                {
+                    ConfigNode sciNode = rootNode.AddNode("SCIENCE_SUBJECTS");
+                    foreach (var kvp in committedScienceSubjects)
+                    {
+                        ConfigNode entry = sciNode.AddNode("SUBJECT");
+                        entry.AddValue("id", kvp.Key);
+                        entry.AddValue("science", kvp.Value.ToString("R", CultureInfo.InvariantCulture));
+                    }
+                }
+
                 SafeWriteConfigNode(rootNode, path);
 
                 ParsekLog.Info("GameStateStore",
-                    $"Saved {events.Count} game state events, {contractSnapshots.Count} contract snapshots to {path}");
+                    $"Saved {events.Count} game state events, {contractSnapshots.Count} contract snapshots, " +
+                    $"{committedScienceSubjects.Count} science subjects to {path}");
                 return true;
             }
             catch (Exception ex)
@@ -289,6 +358,7 @@ namespace Parsek
             initialLoadDone = true;
             events.Clear();
             contractSnapshots.Clear();
+            committedScienceSubjects.Clear();
 
             string path = RecordingPaths.ResolveSaveScopedPath(
                 RecordingPaths.BuildGameStateEventsRelativePath());
@@ -334,8 +404,30 @@ namespace Parsek
                         contractSnapshots.Add(ContractSnapshot.DeserializeFrom(sn));
                 }
 
+                ConfigNode sciSubjectsNode = rootNode.GetNode("SCIENCE_SUBJECTS");
+                if (sciSubjectsNode != null)
+                {
+                    ConfigNode[] subjectNodes = sciSubjectsNode.GetNodes("SUBJECT");
+                    if (subjectNodes != null)
+                    {
+                        foreach (var sn in subjectNodes)
+                        {
+                            string id = sn.GetValue("id");
+                            string sciStr = sn.GetValue("science");
+                            float sci;
+                            if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(sciStr) &&
+                                float.TryParse(sciStr, System.Globalization.NumberStyles.Float,
+                                    CultureInfo.InvariantCulture, out sci))
+                            {
+                                committedScienceSubjects[id] = sci;
+                            }
+                        }
+                    }
+                }
+
                 ParsekLog.Info("GameStateStore",
-                    $"Loaded {events.Count} game state events, {contractSnapshots.Count} contract snapshots from {path}");
+                    $"Loaded {events.Count} game state events, {contractSnapshots.Count} contract snapshots, " +
+                    $"{committedScienceSubjects.Count} science subjects from {path}");
 
                 // Log event type distribution for diagnostics
                 if (events.Count > 0)
@@ -481,6 +573,7 @@ namespace Parsek
             events.Clear();
             contractSnapshots.Clear();
             baselines.Clear();
+            committedScienceSubjects.Clear();
             initialLoadDone = false;
             lastSaveFolder = null;
         }
