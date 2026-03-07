@@ -282,6 +282,8 @@ namespace Parsek
             Log($"[Parsek] Committed recording from {pendingRecording.VesselName} " +
                 $"({pendingRecording.Points.Count} points). Total committed: {committedRecordings.Count}");
 
+            RestorePointStore.TryPromoteLaunchSave(pendingRecording.VesselName, committedRecordings.Count, false, pendingRecording.ParentRecordingId);
+
             string recordingId = pendingRecording.RecordingId;
             double endUT = pendingRecording.EndUT;
             pendingRecording = null;
@@ -306,6 +308,7 @@ namespace Parsek
             DeleteRecordingFiles(pendingRecording);
             Log($"[Parsek] Discarded pending recording from {pendingRecording.VesselName}");
             pendingRecording = null;
+            RestorePointStore.DiscardLaunchSave();
             ResourceBudget.Invalidate();
         }
 
@@ -358,6 +361,8 @@ namespace Parsek
             committedTrees.Add(tree);
             Log($"[Parsek] Committed tree '{tree.TreeName}' ({tree.Recordings.Count} recordings). " +
                 $"Total committed: {committedRecordings.Count} recordings, {committedTrees.Count} trees");
+
+            RestorePointStore.TryPromoteLaunchSave(tree.TreeName, committedRecordings.Count, true, null);
 
             ResourceBudget.Invalidate();
 
@@ -414,6 +419,7 @@ namespace Parsek
                 DeleteRecordingFiles(rec);
             Log($"[Parsek] Discarded pending tree '{pendingTree.TreeName}'");
             pendingTree = null;
+            RestorePointStore.DiscardLaunchSave();
             ResourceBudget.Invalidate();
         }
 

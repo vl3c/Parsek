@@ -3081,6 +3081,16 @@ namespace Parsek
                 }
             }
 
+            // Go-back completion: if GoBackUT > 0, the scene was reloaded by InitiateGoBack.
+            // Log and clear the flag; fall through to normal timeline setup (crew swap, event subscription, etc.)
+            if (RestorePointStore.GoBackUT > 0)
+            {
+                ParsekLog.Info("RestorePoint",
+                    $"OnFlightReady: go-back complete at UT {RestorePointStore.GoBackUT}. Timeline: {RecordingStore.CommittedRecordings.Count} recordings, {RestorePointStore.RestorePoints.Count} restore points");
+                RestorePointStore.GoBackUT = 0;
+                // Fall through to normal timeline setup (crew swap, event subscription, etc.)
+            }
+
             // Swap reserved crew out of the active vessel so the player
             // can't record with them again (they belong to deferred-spawn vessels)
             int swapResult = ParsekScenario.SwapReservedCrewInFlight();
