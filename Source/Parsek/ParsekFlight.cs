@@ -3046,17 +3046,6 @@ namespace Parsek
             pendingBoardingTargetInTree = false;
             dockingInProgress.Clear();
 
-            // Rewind: skip merge dialog checks — CanRewind guarantees no pending recordings.
-            // Must be BEFORE HasPendingTree/HasPending to avoid stale pending state from quicksave.
-            if (RecordingStore.RewindUT > 0)
-            {
-                ParsekLog.Info("Rewind",
-                    $"OnFlightReady: rewind complete at UT {RecordingStore.RewindUT}. " +
-                    $"Timeline: {RecordingStore.CommittedRecordings.Count} recordings");
-                RecordingStore.RewindUT = 0;
-                goto postMergeDialog; // Skip merge dialog checks, continue to crew swap + event subscription
-            }
-
             // Handle pending tree: show tree merge dialog.
             // On non-revert scene changes, pending trees are auto-committed by ParsekScenario.
             // Reaching here means either a revert or a fallback (auto-commit missed).
@@ -3114,8 +3103,6 @@ namespace Parsek
                     MergeDialog.Show(pending);
                 }
             }
-
-            postMergeDialog:
 
             // Swap reserved crew out of the active vessel so the player
             // can't record with them again (they belong to deferred-spawn vessels)

@@ -293,8 +293,12 @@ namespace Parsek
                     // Re-reserve crew from all recording snapshots
                     ReserveSnapshotCrew();
 
-                    // Clear IsRewinding, preserve RewindUT for OnFlightReady
+                    // Clear rewind flags — rewind loads into SpaceCenter, not Flight
                     RecordingStore.IsRewinding = false;
+                    ParsekLog.Info("Rewind",
+                        $"OnLoad: rewind complete at UT {RecordingStore.RewindUT}. " +
+                        $"Timeline: {recordings.Count} recordings");
+                    RecordingStore.RewindUT = 0;
 
                     return; // Skip ALL existing revert/scene-change logic
                 }
