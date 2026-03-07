@@ -285,6 +285,19 @@ namespace Parsek.Tests.Generators
             return node;
         }
 
+        /// <summary>Returns the vessel name.</summary>
+        public string GetVesselName() => vesselName;
+
+        /// <summary>Returns the UT of the first point, or 0 if no points.</summary>
+        public double GetStartUT()
+        {
+            if (points.Count == 0) return 0;
+            var ic = CultureInfo.InvariantCulture;
+            double ut;
+            double.TryParse(points[0].GetValue("ut"), System.Globalization.NumberStyles.Float, ic, out ut);
+            return ut;
+        }
+
         /// <summary>Returns the vessel snapshot (may be null).</summary>
         public ConfigNode GetVesselSnapshot() => vesselSnapshot;
 
