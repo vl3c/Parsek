@@ -236,6 +236,15 @@ namespace Parsek
             if (rec.PreLaunchReputation != 0)
                 recNode.AddValue("preLaunchRep", rec.PreLaunchReputation.ToString("R", ic));
 
+            // Rewind save metadata
+            if (!string.IsNullOrEmpty(rec.RewindSaveFileName))
+            {
+                recNode.AddValue("rewindSave", rec.RewindSaveFileName);
+                recNode.AddValue("rewindResFunds", rec.RewindReservedFunds.ToString("R", ic));
+                recNode.AddValue("rewindResSci", rec.RewindReservedScience.ToString("R", ic));
+                recNode.AddValue("rewindResRep", rec.RewindReservedRep.ToString("R", ic));
+            }
+
             // Ghost geometry metadata
             recNode.AddValue("ghostGeometryStrategy", rec.GhostGeometryCaptureStrategy ?? "stub_v1");
             recNode.AddValue("ghostGeometryProbeStatus", rec.GhostGeometryProbeStatus ?? "unknown");
@@ -410,6 +419,30 @@ namespace Parsek
                 float preLaunchRep;
                 if (float.TryParse(preLaunchRepStr, inv, ic, out preLaunchRep))
                     rec.PreLaunchReputation = preLaunchRep;
+            }
+
+            // Rewind save metadata
+            rec.RewindSaveFileName = recNode.GetValue("rewindSave");
+            string rewindFundsStr = recNode.GetValue("rewindResFunds");
+            if (rewindFundsStr != null)
+            {
+                double rewindFunds;
+                if (double.TryParse(rewindFundsStr, inv, ic, out rewindFunds))
+                    rec.RewindReservedFunds = rewindFunds;
+            }
+            string rewindSciStr = recNode.GetValue("rewindResSci");
+            if (rewindSciStr != null)
+            {
+                double rewindSci;
+                if (double.TryParse(rewindSciStr, inv, ic, out rewindSci))
+                    rec.RewindReservedScience = rewindSci;
+            }
+            string rewindRepStr = recNode.GetValue("rewindResRep");
+            if (rewindRepStr != null)
+            {
+                float rewindRep;
+                if (float.TryParse(rewindRepStr, inv, ic, out rewindRep))
+                    rec.RewindReservedRep = rewindRep;
             }
 
             // Ghost geometry metadata

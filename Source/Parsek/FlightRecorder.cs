@@ -115,6 +115,10 @@ namespace Parsek
         public double PreLaunchFunds { get; private set; }
         public double PreLaunchScience { get; private set; }
         public float PreLaunchReputation { get; private set; }
+        public string RewindSaveFileName { get; private set; }
+        public double RewindReservedFunds { get; private set; }
+        public double RewindReservedScience { get; private set; }
+        public float RewindReservedRep { get; private set; }
         public ConfigNode LastGoodVesselSnapshot => lastGoodVesselSnapshot;
         public ConfigNode InitialGhostVisualSnapshot => initialGhostVisualSnapshot;
 
@@ -3079,6 +3083,97 @@ namespace Parsek
 
         #endregion
 
+        /// <summary>
+        /// Captures a quicksave for rewind at recording start. Saves via KSP API
+        /// (which writes to root saves dir), then moves to Parsek/Saves/ subdirectory.
+        /// </summary>
+        private void CaptureRewindSave(Vessel v, bool isPromotion)
+        {
+            if (isPromotion)
+            {
+                ParsekLog.Verbose("Recorder", "Rewind save skipped: tree branch/chain promotion");
+                return;
+            }
+
+            if (!RecordingStore.IsStableState((int)v.situation))
+            {
+                ParsekLog.Info("Recorder",
+                    $"Rewind save skipped: vessel in {v.situation} (not stable)");
+                return;
+            }
+
+            // Clean up orphaned rewind save from a previous aborted recording
+            if (!string.IsNullOrEmpty(RewindSaveFileName))
+            {
+                try
+                {
+                    string oldPath = RecordingPaths.ResolveSaveScopedPath(
+                        RecordingPaths.BuildRewindSaveRelativePath(RewindSaveFileName));
+                    if (!string.IsNullOrEmpty(oldPath) && System.IO.File.Exists(oldPath))
+                        System.IO.File.Delete(oldPath);
+                    ParsekLog.Info("Recorder",
+                        $"Deleted orphaned rewind save: {RewindSaveFileName}");
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn("Recorder",
+                        $"Failed to delete orphaned rewind save: {ex.Message}");
+                }
+                RewindSaveFileName = null;
+            }
+
+            string shortId = Guid.NewGuid().ToString("N").Substring(0, 6);
+            string saveFileName = $"parsek_rw_{shortId}";
+
+            try
+            {
+                // Save to root saves dir (only KSP API path available)
+                string result = GamePersistence.SaveGame(saveFileName, HighLogic.SaveFolder, SaveMode.OVERWRITE);
+                if (string.IsNullOrEmpty(result))
+                {
+                    ParsekLog.Error("Recorder", "Failed to capture rewind save: SaveGame returned null");
+                    return;
+                }
+
+                // Move from root to Parsek/Saves/
+                string savesDir = System.IO.Path.Combine(
+                    KSPUtil.ApplicationRootPath ?? "",
+                    "saves",
+                    HighLogic.SaveFolder ?? "");
+                string rootPath = System.IO.Path.Combine(savesDir, saveFileName + ".sfs");
+
+                string rewindDir = RecordingPaths.EnsureRewindSavesDirectory();
+                if (string.IsNullOrEmpty(rewindDir))
+                {
+                    ParsekLog.Error("Recorder", "Failed to capture rewind save: cannot create Parsek/Saves/ directory");
+                    try { System.IO.File.Delete(rootPath); } catch { }
+                    return;
+                }
+
+                string destPath = System.IO.Path.Combine(rewindDir, saveFileName + ".sfs");
+                System.IO.File.Move(rootPath, destPath);
+
+                RewindSaveFileName = saveFileName;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error("Recorder", $"Failed to capture rewind save: {ex.Message}");
+                return;
+            }
+
+            // Capture reserved resource snapshot
+            var reserved = ResourceBudget.ComputeTotalFullCost(
+                RecordingStore.CommittedRecordings,
+                MilestoneStore.Milestones,
+                RecordingStore.CommittedTrees);
+            RewindReservedFunds = reserved.reservedFunds;
+            RewindReservedScience = reserved.reservedScience;
+            RewindReservedRep = (float)reserved.reservedReputation;
+
+            ParsekLog.Info("Recorder",
+                $"Captured rewind save at UT {Planetarium.GetUniversalTime()}: vessel \"{v.vesselName}\" in {v.situation} (save: {saveFileName})");
+        }
+
         public void StartRecording(bool isPromotion = false)
         {
             if (Time.timeScale < 0.01f)
@@ -3121,8 +3216,8 @@ namespace Parsek
                 catch { }
             }
 
-            // Capture launch save for restore point (handles isPromotion and stable state checks internally)
-            RestorePointStore.TryCaptureLaunchSave(v, isPromotion, Planetarium.GetUniversalTime());
+            // Capture rewind save (quicksave stored in Parsek/Saves/)
+            CaptureRewindSave(v, isPromotion);
 
             IsRecording = true;
             isOnRails = false;
@@ -3306,8 +3401,15 @@ namespace Parsek
                 PartEvents = new List<PartEvent>(PartEvents),
                 PreLaunchFunds = PreLaunchFunds,
                 PreLaunchScience = PreLaunchScience,
-                PreLaunchReputation = PreLaunchReputation
+                PreLaunchReputation = PreLaunchReputation,
+                RewindSaveFileName = RewindSaveFileName,
+                RewindReservedFunds = RewindReservedFunds,
+                RewindReservedScience = RewindReservedScience,
+                RewindReservedRep = RewindReservedRep
             };
+            // Clear after first capture — prevents chain children from inheriting root's rewind save
+            RewindSaveFileName = null;
+
             VesselSpawner.SnapshotVessel(
                 CaptureAtStop,
                 VesselDestroyedDuringRecording,
@@ -3360,8 +3462,15 @@ namespace Parsek
                 PartEvents = new List<PartEvent>(PartEvents),
                 PreLaunchFunds = PreLaunchFunds,
                 PreLaunchScience = PreLaunchScience,
-                PreLaunchReputation = PreLaunchReputation
+                PreLaunchReputation = PreLaunchReputation,
+                RewindSaveFileName = RewindSaveFileName,
+                RewindReservedFunds = RewindReservedFunds,
+                RewindReservedScience = RewindReservedScience,
+                RewindReservedRep = RewindReservedRep
             };
+            // Clear after first capture
+            RewindSaveFileName = null;
+
             VesselSpawner.SnapshotVessel(
                 CaptureAtStop,
                 VesselDestroyedDuringRecording,
@@ -3476,8 +3585,14 @@ namespace Parsek
                     PartEvents = new List<PartEvent>(PartEvents),
                     PreLaunchFunds = PreLaunchFunds,
                     PreLaunchScience = PreLaunchScience,
-                    PreLaunchReputation = PreLaunchReputation
+                    PreLaunchReputation = PreLaunchReputation,
+                    RewindSaveFileName = RewindSaveFileName,
+                    RewindReservedFunds = RewindReservedFunds,
+                    RewindReservedScience = RewindReservedScience,
+                    RewindReservedRep = RewindReservedRep
                 };
+                // Clear after first capture
+                RewindSaveFileName = null;
                 VesselSpawner.SnapshotVessel(
                     CaptureAtStop,
                     VesselDestroyedDuringRecording || recordedVessel == null,

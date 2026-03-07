@@ -4911,21 +4911,20 @@ namespace Parsek.Tests
             var writer = new ScenarioWriter().WithV3Format();
             writer.AddRecording(PadWalk(baseUT).WithLoopPlayback());
 
-            // Pad-launch recordings — capture builders for restore point generation
-            var kscHopper = KscHopper(baseUT).WithLoopPlayback();
-            var fleaFlight = FleaFlight(baseUT).WithLoopPlayback();
-            var suborbitalArc = SuborbitalArc(baseUT).WithLoopPlayback();
-            var kscPadDestroyed = KscPadDestroyed(baseUT).WithLoopPlayback();
-            var orbit1 = Orbit1(baseUT).WithLoopPlayback();
-            var islandProbe = IslandProbe(baseUT).WithLoopPlayback();
-
-            writer.AddRecording(kscHopper);
-            writer.AddRecording(fleaFlight);
-            writer.AddRecording(suborbitalArc);
-            writer.AddRecording(kscPadDestroyed);
-            writer.AddRecording(orbit1);
+            // Pad-launch recordings — with rewind saves
+            writer.AddRecording(KscHopper(baseUT).WithLoopPlayback()
+                .WithRewindSave("parsek_rw_hop001"));
+            writer.AddRecording(FleaFlight(baseUT).WithLoopPlayback()
+                .WithRewindSave("parsek_rw_flea01"));
+            writer.AddRecording(SuborbitalArc(baseUT).WithLoopPlayback()
+                .WithRewindSave("parsek_rw_subo01"));
+            writer.AddRecording(KscPadDestroyed(baseUT).WithLoopPlayback()
+                .WithRewindSave("parsek_rw_dest01"));
+            writer.AddRecording(Orbit1(baseUT).WithLoopPlayback()
+                .WithRewindSave("parsek_rw_orb001"));
             writer.AddRecording(CloseSpawnConflict(baseUT).WithLoopPlayback());
-            writer.AddRecording(islandProbe);
+            writer.AddRecording(IslandProbe(baseUT).WithLoopPlayback()
+                .WithRewindSave("parsek_rw_isle01"));
 
             var lightShowcases = LightShowcaseRecordings(baseUT);
             for (int i = 0; i < lightShowcases.Length; i++)
@@ -5003,15 +5002,19 @@ namespace Parsek.Tests
             writer.AddRecording(InventoryPlacementShowcaseRecording(baseUT));
 
             var chainSegments = EvaBoardChain(baseUT);
+            chainSegments[0].WithRewindSave("parsek_rw_evab01");
             for (int i = 0; i < chainSegments.Length; i++)
                 writer.AddRecording(chainSegments[i].WithLoopPlayback());
             var walkChainSegments = EvaWalkChain(baseUT);
+            walkChainSegments[0].WithRewindSave("parsek_rw_walk01");
             for (int i = 0; i < walkChainSegments.Length; i++)
                 writer.AddRecording(walkChainSegments[i].WithLoopPlayback());
             var atmoChainSegments = KerbinAscentChain(baseUT);
+            atmoChainSegments[0].WithRewindSave("parsek_rw_atmo01");
             for (int i = 0; i < atmoChainSegments.Length; i++)
                 writer.AddRecording(atmoChainSegments[i].WithLoopPlayback());
             var munTransferSegments = KerbinMunTransfer(baseUT);
+            munTransferSegments[0].WithRewindSave("parsek_rw_mun001");
             for (int i = 0; i < munTransferSegments.Length; i++)
                 writer.AddRecording(munTransferSegments[i].WithLoopPlayback());
 
@@ -5026,18 +5029,6 @@ namespace Parsek.Tests
             writer.AddTree(SimpleUndockTree(baseUT));
             writer.AddTree(EvaTree(baseUT));
             writer.AddTree(DestructionTree(baseUT));
-
-            // Add restore points for pad-launch recordings
-            writer.AddRestorePoint(kscHopper);
-            writer.AddRestorePoint(fleaFlight);
-            writer.AddRestorePoint(suborbitalArc);
-            writer.AddRestorePoint(kscPadDestroyed);
-            writer.AddRestorePoint(orbit1);
-            writer.AddRestorePoint(islandProbe);
-            writer.AddRestorePoint(chainSegments[0]);
-            writer.AddRestorePoint(walkChainSegments[0]);
-            writer.AddRestorePoint(atmoChainSegments[0]);
-            writer.AddRestorePoint(munTransferSegments[0]);
 
             foreach (string file in targets)
             {
