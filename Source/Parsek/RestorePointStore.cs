@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 
 namespace Parsek
 {
@@ -147,5 +148,518 @@ namespace Parsek
         {
             restorePoints.Add(rp);
         }
+
+        /// <summary>
+        /// Removes a restore point from the in-memory list by id.
+        /// Does NOT perform file I/O — used for unit testing the list removal logic.
+        /// Returns true if the restore point was found and removed.
+        /// </summary>
+        internal static bool RemoveRestorePointFromList(string id)
+        {
+            for (int i = 0; i < restorePoints.Count; i++)
+            {
+                if (restorePoints[i].Id == id)
+                {
+                    restorePoints.RemoveAt(i);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Clears all restore points and pending launch save from memory.
+        /// Does NOT perform file I/O — used for unit testing the clear logic.
+        /// </summary>
+        internal static void ClearAllInMemory()
+        {
+            restorePoints.Clear();
+            pendingLaunchSave = null;
+        }
+
+        /// <summary>
+        /// Resets all playback state on committed recordings (standalone and tree).
+        /// Called during go-back to prepare all recordings for fresh replay.
+        /// </summary>
+        internal static (int standaloneCount, int treeCount) ResetAllPlaybackState()
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            int standaloneCount = 0;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                if (recordings[i].TreeId == null)
+                    standaloneCount++;
+                ResetRecordingPlaybackFields(recordings[i]);
+            }
+
+            var trees = RecordingStore.CommittedTrees;
+            for (int i = 0; i < trees.Count; i++)
+            {
+                trees[i].ResourcesApplied = false;
+                foreach (var rec in trees[i].Recordings.Values)
+                    ResetRecordingPlaybackFields(rec);
+            }
+
+            ResourceBudget.Invalidate();
+
+            if (!SuppressLogging)
+                ParsekLog.Info("RestorePoint",
+                    $"Playback state reset: {standaloneCount} standalone recording(s), {trees.Count} tree(s)");
+
+            return (standaloneCount, trees.Count);
+        }
+
+        private static void ResetRecordingPlaybackFields(RecordingStore.Recording rec)
+        {
+            rec.VesselSpawned = false;
+            rec.SpawnAttempts = 0;
+            rec.SpawnedVesselPersistentId = 0;
+            rec.LastAppliedResourceIndex = -1;
+            rec.TakenControl = false;
+            rec.SceneExitSituation = -1;
+        }
+
+        /// <summary>
+        /// Marks all committed recordings, trees, and milestones as fully applied.
+        /// Called after go-back resource adjustment to prevent double-application.
+        /// </summary>
+        internal static (int recCount, int treeCount) MarkAllFullyApplied()
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            int recCount = 0;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                if (recordings[i].Points.Count > 0)
+                {
+                    recordings[i].LastAppliedResourceIndex = recordings[i].Points.Count - 1;
+                    recCount++;
+                }
+            }
+
+            var trees = RecordingStore.CommittedTrees;
+            int treeCount = 0;
+            for (int i = 0; i < trees.Count; i++)
+            {
+                if (!trees[i].ResourcesApplied)
+                {
+                    trees[i].ResourcesApplied = true;
+                    treeCount++;
+                }
+            }
+
+            var milestones = MilestoneStore.Milestones;
+            int mileCount = 0;
+            for (int i = 0; i < milestones.Count; i++)
+            {
+                if (milestones[i].Committed && milestones[i].Events.Count > 0)
+                {
+                    milestones[i].LastReplayedEventIndex = milestones[i].Events.Count - 1;
+                    mileCount++;
+                }
+            }
+
+            ResourceBudget.Invalidate();
+
+            if (!SuppressLogging)
+                ParsekLog.Info("RestorePoint",
+                    $"Marked fully applied: {recCount} recording(s), {treeCount} tree(s), {mileCount} milestone(s)");
+
+            return (recCount, treeCount);
+        }
+
+        /// <summary>
+        /// Checks whether the player can go back to a restore point.
+        /// Returns false with a reason string if any precondition fails.
+        /// </summary>
+        internal static bool CanGoBack(out string reason, bool isRecording = false, bool isInFlight = true)
+        {
+            if (restorePoints.Count == 0)
+            {
+                reason = "No restore points available";
+                return false;
+            }
+
+            if (!isInFlight)
+            {
+                reason = "Go back is only available in flight";
+                return false;
+            }
+
+            if (isRecording)
+            {
+                reason = "Stop recording before going back";
+                return false;
+            }
+
+            if (RecordingStore.HasPending)
+            {
+                reason = "Merge or discard pending recording first";
+                return false;
+            }
+
+            if (RecordingStore.HasPendingTree)
+            {
+                reason = "Merge or discard pending tree first";
+                return false;
+            }
+
+            reason = "";
+            return true;
+        }
+
+        /// <summary>
+        /// Returns true if the given vessel situation (as int) represents a stable state
+        /// suitable for Commit Flight or launch save capture.
+        /// Stable: PRELAUNCH(4), LANDED(1), SPLASHED(2), ORBITING(32).
+        /// Unstable: FLYING(8), SUB_ORBITAL(16), ESCAPING(64).
+        /// </summary>
+        internal static bool IsStableState(int situation)
+        {
+            // Vessel.Situations enum values:
+            // LANDED=1, SPLASHED=2, PRELAUNCH=4, FLYING=8,
+            // SUB_ORBITAL=16, ORBITING=32, ESCAPING=64, DOCKED=128
+            switch (situation)
+            {
+                case 1:  // LANDED
+                case 2:  // SPLASHED
+                case 4:  // PRELAUNCH
+                case 32: // ORBITING
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Counts committed recordings whose StartUT is after the given UT.
+        /// Used to display how many future recordings will replay as ghosts after go-back.
+        /// </summary>
+        internal static int CountFutureRecordings(double ut)
+        {
+            int count = 0;
+            var recordings = RecordingStore.CommittedRecordings;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                if (recordings[i].StartUT > ut)
+                    count++;
+            }
+            return count;
+        }
+
+        #region File I/O
+
+        internal static void SaveRestorePointFile()
+        {
+            string path = RecordingPaths.ResolveSaveScopedPath(
+                RecordingPaths.BuildRestorePointsRelativePath());
+            if (path == null)
+            {
+                if (!SuppressLogging)
+                    ParsekLog.Warn("RestorePoint", "Cannot resolve restore points path — save skipped");
+                return;
+            }
+
+            try
+            {
+                RecordingPaths.EnsureGameStateDirectory();
+
+                var rootNode = SerializeAllToNode();
+
+                SafeWriteConfigNode(rootNode, path);
+
+                if (!SuppressLogging)
+                    ParsekLog.Info("RestorePoint",
+                        $"Metadata saved: {restorePoints.Count} restore points to {path}");
+            }
+            catch (Exception ex)
+            {
+                if (!SuppressLogging)
+                    ParsekLog.Warn("RestorePoint", $"Failed to save restore point metadata: {ex.Message}");
+            }
+        }
+
+        internal static bool LoadRestorePointFile()
+        {
+            string currentSave = HighLogic.SaveFolder;
+            if (currentSave != lastSaveFolder)
+            {
+                initialLoadDone = false;
+                lastSaveFolder = currentSave;
+                if (!SuppressLogging)
+                    ParsekLog.Verbose("RestorePoint",
+                        $"Save folder changed to '{currentSave}' — resetting restore point load state");
+            }
+
+            if (initialLoadDone)
+            {
+                if (!SuppressLogging)
+                    ParsekLog.Verbose("RestorePoint", "LoadRestorePointFile: already loaded, skipping");
+                return true;
+            }
+
+            initialLoadDone = true;
+            restorePoints.Clear();
+
+            string path = RecordingPaths.ResolveSaveScopedPath(
+                RecordingPaths.BuildRestorePointsRelativePath());
+            if (path == null || !File.Exists(path))
+            {
+                if (!SuppressLogging)
+                    ParsekLog.Info("RestorePoint",
+                        $"No restore point file found at {path ?? "(null)"} (first run)");
+                return true;
+            }
+
+            try
+            {
+                ConfigNode rootNode = ConfigNode.Load(path);
+                if (rootNode == null)
+                {
+                    if (!SuppressLogging)
+                        ParsekLog.Warn("RestorePoint", "Failed to parse restore points file");
+                    return false;
+                }
+
+                string savesDir = Path.Combine(
+                    KSPUtil.ApplicationRootPath ?? "",
+                    "saves",
+                    HighLogic.SaveFolder ?? "");
+
+                DeserializeAllFromNode(rootNode, savesDir);
+
+                if (!SuppressLogging)
+                {
+                    ParsekLog.Info("RestorePoint",
+                        $"Loaded {restorePoints.Count} restore points from {path}");
+                    if (restorePoints.Count > 20)
+                        ParsekLog.Warn("RestorePoint",
+                            $"Warning: {restorePoints.Count} restore points exceed recommended limit of 20");
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                if (!SuppressLogging)
+                    ParsekLog.Warn("RestorePoint", $"Failed to load restore points: {ex.Message}");
+                return false;
+            }
+        }
+
+        internal static void DeleteRestorePoint(string id)
+        {
+            int idx = -1;
+            for (int i = 0; i < restorePoints.Count; i++)
+            {
+                if (restorePoints[i].Id == id)
+                {
+                    idx = i;
+                    break;
+                }
+            }
+
+            if (idx < 0) return;
+
+            string saveFileName = restorePoints[idx].SaveFileName;
+            restorePoints.RemoveAt(idx);
+
+            // Delete the .sfs file
+            try
+            {
+                string savesDir = Path.Combine(
+                    KSPUtil.ApplicationRootPath ?? "",
+                    "saves",
+                    HighLogic.SaveFolder ?? "");
+                string saveFilePath = Path.Combine(savesDir, saveFileName + ".sfs");
+
+                if (File.Exists(saveFilePath))
+                {
+                    File.Delete(saveFilePath);
+                    if (!SuppressLogging)
+                        ParsekLog.Info("RestorePoint",
+                            $"Deleted restore point {id}: save file {saveFileName} removed");
+                }
+                else
+                {
+                    if (!SuppressLogging)
+                        ParsekLog.Info("RestorePoint",
+                            $"Deleted restore point {id}: save file already missing");
+                }
+            }
+            catch (Exception ex)
+            {
+                if (!SuppressLogging)
+                    ParsekLog.Warn("RestorePoint",
+                        $"Failed to delete save file for restore point {id}: {ex.Message}");
+            }
+
+            SaveRestorePointFile();
+        }
+
+        internal static void ClearAll()
+        {
+            // Delete .sfs files for each restore point
+            for (int i = 0; i < restorePoints.Count; i++)
+            {
+                try
+                {
+                    string savesDir = Path.Combine(
+                        KSPUtil.ApplicationRootPath ?? "",
+                        "saves",
+                        HighLogic.SaveFolder ?? "");
+                    string saveFilePath = Path.Combine(savesDir, restorePoints[i].SaveFileName + ".sfs");
+                    if (File.Exists(saveFilePath))
+                        File.Delete(saveFilePath);
+                }
+                catch (Exception ex)
+                {
+                    if (!SuppressLogging)
+                        ParsekLog.Warn("RestorePoint", $"Failed to delete save file {restorePoints[i].SaveFileName}: {ex.Message}");
+                }
+            }
+
+            // Delete pending launch save file if exists
+            if (pendingLaunchSave.HasValue)
+            {
+                try
+                {
+                    string savesDir = Path.Combine(
+                        KSPUtil.ApplicationRootPath ?? "",
+                        "saves",
+                        HighLogic.SaveFolder ?? "");
+                    string pendingPath = Path.Combine(savesDir, pendingLaunchSave.Value.SaveFileName + ".sfs");
+                    if (File.Exists(pendingPath))
+                        File.Delete(pendingPath);
+                }
+                catch (Exception ex)
+                {
+                    if (!SuppressLogging)
+                        ParsekLog.Warn("RestorePoint", $"Failed to delete save file {pendingLaunchSave.Value.SaveFileName}: {ex.Message}");
+                }
+                pendingLaunchSave = null;
+            }
+
+            int count = restorePoints.Count;
+            restorePoints.Clear();
+
+            // Delete metadata file
+            try
+            {
+                string metadataPath = RecordingPaths.ResolveSaveScopedPath(
+                    RecordingPaths.BuildRestorePointsRelativePath());
+                if (metadataPath != null && File.Exists(metadataPath))
+                    File.Delete(metadataPath);
+            }
+            catch (Exception ex)
+            {
+                if (!SuppressLogging)
+                    ParsekLog.Warn("RestorePoint", $"Failed to delete restore point metadata file: {ex.Message}");
+            }
+
+            if (!SuppressLogging)
+                ParsekLog.Info("RestorePoint", $"All restore points cleared (was {count})");
+        }
+
+        private static void SafeWriteConfigNode(ConfigNode node, string path)
+        {
+            string tmpPath = path + ".tmp";
+            node.Save(tmpPath);
+            if (File.Exists(path))
+                File.Delete(path);
+            File.Move(tmpPath, path);
+        }
+
+        #endregion
+
+        #region Testable Serialization
+
+        /// <summary>
+        /// Builds a ConfigNode containing all restore points. Testable without file I/O.
+        /// </summary>
+        internal static ConfigNode SerializeAllToNode()
+        {
+            var rootNode = new ConfigNode("RESTORE_POINTS");
+            for (int i = 0; i < restorePoints.Count; i++)
+            {
+                restorePoints[i].SerializeInto(rootNode);
+            }
+            return rootNode;
+        }
+
+        /// <summary>
+        /// Loads restore points from a ConfigNode. Replaces current list.
+        /// savesDir is optional — if provided, validates that .sfs files exist.
+        /// </summary>
+        internal static void DeserializeAllFromNode(ConfigNode rootNode, string savesDir = null)
+        {
+            restorePoints.Clear();
+
+            ConfigNode[] rpNodes = rootNode.GetNodes("RESTORE_POINT");
+            if (rpNodes == null) return;
+
+            for (int i = 0; i < rpNodes.Length; i++)
+            {
+                RestorePoint rp = RestorePoint.DeserializeFrom(rpNodes[i]);
+
+                // Validate save file name for invalid chars
+                if (!string.IsNullOrEmpty(rp.SaveFileName) && HasInvalidFileNameChars(rp.SaveFileName))
+                {
+                    if (!SuppressLogging)
+                        ParsekLog.Warn("RestorePoint",
+                            $"Restore point {rp.Id} has invalid save file name: {rp.SaveFileName}");
+                    continue;
+                }
+
+                restorePoints.Add(rp);
+            }
+
+            // Validate save file existence if savesDir provided
+            if (!string.IsNullOrEmpty(savesDir))
+                ValidateSaveFiles(savesDir);
+        }
+
+        /// <summary>
+        /// Checks each restore point's .sfs file exists in the given saves directory.
+        /// Sets SaveFileExists=false for missing files.
+        /// </summary>
+        internal static void ValidateSaveFiles(string savesDir)
+        {
+            if (string.IsNullOrEmpty(savesDir)) return;
+
+            for (int i = 0; i < restorePoints.Count; i++)
+            {
+                var rp = restorePoints[i];
+                if (string.IsNullOrEmpty(rp.SaveFileName))
+                {
+                    rp.SaveFileExists = false;
+                    restorePoints[i] = rp;
+                    continue;
+                }
+
+                string saveFilePath = Path.Combine(savesDir, rp.SaveFileName + ".sfs");
+                if (!File.Exists(saveFilePath))
+                {
+                    rp.SaveFileExists = false;
+                    restorePoints[i] = rp;
+                    if (!SuppressLogging)
+                        ParsekLog.Warn("RestorePoint",
+                            $"Save file missing for restore point {rp.Id}: {saveFilePath}");
+                }
+            }
+        }
+
+        private static bool HasInvalidFileNameChars(string name)
+        {
+            char[] invalidChars = Path.GetInvalidFileNameChars();
+            for (int i = 0; i < name.Length; i++)
+            {
+                if (Array.IndexOf(invalidChars, name[i]) >= 0)
+                    return true;
+            }
+            // Also reject path traversal patterns
+            return name.Contains("/") || name.Contains("\\") || name.Contains("..");
+        }
+
+        #endregion
     }
 }
