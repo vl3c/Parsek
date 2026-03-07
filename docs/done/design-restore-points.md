@@ -1,5 +1,7 @@
 # Design: Restore Points & Go Back UI
 
+> **Note:** The implementation evolved from this original design. The separate `RestorePointStore` and `RestorePointDialog` were replaced with a simpler per-recording rewind system: each recording owns its quicksave directly (`RewindSaveFileName` field on `Recording`), stored in `Parsek/Saves/`. A "Rewind" button per recording in the Recordings window loads the quicksave into Space Center (not Flight). No separate store, picker, or metadata file. See PR #16 for the final implementation.
+
 Detailed implementation design for the two remaining items in Phase 5 ("Going Back in Time"): auto-saved restore points at recording commit points, and a "Go Back" UI to load them. Builds on the rationale and foundation in `design-going-back-in-time.md`.
 
 ## Problem

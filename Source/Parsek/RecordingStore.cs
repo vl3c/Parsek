@@ -1002,11 +1002,16 @@ namespace Parsek
                     return;
                 }
 
-                FlightDriver.StartAndFocusVessel(game, game.flightState.activeVesselIdx);
+                // Strip vessels from flightState so nothing spawns on the pad
+                game.flightState.protoVessels.Clear();
+
+                // Load into SpaceCenter — player can enter buildings or launch a new vessel
+                HighLogic.CurrentGame = game;
+                HighLogic.LoadScene(GameScenes.SPACECENTER);
 
                 if (!SuppressLogging)
                     ParsekLog.Info("Rewind",
-                        $"Rewind: loading save '{rec.RewindSaveFileName}' (activeVesselIdx={game.flightState.activeVesselIdx})");
+                        $"Rewind: loading save '{rec.RewindSaveFileName}' into SpaceCenter");
             }
             catch (Exception ex)
             {
