@@ -117,6 +117,14 @@ namespace Parsek
 
         internal static bool SuppressLogging;
 
+        private static string GetSavesDir()
+        {
+            return Path.Combine(
+                KSPUtil.ApplicationRootPath ?? "",
+                "saves",
+                HighLogic.SaveFolder ?? "");
+        }
+
         internal static bool HasRestorePoints => restorePoints.Count > 0;
         internal static bool HasPendingLaunchSave => pendingLaunchSave.HasValue;
         internal static IReadOnlyList<RestorePoint> RestorePoints => restorePoints;
@@ -273,6 +281,12 @@ namespace Parsek
         /// </summary>
         internal static bool CanGoBack(out string reason, bool isRecording = false, bool isInFlight = true)
         {
+            if (IsGoingBack)
+            {
+                reason = "Go back already in progress";
+                return false;
+            }
+
             if (restorePoints.Count == 0)
             {
                 reason = "No restore points available";
@@ -374,10 +388,7 @@ namespace Parsek
             {
                 try
                 {
-                    string savesDir = Path.Combine(
-                        KSPUtil.ApplicationRootPath ?? "",
-                        "saves",
-                        HighLogic.SaveFolder ?? "");
+                    string savesDir = GetSavesDir();
                     string oldSaveFile = pendingLaunchSave.Value.SaveFileName;
                     string oldPath = Path.Combine(savesDir, oldSaveFile + ".sfs");
                     if (File.Exists(oldPath))
@@ -519,10 +530,7 @@ namespace Parsek
 
             try
             {
-                string savesDir = Path.Combine(
-                    KSPUtil.ApplicationRootPath ?? "",
-                    "saves",
-                    HighLogic.SaveFolder ?? "");
+                string savesDir = GetSavesDir();
                 string saveFilePath = Path.Combine(savesDir, saveFileName + ".sfs");
                 if (File.Exists(saveFilePath))
                     File.Delete(saveFilePath);
@@ -610,9 +618,11 @@ namespace Parsek
                 path = RecordingPaths.ResolveSaveScopedPath(
                     RecordingPaths.BuildRestorePointsRelativePath());
             }
-            catch
+            catch (Exception ex)
             {
-                // KSP runtime not available (unit test environment)
+                if (!SuppressLogging)
+                    ParsekLog.Warn("RestorePoint",
+                        $"Cannot resolve restore points path: {ex.Message}");
                 return;
             }
 
@@ -689,10 +699,7 @@ namespace Parsek
                     return false;
                 }
 
-                string savesDir = Path.Combine(
-                    KSPUtil.ApplicationRootPath ?? "",
-                    "saves",
-                    HighLogic.SaveFolder ?? "");
+                string savesDir = GetSavesDir();
 
                 DeserializeAllFromNode(rootNode, savesDir);
 
@@ -735,10 +742,7 @@ namespace Parsek
             // Delete the .sfs file
             try
             {
-                string savesDir = Path.Combine(
-                    KSPUtil.ApplicationRootPath ?? "",
-                    "saves",
-                    HighLogic.SaveFolder ?? "");
+                string savesDir = GetSavesDir();
                 string saveFilePath = Path.Combine(savesDir, saveFileName + ".sfs");
 
                 if (File.Exists(saveFilePath))
@@ -772,10 +776,7 @@ namespace Parsek
             {
                 try
                 {
-                    string savesDir = Path.Combine(
-                        KSPUtil.ApplicationRootPath ?? "",
-                        "saves",
-                        HighLogic.SaveFolder ?? "");
+                    string savesDir = GetSavesDir();
                     string saveFilePath = Path.Combine(savesDir, restorePoints[i].SaveFileName + ".sfs");
                     if (File.Exists(saveFilePath))
                         File.Delete(saveFilePath);
@@ -792,10 +793,7 @@ namespace Parsek
             {
                 try
                 {
-                    string savesDir = Path.Combine(
-                        KSPUtil.ApplicationRootPath ?? "",
-                        "saves",
-                        HighLogic.SaveFolder ?? "");
+                    string savesDir = GetSavesDir();
                     string pendingPath = Path.Combine(savesDir, pendingLaunchSave.Value.SaveFileName + ".sfs");
                     if (File.Exists(pendingPath))
                         File.Delete(pendingPath);
@@ -861,11 +859,15 @@ namespace Parsek
         /// </summary>
         internal static void DeserializeAllFromNode(ConfigNode rootNode, string savesDir = null)
         {
-            restorePoints.Clear();
-
             ConfigNode[] rpNodes = rootNode.GetNodes("RESTORE_POINT");
-            if (rpNodes == null) return;
+            if (rpNodes == null)
+            {
+                restorePoints.Clear();
+                return;
+            }
 
+            // Deserialize into temp list so partial failures don't corrupt existing state
+            var parsed = new List<RestorePoint>(rpNodes.Length);
             for (int i = 0; i < rpNodes.Length; i++)
             {
                 RestorePoint rp = RestorePoint.DeserializeFrom(rpNodes[i]);
@@ -879,8 +881,11 @@ namespace Parsek
                     continue;
                 }
 
-                restorePoints.Add(rp);
+                parsed.Add(rp);
             }
+
+            restorePoints.Clear();
+            restorePoints.AddRange(parsed);
 
             // Validate save file existence if savesDir provided
             if (!string.IsNullOrEmpty(savesDir))

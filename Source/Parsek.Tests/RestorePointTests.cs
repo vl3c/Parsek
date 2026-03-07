@@ -1111,30 +1111,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BudgetDeductionEpochGuard()
-        {
-            // Test 36: Verify that the epoch guard logic works:
-            // if budgetDeductionEpoch >= CurrentEpoch, budget deduction should be skipped.
-            // This tests the pure condition check directly.
-            MilestoneStore.CurrentEpoch = 3;
-
-            // Case 1: epoch already applied (>=) — should skip
-            uint budgetEpoch = 3;
-            Assert.True(budgetEpoch >= MilestoneStore.CurrentEpoch,
-                "budgetDeductionEpoch >= CurrentEpoch should indicate deduction already applied");
-
-            // Case 2: epoch higher than current — should skip
-            budgetEpoch = 5;
-            Assert.True(budgetEpoch >= MilestoneStore.CurrentEpoch,
-                "budgetDeductionEpoch > CurrentEpoch should also skip");
-
-            // Case 3: epoch lower — should proceed with deduction
-            budgetEpoch = 2;
-            Assert.False(budgetEpoch >= MilestoneStore.CurrentEpoch,
-                "budgetDeductionEpoch < CurrentEpoch should allow deduction");
-        }
-
-        [Fact]
         public void PlaybackResetIncludesTreeResourcesApplied()
         {
             // Test 37: Verify that ResetAllPlaybackState sets tree.ResourcesApplied = false.
@@ -1356,78 +1332,29 @@ namespace Parsek.Tests
         #region Go Back
 
         [Fact]
-        public void InitiateGoBack_SetsFlags()
+        public void CanGoBack_IsGoingBack_False()
         {
-            // Test 38: Verify InitiateGoBack sets all go-back flags correctly.
-            // Cannot test GamePersistence.LoadGame in unit tests (KSP runtime required),
-            // so we only verify the flag-setting logic by inspecting state before the try block would run.
-            var rp = new RestorePoint(true)
+            RestorePointStore.AddForTesting(new RestorePoint(true)
             {
-                Id = "rp_goback_test",
-                UT = 17060.0,
-                SaveFileName = "parsek_rp_goback",
-                Label = "\"TestShip\" launch (1 recording)",
-                RecordingCount = 1,
-                Funds = 50000.0,
-                Science = 12.5,
-                Reputation = 7.5f,
-                ReservedFundsAtSave = 18000.0,
-                ReservedScienceAtSave = 4.5,
-                ReservedRepAtSave = 3.0f
-            };
+                Id = "rp_reentrance",
+                UT = 17030.0,
+                SaveFileName = "parsek_rp_reentrance",
+                Label = "\"Ship\" launch (1 recording)",
+                RecordingCount = 1
+            });
 
-            // Manually set flags (simulating what InitiateGoBack does before the try block)
             RestorePointStore.IsGoingBack = true;
-            RestorePointStore.GoBackUT = rp.UT;
-            RestorePointStore.GoBackReserved = new ResourceBudget.BudgetSummary
+            try
             {
-                reservedFunds = rp.ReservedFundsAtSave,
-                reservedScience = rp.ReservedScienceAtSave,
-                reservedReputation = rp.ReservedRepAtSave
-            };
-
-            Assert.True(RestorePointStore.IsGoingBack);
-            Assert.Equal(17060.0, RestorePointStore.GoBackUT);
-            Assert.Equal(18000.0, RestorePointStore.GoBackReserved.reservedFunds);
-            Assert.Equal(4.5, RestorePointStore.GoBackReserved.reservedScience);
-            Assert.Equal(3.0, RestorePointStore.GoBackReserved.reservedReputation);
-
-            // Cleanup
-            RestorePointStore.IsGoingBack = false;
-            RestorePointStore.GoBackUT = 0;
-            RestorePointStore.GoBackReserved = default(ResourceBudget.BudgetSummary);
-        }
-
-        [Fact]
-        public void InitiateGoBack_ClearsFlags_OnNullGame()
-        {
-            // Test 39: Verify the flag-clearing logic that runs when LoadGame returns null.
-            // Since we can't call GamePersistence in tests, simulate the null-game path
-            // by setting flags, then clearing them as the error handler would.
-
-            // Set flags (simulating successful InitiateGoBack flag-setting)
-            RestorePointStore.IsGoingBack = true;
-            RestorePointStore.GoBackUT = 17090.0;
-            RestorePointStore.GoBackReserved = new ResourceBudget.BudgetSummary
+                string reason;
+                bool result = RestorePointStore.CanGoBack(out reason, isRecording: false, isInFlight: true);
+                Assert.False(result);
+                Assert.Contains("already in progress", reason, System.StringComparison.OrdinalIgnoreCase);
+            }
+            finally
             {
-                reservedFunds = 12000.0,
-                reservedScience = 2.0,
-                reservedReputation = 1.5
-            };
-
-            Assert.True(RestorePointStore.IsGoingBack);
-            Assert.Equal(17090.0, RestorePointStore.GoBackUT);
-
-            // Simulate null game path: clear flags
-            RestorePointStore.IsGoingBack = false;
-            RestorePointStore.GoBackUT = 0;
-            RestorePointStore.GoBackReserved = default(ResourceBudget.BudgetSummary);
-
-            Assert.False(RestorePointStore.IsGoingBack);
-            Assert.Equal(0, RestorePointStore.GoBackUT);
-            Assert.Equal(0, RestorePointStore.GoBackReserved.reservedFunds);
-            Assert.Equal(0, RestorePointStore.GoBackReserved.reservedScience);
-            Assert.Equal(0, RestorePointStore.GoBackReserved.reservedReputation);
+                RestorePointStore.IsGoingBack = false;
+            }
         }
 
         #endregion
@@ -1611,60 +1538,6 @@ namespace Parsek.Tests
             Assert.Equal(300.0, loaded3.UT);
             Assert.Equal(3, loaded3.RecordingCount);
             Assert.Equal(25000.0, loaded3.ReservedFundsAtSave);
-        }
-
-        [Fact]
-        public void MultipleRapidGobacks_Consistent()
-        {
-            // Test 47: Simulating two rapid go-backs — flags should reflect the second one
-            // Simulate go-back to RP_A
-            RestorePointStore.IsGoingBack = true;
-            RestorePointStore.GoBackUT = 100;
-            RestorePointStore.GoBackReserved = new ResourceBudget.BudgetSummary
-            {
-                reservedFunds = 1000,
-                reservedScience = 10,
-                reservedReputation = 5
-            };
-
-            // Simulate go-back to RP_B (overrides RP_A)
-            RestorePointStore.IsGoingBack = true;
-            RestorePointStore.GoBackUT = 200;
-            RestorePointStore.GoBackReserved = new ResourceBudget.BudgetSummary
-            {
-                reservedFunds = 2000,
-                reservedScience = 20,
-                reservedReputation = 10
-            };
-
-            // Flags should reflect RP_B, not RP_A
-            Assert.True(RestorePointStore.IsGoingBack);
-            Assert.Equal(200, RestorePointStore.GoBackUT);
-            Assert.Equal(2000, RestorePointStore.GoBackReserved.reservedFunds);
-            Assert.Equal(20, RestorePointStore.GoBackReserved.reservedScience);
-            Assert.Equal(10, RestorePointStore.GoBackReserved.reservedReputation);
-
-            // Cleanup
-            RestorePointStore.IsGoingBack = false;
-            RestorePointStore.GoBackUT = 0;
-            RestorePointStore.GoBackReserved = default(ResourceBudget.BudgetSummary);
-        }
-
-        [Fact]
-        public void ExistingRevertPath_Unaffected()
-        {
-            // Test 48: When IsGoingBack is false (default), the guard !IsGoingBack is true
-            // This means LoadCrewReplacements would be called in the normal revert path
-            Assert.False(RestorePointStore.IsGoingBack);
-            Assert.True(!RestorePointStore.IsGoingBack);
-
-            // When IsGoingBack is true (go-back path), the guard blocks LoadCrewReplacements
-            RestorePointStore.IsGoingBack = true;
-            Assert.True(RestorePointStore.IsGoingBack);
-            Assert.False(!RestorePointStore.IsGoingBack);
-
-            // Cleanup
-            RestorePointStore.IsGoingBack = false;
         }
 
         [Fact]
