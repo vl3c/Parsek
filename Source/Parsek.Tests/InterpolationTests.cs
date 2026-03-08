@@ -69,26 +69,9 @@ namespace Parsek.Tests
                 "Lerp with NaN factor produces NaN result");
         }
 
-        [Fact(Skip = "Quaternion.Slerp requires full Unity engine (ECall method not available in test context)")]
-        public void QuaternionSlerp_WithNaNFactor_ProducesNaN()
-        {
-            // This test documents that Quaternion.Slerp with NaN factor produces NaN,
-            // which is why the spike needs a guard against NaN interpolation factors.
-            // Cannot run in unit test context - Quaternion.Slerp is an ECall method.
-
-            // Arrange
-            Quaternion start = Quaternion.identity;
-            Quaternion end = new Quaternion(0.2f, 0.3f, 0.4f, 0.866f); // Normalized rotation
-            float t = float.NaN;
-
-            // Act
-            Quaternion result = Quaternion.Slerp(start, end, t);
-
-            // Assert
-            Assert.True(float.IsNaN(result.x) || float.IsNaN(result.y) ||
-                       float.IsNaN(result.z) || float.IsNaN(result.w),
-                "Slerp with NaN factor produces NaN result");
-        }
+        // Note: Quaternion.Slerp with NaN factor produces NaN, which is why
+        // interpolation code guards against NaN factors. Cannot test here because
+        // Quaternion.Slerp is a Unity ECall method not available outside the engine.
 
         [Theory]
         [InlineData(0.0, 0.0)]
