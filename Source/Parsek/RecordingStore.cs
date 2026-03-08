@@ -985,6 +985,12 @@ namespace Parsek
                 // Copy from Parsek/Saves/ to root saves dir
                 File.Copy(sourcePath, tempPath, true);
 
+                // Pre-process the save file before KSP parses it:
+                // 1. Remove only the recorded vessel (other vessels stay intact)
+                // 2. Wind back UT by 10 seconds so the player can reach the pad before launch
+                const double rewindLeadTime = 10.0;
+                PreProcessRewindSave(tempPath, rec.VesselName, rewindLeadTime);
+
                 Game game = GamePersistence.LoadGame(tempCopyName, HighLogic.SaveFolder, true, false);
 
                 // Delete the temp copy (file already parsed into Game object)
@@ -1001,9 +1007,6 @@ namespace Parsek
                             $"Rewind failed: LoadGame returned null for save '{rec.RewindSaveFileName}'");
                     return;
                 }
-
-                // Strip vessels from flightState so nothing spawns on the pad
-                game.flightState.protoVessels.Clear();
 
                 // Load into SpaceCenter — player can enter buildings or launch a new vessel
                 HighLogic.CurrentGame = game;
@@ -1038,6 +1041,56 @@ namespace Parsek
                 if (!SuppressLogging)
                     ParsekLog.Error("Rewind", $"Rewind failed: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Modifies the temp rewind save file before KSP parses it:
+        /// removes the recorded vessel and winds back UT so the player
+        /// has time to reach the launch pad before the ghost appears.
+        /// </summary>
+        private static void PreProcessRewindSave(string sfsPath, string vesselName, double leadTime)
+        {
+            ConfigNode root = ConfigNode.Load(sfsPath);
+            if (root == null)
+                return;
+
+            // The file contents are directly inside the returned node (no GAME wrapper)
+            ConfigNode gameNode = root.HasNode("GAME") ? root.GetNode("GAME") : root;
+
+            ConfigNode flightState = gameNode.GetNode("FLIGHTSTATE");
+            if (flightState != null)
+            {
+                // Wind back UT
+                string utStr = flightState.GetValue("UT");
+                double ut;
+                if (!string.IsNullOrEmpty(utStr) &&
+                    double.TryParse(utStr, NumberStyles.Any, CultureInfo.InvariantCulture, out ut))
+                {
+                    double newUT = Math.Max(0, ut - leadTime);
+                    flightState.SetValue("UT", newUT.ToString("R", CultureInfo.InvariantCulture));
+                    if (!SuppressLogging)
+                        ParsekLog.Info("Rewind",
+                            $"UT adjusted: {ut:F1} → {newUT:F1} (lead time {leadTime}s)");
+                }
+
+                // Remove only the recorded vessel — all other vessels stay intact
+                int removed = 0;
+                var vesselNodes = flightState.GetNodes("VESSEL");
+                for (int i = vesselNodes.Length - 1; i >= 0; i--)
+                {
+                    string name = vesselNodes[i].GetValue("name");
+                    if (name == vesselName)
+                    {
+                        flightState.RemoveNode(vesselNodes[i]);
+                        removed++;
+                    }
+                }
+                if (!SuppressLogging)
+                    ParsekLog.Info("Rewind",
+                        $"Stripped {removed} vessel(s) named '{vesselName}' from save");
+            }
+
+            root.Save(sfsPath);
         }
 
         #endregion
