@@ -17,14 +17,14 @@ Parsek's timeline works like a git repository:
 | `git commit` | Commit a recording |
 | Merge | Adding a recording to the timeline |
 
-In git, when you checkout an old commit and make new commits, the old history doesn't change. When you merge back, conflicts are resolved. The result is always a single linear history. Parsek works the same way — recordings are immutable commits that coexist on one timeline.
+In git, when you checkout an old commit and make new commits, the old history doesn't change. When you merge back, conflicts are resolved. The result is always a single linear history. Parsek works the same way - recordings are immutable commits that coexist on one timeline.
 
 ## Why There Are No Merge Conflicts
 
 Every recording commit is effectively a **fast-forward merge** because recordings are additive and independent:
 
 - **Crew**: The reservation system prevents double-booking. If Jeb is in a recording, he's reserved. The player gets a replacement. Already implemented.
-- **Resources**: Resources are globally budgeted across all recordings. If future recordings have claimed funds, those funds are unavailable now, even if the player is at an earlier UT. The player sees: "you can't launch this mission — the funds are committed to future recordings." This is like git: you can't delete a file that another branch depends on without resolving the dependency.
+- **Resources**: Resources are globally budgeted across all recordings. If future recordings have claimed funds, those funds are unavailable now, even if the player is at an earlier UT. The player sees: "you can't launch this mission - the funds are committed to future recordings." This is like git: you can't delete a file that another branch depends on without resolving the dependency.
 - **Vessels**: Proximity offset prevents spawn collisions. Already implemented.
 - **Tech/parts**: A recording captures the vessel as-built. The ghost replays with whatever parts it had regardless of current tech level. Non-issue.
 - **Facilities**: A recording doesn't depend on facility level. The vessel was already built and recorded.
@@ -55,7 +55,7 @@ Resource deltas earned BY recordings (science from experiments, contract rewards
 
 4. **LastAppliedResourceIndex reset**: For recordings whose UT range is after the restore point, reset `LastAppliedResourceIndex` so their resource deltas re-apply during ghost playback.
 
-5. **Play forward**: Everything works as normal — ghosts appear at scheduled UTs, vessels spawn at EndUT, resource deltas apply as ghosts finish.
+5. **Play forward**: Everything works as normal - ghosts appear at scheduled UTs, vessels spawn at EndUT, resource deltas apply as ghosts finish.
 
 ## What Game State Events / Baselines Are For
 
@@ -77,24 +77,24 @@ The game state event system is NOT for reversal. It serves as:
 
 **Done (Phase 5 foundation):**
 - Game state event recording (18 event types: contracts, tech, crew, facilities, resources)
-- Milestones — independent of recordings, epoch-isolated, with `FlushPendingEvents` for non-recording events
-- Resource budget computation — on-the-fly from recordings + milestones, partial-replay aware
-- Epoch isolation — revert increments epoch, old-branch events excluded
-- Resource deduction on revert — committed costs deducted from KSP game state
-- Action blocking — Harmony patches on `RDTech.UnlockTech` and `UpgradeableFacility.SetLevel`
-- UI resource budget display — red/yellow over-commitment warnings
-- Game state baselines — captured at commit points for future timeline visualization
+- Milestones - independent of recordings, epoch-isolated, with `FlushPendingEvents` for non-recording events
+- Resource budget computation - on-the-fly from recordings + milestones, partial-replay aware
+- Epoch isolation - revert increments epoch, old-branch events excluded
+- Resource deduction on revert - committed costs deducted from KSP game state
+- Action blocking - Harmony patches on `RDTech.UnlockTech` and `UpgradeableFacility.SetLevel`
+- UI resource budget display - red/yellow over-commitment warnings
+- Game state baselines - captured at commit points for future timeline visualization
 
 **Done:**
-- Per-recording rewind saves — quicksave captured at recording start, stored in `Parsek/Saves/`, owned by the recording
-- Rewind UI — per-recording "Rewind" button in Recordings window, confirmation dialog, loads quicksave into Space Center
-- Baseline resource reset — resources reset to `PreLaunchFunds/Science/Rep` (captured at recording start). Ghost playback re-applies recording resource deltas at the correct UT. No marking as fully applied — the timeline replays naturally.
-- Deferred UT via coroutine — `Planetarium.SetUniversalTime()` called in the deferred coroutine AFTER the scene loads. Setting UT before `LoadScene` does NOT work — the scene transition overwrites it. `game.Load()` is NOT used because it triggers double-OnLoad via `ScenarioRunner.SetProtoModules()`.
-- Action replay — `ActionReplay.ReplayCommittedActions` programmatically re-applies committed game actions from milestones after rewind resource adjustment: tech unlock (no science deduction), part purchase, facility upgrade, crew hire. Each handler has idempotent guards and suppression flags to prevent re-recording during replay.
+- Per-recording rewind saves - quicksave captured at recording start, stored in `Parsek/Saves/`, owned by the recording
+- Rewind UI - per-recording "Rewind" button in Recordings window, confirmation dialog, loads quicksave into Space Center
+- Baseline resource reset - resources reset to `PreLaunchFunds/Science/Rep` (captured at recording start). Ghost playback re-applies recording resource deltas at the correct UT. No marking as fully applied - the timeline replays naturally.
+- Deferred UT via coroutine - `Planetarium.SetUniversalTime()` called in the deferred coroutine AFTER the scene loads. Setting UT before `LoadScene` does NOT work - the scene transition overwrites it. `game.Load()` is NOT used because it triggers double-OnLoad via `ScenarioRunner.SetProtoModules()`.
+- Action replay - `ActionReplay.ReplayCommittedActions` programmatically re-applies committed game actions from milestones after rewind resource adjustment: tech unlock (no science deduction), part purchase, facility upgrade, crew hire. Each handler has idempotent guards and suppression flags to prevent re-recording during replay.
 
 ## Resolved Design Questions
 
 - **UI**: Rewind button per recording in the Recordings window (not a separate picker dialog). Each recording with a rewind save shows the button.
 - **Manual vs auto**: Auto-only. Quicksave captured at recording start for every fresh (non-promotion) recording.
-- **Facility upgrades**: Just works — save load naturally reverts facilities, recordings don't depend on facility state.
+- **Facility upgrades**: Just works - save load naturally reverts facilities, recordings don't depend on facility state.
 - **Vessel spawning on rewind**: Vessels stripped from flight state, game loads into Space Center. Player can enter buildings or launch a new vessel, then watch recordings replay as ghosts.

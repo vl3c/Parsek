@@ -2,7 +2,7 @@
 
 ## The Name
 
-**Parsek** (from *parallel-sequential*) — a KSP1 mod that lets you execute multiple missions in parallel by recording them sequentially.
+**Parsek** (from *parallel-sequential*) - a KSP1 mod that lets you execute multiple missions in parallel by recording them sequentially.
 
 ---
 
@@ -17,12 +17,12 @@ Kerbal Space Program has a **"boring middle" problem**.
 
 You launch a spacecraft to Duna. The transfer takes 200 days. You have two choices:
 
-1. **Time warp and wait** — Stare at the screen for minutes while nothing happens
-2. **Switch vessels** — But your other missions are also in transit, or you don't have any ready
+1. **Time warp and wait** - Stare at the screen for minutes while nothing happens
+2. **Switch vessels** - But your other missions are also in transit, or you don't have any ready
 
 Meanwhile, your space program sits idle. No new launches. No progress. Just waiting.
 
-This breaks immersion and makes career mode feel sluggish. Real space agencies don't pause operations during interplanetary transfers — they run dozens of missions simultaneously.
+This breaks immersion and makes career mode feel sluggish. Real space agencies don't pause operations during interplanetary transfers - they run dozens of missions simultaneously.
 
 ---
 
@@ -32,11 +32,11 @@ This breaks immersion and makes career mode feel sluggish. Real space agencies d
 
 Here's how it works:
 
-1. **Launch a mission** — Fly it to completion using time warp as normal
-2. **Record everything** — Parsek captures all events (trajectory, staging, maneuvers)
-3. **Revert to launch** — Go back to the moment you launched
-4. **Events merge to timeline** — Your recorded mission becomes scheduled future events
-5. **Launch another mission** — While your first mission plays out automatically
+1. **Launch a mission** - Fly it to completion using time warp as normal
+2. **Record everything** - Parsek captures all events (trajectory, staging, maneuvers)
+3. **Revert to launch** - Go back to the moment you launched
+4. **Events merge to timeline** - Your recorded mission becomes scheduled future events
+5. **Launch another mission** - While your first mission plays out automatically
 
 You're not creating alternate timelines. You're not breaking causality. You're simply **planning missions in advance** and letting them execute while you focus on new challenges.
 
@@ -69,7 +69,7 @@ There's always **one unified timeline**. Recorded missions are just "scheduled f
 
 **Commit and play forward:** Watch all three missions execute. On Day 3, your Mun lander touches down. On Day 200, your Duna probe enters orbit. On Day 400, it lands. Meanwhile, you launched crew to your station on Day 50.
 
-Your space program is now **alive** — multiple missions in flight, real operational complexity.
+Your space program is now **alive** - multiple missions in flight, real operational complexity.
 
 ---
 
@@ -79,11 +79,11 @@ Your space program is now **alive** — multiple missions in flight, real operat
 
 ### "What if I use resources that a recorded mission needs?"
 
-The recorded mission **fails or adapts**. It was planned assuming certain conditions. If those conditions change, consequences follow. This is realistic — real missions fail when assumptions prove wrong.
+The recorded mission **fails or adapts**. It was planned assuming certain conditions. If those conditions change, consequences follow. This is realistic - real missions fail when assumptions prove wrong.
 
 ### "What if I rescue a Kerbal before their accident?"
 
-You can't. The accident is a **scheduled event**. If you intercept the vessel before the event, you're taking control — which resets the recording from that point. The "accident" never happens because you prevented it through active intervention.
+You can't. The accident is a **scheduled event**. If you intercept the vessel before the event, you're taking control - which resets the recording from that point. The "accident" never happens because you prevented it through active intervention.
 
 ### "What if construction finishes during a recorded mission?"
 
@@ -101,11 +101,11 @@ First-recorded mission has priority. Second mission queues or fails to launch. T
 
 ### For Single Player
 
-- **Eliminates dead time** — Always have something meaningful to do
-- **Enables operational complexity** — Run a real space program, not sequential missions
-- **Creates emergent narrative** — Missions interact in unexpected ways
-- **Makes career mode strategic** — Plan infrastructure, not just flights
-- **Race against yourself** — Ghost recordings double as racing opponents: fly a mission, revert, then try to beat your own trajectory to orbit, the Mun, or any destination
+- **Eliminates dead time** - Always have something meaningful to do
+- **Enables operational complexity** - Run a real space program, not sequential missions
+- **Creates emergent narrative** - Missions interact in unexpected ways
+- **Makes career mode strategic** - Plan infrastructure, not just flights
+- **Race against yourself** - Ghost recordings double as racing opponents: fly a mission, revert, then try to beat your own trajectory to orbit, the Mun, or any destination
 
 ### For Multiplayer (Future Vision)
 
@@ -116,7 +116,7 @@ Parsek's architecture is **inherently multiplayer-ready**:
 - No synchronization needed during recording
 - Conflicts resolve deterministically
 
-This could enable **asynchronous multiplayer KSP** — players in different time zones contributing to a shared space program.
+This could enable **asynchronous multiplayer KSP** - players in different time zones contributing to a shared space program.
 
 ### For Immersion
 
@@ -178,7 +178,7 @@ Imagine KSP where:
 
 - You plan a Jool-5 mission while running regular Mun tourism
 - Your comm network deploys automatically while you focus on crewed missions
-- You race against your own ghost to orbit — can you beat yesterday's launch profile?
+- You race against your own ghost to orbit - can you beat yesterday's launch profile?
 - AI agencies compete in a single-player space race, their missions recorded and scheduled
 - Multiple players contribute to a shared career across time zones
 - Construction time matters because you're launching while ships are built
@@ -209,4 +209,4 @@ Parsek transforms KSP from a **mission simulator** into a **space program simula
 
 ---
 
-*Parsek — Because space programs don't wait.*
+*Parsek - Because space programs don't wait.*

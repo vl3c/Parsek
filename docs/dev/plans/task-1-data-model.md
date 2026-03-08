@@ -1,8 +1,8 @@
-# Task 1: RecordingTree Data Model + Serialization — Implementation Plan
+# Task 1: RecordingTree Data Model + Serialization - Implementation Plan
 
 ## Overview
 
-Create the core data structures for the recording tree (RecordingTree, BranchPoint, SurfacePosition, TerminalState enum) and prove they round-trip through ConfigNode serialization. Add new tree-related fields to the existing Recording class. All work is pure data model and serialization — no runtime behavior, no KSP event subscriptions, no UI changes.
+Create the core data structures for the recording tree (RecordingTree, BranchPoint, SurfacePosition, TerminalState enum) and prove they round-trip through ConfigNode serialization. Add new tree-related fields to the existing Recording class. All work is pure data model and serialization - no runtime behavior, no KSP event subscriptions, no UI changes.
 
 ---
 
@@ -27,7 +27,7 @@ namespace Parsek
 }
 ```
 
-Follows the same pattern as `PartEventType` — explicit int values for stable serialization. Serialized as `(int)terminalState` in ConfigNode values.
+Follows the same pattern as `PartEventType` - explicit int values for stable serialization. Serialized as `(int)terminalState` in ConfigNode values.
 
 ### 1.2 `Source/Parsek/BranchPoint.cs`
 
@@ -61,7 +61,7 @@ namespace Parsek
 }
 ```
 
-**Design note:** `BranchPoint` is a `class` (not struct) because it contains `List<string>` fields. A struct with reference-type fields has copy-semantics footguns — copying the struct shares the lists, leading to aliasing bugs. As a class, BranchPoint has clear reference semantics. Lists are initialized in field declarations to avoid null checks.
+**Design note:** `BranchPoint` is a `class` (not struct) because it contains `List<string>` fields. A struct with reference-type fields has copy-semantics footguns - copying the struct shares the lists, leading to aliasing bugs. As a class, BranchPoint has clear reference semantics. Lists are initialized in field declarations to avoid null checks.
 
 ### 1.3 `Source/Parsek/SurfacePosition.cs`
 
@@ -144,7 +144,7 @@ Full field inventory and serialization details are in sections 3 and 7 below.
 
 ## 2. Existing Files to Modify
 
-### 2.1 `Source/Parsek/RecordingStore.cs` — Recording class
+### 2.1 `Source/Parsek/RecordingStore.cs` - Recording class
 
 Add these fields to the `Recording` class (all nullable/defaulted so existing recordings remain valid):
 
@@ -205,11 +205,11 @@ public double EndUT => Points.Count > 0 ? Points[Points.Count - 1].ut :
                        !double.IsNaN(ExplicitEndUT) ? ExplicitEndUT : 0.0;
 ```
 
-### 2.2 `Source/Parsek/RecordingStore.cs` — Static methods
+### 2.2 `Source/Parsek/RecordingStore.cs` - Static methods
 
 No changes to the static `RecordingStore` methods in Task 1. The tree serialization lives in `RecordingTree.Save/Load`. Integration with `RecordingStore.CommittedRecordings` and `ParsekScenario` is deferred to Task 7/11.
 
-### 2.3 `Source/Parsek/RecordingStore.cs` — ApplyPersistenceArtifactsFrom
+### 2.3 `Source/Parsek/RecordingStore.cs` - ApplyPersistenceArtifactsFrom
 
 Add copying of the new fields:
 
@@ -475,7 +475,7 @@ public static SurfacePosition LoadFrom(ConfigNode node)
 
 ---
 
-## 7. RecordingTree — Serialized vs Runtime Fields
+## 7. RecordingTree - Serialized vs Runtime Fields
 
 ### Serialized fields (written to RECORDING_TREE ConfigNode)
 
@@ -516,7 +516,7 @@ This rebuilds the mapping of which vessel persistentIds are being background-rec
 
 ---
 
-## 8. Round-Trip Correctness — Special Handling
+## 8. Round-Trip Correctness - Special Handling
 
 ### 8.1 Quaternion (rotation in SurfacePosition)
 
@@ -524,7 +524,7 @@ Quaternions are stored as 4 separate float keys (`rotX/Y/Z/W`), same as `Traject
 
 ### 8.2 Terminal orbit (Keplerian elements)
 
-Stored as 7 doubles + 1 string, same pattern as `OrbitSegment` serialization in `SerializeTrajectoryInto`. The `tOrb` prefix distinguishes them from OrbitSegment keys that might appear in the same parent node (though in the tree format they are in different scopes — the RECORDING node vs. the .prec file). The prefix is a defensive measure against future refactoring.
+Stored as 7 doubles + 1 string, same pattern as `OrbitSegment` serialization in `SerializeTrajectoryInto`. The `tOrb` prefix distinguishes them from OrbitSegment keys that might appear in the same parent node (though in the tree format they are in different scopes - the RECORDING node vs. the .prec file). The prefix is a defensive measure against future refactoring.
 
 All `tOrb*` keys are written/read as a group. If `TerminalOrbitBody` is null or empty, none of the `tOrb*` keys are written. On load, if `tOrbBody` is absent, all terminal orbit fields remain at their default (0.0).
 
@@ -532,7 +532,7 @@ All `tOrb*` keys are written/read as a group. If `TerminalOrbitBody` is null or 
 
 These remain in external sidecar files (.prec, _vessel.craft, _ghost.craft) referenced by recordingId, exactly as today. The tree file (`RECORDING_TREE` node) holds metadata only. `RecordingStore.SaveRecordingFiles` / `LoadRecordingFiles` handle sidecar I/O unchanged.
 
-**Note:** Task 1 does NOT call `SaveRecordingFiles`/`LoadRecordingFiles`. Task 1 is pure ConfigNode round-trip — no file I/O. The tree's `Save`/`Load` methods only handle the RECORDING_TREE ConfigNode structure. File I/O integration is deferred to Task 7/11 when the tree is integrated with `ParsekScenario`.
+**Note:** Task 1 does NOT call `SaveRecordingFiles`/`LoadRecordingFiles`. Task 1 is pure ConfigNode round-trip - no file I/O. The tree's `Save`/`Load` methods only handle the RECORDING_TREE ConfigNode structure. File I/O integration is deferred to Task 7/11 when the tree is integrated with `ParsekScenario`.
 
 ### 8.4 Nullable TerminalState
 
@@ -692,7 +692,7 @@ namespace Parsek.Tests
 - Recording with TerminalStateValue=null (still recording).
 - Save to ConfigNode.
 - Assert `terminalState` key is absent.
-- Load — assert TerminalStateValue is null.
+- Load - assert TerminalStateValue is null.
 
 #### Background map rebuild
 
@@ -778,7 +778,7 @@ The `StartUT`/`EndUT` property change is safe because all existing recordings ha
 
 Deferred to Task 11. That task will:
 - Wrap standalone recordings in single-node trees on load.
-- Wrap chain recordings as single-node trees (chain segments stay as-is within each recording node — chain fields are NOT removed).
+- Wrap chain recordings as single-node trees (chain segments stay as-is within each recording node - chain fields are NOT removed).
 - Ensure `RecordingTree.Save/Load` is called from `ParsekScenario.OnSave/OnLoad`.
 
 ---
@@ -808,23 +808,23 @@ Deferred to Task 11. That task will:
 
 ### Files NOT modified in Task 1
 
-- `ParsekScenario.cs` — no changes to OnSave/OnLoad (deferred to Task 7/11)
-- `ParsekFlight.cs` — no runtime behavior changes
-- `FlightRecorder.cs` — no recording logic changes
-- `RecordingPaths.cs` — no new path helpers needed yet (tree sidecar file paths deferred to when tree file I/O is implemented)
-- `RecordingBuilder.cs` — no test builder changes needed yet (the tests in section 9 construct ConfigNodes directly or use Recording objects)
+- `ParsekScenario.cs` - no changes to OnSave/OnLoad (deferred to Task 7/11)
+- `ParsekFlight.cs` - no runtime behavior changes
+- `FlightRecorder.cs` - no recording logic changes
+- `RecordingPaths.cs` - no new path helpers needed yet (tree sidecar file paths deferred to when tree file I/O is implemented)
+- `RecordingBuilder.cs` - no test builder changes needed yet (the tests in section 9 construct ConfigNodes directly or use Recording objects)
 
 ---
 
 ## 12. Implementation Order Within Task 1
 
-1. **Create `TerminalState.cs`** — standalone enum, no dependencies.
-2. **Create `SurfacePosition.cs`** — standalone struct with Save/Load helpers. Depends on UnityEngine (Quaternion).
-3. **Create `BranchPoint.cs`** — standalone struct + enum.
-4. **Modify `RecordingStore.cs`** — add new fields to `Recording`, update `StartUT`/`EndUT`, update `ApplyPersistenceArtifactsFrom`.
-5. **Create `RecordingTree.cs`** — the main class with Save/Load/RebuildBackgroundMap. Uses all of the above.
-6. **Create `RecordingTreeTests.cs`** — all unit tests.
-7. **Run `dotnet test`** — verify all existing tests still pass plus new tests.
+1. **Create `TerminalState.cs`** - standalone enum, no dependencies.
+2. **Create `SurfacePosition.cs`** - standalone struct with Save/Load helpers. Depends on UnityEngine (Quaternion).
+3. **Create `BranchPoint.cs`** - standalone struct + enum.
+4. **Modify `RecordingStore.cs`** - add new fields to `Recording`, update `StartUT`/`EndUT`, update `ApplyPersistenceArtifactsFrom`.
+5. **Create `RecordingTree.cs`** - the main class with Save/Load/RebuildBackgroundMap. Uses all of the above.
+6. **Create `RecordingTreeTests.cs`** - all unit tests.
+7. **Run `dotnet test`** - verify all existing tests still pass plus new tests.
 
 ---
 
@@ -834,6 +834,6 @@ Deferred to Task 11. That task will:
 
 2. **Tree file format:** The design says "each recording tree is stored as a sidecar file." Task 1 implements Save/Load to ConfigNode but does NOT implement file I/O for the tree sidecar. File I/O (writing the RECORDING_TREE ConfigNode to a `.ptree` file or similar) is deferred to integration with ParsekScenario (Task 7/11). Task 1 proves the ConfigNode round-trip works.
 
-3. **Recording metadata in tree vs per-recording:** The RECORDING nodes inside RECORDING_TREE contain the same metadata fields as the current RECORDING nodes in .sfs. The tree format replaces the .sfs RECORDING nodes — recordings belonging to a tree will NOT also appear as top-level RECORDING nodes in .sfs. This separation is implemented in Task 11.
+3. **Recording metadata in tree vs per-recording:** The RECORDING nodes inside RECORDING_TREE contain the same metadata fields as the current RECORDING nodes in .sfs. The tree format replaces the .sfs RECORDING nodes - recordings belonging to a tree will NOT also appear as top-level RECORDING nodes in .sfs. This separation is implemented in Task 11.
 
-4. **ExplicitStartUT/ExplicitEndUT naming:** These are named "explicit" to clearly distinguish them from the computed StartUT/EndUT properties. Alternative names considered: `BackgroundStartUT`/`BackgroundEndUT` (too narrow — could be used for other purposes), `StoredStartUT`/`StoredEndUT` (confusing with serialization).
+4. **ExplicitStartUT/ExplicitEndUT naming:** These are named "explicit" to clearly distinguish them from the computed StartUT/EndUT properties. Alternative names considered: `BackgroundStartUT`/`BackgroundEndUT` (too narrow - could be used for other purposes), `StoredStartUT`/`StoredEndUT` (confusing with serialization).

@@ -12,7 +12,7 @@ Parsek/
 │   └── PhysicsFramePatch.cs   # Harmony postfix hook for per-frame sampling
 ├── ParsekUI.cs                # UI windows (main window, recordings manager) and map view markers
 ├── RecordingStore.cs          # Static storage for pending/committed recordings (survives scene changes)
-├── ParsekScenario.cs          # ScenarioModule — persists recordings to save games, crew reservation
+├── ParsekScenario.cs          # ScenarioModule - persists recordings to save games, crew reservation
 ├── ParsekLog.cs               # Shared logging utilities
 ├── TrajectoryPoint.cs         # Position/rotation/resource data struct
 ├── TrajectoryMath.cs          # Pure static math (sampling, interpolation, orbit search)
@@ -87,7 +87,7 @@ cd Source/Parsek.Tests
 dotnet test
 ```
 
-652 tests total: 651 pass, 1 skipped (QuaternionSlerp NaN edge case — Unity behavior).
+652 tests total: 651 pass, 1 skipped (QuaternionSlerp NaN edge case - Unity behavior).
 
 ### Live KSP Log Validation
 
@@ -105,41 +105,41 @@ The script exits non-zero if required log contracts fail.
 2. Open the Parsek window from the toolbar button
 
 **Controls:**
-- **F9** — Start/Stop recording
-- **F10** — Preview playback (plays current recording from now)
-- **F11** — Stop preview
-- **Toolbar button** — Show/hide the Parsek window
+- **F9** - Start/Stop recording
+- **F10** - Preview playback (plays current recording from now)
+- **F11** - Stop preview
+- **Toolbar button** - Show/hide the Parsek window
 
 ### Timeline Test (core flow)
 
 1. Press F9, fly for 30-60s, press F9 to stop
 2. Revert to Launch (Esc > Revert to Launch)
 3. Context-aware merge dialog appears with recommended action
-4. Wait on the pad — when UT reaches the original timestamps, an opaque ghost vessel replays the flight
+4. Wait on the pad - when UT reaches the original timestamps, an opaque ghost vessel replays the flight
 5. Funds/science/reputation deltas are applied at the correct UT
 
 ### Vessel Persistence Tests
 
 **Persist in orbit:**
 1. Launch to orbit, F9 record, revert to launch
-2. Dialog defaults to "Merge to Timeline" — click it
-3. Go to Tracking Station — vessel should appear in orbit
+2. Dialog defaults to "Merge to Timeline" - click it
+3. Go to Tracking Station - vessel should appear in orbit
 
 **Destroyed vessel:**
 1. Launch, crash, revert
-2. Dialog says "vessel was destroyed" — offers "Merge to Timeline" or "Discard"
+2. Dialog says "vessel was destroyed" - offers "Merge to Timeline" or "Discard"
 
 ### Crew Replacement Tests
 
 **Basic flow:**
 1. Record with Jeb → revert → "Merge to Timeline"
 2. Check Astronaut Complex: Jeb is Assigned, a new kerbal with matching trait appeared
-3. Launch new flight — replacement kerbal is available in crew selection
+3. Launch new flight - replacement kerbal is available in crew selection
 4. Wait for EndUT → Jeb's vessel spawns, replacement is cleaned up from roster
 
 **Revert cycle:**
 1. Record → merge with "Keep Vessel" → revert → record again
-2. Replacement pool stays stable — no kerbal duplication or leak
+2. Replacement pool stays stable - no kerbal duplication or leak
 
 **Wipe cleanup:**
 1. Record + merge several times with "Keep Vessel"
@@ -169,14 +169,14 @@ The script exits non-zero if required log contracts fail.
 
 ## Architecture
 
-- **RecordingStore** — static class holding pending + committed recordings. Static fields survive scene loads within a KSP session. Pending = just-finished recording awaiting merge/discard. Committed = merged to timeline for auto-playback. Also holds vessel persistence fields (snapshot, distance, destruction state) and the `GetRecommendedAction()` merge-decision logic.
-- **ParsekScenario** — KSP ScenarioModule that serializes committed recordings to ConfigNode for save/load persistence. Active in FLIGHT, SPACECENTER, TRACKSTATION, and EDITOR scenes. Manages crew reservation (marking snapshot crew as Assigned) and the crew replacement system (hiring/removing replacement kerbals to keep the available pool constant).
-- **ParsekFlight** — KSPAddon (Flight only). Handles timeline auto-playback (absolute UT), ghost lifecycle, scene change events, context-aware merge dialog, vessel snapshot/respawn/recovery, destruction tracking, resource delta application, and manual preview playback.
-- **FlightRecorder + PhysicsFramePatch** — recording pipeline. `FlightRecorder` owns sampling state and part event polling (engines, parachutes, deployables, lights, gear, cargo bays, fairings, RCS, inventory placement/removal); Harmony postfix on `VesselPrecalculate.CalculatePhysicsStats()` provides per-physics-frame callbacks. Dock/undock boundaries are committed via chain logic in `ParsekFlight`.
-- **ParsekUI** — UI window drawing (main Parsek window + Recordings Manager window). Recordings Manager shows a sortable table of all committed recordings with per-recording loop toggle, status indicator, and delete button.
-- **GhostVisualBuilder** — builds ghost vessel meshes from vessel snapshots using prefab parts. Handles engine particle FX (cloned MODEL_MULTI_PARTICLE), RCS FX, fairing cone mesh generation, and deployable animation state sampling.
-- **TrajectoryPoint** — struct storing per-tick data: position (lat/lon/alt), rotation, velocity, body name, and career resources (funds, science, reputation). All timestamps use absolute UT.
-- **PartEvent** — struct + enum covering 28 event types: decoupled, destroyed, parachute deploy/cut/destroyed, shroud jettison, engine ignition/shutdown/throttle, deployable extend/retract, light on/off/blink, gear deploy/retract, cargo bay open/close, fairing jettison, RCS activate/stop/throttle, dock/undock, inventory place/remove.
+- **RecordingStore** - static class holding pending + committed recordings. Static fields survive scene loads within a KSP session. Pending = just-finished recording awaiting merge/discard. Committed = merged to timeline for auto-playback. Also holds vessel persistence fields (snapshot, distance, destruction state) and the `GetRecommendedAction()` merge-decision logic.
+- **ParsekScenario** - KSP ScenarioModule that serializes committed recordings to ConfigNode for save/load persistence. Active in FLIGHT, SPACECENTER, TRACKSTATION, and EDITOR scenes. Manages crew reservation (marking snapshot crew as Assigned) and the crew replacement system (hiring/removing replacement kerbals to keep the available pool constant).
+- **ParsekFlight** - KSPAddon (Flight only). Handles timeline auto-playback (absolute UT), ghost lifecycle, scene change events, context-aware merge dialog, vessel snapshot/respawn/recovery, destruction tracking, resource delta application, and manual preview playback.
+- **FlightRecorder + PhysicsFramePatch** - recording pipeline. `FlightRecorder` owns sampling state and part event polling (engines, parachutes, deployables, lights, gear, cargo bays, fairings, RCS, inventory placement/removal); Harmony postfix on `VesselPrecalculate.CalculatePhysicsStats()` provides per-physics-frame callbacks. Dock/undock boundaries are committed via chain logic in `ParsekFlight`.
+- **ParsekUI** - UI window drawing (main Parsek window + Recordings Manager window). Recordings Manager shows a sortable table of all committed recordings with per-recording loop toggle, status indicator, and delete button.
+- **GhostVisualBuilder** - builds ghost vessel meshes from vessel snapshots using prefab parts. Handles engine particle FX (cloned MODEL_MULTI_PARTICLE), RCS FX, fairing cone mesh generation, and deployable animation state sampling.
+- **TrajectoryPoint** - struct storing per-tick data: position (lat/lon/alt), rotation, velocity, body name, and career resources (funds, science, reputation). All timestamps use absolute UT.
+- **PartEvent** - struct + enum covering 28 event types: decoupled, destroyed, parachute deploy/cut/destroyed, shroud jettison, engine ignition/shutdown/throttle, deployable extend/retract, light on/off/blink, gear deploy/retract, cargo bay open/close, fairing jettison, RCS activate/stop/throttle, dock/undock, inventory place/remove.
 
 ### External Recording Files (v4)
 
@@ -199,11 +199,11 @@ Vessel respawn uses `ProtoVessel` injection into `flightState.protoVessels`. Rec
 When a kerbal is reserved for a deferred vessel spawn ("Merge to Timeline"), they're marked as `Assigned` and become unavailable in the VAB/SPH. To prevent the player from running out of crew, the system automatically hires a replacement kerbal with the same trait (Pilot/Engineer/Scientist).
 
 **Lifecycle:**
-1. **Reserve** — `ReserveCrewIn()` sets kerbal to Assigned, hires replacement via `roster.GetNewKerbal()`, stores mapping in `crewReplacements[originalName] = replacementName`
-2. **Unreserve** — `UnreserveCrewInSnapshot()` sets kerbal back to Available, calls `CleanUpReplacement()`:
+1. **Reserve** - `ReserveCrewIn()` sets kerbal to Assigned, hires replacement via `roster.GetNewKerbal()`, stores mapping in `crewReplacements[originalName] = replacementName`
+2. **Unreserve** - `UnreserveCrewInSnapshot()` sets kerbal back to Available, calls `CleanUpReplacement()`:
    - If replacement is still Available (unused) → removed from roster
    - If replacement is Assigned (player put them on a mission) → kept as a "real" kerbal
-3. **Wipe** — `ClearReplacements()` cleans up all replacements and clears the mapping
+3. **Wipe** - `ClearReplacements()` cleans up all replacements and clears the mapping
 
 **Serialization:** The `crewReplacements` dictionary is persisted as a `CREW_REPLACEMENTS` ConfigNode with `ENTRY` sub-nodes (each containing `original` and `replacement` values). Loaded on both initial save load and revert paths.
 

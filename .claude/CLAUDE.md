@@ -9,7 +9,7 @@ cd Source/Parsek.Tests && dotnet test     # all unit tests
 dotnet test --filter InjectAllRecordings  # inject 8 synthetic recordings into test save
 ```
 
-Post-build copy uses `ContinueOnError="true"` — builds succeed when KSP has DLL locked.
+Post-build copy uses `ContinueOnError="true"` - builds succeed when KSP has DLL locked.
 
 ## Project Layout
 
@@ -20,17 +20,17 @@ Kerbal Space Program/   # Local KSP instance (gitignored, auto-deployed)
 docs/                   # Design docs, roadmap, reference analyses
 ```
 
-Key source files and what they do — read the relevant one before modifying:
-- `ParsekFlight.cs` — main flight-scene controller (playback, timeline, input)
-- `FlightRecorder.cs` — recording state + sampling (called by Harmony patch)
-- `ParsekUI.cs` — UI windows (main, recordings, actions, settings) and map markers
-- `ParsekScenario.cs` — ScenarioModule for save/load, crew reservation & replacement
-- `RecordingStore.cs` — static recording storage surviving scene changes
-- `GhostVisualBuilder.cs` — ghost mesh building from vessel snapshots
-- `TrajectoryMath.cs` — pure static math (sampling, interpolation, orbit search)
-- `VesselSpawner.cs` — vessel spawn/recover/snapshot utilities
-- `MergeDialog.cs` — post-revert merge dialog
-- `ParsekHarmony.cs` + `Patches/` — Harmony patcher + postfix patches
+Key source files and what they do - read the relevant one before modifying:
+- `ParsekFlight.cs` - main flight-scene controller (playback, timeline, input)
+- `FlightRecorder.cs` - recording state + sampling (called by Harmony patch)
+- `ParsekUI.cs` - UI windows (main, recordings, actions, settings) and map markers
+- `ParsekScenario.cs` - ScenarioModule for save/load, crew reservation & replacement
+- `RecordingStore.cs` - static recording storage surviving scene changes
+- `GhostVisualBuilder.cs` - ghost mesh building from vessel snapshots
+- `TrajectoryMath.cs` - pure static math (sampling, interpolation, orbit search)
+- `VesselSpawner.cs` - vessel spawn/recover/snapshot utilities
+- `MergeDialog.cs` - post-revert merge dialog
+- `ParsekHarmony.cs` + `Patches/` - Harmony patcher + postfix patches
 
 ## Worktree Workflow
 
@@ -44,7 +44,7 @@ git worktree add ../Parsek-<branch-name> -b <branch-name> HEAD
 
 ## In-Game Controls
 
-- **Toolbar button** — Toggle Parsek UI
+- **Toolbar button** - Toggle Parsek UI
 - UI buttons: Start/Stop Recording, Preview Playback, Stop Preview, Clear Current Recording
 
 ## Debug
@@ -62,7 +62,7 @@ After any change to enums, event types, serialized fields, or schema:
 1. Verify `ParsekScenario.cs` OnSave/OnLoad handles the new data
 2. Verify test generators in `Tests/Generators/` can produce test data for the new feature
 3. Consider adding a synthetic recording for end-to-end testing
-4. Run `dotnet test` — all tests must pass
+4. Run `dotnet test` - all tests must pass
 
 ## Workflow
 

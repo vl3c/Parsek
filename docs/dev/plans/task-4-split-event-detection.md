@@ -4,14 +4,14 @@
 
 This task follows a multi-stage review pipeline using Opus 4.6 agents, orchestrated by the main session:
 
-1. **Plan** — Opus 4.6 subagent explores the codebase and writes a detailed implementation plan
-2. **Plan review** — Fresh Opus 4.6 subagent reviews the plan for correctness, completeness, and risk
-3. **Orchestrator review** — Main session reviews the plan with full project context and fixes issues
-4. **Implement** — Fresh Opus 4.6 subagent implements the plan
-5. **Implementation review** — Fresh Opus 4.6 subagent reviews the implementation and fixes issues
-6. **Final review** — Main session reviews the implementation considering the larger architectural context
-7. **Commit** — Main session commits the implementation
-8. **Next task briefing** — Main session presents the next task, explains its role and how it fits into the overall plan
+1. **Plan** - Opus 4.6 subagent explores the codebase and writes a detailed implementation plan
+2. **Plan review** - Fresh Opus 4.6 subagent reviews the plan for correctness, completeness, and risk
+3. **Orchestrator review** - Main session reviews the plan with full project context and fixes issues
+4. **Implement** - Fresh Opus 4.6 subagent implements the plan
+5. **Implementation review** - Fresh Opus 4.6 subagent reviews the implementation and fixes issues
+6. **Final review** - Main session reviews the implementation considering the larger architectural context
+7. **Commit** - Main session commits the implementation
+8. **Next task briefing** - Main session presents the next task, explains its role and how it fits into the overall plan
 
 ---
 
@@ -19,7 +19,7 @@ This task follows a multi-stage review pipeline using Opus 4.6 agents, orchestra
 
 ### 1. Overview
 
-Task 4 is where the recording tree actually branches at runtime. When a vessel splits — via undocking, EVA, or structural failure — the code must:
+Task 4 is where the recording tree actually branches at runtime. When a vessel splits - via undocking, EVA, or structural failure - the code must:
 
 1. Detect the split event
 2. Filter out debris (spent boosters, fairings) from trackable vessels
@@ -32,8 +32,8 @@ Task 4 is where the recording tree actually branches at runtime. When a vessel s
 
 Tasks 1-3 built the foundation:
 - **Task 1** created `RecordingTree`, `BranchPoint`, `SurfacePosition`, `TerminalState`, and new fields on `Recording` (treeId, parentBranchPointId, childBranchPointId, terminalState, etc.)
-- **Task 2** added `TransitionToBackground` / `PromoteFromBackground` to `DecideOnVesselSwitch`, `FlushRecorderToTreeRecording`, `PromoteRecordingFromBackground`, and `OnVesselSwitchComplete` handler — all currently dormant because no code creates a `RecordingTree` at runtime
-- **Task 3** added `BackgroundRecorder` with dual-mode recording (on-rails: OrbitSegment/SurfacePosition; loaded/physics: full trajectory + part events) — also dormant because no code creates a `BackgroundRecorder` at runtime
+- **Task 2** added `TransitionToBackground` / `PromoteFromBackground` to `DecideOnVesselSwitch`, `FlushRecorderToTreeRecording`, `PromoteRecordingFromBackground`, and `OnVesselSwitchComplete` handler - all currently dormant because no code creates a `RecordingTree` at runtime
+- **Task 3** added `BackgroundRecorder` with dual-mode recording (on-rails: OrbitSegment/SurfacePosition; loaded/physics: full trajectory + part events) - also dormant because no code creates a `BackgroundRecorder` at runtime
 
 Task 4 activates all of this dormant infrastructure by creating `RecordingTree` and `BackgroundRecorder` instances when the first split event occurs.
 
@@ -41,7 +41,7 @@ Task 4 activates all of this dormant infrastructure by creating `RecordingTree` 
 
 ### 2. Existing Infrastructure Audit
 
-#### 2.1 Undock Detection — `OnPartUndock` (ParsekFlight.cs line 1223)
+#### 2.1 Undock Detection - `OnPartUndock` (ParsekFlight.cs line 1223)
 
 The existing handler:
 ```csharp
@@ -60,7 +60,7 @@ void OnPartUndock(Part undockedPart)
 
 **What Task 4 changes:** When a tree is active (or when this is the first split that creates a tree), intercept this event BEFORE the chain logic runs, and create a tree branch instead.
 
-#### 2.2 Undock Switch — `UndockSwitchPending` (ParsekFlight.cs lines 296-318)
+#### 2.2 Undock Switch - `UndockSwitchPending` (ParsekFlight.cs lines 296-318)
 
 When the player switches to the undocked vessel (PID changes), `OnPhysicsFrame` detects the mismatch, `DecideOnVesselSwitch` returns `UndockSwitch` (because `UndockSiblingPid` matches), and sets `UndockSwitchPending = true`.
 
@@ -71,9 +71,9 @@ The `Update()` handler (lines 296-318):
 4. Starts an undock continuation for the OLD vessel (role swap)
 5. Sets `recorder.UndockSiblingPid = undockContinuationPid`
 
-**What Task 4 changes:** In tree mode, `UndockSwitch` is no longer needed for undocks because the tree branch handles both vessels. The `DecideOnVesselSwitch` priority chain (line 3838-3839) checks `UndockSiblingPid` before tree decisions, but in tree mode we should NOT set `UndockSiblingPid` at all — the tree's BackgroundMap handles vessel tracking.
+**What Task 4 changes:** In tree mode, `UndockSwitch` is no longer needed for undocks because the tree branch handles both vessels. The `DecideOnVesselSwitch` priority chain (line 3838-3839) checks `UndockSiblingPid` before tree decisions, but in tree mode we should NOT set `UndockSiblingPid` at all - the tree's BackgroundMap handles vessel tracking.
 
-#### 2.3 EVA Detection — `OnCrewOnEva` (ParsekFlight.cs line 1109)
+#### 2.3 EVA Detection - `OnCrewOnEva` (ParsekFlight.cs line 1109)
 
 The existing handler:
 ```csharp
@@ -96,7 +96,7 @@ Two paths:
 
 **What Task 4 changes:** In tree mode, EVA creates a tree branch instead of a chain segment. Both the vessel and the EVA kerbal get their own recording nodes in the tree. The EVA kerbal recording tracks via BackgroundRecorder when not active.
 
-#### 2.4 Joint Break — `OnPartJointBreak` (FlightRecorder.cs line 203)
+#### 2.4 Joint Break - `OnPartJointBreak` (FlightRecorder.cs line 203)
 
 The existing handler:
 ```csharp
@@ -104,7 +104,7 @@ private void OnPartJointBreak(PartJoint joint, float breakForce)
 ```
 - Subscribed/unsubscribed by `SubscribePartEvents()`/`UnsubscribePartEvents()` in FlightRecorder (lines 149-165)
 - Currently: records a `Decoupled` part event for the child part (lines 214-219)
-- Does NOT check if the break creates a new vessel — it only records the part event
+- Does NOT check if the break creates a new vessel - it only records the part event
 
 **What Task 4 changes:** After recording the part event, defer one frame, check if a new controllable vessel was created, and if so, create a tree branch. This is the same deferred-snapshot pattern used for undock.
 
@@ -116,7 +116,7 @@ private void OnPartJointBreak(PartJoint joint, float breakForce)
 - `UpdateUndockContinuationSampling()` (line 1491) samples the vessel each frame with adaptive thresholds
 - `RefreshUndockContinuationSnapshot()` (line 1558) updates the ghost snapshot before stopping
 
-**Relationship to tree mode:** The undock continuation system is the pre-tree way of tracking the "other" vessel after undock. In tree mode, the background recording subsystem replaces this entirely. When tree mode is active, undock continuation should NOT be started — the new background recording handles it.
+**Relationship to tree mode:** The undock continuation system is the pre-tree way of tracking the "other" vessel after undock. In tree mode, the background recording subsystem replaces this entirely. When tree mode is active, undock continuation should NOT be started - the new background recording handles it.
 
 #### 2.6 EVA Child Recording Linkage (RecordingStore.cs lines 70-71)
 
@@ -125,55 +125,55 @@ private void OnPartJointBreak(PartJoint joint, float breakForce)
 - Used by `OnFlightReady` to auto-commit EVA child recordings without showing merge dialog (line 1644-1661)
 - Used by `VesselSpawner.RemoveSpecificCrewFromSnapshot` to strip EVA'd crew from parent vessel at spawn time
 
-**Relationship to tree mode:** In tree mode, these fields are still useful for identifying EVA recordings and removing crew from vessel snapshots. However, the auto-commit logic in `OnFlightReady` (lines 1644-1661) should be skipped when the recording is part of a tree — the tree merge dialog handles everything.
+**Relationship to tree mode:** In tree mode, these fields are still useful for identifying EVA recordings and removing crew from vessel snapshots. However, the auto-commit logic in `OnFlightReady` (lines 1644-1661) should be skipped when the recording is part of a tree - the tree merge dialog handles everything.
 
 #### 2.7 Tree Fields on Recording (RecordingStore.cs lines 84-110)
 
 Already implemented by Task 1:
-- `TreeId` (line 85) — links recording to its tree
-- `VesselPersistentId` (line 86) — stable vessel identity
-- `TerminalStateValue` (line 89) — null = still recording, set on terminal event
-- Terminal orbit fields (lines 91-100) — for orbital terminal state
-- `TerminalPosition` (line 103) — for landed/splashed terminal state
-- `SurfacePos` (line 106) — background surface position
-- `ParentBranchPointId` (line 109) — null for root
-- `ChildBranchPointId` (line 110) — null for leaves
-- `ExplicitStartUT` / `ExplicitEndUT` (lines 116-117) — for recordings with no trajectory points
+- `TreeId` (line 85) - links recording to its tree
+- `VesselPersistentId` (line 86) - stable vessel identity
+- `TerminalStateValue` (line 89) - null = still recording, set on terminal event
+- Terminal orbit fields (lines 91-100) - for orbital terminal state
+- `TerminalPosition` (line 103) - for landed/splashed terminal state
+- `SurfacePos` (line 106) - background surface position
+- `ParentBranchPointId` (line 109) - null for root
+- `ChildBranchPointId` (line 110) - null for leaves
+- `ExplicitStartUT` / `ExplicitEndUT` (lines 116-117) - for recordings with no trajectory points
 
 #### 2.8 Tree Vessel Switch Infrastructure (Task 2, dormant)
 
 In `ParsekFlight.cs`:
-- `activeTree` field (line 120) — currently always null
-- `backgroundRecorder` field (line 123) — currently always null
-- `OnVesselSwitchComplete` (line 719) — checks `activeTree == null` and returns immediately
-- `FlushRecorderToTreeRecording` (line 784) — flushes recorder data to tree recording
-- `PromoteRecordingFromBackground` (line 832) — creates fresh FlightRecorder for promoted vessel
-- `Update()` TransitionToBackgroundPending handler (lines 414-433) — flushes backgrounded recorder
+- `activeTree` field (line 120) - currently always null
+- `backgroundRecorder` field (line 123) - currently always null
+- `OnVesselSwitchComplete` (line 719) - checks `activeTree == null` and returns immediately
+- `FlushRecorderToTreeRecording` (line 784) - flushes recorder data to tree recording
+- `PromoteRecordingFromBackground` (line 832) - creates fresh FlightRecorder for promoted vessel
+- `Update()` TransitionToBackgroundPending handler (lines 414-433) - flushes backgrounded recorder
 
 In `FlightRecorder.cs`:
-- `ActiveTree` property (line 92) — currently always null
-- `TransitionToBackgroundPending` (line 93) — tree transition flag
-- `IsBackgrounded` (line 99) — derived from IsRecording + Harmony patch state
-- `TransitionToBackground()` (line 3717) — captures orbit segment, disconnects Harmony
-- `DecideOnVesselSwitch` (line 3830) — tree-aware decision (lines 3851-3855)
+- `ActiveTree` property (line 92) - currently always null
+- `TransitionToBackgroundPending` (line 93) - tree transition flag
+- `IsBackgrounded` (line 99) - derived from IsRecording + Harmony patch state
+- `TransitionToBackground()` (line 3717) - captures orbit segment, disconnects Harmony
+- `DecideOnVesselSwitch` (line 3830) - tree-aware decision (lines 3851-3855)
 
 #### 2.9 BackgroundRecorder (Task 3, dormant)
 
 In `BackgroundRecorder.cs`:
 - Constructor takes `RecordingTree` (line 37)
-- `OnVesselBackgrounded(uint vesselPid)` (line 229) — initializes tracking state
-- `OnVesselRemovedFromBackground(uint vesselPid)` (line 282) — cleans up tracking state
-- `UpdateOnRails(double ut)` (called from ParsekFlight.Update line 438) — updates on-rails background recordings
-- `OnBackgroundPhysicsFrame(Vessel bgVessel)` — called from PhysicsFramePatch (line 67) for loaded background vessels
-- `Shutdown()` (line 479) — cleans up all background states
+- `OnVesselBackgrounded(uint vesselPid)` (line 229) - initializes tracking state
+- `OnVesselRemovedFromBackground(uint vesselPid)` (line 282) - cleans up tracking state
+- `UpdateOnRails(double ut)` (called from ParsekFlight.Update line 438) - updates on-rails background recordings
+- `OnBackgroundPhysicsFrame(Vessel bgVessel)` - called from PhysicsFramePatch (line 67) for loaded background vessels
+- `Shutdown()` (line 479) - cleans up all background states
 
 In `PhysicsFramePatch.cs`:
-- `BackgroundRecorderInstance` field (line 27) — currently always null
+- `BackgroundRecorderInstance` field (line 27) - currently always null
 - Postfix checks `BackgroundRecorderInstance != null` (line 62) and dispatches non-active vessels to it
 
 ---
 
-### 3. Tree Lifecycle — When Is the Tree Created?
+### 3. Tree Lifecycle - When Is the Tree Created?
 
 #### 3.1 Design Decision: Create on First Split, Not at Launch
 
@@ -182,7 +182,7 @@ In `PhysicsFramePatch.cs`:
 **Option B (create on first split):** Standalone recordings work exactly as before. The tree is only created when the first split event occurs. This preserves backward compatibility and simplicity for the common case.
 
 **Decision: Option B.** The tree is created on the first split event. This means:
-- A standalone recording (no undock/EVA) stays as a standalone recording — no tree overhead
+- A standalone recording (no undock/EVA) stays as a standalone recording - no tree overhead
 - When the first split occurs, the existing standalone recording is "wrapped" into a tree as the root node
 - All subsequent splits add branches to this tree
 
@@ -225,7 +225,7 @@ When `OnPartUndock`, `OnCrewOnEva`, or `OnPartJointBreak` fires during active re
 6. **Stop chain infrastructure:**
    - Stop any existing undock continuation (`StopUndockContinuation`)
    - Stop any existing vessel continuation (`StopContinuation`)
-   - Do NOT start new continuations — the tree handles them
+   - Do NOT start new continuations - the tree handles them
 
 #### 3.3 Wrapping the Existing Recording into the Root Node
 
@@ -292,7 +292,7 @@ IEnumerator DeferredUndockBranch(uint newVesselPid, Vessel undockedVessel)
     // 3. Debris filter
     if (!IsTrackableVessel(newVessel))
     {
-        // Not trackable — record as part event only (existing behavior)
+        // Not trackable - record as part event only (existing behavior)
         // Part event already recorded by OnPartJointBreak/OnPartDie
         return;
     }
@@ -332,14 +332,14 @@ void OnCrewOnEva(GameEvents.FromToAction<Part, Part> data)
         if (string.IsNullOrEmpty(kerbalName)) return;
 
         // TREE MODE: create branch
-        // Note: EVA is immediate (no deferred snapshot needed — both vessels exist now)
+        // Note: EVA is immediate (no deferred snapshot needed - both vessels exist now)
         // However, the EVA kerbal vessel may not be the active vessel yet.
         // Defer by one frame to let the vessel switch complete.
         StartCoroutine(DeferredEvaBranch(kerbalName, data));
         return;
     }
 
-    // EVA from pad (not recording) — unchanged
+    // EVA from pad (not recording) - unchanged
     // ...existing code...
 }
 ```
@@ -357,7 +357,7 @@ void OnCrewOnEva(GameEvents.FromToAction<Part, Part> data)
 - `VesselSpawner.RemoveSpecificCrewFromSnapshot` to strip EVA'd crew from the vessel's spawn snapshot
 - Identification of which recording is an EVA kerbal vs. a vessel
 
-**pendingAutoRecord:** In legacy mode, this flag triggers auto-recording for the EVA kerbal after vessel switch completes. In tree mode, we don't use this flag — the tree branch creates the child recording directly.
+**pendingAutoRecord:** In legacy mode, this flag triggers auto-recording for the EVA kerbal after vessel switch completes. In tree mode, we don't use this flag - the tree branch creates the child recording directly.
 
 **Chain metadata:** In tree mode, EVA does NOT create chain segments. `activeChainId`, `pendingChainContinuation`, `pendingChainEvaName` are NOT set. The tree branch replaces all of this.
 
@@ -379,7 +379,7 @@ The joint break handler itself stays in FlightRecorder (it records the part even
 
 **Option C:** Move the joint break subscription to ParsekFlight entirely.
 
-**Decision: Option A** — simplest, mirrors the existing `DockMergePending`/`UndockSwitchPending` pattern. FlightRecorder sets a flag and list of candidate PIDs; ParsekFlight checks in Update() with a one-frame delay.
+**Decision: Option A** - simplest, mirrors the existing `DockMergePending`/`UndockSwitchPending` pattern. FlightRecorder sets a flag and list of candidate PIDs; ParsekFlight checks in Update() with a one-frame delay.
 
 #### 6.3 Modified OnPartJointBreak
 
@@ -395,7 +395,7 @@ private void OnPartJointBreak(PartJoint joint, float breakForce)
     PartEvents.Add(new PartEvent { ... });
 
     // NEW: Signal potential vessel split for deferred check
-    // Record the child part's vessel PID — after one frame, this may become
+    // Record the child part's vessel PID - after one frame, this may become
     // a new vessel if the break split the vessel in two.
     pendingJointBreakPartPids.Add(joint.Child.persistentId);
 }
@@ -418,7 +418,7 @@ After one frame:
 
 **Practical complexity:** Joint breaks can fire multiple times in one frame for a multi-part breakup. The deferred check runs once after one frame and collects ALL new vessels from that breakup, creating one branch per trackable new vessel. The deduplication guard (last branch UT) prevents multiple branches at the same UT.
 
-**Simplification for v1:** Joint break vessel splits that produce trackable vessels are rare (usually structural failures on crewed vessels). The common case (staging) produces debris that fails the debris filter. This path can be conservative — if in doubt, don't branch.
+**Simplification for v1:** Joint break vessel splits that produce trackable vessels are rare (usually structural failures on crewed vessels). The common case (staging) produces debris that fails the debris filter. This path can be conservative - if in doubt, don't branch.
 
 ---
 
@@ -464,7 +464,7 @@ When the new vessel fails the debris filter:
 
 - **Fairings:** `FairingJettisoned` part events already handle fairing ghost visuals. Fairings have no `ModuleCommand`, so they fail the filter. Correct.
 - **Heat shields:** No command module, fail the filter. Correct.
-- **Probe cores on upper stages:** Have `ModuleCommand` (with `minimumCrew=0`), pass the filter, get a branch. Correct. [ORCHESTRATOR FIX: `ModuleProbeCore` does not exist in KSP — probe cores use `ModuleCommand`.]
+- **Probe cores on upper stages:** Have `ModuleCommand` (with `minimumCrew=0`), pass the filter, get a branch. Correct. [ORCHESTRATOR FIX: `ModuleProbeCore` does not exist in KSP - probe cores use `ModuleCommand`.]
 - **EVA kerbals:** Not checked by this filter (EVA uses a separate code path). EVA kerbals always get a branch.
 - **Asteroids (claw release):** `VesselType.SpaceObject` passes the filter, gets a branch. Correct per design doc line 170.
 
@@ -480,7 +480,7 @@ This handles the `SpaceObject` check. The module check requires live Part object
 
 ---
 
-### 8. Deduplication — "Last Branch UT" Guard
+### 8. Deduplication - "Last Branch UT" Guard
 
 #### 8.1 Problem
 
@@ -567,7 +567,7 @@ The `GhostVisualSnapshot` for the root was already captured at recording start (
 
 ---
 
-### 10. Child Recording Creation — `CreateSplitBranch`
+### 10. Child Recording Creation - `CreateSplitBranch`
 
 #### 10.1 Method Signature
 
@@ -670,9 +670,9 @@ if (branchType == BranchPointType.EVA)
 
 After the one-frame deferral:
 - For undock: `FlightGlobals.ActiveVessel` is the player's vessel. The undocked vessel is `newVessel`.
-- For EVA: `FlightGlobals.ActiveVessel` is the EVA kerbal. The vessel is `newVessel` = the ship the kerbal left. Wait — actually, in `OnCrewOnEva`, `data.from` is the vessel part and `data.to` is the EVA kerbal part. After one frame, the active vessel is the EVA kerbal. The "new vessel" for branching purposes depends on perspective.
+- For EVA: `FlightGlobals.ActiveVessel` is the EVA kerbal. The vessel is `newVessel` = the ship the kerbal left. Wait - actually, in `OnCrewOnEva`, `data.from` is the vessel part and `data.to` is the EVA kerbal part. After one frame, the active vessel is the EVA kerbal. The "new vessel" for branching purposes depends on perspective.
 
-**Clarification for EVA:** After EVA, the original vessel is NOT a "new" vessel — it retains its PID. The EVA kerbal IS the new vessel. So:
+**Clarification for EVA:** After EVA, the original vessel is NOT a "new" vessel - it retains its PID. The EVA kerbal IS the new vessel. So:
 - `newVesselPid` = EVA kerbal's vessel PID
 - `recorder.RecordingVesselId` = original vessel PID (the one we were recording)
 - Active vessel after switch = EVA kerbal
@@ -733,7 +733,7 @@ Per the Task 2 plan (section 7.3): "Chain events during tree mode explicitly def
 
 **Implementation:** At the top of `OnPartUndock` and `OnCrewOnEva` (mid-recording path), check if we should use tree branching vs. chain logic. The decision is simple: **always use tree branching when recording.**
 
-The rationale: once we create the first tree branch, ALL subsequent events should use tree semantics. And the first undock/EVA creates the tree. So effectively, every undock/EVA during recording creates a tree branch. The legacy chain logic only runs when the player is NOT recording (which doesn't apply to these events — they only fire during active recording).
+The rationale: once we create the first tree branch, ALL subsequent events should use tree semantics. And the first undock/EVA creates the tree. So effectively, every undock/EVA during recording creates a tree branch. The legacy chain logic only runs when the player is NOT recording (which doesn't apply to these events - they only fire during active recording).
 
 **Guard:** If for some reason tree creation fails (e.g., vessel not found after deferral), fall back to legacy chain behavior. This ensures no data loss.
 
@@ -765,7 +765,7 @@ After tree creation, `recorder.ActiveTree = activeTree` is set. This means `Deci
 - Switching to a background tree vessel → `PromoteFromBackground`
 - Switching to a non-tree vessel → `TransitionToBackground`
 
-The existing `UndockSiblingPid` check (line 3838) fires before tree checks. **In tree mode, we should NOT set `UndockSiblingPid`** — otherwise undock switches would be intercepted by the legacy `UndockSwitch` decision before the tree decisions can fire. Set `recorder.UndockSiblingPid = 0` when creating the new recorder after a tree branch.
+The existing `UndockSiblingPid` check (line 3838) fires before tree checks. **In tree mode, we should NOT set `UndockSiblingPid`** - otherwise undock switches would be intercepted by the legacy `UndockSwitch` decision before the tree decisions can fire. Set `recorder.UndockSiblingPid = 0` when creating the new recorder after a tree branch.
 
 #### 12.5 EVA Boarding During Tree Mode
 
@@ -773,7 +773,7 @@ When an EVA kerbal boards a vessel that's already in the tree (or the vessel the
 - `DecideOnVesselSwitch` returns `ChainToVessel` (line 3847-3848, EVA→vessel)
 - This takes priority over tree decisions (per Task 2 design)
 - The existing chain handling runs (`ChainToVesselPending` → `CommitChainSegment` → start new recording)
-- This is **incorrect for tree semantics** but **acceptable** — Task 5 will intercept boarding events and create proper merge branch points
+- This is **incorrect for tree semantics** but **acceptable** - Task 5 will intercept boarding events and create proper merge branch points
 
 ---
 
@@ -783,22 +783,22 @@ New file: `Source/Parsek.Tests/SplitEventDetectionTests.cs`
 
 Tests that can run without Unity:
 
-1. **`IsTrackableVesselType_SpaceObject_ReturnsTrue`** — VesselType.SpaceObject always trackable
-2. **`IsTrackableVesselType_Debris_ReturnsFalse`** — VesselType.Debris not trackable
-3. **`IsTrackableVesselType_Ship_ReturnsFalse`** — VesselType.Ship alone not trackable (need module check)
-4. **`DeduplicationGuard_SameUT_SamePid_SkipsDuplicate`** — last branch UT/PID guard works
-5. **`DeduplicationGuard_SameUT_DifferentPid_AllowsBranch`** — different PIDs at same UT are allowed
-6. **`DeduplicationGuard_DifferentUT_AllowsBranch`** — different UTs always allowed
-7. **`CreateSplitBranch_CreatesCorrectBranchPoint`** — synthetic: verify BranchPoint fields
-8. **`CreateSplitBranch_CreatesCorrectChildRecordings`** — synthetic: verify child Recording fields
-9. **`CreateSplitBranch_ParentRecordingHasChildBranchPointId`** — verify parent linkage
-10. **`CreateSplitBranch_EvaBranch_KerbalIsActive_VesselIsBackground`** — verify EVA active/bg assignment
-11. **`CreateSplitBranch_UndockBranch_PlayerVesselIsActive`** — verify undock active/bg assignment
-12. **`TreeCreation_FirstSplit_WrapsExistingRecording`** — verify root recording created from existing data
-13. **`TreeCreation_FirstSplit_SetsTreeId`** — verify TreeId set on all recordings
-14. **`BackgroundMap_ContainsBackgroundChild_AfterSplit`** — verify BackgroundMap population
-15. **`EvaBranch_SetsEvaCrewName`** — verify EvaCrewName on kerbal child
-16. **`EvaBranch_SetsParentRecordingId`** — verify ParentRecordingId on kerbal child
+1. **`IsTrackableVesselType_SpaceObject_ReturnsTrue`** - VesselType.SpaceObject always trackable
+2. **`IsTrackableVesselType_Debris_ReturnsFalse`** - VesselType.Debris not trackable
+3. **`IsTrackableVesselType_Ship_ReturnsFalse`** - VesselType.Ship alone not trackable (need module check)
+4. **`DeduplicationGuard_SameUT_SamePid_SkipsDuplicate`** - last branch UT/PID guard works
+5. **`DeduplicationGuard_SameUT_DifferentPid_AllowsBranch`** - different PIDs at same UT are allowed
+6. **`DeduplicationGuard_DifferentUT_AllowsBranch`** - different UTs always allowed
+7. **`CreateSplitBranch_CreatesCorrectBranchPoint`** - synthetic: verify BranchPoint fields
+8. **`CreateSplitBranch_CreatesCorrectChildRecordings`** - synthetic: verify child Recording fields
+9. **`CreateSplitBranch_ParentRecordingHasChildBranchPointId`** - verify parent linkage
+10. **`CreateSplitBranch_EvaBranch_KerbalIsActive_VesselIsBackground`** - verify EVA active/bg assignment
+11. **`CreateSplitBranch_UndockBranch_PlayerVesselIsActive`** - verify undock active/bg assignment
+12. **`TreeCreation_FirstSplit_WrapsExistingRecording`** - verify root recording created from existing data
+13. **`TreeCreation_FirstSplit_SetsTreeId`** - verify TreeId set on all recordings
+14. **`BackgroundMap_ContainsBackgroundChild_AfterSplit`** - verify BackgroundMap population
+15. **`EvaBranch_SetsEvaCrewName`** - verify EvaCrewName on kerbal child
+16. **`EvaBranch_SetsParentRecordingId`** - verify ParentRecordingId on kerbal child
 
 **Testing strategy:** Most of these tests work with synthetic `RecordingTree` objects (no Unity dependency). Tests 7-16 test the data model output of `CreateSplitBranch` but the method itself needs Unity (`FlightGlobals`, `Vessel`, etc.). Extract the pure data-model logic into a static testable helper:
 
@@ -817,7 +817,7 @@ This pure method creates the `BranchPoint` and child `Recording` objects without
 
 ### 14. In-Game Test Scenarios
 
-1. **Basic undock — controllable vessel splits:** Launch a two-stage rocket where the upper stage has a probe core. Stage → verify the lower booster (no command module) does NOT create a branch. Undock the probe-equipped upper stage → verify a branch IS created. Check `KSP.log` for tree creation and branch point messages.
+1. **Basic undock - controllable vessel splits:** Launch a two-stage rocket where the upper stage has a probe core. Stage → verify the lower booster (no command module) does NOT create a branch. Undock the probe-equipped upper stage → verify a branch IS created. Check `KSP.log` for tree creation and branch point messages.
 
 2. **EVA mid-recording:** Launch with crew, start recording (auto or F9), EVA a kerbal → verify tree created with EVA branch. Switch back to vessel → verify `PromoteFromBackground` fires. Revert → verify tree dialog shows both vessels.
 
@@ -839,7 +839,7 @@ This pure method creates the `BranchPoint` and child `Recording` objects without
 |------|---------|
 | `Source/Parsek/ParsekFlight.cs` | New `CreateSplitBranch` method, `DeferredUndockBranch` coroutine, `DeferredEvaBranch` coroutine, `IsTrackableVessel` static method, `lastBranchUT`/`lastBranchVesselPids` fields, modified `OnPartUndock` (tree branch instead of chain), modified `OnCrewOnEva` (tree branch instead of chain), deferred joint break check in Update(), BackgroundRecorder instantiation on first tree creation, `OnFlightReady` reset of new fields |
 | `Source/Parsek/FlightRecorder.cs` | New `pendingJointBreakPartPids` field, modified `OnPartJointBreak` (signal potential split), `HasPendingJointBreakChecks` property, `ConsumePendingJointBreakPids` method |
-| `Source/Parsek.Tests/SplitEventDetectionTests.cs` | New test file — unit tests for debris filter, deduplication, branch data model |
+| `Source/Parsek.Tests/SplitEventDetectionTests.cs` | New test file - unit tests for debris filter, deduplication, branch data model |
 
 ---
 
@@ -849,17 +849,17 @@ This pure method creates the `BranchPoint` and child `Recording` objects without
 
 2. **Add deduplication fields** (`lastBranchUT`, `lastBranchVesselPids`) to ParsekFlight. Reset in `OnFlightReady` and `OnSceneChangeRequested`.
 
-3. **Add `BuildSplitBranchData` static helper** — pure data-model branch creation logic, testable without Unity.
+3. **Add `BuildSplitBranchData` static helper** - pure data-model branch creation logic, testable without Unity.
 
-4. **Add `CreateSplitBranch` method** to ParsekFlight — orchestrates tree creation (or extension), calls `BuildSplitBranchData`, handles snapshots, creates recorder, wires BackgroundRecorder.
+4. **Add `CreateSplitBranch` method** to ParsekFlight - orchestrates tree creation (or extension), calls `BuildSplitBranchData`, handles snapshots, creates recorder, wires BackgroundRecorder.
 
 5. **Add `DeferredUndockBranch` coroutine** to ParsekFlight.
 
-6. **Modify `OnPartUndock`** — intercept with tree branching when recording, bypass chain logic.
+6. **Modify `OnPartUndock`** - intercept with tree branching when recording, bypass chain logic.
 
 7. **Add `DeferredEvaBranch` coroutine** to ParsekFlight.
 
-8. **Modify `OnCrewOnEva` (mid-recording path)** — intercept with tree branching, bypass chain logic.
+8. **Modify `OnCrewOnEva` (mid-recording path)** - intercept with tree branching, bypass chain logic.
 
 9. **Add joint break signaling** to FlightRecorder (`pendingJointBreakPartPids`, `HasPendingJointBreakChecks`, `ConsumePendingJointBreakPids`).
 
@@ -869,9 +869,9 @@ This pure method creates the `BranchPoint` and child `Recording` objects without
 
 12. **Write unit tests** for `BuildSplitBranchData`, deduplication guard, vessel type filter.
 
-13. **Run `dotnet test`** — all existing + new tests pass.
+13. **Run `dotnet test`** - all existing + new tests pass.
 
-14. **Run `dotnet build`** — verify compilation with KSP assemblies.
+14. **Run `dotnet build`** - verify compilation with KSP assemblies.
 
 ---
 
@@ -931,7 +931,7 @@ This way:
 
 #### 18.3 Fallback
 
-If the deferred coroutine fails (vessel not found, debris filtered, etc.), the captured recording data must not be lost. **Fallback:** fall back to legacy chain behavior — set `pendingUndockOtherPid` and let the existing `Update()` handler commit it as a chain segment.
+If the deferred coroutine fails (vessel not found, debris filtered, etc.), the captured recording data must not be lost. **Fallback:** fall back to legacy chain behavior - set `pendingUndockOtherPid` and let the existing `Update()` handler commit it as a chain segment.
 
 However, this is complex. **Simpler approach:** if tree creation fails, create a standalone recording from the captured data (StashPending + CommitPending) and log a warning. The split recording may be incomplete, but data is preserved.
 
@@ -976,7 +976,7 @@ When tree branching is active (which is always after the first split, since the 
 | `CommitDockUndockSegment` | Still needed for dock events (Task 5), and as fallback for non-tree mode |
 | `StartUndockContinuation` | Still needed for non-tree mode (manual recording start/stop without auto-record) |
 | `CommitChainSegment` | Still needed for non-tree EVA (when auto-record is off and player manually records) |
-| `CommitBoundarySplit` (atmosphere/SOI) | Still needed — these create intra-node chain segments, not tree branches |
+| `CommitBoundarySplit` (atmosphere/SOI) | Still needed - these create intra-node chain segments, not tree branches |
 | `pendingDockAsTarget` / `DockMergePending` | Dock events deferred to Task 5 |
 | `ChainToVesselPending` | Boarding events deferred to Task 5 |
 
@@ -995,16 +995,16 @@ The key question: when a split event fires, should we ALWAYS use tree branching,
 
 ### 21. Summary of Key Design Decisions
 
-1. **Tree created on first split, not at launch** — preserves simplicity for standalone recordings
-2. **Always use tree branching during recording** — no mixed chain+tree mode for split events
-3. **Recorder stopped synchronously, tree built in deferred coroutine** — avoids race with OnPhysicsFrame
-4. **UndockSiblingPid = 0 in tree mode** — prevents legacy UndockSwitch from intercepting tree vessel switches
-5. **Undock continuation NOT started in tree mode** — BackgroundRecorder handles it
-6. **Debris filter: ModuleCommand || VesselType.SpaceObject** — [ORCHESTRATOR FIX] `ModuleProbeCore` doesn't exist in KSP; `ModuleCommand` covers both crewed pods and probe cores
-7. **Deduplication: lastBranchUT + lastBranchVesselPids** — handles multi-part breakup and rapid events
-8. **One-frame deferral via coroutine** — per design doc, ensures KSP finalizes vessel split
-9. **EVA child gets EvaCrewName + ParentRecordingId** — preserves crew stripping at spawn time
-10. **BuildSplitBranchData extracted as pure static** — testable without Unity
+1. **Tree created on first split, not at launch** - preserves simplicity for standalone recordings
+2. **Always use tree branching during recording** - no mixed chain+tree mode for split events
+3. **Recorder stopped synchronously, tree built in deferred coroutine** - avoids race with OnPhysicsFrame
+4. **UndockSiblingPid = 0 in tree mode** - prevents legacy UndockSwitch from intercepting tree vessel switches
+5. **Undock continuation NOT started in tree mode** - BackgroundRecorder handles it
+6. **Debris filter: ModuleCommand || VesselType.SpaceObject** - [ORCHESTRATOR FIX] `ModuleProbeCore` doesn't exist in KSP; `ModuleCommand` covers both crewed pods and probe cores
+7. **Deduplication: lastBranchUT + lastBranchVesselPids** - handles multi-part breakup and rapid events
+8. **One-frame deferral via coroutine** - per design doc, ensures KSP finalizes vessel split
+9. **EVA child gets EvaCrewName + ParentRecordingId** - preserves crew stripping at spawn time
+10. **BuildSplitBranchData extracted as pure static** - testable without Unity
 
 ---
 
@@ -1022,8 +1022,8 @@ The key question: when a split event fires, should we ALWAYS use tree branching,
 
 5. **Fallback on tree creation failure** (IMPORTANT): If the deferred coroutine fails (debris filtered, vessel not found), the captured recording data should be committed as a standalone recording via `StashPending` + `CommitPending` path. Data preservation is the priority. Full legacy chain restoration is too complex for a fallback path.
 
-6. **Deduplication: use refined version with `lastBranchVesselPids` HashSet** (MINOR): The plan has two versions — the simple UT-only guard in section 4.3 and the refined version with PID tracking in section 8.3. Implementation must use the refined version. The UT-only guard would incorrectly reject legitimate multi-vessel splits at the same UT.
+6. **Deduplication: use refined version with `lastBranchVesselPids` HashSet** (MINOR): The plan has two versions - the simple UT-only guard in section 4.3 and the refined version with PID tracking in section 8.3. Implementation must use the refined version. The UT-only guard would incorrectly reject legitimate multi-vessel splits at the same UT.
 
-7. **`pendingJointBreakPartPids` simplification** (MINOR): The part PIDs stored in this field are never used — the deferred check scans `FlightGlobals.Vessels` for new vessels regardless. Simplify to a `bool pendingJointBreakCheck` flag instead.
+7. **`pendingJointBreakPartPids` simplification** (MINOR): The part PIDs stored in this field are never used - the deferred check scans `FlightGlobals.Vessels` for new vessels regardless. Simplify to a `bool pendingJointBreakCheck` flag instead.
 
 8. **EVA active/background assignment** (IMPORTANT): In the deferred coroutine, explicitly check `FlightGlobals.ActiveVessel.persistentId` to determine which child is active. If it matches the EVA kerbal → kerbal is active, vessel is background. If it matches the ship → ship is active, kerbal is background. Handle both cases; do not assume KSP's vessel switch has completed.

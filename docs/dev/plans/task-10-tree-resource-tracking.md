@@ -501,7 +501,7 @@ Each tree is independent. `ApplyTreeResourceDeltas` iterates all committed trees
 
 ## Orchestrator Review Fixes
 
-### Fix 1 — CRITICAL: `ApplyBudgetDeductionWhenReady` must include trees in `ComputeTotal`
+### Fix 1 - CRITICAL: `ApplyBudgetDeductionWhenReady` must include trees in `ComputeTotal`
 
 **Problem:** `ParsekScenario.ApplyBudgetDeductionWhenReady` (line 620) calls `ResourceBudget.ComputeTotal(RecordingStore.CommittedRecordings, MilestoneStore.Milestones)` WITHOUT passing `CommittedTrees`. After the plan's changes, tree recordings are skipped in the recording loop (TreeId != null → continue), but the tree-level deltas are never added because `trees` is null. Result: tree resource costs are silently not deducted on revert.
 
@@ -514,9 +514,9 @@ var budget = ResourceBudget.ComputeTotal(
     RecordingStore.CommittedTrees);
 ```
 
-### Fix 2 — CRITICAL: `ApplyBudgetDeductionWhenReady` must mark `tree.ResourcesApplied = true`
+### Fix 2 - CRITICAL: `ApplyBudgetDeductionWhenReady` must mark `tree.ResourcesApplied = true`
 
-**Problem:** Lines 673-685 mark per-recording `LastAppliedResourceIndex` to the end so ghost replay doesn't re-apply deltas. But trees are never marked — `ResourcesApplied` stays `false`, so tree lump sums get double-applied (once by budget deduction, once by `ApplyTreeResourceDeltas` during playback).
+**Problem:** Lines 673-685 mark per-recording `LastAppliedResourceIndex` to the end so ghost replay doesn't re-apply deltas. But trees are never marked - `ResourcesApplied` stays `false`, so tree lump sums get double-applied (once by budget deduction, once by `ApplyTreeResourceDeltas` during playback).
 
 **Fix:** After the recording marking loop (line 685), add a tree marking loop:
 
@@ -534,18 +534,18 @@ for (int i = 0; i < committedTrees.Count; i++)
 ParsekLog.Verbose("Scenario", $"  Marked {treeMarked} tree(s) as ResourcesApplied");
 ```
 
-### Fix 3 — IMPORTANT: Set `ResourcesApplied = true` BEFORE `CommitTree` in `CommitTreeFlight`
+### Fix 3 - IMPORTANT: Set `ResourcesApplied = true` BEFORE `CommitTree` in `CommitTreeFlight`
 
 **Problem:** The plan says to set `activeTree.ResourcesApplied = true` in `CommitTreeFlight`, but doesn't specify exactly where. If it's set after `RecordingStore.CommitTree(activeTree)` (line 3151) and after `SpawnTreeLeaves` (line 3154), there is a window where tree is committed but `ResourcesApplied` is false. If an unexpected scene change fires in between, `ComputeTotal` would report it as unreplayed and budget deduction would double-count.
 
 **Fix:** Set `ResourcesApplied = true` immediately after computing the delta in `FinalizeTreeRecordings`, before `CommitTree`. Specifically: in `CommitTreeFlight`, after `FinalizeTreeRecordings` returns (line 3112), before `CommitTree` (line 3151):
 
 ```csharp
-// Tree resources are already live in the game — mark as applied
+// Tree resources are already live in the game - mark as applied
 activeTree.ResourcesApplied = true;
 ```
 
-### Fix 4 — IMPORTANT: Mark ALL tree recording `LastAppliedResourceIndex` in `CommitTreeFlight`
+### Fix 4 - IMPORTANT: Mark ALL tree recording `LastAppliedResourceIndex` in `CommitTreeFlight`
 
 **Problem:** The plan mentions marking per-recording `LastAppliedResourceIndex` for all tree recordings (Section 7), but the implementation order puts it as a note. The existing code only marks the active recording at line 3126. Background recordings in the tree that have trajectory points would still have `LastAppliedResourceIndex = 0`, which doesn't cause incorrect delta application (tree recordings skip `ApplyResourceDeltas`), but creates misleading state.
 
@@ -561,11 +561,11 @@ foreach (var rec in activeTree.Recordings.Values)
 
 This should be placed before `RecordingStore.CommitTree(activeTree)`. The existing line 3126 (active recording only) can remain since it's a subset of this loop.
 
-### Fix 5 — IMPORTANT: `ApplyTreeResourceDeltas` must check `ShouldPauseTimelineResourceReplay`
+### Fix 5 - IMPORTANT: `ApplyTreeResourceDeltas` must check `ShouldPauseTimelineResourceReplay`
 
-**Problem:** The plan's `ApplyTreeLumpSum` method includes the `ShouldPauseTimelineResourceReplay` check, but the outer `ApplyTreeResourceDeltas` method does not. If `ShouldPauseTimelineResourceReplay` returns true, `ApplyTreeLumpSum` returns early WITHOUT setting `ResourcesApplied = true` — which is correct (it should retry next frame). But the plan should make clear that the `ResourcesApplied = true` line is inside `ApplyTreeLumpSum`, after the successful application, NOT in `ApplyTreeResourceDeltas`.
+**Problem:** The plan's `ApplyTreeLumpSum` method includes the `ShouldPauseTimelineResourceReplay` check, but the outer `ApplyTreeResourceDeltas` method does not. If `ShouldPauseTimelineResourceReplay` returns true, `ApplyTreeLumpSum` returns early WITHOUT setting `ResourcesApplied = true` - which is correct (it should retry next frame). But the plan should make clear that the `ResourcesApplied = true` line is inside `ApplyTreeLumpSum`, after the successful application, NOT in `ApplyTreeResourceDeltas`.
 
-**Fix:** The plan already has this correctly structured — `tree.ResourcesApplied = true` is set after `ApplyTreeLumpSum(tree)` returns in `ApplyTreeResourceDeltas`. But `ApplyTreeLumpSum` does an early return when paused, and the caller still sets `ResourcesApplied = true`. Move the flag set INSIDE `ApplyTreeLumpSum` at the end (after successful application), and remove it from the caller:
+**Fix:** The plan already has this correctly structured - `tree.ResourcesApplied = true` is set after `ApplyTreeLumpSum(tree)` returns in `ApplyTreeResourceDeltas`. But `ApplyTreeLumpSum` does an early return when paused, and the caller still sets `ResourcesApplied = true`. Move the flag set INSIDE `ApplyTreeLumpSum` at the end (after successful application), and remove it from the caller:
 
 ```csharp
 void ApplyTreeResourceDeltas(double currentUT)
@@ -600,13 +600,13 @@ void ApplyTreeLumpSum(RecordingTree tree)
 }
 ```
 
-### Fix 6 — NOT A BUG: Milestone double-counting with trees
+### Fix 6 - NOT A BUG: Milestone double-counting with trees
 
 **Analysis:** The review flagged that `ComputeTotal` might double-count milestones because tree recordings exist in the same epoch as milestone events. After tracing the code:
 
 - Tree recordings exist during flight (launch → revert/commit)
 - Milestones track non-flight actions: tech research, part purchases, facility upgrades, crew hires
-- `MilestoneCommittedFunds/Science` (ResourceBudget.cs lines 120-159) sums costs from `Milestone.Events` — these are `GameStateEvent` entries of types like `TechResearched`, `PartPurchased`, `FacilityUpgraded`, `CrewHired`
+- `MilestoneCommittedFunds/Science` (ResourceBudget.cs lines 120-159) sums costs from `Milestone.Events` - these are `GameStateEvent` entries of types like `TechResearched`, `PartPurchased`, `FacilityUpgraded`, `CrewHired`
 - Contract rewards are `GameStateEvent` entries processed by `GameStateRecorder`, NOT milestone costs
 - There is no overlap: tree deltas capture flight-time resource changes, milestones capture non-flight actions
 

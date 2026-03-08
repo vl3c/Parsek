@@ -829,7 +829,7 @@ When a tree is committed, its recordings are added to `CommittedRecordings`. If 
 
 The plan review identified 4 CRITICAL and 7 IMPORTANT issues. Each is analyzed below with the resolution for the implementation agent.
 
-### Fix 1 (CRITICAL) — `SaveRecordingInto` missing mutable state fields
+### Fix 1 (CRITICAL) - `SaveRecordingInto` missing mutable state fields
 
 **Problem (C2):** `RecordingTree.SaveRecordingInto` (line 128 of RecordingTree.cs) does NOT save these mutable per-recording fields: `SpawnedVesselPersistentId` (`spawnedPid`), `VesselDestroyed` (`vesselDestroyed`), `TakenControl` (`takenControl`), `LastAppliedResourceIndex` (`lastResIdx`), `Points.Count` (`pointCount`). These fields are saved by `ParsekScenario.OnSave` for standalone recordings (lines 56-83 of ParsekScenario.cs) but NOT by `RecordingTree.SaveRecordingInto`. After save/load, tree recordings lose spawn tracking, resource application state, and playback enabled state.
 
@@ -847,9 +847,9 @@ recNode.AddValue("lastResIdx", rec.LastAppliedResourceIndex);
 recNode.AddValue("pointCount", rec.Points != null ? rec.Points.Count : 0);
 ```
 
-### Fix 2 (CRITICAL) — `LoadRecordingFrom` missing mutable state fields
+### Fix 2 (CRITICAL) - `LoadRecordingFrom` missing mutable state fields
 
-**Problem (C3):** `RecordingTree.LoadRecordingFrom` (line 224 of RecordingTree.cs) does NOT load the mutable fields listed in Fix 1. After loading a tree, all recordings would have `SpawnedVesselPersistentId=0`, `VesselDestroyed=false`, `TakenControl=false`, `LastAppliedResourceIndex=-1` — causing duplicate spawns and duplicate resource deltas.
+**Problem (C3):** `RecordingTree.LoadRecordingFrom` (line 224 of RecordingTree.cs) does NOT load the mutable fields listed in Fix 1. After loading a tree, all recordings would have `SpawnedVesselPersistentId=0`, `VesselDestroyed=false`, `TakenControl=false`, `LastAppliedResourceIndex=-1` - causing duplicate spawns and duplicate resource deltas.
 
 **Resolution:** Add loading of these fields to `LoadRecordingFrom`:
 ```csharp
@@ -883,38 +883,38 @@ if (resIdxStr != null)
     if (int.TryParse(resIdxStr, NumberStyles.Integer, ic, out resIdx))
         rec.LastAppliedResourceIndex = resIdx;
 }
-// pointCount is informational — Points list is loaded from sidecar file
+// pointCount is informational - Points list is loaded from sidecar file
 ```
 
-### Fix 3 (CRITICAL) — `ReserveCrewIn` is private
+### Fix 3 (CRITICAL) - `ReserveCrewIn` is private
 
 **Problem (C4):** `ParsekScenario.ReserveCrewIn` is `private static` (line 764 of ParsekScenario.cs). The plan calls it directly from `ParsekFlight.CommitTreeFlight` for each leaf vessel. This won't compile.
 
-**Resolution:** Change `private static` to `internal static` on `ReserveCrewIn`. This follows the established pattern — other ParsekScenario methods used by ParsekFlight are already `internal` (e.g., `SaveRecordingMetadata`, `ResetReplacementsForTesting`).
+**Resolution:** Change `private static` to `internal static` on `ReserveCrewIn`. This follows the established pattern - other ParsekScenario methods used by ParsekFlight are already `internal` (e.g., `SaveRecordingMetadata`, `ResetReplacementsForTesting`).
 
-### Fix 4 (CRITICAL) — Design doc contradiction on scene exit behavior
+### Fix 4 (CRITICAL) - Design doc contradiction on scene exit behavior
 
 **Problem (C1):** The design doc says "Commit Event fires → each leaf vessel gets a ghost + a vessel spawned at last-known position". But the plan (Section 1, correctly) says scene exit should NOT spawn vessels and should null snapshots. This is consistent with existing standalone behavior.
 
-**Resolution:** The plan is correct. Scene exit auto-commit nulls vessel snapshots (no spawn). The design doc describes the "Commit Flight" button path where vessels DO spawn. The implementation agent should follow the plan as written — no change needed.
+**Resolution:** The plan is correct. Scene exit auto-commit nulls vessel snapshots (no spawn). The design doc describes the "Commit Flight" button path where vessels DO spawn. The implementation agent should follow the plan as written - no change needed.
 
-### Fix 5 (IMPORTANT) — `OnSceneChangeRequested` must set `recorder = null` after tree handling
+### Fix 5 (IMPORTANT) - `OnSceneChangeRequested` must set `recorder = null` after tree handling
 
-**Problem (I3):** After the tree commit block in `OnSceneChangeRequested` (lines 742-750), `recorder` is set to null. But the existing standalone stash block below (line 761) checks `if (recorder != null && recorder.Recording.Count > 0)`. If tree mode took the tree path, `recorder` is already null — the standalone block is safely skipped. **This is actually correct as-is.** But the plan's `CommitTreeSceneExit` method must ensure it sets `recorder = null` after processing to prevent the standalone block from double-processing.
+**Problem (I3):** After the tree commit block in `OnSceneChangeRequested` (lines 742-750), `recorder` is set to null. But the existing standalone stash block below (line 761) checks `if (recorder != null && recorder.Recording.Count > 0)`. If tree mode took the tree path, `recorder` is already null - the standalone block is safely skipped. **This is actually correct as-is.** But the plan's `CommitTreeSceneExit` method must ensure it sets `recorder = null` after processing to prevent the standalone block from double-processing.
 
 **Resolution:** Confirmed the existing code already handles this correctly. The plan's `CommitTreeSceneExit` should be called from within the existing tree block (lines 742-750), replacing the current placeholder logic. After `CommitTreeSceneExit` completes, `recorder` is set to null (line 749 already does this), so the standalone block at line 761 is safely skipped. No additional change needed.
 
-### Fix 6 (IMPORTANT) — Background recorder finalization order
+### Fix 6 (IMPORTANT) - Background recorder finalization order
 
 **Problem (I1):** In `CommitTreeSceneExit`, background recorders must be finalized BEFORE the tree is committed. The current `OnSceneChangeRequested` shuts down `backgroundRecorder` at lines 752-757 AFTER the tree block. For the commit path, the background recorder's data needs to be flushed to its tree recording BEFORE committing.
 
-**Resolution:** The plan's `FinalizeTreeRecordings` (Section 7) handles this correctly — it iterates all recordings and finalizes them. But the `OnSceneChangeRequested` flow must be restructured: move the background recorder shutdown INTO the tree commit block, before `CommitTreeSceneExit`. The implementation agent should restructure `OnSceneChangeRequested` so that for tree mode:
+**Resolution:** The plan's `FinalizeTreeRecordings` (Section 7) handles this correctly - it iterates all recordings and finalizes them. But the `OnSceneChangeRequested` flow must be restructured: move the background recorder shutdown INTO the tree commit block, before `CommitTreeSceneExit`. The implementation agent should restructure `OnSceneChangeRequested` so that for tree mode:
 1. Stop/flush active recorder to tree
 2. Shutdown background recorder (flush its data to tree recording)
 3. Call `CommitTreeSceneExit` (which calls `FinalizeTreeRecordings` then `CommitTree`)
 4. Set `recorder = null`, `backgroundRecorder = null`, `activeTree = null`
 
-### Fix 7 (IMPORTANT) — Ghost visual snapshot for tree recordings
+### Fix 7 (IMPORTANT) - Ghost visual snapshot for tree recordings
 
 **Problem (I5):** `GhostVisualSnapshot` must be set for each tree recording to enable ghost playback. For standalone recordings, this is set during `StopRecording` (the `CaptureAtStop` flow). For tree recordings, background vessels may not have had a snapshot captured since branch time.
 
@@ -922,19 +922,19 @@ if (resIdxStr != null)
 - Commit Flight: call `VesselSpawner.TryBackupSnapshot(vessel)` for each live background vessel, set `rec.GhostVisualSnapshot = snapshotNode`
 - Scene exit: set `rec.GhostVisualSnapshot = null` for recordings that don't already have one (existing ones keep theirs for ghost playback)
 
-### Fix 8 (IMPORTANT) — Index-based mutable state restoration breaks with trees
+### Fix 8 (IMPORTANT) - Index-based mutable state restoration breaks with trees
 
-**Problem (I7):** `ParsekScenario.OnLoad` (lines 217-252) restores mutable state by matching `recordings[i]` to `savedRecNodes[i]` — index-based. When tree recordings are added to `CommittedRecordings` (via Option A), they appear in the list but are NOT saved as standalone `RECORDING` nodes (they're saved under `RECORDING_TREE`). The count mismatch means wrong mutable state gets applied to wrong recordings.
+**Problem (I7):** `ParsekScenario.OnLoad` (lines 217-252) restores mutable state by matching `recordings[i]` to `savedRecNodes[i]` - index-based. When tree recordings are added to `CommittedRecordings` (via Option A), they appear in the list but are NOT saved as standalone `RECORDING` nodes (they're saved under `RECORDING_TREE`). The count mismatch means wrong mutable state gets applied to wrong recordings.
 
-**Resolution:** This problem is solved by Fix 1 and Fix 2 — tree recordings save/load their own mutable state within `RECORDING_TREE` → `RECORDING` nodes via `SaveRecordingInto`/`LoadRecordingFrom`. The standalone `ParsekScenario.OnSave` skips tree recordings (`if rec.TreeId != null: continue`), and the standalone `OnLoad` only processes standalone `RECORDING` nodes. The tree recordings are loaded separately from `RECORDING_TREE` nodes with their mutable state already embedded. After both standalone and tree recordings are loaded into `CommittedRecordings`, there is no index-mismatch issue because each source handles its own mutable state independently.
+**Resolution:** This problem is solved by Fix 1 and Fix 2 - tree recordings save/load their own mutable state within `RECORDING_TREE` → `RECORDING` nodes via `SaveRecordingInto`/`LoadRecordingFrom`. The standalone `ParsekScenario.OnSave` skips tree recordings (`if rec.TreeId != null: continue`), and the standalone `OnLoad` only processes standalone `RECORDING` nodes. The tree recordings are loaded separately from `RECORDING_TREE` nodes with their mutable state already embedded. After both standalone and tree recordings are loaded into `CommittedRecordings`, there is no index-mismatch issue because each source handles its own mutable state independently.
 
-### Fix 9 (IMPORTANT) — Revert snapshot preservation
+### Fix 9 (IMPORTANT) - Revert snapshot preservation
 
-**Problem (I4):** On revert, the in-memory `CommittedRecordings` list is the source of truth (existing pattern). The `initialLoadDone` guard prevents re-loading. But after tree commit, the tree recordings' `VesselSnapshot` must NOT be nulled out on revert — they need to survive for vessel spawning. The `RecordingTree.Save` → `Load` round-trip handles this for save/load, but on revert the in-memory state persists and the snapshots should already be present.
+**Problem (I4):** On revert, the in-memory `CommittedRecordings` list is the source of truth (existing pattern). The `initialLoadDone` guard prevents re-loading. But after tree commit, the tree recordings' `VesselSnapshot` must NOT be nulled out on revert - they need to survive for vessel spawning. The `RecordingTree.Save` → `Load` round-trip handles this for save/load, but on revert the in-memory state persists and the snapshots should already be present.
 
-**Resolution:** This is already correct. On revert, `initialLoadDone` is true, so `OnLoad` takes the early return path (line 200-276). It restores mutable state from the launch quicksave's `RECORDING` nodes (which don't include tree recordings — they were committed during the flight). Tree recordings stay in memory with their snapshots intact. The `VesselSpawned`/`SpawnedVesselPersistentId` fields reset naturally (launch quicksave has no spawned PID for these). No change needed.
+**Resolution:** This is already correct. On revert, `initialLoadDone` is true, so `OnLoad` takes the early return path (line 200-276). It restores mutable state from the launch quicksave's `RECORDING` nodes (which don't include tree recordings - they were committed during the flight). Tree recordings stay in memory with their snapshots intact. The `VesselSpawned`/`SpawnedVesselPersistentId` fields reset naturally (launch quicksave has no spawned PID for these). No change needed.
 
-### Fix 10 (IMPORTANT) — Scene change cleanup of new fields
+### Fix 10 (IMPORTANT) - Scene change cleanup of new fields
 
 **Problem (I6):** The plan must clean up all tree-related fields on scene change. The existing `OnSceneChangeRequested` (lines 727-738) already clears merge and split detection state. The new commit fields must also be cleared.
 
