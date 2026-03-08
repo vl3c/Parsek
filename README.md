@@ -42,10 +42,12 @@ Requires KSP 1.12.x.
 
 **Dependencies** (install these first):
 
-- [Module Manager](https://github.com/sarbian/ModuleManager)
-- [Harmony (HarmonyKSP)](https://github.com/KSPModdingLibs/HarmonyKSP)
-- [ClickThroughBlocker](https://github.com/linuxgurugamer/ClickThroughBlocker)
-- [ToolbarControl](https://github.com/linuxgurugamer/ToolbarControl)
+| Dependency | Author | License | Link |
+|------------|--------|---------|------|
+| Module Manager 4.2.3+ | sarbian | CC-BY-SA 3.0 | [GitHub](https://github.com/sarbian/ModuleManager) |
+| HarmonyKSP 2.2.1+ | KSPModdingLibs (pardeike) | MIT | [GitHub](https://github.com/KSPModdingLibs/HarmonyKSP) |
+| ClickThroughBlocker 1.10+ | linuxgurugamer | GPL-3.0 | [GitHub](https://github.com/linuxgurugamer/ClickThroughBlocker) |
+| ToolbarControl 1.0+ | linuxgurugamer | GPL-3.0 | [GitHub](https://github.com/linuxgurugamer/ToolbarControl) |
 
 Copy the `Parsek` folder into `GameData/`.
 
