@@ -229,6 +229,11 @@ namespace Parsek
         internal static int CommittedScienceSubjectCount => committedScienceSubjects.Count;
         internal static int OriginalScienceValueCount => originalScienceValues.Count;
 
+        internal static bool TryGetOriginalScience(string subjectId, out float science)
+        {
+            return originalScienceValues.TryGetValue(subjectId, out science);
+        }
+
         /// <summary>
         /// Records the original (pre-mutation) science value for a subject.
         /// Only stores the first value — subsequent calls for the same subject are ignored,
@@ -482,6 +487,7 @@ namespace Parsek
             events.Clear();
             contractSnapshots.Clear();
             committedScienceSubjects.Clear();
+            originalScienceValues.Clear();
 
             string path = RecordingPaths.ResolveSaveScopedPath(
                 RecordingPaths.BuildGameStateEventsRelativePath());

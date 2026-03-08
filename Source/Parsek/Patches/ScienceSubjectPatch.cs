@@ -24,7 +24,7 @@ namespace Parsek.Patches
         }
 
         [HarmonyPostfix]
-        [HarmonyPatch("GetSubjectByID")]
+        [HarmonyPatch("GetSubjectByID", typeof(string))]
         static void Postfix_GetSubjectByID(ScienceSubject __result)
         {
             ApplyCommittedScience(__result);
