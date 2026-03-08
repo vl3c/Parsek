@@ -820,24 +820,9 @@ namespace Parsek
             }
             ParsekLog.Verbose("Scenario", $"  Marked {treeMarked} tree(s) as ResourcesApplied");
 
-            // Mark all milestones as fully replayed (deduction already covers their costs)
-            var milestones = MilestoneStore.Milestones;
-            int mileMarked = 0;
-            for (int i = 0; i < milestones.Count; i++)
-            {
-                if (milestones[i].Events.Count > 0 && milestones[i].LastReplayedEventIndex < milestones[i].Events.Count - 1)
-                {
-                    int oldIdx = milestones[i].LastReplayedEventIndex;
-                    milestones[i].LastReplayedEventIndex = milestones[i].Events.Count - 1;
-                    mileMarked++;
-                    ParsekLog.Verbose("Scenario",
-                        $"  milestone {(milestones[i].MilestoneId != null && milestones[i].MilestoneId.Length >= 8 ? milestones[i].MilestoneId.Substring(0, 8) : milestones[i].MilestoneId ?? "?")}: lastReplayedEventIndex {oldIdx} → {milestones[i].LastReplayedEventIndex}");
-                }
-            }
-
             ParsekLog.Info("Scenario",
                 $"Budget deduction applied for epoch {MilestoneStore.CurrentEpoch} — " +
-                $"{recMarked} recording(s), {treeMarked} tree(s), and {mileMarked} milestone(s) marked as fully applied");
+                $"{recMarked} recording(s) and {treeMarked} tree(s) marked as fully applied");
         }
 
         /// <summary>
