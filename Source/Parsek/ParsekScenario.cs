@@ -1455,6 +1455,16 @@ namespace Parsek
         private void OnVesselRecovered(ProtoVessel pv, bool fromTrackingStation)
         {
             if (pv == null) return;
+
+            // During rewind, vessels are stripped from the save which fires onVesselRecovered.
+            // Ignore these — the recordings must keep their snapshots for ghost playback and spawning.
+            if (RecordingStore.IsRewinding)
+            {
+                ParsekLog.Info("Scenario",
+                    $"Ignoring recovery of '{pv.vesselName}' during rewind");
+                return;
+            }
+
             string vesselName = pv.vesselName;
             if (string.IsNullOrEmpty(vesselName)) return;
 
@@ -1467,6 +1477,7 @@ namespace Parsek
         private void OnVesselTerminated(ProtoVessel pv)
         {
             if (pv == null) return;
+            if (RecordingStore.IsRewinding) return;
             string vesselName = pv.vesselName;
             if (string.IsNullOrEmpty(vesselName)) return;
 
