@@ -194,7 +194,7 @@ namespace Parsek
             if (GUILayout.Button("Clear Current Recording"))
             {
                 ParsekLog.Verbose("UI", "Clear Current Recording button clicked");
-                flight.ClearRecording();
+                ShowClearRecordingConfirmation();
             }
 
             bool canCommitStandalone = !flight.IsRecording && !flight.IsPlaying
@@ -1177,6 +1177,29 @@ namespace Parsek
                     new DialogGUIButton("Cancel", () =>
                     {
                         ParsekLog.Info("Rewind", "User cancelled rewind confirmation");
+                    })
+                ),
+                false, HighLogic.UISkin);
+        }
+
+        private void ShowClearRecordingConfirmation()
+        {
+            PopupDialog.SpawnPopupDialog(
+                new Vector2(0.5f, 0.5f),
+                new Vector2(0.5f, 0.5f),
+                new MultiOptionDialog(
+                    "ParsekClearRecordingConfirm",
+                    "Discard the current recording?\n\nThis cannot be undone.",
+                    "Confirm Clear Recording",
+                    HighLogic.UISkin,
+                    new DialogGUIButton("Clear", () =>
+                    {
+                        ParsekLog.Info("UI", "User confirmed clear recording");
+                        flight.ClearRecording();
+                    }),
+                    new DialogGUIButton("Cancel", () =>
+                    {
+                        ParsekLog.Info("UI", "User cancelled clear recording");
                     })
                 ),
                 false, HighLogic.UISkin);
