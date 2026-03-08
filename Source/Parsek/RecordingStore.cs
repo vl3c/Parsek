@@ -26,6 +26,13 @@ namespace Parsek
         internal static double RewindAdjustedUT;
         internal static ResourceBudget.BudgetSummary RewindReserved;
 
+        // Baseline resource values from the rewind-target recording's PreLaunch snapshot.
+        // HighLogic.LoadScene does NOT restore Funding/R&D/Reputation from the save,
+        // so the coroutine uses these to force-set the correct baseline before applying deltas.
+        internal static double RewindBaselineFunds;
+        internal static double RewindBaselineScience;
+        internal static float RewindBaselineRep;
+
         private const string LegacyPrefix = "[Parsek] ";
 
         static void Log(string message)
@@ -737,6 +744,9 @@ namespace Parsek
             RewindUT = 0;
             RewindAdjustedUT = 0;
             RewindReserved = default(ResourceBudget.BudgetSummary);
+            RewindBaselineFunds = 0;
+            RewindBaselineScience = 0;
+            RewindBaselineRep = 0;
             GameStateRecorder.PendingScienceSubjects.Clear();
         }
 
@@ -969,10 +979,17 @@ namespace Parsek
                 reservedReputation = rec.RewindReservedRep
             };
 
+            // Baseline resources from the recording's pre-launch snapshot.
+            // The rewind save was captured at the same moment as PreLaunch values.
+            RewindBaselineFunds = rec.PreLaunchFunds;
+            RewindBaselineScience = rec.PreLaunchScience;
+            RewindBaselineRep = rec.PreLaunchReputation;
+
             if (!SuppressLogging)
                 ParsekLog.Info("Rewind",
                     $"Rewind initiated to UT {rec.StartUT} " +
                     $"(save: {rec.RewindSaveFileName}, " +
+                    $"baseline: funds={rec.PreLaunchFunds:F1}, sci={rec.PreLaunchScience:F1}, rep={rec.PreLaunchReputation:F1}, " +
                     $"reservedFunds: {rec.RewindReservedFunds:F1}, " +
                     $"reservedScience: {rec.RewindReservedScience:F1}, " +
                     $"reservedRep: {rec.RewindReservedRep:F1})");
@@ -1011,6 +1028,9 @@ namespace Parsek
                     RewindUT = 0;
                     RewindAdjustedUT = 0;
                     RewindReserved = default(ResourceBudget.BudgetSummary);
+                    RewindBaselineFunds = 0;
+                    RewindBaselineScience = 0;
+                    RewindBaselineRep = 0;
                     if (!SuppressLogging)
                         ParsekLog.Error("Rewind",
                             $"Rewind failed: LoadGame returned null for save '{rec.RewindSaveFileName}'. " +
@@ -1041,6 +1061,9 @@ namespace Parsek
                 RewindUT = 0;
                 RewindAdjustedUT = 0;
                 RewindReserved = default(ResourceBudget.BudgetSummary);
+                RewindBaselineFunds = 0;
+                RewindBaselineScience = 0;
+                RewindBaselineRep = 0;
 
                 // Clean up temp copy on failure
                 if (tempCopyName != null)
