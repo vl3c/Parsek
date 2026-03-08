@@ -1636,6 +1636,133 @@ namespace Parsek.Tests
             Assert.Empty(GameStateRecorder.PendingScienceSubjects);
         }
 
+        [Fact]
+        public void RecordOriginalScience_TracksFirstValueOnly()
+        {
+            GameStateStore.ResetForTesting();
+
+            GameStateStore.RecordOriginalScience("crewReport@Kerbin", 0.0f);
+            Assert.Equal(1, GameStateStore.OriginalScienceValueCount);
+
+            // Second call for same subject — should NOT update
+            GameStateStore.RecordOriginalScience("crewReport@Kerbin", 2.0f);
+            Assert.Equal(1, GameStateStore.OriginalScienceValueCount);
+
+            // Different subject — should add
+            GameStateStore.RecordOriginalScience("tempScan@Mun", 1.5f);
+            Assert.Equal(2, GameStateStore.OriginalScienceValueCount);
+        }
+
+        [Fact]
+        public void ClearScienceSubjects_ClearsOriginalsAndCommitted()
+        {
+            GameStateStore.ResetForTesting();
+
+            GameStateStore.CommitScienceSubjects(new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject { subjectId = "crewReport@Kerbin", science = 5.0f }
+            });
+            GameStateStore.RecordOriginalScience("crewReport@Kerbin", 0.0f);
+
+            Assert.Equal(1, GameStateStore.CommittedScienceSubjectCount);
+            Assert.Equal(1, GameStateStore.OriginalScienceValueCount);
+
+            GameStateStore.ClearScienceSubjects();
+
+            Assert.Equal(0, GameStateStore.CommittedScienceSubjectCount);
+            Assert.Equal(0, GameStateStore.OriginalScienceValueCount);
+        }
+
+        [Fact]
+        public void ResetForTesting_ClearsOriginalScienceValues()
+        {
+            GameStateStore.RecordOriginalScience("test", 1.0f);
+            Assert.Equal(1, GameStateStore.OriginalScienceValueCount);
+
+            GameStateStore.ResetForTesting();
+            Assert.Equal(0, GameStateStore.OriginalScienceValueCount);
+        }
+
+        [Fact]
+        public void OriginalScience_SerializeDeserialize_RoundTrip()
+        {
+            GameStateStore.ResetForTesting();
+
+            GameStateStore.CommitScienceSubjects(new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject { subjectId = "crewReport@Kerbin", science = 5.0f },
+                new PendingScienceSubject { subjectId = "tempScan@Mun", science = 3.0f }
+            });
+            GameStateStore.RecordOriginalScience("crewReport@Kerbin", 0.0f);
+            GameStateStore.RecordOriginalScience("tempScan@Mun", 1.5f);
+
+            // Serialize
+            var root = new ConfigNode("ROOT");
+            GameStateStore.SerializeScienceSubjectsInto(root);
+
+            // Reset and deserialize
+            GameStateStore.ResetForTesting();
+            Assert.Equal(0, GameStateStore.CommittedScienceSubjectCount);
+            Assert.Equal(0, GameStateStore.OriginalScienceValueCount);
+
+            GameStateStore.DeserializeScienceSubjectsFrom(root);
+
+            Assert.Equal(2, GameStateStore.CommittedScienceSubjectCount);
+            Assert.Equal(2, GameStateStore.OriginalScienceValueCount);
+
+            float sci;
+            Assert.True(GameStateStore.TryGetCommittedSubjectScience("crewReport@Kerbin", out sci));
+            Assert.Equal(5.0f, sci);
+            Assert.True(GameStateStore.TryGetCommittedSubjectScience("tempScan@Mun", out sci));
+            Assert.Equal(3.0f, sci);
+        }
+
+        [Fact]
+        public void OriginalScience_DeserializeFrom_NoOriginalsNode_NoOp()
+        {
+            GameStateStore.ResetForTesting();
+
+            // Older format: SCIENCE_SUBJECTS without ORIGINALS
+            var root = new ConfigNode("ROOT");
+            var sciNode = root.AddNode("SCIENCE_SUBJECTS");
+            var entry = sciNode.AddNode("SUBJECT");
+            entry.AddValue("id", "crewReport@Kerbin");
+            entry.AddValue("science", "5.0");
+
+            GameStateStore.DeserializeScienceSubjectsFrom(root);
+
+            Assert.Equal(1, GameStateStore.CommittedScienceSubjectCount);
+            Assert.Equal(0, GameStateStore.OriginalScienceValueCount);
+        }
+
+        [Fact]
+        public void SerializeEmpty_NoScienceSubjectsNode_WhenBothEmpty()
+        {
+            GameStateStore.ResetForTesting();
+
+            var root = new ConfigNode("ROOT");
+            GameStateStore.SerializeScienceSubjectsInto(root);
+
+            Assert.Null(root.GetNode("SCIENCE_SUBJECTS"));
+        }
+
+        [Fact]
+        public void Serialize_CreatesNode_WhenOnlyOriginalsExist()
+        {
+            GameStateStore.ResetForTesting();
+
+            // Edge case: originals tracked but committed already cleared
+            // (shouldn't happen in practice, but tests serialization guard)
+            GameStateStore.RecordOriginalScience("test", 1.0f);
+
+            var root = new ConfigNode("ROOT");
+            GameStateStore.SerializeScienceSubjectsInto(root);
+
+            Assert.NotNull(root.GetNode("SCIENCE_SUBJECTS"));
+            var sciNode = root.GetNode("SCIENCE_SUBJECTS");
+            Assert.NotNull(sciNode.GetNode("ORIGINALS"));
+        }
+
         #endregion
     }
 }

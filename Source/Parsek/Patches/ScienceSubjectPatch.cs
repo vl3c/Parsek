@@ -40,6 +40,7 @@ namespace Parsek.Patches
 
             if (subject.science < committedScience)
             {
+                GameStateStore.RecordOriginalScience(subject.id, subject.science);
                 ParsekLog.VerboseRateLimited("SciencePatch", "apply-committed",
                     $"Applied committed science: {subject.id} {subject.science:F1} → {committedScience:F1}", 30.0);
                 subject.science = committedScience;
