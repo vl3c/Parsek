@@ -1366,13 +1366,13 @@ Same issue for board merges: when `ChainToVesselPending` is set and `activeTree 
 // Don't interfere with pending merge processing
 if (pendingTreeDockMerge) return;
 
-// Don't promote during pending board merge — the board handler in Update() owns this
+// Don't promote during pending board merge - the board handler in Update() owns this
 if (recorder != null && recorder.ChainToVesselPending) return;
 ```
 
 ### Fix 2 (CRITICAL): Replace `FindAbsorbedDockPartnerPid` Scan with Robust Identification
 
-**Problem**: The plan's `FindAbsorbedDockPartnerPid` scans BackgroundMap for vessels with null/0-part `Vessel` objects. At `onPartCouple` time, the absorbed vessel may still be alive (parts reparented but `Vessel` object not yet destroyed). The scan `bgVessel.parts.Count == 0` is fragile — KSP may not have cleaned up parts yet.
+**Problem**: The plan's `FindAbsorbedDockPartnerPid` scans BackgroundMap for vessels with null/0-part `Vessel` objects. At `onPartCouple` time, the absorbed vessel may still be alive (parts reparented but `Vessel` object not yet destroyed). The scan `bgVessel.parts.Count == 0` is fragile - KSP may not have cleaned up parts yet.
 
 **Fix**: Pass `data.to.vessel` (the merged/surviving Vessel reference) to `FindAbsorbedDockPartnerPid`. After coupling, `data.from.vessel == data.to.vessel` (the part was reparented). So any background vessel whose `Vessel` object IS the merged vessel OR is null is the absorbed partner. Also add a fallback check: if the background vessel's `Vessel` object still exists but equals the merged vessel (i.e., the vessel reference was updated to point to the surviving vessel after reparenting), it's the absorbed partner.
 
@@ -1412,7 +1412,7 @@ absorbedPid = FindAbsorbedDockPartnerPid(mergedPid, data.to.vessel);
 
 ### Fix 3 (IMPORTANT): Board Merge BackgroundMap Cleanup Uses Wrong PID
 
-**Problem**: In section 5.2, `CreateMergeBranch` calls `backgroundRecorder?.OnVesselRemovedFromBackground(absorbedVesselPid)` and `activeTree.BackgroundMap.Remove(absorbedVesselPid)`. For dock merges, the absorbed vessel is in BackgroundMap — correct. But for board merges, the absorbed entity is the EVA kerbal (active recorder), NOT in BackgroundMap. The boarding TARGET vessel is in BackgroundMap and needs to be removed.
+**Problem**: In section 5.2, `CreateMergeBranch` calls `backgroundRecorder?.OnVesselRemovedFromBackground(absorbedVesselPid)` and `activeTree.BackgroundMap.Remove(absorbedVesselPid)`. For dock merges, the absorbed vessel is in BackgroundMap - correct. But for board merges, the absorbed entity is the EVA kerbal (active recorder), NOT in BackgroundMap. The boarding TARGET vessel is in BackgroundMap and needs to be removed.
 
 **Fix**: Remove `absorbedVesselPid` parameter from `CreateMergeBranch`. Instead, derive the background vessel PID from the background parent recording:
 
@@ -1438,11 +1438,11 @@ This correctly handles both cases:
 
 **Problem**: The `dockingInProgress` set is used to prevent Task 6's destruction detection from misclassifying dock-absorbed vessels as destroyed. For board merges, the EVA kerbal's vessel is also destroyed by KSP, but it's the ACTIVE recording (not background). The EVA kerbal PID should also be added to `dockingInProgress` to prevent a false destruction event for the kerbal vessel.
 
-Wait — actually, for board merges the kerbal vessel destruction is expected and the kerbal's recording is ended with `TerminalState.Boarded` by `CreateMergeBranch`. Task 6 would check background vessels, not the active recorder's vessel. So `dockingInProgress` is only needed for dock merges where the absorbed vessel is a BACKGROUND vessel being destroyed by KSP.
+Wait - actually, for board merges the kerbal vessel destruction is expected and the kerbal's recording is ended with `TerminalState.Boarded` by `CreateMergeBranch`. Task 6 would check background vessels, not the active recorder's vessel. So `dockingInProgress` is only needed for dock merges where the absorbed vessel is a BACKGROUND vessel being destroyed by KSP.
 
-For board merges: the boarding target (background) transitions to child recording — it's NOT destroyed. The kerbal vessel IS destroyed, but its recording was the active one (already ended). So no `dockingInProgress` is needed for board merges.
+For board merges: the boarding target (background) transitions to child recording - it's NOT destroyed. The kerbal vessel IS destroyed, but its recording was the active one (already ended). So no `dockingInProgress` is needed for board merges.
 
-**No code change needed** — the current design is correct. But add a comment in the plan to clarify this reasoning.
+**No code change needed** - the current design is correct. But add a comment in the plan to clarify this reasoning.
 
 ### Fix 5 (IMPORTANT): `CreateMergeBranch` Must Clear `ChainToVesselPending` for Board Merges
 
@@ -1456,13 +1456,13 @@ recorder = null;
 CreateMergeBranch(...);
 ```
 
-### Fix 6 (IMPORTANT): `OnPartCouple` State 3 (Retroactive Initiator) — `RecordingVesselId` After Stop
+### Fix 6 (IMPORTANT): `OnPartCouple` State 3 (Retroactive Initiator) - `RecordingVesselId` After Stop
 
 **Problem**: In State 3 (section 3.3, line 367), the plan uses `recorder.RecordingVesselId` as the absorbed PID. But after `OnPhysicsFrame` stops the recorder via the `DockMerge` path, does `RecordingVesselId` still hold the OLD PID? Let me check.
 
-Looking at `FlightRecorder` — `RecordingVesselId` is set at `StartRecording()` time and never changes. `CaptureAtStop` snapshots the data. `OnPhysicsFrame` detects the PID mismatch and creates `CaptureAtStop` with the data from BEFORE the PID change. So `recorder.RecordingVesselId` still holds the OLD PID (the absorbed vessel's PID). This is correct.
+Looking at `FlightRecorder` - `RecordingVesselId` is set at `StartRecording()` time and never changes. `CaptureAtStop` snapshots the data. `OnPhysicsFrame` detects the PID mismatch and creates `CaptureAtStop` with the data from BEFORE the PID change. So `recorder.RecordingVesselId` still holds the OLD PID (the absorbed vessel's PID). This is correct.
 
-**No code change needed** — confirmed correct.
+**No code change needed** - confirmed correct.
 
 ### Fix 7 (IMPORTANT): Scene Change and FlightReady Cleanup
 
@@ -1471,15 +1471,15 @@ Looking at `FlightRecorder` — `RecordingVesselId` is set at `StartRecording()`
 **Fix**: Ensure ALL new fields are cleaned up:
 - `OnSceneChangeRequested`: `pendingTreeDockMerge = false; pendingDockAbsorbedPid = 0; pendingBoardingTargetInTree = false; dockingInProgress.Clear();`
 - `OnFlightReady`: same cleanup
-- `pendingDockMergedPid` and `pendingBoardingTargetPid` are existing fields — already cleaned up
+- `pendingDockMergedPid` and `pendingBoardingTargetPid` are existing fields - already cleaned up
 
 ### Fix 8 (IMPORTANT): `CreateMergeBranch` Snapshot Timing for Dock Merges
 
-**Problem**: The merged vessel snapshot is taken in `CreateMergeBranch` (called from `Update()`). For dock merges, by this time the coupling is complete and the merged vessel has parts from BOTH vessels. This is correct — the snapshot captures the combined vessel.
+**Problem**: The merged vessel snapshot is taken in `CreateMergeBranch` (called from `Update()`). For dock merges, by this time the coupling is complete and the merged vessel has parts from BOTH vessels. This is correct - the snapshot captures the combined vessel.
 
 However, for the INITIATOR case where we stop synchronously in `OnPartCouple`, the `CaptureAtStop` data from `StopRecordingForChainBoundary()` uses `RecordingVesselId` which is the OLD PID. The child recording should use `mergedVesselPid` (the surviving vessel's PID). This is handled correctly because `CreateMergeBranch` receives `mergedVesselPid` explicitly and passes it to `BuildMergeBranchData`.
 
-**No code change needed** — confirmed correct.
+**No code change needed** - confirmed correct.
 
 ### Summary of Required Code Changes
 

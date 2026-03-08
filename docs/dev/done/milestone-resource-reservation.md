@@ -1,6 +1,6 @@
 # Milestone-Resource Reservation Analysis
 
-Deep investigation into how milestones, recordings, resource reservation, and deletion interact — identifying paradoxes, edge cases, and design decisions.
+Deep investigation into how milestones, recordings, resource reservation, and deletion interact - identifying paradoxes, edge cases, and design decisions.
 
 ## Architecture
 
@@ -8,12 +8,12 @@ Deep investigation into how milestones, recordings, resource reservation, and de
 
 Resource budget is computed from two independent sources in `ResourceBudget.ComputeTotal()`:
 
-1. **Recording costs** — net flight impact: `PreLaunchFunds - Points[last].funds`
+1. **Recording costs** - net flight impact: `PreLaunchFunds - Points[last].funds`
    - Includes launch cost, in-flight expenses, and earnings (contracts, science)
    - Tracked via `LastAppliedResourceIndex` for partial replay awareness
    - Fully replayed recordings contribute 0
 
-2. **Milestone costs** — game state event costs from unreplayed semantic events
+2. **Milestone costs** - game state event costs from unreplayed semantic events
    - `PartPurchased` → funds cost from `detail` field
    - `TechResearched` → science cost from `detail` field
    - `FacilityUpgraded` → funds cost (computed from level delta)
@@ -25,8 +25,8 @@ These are independent. Deleting a recording removes only source #1. Milestones p
 ### Milestone Lifecycle (Decoupled)
 
 Milestones are created at two points:
-- **Recording commit** (`RecordingStore.CommitPending()`) — bundles game state events from the period since the last milestone, tagged with the recording's ID as optional metadata
-- **Game save** (`ParsekScenario.OnSave()` via `FlushPendingEvents`) — captures any events that happened without a recording commit (e.g., researching tech in R&D without ever launching)
+- **Recording commit** (`RecordingStore.CommitPending()`) - bundles game state events from the period since the last milestone, tagged with the recording's ID as optional metadata
+- **Game save** (`ParsekScenario.OnSave()` via `FlushPendingEvents`) - captures any events that happened without a recording commit (e.g., researching tech in R&D without ever launching)
 
 Milestones are **not deleted** when recordings are deleted. They represent independent player actions.
 
@@ -86,8 +86,8 @@ Player deletes the recording:
 
 ```
 UT 0:     Player starts with 400 funds, 10 science
-UT 50:    Researches tech (costs 5 science) — player now has 5 science
-UT 80:    Buys part (costs 600 funds) — player had earned 1000 funds from contract
+UT 50:    Researches tech (costs 5 science) - player now has 5 science
+UT 80:    Buys part (costs 600 funds) - player had earned 1000 funds from contract
 UT 100:   Records flight, commits
           Reverts to UT 0 (400 funds, 10 science)
 ```
@@ -99,9 +99,9 @@ UT 100:   Records flight, commits
 **Is this a paradox?** No. The UI will display negative available funds. This tells the player they are over-committed. When the milestone replay engine (Phase 2) tries to buy the part at UT 80, it will fail because the player doesn't have 600 funds.
 
 **Handling options (Phase 5 concern):**
-1. **Block replay** — skip the event, warn the player
-2. **Allow deficit** — apply the event anyway (KSP's own contract system sometimes drives funds negative)
-3. **Player dialog** — "You don't have enough funds to replay this action. Skip or force?"
+1. **Block replay** - skip the event, warn the player
+2. **Allow deficit** - apply the event anyway (KSP's own contract system sometimes drives funds negative)
+3. **Player dialog** - "You don't have enough funds to replay this action. Skip or force?"
 
 This is a Phase 5 design decision, not a current bug. The current budget display correctly shows the over-commitment.
 
@@ -214,7 +214,7 @@ After a revert, `MilestoneStore.CurrentEpoch` is incremented. New events are sta
 
 ### Milestone with Empty RecordingId
 
-Milestones created by `FlushPendingEvents` have `RecordingId = ""`. This is valid and serializes cleanly. The RecordingId field is advisory metadata only — no code path uses it for lookup or deletion after decoupling.
+Milestones created by `FlushPendingEvents` have `RecordingId = ""`. This is valid and serializes cleanly. The RecordingId field is advisory metadata only - no code path uses it for lookup or deletion after decoupling.
 
 ### Partial Replay Awareness
 
@@ -237,10 +237,10 @@ If a future feature allows individual milestone deletion, a gap could form. But 
 
 ## Summary of Invariants
 
-1. **Milestones are independent of recordings** — creating/deleting recordings does not create/delete milestones (except that `CommitPending` triggers milestone creation as a convenience)
-2. **Resource budget is computed on-the-fly** — no cached state, purely derived from current recordings + milestones
-3. **Fully applied = zero cost** — during normal forward play, everything is fully applied, reservation is 0
-4. **Events are never lost** — GameStateStore retains all events; milestones are a commitment/grouping layer on top
-5. **Epoch isolates branches** — reverted timeline branches don't leak into new milestones
-6. **FlushPendingEvents is idempotent** — safe to call multiple times, only creates milestones when new events exist
-7. **resetUnmatched on revert** — milestones created after the launch quicksave are reset to unreplayed (-1) on revert
+1. **Milestones are independent of recordings** - creating/deleting recordings does not create/delete milestones (except that `CommitPending` triggers milestone creation as a convenience)
+2. **Resource budget is computed on-the-fly** - no cached state, purely derived from current recordings + milestones
+3. **Fully applied = zero cost** - during normal forward play, everything is fully applied, reservation is 0
+4. **Events are never lost** - GameStateStore retains all events; milestones are a commitment/grouping layer on top
+5. **Epoch isolates branches** - reverted timeline branches don't leak into new milestones
+6. **FlushPendingEvents is idempotent** - safe to call multiple times, only creates milestones when new events exist
+7. **resetUnmatched on revert** - milestones created after the launch quicksave are reset to unreplayed (-1) on revert

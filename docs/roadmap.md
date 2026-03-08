@@ -4,7 +4,7 @@
 
 Parsek is a **git-like recording system** for KSP missions. You record flights sequentially, commit them to a timeline, and they play back automatically as ghost vessels while you fly new missions. There is one timeline, recordings are immutable commits, and the game always moves forward.
 
-Like git, you can go back to any earlier point and start new work. Existing recordings don't change — they play out as ghosts alongside your new missions. There is no branching, no state reversal, and no paradoxes. Conflicts are prevented through resource budgeting: committed recordings have already claimed their costs, so the player can only spend what's actually available.
+Like git, you can go back to any earlier point and start new work. Existing recordings don't change - they play out as ghosts alongside your new missions. There is no branching, no state reversal, and no paradoxes. Conflicts are prevented through resource budgeting: committed recordings have already claimed their costs, so the player can only spend what's actually available.
 
 ---
 
@@ -29,7 +29,7 @@ Recordings Manager UI with sortable columns, per-recording loop/delete, and stat
 
 ---
 
-## Phase 3: Polish & Usability — Complete
+## Phase 3: Polish & Usability - Complete
 
 Make the existing loop frictionless and configurable for different play styles.
 
@@ -74,12 +74,12 @@ Reduce sidecar file sizes for long recordings:
 
 ---
 
-## Phase 5: Going Back in Time — Complete
+## Phase 5: Going Back in Time - Complete
 
 Full going-back-in-time system: milestones, resource budgeting, epoch isolation, action blocking, per-recording rewind saves, and Rewind UI.
 
 ### Milestones (done)
-Game state events (tech research, part purchases, facility upgrades, contracts, crew changes) are captured into milestones — immutable timeline commits independent of recordings. Created at recording commit time and on save (FlushPendingEvents captures events that happen without a flight). Deleting a recording does not delete its milestone.
+Game state events (tech research, part purchases, facility upgrades, contracts, crew changes) are captured into milestones - immutable timeline commits independent of recordings. Created at recording commit time and on save (FlushPendingEvents captures events that happen without a flight). Deleting a recording does not delete its milestone.
 
 ### Resource budget (done)
 Computed on-the-fly from recordings + milestones, partial-replay aware. Displayed in the Parsek UI when any resources are reserved. Red text + yellow "Over-committed!" warning when available resources go negative.
@@ -97,7 +97,7 @@ Harmony patches on `RDTech.UnlockTech` and `UpgradeableFacility.SetLevel` preven
 Each recording owns a quicksave captured at recording start, stored in `Parsek/Saves/` (invisible to KSP's load menu). Resource snapshot (funds, science, reputation) captured alongside the quicksave for baseline resource reset on rewind. Quicksave deleted when recording is deleted or discarded. Only chain/tree roots get rewind saves (promotions skip capture).
 
 ### Rewind UI (done)
-"Rewind" button per recording in the Recordings window. Confirmation dialog shows vessel name, launch date, future recording count, and warnings. On confirm: loads the quicksave, strips recorded vessel from flight state, transitions to Space Center. Deferred coroutine sets UT via Planetarium.SetUniversalTime (must happen after scene load — setting before LoadScene gets overwritten by the scene transition). Increments epoch, resets milestone mutable state, resets playback state, resets resources to PreLaunch baseline values, re-reserves crew, replays committed actions (tech, parts, facilities, crew via ActionReplay). All committed recordings replay as ghosts from the rewound point, re-applying resource deltas at the correct UT.
+"Rewind" button per recording in the Recordings window. Confirmation dialog shows vessel name, launch date, future recording count, and warnings. On confirm: loads the quicksave, strips recorded vessel from flight state, transitions to Space Center. Deferred coroutine sets UT via Planetarium.SetUniversalTime (must happen after scene load - setting before LoadScene gets overwritten by the scene transition). Increments epoch, resets milestone mutable state, resets playback state, resets resources to PreLaunch baseline values, re-reserves crew, replays committed actions (tech, parts, facilities, crew via ActionReplay). All committed recordings replay as ghosts from the rewound point, re-applying resource deltas at the correct UT.
 
 ### Action replay (done)
 After rewind resource adjustment, `ActionReplay.ReplayCommittedActions` programmatically re-applies committed game actions from milestones: tech unlock (via `UnlockProtoTechNode`, no science deduction), part purchase, facility upgrade, and crew hire. Each handler has idempotent guards (skip if already applied). Suppression flags prevent re-recording during replay.
@@ -108,13 +108,13 @@ After rewind resource adjustment, `ActionReplay.ReplayCommittedActions` programm
 
 ---
 
-## Phase 6: Recording Tree (Multi-Vessel Recording) — Complete
+## Phase 6: Recording Tree (Multi-Vessel Recording) - Complete
 
 Record entire multi-vessel missions as a single unit. When the player undocks, goes EVA, or docks, Parsek tracks all resulting vessels simultaneously. On revert, all vessels spawn at their correct positions.
 
 **Design:** `docs/dev/done/design-mission-tree.md`
 
-The recording tree builds on top of the existing chain system. Each node in the tree is a vessel's recording, and each recording can itself be a chain of segments (atmospheric/SOI phase splits, dock sequences). The tree adds a new layer for tracking vessel splits and merges — it does not replace chains.
+The recording tree builds on top of the existing chain system. Each node in the tree is a vessel's recording, and each recording can itself be a chain of segments (atmospheric/SOI phase splits, dock sequences). The tree adds a new layer for tracking vessel splits and merges - it does not replace chains.
 
 **New components:** `RecordingTree` (rooted DAG), `BranchPoint` (split/merge linkage), `BackgroundRecorder` (on-rails capture), `TerminalState` (8 end conditions), `SurfacePosition` (landed/splashed state).
 
@@ -132,7 +132,7 @@ The recording tree builds on top of the existing chain system. Each node in the 
 | 8. Tree-aware merge dialog | ShowTreeDialog, revert vs scene-exit branching, per-vessel situation display. |
 | 9. Tree ghost playback | Background orbit/surface ghosts, spawn suppression, surface rotation. |
 | 10. Tree-level resource tracking | Tree-level delta computation, lump sum playback, budget integration. |
-| 11. Backward compatibility | Verification only — existing saves load correctly, no production changes needed. |
+| 11. Backward compatibility | Verification only - existing saves load correctly, no production changes needed. |
 | 12. Tree verbose logging | 11 logging gaps filled across RecordingTree, ParsekFlight, ResourceBudget. |
 | 13. Tree test coverage | 18 non-vacuous tests + 3 synthetic tree recordings for in-game validation. |
 
@@ -151,7 +151,7 @@ Current status: experimental button exists in UI, not recommended for normal pla
 Allow the player to move the camera to a recorded vessel during playback. Clicking a ghost (or selecting it from the UI) anchors the camera on that vessel, letting the player watch the mission from that perspective without interrupting their current flight.
 
 ### Additional part event coverage
-- Control surface deflection (continuous float — thousands of events per flight, unclear visual value)
+- Control surface deflection (continuous float - thousands of events per flight, unclear visual value)
 - Robotics / Breaking Ground DLC (continuous servo motion, DLC-dependent)
 - Two-phase engine startup (spool-up animations on some engines)
 
@@ -163,4 +163,4 @@ Allow the player to move the camera to a recorded vessel during playback. Clicki
 - **AI playback or autopilot**
 - **Multiplayer synchronization**
 - **Timeline branching or alternate histories**
-- **Logistics network** — Parsek's recording infrastructure (looped playback, chain segments, vessel snapshots, game state events, resource tracking) forms a natural foundation for automated supply routes between bases. The concept: fly a cargo mission once, Parsek records it, then that recording becomes a reusable logistics route that periodically deducts fuel at the origin and delivers cargo at the destination, with the ghost replaying visually during transit. This will be built as a separate mod on top of Parsek rather than integrated directly. See `docs/dev/research/logistics-network-design.md` for the full design exploration.
+- **Logistics network** - Parsek's recording infrastructure (looped playback, chain segments, vessel snapshots, game state events, resource tracking) forms a natural foundation for automated supply routes between bases. The concept: fly a cargo mission once, Parsek records it, then that recording becomes a reusable logistics route that periodically deducts fuel at the origin and delivers cargo at the destination, with the ghost replaying visually during transit. This will be built as a separate mod on top of Parsek rather than integrated directly. See `docs/dev/research/logistics-network-design.md` for the full design exploration.

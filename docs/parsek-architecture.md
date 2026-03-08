@@ -136,7 +136,7 @@ public class MissionRecorder : VesselModule
 
 **Sampling Strategy:**
 - Adaptive threshold-based: record frame if orientation changes > 2deg, velocity direction changes > 2deg, or speed changes > 5% (source: PersistentTrails)
-- Staging events: On occurrence (with 0.2s delay for state to settle — source: FMRS)
+- Staging events: On occurrence (with 0.2s delay for state to settle - source: FMRS)
 - SOI changes: On occurrence
 - Event detection: GameEvents + polling hybrid for redundant reliable detection (source: StageRecovery)
 
@@ -316,7 +316,7 @@ Captures career-mode events independently from flight recordings, computes resou
 
 #### GameStateEvent / GameStateStore
 
-`GameStateEvent` is a struct capturing a single career event — tech research, part purchase, facility upgrade, contract lifecycle, crew change, or resource change. Each event has a `ut`, `eventType`, `key` (tech ID, facility ID, etc.), `detail` (semicolon-separated metadata like `cost=5`), `valueBefore`/`valueAfter`, and an `epoch` (branch isolation).
+`GameStateEvent` is a struct capturing a single career event - tech research, part purchase, facility upgrade, contract lifecycle, crew change, or resource change. Each event has a `ut`, `eventType`, `key` (tech ID, facility ID, etc.), `detail` (semicolon-separated metadata like `cost=5`), `valueBefore`/`valueAfter`, and an `epoch` (branch isolation).
 
 `GameStateStore` is the static persistent event log. Events are stamped with `MilestoneStore.CurrentEpoch` on insertion. Resource events within 0.1s are coalesced. Raw resource events (`FundsChanged`, `ScienceChanged`, `ReputationChanged`) are excluded from milestones to prevent double-counting with recording trajectory deltas.
 
@@ -324,7 +324,7 @@ File format: `saves/<save>/Parsek/GameState/events.pgse`
 
 #### GameStateRecorder
 
-Subscribes to KSP career GameEvents (contracts, tech, crew, resources, facilities) and records them into `GameStateStore`. Lifecycle managed by `ParsekScenario` — subscribe/unsubscribe on every `OnLoad` to handle reverts cleanly. Suppression flags (`SuppressCrewEvents`, `SuppressResourceEvents`) prevent recording Parsek's own internal mutations.
+Subscribes to KSP career GameEvents (contracts, tech, crew, resources, facilities) and records them into `GameStateStore`. Lifecycle managed by `ParsekScenario` - subscribe/unsubscribe on every `OnLoad` to handle reverts cleanly. Suppression flags (`SuppressCrewEvents`, `SuppressResourceEvents`) prevent recording Parsek's own internal mutations.
 
 Facility/building state is poll-based (seeded from current state, diffed on subscribe).
 
@@ -339,25 +339,25 @@ File format: `saves/<save>/Parsek/GameState/baseline_<UT>.pgsb`
 `Milestone` groups game state events into a committed timeline unit with `StartUT`/`EndUT`, an `Epoch`, a `LastReplayedEventIndex` (partial replay awareness), and an optional `RecordingId` link.
 
 `MilestoneStore` manages the collection:
-- `CreateMilestone(recordingId, currentUT)` — filters events by epoch and UT range, excludes raw resource events, creates milestone
-- `FlushPendingEvents(currentUT)` — captures uncaptured events on save (idempotent, called from `OnSave`)
-- `RestoreMutableState(node, resetUnmatched)` — on revert, milestones not in the quicksave are reset to unreplayed (`LastReplayedEventIndex = -1`)
-- `GetCommittedTechIds()` / `GetCommittedFacilityUpgrades()` — lookup helpers for action-blocking patches
-- `CurrentEpoch` — incremented on revert to isolate abandoned branches
+- `CreateMilestone(recordingId, currentUT)` - filters events by epoch and UT range, excludes raw resource events, creates milestone
+- `FlushPendingEvents(currentUT)` - captures uncaptured events on save (idempotent, called from `OnSave`)
+- `RestoreMutableState(node, resetUnmatched)` - on revert, milestones not in the quicksave are reset to unreplayed (`LastReplayedEventIndex = -1`)
+- `GetCommittedTechIds()` / `GetCommittedFacilityUpgrades()` - lookup helpers for action-blocking patches
+- `CurrentEpoch` - incremented on revert to isolate abandoned branches
 
-Milestones are **independent of recordings** — deleting a recording does not delete its milestone.
+Milestones are **independent of recordings** - deleting a recording does not delete its milestone.
 
 File format: `saves/<save>/Parsek/GameState/milestones.pgsm`
 
 #### ResourceBudget
 
-Pure static computation: `ComputeTotal(recordings, milestones, trees)` returns `BudgetSummary` with `reservedFunds`, `reservedScience`, `reservedReputation`. Sums unreplayed recording costs (via `LastAppliedResourceIndex`), unreplayed milestone event costs (via `LastReplayedEventIndex`), and tree-level resource deltas (via `TreeCommittedFundsCost` etc., skipping trees where `ResourcesApplied=true`). Recordings with `TreeId != null` are excluded from per-recording sums — their costs are captured at the tree level instead.
+Pure static computation: `ComputeTotal(recordings, milestones, trees)` returns `BudgetSummary` with `reservedFunds`, `reservedScience`, `reservedReputation`. Sums unreplayed recording costs (via `LastAppliedResourceIndex`), unreplayed milestone event costs (via `LastReplayedEventIndex`), and tree-level resource deltas (via `TreeCommittedFundsCost` etc., skipping trees where `ResourcesApplied=true`). Recordings with `TreeId != null` are excluded from per-recording sums - their costs are captured at the tree level instead.
 
 #### Action Blocking (Harmony Patches)
 
-- `TechResearchPatch` — prefix on `RDTech.UnlockTech`, blocks if tech ID is in unreplayed committed milestones
-- `FacilityUpgradePatch` — prefix on `UpgradeableFacility.SetLevel`, blocks upgrades (not downgrades) for committed facilities
-- Both show `CommittedActionDialog` — a `PopupDialog` explaining the block with UT and resource details
+- `TechResearchPatch` - prefix on `RDTech.UnlockTech`, blocks if tech ID is in unreplayed committed milestones
+- `FacilityUpgradePatch` - prefix on `UpgradeableFacility.SetLevel`, blocks upgrades (not downgrades) for committed facilities
+- Both show `CommittedActionDialog` - a `PopupDialog` explaining the block with UT and resource details
 
 ---
 
@@ -500,7 +500,7 @@ Using KSP's `ScenarioModule` system (`ParsekScenario`). Lightweight metadata + m
 
 **In .sfs (per RECORDING node):** `recordingId`, `vesselName`, `pointCount`, `recordingFormatVersion = 4`, mutable state (`vesselDestroyed`, `takenControl`, `spawnedPid`, `lastResIdx`), EVA linkage, ghost geometry metadata.
 
-**No inline POINT, ORBIT_SEGMENT, PART_EVENT, or snapshot nodes** — all bulk data lives in external files.
+**No inline POINT, ORBIT_SEGMENT, PART_EVENT, or snapshot nodes** - all bulk data lives in external files.
 
 ### External Recording Files (v4)
 
@@ -527,9 +527,9 @@ saves/<save-name>/Parsek/GameState/
 └── baseline_<UT>.pgsb           # Game state baselines (one per commit point)
 ```
 
-- `.pgse` = Parsek Game State Events — insertion-order event log (not UT-sorted, to preserve branch ordering after reverts)
-- `.pgsm` = Parsek Game State Milestones — each MILESTONE node contains GAME_STATE_EVENT children
-- `.pgsb` = Parsek Game State Baseline — full snapshot (funds, science, rep, tech, facilities, buildings, contracts, crew)
+- `.pgse` = Parsek Game State Events - insertion-order event log (not UT-sorted, to preserve branch ordering after reverts)
+- `.pgsm` = Parsek Game State Milestones - each MILESTONE node contains GAME_STATE_EVENT children
+- `.pgsb` = Parsek Game State Baseline - full snapshot (funds, science, rep, tech, facilities, buildings, contracts, crew)
 - Mutable milestone state (`LastReplayedEventIndex`) stored separately in `.sfs` MILESTONE_STATE nodes for quicksave/revert correctness
 - All files use safe-write (`.tmp` + rename)
 
@@ -680,8 +680,8 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 | ToolbarControl | Toolbar buttons | GPL-3.0 |
 
 **Integration patterns:**
-- ClickThroughBlocker: Replace `GUILayout.Window()` with `ClickThruBlocker.GUILayoutWindow()` — drop-in replacement that prevents clicks passing through UI windows to vessels/parts behind them.
-- ToolbarControl: Two-phase registration — register at `Startup.Instantly`, then create scene-specific buttons in the appropriate scene callback. Supports both stock and Blizzy toolbar.
+- ClickThroughBlocker: Replace `GUILayout.Window()` with `ClickThruBlocker.GUILayoutWindow()` - drop-in replacement that prevents clicks passing through UI windows to vessels/parts behind them.
+- ToolbarControl: Two-phase registration - register at `Startup.Instantly`, then create scene-specific buttons in the appropriate scene callback. Supports both stock and Blizzy toolbar.
 
 ### Optional Integration
 
@@ -693,7 +693,7 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 
 ## Development Phases (Roadmap)
 
-### Phase 1: MVP — Current Phase
+### Phase 1: MVP - Current Phase
 
 **Core gameplay (done):**
 - [x] Position recording with geographic coordinates (lat/lon/alt per body)
@@ -730,16 +730,16 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 - [x] Part event playback (decoupled subtrees hidden, destroyed parts hidden)
 - [x] Real parachute canopy deploy on ghost (semi-deployed animation sampled from prefab)
 - [x] Event-driven shroud jettison for ghost engine parts
-- [x] External recording files (v4) — bulk data in sidecar files, lightweight .sfs
+- [x] External recording files (v4) - bulk data in sidecar files, lightweight .sfs
 - [x] Engine FX on ghost vessels (modern EFFECTS + legacy fx_* prefab fallback)
 
 **Remaining for MVP:**
 - [x] Fix spawned vessel not selectable in map view / tracking station (career mode limitation)
-- [x] Chained recordings — land → EVA → walk → board → fly again as a continuous mission replay
+- [x] Chained recordings - land → EVA → walk → board → fly again as a continuous mission replay
 - [x] Seamless ghost handoff between chained segments (vessel ghost ends, EVA ghost begins, vessel ghost resumes)
 - [x] Verify and fix edge cases: crew continuity, vessel state across chain boundaries, merge dialog for chained missions
 
-### Phase 2: Ghost Visual Fidelity — New Events (Complete)
+### Phase 2: Ghost Visual Fidelity - New Events (Complete)
 
 All planned part event types are now implemented. 28 event types are recorded; most drive ghost visuals, while docking/undocking events are used for chain boundaries.
 
@@ -748,31 +748,31 @@ All planned part event types are now implemented. 28 event types are recorded; m
 - [x] ParachuteDeployed / ParachuteCut / ParachuteDestroyed (polled `ModuleParachute`)
 - [x] ShroudJettisoned (polled `ModuleJettison`)
 - [x] EngineIgnited / EngineShutdown / EngineThrottle (polled `ModuleEngines`, particle FX)
-- [x] DeployableExtended / DeployableRetracted (polled `ModuleDeployablePart` — solar panels, antennas, radiators)
+- [x] DeployableExtended / DeployableRetracted (polled `ModuleDeployablePart` - solar panels, antennas, radiators)
 - [x] GearDeployed / GearRetracted (polled `ModuleWheelDeployment`)
 - [x] LightOn / LightOff / LightBlinkEnabled / LightBlinkDisabled / LightBlinkRate (polled `ModuleLight`)
-- [x] CargoBayOpened / CargoBayClosed (polled `ModuleCargoBay` + `ModuleAnimateGeneric` — also covers airbrakes)
+- [x] CargoBayOpened / CargoBayClosed (polled `ModuleCargoBay` + `ModuleAnimateGeneric` - also covers airbrakes)
 - [x] FairingJettisoned (polled `ModuleProceduralFairing`, runtime-generated cone mesh on ghost)
 - [x] RCSActivated / RCSStopped / RCSThrottle (polled `ModuleRCS`, particle FX)
 - [x] Docked / Undocked (chain segment boundaries for docking/undocking)
 - [x] InventoryPartPlaced / InventoryPartRemoved (ground science deploy/remove)
 
 **Deferred (too complex or low value):**
-- Control surface deflection — continuous float, thousands of events per flight
-- Robotics (Breaking Ground DLC) — continuous motion, DLC-dependent
+- Control surface deflection - continuous float, thousands of events per flight
+- Robotics (Breaking Ground DLC) - continuous motion, DLC-dependent
 - Additional part-template coverage and showcase breadth (tracked in `docs/dev/research/next-parts-event-support-priority.md`)
 
 ### Phase 3: Polish & Usability (Complete)
 
 **Done:**
 - [x] Recordings Manager UI (list recordings, per-recording loop/delete, sortable columns, status indicators)
-- [x] Settings panel (`GameParameters.CustomParameterNode` — toggle auto-record, adjust thresholds, in-flight Settings window)
-- [x] Recording stats (max altitude, max speed, distance, final body — computed from trajectory data)
+- [x] Settings panel (`GameParameters.CustomParameterNode` - toggle auto-record, adjust thresholds, in-flight Settings window)
+- [x] Recording stats (max altitude, max speed, distance, final body - computed from trajectory data)
 - [x] Non-revert recording commitment (commit current flight without reverting)
 - [x] Two-phase parachute deploy (SEMIDEPLOYED streamer vs DEPLOYED full canopy)
 
 **Already done (moved from earlier phases):**
-- [x] Event-based recording (28 part event types — see Phase 2)
+- [x] Event-based recording (28 part event types - see Phase 2)
 - [x] Real parachute canopy on ghost vessels
 - [x] Event-driven shroud jettison for ghost vessels
 - [x] External recording files (v4 format)
@@ -792,17 +792,17 @@ All planned part event types are now implemented. 28 event types are recorded; m
 
 **Done:**
 - [x] Game state event recording (`GameStateRecorder` + `GameStateStore` + `GameStateEvent`)
-- [x] Milestones (`Milestone` + `MilestoneStore`) — independent of recordings, epoch-isolated
-- [x] Resource budgeting (`ResourceBudget.ComputeTotal`) — on-the-fly from recordings + milestones, partial-replay aware
-- [x] Epoch isolation — revert increments `CurrentEpoch`, old-branch events excluded from new milestones
-- [x] Resource deduction on revert — committed costs deducted from game state
-- [x] Action blocking — Harmony patches on `RDTech.UnlockTech` and `UpgradeableFacility.SetLevel` with `CommittedActionDialog`
-- [x] UI resource budget display — red text for negative available, yellow "Over-committed!" warning
-- [x] Game state baselines (`GameStateBaseline`) — captured at commit points for future timeline visualization
-- [x] `FlushPendingEvents` — captures events that happen without a recording (research in R&D, facility upgrades)
+- [x] Milestones (`Milestone` + `MilestoneStore`) - independent of recordings, epoch-isolated
+- [x] Resource budgeting (`ResourceBudget.ComputeTotal`) - on-the-fly from recordings + milestones, partial-replay aware
+- [x] Epoch isolation - revert increments `CurrentEpoch`, old-branch events excluded from new milestones
+- [x] Resource deduction on revert - committed costs deducted from game state
+- [x] Action blocking - Harmony patches on `RDTech.UnlockTech` and `UpgradeableFacility.SetLevel` with `CommittedActionDialog`
+- [x] UI resource budget display - red text for negative available, yellow "Over-committed!" warning
+- [x] Game state baselines (`GameStateBaseline`) - captured at commit points for future timeline visualization
+- [x] `FlushPendingEvents` - captures events that happen without a recording (research in R&D, facility upgrades)
 
 **Rewind (done):**
-Each recording owns a quicksave captured at recording start, stored in `Parsek/Saves/` (invisible to KSP's load menu). A "Rewind" button per recording loads the quicksave, strips the recorded vessel, and transitions to Space Center via `HighLogic.LoadScene`. UT is set in a deferred coroutine (`ApplyRewindResourceAdjustment`) AFTER the scene loads — setting UT before `LoadScene` does NOT work because the scene transition overwrites it. Resources are reset to the `PreLaunchFunds/Science/Rep` baseline values captured at recording start. Ghost playback re-applies each recording's resource deltas at the correct UT, so the timeline replays naturally. `ActionReplay.ReplayCommittedActions` re-applies committed game actions (tech unlock, part purchase, facility upgrade, crew hire) with idempotent guards. All committed recordings replay as ghosts from the rewound point.
+Each recording owns a quicksave captured at recording start, stored in `Parsek/Saves/` (invisible to KSP's load menu). A "Rewind" button per recording loads the quicksave, strips the recorded vessel, and transitions to Space Center via `HighLogic.LoadScene`. UT is set in a deferred coroutine (`ApplyRewindResourceAdjustment`) AFTER the scene loads - setting UT before `LoadScene` does NOT work because the scene transition overwrites it. Resources are reset to the `PreLaunchFunds/Science/Rep` baseline values captured at recording start. Ghost playback re-applies each recording's resource deltas at the correct UT, so the timeline replays naturally. `ActionReplay.ReplayCommittedActions` re-applies committed game actions (tech unlock, part purchase, facility upgrade, crew hire) with idempotent guards. All committed recordings replay as ghosts from the rewound point.
 
 Rewind infrastructure lives in `RecordingStore.cs` (fields on `Recording`, static rewind flags, `InitiateRewind`, `CanRewind`) and `ActionReplay.cs` (milestone event replay). No separate store or dialog files.
 
@@ -810,25 +810,25 @@ See `docs/dev/done/design-going-back-in-time.md` and `docs/dev/done/design-resto
 
 ### Phase 6: Recording Tree / Multi-Vessel Recording (Complete)
 
-Record entire multi-vessel missions as a single unit. Builds on top of the existing chain system — each tree node is a vessel's recording, which can itself be a chain of segments (atmospheric/SOI phase splits, dock sequences).
+Record entire multi-vessel missions as a single unit. Builds on top of the existing chain system - each tree node is a vessel's recording, which can itself be a chain of segments (atmospheric/SOI phase splits, dock sequences).
 
 **New source files:**
-- `RecordingTree.cs` — rooted DAG of recordings. Branches at undock/EVA, merges at dock/board. Save/Load serialization, background map, leaf queries.
-- `BranchPoint.cs` — links parent recording(s) to child recording(s) at split/merge events
-- `TerminalState.cs` — how a recording ended (Orbiting, Landed, Splashed, SubOrbital, Destroyed, Recovered, Docked, Boarded)
-- `SurfacePosition.cs` — background recording data for landed/splashed vessels
-- `BackgroundRecorder.cs` — dual-mode on-rails (OrbitSegment/SurfacePosition) + loaded/physics recording for non-active tree vessels
+- `RecordingTree.cs` - rooted DAG of recordings. Branches at undock/EVA, merges at dock/board. Save/Load serialization, background map, leaf queries.
+- `BranchPoint.cs` - links parent recording(s) to child recording(s) at split/merge events
+- `TerminalState.cs` - how a recording ended (Orbiting, Landed, Splashed, SubOrbital, Destroyed, Recovered, Docked, Boarded)
+- `SurfacePosition.cs` - background recording data for landed/splashed vessels
+- `BackgroundRecorder.cs` - dual-mode on-rails (OrbitSegment/SurfacePosition) + loaded/physics recording for non-active tree vessels
 
 **Modified source files:**
-- `ParsekFlight.cs` — tree commit flows (CommitTreeFlight, CommitTreeSceneExit), tree ghost playback, tree resource deltas, split/merge/terminal event handling
-- `FlightRecorder.cs` — vessel switch tree decisions, active/background transitions, tree-aware auto-recording
-- `MergeDialog.cs` — ShowTreeDialog with per-vessel situation display
-- `ParsekScenario.cs` — tree persistence (RECORDING_TREE ConfigNodes), tree resource deduction
-- `RecordingStore.cs` — CommitTree, StashPendingTree, DiscardPendingTree, tree storage
-- `ResourceBudget.cs` — ComputeTotal with tree-level delta integration
-- `Patches/PhysicsFramePatch.cs` — background recorder integration
+- `ParsekFlight.cs` - tree commit flows (CommitTreeFlight, CommitTreeSceneExit), tree ghost playback, tree resource deltas, split/merge/terminal event handling
+- `FlightRecorder.cs` - vessel switch tree decisions, active/background transitions, tree-aware auto-recording
+- `MergeDialog.cs` - ShowTreeDialog with per-vessel situation display
+- `ParsekScenario.cs` - tree persistence (RECORDING_TREE ConfigNodes), tree resource deduction
+- `RecordingStore.cs` - CommitTree, StashPendingTree, DiscardPendingTree, tree storage
+- `ResourceBudget.cs` - ComputeTotal with tree-level delta integration
+- `Patches/PhysicsFramePatch.cs` - background recorder integration
 
-**Key design principle:** the tree is additive. Existing chains, per-segment loop control, per-recording resources, atmospheric/SOI phase splits, merge dialogs — all preserved. Nothing removed.
+**Key design principle:** the tree is additive. Existing chains, per-segment loop control, per-recording resources, atmospheric/SOI phase splits, merge dialogs - all preserved. Nothing removed.
 
 **13 tasks completed.** 1076 tests pass. See `docs/dev/done/design-mission-tree.md` for full design, task breakdown, and progress tracker.
 
@@ -836,9 +836,9 @@ Record entire multi-vessel missions as a single unit. Builds on top of the exist
 
 ## Scope
 
-Parsek is a **git-like recording system** for KSP missions. Players record flights sequentially, commit them to a single timeline, and they replay automatically as ghost vessels during future gameplay. Recordings are immutable — once committed, they play back exactly as flown.
+Parsek is a **git-like recording system** for KSP missions. Players record flights sequentially, commit them to a single timeline, and they replay automatically as ghost vessels during future gameplay. Recordings are immutable - once committed, they play back exactly as flown.
 
-Phase 5 (complete) adds milestones, resource budgeting, epoch isolation, action blocking, restore points, and a Go Back UI — the full accounting and time-travel layer that prevents paradoxes when the player goes back in time. See `docs/dev/done/design-going-back-in-time.md` and `docs/dev/done/design-restore-points.md` for full design. There is no timeline branching — one timeline, always.
+Phase 5 (complete) adds milestones, resource budgeting, epoch isolation, action blocking, restore points, and a Go Back UI - the full accounting and time-travel layer that prevents paradoxes when the player goes back in time. See `docs/dev/done/design-going-back-in-time.md` and `docs/dev/done/design-restore-points.md` for full design. There is no timeline branching - one timeline, always.
 
 Phase 6 (complete) adds multi-vessel recording via a recording tree that tracks vessel splits and merges. See `docs/dev/done/design-mission-tree.md` for the full design.
 
@@ -848,12 +848,12 @@ The architecture naturally enables use cases like racing your own ghosts, but th
 
 ## Design Decisions (Resolved)
 
-1. **Trajectory interpolation:** Linear (`Vector3.Lerp`, `Quaternion.Lerp`) — cubic adds complexity with negligible visual improvement at typical adaptive sample rates.
+1. **Trajectory interpolation:** Linear (`Vector3.Lerp`, `Quaternion.Lerp`) - cubic adds complexity with negligible visual improvement at typical adaptive sample rates.
 2. **Ghost vessel rendering:** Opaque replica from prefab meshes with original materials. No shader modification.
 3. **SOI transitions:** Body name (`string BodyName`) per TrajectoryFrame. Naturally handles multi-body trajectories.
-4. **Recording file size:** External sidecar files (v4) — bulk data in `.prec` and `.craft` files, lightweight metadata in `.sfs`.
+4. **Recording file size:** External sidecar files (v4) - bulk data in `.prec` and `.craft` files, lightweight metadata in `.sfs`.
 5. **Recording tree is additive:** The tree layer builds on top of existing chains. Chain fields, per-segment loop/enable control, atmospheric/SOI phase splits, per-recording resource tracking, and chain merge dialogs are all preserved. The tree adds vessel split/merge tracking, not replaces existing infrastructure.
 
 ---
 
-*Document version: 1.0 — Phase 6 complete (recording tree / multi-vessel recording)*
+*Document version: 1.0 - Phase 6 complete (recording tree / multi-vessel recording)*

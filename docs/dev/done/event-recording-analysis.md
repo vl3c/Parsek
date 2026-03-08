@@ -21,27 +21,27 @@
 
 ### Implicitly Recorded (not PartEvents)
 
-- **Trajectory** — position/rotation/velocity via adaptive sampling every physics frame
-- **Orbital segments** — Keplerian elements captured on `onVesselGoOnRails`
-- **Resource deltas** — funds/science/reputation sampled per trajectory point
-- **Vessel snapshot** — periodic backup for spawn/ghost building
-- **SOI changes** — orbit segment boundaries with body name transitions
+- **Trajectory** - position/rotation/velocity via adaptive sampling every physics frame
+- **Orbital segments** - Keplerian elements captured on `onVesselGoOnRails`
+- **Resource deltas** - funds/science/reputation sampled per trajectory point
+- **Vessel snapshot** - periodic backup for spawn/ghost building
+- **SOI changes** - orbit segment boundaries with body name transitions
 
 ---
 
 ## Events We Should Add
 
-### Tier 1 — High visual impact, common, feasible
+### Tier 1 - High visual impact, common, feasible
 
 #### 1. Deployable Parts (Solar / Antenna / Radiator)
 
-**Modules:** `ModuleDeployableSolarPanel`, `ModuleDeployableAntenna`, `ModuleDeployableRadiator` — all inherit `ModuleDeployablePart`
+**Modules:** `ModuleDeployableSolarPanel`, `ModuleDeployableAntenna`, `ModuleDeployableRadiator` - all inherit `ModuleDeployablePart`
 
 **Why:** Very common on orbital vessels. Solar panels unfolding is one of the most recognizable visual changes in spaceflight. Antennas and radiators share the same base class, so one implementation covers all three.
 
 **Record method:** Poll `deployState` every physics frame (same pattern as parachutes). States: `RETRACTED`, `EXTENDING`, `EXTENDED`, `RETRACTING`, `BROKEN`. Record transitions to EXTENDED and RETRACTED.
 
-**Ghost playback:** Sample the deploy animation from the prefab (same technique as parachute canopy — clone model, seek animation to end frame, read transform state). Or simpler: just toggle visibility of the deployable transform between stowed/deployed states.
+**Ghost playback:** Sample the deploy animation from the prefab (same technique as parachute canopy - clone model, seek animation to end frame, read transform state). Or simpler: just toggle visibility of the deployable transform between stowed/deployed states.
 
 **New enum values:** `DeployableExtended`, `DeployableRetracted`, `DeployableBroken`
 
@@ -55,7 +55,7 @@
 
 **Record method:** Poll deployment state (has `stateString` for current position). Record deploy/retract transitions.
 
-**Ghost playback:** Animation-based — sample the deploy animation like parachutes. Gear models have distinct stowed and deployed positions.
+**Ghost playback:** Animation-based - sample the deploy animation like parachutes. Gear models have distinct stowed and deployed positions.
 
 **New enum values:** `GearDeployed`, `GearRetracted`
 
@@ -67,7 +67,7 @@
 
 **Why:** Very common on orbital rockets. Fairing separation is a dramatic visual event. We currently handle `ModuleJettison` (engine shrouds) but NOT procedural fairings.
 
-**Current gap:** Fairing panels are procedurally generated at runtime (not from prefab meshes), so the ghost builder can't create them from part prefabs. When fairings jettison, the panels become separate parts that die — we'd catch the `Destroyed` events, but there's no visual to hide because the ghost never had fairing geometry.
+**Current gap:** Fairing panels are procedurally generated at runtime (not from prefab meshes), so the ghost builder can't create them from part prefabs. When fairings jettison, the panels become separate parts that die - we'd catch the `Destroyed` events, but there's no visual to hide because the ghost never had fairing geometry.
 
 **Possible approaches:**
 - (a) At ghost build time, detect parts with `ModuleProceduralFairing` and flag them. The fairing itself (base ring) stays, but child parts hidden by the fairing could be revealed on jettison. Low visual fidelity but simple.
@@ -92,7 +92,7 @@
 
 **Effort:** Medium-Hard. Solving `ModuleAnimateGeneric` animation replay unlocks many other animated parts too.
 
-### Tier 2 — Moderate visual impact, situationally useful
+### Tier 2 - Moderate visual impact, situationally useful
 
 #### 5. Lights On/Off
 
@@ -114,7 +114,7 @@
 
 **Why:** Airbrakes have a visible deploy animation. Less common (spaceplanes only).
 
-**Ghost playback:** Same animation technique as cargo bays — solving cargo bays automatically solves airbrakes.
+**Ghost playback:** Same animation technique as cargo bays - solving cargo bays automatically solves airbrakes.
 
 **New enum values:** Could reuse a generic `AnimationToggled` event or add `AirbrakeDeployed`/`AirbrakeRetracted`.
 
@@ -126,15 +126,15 @@
 
 **Why:** Small visual jets from attitude thrusters. Adds realism to docking and maneuvering replays.
 
-**Record method:** Poll `thrusterFX` or `thrustForce` each physics frame. High frequency — would need aggressive throttling (only record on/off transitions, or periodic snapshots).
+**Record method:** Poll `thrusterFX` or `thrustForce` each physics frame. High frequency - would need aggressive throttling (only record on/off transitions, or periodic snapshots).
 
-**Ghost playback:** Clone particle FX from RCS prefab (similar technique to engine FX). Simpler than engines since RCS has no throttle curve — just on/off.
+**Ghost playback:** Clone particle FX from RCS prefab (similar technique to engine FX). Simpler than engines since RCS has no throttle curve - just on/off.
 
 **New enum values:** `RCSFiring`, `RCSStopped`
 
 **Effort:** Medium-High. Many RCS thrusters per vessel, high event frequency, diminishing visual returns.
 
-### Tier 3 — Low impact, high complexity, or niche
+### Tier 3 - Low impact, high complexity, or niche
 
 #### 8. Control Surface Deflection
 
@@ -150,7 +150,7 @@
 
 **Why:** Vessel topology changes dramatically.
 
-**Verdict: Defer to Phase 3+.** Undocking could be treated like Decoupled (hide departing subtree). Docking requires building a combined ghost — too complex for now. Would also need multi-vessel recording support.
+**Verdict: Defer to Phase 3+.** Undocking could be treated like Decoupled (hide departing subtree). Docking requires building a combined ghost - too complex for now. Would also need multi-vessel recording support.
 
 #### 10. Robotics (Breaking Ground DLC)
 

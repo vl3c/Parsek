@@ -15,7 +15,7 @@ Reference: `docs/design-camera-follow-ghost.md`
 1. **Add fields** after the existing `#region State` block (after line ~118, near the other transient flight fields):
 
 ```csharp
-// Camera follow (watch mode) — transient, never serialized
+// Camera follow (watch mode) - transient, never serialized
 int watchedRecordingIndex = -1;       // -1 = not watching
 string watchedRecordingId = null;     // stable across index shifts
 Vessel savedCameraVessel = null;
@@ -144,7 +144,7 @@ None (first phase).
      ```csharp
      if (watchedRecordingIndex >= 0)
      {
-         // Re-target camera to ghost — KSP reparents pivot on vessel switch
+         // Re-target camera to ghost - KSP reparents pivot on vessel switch
          GhostPlaybackState ws;
          if (ghostStates.TryGetValue(watchedRecordingIndex, out ws) && ws.ghost != null)
              FlightCamera.fetch.SetTargetTransform(ws.ghost.transform);
@@ -185,12 +185,12 @@ None (first phase).
          if (watchEndHoldUntilUT < 0)
          {
              watchEndHoldUntilUT = Planetarium.GetUniversalTime() + 3.0;
-             // Keep ghost alive during hold — skip DestroyTimelineGhost
+             // Keep ghost alive during hold - skip DestroyTimelineGhost
              continue;
          }
          else if (Planetarium.GetUniversalTime() < watchEndHoldUntilUT)
          {
-             // Still holding — keep ghost alive
+             // Still holding - keep ghost alive
              continue;
          }
          else

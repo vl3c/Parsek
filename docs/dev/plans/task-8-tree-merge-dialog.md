@@ -872,19 +872,19 @@ Total: ~145 lines of new/modified code across 2 files.
 
 ## Orchestrator Review Fixes
 
-### Fix 1 (CRITICAL) — `SurfacePosition` field is `body`, not `bodyName`
+### Fix 1 (CRITICAL) - `SurfacePosition` field is `body`, not `bodyName`
 
 **Problem:** The plan's `GetLeafSituationText` references `leaf.TerminalPosition.Value.bodyName` in the Landed and Splashed cases (sections 3.4, 7.2). The actual field on `SurfacePosition` is `body` (line 15 of SurfacePosition.cs), not `bodyName`.
 
 **Resolution:** Change all occurrences of `.bodyName` to `.body` in `GetLeafSituationText`.
 
-### Fix 2 (MINOR) — Title uses `--` instead of em dash
+### Fix 2 (MINOR) - Title uses `--` instead of em dash
 
 **Problem:** The plan uses `"Parsek -- Merge Recording Tree"` as the dialog title. The existing dialogs use an actual em dash character `\u2014` (e.g., `"Parsek \u2014 Merge Recording"`).
 
-**Resolution:** Use `"Parsek \u2014 Merge Recording Tree"` to match the existing pattern. The em dash is the UTF-8 character `—`.
+**Resolution:** Use `"Parsek \u2014 Merge Recording Tree"` to match the existing pattern. The em dash is the UTF-8 character `-`.
 
-### Fix 3 (MINOR) — `FormatDuration` should handle NaN/infinity
+### Fix 3 (MINOR) - `FormatDuration` should handle NaN/infinity
 
 **Problem:** If `duration` is `NaN` or negative infinity (from recordings with no points and no explicit UT), `FormatDuration` may produce unexpected output.
 
@@ -893,6 +893,6 @@ Total: ~145 lines of new/modified code across 2 files.
 ### Summary for implementation agent
 
 The plan is solid. Apply these specific changes:
-1. Use `.body` instead of `.bodyName` on `SurfacePosition` (Fix 1 — CRITICAL)
+1. Use `.body` instead of `.bodyName` on `SurfacePosition` (Fix 1 - CRITICAL)
 2. Use `\u2014` (em dash) in the dialog title instead of `--` (Fix 2)
 3. Add NaN guard to `FormatDuration` (Fix 3)

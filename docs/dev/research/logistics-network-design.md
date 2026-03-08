@@ -2,7 +2,7 @@
 
 ## The Idea
 
-Parsek records flights and replays them as ghosts. A natural extension: recorded flights that loop become **reusable supply routes**. A player manually flies a resupply mission from KSC to their Mun base once. Parsek records it. Then that recording becomes an automated logistics route — periodically consuming fuel at the origin and delivering cargo at the destination. The ghost replays visually as a reminder that the supply run is happening.
+Parsek records flights and replays them as ghosts. A natural extension: recorded flights that loop become **reusable supply routes**. A player manually flies a resupply mission from KSC to their Mun base once. Parsek records it. Then that recording becomes an automated logistics route - periodically consuming fuel at the origin and delivering cargo at the destination. The ghost replays visually as a reminder that the supply run is happening.
 
 This turns Parsek from a flight recorder into an economic automation layer on top of KSP's career mode.
 
@@ -26,7 +26,7 @@ The mod is already 80% of the way there:
 - Transfer window validation for interplanetary routes
 - UI for route management
 
-The game state recording system (`GameStateRecorder`, `GameStateStore`, `GameStateBaseline`) is particularly relevant. It already captures career-level economic events at specific UTs with before/after values. Extending this to track physical resource flows during a logistics route execution would be natural — a route dispatch is just another game state event.
+The game state recording system (`GameStateRecorder`, `GameStateStore`, `GameStateBaseline`) is particularly relevant. It already captures career-level economic events at specific UTs with before/after values. Extending this to track physical resource flows during a logistics route execution would be natural - a route dispatch is just another game state event.
 
 ## The Connection to Game State Recording
 
@@ -34,7 +34,7 @@ The game state recording system (`GameStateRecorder`, `GameStateStore`, `GameSta
 
 The game state system captures a baseline snapshot of the entire career state (funds, science, tech tree, crew roster, facility levels, active contracts) and then records delta events as they happen. Events are typed (`GameStateEventType` enum covering contracts, tech, crew, facilities, currencies) with UT, key, detail, and before/after values.
 
-### What's Being Built (Milestones + ResourceBudget — timeline-actions branch)
+### What's Being Built (Milestones + ResourceBudget - timeline-actions branch)
 
 The milestone system in development takes this further:
 
@@ -44,7 +44,7 @@ The milestone system in development takes this further:
 
 - **ResourceBudget** aggregates committed costs across all recordings and milestones, computing "available = current - reserved" for funds, science, and reputation. Pre-launch snapshots (`PreLaunchFunds`, etc.) captured at recording start provide the baseline for cost calculations.
 
-- **Replay tracking** via `LastReplayedEventIndex` persists which events have been applied during playback, surviving save/load cycles. This is exactly the pattern a logistics route would need — tracking which dispatches have been executed vs pending.
+- **Replay tracking** via `LastReplayedEventIndex` persists which events have been applied during playback, surviving save/load cycles. This is exactly the pattern a logistics route would need - tracking which dispatches have been executed vs pending.
 
 ### How Logistics Extends This
 
@@ -56,14 +56,14 @@ The milestone/epoch/replay pattern is the exact foundation logistics needs:
 - Pending deliveries in transit
 
 **New event types** (extending `GameStateEventType`):
-- `RouteDispatched` — fuel deducted from origin, delivery scheduled
-- `RouteDelivered` — cargo added to destination
-- `RouteFailed` — origin ran out of fuel, destination destroyed, etc.
-- `RouteEstablished` / `RouteRetired` — lifecycle events
+- `RouteDispatched` - fuel deducted from origin, delivery scheduled
+- `RouteDelivered` - cargo added to destination
+- `RouteFailed` - origin ran out of fuel, destination destroyed, etc.
+- `RouteEstablished` / `RouteRetired` - lifecycle events
 
 **Epoch isolation applies directly:** If the player reverts to before a route dispatch, the epoch increment naturally invalidates the dispatch. `RestoreMutableState(resetUnmatched: true)` resets route milestones to unreplayed, undoing fuel deductions. The same infrastructure that handles "undo this tech research" handles "undo this supply run."
 
-**ResourceBudget extends naturally:** Route fuel costs become another line item in the budget. "Funds: 35,000 available (15,000 committed)" becomes "LiquidFuel: 1,200 available at KSC (1,150 committed to Mun Resupply)". The budget pattern already handles partial replay and aggregation across multiple recordings — routes are just another source of committed costs.
+**ResourceBudget extends naturally:** Route fuel costs become another line item in the budget. "Funds: 35,000 available (15,000 committed)" becomes "LiquidFuel: 1,200 available at KSC (1,150 committed to Mun Resupply)". The budget pattern already handles partial replay and aggregation across multiple recordings - routes are just another source of committed costs.
 
 **Replay tracking maps to dispatch tracking:** `LastReplayedEventIndex` on a milestone tracks which events have been applied. For logistics, a `LastDispatchedCycle` index on a route tracks which delivery cycles have executed. Both need persistence, both need reset on revert, both use the same epoch isolation.
 
@@ -87,7 +87,7 @@ When the recording is committed, Parsek can extract:
 - **Cargo manifest**: what resources were aboard at arrival (from vessel snapshot)
 - **Vessel template**: the vessel snapshot itself (what ship type runs this route)
 
-The player doesn't configure any of this — it's all derived from the recording they already made.
+The player doesn't configure any of this - it's all derived from the recording they already made.
 
 ### Route Execution (Automated)
 
@@ -102,7 +102,7 @@ Each cycle:
 
 ### Abstracted vs Physical
 
-**Abstracted (recommended):** No actual vessel exists during transit. Just math — deduct at origin, wait, add at destination. The ghost is purely visual. Simple, no physics edge cases, works with time warp.
+**Abstracted (recommended):** No actual vessel exists during transit. Just math - deduct at origin, wait, add at destination. The ghost is purely visual. Simple, no physics edge cases, works with time warp.
 
 **Physical (future):** Spawn an actual vessel, put it on rails following the recorded trajectory, despawn on arrival. More immersive but requires solving vessel persistence across scene changes, SOI transitions while unloaded, and resource tracking on packed vessels. Significant additional complexity for marginal gameplay benefit.
 
@@ -112,7 +112,7 @@ The abstracted approach is the right starting point. It can always be upgraded t
 
 ### Local Routes (Same Parent Body)
 
-KSC → Mun Base, KSC → Minmus Station, Orbital Station → Surface Base — these work at any time because the destination is always reachable. The loop interval is just the transit time plus turnaround time, set by the player.
+KSC → Mun Base, KSC → Minmus Station, Orbital Station → Surface Base - these work at any time because the destination is always reachable. The loop interval is just the transit time plus turnaround time, set by the player.
 
 The Mun's orbital period is ~6.4 days. A Mun resupply that takes 2 days transit could run every 4-5 days comfortably. Minmus (12 day orbit) might need slightly longer intervals but is always reachable.
 
@@ -120,7 +120,7 @@ The Mun's orbital period is ~6.4 days. A Mun resupply that takes 2 days transit 
 
 Kerbin → Duna transfers only work during specific planetary alignments (~2 Kerbin years apart). A recorded Hohmann transfer captures the trajectory at a specific alignment. The route can only re-execute when the planets return to approximately the same configuration.
 
-**Approach: synodic period scheduling.** The synodic period between two bodies is the time between consecutive transfer windows. For Kerbin-Duna it's about 2.135 Kerbin years. Rather than computing phase angles, the route simply declares: "This route repeats every N days" where N approximates the synodic period. The recording already implicitly encodes the correct alignment — the route interval just needs to match the orbital mechanics.
+**Approach: synodic period scheduling.** The synodic period between two bodies is the time between consecutive transfer windows. For Kerbin-Duna it's about 2.135 Kerbin years. Rather than computing phase angles, the route simply declares: "This route repeats every N days" where N approximates the synodic period. The recording already implicitly encodes the correct alignment - the route interval just needs to match the orbital mechanics.
 
 | Route | Synodic Period | Practical Interval |
 |-------|---------------|-------------------|
@@ -153,7 +153,7 @@ Ore: 0.0
 ElectricCharge: 200.0
 ```
 
-This can be stored as a flat key-value dictionary on the trajectory point. The recording format already supports extensibility through the external `.prec` sidecar files — adding resource keys is a format version bump, not a schema redesign.
+This can be stored as a flat key-value dictionary on the trajectory point. The recording format already supports extensibility through the external `.prec` sidecar files - adding resource keys is a format version bump, not a schema redesign.
 
 ### Computing Route Cost and Delivery
 
@@ -182,13 +182,13 @@ UT=50173  RouteDelivered  key="route-mun-resupply"
           detail="dest=MunBase;delivered=Ore:500"
 ```
 
-These integrate with the existing revert system — reverting past a dispatch event undoes the deduction and cancels the delivery.
+These integrate with the existing revert system - reverting past a dispatch event undoes the deduction and cancels the delivery.
 
 ## Base/Station Identification
 
 A key question: how does the system know what counts as a "base" or "station" at the origin and destination?
 
-**Simple approach:** Any landed or orbiting vessel within 500m of the route's first/last point coordinates. The player doesn't explicitly designate bases — the system finds them by proximity to the recorded start/end positions.
+**Simple approach:** Any landed or orbiting vessel within 500m of the route's first/last point coordinates. The player doesn't explicitly designate bases - the system finds them by proximity to the recorded start/end positions.
 
 **Better approach:** Let the player tag vessels as "logistics endpoints" in the Parsek UI. This avoids false matches (a rover parked near the base shouldn't receive cargo) and survives minor base relocations.
 
@@ -232,7 +232,7 @@ Parsek already renders map markers for recordings. Routes could show:
 
 ## Crew Implications
 
-Routes that use crewed vessels need crew management. Parsek already handles crew reservation and replacement for recordings — the same system applies:
+Routes that use crewed vessels need crew management. Parsek already handles crew reservation and replacement for recordings - the same system applies:
 
 - When a route dispatches, the crew is "reserved" (unavailable for other missions)
 - A replacement kerbal with the same trait is hired
@@ -243,7 +243,7 @@ This is exactly what `ParsekScenario.ReserveSnapshotCrew` and `SwapReservedCrewI
 
 ## Risks and Open Questions
 
-**Reliability:** What happens if the origin base runs out of fuel mid-game? Route should gracefully degrade — show a warning, pause dispatches, resume when fuel is available.
+**Reliability:** What happens if the origin base runs out of fuel mid-game? Route should gracefully degrade - show a warning, pause dispatches, resume when fuel is available.
 
 **Multiple routes sharing fuel:** If two routes draw from the same KSC fuel supply, they could compete. Need priority ordering or fair-share allocation. Or just first-come-first-served and let the player manage it.
 
@@ -251,17 +251,17 @@ This is exactly what `ParsekScenario.ReserveSnapshotCrew` and `SwapReservedCrewI
 
 **Save/load:** Route state (next dispatch time, pending deliveries) must serialize into the save file. The existing `GameStateStore` persistence handles this pattern.
 
-**Performance:** 10 active routes checking once per in-game day is negligible. 100 routes with per-frame checks would need optimization. The existing loop playback system already handles this efficiently — route scheduling would piggyback on the same timing.
+**Performance:** 10 active routes checking once per in-game day is negligible. 100 routes with per-frame checks would need optimization. The existing loop playback system already handles this efficiently - route scheduling would piggyback on the same timing.
 
-**Mod compatibility:** ISRU (mining drills), planetary bases, and life support mods all add resources. The route system should work with any resource name — just capture whatever the vessel has, delta it, transfer it. No hard-coded resource names.
+**Mod compatibility:** ISRU (mining drills), planetary bases, and life support mods all add resources. The route system should work with any resource name - just capture whatever the vessel has, delta it, transfer it. No hard-coded resource names.
 
 ## Implementation Phases
 
-**Phase 0 (prerequisite, in progress — timeline-actions branch):** Milestone system with epoch isolation, replay tracking, and resource budget. This is actively being built. The `MilestoneStore`, `ResourceBudget`, and `PreLaunch*` snapshot infrastructure establishes the patterns that logistics would reuse: time-bounded event bundles, branch-aware replay state, and committed cost aggregation.
+**Phase 0 (prerequisite, in progress - timeline-actions branch):** Milestone system with epoch isolation, replay tracking, and resource budget. This is actively being built. The `MilestoneStore`, `ResourceBudget`, and `PreLaunch*` snapshot infrastructure establishes the patterns that logistics would reuse: time-bounded event bundles, branch-aware replay state, and committed cost aggregation.
 
-**Phase 1:** Physical resource snapshots per trajectory point. Extend `TrajectoryPoint` or add a parallel resource log. This is the foundation — everything else builds on knowing what resources were where during the flight. The `.prec` sidecar format already supports extensibility; adding resource keys is a format version bump.
+**Phase 1:** Physical resource snapshots per trajectory point. Extend `TrajectoryPoint` or add a parallel resource log. This is the foundation - everything else builds on knowing what resources were where during the flight. The `.prec` sidecar format already supports extensibility; adding resource keys is a format version bump.
 
-**Phase 2:** Route definition. Extract origin, destination, cost, delivery from a committed recording. Store as metadata on the chain. UI: "Create Route" button on eligible chains. Routes become a new entity alongside milestones — both linked to recordings, both time-bounded, both epoch-aware.
+**Phase 2:** Route definition. Extract origin, destination, cost, delivery from a committed recording. Store as metadata on the chain. UI: "Create Route" button on eligible chains. Routes become a new entity alongside milestones - both linked to recordings, both time-bounded, both epoch-aware.
 
 **Phase 3:** Abstracted route execution. Dispatch/delivery scheduling using existing loop timing. Deduct from origin vessel resources, add to destination after transit time. Route dispatches become game state events (new `GameStateEventType` values), bundled into milestones at commit time. `LastDispatchedCycle` parallels `LastReplayedEventIndex` for replay tracking.
 
@@ -271,6 +271,6 @@ This is exactly what `ParsekScenario.ReserveSnapshotCrew` and `SwapReservedCrewI
 
 ## Summary
 
-Logistics is a natural evolution of Parsek's recording system. The "fly it once, automate it forever" model is compelling because it ties automation to player skill — you earn routes by flying them. The infrastructure is largely in place: recordings, chains, loops, vessel snapshots, game state tracking, crew management. The main new work is physical resource tracking and the route scheduling layer, both of which build directly on existing code.
+Logistics is a natural evolution of Parsek's recording system. The "fly it once, automate it forever" model is compelling because it ties automation to player skill - you earn routes by flying them. The infrastructure is largely in place: recordings, chains, loops, vessel snapshots, game state tracking, crew management. The main new work is physical resource tracking and the route scheduling layer, both of which build directly on existing code.
 
-The milestone system being developed on `timeline-actions` is the key enabler. It establishes the patterns logistics would reuse: epoch-isolated event bundles tied to recordings, replay tracking with persistent indices, resource budget aggregation, and branch-aware state management. Once milestones land, adding route dispatches as another event type in the same framework is a natural next step — the hard architectural problems (revert handling, branch isolation, cost tracking, persistence) are already solved.
+The milestone system being developed on `timeline-actions` is the key enabler. It establishes the patterns logistics would reuse: epoch-isolated event bundles tied to recordings, replay tracking with persistent indices, resource budget aggregation, and branch-aware state management. Once milestones land, adding route dispatches as another event type in the same framework is a natural next step - the hard architectural problems (revert handling, branch isolation, cost tracking, persistence) are already solved.

@@ -45,35 +45,35 @@ After injecting, launch KSP and load **test career**. The save UT is set to 1700
 
 All crewed recordings use the **FleaRocket** craft (mk1pod.v2 + solidBooster.sm.v2 + parachuteSingle) unless noted otherwise.
 
-### 1. Pad Walk (+30 to +60) — Ghost EVA
+### 1. Pad Walk (+30 to +60) - Ghost EVA
 
 Jeb walks ~200m east from the launchpad at ground level. Ghost-only (EVA type, no vessel spawn). Tests EVA ghost rendering.
 
-### 2. KSC Hopper (+60 to +116) — Ghost Ship
+### 2. KSC Hopper (+60 to +116) - Ghost Ship
 
 Val's FleaRocket hops to ~500m, drifts east ~600m, then descends under parachute. Ghost-only (no vessel spawn). Part events: SRB decouple + parachute deploy.
 
-### 3. Flea Flight (+90 to +180) — Vessel Spawn
+### 3. Flea Flight (+90 to +180) - Vessel Spawn
 
 Bob's FleaRocket launches to 620m apex, deploys parachute, lands ~2km east of the pad. Based on real flight data with resource deltas (funds +5760, rep +1.2). **Vessel spawns** at EndUT. Part events: SRB decouple + parachute deploy.
 
-### 4. Suborbital Arc (+120 to +420) — Ghost Ship
+### 4. Suborbital Arc (+120 to +420) - Ghost Ship
 
 Bill's FleaRocket follows a gravity turn east, reaching ~71km apex, then descends under parachute. Ghost-only (no vessel spawn). Uses explicit per-point rotation (gravity turn pitch-over). Part event: SRB decouple.
 
-### 5. KSC Pad Destroyed (+150 to +162) — Ghost Sphere
+### 5. KSC Pad Destroyed (+150 to +162) - Ghost Sphere
 
-Vessel destroyed near KSC. No snapshot — exercises the destroyed/no-snapshot fallback path. Ghost sphere appears briefly.
+Vessel destroyed near KSC. No snapshot - exercises the destroyed/no-snapshot fallback path. Ghost sphere appears briefly.
 
-### 6. Orbit-1 (+180 to +3180) — Vessel Spawn (orbit)
+### 6. Orbit-1 (+180 to +3180) - Vessel Spawn (orbit)
 
-Bill's crewed vessel (pod+tank+engine) ascends to orbit. At +680, the ghost transitions to the **orbital segment** — position computed analytically from Keplerian parameters. **Vessel spawns** in orbit at EndUT. Bill is marked Assigned in Astronaut Complex until spawn.
+Bill's crewed vessel (pod+tank+engine) ascends to orbit. At +680, the ghost transitions to the **orbital segment** - position computed analytically from Keplerian parameters. **Vessel spawns** in orbit at EndUT. Bill is marked Assigned in Astronaut Complex until spawn.
 
-### 7. Close Spawn Conflict (+210 to +222) — Vessel Spawn (landed)
+### 7. Close Spawn Conflict (+210 to +222) - Vessel Spawn (landed)
 
 Jeb's FleaRocket landed very near KSC. **Vessel spawns** at EndUT, offset ~250m from nearest vessel to prevent physics collisions.
 
-### 8. Island Probe (+240 to +420) — Vessel Spawn (landed)
+### 8. Island Probe (+240 to +420) - Vessel Spawn (landed)
 
 Val's FleaRocket flies southeast to the island airfield, cruising at ~1000m. **Vessel spawns** landed at the island (lat=-1.52, lon=-71.97).
 
@@ -81,21 +81,21 @@ Val's FleaRocket flies southeast to the island airfield, cruising at ~1000m. **V
 
 The following 3 recordings are injected as `RECORDING_TREE` nodes, not standalone `RECORDING` nodes. Each tree contains multiple recordings connected by branch points.
 
-### 9. Undock Test Tree (+270 to +390) — Tree: Split
+### 9. Undock Test Tree (+270 to +390) - Tree: Split
 
 Root vessel (composite) records from +270 to +330, then splits via undock. Two child recordings continue: an active child (orbiting, spawnable with snapshot) and a background child (destroyed, no spawn). Tests basic tree ghost playback with split.
 
-### 10. EVA Test Tree (+390 to +480) — Tree: EVA
+### 10. EVA Test Tree (+390 to +480) - Tree: EVA
 
 Root vessel on pad records from +390 to +420, then an EVA splits off. Two child recordings: vessel continues on pad (landed, spawnable) and EVA kerbal walks (landed). Tests EVA branch in tree context.
 
-### 11. Destruction Test Tree (+480 to +570) — Tree: Destroyed Child
+### 11. Destruction Test Tree (+480 to +570) - Tree: Destroyed Child
 
 Root vessel records from +480 to +510, then splits via undock. Child A continues orbiting (spawnable with snapshot). Child B is destroyed at +540 (no spawn). Tests that destroyed children are excluded from spawning.
 
 ### Crew Assignment
 
-- **Ghost-only** recordings (PadWalk, KSC Hopper, Suborbital Arc) reuse stock kerbal names safely — `WithGhostVisualSnapshot` triggers no crew reservation.
+- **Ghost-only** recordings (PadWalk, KSC Hopper, Suborbital Arc) reuse stock kerbal names safely - `WithGhostVisualSnapshot` triggers no crew reservation.
 - **Vessel-spawn** recordings each use a unique stock kerbal: Bob (Flea Flight), Bill (Orbit-1), Jeb (Close Spawn), Val (Island Probe).
 - **Tree recordings** do not use crew reservation (no vessel snapshots with crew in synthetic trees).
 
@@ -153,15 +153,15 @@ rec.GetVesselSnapshot();     // vessel snapshot ConfigNode
 rec.GetGhostVisualSnapshot(); // ghost snapshot ConfigNode
 ```
 
-**WithDefaultRotation(x, y, z, w)** — sets a default rotation quaternion applied to all subsequent `AddPoint` calls that don't specify an explicit rotation. Use this for surface-aligned recordings (e.g. KSC upright ≈ 0.33, -0.63, -0.63, -0.33). Points with explicit non-identity rotation are unaffected.
+**WithDefaultRotation(x, y, z, w)** - sets a default rotation quaternion applied to all subsequent `AddPoint` calls that don't specify an explicit rotation. Use this for surface-aligned recordings (e.g. KSC upright ≈ 0.33, -0.63, -0.63, -0.33). Points with explicit non-identity rotation are unaffected.
 
-**AddPoint** parameters: `(ut, lat, lon, alt, body, rotX/Y/Z/W, funds, science, rep)` — all optional after alt, defaults to Kerbin with identity rotation (or default rotation if set) and zero resources.
+**AddPoint** parameters: `(ut, lat, lon, alt, body, rotX/Y/Z/W, funds, science, rep)` - all optional after alt, defaults to Kerbin with identity rotation (or default rotation if set) and zero resources.
 
-**AddOrbitSegment** parameters: `(startUT, endUT, inc, ecc, sma, lan, argPe, mna, epoch, body)` — Keplerian elements matching OrbitSegment struct.
+**AddOrbitSegment** parameters: `(startUT, endUT, inc, ecc, sma, lan, argPe, mna, epoch, body)` - Keplerian elements matching OrbitSegment struct.
 
-**AddPartEvent** parameters: `(ut, pid, type, partName)` — records a part event at the given UT. Type is a `PartEventType` enum cast to int (Decoupled=0, Destroyed=1, ParachuteDeployed=2, ParachuteCut=3).
+**AddPartEvent** parameters: `(ut, pid, type, partName)` - records a part event at the given UT. Type is a `PartEventType` enum cast to int (Decoupled=0, Destroyed=1, ParachuteDeployed=2, ParachuteCut=3).
 
-**WithParentRecordingId / WithEvaCrewName** — link a child recording to its parent (used for EVA child recordings). The parent recording ID is the `RecordingId` of the parent recording.
+**WithParentRecordingId / WithEvaCrewName** - link a child recording to its parent (used for EVA child recordings). The parent recording ID is the `RecordingId` of the parent recording.
 
 All numeric values are serialized with `CultureInfo.InvariantCulture` for locale safety.
 
@@ -186,7 +186,7 @@ VesselSnapshotBuilder.ProbeShip("Island Probe", pid: 87654321)
     .Build();
 ```
 
-Static factories: `FleaRocket` (3-part crewed rocket with real KSP part positions and attachment nodes), `CrewedShip` (single pod with crew), `ProbeShip` (single probe core). Use `.AddPart(name, crew, position, parentIndex)` to add more parts — `position` is a Y-up vessel-local coordinate string (e.g. `"0,-1.163,0"`).
+Static factories: `FleaRocket` (3-part crewed rocket with real KSP part positions and attachment nodes), `CrewedShip` (single pod with crew), `ProbeShip` (single probe core). Use `.AddPart(name, crew, position, parentIndex)` to add more parts - `position` is a Y-up vessel-local coordinate string (e.g. `"0,-1.163,0"`).
 
 The VESSEL `pid` field is deterministically derived from `persistentId` (hex-encoded, zero-padded to 32 chars). This means repeated builds with the same persistentId produce identical output, making the injection content-stable for diffing and debugging.
 
@@ -207,11 +207,11 @@ writer.InjectIntoSaveFile("input.sfs", "output.sfs");
 ```
 
 **Injection algorithm:**
-1. Remove any existing `ParsekScenario` SCENARIO block using brace-counting (finds the SCENARIO line, checks for `name = ParsekScenario` inside, then tracks brace depth to find the matching close brace — robust against varying whitespace and nested content)
+1. Remove any existing `ParsekScenario` SCENARIO block using brace-counting (finds the SCENARIO line, checks for `name = ParsekScenario` inside, then tracks brace depth to find the matching close brace - robust against varying whitespace and nested content)
 2. Find the `FLIGHTSTATE` line
 3. Insert the new SCENARIO block before it with correct tab indentation
 
-This makes the operation idempotent — safe to run repeatedly.
+This makes the operation idempotent - safe to run repeatedly.
 
 ## Adding New Test Recordings
 

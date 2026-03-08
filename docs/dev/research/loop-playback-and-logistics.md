@@ -6,8 +6,8 @@ Atmospheric ("atmo") recordings use geographic coordinates (lat/lon/alt) stored 
 
 This means atmo recordings can loop at any interval without visual drift:
 - The ghost always appears at the correct surface location relative to terrain
-- Body rotation is handled internally by KSP — same lat/lon tracks the same ground point
-- Body orbital motion doesn't matter — the coordinate system is body-relative
+- Body rotation is handled internally by KSP - same lat/lon tracks the same ground point
+- Body orbital motion doesn't matter - the coordinate system is body-relative
 
 **Loop mechanics** (`ParsekFlight.TryComputeLoopPlaybackUT`):
 - Compute cycle: `cycleDuration = recordingDuration + pauseSeconds`
@@ -29,7 +29,7 @@ orbit = new Orbit(inc, ecc, sma, lan, argPe, mna, epoch, body)
 worldPos = orbit.getPositionAtUT(loopUT)
 ```
 
-The orbit's `epoch` is fixed from recording time. When looping, `loopUT` remaps back to the original UT range. But `orbit.getPositionAtUT(loopUT)` returns position relative to the **body's center in inertial space** — and the body itself has moved since the original recording.
+The orbit's `epoch` is fixed from recording time. When looping, `loopUT` remaps back to the original UT range. But `orbit.getPositionAtUT(loopUT)` returns position relative to the **body's center in inertial space** - and the body itself has moved since the original recording.
 
 ### Drift Quantification
 
@@ -49,7 +49,7 @@ The only scenario where it would matter: looping a specific orbital rendezvous o
 
 ### Transfer Window Constraint
 
-An exo recording captures a trajectory that was valid at a specific planetary alignment. If you wanted to loop an interplanetary transfer, you'd need the planets in the same relative positions — which only happens at transfer window intervals:
+An exo recording captures a trajectory that was valid at a specific planetary alignment. If you wanted to loop an interplanetary transfer, you'd need the planets in the same relative positions - which only happens at transfer window intervals:
 - Kerbin-Mun: ~6.4 day synodic period (frequent)
 - Kerbin-Duna: ~2 year synodic period (rare)
 - Kerbin-Jool: ~3.6 year synodic period (very rare)
@@ -62,7 +62,7 @@ This constraint is irrelevant for current playback (recordings play at their ori
 
 ### Core Idea
 
-A recorded flight becomes a reusable "route" — a supply run between two locations. When enabled, the route periodically transfers resources from origin to destination, consuming fuel and delivering cargo. The ghost replays visually while resources flow automatically.
+A recorded flight becomes a reusable "route" - a supply run between two locations. When enabled, the route periodically transfers resources from origin to destination, consuming fuel and delivering cargo. The ghost replays visually while resources flow automatically.
 
 ### How It Builds on Existing Infrastructure
 
@@ -120,8 +120,8 @@ The delta between first and last point defines the route's cost and delivery:
 ### KSP API for Resource Manipulation
 
 The APIs exist and are straightforward:
-- `vessel.parts[i].Resources["LiquidFuel"].amount` — read/write resource amounts
-- `vessel.parts[i].Resources["Ore"].maxAmount` — check capacity
+- `vessel.parts[i].Resources["LiquidFuel"].amount` - read/write resource amounts
+- `vessel.parts[i].Resources["Ore"].maxAmount` - check capacity
 - Works on both loaded (unpacked) and unloaded (packed/on-rails) vessels
 - For on-rails vessels, modify the ConfigNode protoVessel instead
 
@@ -133,7 +133,7 @@ Key constraint: routes should not be free. Each execution must:
 3. Fail if origin doesn't have enough fuel
 4. Fail if destination is destroyed or inaccessible
 
-The recording itself acts as a "proof of capability" — you can only automate what you've already flown manually. This keeps the logistics system grounded in gameplay.
+The recording itself acts as a "proof of capability" - you can only automate what you've already flown manually. This keeps the logistics system grounded in gameplay.
 
 ### Example Workflow
 

@@ -12,14 +12,14 @@ Going back is essential for the core Parsek vision: a common timeline where reco
 
 ## Terminology
 
-- **Restore point**: a KSP quicksave paired with Parsek metadata, created automatically when a recording is committed to the timeline. Captures the game state at the recording's launch time — the moment before that mission began.
+- **Restore point**: a KSP quicksave paired with Parsek metadata, created automatically when a recording is committed to the timeline. Captures the game state at the recording's launch time - the moment before that mission began.
 - **Launch save**: a quicksave captured at the moment a recording starts, if the vessel is in a stable state. Held temporarily until the recording is committed (becomes a restore point) or discarded (deleted).
 - **Go back**: loading a restore point to return to an earlier UT. Parsek re-injects all committed recordings (including ones committed after the restore point) so they replay as ghosts.
 - **Forward recording**: a committed recording whose StartUT is after the restore point's UT. These replay as ghosts when the player plays forward from the restore point.
 
 ## Mental Model
 
-Every committed recording has a restore point at its launch time (if the vessel was in a stable state when recording started). The launch save is captured at recording start and promoted to a restore point when the recording is committed — regardless of the commit mechanism (merge dialog, Commit Flight, auto-commit on scene exit, tree commit). Going back loads a launch snapshot and lets all recordings — past and future — play out as ghosts.
+Every committed recording has a restore point at its launch time (if the vessel was in a stable state when recording started). The launch save is captured at recording start and promoted to a restore point when the recording is committed - regardless of the commit mechanism (merge dialog, Commit Flight, auto-commit on scene exit, tree commit). Going back loads a launch snapshot and lets all recordings - past and future - play out as ghosts.
 
 ```
 Timeline:  ──────────────────────────────────────────────────► UT
@@ -46,11 +46,11 @@ Player launches a new mission. All three recordings
 replay as ghosts alongside the new flight.
 ```
 
-There is no concept of a "present" or "timeline head." Restore points are just a bag of launch snapshots. The player can jump to any of them in any order. The existing Recordings window shows all committed recordings and their status — no additional awareness UI is needed.
+There is no concept of a "present" or "timeline head." Restore points are just a bag of launch snapshots. The player can jump to any of them in any order. The existing Recordings window shows all committed recordings and their status - no additional awareness UI is needed.
 
 ## Gameplay Scenarios
 
-### Scenario 1: Early career — launch, commit, go back, launch again
+### Scenario 1: Early career - launch, commit, go back, launch again
 
 The player starts a new career. They build a small Flea rocket, launch it, fly a suborbital hop, revert to launch, and merge the recording. Parsek auto-creates a restore point at the launch moment.
 
@@ -58,23 +58,23 @@ They build a second rocket, launch it, fly higher, revert, merge. A second resto
 
 Now they want to re-fly the first mission differently. They open the Parsek window, click "Go Back," see both restore points listed chronologically. They pick the first one. A confirmation dialog warns that 1 future recording will replay as a ghost and uncommitted progress will be lost. They confirm.
 
-The game loads to the pad at the moment of the first launch. Both committed recordings begin replaying as ghosts — the first ghost launches alongside them, the second ghost appears later at its scheduled UT. The player launches a new rocket and watches the two ghost missions fly while they do their own thing.
+The game loads to the pad at the moment of the first launch. Both committed recordings begin replaying as ghosts - the first ghost launches alongside them, the second ghost appears later at its scheduled UT. The player launches a new rocket and watches the two ghost missions fly while they do their own thing.
 
 The resource budget shows committed costs for both existing recordings. If they try to spend more than available, they're blocked. They can delete a recording from the Recordings window to free resources.
 
-### Scenario 2: Mun expedition — commit from orbit, go back to pad
+### Scenario 2: Mun expedition - commit from orbit, go back to pad
 
-The player builds a Mun lander, launches, transfers to Mun, lands, plants a flag, and returns to Munar orbit. They're now in a stable orbit around Mun. They don't want to revert — they want to keep the vessel where it is. They click "Commit Flight."
+The player builds a Mun lander, launches, transfers to Mun, lands, plants a flag, and returns to Munar orbit. They're now in a stable orbit around Mun. They don't want to revert - they want to keep the vessel where it is. They click "Commit Flight."
 
-Because they're in `ORBITING` (stable state), the button is enabled. The recording commits. A restore point is created at the original launch time (on the pad at KSC), not at the current orbital position — because the launch save was captured when auto-recording started at launch.
+Because they're in `ORBITING` (stable state), the button is enabled. The recording commits. A restore point is created at the original launch time (on the pad at KSC), not at the current orbital position - because the launch save was captured when auto-recording started at launch.
 
-Later, the player wants to start a supply mission. They go back to the pad restore point. The game loads to the KSC pad. The Mun lander mission replays as a ghost — they watch its trajectory arc toward Mun while they build and launch a supply ship.
+Later, the player wants to start a supply mission. They go back to the pad restore point. The game loads to the KSC pad. The Mun lander mission replays as a ghost - they watch its trajectory arc toward Mun while they build and launch a supply ship.
 
-### Scenario 3: Multiple go-backs — building a space station
+### Scenario 3: Multiple go-backs - building a space station
 
 The player launches Core Module (UT 100). Commits. RP_1 at UT 100.
 
-Launches Solar Array (UT 200). Docks with core. Commits (tree recording — undock events created branches). RP_2 at UT 200.
+Launches Solar Array (UT 200). Docks with core. Commits (tree recording - undock events created branches). RP_2 at UT 200.
 
 Launches Crew Module (UT 300). Docks. Commits. RP_3 at UT 300.
 
@@ -82,19 +82,19 @@ The player realizes they want the solar array to be bigger. They go back to RP_2
 
 The player launches a new, bigger solar array. They dock with the ghost core (or nearby). Commit. New RP_4 at UT 200.
 
-Now they go back to RP_3 (UT 300) — this loads the original timeline's state at UT 300. The old solar array and crew module are on the station. The new bigger solar array recording also replays as a ghost. The player now has two overlapping solar array ghosts (old and new) — they'd need to delete the old recording to clean up. This is expected: recordings are immutable, and the player manages the timeline through the Recordings window.
+Now they go back to RP_3 (UT 300) - this loads the original timeline's state at UT 300. The old solar array and crew module are on the station. The new bigger solar array recording also replays as a ghost. The player now has two overlapping solar array ghosts (old and new) - they'd need to delete the old recording to clean up. This is expected: recordings are immutable, and the player manages the timeline through the Recordings window.
 
 ### Scenario 4: Manual recording from orbit
 
-The player is at a space station in LKO. No active recording. They press F9 to start recording manually. The vessel is `ORBITING` — a stable state — so a launch save is captured.
+The player is at a space station in LKO. No active recording. They press F9 to start recording manually. The vessel is `ORBITING` - a stable state - so a launch save is captured.
 
 They perform an EVA, do some repairs, board back. The EVA child recording auto-commits but does NOT consume the launch save (root guard: EVA is a child recording).
 
 They finish their work and click "Commit Flight" (vessel is orbiting, button enabled). The recording commits, the launch save promotes to a restore point.
 
-Going back to this restore point puts the player at the station in LKO — not on the pad. The game state (funds, tech, crew) reflects the moment they pressed F9. Any recordings committed after that point replay as ghosts.
+Going back to this restore point puts the player at the station in LKO - not on the pad. The game state (funds, tech, crew) reflects the moment they pressed F9. Any recordings committed after that point replay as ghosts.
 
-### Scenario 5: Resource pressure — can't afford a mission
+### Scenario 5: Resource pressure - can't afford a mission
 
 The player has 50,000 funds. They launch Mission A (vessel cost 20,000, earns 10,000 in-flight). Commit. Available: 50,000 - 20,000(vessel) + 10,000(earnings pre-applied) = 40,000.
 
@@ -102,7 +102,7 @@ They launch Mission B (vessel cost 15,000, loses 5,000 in-flight). Commit. Avail
 
 They go back to RP_A (UT of Mission A launch). Game loads with 30,000 funds (50,000 - 20,000 vessel cost at launch). Resource adjustment adds the net committed delta: A earns 10k, B loses 5k, net +5k → adjustment deducts -5k (adds 5k). Funds = 35,000.
 
-They try to launch a 40,000 rocket. Blocked — only 35,000 available. They build a cheaper 30,000 rocket instead.
+They try to launch a 40,000 rocket. Blocked - only 35,000 available. They build a cheaper 30,000 rocket instead.
 
 ## Design Decisions
 
@@ -110,13 +110,13 @@ They try to launch a 40,000 rocket. Blocked — only 35,000 available. They buil
 
 The "Commit Flight" button (commits without reverting) is only enabled when the vessel is in a stable situation: `PRELAUNCH`, `LANDED`, `SPLASHED`, or `ORBITING`. Disabled during `FLYING`, `SUB_ORBITAL`, and `ESCAPING`.
 
-Rationale: committing mid-flight would create an ambiguous game state — the vessel is at an arbitrary position with unpredictable trajectory. Requiring a stable situation (grounded or in a stable orbit) ensures the commit captures a clean, reproducible state.
+Rationale: committing mid-flight would create an ambiguous game state - the vessel is at an arbitrary position with unpredictable trajectory. Requiring a stable situation (grounded or in a stable orbit) ensures the commit captures a clean, reproducible state.
 
 ### Launch save captured at recording start
 
-To ensure every committed recording has a restore point at its launch time regardless of commit path, Parsek captures a "launch save" (quicksave) when a recording starts — if the vessel is in a stable state (`PRELAUNCH`, `LANDED`, `SPLASHED`, `ORBITING`). This launch save is held in `RestorePointStore` as a pending launch save until the recording is committed or discarded.
+To ensure every committed recording has a restore point at its launch time regardless of commit path, Parsek captures a "launch save" (quicksave) when a recording starts - if the vessel is in a stable state (`PRELAUNCH`, `LANDED`, `SPLASHED`, `ORBITING`). This launch save is held in `RestorePointStore` as a pending launch save until the recording is committed or discarded.
 
-**Why at recording start, not commit time:** for merge dialog commits, the player has reverted to launch so the current state matches. But for Commit Flight and auto-commits, the player is post-flight — the game state has moved on. Capturing at recording start ensures the quicksave always reflects the pre-flight state, regardless of how the recording is later committed.
+**Why at recording start, not commit time:** for merge dialog commits, the player has reverted to launch so the current state matches. But for Commit Flight and auto-commits, the player is post-flight - the game state has moved on. Capturing at recording start ensures the quicksave always reflects the pre-flight state, regardless of how the recording is later committed.
 
 **What triggers a launch save:**
 - Auto-recording on launch (vessel leaves PRELAUNCH → recording starts)
@@ -166,11 +166,11 @@ foreach milestone: LastReplayedEventIndex = Events.Count - 1
 budgetDeductionEpoch = MilestoneStore.CurrentEpoch
 ```
 
-If recordings were deleted since the restore point, `additionalCost` can be negative (funds freed). This is correct — the player deleted recordings to free resources.
+If recordings were deleted since the restore point, `additionalCost` can be negative (funds freed). This is correct - the player deleted recordings to free resources.
 
 **Why `SuppressResourceEvents`:** Without suppression, the funds/science/reputation changes would be captured by `GameStateRecorder` as game state events, polluting the milestone system with synthetic deductions.
 
-**Why mark everything as fully applied (step 4):** Ghost playback calls `ApplyResourceDeltas` every frame, advancing LARI and modifying funds. If LARI were left at -1 after the budget adjustment, playback would re-apply the same deltas — double-deduction. Setting LARI to max and `ResourcesApplied = true` ensures playback sees "nothing left to apply."
+**Why mark everything as fully applied (step 4):** Ghost playback calls `ApplyResourceDeltas` every frame, advancing LARI and modifying funds. If LARI were left at -1 after the budget adjustment, playback would re-apply the same deltas - double-deduction. Setting LARI to max and `ResourcesApplied = true` ensures playback sees "nothing left to apply."
 
 **Why set `budgetDeductionEpoch` (step 5):** The go-back path bypasses `ApplyBudgetDeductionWhenReady` (no revert detection triggers it). But if something unexpected triggers the coroutine later, the epoch guard prevents it from running again.
 
@@ -237,41 +237,41 @@ Timeline: Mission A (UT 100-200, earns 4k), Mission B (UT 250-350, loses 2k)
 
 ```
 RestorePoint
-    Id                  : string  — GUID, unique identifier
-    UT                  : double  — recording's StartUT (launch time)
-    SaveFileName        : string  — KSP save file name (without .sfs extension)
-    Label               : string  — auto-generated description for UI display
-    RecordingCount      : int     — committed recordings at creation time (display)
-    Funds               : double  — game funds at launch point (display)
-    Science             : double  — game science at launch point (display)
-    Reputation          : float   — game reputation at launch point (display)
-    ReservedFundsAtSave : double  — ResourceBudget total reserved funds at save time
-    ReservedScienceAtSave: double — ResourceBudget total reserved science at save time
-    ReservedRepAtSave   : float   — ResourceBudget total reserved rep at save time
+    Id                  : string  - GUID, unique identifier
+    UT                  : double  - recording's StartUT (launch time)
+    SaveFileName        : string  - KSP save file name (without .sfs extension)
+    Label               : string  - auto-generated description for UI display
+    RecordingCount      : int     - committed recordings at creation time (display)
+    Funds               : double  - game funds at launch point (display)
+    Science             : double  - game science at launch point (display)
+    Reputation          : float   - game reputation at launch point (display)
+    ReservedFundsAtSave : double  - ResourceBudget total reserved funds at save time
+    ReservedScienceAtSave: double - ResourceBudget total reserved science at save time
+    ReservedRepAtSave   : float   - ResourceBudget total reserved rep at save time
 ```
 
 ### PendingLaunchSave
 
 ```
 PendingLaunchSave
-    SaveFileName            : string  — quicksave file name (without .sfs)
-    UT                      : double  — recording StartUT (launch time)
-    Funds                   : double  — game funds at launch
-    Science                 : double  — game science at launch
-    Reputation              : float   — game reputation at launch
-    ReservedFundsAtSave     : double  — ResourceBudget reserved funds at launch
-    ReservedScienceAtSave   : double  — ResourceBudget reserved science at launch
-    ReservedRepAtSave       : float   — ResourceBudget reserved rep at launch
+    SaveFileName            : string  - quicksave file name (without .sfs)
+    UT                      : double  - recording StartUT (launch time)
+    Funds                   : double  - game funds at launch
+    Science                 : double  - game science at launch
+    Reputation              : float   - game reputation at launch
+    ReservedFundsAtSave     : double  - ResourceBudget reserved funds at launch
+    ReservedScienceAtSave   : double  - ResourceBudget reserved science at launch
+    ReservedRepAtSave       : float   - ResourceBudget reserved rep at launch
 ```
 
-Temporary structure held between recording start and commit/discard. Not persisted — exists only in static memory.
+Temporary structure held between recording start and commit/discard. Not persisted - exists only in static memory.
 
 ### RestorePointStore (new static class)
 
 ```
 RestorePointStore
     static restorePoints        : List<RestorePoint>
-    static pendingLaunchSave    : PendingLaunchSave?  — current mission's launch save
+    static pendingLaunchSave    : PendingLaunchSave?  - current mission's launch save
     static initialLoadDone      : bool
     static lastSaveFolder       : string
 
@@ -281,7 +281,7 @@ RestorePointStore
     static GoBackReserved       : BudgetSummary
 ```
 
-Parallel structure to `MilestoneStore` — static fields for in-memory state, external file for persistence, `initialLoadDone` + `lastSaveFolder` for load-once-per-save semantics. The `pendingLaunchSave` is a singleton — at most one launch save exists at a time (one mission in progress).
+Parallel structure to `MilestoneStore` - static fields for in-memory state, external file for persistence, `initialLoadDone` + `lastSaveFolder` for load-once-per-save semantics. The `pendingLaunchSave` is a singleton - at most one launch save exists at a time (one mission in progress).
 
 ### Serialization
 
@@ -337,12 +337,12 @@ When disabled due to vessel situation, tooltip: "Land or stop before committing.
 - Manual recording start (F9) while vessel is in a stable state
 
 **When NOT to capture:**
-- Recording starts from an unstable state (FLYING, SUB_ORBITAL, ESCAPING) — no launch save
-- Tree child recordings (created by undock/EVA/split) — use root's launch save
-- Chain continuation segments — use first segment's launch save
+- Recording starts from an unstable state (FLYING, SUB_ORBITAL, ESCAPING) - no launch save
+- Tree child recordings (created by undock/EVA/split) - use root's launch save
+- Chain continuation segments - use first segment's launch save
 
 **Steps (executed at recording start):**
-1. Check vessel situation — skip if not stable
+1. Check vessel situation - skip if not stable
 2. If a `pendingLaunchSave` already exists, delete its quicksave file (previous mission wasn't committed)
 3. Generate short ID: first 6 chars of new GUID
 4. Build save file name: `parsek_rp_{shortId}`
@@ -351,34 +351,34 @@ When disabled due to vessel situation, tooltip: "Land or stop before committing.
 7. Capture `reservedAtSave` from `ResourceBudget.ComputeTotalFullCost()` (full costs, ignoring LARI/ResourcesApplied/LastReplayedEventIndex)
 8. Store as `RestorePointStore.pendingLaunchSave`
 
-**Side effect of SaveGame:** `GamePersistence.SaveGame` triggers `ParsekScenario.OnSave`, which flushes pending game state events via `MilestoneStore.FlushPendingEvents`. This is harmless — events accumulated since the last save are correctly captured into milestones. No pending recording data is saved (the recording just started).
+**Side effect of SaveGame:** `GamePersistence.SaveGame` triggers `ParsekScenario.OnSave`, which flushes pending game state events via `MilestoneStore.FlushPendingEvents`. This is harmless - events accumulated since the last save are correctly captured into milestones. No pending recording data is saved (the recording just started).
 
-**Performance:** Quicksaving serializes the entire game state (typically 100-500ms on complex saves). This happens at recording start — usually the moment of launch, which is already a busy frame. If the hitch is noticeable, the save can be deferred by 2-3 frames via `StartCoroutine` to avoid compounding with physics initialization. v1: save immediately, measure impact.
+**Performance:** Quicksaving serializes the entire game state (typically 100-500ms on complex saves). This happens at recording start - usually the moment of launch, which is already a busy frame. If the hitch is noticeable, the save can be deferred by 2-3 frames via `StartCoroutine` to avoid compounding with physics initialization. v1: save immediately, measure impact.
 
 ### Creating restore points
 
 **Trigger:** a root recording commit to the timeline. ALL commit paths promote the launch save:
-- Merge dialog → "Merge to Timeline" (standalone or chain — the committed recording has no `ParentRecordingId`)
+- Merge dialog → "Merge to Timeline" (standalone or chain - the committed recording has no `ParentRecordingId`)
 - "Commit Flight" button (standalone or tree)
 - Auto-commit on scene exit (CommitTreeSceneExit)
 - Tree merge dialog → "Merge to Timeline"
 
 **What does NOT promote the launch save:**
-- EVA child auto-commit — the EVA is a child recording (`ParentRecordingId != null`), not the root mission. The launch save belongs to the parent mission.
-- Chain continuation segment commits — these are intermediate; only the final chain commit matters.
+- EVA child auto-commit - the EVA is a child recording (`ParentRecordingId != null`), not the root mission. The launch save belongs to the parent mission.
+- Chain continuation segment commits - these are intermediate; only the final chain commit matters.
 
 **Guard:** only promote `pendingLaunchSave` if the committed recording is a root: `rec.ParentRecordingId == null` for standalone/chain, or the tree commit itself for trees.
 
 **Condition:** `pendingLaunchSave` exists AND the committed recording is a root. If there is no pending launch save (recording started from unstable state), no restore point is created.
 
 **Steps (executed after CommitPending / CommitTreePending / CommitTreeSceneExit completes):**
-1. Check `RestorePointStore.pendingLaunchSave` — if null, skip
-2. Check root guard — if the committed recording is a child (EVA, continuation), skip
+1. Check `RestorePointStore.pendingLaunchSave` - if null, skip
+2. Check root guard - if the committed recording is a child (EVA, continuation), skip
 3. Build label: `"\"{vesselName}\" launch ({N} recordings)"`
 4. Create `RestorePoint` from `pendingLaunchSave` fields (UT, save file, resources, reserved amounts)
 5. Add to `RestorePointStore.restorePoints`
 6. Save metadata to external file (safe-write: `.tmp` + rename)
-7. Clear `pendingLaunchSave` (consumed — now a permanent restore point)
+7. Clear `pendingLaunchSave` (consumed - now a permanent restore point)
 
 **Discarding recordings:**
 - When a recording is discarded (merge dialog "Discard", or recording cleared), and `pendingLaunchSave` exists:
@@ -392,9 +392,9 @@ When disabled due to vessel situation, tooltip: "Land or stop before committing.
 
 ### Persisting restore point metadata
 
-**Save:** `RestorePointStore.SaveRestorePointFile()` — called after creating/deleting a restore point. Uses safe-write pattern (write `.tmp`, rename). Not called from `ParsekScenario.OnSave` — this is an intentional divergence from `MilestoneStore`/`GameStateStore` (which save from OnSave). Reason: the launch save quicksave itself triggers OnSave, which would create a circular dependency if restore point metadata were also saved from OnSave. Instead, restore point metadata is saved at the point of mutation (create/delete), which is simpler and avoids the circular trigger.
+**Save:** `RestorePointStore.SaveRestorePointFile()` - called after creating/deleting a restore point. Uses safe-write pattern (write `.tmp`, rename). Not called from `ParsekScenario.OnSave` - this is an intentional divergence from `MilestoneStore`/`GameStateStore` (which save from OnSave). Reason: the launch save quicksave itself triggers OnSave, which would create a circular dependency if restore point metadata were also saved from OnSave. Instead, restore point metadata is saved at the point of mutation (create/delete), which is simpler and avoids the circular trigger.
 
-**Load:** `RestorePointStore.LoadRestorePointFile()` — called on initial load (once per save game, guarded by `initialLoadDone` + `lastSaveFolder`). Same pattern as MilestoneStore/GameStateStore.
+**Load:** `RestorePointStore.LoadRestorePointFile()` - called on initial load (once per save game, guarded by `initialLoadDone` + `lastSaveFolder`). Same pattern as MilestoneStore/GameStateStore.
 
 **Validation on load:** for each restore point, check that the .sfs file exists. If missing, mark the restore point but keep it in the list (shown as unavailable in UI).
 
@@ -413,12 +413,12 @@ When disabled due to vessel situation, tooltip: "Land or stop before committing.
 │                                                   │
 │  ┌──────────────────────────────────────────────┐│
 │  │ Year 1, Day 1  03:22                         ││
-│  │ "Flea Rocket" launch — 1 recording           ││
+│  │ "Flea Rocket" launch - 1 recording           ││
 │  │ Funds: 47,500  Sci: 0  Rep: 0                ││
 │  │                    [ Go Back ] [ Delete ]     ││
 │  ├──────────────────────────────────────────────┤│
 │  │ Year 1, Day 1  03:52                         ││
-│  │ "KSC Hopper" launch — 2 recordings           ││
+│  │ "KSC Hopper" launch - 2 recordings           ││
 │  │ Funds: 43,200  Sci: 5  Rep: 2                ││
 │  │                    [ Go Back ] [ Delete ]     ││
 │  └──────────────────────────────────────────────┘│
@@ -457,9 +457,9 @@ The "future recordings" count = count of committed recordings whose `StartUT > r
 ### Go Back mechanism
 
 **Preconditions (checked before showing picker):**
-1. `FlightRecorder.IsRecording == false` — no active recording
-2. `RecordingStore.HasPending == false` — no pending merge
-3. `RecordingStore.HasPendingTree == false` — no pending tree merge
+1. `FlightRecorder.IsRecording == false` - no active recording
+2. `RecordingStore.HasPending == false` - no pending merge
+3. `RecordingStore.HasPendingTree == false` - no pending tree merge
 4. Player is in flight scene (GameScenes.FLIGHT)
 
 If any precondition fails, the "Go Back" button is disabled with a tooltip explaining why.
@@ -481,12 +481,12 @@ If any precondition fails, the "Go Back" button is disabled with a tooltip expla
    - Existing logic runs but there's no active recording to stash
    - Ghost cleanup runs normally
 5. New scene loads → `ParsekScenario.OnLoad` fires
-   - **Detect `IsGoingBack` flag at the VERY TOP of OnLoad** — before `LoadCrewReplacements`, before revert detection, before anything else in the `initialLoadDone == true` branch. This is critical: `LoadCrewReplacements` is currently called unconditionally and would overwrite in-memory crew data with stale .sfs data.
-   - **Skip `LoadCrewReplacements`** — in-memory `crewReplacements` is the source of truth (it has replacements for recordings committed after this quicksave)
-   - **Skip loading recordings from .sfs** — in-memory `committedRecordings` and `committedTrees` already have ALL recordings (including ones committed after this quicksave)
-   - **Skip revert detection** — go-back is not a revert; it has its own handling
-   - **Do NOT read `milestoneEpoch` from the loaded .sfs** — the quicksave has an old epoch value. Instead, increment the current in-memory `MilestoneStore.CurrentEpoch` (which has been maintained across all reverts/go-backs in this session)
-   - **Reset milestone mutable state** with `resetUnmatched = true` — milestones created after the restore point are reset to unreplayed. Pass the loaded ConfigNode so milestones present in the quicksave get their saved `LastReplayedEventIndex`.
+   - **Detect `IsGoingBack` flag at the VERY TOP of OnLoad** - before `LoadCrewReplacements`, before revert detection, before anything else in the `initialLoadDone == true` branch. This is critical: `LoadCrewReplacements` is currently called unconditionally and would overwrite in-memory crew data with stale .sfs data.
+   - **Skip `LoadCrewReplacements`** - in-memory `crewReplacements` is the source of truth (it has replacements for recordings committed after this quicksave)
+   - **Skip loading recordings from .sfs** - in-memory `committedRecordings` and `committedTrees` already have ALL recordings (including ones committed after this quicksave)
+   - **Skip revert detection** - go-back is not a revert; it has its own handling
+   - **Do NOT read `milestoneEpoch` from the loaded .sfs** - the quicksave has an old epoch value. Instead, increment the current in-memory `MilestoneStore.CurrentEpoch` (which has been maintained across all reverts/go-backs in this session)
+   - **Reset milestone mutable state** with `resetUnmatched = true` - milestones created after the restore point are reset to unreplayed. Pass the loaded ConfigNode so milestones present in the quicksave get their saved `LastReplayedEventIndex`.
    - **Reset ALL recording playback state (standalone):**
      - `VesselSpawned = false`
      - `SpawnAttempts = 0`
@@ -496,11 +496,11 @@ If any precondition fails, the "Go Back" button is disabled with a tooltip expla
      - `SceneExitSituation = -1`
    - **Reset ALL tree playback state:**
      - All tree recordings: same fields as standalone above
-     - `tree.ResourcesApplied = false` (critical — without this, `TreeCommittedFundsCost` returns 0 and tree costs are excluded from the adjustment)
+     - `tree.ResourcesApplied = false` (critical - without this, `TreeCommittedFundsCost` returns 0 and tree costs are excluded from the adjustment)
    - **Schedule resource adjustment via `StartCoroutine(ApplyGoBackResourceAdjustment())`:**
      The adjustment runs as a deferred coroutine (not inline in OnLoad) because `Funding.Instance`, `ResearchAndDevelopment.Instance`, and `Reputation.Instance` may not be initialized yet during OnLoad. The coroutine follows the same wait-for-singletons pattern as `ApplyBudgetDeductionWhenReady` (wait up to 120 frames).
      Once singletons are available:
-     - `currentReserved = ResourceBudget.ComputeTotalFullCost()` (same method used at save time — consistent baseline)
+     - `currentReserved = ResourceBudget.ComputeTotalFullCost()` (same method used at save time - consistent baseline)
      - `additional = currentReserved - GoBackReserved`
      - `GameStateRecorder.SuppressResourceEvents = true` (prevent synthetic game state events)
      - Deduct `additional` from game funds/science/reputation via `Funding.Instance.AddFunds` etc.
@@ -509,13 +509,13 @@ If any precondition fails, the "Go Back" button is disabled with a tooltip expla
        - All recordings: `LARI = Points.Count - 1`
        - All trees: `ResourcesApplied = true`
        - All milestones: `LastReplayedEventIndex = Events.Count - 1`
-   - **Set `budgetDeductionEpoch = MilestoneStore.CurrentEpoch`** — prevents any accidental `ApplyBudgetDeductionWhenReady` from double-deducting (set in OnLoad, before the coroutine runs)
-   - **`ReserveSnapshotCrew()`** — re-reserves crew from all recording snapshots
+   - **Set `budgetDeductionEpoch = MilestoneStore.CurrentEpoch`** - prevents any accidental `ApplyBudgetDeductionWhenReady` from double-deducting (set in OnLoad, before the coroutine runs)
+   - **`ReserveSnapshotCrew()`** - re-reserves crew from all recording snapshots
    - **Clear `IsGoingBack` flag**, preserve `GoBackUT` for OnFlightReady
-   - **Recreate `GameStateRecorder`** — the loaded save has different game state; the recorder needs fresh facility cache seeding and event subscriptions. Follow the same pattern as the existing OnLoad path (unsubscribe old, create new, seed, subscribe).
+   - **Recreate `GameStateRecorder`** - the loaded save has different game state; the recorder needs fresh facility cache seeding and event subscriptions. Follow the same pattern as the existing OnLoad path (unsubscribe old, create new, seed, subscribe).
 6. `OnFlightReady` fires
    - **Detect `GoBackUT` is set** (non-zero)
-   - **Skip merge dialog** — no pending recording exists
+   - **Skip merge dialog** - no pending recording exists
    - Run normal timeline setup (subscribe events, initialize playback)
    - Apply crew swaps via `ParsekScenario.SwapReservedCrewInFlight()`
    - **Clear `GoBackUT`**
@@ -541,7 +541,7 @@ If any precondition fails, the "Go Back" button is disabled with a tooltip expla
 
 ### Scene restrictions
 
-**v1:** "Go Back" UI only accessible from the flight scene. The toolbar button and Parsek window are flight-scene controls. Going back loads a flight-scene save — usually on the pad (auto-recorded launches), but possibly in orbit (manually-started orbital recordings).
+**v1:** "Go Back" UI only accessible from the flight scene. The toolbar button and Parsek window are flight-scene controls. Going back loads a flight-scene save - usually on the pad (auto-recorded launches), but possibly in orbit (manually-started orbital recordings).
 
 **Future enhancement:** allow going back from Space Center or Tracking Station.
 
@@ -577,7 +577,7 @@ If any precondition fails, the "Go Back" button is disabled with a tooltip expla
 
 7. **Recordings with EndUT < restoreUT**
    - Vessel spawns immediately on first Update tick (currentUT > EndUT).
-   - Resource deltas do NOT re-apply during playback — LARI was set to max by step 4 of the resource adjustment pseudocode (in "Resource adjustment on go-back"). The adjustment already pre-applied all costs.
+   - Resource deltas do NOT re-apply during playback - LARI was set to max by step 4 of the resource adjustment pseudocode (in "Resource adjustment on go-back"). The adjustment already pre-applied all costs.
    - Existing playback logic handles this.
 
 8. **Chain recordings spanning the restore UT**
@@ -601,7 +601,7 @@ If any precondition fails, the "Go Back" button is disabled with a tooltip expla
 12. **KSP contracts after go-back**
     - Contract state reverts via quicksave load.
     - Milestone events referencing contracts committed after the restore point remain in milestone history but the contracts themselves are in their pre-commitment state.
-    - Acceptable v1 limitation — contracts are not part of Parsek's action blocking.
+    - Acceptable v1 limitation - contracts are not part of Parsek's action blocking.
 
 13. **Tech tree after go-back**
     - Tech reverts to quicksave state (pre-future-research).
@@ -634,7 +634,7 @@ If any precondition fails, the "Go Back" button is disabled with a tooltip expla
     - Log warning if > 20 restore points.
 
 19. **Player loads restore point via KSP's native load menu (not Parsek UI)**
-    - The .sfs is a standard KSP save — KSP can load it directly.
+    - The .sfs is a standard KSP save - KSP can load it directly.
     - `IsGoingBack` flag is NOT set → Parsek detects this as a normal revert.
     - Existing revert detection handles it: epoch increments, merge dialog may show if there's stale pending data in the .sfs.
     - In-memory recordings persist. Acceptable v1 behavior.
@@ -642,7 +642,7 @@ If any precondition fails, the "Go Back" button is disabled with a tooltip expla
 20. **GamePersistence.SaveGame fails**
     - Quicksave write fails (disk full, permissions, etc.).
     - Do NOT create the restore point metadata. Log error.
-    - Player is not affected — commit already succeeded, only the restore point is skipped.
+    - Player is not affected - commit already succeeded, only the restore point is skipped.
     - Log: `[Parsek][RestorePoint] Failed to create quicksave: {error}`
 
 21. **Game load API fails**
@@ -659,7 +659,7 @@ If any precondition fails, the "Go Back" button is disabled with a tooltip expla
 
 23. **Wipe Recordings also wipes restore points**
     - When the player wipes all recordings, restore points are also deleted.
-    - Restore points without recordings are useless — the timeline is empty.
+    - Restore points without recordings are useless - the timeline is empty.
     - Both the metadata file and all quicksave files are deleted.
 
 24. **Delete a committed recording, then go back**
@@ -675,7 +675,7 @@ If any precondition fails, the "Go Back" button is disabled with a tooltip expla
 26. **Launch save orphaned (player quits without committing or discarding)**
     - `pendingLaunchSave` is static and not persisted to disk (except the .sfs file itself).
     - On next session start, the orphaned .sfs file remains on disk but `pendingLaunchSave` is null.
-    - Acceptable v1 limitation — orphaned files are small and rare. Future: scan for unlinked `parsek_rp_*.sfs` files on load.
+    - Acceptable v1 limitation - orphaned files are small and rare. Future: scan for unlinked `parsek_rp_*.sfs` files on load.
 
 27. **New mission launched while previous launch save still pending**
     - Previous `pendingLaunchSave` quicksave file is deleted before creating the new one.
@@ -683,7 +683,7 @@ If any precondition fails, the "Go Back" button is disabled with a tooltip expla
 
 28. **Resource adjustment with partially-applied recordings**
     - At save time, some recordings may have LARI > -1 (partially played) or LARI = max (fully applied via budget deduction).
-    - `ReservedAtSave` is computed via `ComputeTotalFullCost()` which ignores LARI — it always returns the full cost. After go-back, the same method is used. The comparison is always full-cost vs full-cost, so partial application state is irrelevant.
+    - `ReservedAtSave` is computed via `ComputeTotalFullCost()` which ignores LARI - it always returns the full cost. After go-back, the same method is used. The comparison is always full-cost vs full-cost, so partial application state is irrelevant.
     - This is why `ComputeTotalFullCost()` exists: it provides a consistent baseline regardless of playback progress at save time.
 
 29. **EVA child auto-commit while parent recording active**
@@ -697,7 +697,7 @@ If any precondition fails, the "Go Back" button is disabled with a tooltip expla
 
 31. **Restore point label becomes stale after recording deletion**
     - RP_A's label says `"Flea Rocket" launch (3 recordings)`. Player deletes 2 recordings.
-    - The label is frozen at creation time and becomes misleading. Acceptable v1 — labels are for human identification, not live status. `RecordingCount` is metadata, not an invariant.
+    - The label is frozen at creation time and becomes misleading. Acceptable v1 - labels are for human identification, not live status. `RecordingCount` is metadata, not an invariant.
     - The "future recordings" count in the confirmation dialog IS computed live, so the player gets accurate information before confirming.
 
 32. **Go back, commit new recording, go back to older restore point**
@@ -709,7 +709,7 @@ If any precondition fails, the "Go Back" button is disabled with a tooltip expla
 
 33. **Overlapping UT ranges from go-back**
     - Player commits A (UT 100-200), goes back to RP_A (UT 100), launches B (UT 100-300).
-    - A and B overlap in UT range. Both ghosts play simultaneously from UT 100. This is expected — recordings are independent.
+    - A and B overlap in UT range. Both ghosts play simultaneously from UT 100. This is expected - recordings are independent.
     - RP_A and RP_B both at UT 100 but with different save files (different game states). Both shown in picker.
 
 34. **KSP crash mid-flight with pending launch save**
@@ -718,7 +718,7 @@ If any precondition fails, the "Go Back" button is disabled with a tooltip expla
     - The active recording is also lost (not saved).
     - Acceptable v1 limitation. Future: cleanup scan on load.
 
-35. **Resource adjustment timing — Funding.Instance not yet available in OnLoad**
+35. **Resource adjustment timing - Funding.Instance not yet available in OnLoad**
     - `Funding.Instance`, `ResearchAndDevelopment.Instance`, and `Reputation.Instance` may not be initialized during `OnLoad`.
     - The existing `ApplyBudgetDeductionWhenReady` solves this by waiting up to 120 frames. The go-back resource adjustment must use the same pattern: defer via `StartCoroutine` and wait for singletons before applying.
     - The adjustment logic is inline (not reusing `ApplyBudgetDeductionWhenReady`), but follows the same wait pattern.
@@ -738,33 +738,33 @@ If any precondition fails, the "Go Back" button is disabled with a tooltip expla
 
 ## What Doesn't Change
 
-- Recording format — no new fields in Recording, TrajectoryPoint, or PartEvent
-- Ghost visual building — GhostVisualBuilder unchanged
-- Part event recording and playback — all 28 event types unchanged
-- Engine/RCS/parachute/fairing FX — unchanged
-- Merge dialog — unchanged (creates restore point after commit, but dialog logic itself is unchanged)
-- Existing revert detection — still works for normal reverts (IsGoingBack check is upstream)
-- Resource budget computation — `ComputeTotal` unchanged; new sibling method `ComputeTotalFullCost` added (same logic but ignores LARI/ResourcesApplied/LastReplayedEventIndex)
-- Action blocking — tech/facility Harmony patches unchanged
-- Milestone and game state event system — unchanged
-- Recording tree system — unchanged
-- Chain recording system — unchanged
-- External file formats — no changes to .prec, .craft, .pcrf
-- Synthetic recording generators — no changes needed
-- Recording format version — stays at v4
+- Recording format - no new fields in Recording, TrajectoryPoint, or PartEvent
+- Ghost visual building - GhostVisualBuilder unchanged
+- Part event recording and playback - all 28 event types unchanged
+- Engine/RCS/parachute/fairing FX - unchanged
+- Merge dialog - unchanged (creates restore point after commit, but dialog logic itself is unchanged)
+- Existing revert detection - still works for normal reverts (IsGoingBack check is upstream)
+- Resource budget computation - `ComputeTotal` unchanged; new sibling method `ComputeTotalFullCost` added (same logic but ignores LARI/ResourcesApplied/LastReplayedEventIndex)
+- Action blocking - tech/facility Harmony patches unchanged
+- Milestone and game state event system - unchanged
+- Recording tree system - unchanged
+- Chain recording system - unchanged
+- External file formats - no changes to .prec, .craft, .pcrf
+- Synthetic recording generators - no changes needed
+- Recording format version - stays at v4
 
 ## Backward Compatibility
 
 - Existing saves have no restore points → empty list on load, no issues
 - No recording format version bump needed
-- `restore_points.pgrp` file is new — absence means no restore points
-- KSP quicksave files are standard format — no compatibility concerns
+- `restore_points.pgrp` file is new - absence means no restore points
+- KSP quicksave files are standard format - no compatibility concerns
 - ParsekScenario.OnLoad: `IsGoingBack` check is a new code path that doesn't affect existing revert/scene-change paths
-- Commit Flight stationary constraint is a new UI restriction — no data migration needed
+- Commit Flight stationary constraint is a new UI restriction - no data migration needed
 
 ## Implementation Phases
 
-Suggested phase ordering for the Plan agent. Each phase produces a working, testable increment. Phases are ordered by dependency — each builds on the previous.
+Suggested phase ordering for the Plan agent. Each phase produces a working, testable increment. Phases are ordered by dependency - each builds on the previous.
 
 ### Phase A: Data model + static store + serialization
 
@@ -773,7 +773,7 @@ New code, no integration with existing systems yet.
 - `RestorePoint` struct with all fields + ConfigNode serialization
 - `PendingLaunchSave` struct
 - `RestorePointStore` static class (parallel to `MilestoneStore`): list management, `initialLoadDone`/`lastSaveFolder`, `pendingLaunchSave` singleton, go-back static flags
-- `ResourceBudget.ComputeTotalFullCost()` — new method alongside existing `ComputeTotal()`
+- `ResourceBudget.ComputeTotalFullCost()` - new method alongside existing `ComputeTotal()`
 - File path additions to `RecordingPaths`
 - External file persistence: `SaveRestorePointFile()` / `LoadRestorePointFile()` with safe-write
 - Validation on load (missing .sfs detection)
@@ -784,7 +784,7 @@ New code, no integration with existing systems yet.
 
 ### Phase B: Launch save capture + restore point creation
 
-Integration with recording lifecycle — where launch saves are captured and promoted.
+Integration with recording lifecycle - where launch saves are captured and promoted.
 
 - Launch save capture at recording start (stable state check, `GamePersistence.SaveGame`, resource snapshot via `ComputeTotalFullCost`)
 - Restore point creation on commit (all commit paths: merge dialog, Commit Flight, auto-commit, tree commit)
@@ -814,7 +814,7 @@ The core go-back code path in `ParsekScenario.OnLoad`.
 
 **Tests:** resource adjustment calculation (positive/negative deltas), epoch increment, playback state reset including tree `ResourcesApplied`, `budgetDeductionEpoch` guard, worked example end-to-end.
 
-**Review focus:** OnLoad ordering (IsGoingBack before LoadCrewReplacements), milestoneEpoch NOT read from .sfs, SuppressResourceEvents set, LARI set to max after adjustment, tree ResourcesApplied reset, budgetDeductionEpoch set. This is the highest-risk phase — compare every step against the existing revert path in `ApplyBudgetDeductionWhenReady` to ensure parity.
+**Review focus:** OnLoad ordering (IsGoingBack before LoadCrewReplacements), milestoneEpoch NOT read from .sfs, SuppressResourceEvents set, LARI set to max after adjustment, tree ResourcesApplied reset, budgetDeductionEpoch set. This is the highest-risk phase - compare every step against the existing revert path in `ApplyBudgetDeductionWhenReady` to ensure parity.
 
 ### Phase D: Go Back UI
 
@@ -832,7 +832,7 @@ UI-only, depends on phases A-C.
 
 ### Phase E: Edge cases + hardening
 
-Final phase — handle remaining edge cases and add robustness.
+Final phase - handle remaining edge cases and add robustness.
 
 - Multiple rapid go-backs (state consistency)
 - Go-back flags survive scene transition correctly
@@ -843,7 +843,7 @@ Final phase — handle remaining edge cases and add robustness.
 
 **Tests:** multiple rapid go-backs, restore points survive save/load cycle, precondition failure logs, launch save capture logs, resource adjustment logs, go-back state reset logs, missing save file warning logs.
 
-**Review focus:** existing revert path regression (critical — run full test suite), log coverage matches the Diagnostic Logging section of this doc.
+**Review focus:** existing revert path regression (critical - run full test suite), log coverage matches the Diagnostic Logging section of this doc.
 
 ### Phase dependencies
 
@@ -857,11 +857,11 @@ Phases A and B are foundation. Phase C is the highest-risk and most complex. Pha
 
 ### Review strategy
 
-- **Phase A:** standard review — serialization, file I/O, method signatures
+- **Phase A:** standard review - serialization, file I/O, method signatures
 - **Phase B:** review all commit paths are wired up, no launch save leak
-- **Phase C:** **deep review required** — compare every step against existing revert path. This phase has the most subtle correctness requirements (LARI, budgetDeductionEpoch, SuppressResourceEvents, epoch handling). The review agent should trace through the worked example from this design doc and verify the implementation matches.
-- **Phase D:** UI review — disabled states, dialog content, user-facing text
-- **Phase E:** regression review — run full test suite, check logs
+- **Phase C:** **deep review required** - compare every step against existing revert path. This phase has the most subtle correctness requirements (LARI, budgetDeductionEpoch, SuppressResourceEvents, epoch handling). The review agent should trace through the worked example from this design doc and verify the implementation matches.
+- **Phase D:** UI review - disabled states, dialog content, user-facing text
+- **Phase E:** regression review - run full test suite, check logs
 
 ## Diagnostic Logging
 
@@ -873,12 +873,12 @@ Phases A and B are foundation. Phase C is the highest-risk and most complex. Pha
 
 ### Restore point creation (at commit time)
 - `[Parsek][RestorePoint] Promoting launch save to restore point at UT {ut}: "{label}" (save: {saveFile})`
-- `[Parsek][RestorePoint] No launch save for recording {id} — no restore point created`
+- `[Parsek][RestorePoint] No launch save for recording {id} - no restore point created`
 - `[Parsek][RestorePoint] Skipping restore point for child recording {id} (ParentRecordingId={parentId})`
 - `[Parsek][RestorePoint] Metadata saved: {count} restore points to {path}`
 
 ### Launch save cleanup
-- `[Parsek][RestorePoint] Recording discarded — deleting launch save: {saveFile}`
+- `[Parsek][RestorePoint] Recording discarded - deleting launch save: {saveFile}`
 
 ### Go Back execution
 - `[Parsek][RestorePoint] Go Back initiated to UT {ut} (restore point {id}, save: {saveFile})`
@@ -969,7 +969,7 @@ Phases A and B are foundation. Phase C is the highest-risk and most complex. Pha
 
 12. **Resource adjustment calculation**
    - savedReserved = (15000, 5, 2). currentReserved = (25000, 10, 5). → adjustment = (10000, 5, 3).
-   - savedReserved = (20000, 0, 0). currentReserved = (8000, 0, 0) (recording deleted). → adjustment = (-12000, 0, 0) — funds freed.
+   - savedReserved = (20000, 0, 0). currentReserved = (8000, 0, 0) (recording deleted). → adjustment = (-12000, 0, 0) - funds freed.
    - Guards against: incorrect deduction formula, double-deduction, sign errors.
 
 ### Integration tests

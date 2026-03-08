@@ -1,4 +1,4 @@
-# Task 12: Test + Logging Ideas — Refined
+# Task 12: Test + Logging Ideas - Refined
 
 Refined after Opus review. Each test states: what it tests, what bug it catches, why it's not vacuous (what would make it fail). Tests marked COVERED are excluded. Tests that pass by default are excluded.
 
@@ -8,89 +8,89 @@ Refined after Opus review. Each test states: what it tests, what bug it catches,
 
 These are code paths that need verbose logging ADDED before log-verification tests can work. Each gap describes what should be logged and why.
 
-### A1. RecordingTree.Save — log summary
+### A1. RecordingTree.Save - log summary
 
-**Location:** `RecordingTree.cs:37` — `Save(ConfigNode treeNode)` has zero logging.
+**Location:** `RecordingTree.cs:37` - `Save(ConfigNode treeNode)` has zero logging.
 
 **Add:** At the end of `Save`, log tree name, recording count, branch point count, ResourcesApplied state.
 
 **Why:** Diagnosing save corruption requires knowing what was written. Currently invisible.
 
-### A2. RecordingTree.Load — log summary
+### A2. RecordingTree.Load - log summary
 
-**Location:** `RecordingTree.cs:69` — `Load(ConfigNode treeNode)` has zero logging.
+**Location:** `RecordingTree.cs:69` - `Load(ConfigNode treeNode)` has zero logging.
 
 **Add:** After loading, log tree ID, recording count loaded, branch point count, which optional fields were present vs defaulted (e.g., "resourcesApplied: present=true" vs "resourcesApplied: missing, defaulted to false").
 
 **Why:** Diagnosing load failures from old saves requires knowing what was found in the ConfigNode.
 
-### A3. ApplyTreeResourceDeltas — log outer loop decisions
+### A3. ApplyTreeResourceDeltas - log outer loop decisions
 
-**Location:** `ParsekFlight.cs:3989` — `ApplyTreeResourceDeltas(double currentUT)` iterates committed trees silently.
+**Location:** `ParsekFlight.cs:3989` - `ApplyTreeResourceDeltas(double currentUT)` iterates committed trees silently.
 
 **Add:** For each tree: log whether skipped (already applied), waiting (currentUT <= treeEndUT), or applying. Use `ParsekLog.VerboseRateLimited` since this runs every frame.
 
 **Why:** When a tree's resources don't apply, there's no trace of why. Was the tree already applied? Is UT not past the end yet? Currently invisible.
 
-### A4. ApplyTreeLumpSum — log clamping
+### A4. ApplyTreeLumpSum - log clamping
 
-**Location:** `ParsekFlight.cs:4023-4042` — resource deltas are clamped to prevent negative balances, but this is silent.
+**Location:** `ParsekFlight.cs:4023-4042` - resource deltas are clamped to prevent negative balances, but this is silent.
 
 **Add:** When `delta` is clamped (i.e., the original delta would make the balance negative), log both the original and clamped values.
 
 **Why:** Player sees fewer funds deducted than expected. Without a log line, the cause (clamping) is invisible.
 
-### A5. PositionGhostAtSurface — log positioning
+### A5. PositionGhostAtSurface - log positioning
 
-**Location:** `ParsekFlight.cs:5570` — positions a ghost at a surface location with zero logging.
+**Location:** `ParsekFlight.cs:5570` - positions a ghost at a surface location with zero logging.
 
 **Add:** Log body name, lat/lon/alt, and whether body was found.
 
 **Why:** Invisible landed ghosts are a likely failure mode. No diagnostic trace currently exists for this code path.
 
-### A6. FindCommittedTree — log miss
+### A6. FindCommittedTree - log miss
 
-**Location:** `ParsekFlight.cs:4056` — returns null silently when tree is not found.
+**Location:** `ParsekFlight.cs:4056` - returns null silently when tree is not found.
 
 **Add:** When returning null, log the requested treeId and the number of committed trees checked.
 
 **Why:** `TakeControlOfGhost` and `ApplyTreeResourceDeltas` silently skip when `FindCommittedTree` returns null. If a tree is missing from the committed list, there's no trace.
 
-### A7. ResourceBudget.ComputeTotal — log per-tree cost breakdown
+### A7. ResourceBudget.ComputeTotal - log per-tree cost breakdown
 
-**Location:** `ResourceBudget.cs:201-208` — tree loop adds costs without logging which tree contributed what.
+**Location:** `ResourceBudget.cs:201-208` - tree loop adds costs without logging which tree contributed what.
 
 **Add:** Inside the tree loop, log each tree's name, delta values, whether applied (skipped) or contributing, and the cost added.
 
 **Why:** Budget mismatch is hard to diagnose without knowing which tree contributed which cost component.
 
-### A8. RecordingStore.CommitTree — use structured logging
+### A8. RecordingStore.CommitTree - use structured logging
 
-**Location:** `RecordingStore.cs:354` — uses legacy `Log($"[Parsek] Committed tree...")` which strips the prefix.
+**Location:** `RecordingStore.cs:354` - uses legacy `Log($"[Parsek] Committed tree...")` which strips the prefix.
 
 **Improvement:** Already functional but could be enhanced to use `ParsekLog.Info("RecordingStore", ...)` directly for consistency. Low priority.
 
-### A9. FinalizeTreeRecordings — log per-recording detail
+### A9. FinalizeTreeRecordings - log per-recording detail
 
-**Location:** `ParsekFlight.cs:3254` — iterates each recording but only logs at entry/exit, not per-recording.
+**Location:** `ParsekFlight.cs:3254` - iterates each recording but only logs at entry/exit, not per-recording.
 
 **Add:** For each recording in the tree, log: recording ID, vessel name, point count, orbit segment count, has terminal state?, has snapshot?, is leaf?
 
 **Why:** When a recording is finalized incorrectly (e.g., missing terminal state, missing snapshot), there's no per-recording trace.
 
-### A10. CommitTreeFlight — log ResourcesApplied and marking detail
+### A10. CommitTreeFlight - log ResourcesApplied and marking detail
 
-**Location:** `ParsekFlight.cs:3130-3137` — sets ResourcesApplied and marks LastAppliedResourceIndex, but doesn't log the counts.
+**Location:** `ParsekFlight.cs:3130-3137` - sets ResourcesApplied and marks LastAppliedResourceIndex, but doesn't log the counts.
 
 **Add:** Log how many recordings had their LastAppliedResourceIndex marked, and confirm ResourcesApplied=true.
 
 ---
 
-## Part B: Unit Tests — Pure Methods (directly callable)
+## Part B: Unit Tests - Pure Methods (directly callable)
 
-### B1. FormatDuration — all branches
+### B1. FormatDuration - all branches
 
-**Method:** `MergeDialog.FormatDuration(double)` — `internal static`, directly testable.
+**Method:** `MergeDialog.FormatDuration(double)` - `internal static`, directly testable.
 
 **Branches to cover:**
 | Input | Expected | Branch exercised |
@@ -110,34 +110,34 @@ These are code paths that need verbose logging ADDED before log-verification tes
 
 **Why not vacuous:** Each case has a unique expected string. If any branch is wrong, the expected string won't match.
 
-### B2. GetLeafSituationText — all 8 terminal states + fallbacks
+### B2. GetLeafSituationText - all 8 terminal states + fallbacks
 
-**Method:** `MergeDialog.GetLeafSituationText(Recording)` — `internal static`, directly testable.
+**Method:** `MergeDialog.GetLeafSituationText(Recording)` - `internal static`, directly testable.
 
 **Cases:**
 | TerminalState | TerminalOrbitBody | TerminalPosition.body | Expected |
 |---------------|-------------------|----------------------|----------|
-| `Orbiting` | `"Kerbin"` | — | `"Orbiting Kerbin"` |
-| `Orbiting` | `null` | — | `"Orbiting unknown"` |
-| `Landed` | — | `"Mun"` | `"Landed on Mun"` |
-| `Landed` | — | (no TerminalPosition) | `"Landed on unknown"` |
-| `Splashed` | — | `"Kerbin"` | `"Splashed on Kerbin"` |
-| `SubOrbital` | `"Kerbin"` | — | `"Sub-orbital, Kerbin"` |
-| `SubOrbital` | `null` | — | `"Sub-orbital, unknown"` |
-| `Destroyed` | — | — | `"Destroyed"` |
-| `Recovered` | — | — | `"Recovered"` |
-| `Docked` | — | — | `"Docked"` |
-| `Boarded` | — | — | `"Boarded"` |
-| `null` | — | — (VesselSituation="FLYING") | `"FLYING"` |
-| `null` | — | — (VesselSituation=null) | `"Unknown"` |
+| `Orbiting` | `"Kerbin"` | - | `"Orbiting Kerbin"` |
+| `Orbiting` | `null` | - | `"Orbiting unknown"` |
+| `Landed` | - | `"Mun"` | `"Landed on Mun"` |
+| `Landed` | - | (no TerminalPosition) | `"Landed on unknown"` |
+| `Splashed` | - | `"Kerbin"` | `"Splashed on Kerbin"` |
+| `SubOrbital` | `"Kerbin"` | - | `"Sub-orbital, Kerbin"` |
+| `SubOrbital` | `null` | - | `"Sub-orbital, unknown"` |
+| `Destroyed` | - | - | `"Destroyed"` |
+| `Recovered` | - | - | `"Recovered"` |
+| `Docked` | - | - | `"Docked"` |
+| `Boarded` | - | - | `"Boarded"` |
+| `null` | - | - (VesselSituation="FLYING") | `"FLYING"` |
+| `null` | - | - (VesselSituation=null) | `"Unknown"` |
 
 **What bug it catches:** Missing switch case, null body fallback returning empty string instead of "unknown", wrong prefix for SubOrbital (comma vs space).
 
 **Why not vacuous:** 13 cases, each with a unique expected string derived from the source code's switch statement.
 
-### B3. ComputeTotal — multiple trees, mixed ResourcesApplied
+### B3. ComputeTotal - multiple trees, mixed ResourcesApplied
 
-**Method:** `ResourceBudget.ComputeTotal` — `internal static`, directly testable.
+**Method:** `ResourceBudget.ComputeTotal` - `internal static`, directly testable.
 
 **Setup:** Tree A: `ResourcesApplied=true`, `DeltaFunds=-3000`. Tree B: `ResourcesApplied=false`, `DeltaFunds=-7000`. No standalone recordings.
 
@@ -147,9 +147,9 @@ These are code paths that need verbose logging ADDED before log-verification tes
 
 **Why not vacuous:** The only way to get exactly 7000 is correct ResourcesApplied filtering.
 
-### B4. IsSpawnableLeaf — exhaustive truth table
+### B4. IsSpawnableLeaf - exhaustive truth table
 
-**Method:** `RecordingTree.IsSpawnableLeaf(Recording)` — `internal static`, directly testable.
+**Method:** `RecordingTree.IsSpawnableLeaf(Recording)` - `internal static`, directly testable.
 
 **The method has 3 sequential guards: ChildBranchPointId != null → false, terminal state in {Destroyed, Recovered, Docked, Boarded} → false, VesselSnapshot == null → false, else → true.**
 
@@ -172,17 +172,17 @@ These are code paths that need verbose logging ADDED before log-verification tes
 
 **What bug it catches:** A new TerminalState value being incorrectly filtered, or the snapshot guard being accidentally removed.
 
-### B5. RebuildBackgroundMap — realistic multi-level integration
+### B5. RebuildBackgroundMap - realistic multi-level integration
 
-**Method:** `RecordingTree.RebuildBackgroundMap()` — instance method on plain class, testable.
+**Method:** `RecordingTree.RebuildBackgroundMap()` - instance method on plain class, testable.
 
 **Setup:** A tree with:
-- root (pid=1, ChildBranchPointId="bp1") — excluded: has child
-- child1 (pid=2, TerminalStateValue=Destroyed) — excluded: terminated
-- child2 (pid=3, TerminalStateValue=null, ChildBranchPointId="bp2") — excluded: has child
-- grandchild1 (pid=4, TerminalStateValue=Docked) — excluded: terminated
-- grandchild2 (pid=5, TerminalStateValue=null, no child) — included IF not ActiveRecordingId
-- ActiveRecordingId = "grandchild2" — excluded: is active
+- root (pid=1, ChildBranchPointId="bp1") - excluded: has child
+- child1 (pid=2, TerminalStateValue=Destroyed) - excluded: terminated
+- child2 (pid=3, TerminalStateValue=null, ChildBranchPointId="bp2") - excluded: has child
+- grandchild1 (pid=4, TerminalStateValue=Docked) - excluded: terminated
+- grandchild2 (pid=5, TerminalStateValue=null, no child) - included IF not ActiveRecordingId
+- ActiveRecordingId = "grandchild2" - excluded: is active
 
 **Assert:** BackgroundMap is empty (every recording excluded for a different reason).
 
@@ -194,7 +194,7 @@ These are code paths that need verbose logging ADDED before log-verification tes
 
 **Why not vacuous:** The "all excluded" case tests that no false positives leak through. The "one included" case tests that the inclusion logic works when exclusion doesn't apply.
 
-### B6. GetAllLeaves vs GetSpawnableLeaves — Recovered leaf
+### B6. GetAllLeaves vs GetSpawnableLeaves - Recovered leaf
 
 **Setup:** Tree with 2 leaves: leaf1 (Recovered, no snapshot), leaf2 (Orbiting, with snapshot).
 
@@ -202,7 +202,7 @@ These are code paths that need verbose logging ADDED before log-verification tes
 
 **What bug it catches:** `GetAllLeaves` accidentally filtering Recovered, or `GetSpawnableLeaves` accidentally including it. Since Destroyed is tested in `GetAllLeaves_IncludesDestroyed` but Recovered is not, this covers the gap.
 
-### B7. GetSpawnableLeaves after dock merge — DAG case
+### B7. GetSpawnableLeaves after dock merge - DAG case
 
 **Setup:** Use the existing merge integration tree structure (root → split → 2 children → dock → merged child). Give the merged child a snapshot and TerminalState.Orbiting.
 
@@ -242,7 +242,7 @@ These tests call real methods with `ParsekLog.SuppressLogging = false`, `Verbose
 
 **Tests existing log at RecordingStore.cs:408.**
 
-### C4. ComputeTotal tree loop — per-tree verbose log (REQUIRES A7 LOGGING)
+### C4. ComputeTotal tree loop - per-tree verbose log (REQUIRES A7 LOGGING)
 
 **Setup:** 2 trees. Tree A: applied. Tree B: not applied, DeltaFunds=-2000. Set `VerboseOverrideForTesting = true`.
 
@@ -274,7 +274,7 @@ These tests call real methods with `ParsekLog.SuppressLogging = false`, `Verbose
 
 ## Part D: Edge Case Tests
 
-### D1. Tree with zero recordings — GetSpawnableLeaves and RebuildBackgroundMap
+### D1. Tree with zero recordings - GetSpawnableLeaves and RebuildBackgroundMap
 
 **Setup:** Empty tree (Recordings dictionary has 0 entries).
 
@@ -292,7 +292,7 @@ These tests call real methods with `ParsekLog.SuppressLogging = false`, `Verbose
 
 **What bug it catches:** Someone adds strict parsing that rejects unknown keys (breaking forward compatibility).
 
-### D3. CommitTree with null tree — no crash, no state change
+### D3. CommitTree with null tree - no crash, no state change
 
 **Setup:** `RecordingStore.CommitTree(null)`.
 
@@ -300,7 +300,7 @@ These tests call real methods with `ParsekLog.SuppressLogging = false`, `Verbose
 
 **Tests the null guard at RecordingStore.cs:335.**
 
-### D4. Tree budget with all-terminal leaves — delta still counts
+### D4. Tree budget with all-terminal leaves - delta still counts
 
 **Setup:** Tree with `DeltaFunds=-3000`, `ResourcesApplied=false`. All leaves are Destroyed or Recovered (no spawnable leaves).
 
@@ -357,8 +357,8 @@ These tests call real methods with `ParsekLog.SuppressLogging = false`, `Verbose
 
 ## Decision Points
 
-1. **Rate-limited logging for per-frame tree guards?** The 7 `ApplyResourceDeltas` guard sites that skip tree recordings fire every frame. Adding `VerboseRateLimited` logging there adds noise. Recommendation: skip — the `ApplyTreeResourceDeltas` outer loop logging (A3) covers the important decision points.
+1. **Rate-limited logging for per-frame tree guards?** The 7 `ApplyResourceDeltas` guard sites that skip tree recordings fire every frame. Adding `VerboseRateLimited` logging there adds noise. Recommendation: skip - the `ApplyTreeResourceDeltas` outer loop logging (A3) covers the important decision points.
 
-2. **Should `FormatDuration` drop seconds for h+m results?** Currently `FormatDuration(3661)` returns `"1h 1m"` (drops the 1 second). This is intentional — at hour scale, seconds are noise. The test should match this behavior.
+2. **Should `FormatDuration` drop seconds for h+m results?** Currently `FormatDuration(3661)` returns `"1h 1m"` (drops the 1 second). This is intentional - at hour scale, seconds are noise. The test should match this behavior.
 
 3. **Synthetic tree recording offsets.** Existing recordings use +30/+60/.../+240 from baseUT=17000. Tree recordings should use +270/+300/+330 (continuing the sequence). The undock tree at +30 to +120 would OVERLAP with existing KSC Hopper (+60) and Flea Flight (+90). Use non-overlapping offsets: E1 at +270, E2 at +390 (leaves 120s gap), E3 at +510.

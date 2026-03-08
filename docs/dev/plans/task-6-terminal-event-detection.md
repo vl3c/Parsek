@@ -790,11 +790,11 @@ The following fixes MUST be applied during implementation. They address issues f
 
 **Fix**:
 - Remove Section 4 (Recovery Detection Flow) entirely. Do NOT subscribe to `onVesselRecoveryProcessing`.
-- For in-flight recovery (e.g., StageRecovery mod), the deferred destruction check handles it correctly: the vessel disappears from `FlightGlobals.Vessels`, so the check marks it as `Destroyed`. Marking a StageRecovery-recovered vessel as `Destroyed` instead of `Recovered` is an acceptable approximation — the recording is correctly terminated either way.
+- For in-flight recovery (e.g., StageRecovery mod), the deferred destruction check handles it correctly: the vessel disappears from `FlightGlobals.Vessels`, so the check marks it as `Destroyed`. Marking a StageRecovery-recovered vessel as `Destroyed` instead of `Recovered` is an acceptable approximation - the recording is correctly terminated either way.
 - For stock recovery (Tracking Station), the Flight scene is not active, so ParsekFlight doesn't exist. The tree is already committed by that point.
-- Remove the `TerminateBackgroundRecording` shared helper — without the recovery handler, it's not needed. Inline the terminal state assignment into `DeferredDestructionCheck`.
+- Remove the `TerminateBackgroundRecording` shared helper - without the recovery handler, it's not needed. Inline the terminal state assignment into `DeferredDestructionCheck`.
 - Remove `OnVesselRecoveryProcessing` from the files modified list and implementation order.
-- Remove `ApplyTerminalRecovery` static method — only `ApplyTerminalDestruction` is needed.
+- Remove `ApplyTerminalRecovery` static method - only `ApplyTerminalDestruction` is needed.
 
 ### Fix 2 (IMPORTANT): Null `activeTree` Guard After Yield in `DeferredDestructionCheck`
 

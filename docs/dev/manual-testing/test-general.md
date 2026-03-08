@@ -11,7 +11,7 @@ Use career mode for all tests (resource tracking requires it).
 3. Fly around for 30-60 seconds
 4. Press F9 to stop recording
 5. Revert to Launch (Esc → Revert to Launch)
-6. Merge dialog appears — pick any option
+6. Merge dialog appears - pick any option
 7. Wait on the pad until UT reaches the recording's timestamps
 8. Verify: opaque ghost vessel appears (original part meshes/textures) and replays the flight
 9. Verify: funds/science/reputation deltas are applied at the correct UT
@@ -21,16 +21,16 @@ Use career mode for all tests (resource tracking requires it).
 ### Vessel destroyed
 1. Launch, crash into the ground, revert
 2. Verify: dialog shows "Merge to Timeline" and "Discard" buttons
-3. Pick "Merge to Timeline" — ghost plays back, no vessel spawns
+3. Pick "Merge to Timeline" - ghost plays back, no vessel spawns
 
 ### Vessel intact
 1. Launch to orbit, F9 stop, revert
 2. Verify: dialog shows "Merge to Timeline" and "Discard" buttons
-3. Pick "Merge to Timeline" — vessel appears in Tracking Station after ghost finishes
+3. Pick "Merge to Timeline" - vessel appears in Tracking Station after ghost finishes
 
 ### Discard
 1. Record anything, revert
-2. Pick "Discard" — no recording in timeline, no ghost
+2. Pick "Discard" - no recording in timeline, no ghost
 
 ## Vessel Persistence
 
@@ -43,7 +43,7 @@ Use career mode for all tests (resource tracking requires it).
 1. Launch a vessel with Jeb as pilot
 2. F9 start recording, fly around briefly, F9 stop
 3. Revert to Launch
-4. Merge dialog appears — pick "Merge to Timeline"
+4. Merge dialog appears - pick "Merge to Timeline"
 5. **Verify on the pad:** the vessel's crew portrait should show a REPLACEMENT kerbal, NOT Jeb
    - If Jeb is still shown, the swap failed (this was the bug)
 6. Check `KSP.log` for `[Parsek Scenario] Swapped 'Jebediah Kerman' → '...'`
@@ -78,7 +78,7 @@ Use career mode for all tests (resource tracking requires it).
 ## Manual Preview
 
 1. Record a flight, press F9 to stop (do NOT revert)
-2. Press F10 — ghost replays your flight in real time
+2. Press F10 - ghost replays your flight in real time
 3. Press F11 to stop the preview
 4. Verify: ghost disappears cleanly
 
@@ -86,12 +86,12 @@ Use career mode for all tests (resource tracking requires it).
 
 ### Paused game
 1. Pause the game (Esc)
-2. Press F9 — should show "Cannot record while paused"
+2. Press F9 - should show "Cannot record while paused"
 
 ### Vessel change stops recording
 1. Start recording on one vessel
 2. Press `]` to switch vessels (or dock with another vessel)
-3. Verify: recording auto-stops with "Recording stopped — vessel changed"
+3. Verify: recording auto-stops with "Recording stopped - vessel changed"
 
 ### Very short recordings
 1. Launch, immediately revert (fewer than 2 sample points)
@@ -107,7 +107,7 @@ Use career mode for all tests (resource tracking requires it).
 
 ### Multiple recordings
 1. Record + merge 2-3 flights
-2. Wait for all ghosts to play — each should appear and despawn independently
+2. Wait for all ghosts to play - each should appear and despawn independently
 3. Vessels spawn at correct positions when their ghosts finish
 
 ## Vessel Spawning
@@ -130,7 +130,7 @@ Use career mode for all tests (resource tracking requires it).
 
 ### Quicksave safety
 1. Merge a recording, quicksave (F5) mid-playback
-2. Quickload (F9 hold) — verify deltas don't double-apply
+2. Quickload (F9 hold) - verify deltas don't double-apply
 
 ## Scene Transitions
 
@@ -156,33 +156,33 @@ Use career mode for all tests (resource tracking requires it).
 ### Open and close
 1. Click "Recordings" button in main Parsek window
 2. Verify: secondary window appears to the right with a table of committed recordings
-3. Click "Close" or the "Recordings" button again — window closes
-4. Reopen — window state (position, size) is preserved within the session
+3. Click "Close" or the "Recordings" button again - window closes
+4. Reopen - window state (position, size) is preserved within the session
 
 ### Table content
 1. Merge 2-3 recordings (mix of ghost-only and vessel-spawn)
 2. Open Recordings Manager
 3. Verify: each recording shows correct name, launch time (KSP calendar), duration, and status
-4. Verify: status updates in real time — `future` before ghost starts, `active` during, `past` after
+4. Verify: status updates in real time - `future` before ghost starts, `active` during, `past` after
 
 ### Sorting
-1. Click "Name" column header — recordings sort alphabetically
-2. Click again — sort reverses
+1. Click "Name" column header - recordings sort alphabetically
+2. Click again - sort reverses
 3. Repeat for Launch Time, Duration, Status columns
 4. Verify: sort arrow indicator shows in the active column header
 
 ### Per-recording loop
 1. Check the Loop checkbox for one recording
-2. Wait for ghost to finish — verify it restarts after a pause
-3. Uncheck — verify ghost plays once and stops
-4. Check the select-all checkbox in the Loop header — all recordings toggle on
-5. Uncheck one — header shows mixed state
+2. Wait for ghost to finish - verify it restarts after a pause
+3. Uncheck - verify ghost plays once and stops
+4. Check the select-all checkbox in the Loop header - all recordings toggle on
+5. Uncheck one - header shows mixed state
 
 ### Delete recording
 1. Click the "X" delete button on a recording
 2. Verify: recording disappears from the list, ghost despawns if active
 3. Verify: crew is unreserved (check Astronaut Complex)
-4. Delete a recording from the middle of the list — verify remaining ghosts still work
+4. Delete a recording from the middle of the list - verify remaining ghosts still work
 5. Verify: delete buttons are disabled during active recording
 
 ### Scroll and resize
@@ -196,32 +196,32 @@ Use career mode for all tests (resource tracking requires it).
 ### Deployables
 1. Build a vessel with solar panels and antennas
 2. Record: extend solar panels, extend antenna, retract, re-extend
-3. Revert, merge, watch ghost — verify panels/antennas animate at correct times
+3. Revert, merge, watch ghost - verify panels/antennas animate at correct times
 
 ### Lights
 1. Build a vessel with lights
 2. Record: toggle lights on, off, enable blink mode
-3. Revert, merge — verify ghost lights turn on/off at correct times
+3. Revert, merge - verify ghost lights turn on/off at correct times
 
 ### Landing gear
 1. Build a plane with retractable gear
 2. Record: retract gear after takeoff, deploy before landing
-3. Revert, merge — verify ghost gear retracts/deploys at correct times
+3. Revert, merge - verify ghost gear retracts/deploys at correct times
 
 ### Cargo bays
 1. Build a vessel with a cargo bay / service bay
 2. Record: open and close the bay doors
-3. Revert, merge — verify ghost bay doors animate at correct times
+3. Revert, merge - verify ghost bay doors animate at correct times
 
 ### Fairings
 1. Build a vessel with a procedural fairing
 2. Record: jettison fairing during ascent
-3. Revert, merge — verify ghost has fairing cone that disappears at jettison time
+3. Revert, merge - verify ghost has fairing cone that disappears at jettison time
 
 ### RCS
 1. Build a vessel with RCS thrusters
 2. Record: fire RCS (translate/rotate)
-3. Revert, merge — verify ghost RCS emits particle FX during firing
+3. Revert, merge - verify ghost RCS emits particle FX during firing
 
 ## Log Verification
 

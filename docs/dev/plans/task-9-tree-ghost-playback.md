@@ -701,7 +701,7 @@ Steps 1-2 can be done together (spawn suppression). Steps 3-6 can be done togeth
 
 ## Orchestrator Review Fixes
 
-### Fix 1 (CRITICAL) — `SurfacePosition.rotation` is surface-relative, not world-space
+### Fix 1 (CRITICAL) - `SurfacePosition.rotation` is surface-relative, not world-space
 
 **Problem:** The plan's `PositionGhostAtSurface` directly assigns `surfPos.rotation` to `ghost.transform.rotation`. But `SurfacePosition.rotation` is captured as `v.srfRelRotation` (surface-relative quaternion, see BackgroundRecorder.cs line 564). `transform.rotation` expects world-space. The ghost would be oriented incorrectly.
 
@@ -716,13 +716,13 @@ if (body != null)
 ```
 The conversion `body.bodyTransform.rotation * surfPos.rotation` converts from surface-relative to world-space. This is the standard KSP pattern.
 
-### Fix 2 (IMPORTANT) — Guard `PositionGhostAt` at line 3671 for empty points
+### Fix 2 (IMPORTANT) - Guard `PositionGhostAt` at line 3671 for empty points
 
 **Problem:** The mid-chain hold path at line 3671 calls `PositionGhostAt(state.ghost, rec.Points[rec.Points.Count - 1])` without guarding for empty points. While tree recordings won't hit this path (they're not chains), broadening the `Points.Count < 2` guard makes this path reachable for edge cases.
 
 **Resolution:** Add a defensive guard: `if (rec.Points.Count > 0) PositionGhostAt(...)` at line 3671 and similarly at line 3655.
 
-### Fix 3 (IMPORTANT) — Simplify the `possibleSpawn` refinement
+### Fix 3 (IMPORTANT) - Simplify the `possibleSpawn` refinement
 
 **Problem:** The plan's edge case 8.1 adds significant complexity with `possibleSpawn` and dual `inRange` branches for a scenario that shouldn't happen in practice (leaf recording with zero data).
 
@@ -738,23 +738,23 @@ bool hasOrbitData = rec.OrbitSegments.Count > 0;
 bool hasSurfaceData = rec.SurfacePos.HasValue;
 if (!hasPoints && !hasOrbitData && !hasSurfaceData) continue;
 ```
-If a leaf somehow has no data, it won't get a ghost or spawn — but this is a recording pipeline bug, not a playback bug. The warning in `FinalizeTreeRecordings` catches it early.
+If a leaf somehow has no data, it won't get a ghost or spawn - but this is a recording pipeline bug, not a playback bug. The warning in `FinalizeTreeRecordings` catches it early.
 
-### Fix 4 (MINOR) — Add defensive guard in `InterpolateAndPosition` for empty points
+### Fix 4 (MINOR) - Add defensive guard in `InterpolateAndPosition` for empty points
 
 **Resolution:** Add at the top of `InterpolateAndPosition(ghost, points, ref cachedIndex, targetUT)`:
 ```csharp
 if (points == null || points.Count == 0) { ghost.SetActive(false); return; }
 ```
 
-### Fix 5 (MINOR) — Resource deltas for background recordings
+### Fix 5 (MINOR) - Resource deltas for background recordings
 
-**Clarification:** `ApplyResourceDeltas` is a no-op for background-only recordings (they have no trajectory points with resource data). This is correct by design — background vessels don't generate per-point resource snapshots. Tree-level resource tracking (Task 10) will handle aggregate deltas. No code change needed.
+**Clarification:** `ApplyResourceDeltas` is a no-op for background-only recordings (they have no trajectory points with resource data). This is correct by design - background vessels don't generate per-point resource snapshots. Tree-level resource tracking (Task 10) will handle aggregate deltas. No code change needed.
 
 ### Summary for implementation agent
 
 1. **`PositionGhostAtSurface`**: Use `body.bodyTransform.rotation * surfPos.rotation` for world-space orientation (Fix 1)
 2. **Guard `PositionGhostAt`** at lines 3655 and 3671 with `rec.Points.Count > 0` (Fix 2)
-3. **Drop `possibleSpawn`** — use simple `!hasPoints && !hasOrbitData && !hasSurfaceData` guard (Fix 3)
+3. **Drop `possibleSpawn`** - use simple `!hasPoints && !hasOrbitData && !hasSurfaceData` guard (Fix 3)
 4. **Add empty-points guard** in `InterpolateAndPosition` point-only overload (Fix 4)
 5. **Add warning** in `FinalizeTreeRecordings` for data-less leaf recordings (Fix 3)

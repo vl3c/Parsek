@@ -4,14 +4,14 @@
 
 This task follows a multi-stage review pipeline using Opus 4.6 agents, orchestrated by the main session:
 
-1. **Plan** — Opus 4.6 subagent explores the codebase and writes a detailed implementation plan
-2. **Plan review** — Fresh Opus 4.6 subagent reviews the plan for correctness, completeness, and risk
-3. **Orchestrator review** — Main session reviews the plan with full project context and fixes issues
-4. **Implement** — Fresh Opus 4.6 subagent implements the plan
-5. **Implementation review** — Fresh Opus 4.6 subagent reviews the implementation and fixes issues
-6. **Final review** — Main session reviews the implementation considering the larger architectural context
-7. **Commit** — Main session commits the implementation
-8. **Next task briefing** — Main session presents the next task, explains its role and how it fits into the overall plan
+1. **Plan** - Opus 4.6 subagent explores the codebase and writes a detailed implementation plan
+2. **Plan review** - Fresh Opus 4.6 subagent reviews the plan for correctness, completeness, and risk
+3. **Orchestrator review** - Main session reviews the plan with full project context and fixes issues
+4. **Implement** - Fresh Opus 4.6 subagent implements the plan
+5. **Implementation review** - Fresh Opus 4.6 subagent reviews the implementation and fixes issues
+6. **Final review** - Main session reviews the implementation considering the larger architectural context
+7. **Commit** - Main session commits the implementation
+8. **Next task briefing** - Main session presents the next task, explains its role and how it fits into the overall plan
 
 ---
 
@@ -19,7 +19,7 @@ This task follows a multi-stage review pipeline using Opus 4.6 agents, orchestra
 
 ### 1. Overview
 
-Task 3 adds continuous recording for background vessels in a recording tree. When the player switches to vessel A, vessel B (now backgrounded) continues to accumulate recording data. This ensures that when the tree is committed and leaf vessels are spawned, every branch has a complete time history — no gaps between the last active recording and the tree's end.
+Task 3 adds continuous recording for background vessels in a recording tree. When the player switches to vessel A, vessel B (now backgrounded) continues to accumulate recording data. This ensures that when the tree is committed and leaf vessels are spawned, every branch has a complete time history - no gaps between the last active recording and the tree's end.
 
 Task 2 introduced the `TransitionToBackground` / `PromoteFromBackground` flow. When a vessel transitions to background, `TransitionToBackground()` (FlightRecorder.cs line 3717) opens an orbit segment and disconnects the Harmony patch. When promoted back, `PromoteRecordingFromBackground` (ParsekFlight.cs line 806) creates a fresh `FlightRecorder` that resumes physics sampling. Between those two events, the background vessel's recording has a single open-ended orbit segment that gets closed on promotion or flush.
 
@@ -41,12 +41,12 @@ For each vessel `persistentId` in `activeTree.BackgroundMap`:
 
 | Condition | Mode | Fidelity |
 |-----------|------|----------|
-| Vessel not found in `FlightGlobals.Vessels` | Skip (vessel may be destroyed or not yet loaded) | — |
+| Vessel not found in `FlightGlobals.Vessels` | Skip (vessel may be destroyed or not yet loaded) | - |
 | `vessel.loaded == false` (on rails, outside physics range) | **On-rails** | OrbitSegment or SurfacePosition snapshots |
 | `vessel.loaded == true` but `vessel.packed == true` (loaded but on rails, e.g. nearby during time warp) | **On-rails** | OrbitSegment or SurfacePosition snapshots |
 | `vessel.loaded == true` and `vessel.packed == false` (full physics) | **Loaded/physics** | Full trajectory points, part events, adaptive sampling |
 
-The `vessel.packed` flag is the reliable discriminator. In KSP, `vessel.loaded` means the vessel's GameObjects are instantiated (within ~2.5km), and `vessel.packed` means physics is disabled (on rails). A vessel can be `loaded && packed` during time warp — GameObjects exist but no rigidbody simulation. Only `loaded && !packed` means full physics is running.
+The `vessel.packed` flag is the reliable discriminator. In KSP, `vessel.loaded` means the vessel's GameObjects are instantiated (within ~2.5km), and `vessel.packed` means physics is disabled (on rails). A vessel can be `loaded && packed` during time warp - GameObjects exist but no rigidbody simulation. Only `loaded && !packed` means full physics is running.
 
 #### 2.2 Mode Transitions
 
@@ -65,7 +65,7 @@ Mode transitions are detected on every `Update()` tick by checking the vessel's 
 #### 3.1 Data Captured
 
 For orbiting/sub-orbital vessels:
-- `OrbitSegment` from `vessel.orbit` — Keplerian elements (inclination, eccentricity, semiMajorAxis, LAN, argumentOfPeriapsis, meanAnomalyAtEpoch, epoch, bodyName).
+- `OrbitSegment` from `vessel.orbit` - Keplerian elements (inclination, eccentricity, semiMajorAxis, LAN, argumentOfPeriapsis, meanAnomalyAtEpoch, epoch, bodyName).
 
 For landed/splashed vessels:
 - `SurfacePosition` from `vessel.latitude`, `vessel.longitude`, `vessel.altitude`, `vessel.srfRelRotation`, `vessel.mainBody.name`, and `vessel.situation`.
@@ -78,7 +78,7 @@ The orbit segment logic mirrors the existing `OnVesselGoOnRails` / `OnVesselGoOf
 - **Open segment**: When a vessel enters on-rails mode (at transition-to-background time, or when a loaded vessel goes back on rails), capture current `vessel.orbit` as a new `OrbitSegment` with `startUT = now`.
 - **Close segment**: When the vessel leaves on-rails mode (promotion, loaded/physics transition, SOI change), set `endUT = now` and append to the recording's `OrbitSegments`.
 - **SOI change**: Close current segment, open a new one with the new body's orbit. Subscribe to `GameEvents.onVesselSOIChanged` for background vessels.
-- **Periodic refresh**: Not needed for the orbit segment itself — Keplerian elements are constant within an SOI. The existing `FindOrbitSegment` + analytical position calculation handles arbitrary time ranges. However, `ExplicitEndUT` on the tree Recording should be updated periodically so the tree knows the recording is still alive. Update `ExplicitEndUT` every 30 seconds.
+- **Periodic refresh**: Not needed for the orbit segment itself - Keplerian elements are constant within an SOI. The existing `FindOrbitSegment` + analytical position calculation handles arbitrary time ranges. However, `ExplicitEndUT` on the tree Recording should be updated periodically so the tree knows the recording is still alive. Update `ExplicitEndUT` every 30 seconds.
 
 #### 3.3 Where the Loop Runs
 
@@ -133,7 +133,7 @@ static void Postfix(VesselPrecalculate __instance)
     if (BackgroundRecorderInstance != null && __instance.gameObject != null)
     {
         // Resolve the vessel from the VesselPrecalculate instance.
-        // Cannot use FlightGlobals.ActiveVessel here — that's the active vessel.
+        // Cannot use FlightGlobals.ActiveVessel here - that's the active vessel.
         // VesselPrecalculate.vessel is protected, so resolve via gameObject.
         Vessel bgVessel = __instance.gameObject.GetComponent<Vessel>();
         if (bgVessel != null && bgVessel != FlightGlobals.ActiveVessel)
@@ -144,7 +144,7 @@ static void Postfix(VesselPrecalculate __instance)
 }
 ```
 
-**Critical**: `VesselPrecalculate.vessel` is protected (noted in MEMORY.md), so we resolve the vessel via `__instance.gameObject.GetComponent<Vessel>()`. The existing active-vessel path uses `FlightGlobals.ActiveVessel` comparison; the background path uses the opposite — it processes vessels that are NOT the active vessel.
+**Critical**: `VesselPrecalculate.vessel` is protected (noted in MEMORY.md), so we resolve the vessel via `__instance.gameObject.GetComponent<Vessel>()`. The existing active-vessel path uses `FlightGlobals.ActiveVessel` comparison; the background path uses the opposite - it processes vessels that are NOT the active vessel.
 
 **Performance**: `GetComponent<Vessel>()` is called every physics frame for every loaded vessel. This is acceptable because:
 - The number of loaded vessels in physics range is typically 1-5.
@@ -156,9 +156,9 @@ static void Postfix(VesselPrecalculate __instance)
 For each call, the method:
 
 1. Checks if `bgVessel.persistentId` is in the tree's `BackgroundMap`. If not, return immediately. (O(1) dictionary lookup.)
-2. Checks if the vessel is in loaded/physics mode (`!bgVessel.packed`). If packed, return — on-rails handling is done in `Update()`.
+2. Checks if the vessel is in loaded/physics mode (`!bgVessel.packed`). If packed, return - on-rails handling is done in `Update()`.
 3. Looks up or creates a per-vessel `BackgroundVesselState` tracking object (see section 5.2).
-4. Polls part events: parachutes, engines, RCS, deployables, etc. — same part-state polling as `OnPhysicsFrame` (FlightRecorder.cs lines 3466-3486). Uses the per-vessel cached module lists.
+4. Polls part events: parachutes, engines, RCS, deployables, etc. - same part-state polling as `OnPhysicsFrame` (FlightRecorder.cs lines 3466-3486). Uses the per-vessel cached module lists.
 5. Computes adaptive sampling: `TrajectoryMath.ShouldRecordPoint` with the vessel's Krakensbane-corrected velocity.
 6. If sampling triggers, records a `TrajectoryPoint` into the tree Recording's `Points` list.
 
@@ -247,7 +247,7 @@ internal class BackgroundRecorder
 }
 ```
 
-**`BackgroundVesselState`** — per-vessel state for loaded/physics recording:
+**`BackgroundVesselState`** - per-vessel state for loaded/physics recording:
 
 ```csharp
 private class BackgroundVesselState
@@ -277,7 +277,7 @@ private class BackgroundVesselState
     public HashSet<ulong> deployedRobotArmScannerModules;
     public HashSet<ulong> hotAnimateHeatModules;
 
-    // Jettison caches (ORCHESTRATOR FIX — were missing from original plan)
+    // Jettison caches (ORCHESTRATOR FIX - were missing from original plan)
     public Dictionary<uint, string> jettisonNameRawCache;
     public Dictionary<uint, List<string>> parsedJettisonNamesCache;
 
@@ -296,8 +296,8 @@ private class BackgroundVesselState
     public Dictionary<ulong, double> lastRoboticSampleUT;
     public HashSet<ulong> loggedRoboticModuleKeys;
 
-    // Diagnostic guards — prevent log spam (one per module type)
-    // (ORCHESTRATOR FIX — were omitted from original plan)
+    // Diagnostic guards - prevent log spam (one per module type)
+    // (ORCHESTRATOR FIX - were omitted from original plan)
     public HashSet<ulong> loggedLadderClassificationMisses;
     public HashSet<ulong> loggedAnimationGroupClassificationMisses;
     public HashSet<ulong> loggedAnimateGenericClassificationMisses;
@@ -312,7 +312,7 @@ private class BackgroundVesselState
 }
 ```
 
-**`BackgroundOnRailsState`** — per-vessel state for on-rails recording:
+**`BackgroundOnRailsState`** - per-vessel state for on-rails recording:
 
 ```csharp
 private class BackgroundOnRailsState
@@ -334,7 +334,7 @@ private class BackgroundOnRailsState
 
 #### 5.4 Part-Event Polling Architecture
 
-**[ORCHESTRATOR FIX — Corrected from plan review]**
+**[ORCHESTRATOR FIX - Corrected from plan review]**
 
 The part-event polling methods in FlightRecorder have a layered architecture:
 
@@ -342,12 +342,12 @@ The part-event polling methods in FlightRecorder have a layered architecture:
 - `CheckParachuteTransition`, `CheckJettisonTransition`, `CheckDeployableTransition`, `CheckLightTransition`, `CheckLightBlinkTransition`, `CheckEngineTransition`, `CheckRcsTransition`, `CheckFairingTransition`, `CheckLadderTransition`, `CheckAnimationGroupTransition`, `CheckAnimateHeatTransition`, `CheckGearTransition`, `CheckCargoBayTransition`, `CheckRoboticTransition`
 - Also: `TryClassifyAnimateGenericState`, `TryClassifyAnimateHeatState`, `TryClassifyLadderState`, `TryClassifyAnimationGroupState`, `TryClassifyAeroSurfaceState`, `TryClassifyControlSurfaceState`, `TryClassifyRobotArmScannerState`
 
-**Layer 2: Private instance "Check*State" methods** — these are the vessel-part iteration wrappers. They are **private**, not static, and contain non-trivial logic:
+**Layer 2: Private instance "Check*State" methods** - these are the vessel-part iteration wrappers. They are **private**, not static, and contain non-trivial logic:
 - Simple wrappers (~15-30 lines): `CheckParachuteState`, `CheckJettisonState`, `CheckDeployableState`, `CheckLightState`, `CheckGearState`, `CheckCargoBayState`, `CheckFairingState`
-- Engine/RCS/robotic wrappers (~30-50 lines): `CheckEngineState`, `CheckRcsState`, `CheckRoboticState` — use pre-cached module lists
+- Engine/RCS/robotic wrappers (~30-50 lines): `CheckEngineState`, `CheckRcsState`, `CheckRoboticState` - use pre-cached module lists
 - Complex wrappers with classification + exclusion logic (~40-80 lines): `CheckAnimateGenericState` (line 1702), `CheckAeroSurfaceState` (line 1564), `CheckControlSurfaceState` (line 1610), `CheckRobotArmScannerState` (line 1656), `CheckAnimateHeatState` (line 1782), `CheckLadderState`, `CheckAnimationGroupState`
 
-**Important correction**: `CheckAnimateGenericState` is NOT a static method — it's a **private instance method** (line 1702) with 80 lines of module exclusion logic (checks for ModuleDeployablePart, ModuleWheelDeployment, ModuleCargoBay, RetractableLadder, ModuleAnimationGroup, ModuleAeroSurface, ModuleControlSurface, ModuleRobotArmScanner, ModuleAnimateHeat before processing). It delegates to `TryClassifyAnimateGenericState` (static) and `CheckAnimationGroupTransition` (static) but the wrapper itself is complex.
+**Important correction**: `CheckAnimateGenericState` is NOT a static method - it's a **private instance method** (line 1702) with 80 lines of module exclusion logic (checks for ModuleDeployablePart, ModuleWheelDeployment, ModuleCargoBay, RetractableLadder, ModuleAnimationGroup, ModuleAeroSurface, ModuleControlSurface, ModuleRobotArmScanner, ModuleAnimateHeat before processing). It delegates to `TryClassifyAnimateGenericState` (static) and `CheckAnimationGroupTransition` (static) but the wrapper itself is complex.
 
 Similarly, `CheckAeroSurfaceState`, `CheckControlSurfaceState`, `CheckRobotArmScannerState`, `CheckAnimateHeatState` are all **private instance methods** that use `TryClassify*` static methods + `CheckAnimationGroupTransition`/`CheckAnimateHeatTransition` as shared static helpers.
 
@@ -517,7 +517,7 @@ When a background vessel crosses the physics-range boundary:
 - **Enters range** (`onVesselGoOffRails` fires): Transition from on-rails to loaded mode. The `onVesselGoOffRails` event is the trigger.
 - **Exits range** (`onVesselGoOnRails` fires): Transition from loaded to on-rails mode.
 
-These are handled by 7.1 and 7.2 above — no additional event subscription needed.
+These are handled by 7.1 and 7.2 above - no additional event subscription needed.
 
 ---
 
@@ -574,49 +574,49 @@ All tests use the existing `internal static` pure methods and do not require Uni
 
 #### 9.1 On-Rails State Management
 
-1. **`OnRailsState_InitializesOrbitSegment_WhenVesselOrbiting`** — Verify that `BackgroundOnRailsState` captures orbit parameters correctly.
+1. **`OnRailsState_InitializesOrbitSegment_WhenVesselOrbiting`** - Verify that `BackgroundOnRailsState` captures orbit parameters correctly.
 
-2. **`OnRailsState_CapturesSurfacePosition_WhenVesselLanded`** — Verify that landed vessels get `SurfacePos` set and no orbit segment.
+2. **`OnRailsState_CapturesSurfacePosition_WhenVesselLanded`** - Verify that landed vessels get `SurfacePos` set and no orbit segment.
 
-3. **`OnRailsState_SOIChange_ClosesOldOpensNew`** — Verify orbit segment is closed at SOI change UT and a new one is opened.
+3. **`OnRailsState_SOIChange_ClosesOldOpensNew`** - Verify orbit segment is closed at SOI change UT and a new one is opened.
 
-4. **`OnRailsState_ExplicitEndUT_UpdatedPeriodically`** — Verify `ExplicitEndUT` is updated after the refresh interval.
+4. **`OnRailsState_ExplicitEndUT_UpdatedPeriodically`** - Verify `ExplicitEndUT` is updated after the refresh interval.
 
-5. **`OnRailsState_ExplicitEndUT_NotUpdatedTooFrequently`** — Verify throttling works.
+5. **`OnRailsState_ExplicitEndUT_NotUpdatedTooFrequently`** - Verify throttling works.
 
 #### 9.2 Loaded/Physics State Management
 
-6. **`LoadedState_InitializesPartTracking`** — Verify that part event tracking collections are created.
+6. **`LoadedState_InitializesPartTracking`** - Verify that part event tracking collections are created.
 
-7. **`LoadedState_ModeTransition_OnRailsToLoaded_ClosesOrbitSegment`** — Verify orbit segment closed when vessel transitions to loaded.
+7. **`LoadedState_ModeTransition_OnRailsToLoaded_ClosesOrbitSegment`** - Verify orbit segment closed when vessel transitions to loaded.
 
-8. **`LoadedState_ModeTransition_LoadedToOnRails_OpensOrbitSegment`** — Verify new orbit segment opened when vessel goes on rails.
+8. **`LoadedState_ModeTransition_LoadedToOnRails_OpensOrbitSegment`** - Verify new orbit segment opened when vessel goes on rails.
 
 #### 9.3 Part Event Polling (Reuse Existing Static Methods)
 
-9. **`BackgroundPartPolling_ParachuteTransition_RecordsEvent`** — Call `CheckParachuteTransition` with background state collections, verify event produced.
+9. **`BackgroundPartPolling_ParachuteTransition_RecordsEvent`** - Call `CheckParachuteTransition` with background state collections, verify event produced.
 
-10. **`BackgroundPartPolling_EngineTransition_RecordsEvent`** — Call `CheckEngineTransition` with background state, verify event.
+10. **`BackgroundPartPolling_EngineTransition_RecordsEvent`** - Call `CheckEngineTransition` with background state, verify event.
 
-11. **`BackgroundPartPolling_DeployableTransition_RecordsEvent`** — Call `CheckDeployableTransition` with background state, verify event.
+11. **`BackgroundPartPolling_DeployableTransition_RecordsEvent`** - Call `CheckDeployableTransition` with background state, verify event.
 
 #### 9.4 Adaptive Sampling
 
-12. **`BackgroundSampling_UsesAdaptiveThresholds`** — Verify `TrajectoryMath.ShouldRecordPoint` is called with correct parameters and respects thresholds (existing `ShouldRecordPoint` tests already cover the math; this tests the integration wiring).
+12. **`BackgroundSampling_UsesAdaptiveThresholds`** - Verify `TrajectoryMath.ShouldRecordPoint` is called with correct parameters and respects thresholds (existing `ShouldRecordPoint` tests already cover the math; this tests the integration wiring).
 
 #### 9.5 Vessel Lifecycle
 
-13. **`OnVesselBackgrounded_InitializesState`** — Verify that calling `OnVesselBackgrounded` creates correct tracking state.
+13. **`OnVesselBackgrounded_InitializesState`** - Verify that calling `OnVesselBackgrounded` creates correct tracking state.
 
-14. **`OnVesselRemovedFromBackground_CleansUp`** — Verify state is cleaned up and orbit segment finalized.
+14. **`OnVesselRemovedFromBackground_CleansUp`** - Verify state is cleaned up and orbit segment finalized.
 
-15. **`Shutdown_CleansUpAllStates`** — Verify all per-vessel states are cleaned up on shutdown.
+15. **`Shutdown_CleansUpAllStates`** - Verify all per-vessel states are cleaned up on shutdown.
 
 #### 9.6 Data Flow
 
-16. **`BackgroundPhysicsFrame_WritesDirectlyToTreeRecording`** — Create a tree with a background recording, simulate a physics frame, verify the tree Recording has a new trajectory point.
+16. **`BackgroundPhysicsFrame_WritesDirectlyToTreeRecording`** - Create a tree with a background recording, simulate a physics frame, verify the tree Recording has a new trajectory point.
 
-17. **`BackgroundSOIChange_WritesOrbitSegmentToTreeRecording`** — Simulate SOI change, verify orbit segment in tree Recording.
+17. **`BackgroundSOIChange_WritesOrbitSegmentToTreeRecording`** - Simulate SOI change, verify orbit segment in tree Recording.
 
 ---
 
@@ -642,36 +642,36 @@ All tests use the existing `internal static` pure methods and do not require Uni
 
 | File | Changes |
 |------|---------|
-| `Source/Parsek/BackgroundRecorder.cs` | **NEW** — BackgroundRecorder class, BackgroundVesselState, BackgroundOnRailsState |
+| `Source/Parsek/BackgroundRecorder.cs` | **NEW** - BackgroundRecorder class, BackgroundVesselState, BackgroundOnRailsState |
 | `Source/Parsek/Patches/PhysicsFramePatch.cs` | Add `BackgroundRecorderInstance` static field; add dispatch to `BackgroundRecorder.OnBackgroundPhysicsFrame` for non-active vessels |
 | `Source/Parsek/ParsekFlight.cs` | Add `BackgroundRecorder` instance field; wire up `OnVesselBackgrounded`/`OnVesselRemovedFromBackground` calls in `OnVesselSwitchComplete` and `Update()` transition handler; delegate on-rails/off-rails/SOI/destroy events to `BackgroundRecorder`; add `backgroundRecorder.UpdateOnRails()` call in `Update()`; cleanup in `OnSceneChangeRequested` and `OnFlightReady` |
 | `Source/Parsek/FlightRecorder.cs` | No changes needed. `CacheEngineModules` (line 1884), `CacheRcsModules` (line 2253), `CacheRoboticModules` (line 2405), and `EncodeEngineKey` (line 1908) are already `internal static` and callable from `BackgroundRecorder`. All static transition methods (`CheckParachuteTransition`, `CheckEngineTransition`, etc.) are already `internal static`. |
-| `Source/Parsek.Tests/BackgroundRecorderTests.cs` | **NEW** — Unit tests for background recording infrastructure |
+| `Source/Parsek.Tests/BackgroundRecorderTests.cs` | **NEW** - Unit tests for background recording infrastructure |
 
 ---
 
 ### 12. Implementation Order
 
 1. **Verify module cache methods are already internal static** in `FlightRecorder.cs`:
-   - `CacheEngineModules(Vessel v)` — already `internal static` (line 1884)
-   - `CacheRcsModules(Vessel v)` — already `internal static` (line 2253)
-   - `CacheRoboticModules(Vessel v)` — already `internal static` (line 2405)
-   - `EncodeEngineKey(uint pid, int moduleIndex)` — already `internal static` (line 1908)
+   - `CacheEngineModules(Vessel v)` - already `internal static` (line 1884)
+   - `CacheRcsModules(Vessel v)` - already `internal static` (line 2253)
+   - `CacheRoboticModules(Vessel v)` - already `internal static` (line 2405)
+   - `EncodeEngineKey(uint pid, int moduleIndex)` - already `internal static` (line 1908)
    - No changes needed. These are directly callable from `BackgroundRecorder`.
 
 2. **Create `BackgroundRecorder.cs`** with:
    - `BackgroundOnRailsState` inner class
    - `BackgroundVesselState` inner class
    - Constructor accepting `RecordingTree`
-   - `UpdateOnRails(double currentUT)` — on-rails loop
-   - `OnVesselBackgrounded(uint vesselPid)` — initialize tracking
-   - `OnVesselRemovedFromBackground(uint vesselPid)` — cleanup
-   - `OnBackgroundVesselGoOnRails(Vessel v)` — loaded→on-rails transition
-   - `OnBackgroundVesselGoOffRails(Vessel v)` — on-rails→loaded transition
-   - `OnBackgroundVesselSOIChanged(Vessel v, CelestialBody fromBody)` — SOI change
-   - `OnBackgroundVesselWillDestroy(Vessel v)` — destruction cleanup
-   - `OnBackgroundPhysicsFrame(Vessel bgVessel)` — loaded/physics recording
-   - `Shutdown()` — cleanup all state
+   - `UpdateOnRails(double currentUT)` - on-rails loop
+   - `OnVesselBackgrounded(uint vesselPid)` - initialize tracking
+   - `OnVesselRemovedFromBackground(uint vesselPid)` - cleanup
+   - `OnBackgroundVesselGoOnRails(Vessel v)` - loaded→on-rails transition
+   - `OnBackgroundVesselGoOffRails(Vessel v)` - on-rails→loaded transition
+   - `OnBackgroundVesselSOIChanged(Vessel v, CelestialBody fromBody)` - SOI change
+   - `OnBackgroundVesselWillDestroy(Vessel v)` - destruction cleanup
+   - `OnBackgroundPhysicsFrame(Vessel bgVessel)` - loaded/physics recording
+   - `Shutdown()` - cleanup all state
    - Part event polling for background vessels (calling existing static transition methods)
 
 3. **Modify `PhysicsFramePatch.cs`**:
@@ -694,9 +694,9 @@ All tests use the existing `internal static` pure methods and do not require Uni
 
 5. **Write unit tests** in `BackgroundRecorderTests.cs`
 
-6. **Run `dotnet test`** — all existing + new tests pass
+6. **Run `dotnet test`** - all existing + new tests pass
 
-7. **Run `dotnet build`** — verify compilation
+7. **Run `dotnet build`** - verify compilation
 
 ---
 
@@ -705,11 +705,11 @@ All tests use the existing `internal static` pure methods and do not require Uni
 | Risk | Mitigation |
 |------|-----------|
 | Performance: physics-frame dispatch for every loaded vessel | `BackgroundRecorderInstance != null` check gates entire path (zero cost when no tree). Dictionary lookup is O(1). Loaded vessel count is typically 1-5. Part polling is the same cost as active recording. |
-| `GetComponent<Vessel>()` on every physics frame for every VesselPrecalculate | Small constant cost per loaded vessel. Could cache in a dictionary keyed by `GameObject.GetInstanceID()` if profiling shows issues. Premature optimization — defer unless KSP.log shows frame rate drop. |
-| Thread safety: `BackgroundRecorder` methods called from both `Update()` and `Postfix` | `Update()` runs on the main thread. `Postfix` is a Harmony patch on a Unity `FixedUpdate`-driven method, also main thread. No threading issue — Unity is single-threaded for gameplay logic. However, `Update()` and `FixedUpdate` can interleave within a frame. **[ORCHESTRATOR FIX]** Mode transitions are owned by KSP events (`onVesselGoOnRails`/`onVesselGoOffRails`), NOT by polling in `UpdateOnRails` or `OnBackgroundPhysicsFrame`. This eliminates races: `OnBackgroundVesselGoOffRails` moves the vessel from `onRailsStates` to `loadedStates`; `OnBackgroundVesselGoOnRails` does the reverse. Neither `UpdateOnRails` nor `OnBackgroundPhysicsFrame` creates or destroys state entries — they only operate on entries already in the correct dictionary. `OnBackgroundPhysicsFrame` checks `if (!loadedStates.ContainsKey(pid)) return;` and `UpdateOnRails` checks `if (!onRailsStates.ContainsKey(pid)) continue;`. |
+| `GetComponent<Vessel>()` on every physics frame for every VesselPrecalculate | Small constant cost per loaded vessel. Could cache in a dictionary keyed by `GameObject.GetInstanceID()` if profiling shows issues. Premature optimization - defer unless KSP.log shows frame rate drop. |
+| Thread safety: `BackgroundRecorder` methods called from both `Update()` and `Postfix` | `Update()` runs on the main thread. `Postfix` is a Harmony patch on a Unity `FixedUpdate`-driven method, also main thread. No threading issue - Unity is single-threaded for gameplay logic. However, `Update()` and `FixedUpdate` can interleave within a frame. **[ORCHESTRATOR FIX]** Mode transitions are owned by KSP events (`onVesselGoOnRails`/`onVesselGoOffRails`), NOT by polling in `UpdateOnRails` or `OnBackgroundPhysicsFrame`. This eliminates races: `OnBackgroundVesselGoOffRails` moves the vessel from `onRailsStates` to `loadedStates`; `OnBackgroundVesselGoOnRails` does the reverse. Neither `UpdateOnRails` nor `OnBackgroundPhysicsFrame` creates or destroys state entries - they only operate on entries already in the correct dictionary. `OnBackgroundPhysicsFrame` checks `if (!loadedStates.ContainsKey(pid)) return;` and `UpdateOnRails` checks `if (!onRailsStates.ContainsKey(pid)) continue;`. |
 | Race between promotion and background physics frame | When `OnVesselRemovedFromBackground` is called, it removes the vessel from `BackgroundMap`. The next `OnBackgroundPhysicsFrame` call will fail the `BackgroundMap` lookup and skip. The `loadedStates` dictionary is also cleaned up. |
 | Stale engine/part module caches after vessel structure change | Cache invalidation on decouple/dock events. For Task 3, background vessels are not expected to dock/undock (those are tree events handled in Tasks 4/5). If a background vessel loses parts (destruction), the cache entry for the missing part will fail the null check in the polling loop and be skipped. |
-| Orbit segment continuity: double orbit segment at transition | `FlushRecorderToTreeRecording` (Task 2) calls `FinalizeOpenOrbitSegment` which closes any open segment. `OnVesselBackgrounded` opens a new one. No overlap — the old segment's `endUT` equals the new segment's `startUT`. |
+| Orbit segment continuity: double orbit segment at transition | `FlushRecorderToTreeRecording` (Task 2) calls `FinalizeOpenOrbitSegment` which closes any open segment. `OnVesselBackgrounded` opens a new one. No overlap - the old segment's `endUT` equals the new segment's `startUT`. |
 | `vessel.orbit` null for vessels on launchpad | Guard: check `vessel.orbit != null` before capturing orbit segment. Landed vessels use `SurfacePosition` instead. |
 | Backward compatibility | `BackgroundRecorderInstance == null` when no tree is active. All new code paths gated on tree existence. Existing standalone recording is completely unaffected. |
 | Large vessel count in BackgroundMap | Practical limit: KSP rarely has more than 10-20 vessels in a tree. Dictionary operations are O(1). Not a concern. |

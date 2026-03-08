@@ -1,4 +1,4 @@
-# Plan: Task 13 — Tree Test Coverage
+# Plan: Task 13 - Tree Test Coverage
 
 ## Overview
 
@@ -24,41 +24,41 @@ All 18 tests verified as NOT COVERED by existing tests. See `docs/plans/task-12-
 
 ## Part B: Pure Method Tests (7)
 
-### B1. FormatDuration — all branches
+### B1. FormatDuration - all branches
 **File:** `MergeDialogTests.cs` (new)
-**Method:** `MergeDialog.FormatDuration(double)` — `internal static`
+**Method:** `MergeDialog.FormatDuration(double)` - `internal static`
 **Approach:** Theory with InlineData covering NaN, Infinity, negative, 0, 45, 60, 61, 3600, 3661, 86400
 **Non-vacuous:** 10 unique expected strings, one per code path
 
-### B2. GetLeafSituationText — all 8 terminal states + fallbacks
+### B2. GetLeafSituationText - all 8 terminal states + fallbacks
 **File:** `MergeDialogTests.cs` (new)
-**Method:** `MergeDialog.GetLeafSituationText(Recording)` — `internal static`
+**Method:** `MergeDialog.GetLeafSituationText(Recording)` - `internal static`
 **Approach:** 13 facts covering Orbiting (with/without body), Landed (with/without position), Splashed, SubOrbital (with/without body), Destroyed, Recovered, Docked, Boarded, null-terminal with VesselSituation, null-terminal without VesselSituation
 **Non-vacuous:** 13 unique expected strings from switch statement
 
-### B3. ComputeTotal — multiple trees, mixed ResourcesApplied
+### B3. ComputeTotal - multiple trees, mixed ResourcesApplied
 **File:** `ResourceBudgetTests.cs` (existing)
 **Setup:** Tree A: applied, DeltaFunds=-3000. Tree B: not applied, DeltaFunds=-7000
 **Assert:** reservedFunds == 7000 (only Tree B)
 **Non-vacuous:** Only one value is correct (10000 if both, 0 if neither, 3000 if inverted)
 
-### B4. IsSpawnableLeaf — 5 missing truth-table cases
+### B4. IsSpawnableLeaf - 5 missing truth-table cases
 **File:** `TreeCommitTests.cs` (existing)
 **Cases:** null-snapshot-no-terminal (false), Recovered (false), Landed (true), Splashed (true), SubOrbital (true)
 **Non-vacuous:** Tests the terminal state guard boundary and snapshot guard independently
 
-### B5. RebuildBackgroundMap — realistic multi-level
+### B5. RebuildBackgroundMap - realistic multi-level
 **File:** `RecordingTreeTests.cs` (existing)
 **Setup:** 5 recordings, each excluded for a different reason. Then change ActiveRecordingId → one included
 **Non-vacuous:** All-excluded case tests no false positives; one-included case tests inclusion logic
 
-### B6. GetAllLeaves vs GetSpawnableLeaves — Recovered leaf
+### B6. GetAllLeaves vs GetSpawnableLeaves - Recovered leaf
 **File:** `TreeCommitTests.cs` (existing)
 **Setup:** 2 leaves: Recovered (no snapshot) + Orbiting (with snapshot)
 **Assert:** GetAllLeaves=2, GetSpawnableLeaves=1
 **Non-vacuous:** Tests that Recovered is in GetAllLeaves but excluded from GetSpawnableLeaves
 
-### B7. GetSpawnableLeaves after dock merge — DAG
+### B7. GetSpawnableLeaves after dock merge - DAG
 **File:** `TreeCommitTests.cs` (existing)
 **Setup:** root → split → 2 children → dock → merged child (Orbiting, with snapshot)
 **Assert:** GetSpawnableLeaves returns exactly 1 (merged child). Docked parents excluded
@@ -77,7 +77,7 @@ All use `ParsekLog.TestSinkForTesting` pattern from `ParsekLogTests.cs`.
 ### C3. DiscardPendingTree logs tree name
 **Assert:** Line contains "Discarded pending tree 'Mun Mission'"
 
-### C4. ComputeTotal tree loop — per-tree verbose log
+### C4. ComputeTotal tree loop - per-tree verbose log
 **Assert:** Lines for each tree with resourcesApplied state and cost values
 
 ### C5. RecordingTree.Save logs summary
@@ -88,16 +88,16 @@ All use `ParsekLog.TestSinkForTesting` pattern from `ParsekLogTests.cs`.
 
 ## Part D: Edge Case Tests (5)
 
-### D1. Empty tree — query methods safe
+### D1. Empty tree - query methods safe
 **Assert:** GetSpawnableLeaves/GetAllLeaves return empty (not null). RebuildBackgroundMap doesn't crash
 
-### D2. Load with unknown fields — forward compat
+### D2. Load with unknown fields - forward compat
 **Assert:** Unknown fields silently ignored, standard fields load correctly
 
-### D3. CommitTree(null) — no crash, no state change
+### D3. CommitTree(null) - no crash, no state change
 **Assert:** Committed counts unchanged
 
-### D4. All-terminal leaves — budget delta still counts
+### D4. All-terminal leaves - budget delta still counts
 **Assert:** reservedFunds == 3000 even though all leaves are Destroyed/Recovered
 
 ### D5. BackgroundMap after save/load round-trip
@@ -126,4 +126,4 @@ root → split → child A (orbiting, spawnable) + child B (destroyed, not spawn
 
 ## Verification
 
-`dotnet test` — all existing + 18 new tests pass. `dotnet test --filter InjectAllRecordings` works for tree injection.
+`dotnet test` - all existing + 18 new tests pass. `dotnet test --filter InjectAllRecordings` works for tree injection.
