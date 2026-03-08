@@ -326,13 +326,6 @@ namespace Parsek
             DeleteRecordingFiles(pendingRecording);
             GameStateRecorder.PendingScienceSubjects.Clear();
 
-            // Delete rewind save file if present
-            if (!string.IsNullOrEmpty(pendingRecording.RewindSaveFileName))
-            {
-                DeleteFileIfExists(RecordingPaths.BuildRewindSaveRelativePath(pendingRecording.RewindSaveFileName));
-                Log($"[Parsek] Deleted rewind save for discarded recording: {pendingRecording.RewindSaveFileName}");
-            }
-
             Log($"[Parsek] Discarded pending recording from {pendingRecording.VesselName}");
             pendingRecording = null;
             ResourceBudget.Invalidate();
@@ -443,17 +436,6 @@ namespace Parsek
             {
                 ParsekLog.Verbose("RecordingStore", "DiscardPendingTree called with no pending tree");
                 return;
-            }
-
-            // Delete rewind save for root recording if present
-            foreach (var rec in pendingTree.Recordings.Values)
-            {
-                if (!string.IsNullOrEmpty(rec.RewindSaveFileName))
-                {
-                    DeleteFileIfExists(RecordingPaths.BuildRewindSaveRelativePath(rec.RewindSaveFileName));
-                    Log($"[Parsek] Deleted rewind save for discarded tree: {rec.RewindSaveFileName}");
-                    break; // only root owns the rewind save
-                }
             }
 
             foreach (var rec in pendingTree.Recordings.Values)
@@ -767,6 +749,9 @@ namespace Parsek
                 return;
             }
 
+            ParsekLog.Verbose("RecordingStore",
+                $"DeleteRecordingFiles: id={rec.RecordingId} vessel='{rec.VesselName}' rewindSave={rec.RewindSaveFileName ?? "(none)"}");
+
             DeleteFileIfExists(RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
             DeleteFileIfExists(RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
             DeleteFileIfExists(RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
@@ -782,11 +767,14 @@ namespace Parsek
             {
                 string absolutePath = RecordingPaths.ResolveSaveScopedPath(relativePath);
                 if (!string.IsNullOrEmpty(absolutePath) && File.Exists(absolutePath))
+                {
                     File.Delete(absolutePath);
+                    ParsekLog.Verbose("RecordingStore", $"Deleted file: {relativePath}");
+                }
             }
             catch (Exception ex)
             {
-                Log($"[Parsek] WARNING: Failed to delete file '{relativePath}': {ex.Message}");
+                ParsekLog.Warn("RecordingStore", $"Failed to delete file '{relativePath}': {ex.Message}");
             }
         }
 
@@ -997,6 +985,12 @@ namespace Parsek
                 // Copy from Parsek/Saves/ to root saves dir
                 File.Copy(sourcePath, tempPath, true);
 
+                // Pre-process the save file before KSP parses it:
+                // 1. Remove only the recorded vessel (other vessels stay intact)
+                // 2. Wind back UT by 10 seconds so the player can reach the pad before launch
+                const double rewindLeadTime = 10.0;
+                PreProcessRewindSave(tempPath, rec.VesselName, rewindLeadTime);
+
                 Game game = GamePersistence.LoadGame(tempCopyName, HighLogic.SaveFolder, true, false);
 
                 // Delete the temp copy (file already parsed into Game object)
@@ -1014,11 +1008,13 @@ namespace Parsek
                     return;
                 }
 
-                FlightDriver.StartAndFocusVessel(game, game.flightState.activeVesselIdx);
+                // Load into SpaceCenter — player can enter buildings or launch a new vessel
+                HighLogic.CurrentGame = game;
+                HighLogic.LoadScene(GameScenes.SPACECENTER);
 
                 if (!SuppressLogging)
                     ParsekLog.Info("Rewind",
-                        $"Rewind: loading save '{rec.RewindSaveFileName}' (activeVesselIdx={game.flightState.activeVesselIdx})");
+                        $"Rewind: loading save '{rec.RewindSaveFileName}' into SpaceCenter");
             }
             catch (Exception ex)
             {
@@ -1045,6 +1041,56 @@ namespace Parsek
                 if (!SuppressLogging)
                     ParsekLog.Error("Rewind", $"Rewind failed: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Modifies the temp rewind save file before KSP parses it:
+        /// removes the recorded vessel and winds back UT so the player
+        /// has time to reach the launch pad before the ghost appears.
+        /// </summary>
+        private static void PreProcessRewindSave(string sfsPath, string vesselName, double leadTime)
+        {
+            ConfigNode root = ConfigNode.Load(sfsPath);
+            if (root == null)
+                return;
+
+            // The file contents are directly inside the returned node (no GAME wrapper)
+            ConfigNode gameNode = root.HasNode("GAME") ? root.GetNode("GAME") : root;
+
+            ConfigNode flightState = gameNode.GetNode("FLIGHTSTATE");
+            if (flightState != null)
+            {
+                // Wind back UT
+                string utStr = flightState.GetValue("UT");
+                double ut;
+                if (!string.IsNullOrEmpty(utStr) &&
+                    double.TryParse(utStr, NumberStyles.Any, CultureInfo.InvariantCulture, out ut))
+                {
+                    double newUT = Math.Max(0, ut - leadTime);
+                    flightState.SetValue("UT", newUT.ToString("R", CultureInfo.InvariantCulture));
+                    if (!SuppressLogging)
+                        ParsekLog.Info("Rewind",
+                            $"UT adjusted: {ut:F1} → {newUT:F1} (lead time {leadTime}s)");
+                }
+
+                // Remove only the recorded vessel — all other vessels stay intact
+                int removed = 0;
+                var vesselNodes = flightState.GetNodes("VESSEL");
+                for (int i = vesselNodes.Length - 1; i >= 0; i--)
+                {
+                    string name = vesselNodes[i].GetValue("name");
+                    if (name == vesselName)
+                    {
+                        flightState.RemoveNode(vesselNodes[i]);
+                        removed++;
+                    }
+                }
+                if (!SuppressLogging)
+                    ParsekLog.Info("Rewind",
+                        $"Stripped {removed} vessel(s) named '{vesselName}' from save");
+            }
+
+            root.Save(sfsPath);
         }
 
         #endregion
