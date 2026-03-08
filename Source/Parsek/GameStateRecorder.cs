@@ -496,8 +496,17 @@ namespace Parsek
                 return;
             }
 
-            if (subject == null || string.IsNullOrEmpty(subject.id)) return;
-            if (amount <= 0) return;
+            if (subject == null || string.IsNullOrEmpty(subject.id))
+            {
+                ParsekLog.Verbose("GameStateRecorder", "OnScienceReceived: skipped — null subject or empty id");
+                return;
+            }
+            if (amount <= 0)
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    $"OnScienceReceived: skipped — non-positive amount ({amount:F1}) for {subject.id}");
+                return;
+            }
 
             // Record the cumulative science earned for this subject
             PendingScienceSubjects.Add(new PendingScienceSubject
