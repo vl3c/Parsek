@@ -102,7 +102,7 @@ Each recording owns a quicksave captured at recording start, stored in `Parsek/S
 ### Action replay (done)
 After rewind resource adjustment, `ActionReplay.ReplayCommittedActions` programmatically re-applies committed game actions from milestones: tech unlock (via `UnlockProtoTechNode`, no science deduction), part purchase, facility upgrade, and crew hire. Each handler has idempotent guards (skip if already applied). Suppression flags prevent re-recording during replay.
 
-**Design:** `docs/done/design-restore-points.md`, `docs/done/design-going-back-in-time.md`
+**Design:** `docs/dev/done/design-restore-points.md`, `docs/dev/done/design-going-back-in-time.md`
 
 **Test coverage:** 1251 tests (1250 pass, 1 known failure).
 
@@ -112,7 +112,7 @@ After rewind resource adjustment, `ActionReplay.ReplayCommittedActions` programm
 
 Record entire multi-vessel missions as a single unit. When the player undocks, goes EVA, or docks, Parsek tracks all resulting vessels simultaneously. On revert, all vessels spawn at their correct positions.
 
-**Design:** `docs/design-mission-tree.md`
+**Design:** `docs/dev/done/design-mission-tree.md`
 
 The recording tree builds on top of the existing chain system. Each node in the tree is a vessel's recording, and each recording can itself be a chain of segments (atmospheric/SOI phase splits, dock sequences). The tree adds a new layer for tracking vessel splits and merges — it does not replace chains.
 
@@ -163,4 +163,4 @@ Allow the player to move the camera to a recorded vessel during playback. Clicki
 - **AI playback or autopilot**
 - **Multiplayer synchronization**
 - **Timeline branching or alternate histories**
-- **Logistics network** — Parsek's recording infrastructure (looped playback, chain segments, vessel snapshots, game state events, resource tracking) forms a natural foundation for automated supply routes between bases. The concept: fly a cargo mission once, Parsek records it, then that recording becomes a reusable logistics route that periodically deducts fuel at the origin and delivers cargo at the destination, with the ghost replaying visually during transit. This will be built as a separate mod on top of Parsek rather than integrated directly. See `docs/research/logistics-network-design.md` for the full design exploration.
+- **Logistics network** — Parsek's recording infrastructure (looped playback, chain segments, vessel snapshots, game state events, resource tracking) forms a natural foundation for automated supply routes between bases. The concept: fly a cargo mission once, Parsek records it, then that recording becomes a reusable logistics route that periodically deducts fuel at the origin and delivers cargo at the destination, with the ghost replaying visually during transit. This will be built as a separate mod on top of Parsek rather than integrated directly. See `docs/dev/research/logistics-network-design.md` for the full design exploration.

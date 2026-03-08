@@ -224,7 +224,7 @@ This is where code exploration enters the workflow. The design doc says *what* t
 Agent(subagent_type=Explore):
   "Read docs/design-[feature].md. Then investigate the current codebase:
    - Which source files will be affected?
-   - What KSP APIs/events are relevant? (check docs/reference/ and MEMORY.md for known gotchas)
+   - What KSP APIs/events are relevant? (check docs/dev/reference/ and MEMORY.md for known gotchas)
    - How does existing code handle similar problems? (patterns to reuse)
    - What data structures exist and how do they serialize?
    - What tests cover the affected area?
