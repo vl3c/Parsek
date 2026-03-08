@@ -1222,6 +1222,7 @@ namespace Parsek
                         ParsekScenario.ClearReplacements();
                         flight.DestroyAllTimelineGhosts();
                         RecordingStore.ClearCommitted();
+                        GameStateStore.ClearScienceSubjects();
                         ParsekLog.Info("UI", "All recordings wiped");
                         ParsekLog.ScreenMessage("All recordings wiped", 2f);
                     }),

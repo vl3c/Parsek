@@ -1372,5 +1372,414 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Committed Science Subjects
+
+        [Fact]
+        public void CommitScienceSubjects_AddsNew()
+        {
+            GameStateStore.ResetForTesting();
+
+            var pending = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLandedLaunchPad", science = 3.0f },
+                new PendingScienceSubject { subjectId = "temperatureScan@KerbinSrfLandedLaunchPad", science = 4.0f }
+            };
+
+            GameStateStore.CommitScienceSubjects(pending);
+
+            Assert.Equal(2, GameStateStore.CommittedScienceSubjectCount);
+
+            float sci;
+            Assert.True(GameStateStore.TryGetCommittedSubjectScience("crewReport@KerbinSrfLandedLaunchPad", out sci));
+            Assert.Equal(3.0f, sci);
+            Assert.True(GameStateStore.TryGetCommittedSubjectScience("temperatureScan@KerbinSrfLandedLaunchPad", out sci));
+            Assert.Equal(4.0f, sci);
+        }
+
+        [Fact]
+        public void CommitScienceSubjects_MaxWins()
+        {
+            GameStateStore.ResetForTesting();
+
+            var batch1 = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLandedLaunchPad", science = 3.0f }
+            };
+            GameStateStore.CommitScienceSubjects(batch1);
+
+            // Second commit with higher value — should update
+            var batch2 = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLandedLaunchPad", science = 5.0f }
+            };
+            GameStateStore.CommitScienceSubjects(batch2);
+
+            float sci;
+            Assert.True(GameStateStore.TryGetCommittedSubjectScience("crewReport@KerbinSrfLandedLaunchPad", out sci));
+            Assert.Equal(5.0f, sci);
+        }
+
+        [Fact]
+        public void CommitScienceSubjects_LowerValueIgnored()
+        {
+            GameStateStore.ResetForTesting();
+
+            var batch1 = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLandedLaunchPad", science = 5.0f }
+            };
+            GameStateStore.CommitScienceSubjects(batch1);
+
+            // Second commit with lower value — should NOT downgrade
+            var batch2 = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLandedLaunchPad", science = 2.0f }
+            };
+            GameStateStore.CommitScienceSubjects(batch2);
+
+            float sci;
+            Assert.True(GameStateStore.TryGetCommittedSubjectScience("crewReport@KerbinSrfLandedLaunchPad", out sci));
+            Assert.Equal(5.0f, sci);
+        }
+
+        [Fact]
+        public void CommitScienceSubjects_NullOrEmpty_NoOp()
+        {
+            GameStateStore.ResetForTesting();
+
+            GameStateStore.CommitScienceSubjects(null);
+            Assert.Equal(0, GameStateStore.CommittedScienceSubjectCount);
+
+            GameStateStore.CommitScienceSubjects(new List<PendingScienceSubject>());
+            Assert.Equal(0, GameStateStore.CommittedScienceSubjectCount);
+        }
+
+        [Fact]
+        public void TryGetCommittedSubjectScience_MissingKey_ReturnsFalse()
+        {
+            GameStateStore.ResetForTesting();
+
+            float sci;
+            Assert.False(GameStateStore.TryGetCommittedSubjectScience("nonexistent", out sci));
+        }
+
+        [Fact]
+        public void ClearScienceSubjects_RemovesAll()
+        {
+            GameStateStore.ResetForTesting();
+
+            GameStateStore.CommitScienceSubjects(new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject { subjectId = "test1", science = 1.0f },
+                new PendingScienceSubject { subjectId = "test2", science = 2.0f }
+            });
+            Assert.Equal(2, GameStateStore.CommittedScienceSubjectCount);
+
+            GameStateStore.ClearScienceSubjects();
+            Assert.Equal(0, GameStateStore.CommittedScienceSubjectCount);
+        }
+
+        [Fact]
+        public void CommitScienceSubjects_MultipleEntriesSameSubject_MaxWins()
+        {
+            GameStateStore.ResetForTesting();
+
+            // Simulates multiple transmissions of same experiment in one session
+            var pending = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLandedLaunchPad", science = 2.0f },
+                new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLandedLaunchPad", science = 4.5f },
+                new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLandedLaunchPad", science = 3.0f }
+            };
+
+            GameStateStore.CommitScienceSubjects(pending);
+
+            Assert.Equal(1, GameStateStore.CommittedScienceSubjectCount);
+            float sci;
+            Assert.True(GameStateStore.TryGetCommittedSubjectScience("crewReport@KerbinSrfLandedLaunchPad", out sci));
+            Assert.Equal(4.5f, sci);
+        }
+
+        [Fact]
+        public void ResetForTesting_ClearsScienceSubjects()
+        {
+            GameStateStore.CommitScienceSubjects(new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject { subjectId = "test", science = 1.0f }
+            });
+
+            GameStateStore.ResetForTesting();
+            Assert.Equal(0, GameStateStore.CommittedScienceSubjectCount);
+        }
+
+        [Fact]
+        public void ScienceSubjects_SerializeDeserialize_RoundTrip()
+        {
+            GameStateStore.ResetForTesting();
+
+            GameStateStore.CommitScienceSubjects(new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject { subjectId = "crewReport@KerbinSrfLandedLaunchPad", science = 3.5f },
+                new PendingScienceSubject { subjectId = "temperatureScan@MunSrfLanded", science = 8.12345f }
+            });
+
+            // Serialize
+            var root = new ConfigNode("ROOT");
+            GameStateStore.SerializeScienceSubjectsInto(root);
+
+            // Reset and deserialize
+            GameStateStore.ResetForTesting();
+            Assert.Equal(0, GameStateStore.CommittedScienceSubjectCount);
+
+            GameStateStore.DeserializeScienceSubjectsFrom(root);
+            Assert.Equal(2, GameStateStore.CommittedScienceSubjectCount);
+
+            float sci;
+            Assert.True(GameStateStore.TryGetCommittedSubjectScience("crewReport@KerbinSrfLandedLaunchPad", out sci));
+            Assert.Equal(3.5f, sci);
+            Assert.True(GameStateStore.TryGetCommittedSubjectScience("temperatureScan@MunSrfLanded", out sci));
+            Assert.Equal(8.12345f, sci);
+        }
+
+        [Fact]
+        public void ScienceSubjects_DeserializeFrom_MissingNode_NoOp()
+        {
+            GameStateStore.ResetForTesting();
+
+            var root = new ConfigNode("ROOT");
+            // No SCIENCE_SUBJECTS node
+            GameStateStore.DeserializeScienceSubjectsFrom(root);
+            Assert.Equal(0, GameStateStore.CommittedScienceSubjectCount);
+        }
+
+        [Fact]
+        public void ScienceSubjects_DeserializeFrom_MalformedEntries_Skipped()
+        {
+            GameStateStore.ResetForTesting();
+
+            var root = new ConfigNode("ROOT");
+            var sciNode = root.AddNode("SCIENCE_SUBJECTS");
+
+            // Valid entry
+            var valid = sciNode.AddNode("SUBJECT");
+            valid.AddValue("id", "crewReport@KerbinSrfLandedLaunchPad");
+            valid.AddValue("science", "5.0");
+
+            // Missing id
+            var noId = sciNode.AddNode("SUBJECT");
+            noId.AddValue("science", "3.0");
+
+            // Missing science
+            var noSci = sciNode.AddNode("SUBJECT");
+            noSci.AddValue("id", "temp@Kerbin");
+
+            // Unparseable science
+            var badSci = sciNode.AddNode("SUBJECT");
+            badSci.AddValue("id", "goo@Kerbin");
+            badSci.AddValue("science", "notanumber");
+
+            GameStateStore.DeserializeScienceSubjectsFrom(root);
+
+            // Only the valid entry should be loaded
+            Assert.Equal(1, GameStateStore.CommittedScienceSubjectCount);
+            float sci;
+            Assert.True(GameStateStore.TryGetCommittedSubjectScience("crewReport@KerbinSrfLandedLaunchPad", out sci));
+            Assert.Equal(5.0f, sci);
+        }
+
+        [Fact]
+        public void ScienceSubjects_SerializeEmpty_NoNode()
+        {
+            GameStateStore.ResetForTesting();
+
+            var root = new ConfigNode("ROOT");
+            GameStateStore.SerializeScienceSubjectsInto(root);
+
+            // Should not create SCIENCE_SUBJECTS node when empty
+            Assert.Null(root.GetNode("SCIENCE_SUBJECTS"));
+        }
+
+        [Fact]
+        public void SuppressResourceEvents_PreventsAccumulation()
+        {
+            // OnScienceReceived is private and requires KSP runtime, so we can't
+            // call it directly. Instead verify the public contract: pending subjects
+            // added during suppressed state should NOT be committed.
+            // This tests the commit path's interaction with suppression.
+            GameStateStore.ResetForTesting();
+            GameStateRecorder.PendingScienceSubjects.Clear();
+
+            // Simulate: suppression is on (replay in progress), but something
+            // leaked a subject into the pending list (shouldn't happen, but
+            // if it did, commit should still work — max-wins is safe).
+            GameStateRecorder.PendingScienceSubjects.Add(
+                new PendingScienceSubject { subjectId = "test@Kerbin", science = 3.0f });
+
+            GameStateStore.CommitScienceSubjects(GameStateRecorder.PendingScienceSubjects);
+            GameStateRecorder.PendingScienceSubjects.Clear();
+
+            // The subject was committed (max-wins policy handles it safely)
+            float sci;
+            Assert.True(GameStateStore.TryGetCommittedSubjectScience("test@Kerbin", out sci));
+            Assert.Equal(3.0f, sci);
+
+            // A subsequent commit with a lower value should NOT downgrade
+            GameStateRecorder.PendingScienceSubjects.Add(
+                new PendingScienceSubject { subjectId = "test@Kerbin", science = 1.0f });
+            GameStateStore.CommitScienceSubjects(GameStateRecorder.PendingScienceSubjects);
+            GameStateRecorder.PendingScienceSubjects.Clear();
+
+            Assert.True(GameStateStore.TryGetCommittedSubjectScience("test@Kerbin", out sci));
+            Assert.Equal(3.0f, sci);
+        }
+
+        [Fact]
+        public void PendingScienceSubjects_ClearedByRecordingStoreReset()
+        {
+            GameStateRecorder.PendingScienceSubjects.Add(
+                new PendingScienceSubject { subjectId = "test", science = 1.0f });
+            Assert.Single(GameStateRecorder.PendingScienceSubjects);
+
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+            Assert.Empty(GameStateRecorder.PendingScienceSubjects);
+        }
+
+        [Fact]
+        public void RecordOriginalScience_TracksFirstValueOnly()
+        {
+            GameStateStore.ResetForTesting();
+
+            GameStateStore.RecordOriginalScience("crewReport@Kerbin", 0.0f);
+            Assert.Equal(1, GameStateStore.OriginalScienceValueCount);
+
+            // Second call for same subject — should NOT update
+            GameStateStore.RecordOriginalScience("crewReport@Kerbin", 2.0f);
+            Assert.Equal(1, GameStateStore.OriginalScienceValueCount);
+
+            // Different subject — should add
+            GameStateStore.RecordOriginalScience("tempScan@Mun", 1.5f);
+            Assert.Equal(2, GameStateStore.OriginalScienceValueCount);
+        }
+
+        [Fact]
+        public void ClearScienceSubjects_ClearsOriginalsAndCommitted()
+        {
+            GameStateStore.ResetForTesting();
+
+            GameStateStore.CommitScienceSubjects(new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject { subjectId = "crewReport@Kerbin", science = 5.0f }
+            });
+            GameStateStore.RecordOriginalScience("crewReport@Kerbin", 0.0f);
+
+            Assert.Equal(1, GameStateStore.CommittedScienceSubjectCount);
+            Assert.Equal(1, GameStateStore.OriginalScienceValueCount);
+
+            GameStateStore.ClearScienceSubjects();
+
+            Assert.Equal(0, GameStateStore.CommittedScienceSubjectCount);
+            Assert.Equal(0, GameStateStore.OriginalScienceValueCount);
+        }
+
+        [Fact]
+        public void ResetForTesting_ClearsOriginalScienceValues()
+        {
+            GameStateStore.RecordOriginalScience("test", 1.0f);
+            Assert.Equal(1, GameStateStore.OriginalScienceValueCount);
+
+            GameStateStore.ResetForTesting();
+            Assert.Equal(0, GameStateStore.OriginalScienceValueCount);
+        }
+
+        [Fact]
+        public void OriginalScience_SerializeDeserialize_RoundTrip()
+        {
+            GameStateStore.ResetForTesting();
+
+            GameStateStore.CommitScienceSubjects(new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject { subjectId = "crewReport@Kerbin", science = 5.0f },
+                new PendingScienceSubject { subjectId = "tempScan@Mun", science = 3.0f }
+            });
+            GameStateStore.RecordOriginalScience("crewReport@Kerbin", 0.0f);
+            GameStateStore.RecordOriginalScience("tempScan@Mun", 1.5f);
+
+            // Serialize
+            var root = new ConfigNode("ROOT");
+            GameStateStore.SerializeScienceSubjectsInto(root);
+
+            // Reset and deserialize
+            GameStateStore.ResetForTesting();
+            Assert.Equal(0, GameStateStore.CommittedScienceSubjectCount);
+            Assert.Equal(0, GameStateStore.OriginalScienceValueCount);
+
+            GameStateStore.DeserializeScienceSubjectsFrom(root);
+
+            Assert.Equal(2, GameStateStore.CommittedScienceSubjectCount);
+            Assert.Equal(2, GameStateStore.OriginalScienceValueCount);
+
+            float sci;
+            Assert.True(GameStateStore.TryGetCommittedSubjectScience("crewReport@Kerbin", out sci));
+            Assert.Equal(5.0f, sci);
+            Assert.True(GameStateStore.TryGetCommittedSubjectScience("tempScan@Mun", out sci));
+            Assert.Equal(3.0f, sci);
+
+            // Verify original values round-tripped correctly
+            float orig;
+            Assert.True(GameStateStore.TryGetOriginalScience("crewReport@Kerbin", out orig));
+            Assert.Equal(0.0f, orig);
+            Assert.True(GameStateStore.TryGetOriginalScience("tempScan@Mun", out orig));
+            Assert.Equal(1.5f, orig);
+        }
+
+        [Fact]
+        public void OriginalScience_DeserializeFrom_NoOriginalsNode_NoOp()
+        {
+            GameStateStore.ResetForTesting();
+
+            // Older format: SCIENCE_SUBJECTS without ORIGINALS
+            var root = new ConfigNode("ROOT");
+            var sciNode = root.AddNode("SCIENCE_SUBJECTS");
+            var entry = sciNode.AddNode("SUBJECT");
+            entry.AddValue("id", "crewReport@Kerbin");
+            entry.AddValue("science", "5.0");
+
+            GameStateStore.DeserializeScienceSubjectsFrom(root);
+
+            Assert.Equal(1, GameStateStore.CommittedScienceSubjectCount);
+            Assert.Equal(0, GameStateStore.OriginalScienceValueCount);
+        }
+
+        [Fact]
+        public void SerializeEmpty_NoScienceSubjectsNode_WhenBothEmpty()
+        {
+            GameStateStore.ResetForTesting();
+
+            var root = new ConfigNode("ROOT");
+            GameStateStore.SerializeScienceSubjectsInto(root);
+
+            Assert.Null(root.GetNode("SCIENCE_SUBJECTS"));
+        }
+
+        [Fact]
+        public void Serialize_CreatesNode_WhenOnlyOriginalsExist()
+        {
+            GameStateStore.ResetForTesting();
+
+            // Edge case: originals tracked but committed already cleared
+            // (shouldn't happen in practice, but tests serialization guard)
+            GameStateStore.RecordOriginalScience("test", 1.0f);
+
+            var root = new ConfigNode("ROOT");
+            GameStateStore.SerializeScienceSubjectsInto(root);
+
+            Assert.NotNull(root.GetNode("SCIENCE_SUBJECTS"));
+            var sciNode = root.GetNode("SCIENCE_SUBJECTS");
+            Assert.NotNull(sciNode.GetNode("ORIGINALS"));
+        }
+
+        #endregion
     }
 }

@@ -298,6 +298,10 @@ namespace Parsek
             Log($"[Parsek] Committed recording from {pendingRecording.VesselName} " +
                 $"({pendingRecording.Points.Count} points). Total committed: {committedRecordings.Count}");
 
+            // Commit pending science subjects before clearing
+            GameStateStore.CommitScienceSubjects(GameStateRecorder.PendingScienceSubjects);
+            GameStateRecorder.PendingScienceSubjects.Clear();
+
             string recordingId = pendingRecording.RecordingId;
             double endUT = pendingRecording.EndUT;
             pendingRecording = null;
@@ -320,6 +324,8 @@ namespace Parsek
             }
 
             DeleteRecordingFiles(pendingRecording);
+            GameStateRecorder.PendingScienceSubjects.Clear();
+
             Log($"[Parsek] Discarded pending recording from {pendingRecording.VesselName}");
             pendingRecording = null;
             ResourceBudget.Invalidate();
@@ -332,6 +338,7 @@ namespace Parsek
                 DeleteRecordingFiles(committedRecordings[i]);
             committedRecordings.Clear();
             committedTrees.Clear();
+            GameStateRecorder.PendingScienceSubjects.Clear();
             ResourceBudget.Invalidate();
             Log($"[Parsek] Cleared {count} committed recordings and all trees");
         }
@@ -361,6 +368,7 @@ namespace Parsek
                 if (committedTrees[i].Id == tree.Id)
                 {
                     Log($"[Parsek] WARNING: Tree '{tree.Id}' already committed — skipping duplicate");
+                    GameStateRecorder.PendingScienceSubjects.Clear();
                     return;
                 }
             }
@@ -372,6 +380,11 @@ namespace Parsek
             }
 
             committedTrees.Add(tree);
+
+            // Commit pending science subjects before clearing
+            GameStateStore.CommitScienceSubjects(GameStateRecorder.PendingScienceSubjects);
+            GameStateRecorder.PendingScienceSubjects.Clear();
+
             Log($"[Parsek] Committed tree '{tree.TreeName}' ({tree.Recordings.Count} recordings). " +
                 $"Total committed: {committedRecordings.Count} recordings, {committedTrees.Count} trees");
 
@@ -428,6 +441,7 @@ namespace Parsek
 
             foreach (var rec in pendingTree.Recordings.Values)
                 DeleteRecordingFiles(rec);
+            GameStateRecorder.PendingScienceSubjects.Clear();
             Log($"[Parsek] Discarded pending tree '{pendingTree.TreeName}'");
             pendingTree = null;
             ResourceBudget.Invalidate();
@@ -721,6 +735,7 @@ namespace Parsek
             IsRewinding = false;
             RewindUT = 0;
             RewindReserved = default(ResourceBudget.BudgetSummary);
+            GameStateRecorder.PendingScienceSubjects.Clear();
         }
 
         internal static void DeleteRecordingFiles(Recording rec)
