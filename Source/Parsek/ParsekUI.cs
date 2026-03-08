@@ -113,11 +113,14 @@ namespace Parsek
             this.flight = flight;
         }
 
+        private const float SpacingSmall = 3f;
+        private const float SpacingLarge = 10f;
+
         public void DrawWindow(int windowID)
         {
             GUILayout.BeginVertical();
 
-            // --- Status section ---
+            // --- Status ---
             GUILayout.Label("Status", GUI.skin.box);
             GUILayout.Label($"State: {GetStatusText()}");
             GUILayout.Label($"Recorded Points: {flight.recording.Count}");
@@ -127,13 +130,10 @@ namespace Parsek
                 GUILayout.Label($"Duration: {duration:F1}s");
             }
             GUILayout.Label($"Active Ghosts: {flight.TimelineGhostCount}");
-
-            // Compact budget summary (full display in Actions window)
             DrawCompactBudgetLine();
 
-            // --- Timeline section ---
-            GUILayout.Space(5);
-            GUILayout.Label("Timeline", GUI.skin.box);
+            // --- Timeline buttons ---
+            GUILayout.Space(SpacingLarge);
 
             int committedCount = RecordingStore.CommittedRecordings.Count;
             if (GUILayout.Button($"Recordings ({committedCount})"))
@@ -151,15 +151,8 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Actions window toggled: {(showActionsWindow ? "open" : "closed")}");
             }
 
-            if (GUILayout.Button("Settings"))
-            {
-                showSettingsWindow = !showSettingsWindow;
-                ParsekLog.Verbose("UI", $"Settings window toggled: {(showSettingsWindow ? "open" : "closed")}");
-            }
-
-            // --- Recording section ---
-            GUILayout.Space(5);
-            GUILayout.Label("Recording", GUI.skin.box);
+            // --- Recording controls ---
+            GUILayout.Space(SpacingLarge);
 
             if (!flight.IsRecording)
             {
@@ -221,6 +214,14 @@ namespace Parsek
                     flight.CommitFlight();
             }
             GUI.enabled = true;
+
+            // --- Settings button ---
+            GUILayout.Space(SpacingLarge);
+            if (GUILayout.Button("Settings"))
+            {
+                showSettingsWindow = !showSettingsWindow;
+                ParsekLog.Verbose("UI", $"Settings window toggled: {(showSettingsWindow ? "open" : "closed")}");
+            }
 
             GUILayout.EndVertical();
 
@@ -1530,7 +1531,7 @@ namespace Parsek
             {
                 settingsWindowRect = new Rect(
                     mainWindowRect.x + mainWindowRect.width + 10,
-                    mainWindowRect.y + 40,
+                    mainWindowRect.y,
                     280, 10);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI", $"Settings window initial position: x={settingsWindowRect.x.ToString("F0", ic)} y={settingsWindowRect.y.ToString("F0", ic)}");
@@ -1614,7 +1615,7 @@ namespace Parsek
                 ParsekLog.Info("UI", $"Setting changed: autoSplitAtSoi={s.autoSplitAtSoi}");
             }
 
-            GUILayout.Space(5);
+            GUILayout.Space(SpacingSmall);
             GUILayout.Label("Diagnostics", GUI.skin.box);
             bool verboseLogging = GUILayout.Toggle(s.verboseLogging, "Verbose logging (development default)");
             if (verboseLogging != s.verboseLogging)
@@ -1623,7 +1624,7 @@ namespace Parsek
                 ParsekLog.Info("UI", $"Setting changed: verboseLogging={s.verboseLogging}");
             }
 
-            GUILayout.Space(5);
+            GUILayout.Space(SpacingSmall);
             GUILayout.Label("Sampling", GUI.skin.box);
 
             GUILayout.BeginHorizontal();
@@ -1659,7 +1660,7 @@ namespace Parsek
             }
             GUILayout.EndHorizontal();
 
-            GUILayout.Space(10);
+            GUILayout.Space(SpacingSmall);
             GUILayout.Label("Data Management", GUI.skin.box);
 
             int committedCount = RecordingStore.CommittedRecordings.Count;
@@ -1684,7 +1685,7 @@ namespace Parsek
             }
             GUI.enabled = true;
 
-            GUILayout.Space(5);
+            GUILayout.Space(SpacingLarge);
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Defaults"))
             {
