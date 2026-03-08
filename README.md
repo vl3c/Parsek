@@ -2,7 +2,7 @@
 
 ![Parsek](img/ksp-parsek-stylized.jpg)
 
-*Record, rewind merge and loop your parallel-sekuential adventures in a single player main timeline.*
+*Record, rewind, merge and loop your parallel-sekuential adventures in a single player main timeline.*
 
 **Time-rewind mission recording for KSP1.** Record missions sequentially, return to an earlier time, and watch them play out in parallel alongside you while you fly new ones.
 
@@ -21,7 +21,7 @@ Recorded vessels are full visual replicas - original part meshes, textures, engi
 
 - **Automatic recording** on launch and EVA from pad
 - **Visual replay** with original part meshes, textures, and engine FX
-- **Looped playback** - fly missions and loop their recordings - add as many rockets, space ships or aircraft in the sky as you want - great for in game video recordings!
+- **Looped playback** - fly missions and loop their recordings - add as many rockets, spaceships or aircraft in the sky as you want - great for in-game video recordings!
 - **Vessel persistence** - recorded vessels spawn with crew, or get recovered for funds
 - **Crew management** - reserved crew get temporary replacements so your roster stays full
 - **Orbital recording** - time warp segments use analytical Keplerian orbits
@@ -63,7 +63,7 @@ Requires .NET SDK and KSP assemblies in `Kerbal Space Program/KSP_x64_Data/Manag
 
 ## Beyond Recording
 
-Parsek's infrastructure - looped playback, vessel snapshots, game state tracking, resource budgeting - forms a natural foundation for building on top of. These are not planned features, just ideas that the architecture makes possible:
+Parsek's infrastructure - looped playback, vessel snapshots, game state tracking, resource budgeting - forms a natural foundation to build on. These are not planned features, just ideas that the architecture makes possible:
 
 - **Logistics network** - fly a cargo route once, Parsek records it, then that recording becomes a reusable supply route that replays automatically between bases
 - **Multiplayer-like experience** - share recording files with other players and watch their missions play out as ghosts in your game, turning single-player KSP into a shared timeline
