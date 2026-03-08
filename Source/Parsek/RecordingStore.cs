@@ -23,7 +23,15 @@ namespace Parsek
         // Rewind flags (survive scene change via static fields)
         internal static bool IsRewinding;
         internal static double RewindUT;
+        internal static double RewindAdjustedUT;
         internal static ResourceBudget.BudgetSummary RewindReserved;
+
+        // Baseline resource values from the rewind-target recording's PreLaunch snapshot.
+        // Used by the deferred coroutine to compute absolute-target resource corrections
+        // (idempotent regardless of what Funding.OnLoad restores from the save).
+        internal static double RewindBaselineFunds;
+        internal static double RewindBaselineScience;
+        internal static float RewindBaselineRep;
 
         private const string LegacyPrefix = "[Parsek] ";
 
@@ -734,7 +742,11 @@ namespace Parsek
             pendingTree = null;
             IsRewinding = false;
             RewindUT = 0;
+            RewindAdjustedUT = 0;
             RewindReserved = default(ResourceBudget.BudgetSummary);
+            RewindBaselineFunds = 0;
+            RewindBaselineScience = 0;
+            RewindBaselineRep = 0;
             GameStateRecorder.PendingScienceSubjects.Clear();
         }
 
@@ -967,9 +979,20 @@ namespace Parsek
                 reservedReputation = rec.RewindReservedRep
             };
 
+            // Baseline resources from the recording's pre-launch snapshot.
+            // The rewind save was captured at the same moment as PreLaunch values.
+            RewindBaselineFunds = rec.PreLaunchFunds;
+            RewindBaselineScience = rec.PreLaunchScience;
+            RewindBaselineRep = rec.PreLaunchReputation;
+
             if (!SuppressLogging)
                 ParsekLog.Info("Rewind",
-                    $"Rewind initiated to UT {rec.StartUT} (save: {rec.RewindSaveFileName})");
+                    $"Rewind initiated to UT {rec.StartUT} " +
+                    $"(save: {rec.RewindSaveFileName}, " +
+                    $"baseline: funds={rec.PreLaunchFunds:F1}, sci={rec.PreLaunchScience:F1}, rep={rec.PreLaunchReputation:F1}, " +
+                    $"reservedFunds: {rec.RewindReservedFunds:F1}, " +
+                    $"reservedScience: {rec.RewindReservedScience:F1}, " +
+                    $"reservedRep: {rec.RewindReservedRep:F1})");
 
             string tempCopyName = null;
             try
@@ -1003,14 +1026,26 @@ namespace Parsek
                 {
                     IsRewinding = false;
                     RewindUT = 0;
+                    RewindAdjustedUT = 0;
                     RewindReserved = default(ResourceBudget.BudgetSummary);
+                    RewindBaselineFunds = 0;
+                    RewindBaselineScience = 0;
+                    RewindBaselineRep = 0;
                     if (!SuppressLogging)
                         ParsekLog.Error("Rewind",
-                            $"Rewind failed: LoadGame returned null for save '{rec.RewindSaveFileName}'");
+                            $"Rewind failed: LoadGame returned null for save '{rec.RewindSaveFileName}'. " +
+                            $"Flags reset: IsRewinding={IsRewinding}, RewindUT={RewindUT}, RewindAdjustedUT={RewindAdjustedUT}");
                     return;
                 }
 
-                // Load into SpaceCenter — player can enter buildings or launch a new vessel
+                // Capture the adjusted UT from the preprocessed save.
+                RewindAdjustedUT = game.flightState.universalTime;
+
+                if (!SuppressLogging)
+                    ParsekLog.Info("Rewind",
+                        $"Rewind: adjustedUT={RewindAdjustedUT:F1}, " +
+                        $"rewindUT={RewindUT:F1}, flags=[IsRewinding={IsRewinding}]");
+
                 HighLogic.CurrentGame = game;
                 HighLogic.LoadScene(GameScenes.SPACECENTER);
 
@@ -1022,7 +1057,11 @@ namespace Parsek
             {
                 IsRewinding = false;
                 RewindUT = 0;
+                RewindAdjustedUT = 0;
                 RewindReserved = default(ResourceBudget.BudgetSummary);
+                RewindBaselineFunds = 0;
+                RewindBaselineScience = 0;
+                RewindBaselineRep = 0;
 
                 // Clean up temp copy on failure
                 if (tempCopyName != null)
@@ -1041,7 +1080,9 @@ namespace Parsek
                 }
 
                 if (!SuppressLogging)
-                    ParsekLog.Error("Rewind", $"Rewind failed: {ex.Message}");
+                    ParsekLog.Error("Rewind",
+                        $"Rewind failed: {ex.Message}. " +
+                        $"Flags reset: IsRewinding={IsRewinding}, RewindUT={RewindUT}, RewindAdjustedUT={RewindAdjustedUT}");
             }
         }
 
@@ -1050,7 +1091,7 @@ namespace Parsek
         /// removes the recorded vessel and winds back UT so the player
         /// has time to reach the launch pad before the ghost appears.
         /// </summary>
-        private static void PreProcessRewindSave(string sfsPath, string vesselName, double leadTime)
+        internal static void PreProcessRewindSave(string sfsPath, string vesselName, double leadTime)
         {
             ConfigNode root = ConfigNode.Load(sfsPath);
             if (root == null)
@@ -1060,7 +1101,14 @@ namespace Parsek
             ConfigNode gameNode = root.HasNode("GAME") ? root.GetNode("GAME") : root;
 
             ConfigNode flightState = gameNode.GetNode("FLIGHTSTATE");
-            if (flightState != null)
+            if (flightState == null)
+            {
+                if (!SuppressLogging)
+                    ParsekLog.Warn("Rewind",
+                        $"PreProcessRewindSave: no FLIGHTSTATE node in save '{sfsPath}'");
+                root.Save(sfsPath);
+                return;
+            }
             {
                 // Wind back UT
                 string utStr = flightState.GetValue("UT");
@@ -1073,6 +1121,12 @@ namespace Parsek
                     if (!SuppressLogging)
                         ParsekLog.Info("Rewind",
                             $"UT adjusted: {ut:F1} → {newUT:F1} (lead time {leadTime}s)");
+                }
+                else
+                {
+                    if (!SuppressLogging)
+                        ParsekLog.Warn("Rewind",
+                            $"PreProcessRewindSave: missing or invalid UT value '{utStr ?? "(null)"}' in FLIGHTSTATE");
                 }
 
                 // Remove only the recorded vessel — all other vessels stay intact

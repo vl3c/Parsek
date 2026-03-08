@@ -1769,6 +1769,10 @@ namespace Parsek
                     pending.PreLaunchFunds = captured.PreLaunchFunds;
                     pending.PreLaunchScience = captured.PreLaunchScience;
                     pending.PreLaunchReputation = captured.PreLaunchReputation;
+                    pending.RewindSaveFileName = captured.RewindSaveFileName;
+                    pending.RewindReservedFunds = captured.RewindReservedFunds;
+                    pending.RewindReservedScience = captured.RewindReservedScience;
+                    pending.RewindReservedRep = captured.RewindReservedRep;
                 }
                 RecordingStore.CommitPending();
                 ParsekLog.Warn("Flight", "Split branch failed — fallback committed recording as standalone");
