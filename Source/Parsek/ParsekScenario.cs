@@ -786,6 +786,9 @@ namespace Parsek
                 GameStateRecorder.SuppressResourceEvents = false;
             }
 
+            // Replay committed actions (tech, parts, facilities, crew) before marking
+            ActionReplay.ReplayCommittedActions(MilestoneStore.Milestones);
+
             // Mark all recordings as fully applied so that:
             // 1. ResourceBudget.ComputeTotal returns 0 reserved (deduction already covers it)
             // 2. Ghost replay doesn't re-apply resource deltas (avoiding double-subtraction)
@@ -901,6 +904,9 @@ namespace Parsek
             {
                 GameStateRecorder.SuppressResourceEvents = false;
             }
+
+            // Replay committed actions (tech, parts, facilities, crew) before marking
+            ActionReplay.ReplayCommittedActions(MilestoneStore.Milestones);
 
             // Mark everything as fully applied (prevents ghost playback from re-applying)
             var (recCount, treeCount) = RecordingStore.MarkAllFullyApplied();

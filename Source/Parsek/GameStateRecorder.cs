@@ -26,6 +26,19 @@ namespace Parsek
         internal static bool SuppressResourceEvents = false;
 
         /// <summary>
+        /// Set to true by ActionReplay during committed action replay to prevent
+        /// recording replayed actions as new game state events.
+        /// </summary>
+        internal static bool SuppressActionReplay = false;
+
+        /// <summary>
+        /// Set to true by ActionReplay during committed action replay to bypass
+        /// blocking Harmony patches (TechResearchPatch, FacilityUpgradePatch)
+        /// that normally prevent duplicate actions on committed items.
+        /// </summary>
+        internal static bool SuppressBlockingPatches = false;
+
+        /// <summary>
         /// Science subjects captured during the current recording session.
         /// Transferred to GameStateStore.committedScienceSubjects on commit.
         /// </summary>
@@ -238,6 +251,11 @@ namespace Parsek
 
         private void OnTechResearched(GameEvents.HostTargetAction<RDTech, RDTech.OperationResult> data)
         {
+            if (SuppressActionReplay)
+            {
+                ParsekLog.Verbose("GameStateRecorder", "Suppressed TechResearched event during action replay");
+                return;
+            }
             if (data.host == null) return;
             if (data.target != RDTech.OperationResult.Successful) return;
 
@@ -272,6 +290,11 @@ namespace Parsek
 
         private void OnPartPurchased(AvailablePart part)
         {
+            if (SuppressActionReplay)
+            {
+                ParsekLog.Verbose("GameStateRecorder", "Suppressed PartPurchased event during action replay");
+                return;
+            }
             if (part == null) return;
             var partName = part.name ?? "";
 
@@ -293,6 +316,11 @@ namespace Parsek
 
         private void OnKerbalAdded(ProtoCrewMember crew)
         {
+            if (SuppressActionReplay)
+            {
+                ParsekLog.Verbose("GameStateRecorder", "Suppressed CrewHired event during action replay");
+                return;
+            }
             if (SuppressCrewEvents)
             {
                 ParsekLog.VerboseRateLimited("GameStateRecorder", "suppress-crew-added",
