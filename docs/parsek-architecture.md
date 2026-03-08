@@ -760,7 +760,7 @@ All planned part event types are now implemented. 28 event types are recorded; m
 **Deferred (too complex or low value):**
 - Control surface deflection — continuous float, thousands of events per flight
 - Robotics (Breaking Ground DLC) — continuous motion, DLC-dependent
-- Additional part-template coverage and showcase breadth (tracked in `docs/research/next-parts-event-support-priority.md`)
+- Additional part-template coverage and showcase breadth (tracked in `docs/dev/research/next-parts-event-support-priority.md`)
 
 ### Phase 3: Polish & Usability (Complete)
 
@@ -806,7 +806,7 @@ Each recording owns a quicksave captured at recording start, stored in `Parsek/S
 
 Rewind infrastructure lives in `RecordingStore.cs` (fields on `Recording`, static rewind flags, `InitiateRewind`, `CanRewind`) and `ActionReplay.cs` (milestone event replay). No separate store or dialog files.
 
-See `docs/done/design-going-back-in-time.md` and `docs/done/design-restore-points.md` for design rationale. The mechanism is snapshot-based (like `git checkout`), not event-reversal-based. No timeline branching.
+See `docs/dev/done/design-going-back-in-time.md` and `docs/dev/done/design-restore-points.md` for design rationale. The mechanism is snapshot-based (like `git checkout`), not event-reversal-based. No timeline branching.
 
 ### Phase 6: Recording Tree / Multi-Vessel Recording (Complete)
 
@@ -830,7 +830,7 @@ Record entire multi-vessel missions as a single unit. Builds on top of the exist
 
 **Key design principle:** the tree is additive. Existing chains, per-segment loop control, per-recording resources, atmospheric/SOI phase splits, merge dialogs — all preserved. Nothing removed.
 
-**13 tasks completed.** 1076 tests pass. See `docs/design-mission-tree.md` for full design, task breakdown, and progress tracker.
+**13 tasks completed.** 1076 tests pass. See `docs/dev/done/design-mission-tree.md` for full design, task breakdown, and progress tracker.
 
 ---
 
@@ -838,9 +838,9 @@ Record entire multi-vessel missions as a single unit. Builds on top of the exist
 
 Parsek is a **git-like recording system** for KSP missions. Players record flights sequentially, commit them to a single timeline, and they replay automatically as ghost vessels during future gameplay. Recordings are immutable — once committed, they play back exactly as flown.
 
-Phase 5 (complete) adds milestones, resource budgeting, epoch isolation, action blocking, restore points, and a Go Back UI — the full accounting and time-travel layer that prevents paradoxes when the player goes back in time. See `docs/done/design-going-back-in-time.md` and `docs/done/design-restore-points.md` for full design. There is no timeline branching — one timeline, always.
+Phase 5 (complete) adds milestones, resource budgeting, epoch isolation, action blocking, restore points, and a Go Back UI — the full accounting and time-travel layer that prevents paradoxes when the player goes back in time. See `docs/dev/done/design-going-back-in-time.md` and `docs/dev/done/design-restore-points.md` for full design. There is no timeline branching — one timeline, always.
 
-Phase 6 (complete) adds multi-vessel recording via a recording tree that tracks vessel splits and merges. See `docs/design-mission-tree.md` for the full design.
+Phase 6 (complete) adds multi-vessel recording via a recording tree that tracks vessel splits and merges. See `docs/dev/done/design-mission-tree.md` for the full design.
 
 The architecture naturally enables use cases like racing your own ghosts, but the mod does not include dedicated racing modes, AI playback, or multiplayer features. Those are gameplay possibilities that emerge from the core recording/playback system.
 

@@ -66,4 +66,4 @@ After any change to enums, event types, serialized fields, or schema:
 
 ## Workflow
 
-See `docs/development-workflow.md` for the full feature development process (vision → scenarios → design doc → plan/build/review cycle).
+See `docs/dev/development-workflow.md` for the full feature development process (vision → scenarios → design doc → plan/build/review cycle).
