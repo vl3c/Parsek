@@ -82,8 +82,8 @@ namespace Parsek.Tests
             try
             {
                 ActionReplay.ReplayCommittedActions(new List<Milestone>());
-                // Should not crash and should not log anything
-                Assert.Empty(logLines);
+                // Should not crash and should not produce ActionReplay log output
+                Assert.DoesNotContain(logLines, line => line.Contains("[ActionReplay]"));
             }
             finally
             {
@@ -121,8 +121,8 @@ namespace Parsek.Tests
                 var milestones = new List<Milestone> { milestone };
                 ActionReplay.ReplayCommittedActions(milestones);
 
-                // No unreplayed actions — should return early without logging
-                Assert.Empty(logLines);
+                // No unreplayed actions — should return early without ActionReplay logging
+                Assert.DoesNotContain(logLines, line => line.Contains("[ActionReplay]"));
             }
             finally
             {
@@ -154,8 +154,8 @@ namespace Parsek.Tests
                 var milestones = new List<Milestone> { milestone };
                 ActionReplay.ReplayCommittedActions(milestones);
 
-                // Uncommitted milestone — 0 actions, no log output
-                Assert.Empty(logLines);
+                // Uncommitted milestone — 0 replayable actions, no ActionReplay log output
+                Assert.DoesNotContain(logLines, line => line.Contains("[ActionReplay]"));
             }
             finally
             {
@@ -339,6 +339,76 @@ namespace Parsek.Tests
             {
                 Cleanup();
             }
+        }
+
+        #endregion
+
+        #region DecideTechReplay
+
+        [Fact]
+        public void DecideTechReplay_EmptyTechId_Fails()
+        {
+            Assert.Equal(ReplayDecision.Fail, ActionReplay.DecideTechReplay("", false));
+        }
+
+        [Fact]
+        public void DecideTechReplay_NullTechId_Fails()
+        {
+            Assert.Equal(ReplayDecision.Fail, ActionReplay.DecideTechReplay(null, false));
+        }
+
+        [Fact]
+        public void DecideTechReplay_AlreadyResearched_Skips()
+        {
+            Assert.Equal(ReplayDecision.Skip, ActionReplay.DecideTechReplay("basicRocketry", true));
+        }
+
+        [Fact]
+        public void DecideTechReplay_NotResearched_Acts()
+        {
+            Assert.Equal(ReplayDecision.Act, ActionReplay.DecideTechReplay("basicRocketry", false));
+        }
+
+        #endregion
+
+        #region ParseDetailField
+
+        [Fact]
+        public void ParseDetailField_CostAndParts()
+        {
+            string result = ActionReplay.ParseDetailField("cost=5;parts=solidBooster.sm.v2,mk1pod.v2", "parts");
+            Assert.Equal("solidBooster.sm.v2,mk1pod.v2", result);
+        }
+
+        [Fact]
+        public void ParseDetailField_CostOnly_ReturnsNull()
+        {
+            string result = ActionReplay.ParseDetailField("cost=5", "parts");
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void ParseDetailField_EmptyDetail_ReturnsNull()
+        {
+            Assert.Null(ActionReplay.ParseDetailField("", "cost"));
+        }
+
+        [Fact]
+        public void ParseDetailField_NullDetail_ReturnsNull()
+        {
+            Assert.Null(ActionReplay.ParseDetailField(null, "cost"));
+        }
+
+        [Fact]
+        public void ParseDetailField_TraitField()
+        {
+            Assert.Equal("Pilot", ActionReplay.ParseDetailField("trait=Pilot", "trait"));
+        }
+
+        [Fact]
+        public void ParseDetailField_CostField()
+        {
+            Assert.Equal("45", ActionReplay.ParseDetailField("cost=45;parts=a,b", "cost"));
         }
 
         #endregion

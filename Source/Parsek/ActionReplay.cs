@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Parsek
@@ -90,10 +91,20 @@ namespace Parsek
                         switch (evt.eventType)
                         {
                             case GameStateEventType.TechResearched:
-                                ParsekLog.Verbose("ActionReplay",
-                                    $"Skipping TechResearched '{evt.key}' (placeholder)");
-                                skipCount++;
+                            {
+                                bool wasSkipped;
+                                if (ReplayTechUnlock(evt, out wasSkipped))
+                                {
+                                    if (wasSkipped) skipCount++;
+                                    else techCount++;
+                                }
+                                else
+                                {
+                                    if (wasSkipped) skipCount++;
+                                    else failCount++;
+                                }
                                 break;
+                            }
                             case GameStateEventType.PartPurchased:
                                 ParsekLog.Verbose("ActionReplay",
                                     $"Skipping PartPurchased '{evt.key}' (placeholder)");
@@ -122,6 +133,109 @@ namespace Parsek
 
             ParsekLog.Info("ActionReplay",
                 $"Replay complete: {techCount} tech, {partCount} parts, {facilityCount} facilities, {crewCount} crew ({skipCount} skipped, {failCount} failed)");
+        }
+
+        /// <summary>
+        /// Unlocks a tech node programmatically WITHOUT deducting science.
+        /// Uses ProtoTechNode + UnlockProtoTechNode to bypass RDTech.UnlockTech
+        /// which would deduct science (already handled by budget deduction).
+        /// </summary>
+        internal static bool ReplayTechUnlock(GameStateEvent e, out bool skipped)
+        {
+            skipped = false;
+            string techId = e.key;
+
+            var decision = DecideTechReplay(techId,
+                ResearchAndDevelopment.Instance != null
+                && ResearchAndDevelopment.GetTechnologyState(techId) == RDTech.State.Available);
+
+            if (decision == ReplayDecision.Skip)
+            {
+                skipped = true;
+                ParsekLog.Info("ActionReplay",
+                    $"Tech unlock: '{techId}' — already researched, skipping");
+                return true;
+            }
+
+            if (decision == ReplayDecision.Fail)
+            {
+                ParsekLog.Warn("ActionReplay", "Tech unlock: empty techId — FAILED");
+                return false;
+            }
+
+            if (ResearchAndDevelopment.Instance == null)
+            {
+                ParsekLog.Warn("ActionReplay",
+                    $"Tech unlock: '{techId}' — R&D instance null, FAILED");
+                return false;
+            }
+
+            try
+            {
+                var protoNode = new ProtoTechNode
+                {
+                    techID = techId,
+                    state = RDTech.State.Available,
+                    partsPurchased = new List<AvailablePart>()
+                };
+
+                string partsStr = ParseDetailField(e.detail, "parts");
+                if (!string.IsNullOrEmpty(partsStr))
+                {
+                    var partNames = partsStr.Split(',');
+                    for (int i = 0; i < partNames.Length; i++)
+                    {
+                        string partName = partNames[i].Trim();
+                        if (string.IsNullOrEmpty(partName)) continue;
+                        var partInfo = PartLoader.getPartInfoByName(partName);
+                        if (partInfo != null)
+                            protoNode.partsPurchased.Add(partInfo);
+                        else
+                            ParsekLog.Verbose("ActionReplay",
+                                $"Tech unlock: part '{partName}' not found in PartLoader — skipped");
+                    }
+                }
+
+                ResearchAndDevelopment.Instance.UnlockProtoTechNode(protoNode);
+                ParsekLog.Info("ActionReplay",
+                    $"Tech unlock: '{techId}' — success ({protoNode.partsPurchased.Count} parts)");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("ActionReplay",
+                    $"Tech unlock: '{techId}' — FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Pure decision logic for tech replay — testable without KSP runtime.
+        /// </summary>
+        internal static ReplayDecision DecideTechReplay(string techId, bool isAlreadyResearched)
+        {
+            if (string.IsNullOrEmpty(techId)) return ReplayDecision.Fail;
+            if (isAlreadyResearched) return ReplayDecision.Skip;
+            return ReplayDecision.Act;
+        }
+
+        /// <summary>
+        /// Parses a named field from a semicolon-delimited key=value detail string.
+        /// Example: ParseDetailField("cost=5;parts=a,b", "parts") returns "a,b".
+        /// Returns null if not found or detail is empty.
+        /// </summary>
+        internal static string ParseDetailField(string detail, string fieldName)
+        {
+            if (string.IsNullOrEmpty(detail)) return null;
+            var pairs = detail.Split(';');
+            for (int i = 0; i < pairs.Length; i++)
+            {
+                int eq = pairs[i].IndexOf('=');
+                if (eq < 0) continue;
+                if (pairs[i].Substring(0, eq).Trim() == fieldName)
+                    return pairs[i].Substring(eq + 1).Trim();
+            }
+            return null;
         }
     }
 }
