@@ -320,14 +320,6 @@ namespace Parsek
             }
 
             DeleteRecordingFiles(pendingRecording);
-
-            // Delete rewind save file if present
-            if (!string.IsNullOrEmpty(pendingRecording.RewindSaveFileName))
-            {
-                DeleteFileIfExists(RecordingPaths.BuildRewindSaveRelativePath(pendingRecording.RewindSaveFileName));
-                Log($"[Parsek] Deleted rewind save for discarded recording: {pendingRecording.RewindSaveFileName}");
-            }
-
             Log($"[Parsek] Discarded pending recording from {pendingRecording.VesselName}");
             pendingRecording = null;
             ResourceBudget.Invalidate();
@@ -432,17 +424,6 @@ namespace Parsek
             {
                 ParsekLog.Verbose("RecordingStore", "DiscardPendingTree called with no pending tree");
                 return;
-            }
-
-            // Delete rewind save for root recording if present
-            foreach (var rec in pendingTree.Recordings.Values)
-            {
-                if (!string.IsNullOrEmpty(rec.RewindSaveFileName))
-                {
-                    DeleteFileIfExists(RecordingPaths.BuildRewindSaveRelativePath(rec.RewindSaveFileName));
-                    Log($"[Parsek] Deleted rewind save for discarded tree: {rec.RewindSaveFileName}");
-                    break; // only root owns the rewind save
-                }
             }
 
             foreach (var rec in pendingTree.Recordings.Values)
@@ -755,6 +736,9 @@ namespace Parsek
                 return;
             }
 
+            ParsekLog.Verbose("RecordingStore",
+                $"DeleteRecordingFiles: id={rec.RecordingId} vessel='{rec.VesselName}' rewindSave={rec.RewindSaveFileName ?? "(none)"}");
+
             DeleteFileIfExists(RecordingPaths.BuildTrajectoryRelativePath(rec.RecordingId));
             DeleteFileIfExists(RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
             DeleteFileIfExists(RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
@@ -770,11 +754,14 @@ namespace Parsek
             {
                 string absolutePath = RecordingPaths.ResolveSaveScopedPath(relativePath);
                 if (!string.IsNullOrEmpty(absolutePath) && File.Exists(absolutePath))
+                {
                     File.Delete(absolutePath);
+                    ParsekLog.Verbose("RecordingStore", $"Deleted file: {relativePath}");
+                }
             }
             catch (Exception ex)
             {
-                Log($"[Parsek] WARNING: Failed to delete file '{relativePath}': {ex.Message}");
+                ParsekLog.Warn("RecordingStore", $"Failed to delete file '{relativePath}': {ex.Message}");
             }
         }
 
