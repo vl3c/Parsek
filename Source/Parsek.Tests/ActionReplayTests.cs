@@ -341,6 +341,51 @@ namespace Parsek.Tests
             }
         }
 
+        [Fact]
+        public void ReplayCommittedActions_UpdatesLastReplayedEventIndex()
+        {
+            try
+            {
+                var milestone = new Milestone
+                {
+                    MilestoneId = "test-index-update",
+                    Committed = true,
+                    Events = new List<GameStateEvent>
+                    {
+                        new GameStateEvent
+                        {
+                            ut = 100,
+                            eventType = GameStateEventType.TechResearched,
+                            key = "basicRocketry"
+                        },
+                        new GameStateEvent
+                        {
+                            ut = 200,
+                            eventType = GameStateEventType.FundsChanged,
+                            key = "ContractReward"
+                        },
+                        new GameStateEvent
+                        {
+                            ut = 300,
+                            eventType = GameStateEventType.TechResearched,
+                            key = "stability"
+                        }
+                    },
+                    LastReplayedEventIndex = -1
+                };
+
+                var milestones = new List<Milestone> { milestone };
+                ActionReplay.ReplayCommittedActions(milestones);
+
+                // LastReplayedEventIndex should be set to Events.Count - 1
+                Assert.Equal(2, milestone.LastReplayedEventIndex);
+            }
+            finally
+            {
+                Cleanup();
+            }
+        }
+
         #endregion
 
         #region DecideTechReplay
