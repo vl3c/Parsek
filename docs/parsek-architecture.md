@@ -1,7 +1,7 @@
 # Parsek: Preliminary Architecture
 
 ## Document Status
-**Version:** 0.9
+**Version:** 1.0
 **Phase:** Phase 6 complete (recording tree / multi-vessel recording)
 **Last Updated:** March 2026
 
@@ -762,16 +762,14 @@ All planned part event types are now implemented. 28 event types are recorded; m
 - Robotics (Breaking Ground DLC) — continuous motion, DLC-dependent
 - Additional part-template coverage and showcase breadth (tracked in `docs/research/next-parts-event-support-priority.md`)
 
-### Phase 3: Polish & Usability
+### Phase 3: Polish & Usability (Complete)
 
 **Done:**
 - [x] Recordings Manager UI (list recordings, per-recording loop/delete, sortable columns, status indicators)
-
-**In progress:**
 - [x] Settings panel (`GameParameters.CustomParameterNode` — toggle auto-record, adjust thresholds, in-flight Settings window)
-- [ ] Recording stats (max altitude, max speed, distance, final body — computed from trajectory data)
-- [ ] Non-revert recording commitment (commit current flight without reverting)
-- [ ] Two-phase parachute deploy (SEMIDEPLOYED streamer vs DEPLOYED full canopy)
+- [x] Recording stats (max altitude, max speed, distance, final body — computed from trajectory data)
+- [x] Non-revert recording commitment (commit current flight without reverting)
+- [x] Two-phase parachute deploy (SEMIDEPLOYED streamer vs DEPLOYED full canopy)
 
 **Already done (moved from earlier phases):**
 - [x] Event-based recording (28 part event types — see Phase 2)
@@ -804,7 +802,7 @@ All planned part event types are now implemented. 28 event types are recorded; m
 - [x] `FlushPendingEvents` — captures events that happen without a recording (research in R&D, facility upgrades)
 
 **Rewind (done):**
-Each recording owns a quicksave captured at recording start, stored in `Parsek/Saves/` (invisible to KSP's load menu). A "Rewind" button per recording loads the quicksave, strips the recorded vessel, sets UT directly on the persistent Planetarium singleton (survives scene transitions via DontDestroyOnLoad), and transitions to Space Center. Absolute-target resource correction uses PreLaunch baseline values to compute `target = baseline - totalCost`, then applies `correction = target - currentValue` — idempotent regardless of stale singleton state. `ActionReplay.ReplayCommittedActions` re-applies committed game actions (tech unlock, part purchase, facility upgrade, crew hire) with idempotent guards. All committed recordings replay as ghosts from the rewound point.
+Each recording owns a quicksave captured at recording start, stored in `Parsek/Saves/` (invisible to KSP's load menu). A "Rewind" button per recording loads the quicksave, strips the recorded vessel, and transitions to Space Center via `HighLogic.LoadScene`. UT is set in a deferred coroutine (`ApplyRewindResourceAdjustment`) AFTER the scene loads — setting UT before `LoadScene` does NOT work because the scene transition overwrites it. Resources are reset to the `PreLaunchFunds/Science/Rep` baseline values captured at recording start. Ghost playback re-applies each recording's resource deltas at the correct UT, so the timeline replays naturally. `ActionReplay.ReplayCommittedActions` re-applies committed game actions (tech unlock, part purchase, facility upgrade, crew hire) with idempotent guards. All committed recordings replay as ghosts from the rewound point.
 
 Rewind infrastructure lives in `RecordingStore.cs` (fields on `Recording`, static rewind flags, `InitiateRewind`, `CanRewind`) and `ActionReplay.cs` (milestone event replay). No separate store or dialog files.
 
@@ -858,4 +856,4 @@ The architecture naturally enables use cases like racing your own ghosts, but th
 
 ---
 
-*Document version: 0.9 — Phase 6 complete (recording tree / multi-vessel recording)*
+*Document version: 1.0 — Phase 6 complete (recording tree / multi-vessel recording)*

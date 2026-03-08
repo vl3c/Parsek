@@ -29,7 +29,7 @@ Recordings Manager UI with sortable columns, per-recording loop/delete, and stat
 
 ---
 
-## Phase 3: Polish & Usability (Next)
+## Phase 3: Polish & Usability — Complete
 
 Make the existing loop frictionless and configurable for different play styles.
 
@@ -94,17 +94,17 @@ On revert, committed funds/science/reputation are deducted from game state so KS
 Harmony patches on `RDTech.UnlockTech` and `UpgradeableFacility.SetLevel` prevent re-researching committed tech or re-upgrading committed facilities. Explanatory popup dialog shows what's blocked and why.
 
 ### Rewind (done)
-Each recording owns a quicksave captured at recording start, stored in `Parsek/Saves/` (invisible to KSP's load menu). Resource snapshot (funds, science, reputation) captured alongside the quicksave for absolute-target resource correction on rewind. Quicksave deleted when recording is deleted or discarded. Only chain/tree roots get rewind saves (promotions skip capture).
+Each recording owns a quicksave captured at recording start, stored in `Parsek/Saves/` (invisible to KSP's load menu). Resource snapshot (funds, science, reputation) captured alongside the quicksave for baseline resource reset on rewind. Quicksave deleted when recording is deleted or discarded. Only chain/tree roots get rewind saves (promotions skip capture).
 
 ### Rewind UI (done)
-"Rewind" button per recording in the Recordings window. Confirmation dialog shows vessel name, launch date, future recording count, and warnings. On confirm: loads the quicksave, strips recorded vessel from flight state, sets UT on the persistent Planetarium singleton (survives scene transitions), transitions to Space Center. Increments epoch, resets milestone mutable state, resets playback state, defers resource adjustment coroutine (absolute-target correction using PreLaunch baseline values — idempotent regardless of stale singleton state), re-reserves crew, replays committed actions (tech, parts, facilities, crew via ActionReplay), marks all recordings fully applied. All committed recordings replay as ghosts from the rewound point.
+"Rewind" button per recording in the Recordings window. Confirmation dialog shows vessel name, launch date, future recording count, and warnings. On confirm: loads the quicksave, strips recorded vessel from flight state, transitions to Space Center. Deferred coroutine sets UT via Planetarium.SetUniversalTime (must happen after scene load — setting before LoadScene gets overwritten by the scene transition). Increments epoch, resets milestone mutable state, resets playback state, resets resources to PreLaunch baseline values, re-reserves crew, replays committed actions (tech, parts, facilities, crew via ActionReplay). All committed recordings replay as ghosts from the rewound point, re-applying resource deltas at the correct UT.
 
 ### Action replay (done)
 After rewind resource adjustment, `ActionReplay.ReplayCommittedActions` programmatically re-applies committed game actions from milestones: tech unlock (via `UnlockProtoTechNode`, no science deduction), part purchase, facility upgrade, and crew hire. Each handler has idempotent guards (skip if already applied). Suppression flags prevent re-recording during replay.
 
 **Design:** `docs/done/design-restore-points.md`, `docs/done/design-going-back-in-time.md`
 
-**Test coverage:** 1250 tests pass, 0 skipped, 0 failures.
+**Test coverage:** 1251 tests (1250 pass, 1 known failure).
 
 ---
 

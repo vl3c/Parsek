@@ -88,6 +88,9 @@ The game state event system is NOT for reversal. It serves as:
 **Done:**
 - Per-recording rewind saves — quicksave captured at recording start, stored in `Parsek/Saves/`, owned by the recording
 - Rewind UI — per-recording "Rewind" button in Recordings window, confirmation dialog, loads quicksave into Space Center
+- Baseline resource reset — resources reset to `PreLaunchFunds/Science/Rep` (captured at recording start). Ghost playback re-applies recording resource deltas at the correct UT. No marking as fully applied — the timeline replays naturally.
+- Deferred UT via coroutine — `Planetarium.SetUniversalTime()` called in the deferred coroutine AFTER the scene loads. Setting UT before `LoadScene` does NOT work — the scene transition overwrites it. `game.Load()` is NOT used because it triggers double-OnLoad via `ScenarioRunner.SetProtoModules()`.
+- Action replay — `ActionReplay.ReplayCommittedActions` programmatically re-applies committed game actions from milestones after rewind resource adjustment: tech unlock (no science deduction), part purchase, facility upgrade, crew hire. Each handler has idempotent guards and suppression flags to prevent re-recording during replay.
 
 ## Resolved Design Questions
 

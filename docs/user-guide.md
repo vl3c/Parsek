@@ -156,14 +156,14 @@ Rewind lets you go back to any earlier point in your timeline and launch new mis
 
 **What happens on rewind:**
 - Game time rewinds to the recording's launch UT
-- Funds, science, and reputation are adjusted to their correct values (baseline minus all committed costs)
+- Funds, science, and reputation are reset to their pre-launch values
 - Committed game actions (tech research, part purchases, facility upgrades, crew hires) are re-applied automatically
-- All committed recordings replay as ghosts from the rewound point
+- All committed recordings replay as ghosts from the rewound point, re-applying their resource deltas at the correct times
 - The player can launch new missions with the remaining available resources
 
 **Resource safety:**
-- Resources use absolute-target correction — the correct value is computed from the baseline snapshot, not accumulated incrementally. This means repeated rewinds never cause resource duplication or loss.
-- Committed costs are always deducted: if future recordings have claimed 15,000 funds, those funds are unavailable even though you've gone back in time.
+- Resources are reset to the baseline snapshot captured at recording start. Ghost playback re-applies each recording's resource deltas at the correct UT, so the timeline replays naturally.
+- The resource budget display shows committed costs from unreplayed recordings, so the player always sees what's actually available.
 
 ### Wipe Recordings
 

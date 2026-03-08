@@ -26,6 +26,8 @@ Recorded vessels are full visual replicas — original part meshes, textures, en
 - **Orbital recording** — time warp segments use analytical Keplerian orbits
 - **Part events** — staging, decoupling, parachutes, engines, solar panels, antennas, lights, landing gear, cargo bays, fairings, RCS, and inventory deployables replay on the ghost; docking/undocking are recorded as chain boundaries
 - **Resource tracking** — game actions related to funds, science, and reputation deltas are recorded and applied at the correct time
+- **Rewind** — go back to any earlier point in your timeline; resources reset to baseline, ghost playback re-applies everything at the correct time
+- **Multi-vessel recording** — undocking, EVA, and docking are tracked automatically; all vessels in a mission record as a single tree
 - **Recordings manager** — browse, sort, loop, and delete individual recordings
 - **External recording files** — bulk trajectory data stored in sidecar files, keeping saves lightweight
 
