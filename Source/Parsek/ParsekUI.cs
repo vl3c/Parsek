@@ -236,22 +236,6 @@ namespace Parsek
                     flight.CommitFlight();
             }
 
-            GUI.enabled = committedCount > 0;
-            if (GUILayout.Button($"Wipe Recordings ({committedCount})"))
-            {
-                ParsekLog.Verbose("UI", $"Wipe Recordings button clicked, count={committedCount}");
-                // Unreserve crew from all recordings before wiping
-                foreach (var rec in RecordingStore.CommittedRecordings)
-                    ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
-                ParsekScenario.ClearReplacements();
-                flight.DestroyAllTimelineGhosts();
-                RecordingStore.ClearCommitted();
-                ParsekLog.Info("UI", "All recordings wiped");
-                ParsekLog.ScreenMessage("All recordings wiped", 2f);
-            }
-
-            GUI.enabled = true;
-
             GUILayout.EndVertical();
 
             // Make window draggable
@@ -1211,6 +1195,59 @@ namespace Parsek
                 false, HighLogic.UISkin);
         }
 
+        private void ShowWipeRecordingsConfirmation(int count)
+        {
+            PopupDialog.SpawnPopupDialog(
+                new Vector2(0.5f, 0.5f),
+                new Vector2(0.5f, 0.5f),
+                new MultiOptionDialog(
+                    "ParsekWipeRecordingsConfirm",
+                    $"Delete all {count} recording(s) and their files?\n\nThis cannot be undone.",
+                    "Confirm Wipe Recordings",
+                    HighLogic.UISkin,
+                    new DialogGUIButton("Wipe All", () =>
+                    {
+                        foreach (var rec in RecordingStore.CommittedRecordings)
+                            ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
+                        ParsekScenario.ClearReplacements();
+                        flight.DestroyAllTimelineGhosts();
+                        RecordingStore.ClearCommitted();
+                        ParsekLog.Info("UI", "All recordings wiped");
+                        ParsekLog.ScreenMessage("All recordings wiped", 2f);
+                    }),
+                    new DialogGUIButton("Cancel", () =>
+                    {
+                        ParsekLog.Verbose("UI", "Wipe recordings cancelled");
+                    })
+                ),
+                false, HighLogic.UISkin);
+        }
+
+        private void ShowWipeActionsConfirmation(int count)
+        {
+            PopupDialog.SpawnPopupDialog(
+                new Vector2(0.5f, 0.5f),
+                new Vector2(0.5f, 0.5f),
+                new MultiOptionDialog(
+                    "ParsekWipeActionsConfirm",
+                    $"Delete all {count} game action milestone(s)?\n\nThis cannot be undone.",
+                    "Confirm Wipe Game Actions",
+                    HighLogic.UISkin,
+                    new DialogGUIButton("Wipe All", () =>
+                    {
+                        MilestoneStore.ClearAll();
+                        ResourceBudget.Invalidate();
+                        ParsekLog.Info("UI", "All game actions wiped");
+                        ParsekLog.ScreenMessage("All game actions wiped", 2f);
+                    }),
+                    new DialogGUIButton("Cancel", () =>
+                    {
+                        ParsekLog.Verbose("UI", "Wipe game actions cancelled");
+                    })
+                ),
+                false, HighLogic.UISkin);
+        }
+
         private void DrawSortableHeader(string label, SortColumn col, float width, bool expand = false)
         {
             string arrow = sortColumn == col ? (sortAscending ? " \u25b2" : " \u25bc") : "";
@@ -1635,6 +1672,31 @@ namespace Parsek
                     $"Setting changed: speedChangeThreshold={s.speedChangeThreshold:F0}%", 1.0);
             }
             GUILayout.EndHorizontal();
+
+            GUILayout.Space(10);
+            GUILayout.Label("Data Management", GUI.skin.box);
+
+            int committedCount = RecordingStore.CommittedRecordings.Count;
+            int milestoneCount = MilestoneStore.Milestones.Count;
+
+            GUI.enabled = committedCount > 0;
+            if (GUILayout.Button($"Wipe All Recordings ({committedCount})"))
+                ShowWipeRecordingsConfirmation(committedCount);
+            GUI.enabled = true;
+
+            GUI.enabled = milestoneCount > 0;
+            if (GUILayout.Button($"Wipe All Game Actions ({milestoneCount})"))
+                ShowWipeActionsConfirmation(milestoneCount);
+            GUI.enabled = true;
+
+            int activeGhosts = flight.TimelineGhostCount;
+            GUI.enabled = activeGhosts > 0;
+            if (GUILayout.Button($"Despawn Ghosts ({activeGhosts})"))
+            {
+                flight.DestroyAllTimelineGhosts();
+                ParsekLog.Info("UI", "Ghosts despawned from settings");
+            }
+            GUI.enabled = true;
 
             GUILayout.Space(5);
             GUILayout.BeginHorizontal();
