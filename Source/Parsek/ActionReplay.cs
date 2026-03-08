@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Upgradeables;
 
 namespace Parsek
 {
@@ -87,7 +88,6 @@ namespace Parsek
                         var evt = m.Events[j];
                         if (!IsReplayableEvent(evt.eventType)) continue;
 
-                        // Phase 0: all event types are placeholders that skip
                         switch (evt.eventType)
                         {
                             case GameStateEventType.TechResearched:
@@ -106,20 +106,50 @@ namespace Parsek
                                 break;
                             }
                             case GameStateEventType.PartPurchased:
-                                ParsekLog.Verbose("ActionReplay",
-                                    $"Skipping PartPurchased '{evt.key}' (placeholder)");
-                                skipCount++;
+                            {
+                                bool wasSkipped;
+                                if (ReplayPartPurchase(evt, out wasSkipped))
+                                {
+                                    if (wasSkipped) skipCount++;
+                                    else partCount++;
+                                }
+                                else
+                                {
+                                    if (wasSkipped) skipCount++;
+                                    else failCount++;
+                                }
                                 break;
+                            }
                             case GameStateEventType.FacilityUpgraded:
-                                ParsekLog.Verbose("ActionReplay",
-                                    $"Skipping FacilityUpgraded '{evt.key}' (placeholder)");
-                                skipCount++;
+                            {
+                                bool wasSkipped;
+                                if (ReplayFacilityUpgrade(evt, out wasSkipped))
+                                {
+                                    if (wasSkipped) skipCount++;
+                                    else facilityCount++;
+                                }
+                                else
+                                {
+                                    if (wasSkipped) skipCount++;
+                                    else failCount++;
+                                }
                                 break;
+                            }
                             case GameStateEventType.CrewHired:
-                                ParsekLog.Verbose("ActionReplay",
-                                    $"Skipping CrewHired '{evt.key}' (placeholder)");
-                                skipCount++;
+                            {
+                                bool wasSkipped;
+                                if (ReplayCrewHire(evt, out wasSkipped))
+                                {
+                                    if (wasSkipped) skipCount++;
+                                    else crewCount++;
+                                }
+                                else
+                                {
+                                    if (wasSkipped) skipCount++;
+                                    else failCount++;
+                                }
                                 break;
+                            }
                         }
                     }
                 }
@@ -219,6 +249,246 @@ namespace Parsek
             return ReplayDecision.Act;
         }
 
+        #region Phase 2: Part Purchase
+
+        /// <summary>
+        /// Purchases a part programmatically. In most career games, parts auto-unlock
+        /// with their tech node. For "Entry Purchase Required" mode, this makes the
+        /// part available without additional fund deduction.
+        /// </summary>
+        internal static bool ReplayPartPurchase(GameStateEvent e, out bool skipped)
+        {
+            skipped = false;
+            string partName = e.key;
+
+            if (string.IsNullOrEmpty(partName))
+            {
+                ParsekLog.Warn("ActionReplay", "Part purchase: empty partName — FAILED");
+                return false;
+            }
+
+            try
+            {
+                var ap = PartLoader.getPartInfoByName(partName);
+                if (ap == null)
+                {
+                    ParsekLog.Warn("ActionReplay",
+                        $"Part purchase: '{partName}' — part not found (PartLoader), skipping");
+                    skipped = true;
+                    return false;
+                }
+                if (ResearchAndDevelopment.Instance != null
+                    && ResearchAndDevelopment.IsExperimentalPart(ap))
+                {
+                    // Part is in experimental list (unlocked but not purchased) — remove
+                    // from experimental to mark as fully purchased
+                    ResearchAndDevelopment.RemoveExperimentalPart(ap);
+                    ParsekLog.Info("ActionReplay",
+                        $"Part purchase: '{partName}' — success (removed from experimental)");
+                    return true;
+                }
+
+                if (ResearchAndDevelopment.Instance != null
+                    && ResearchAndDevelopment.PartModelPurchased(ap))
+                {
+                    skipped = true;
+                    ParsekLog.Info("ActionReplay",
+                        $"Part purchase: '{partName}' — already purchased, skipping");
+                    return true;
+                }
+
+                // Part tech may not be researched yet (will be after tech replay).
+                // If the part isn't in any category (experimental or purchased), try to
+                // add it as experimental — this makes it available in the editor.
+                if (ResearchAndDevelopment.Instance != null)
+                {
+                    ResearchAndDevelopment.AddExperimentalPart(ap);
+                    ParsekLog.Info("ActionReplay",
+                        $"Part purchase: '{partName}' — success (added as experimental)");
+                    return true;
+                }
+
+                ParsekLog.Warn("ActionReplay",
+                    $"Part purchase: '{partName}' — R&D instance null, FAILED");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("ActionReplay",
+                    $"Part purchase: '{partName}' — FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Pure decision logic for part purchase replay.
+        /// </summary>
+        internal static ReplayDecision DecidePartReplay(string partName, bool partExists, bool isAlreadyPurchased)
+        {
+            if (string.IsNullOrEmpty(partName)) return ReplayDecision.Fail;
+            if (!partExists) return ReplayDecision.Fail;
+            if (isAlreadyPurchased) return ReplayDecision.Skip;
+            return ReplayDecision.Act;
+        }
+
+        #endregion
+
+        #region Phase 3: Facility Upgrade
+
+        /// <summary>
+        /// Upgrades a facility to the level recorded in the committed event.
+        /// SuppressBlockingPatches must be set to bypass FacilityUpgradePatch.
+        /// </summary>
+        internal static bool ReplayFacilityUpgrade(GameStateEvent e, out bool skipped)
+        {
+            skipped = false;
+            string facilityId = e.key;
+
+            if (string.IsNullOrEmpty(facilityId))
+            {
+                ParsekLog.Warn("ActionReplay", "Facility upgrade: empty facilityId — FAILED");
+                return false;
+            }
+
+            try
+            {
+                if (!ScenarioUpgradeableFacilities.protoUpgradeables.TryGetValue(
+                        facilityId, out var proto)
+                    || proto.facilityRefs == null || proto.facilityRefs.Count == 0)
+                {
+                    ParsekLog.Warn("ActionReplay",
+                        $"Facility upgrade: '{facilityId}' — facility not found, skipping");
+                    skipped = true;
+                    return false;
+                }
+
+                var facility = proto.facilityRefs[0];
+                int currentLevel = facility.FacilityLevel;
+                int maxLevel = facility.MaxLevel;
+                int targetLevel = ComputeTargetLevel(e.valueAfter, maxLevel);
+
+                var decision = DecideFacilityReplay(facilityId, currentLevel, targetLevel);
+                if (decision == ReplayDecision.Skip)
+                {
+                    skipped = true;
+                    ParsekLog.Info("ActionReplay",
+                        $"Facility upgrade: '{facilityId}' — already at level {currentLevel}, skipping");
+                    return true;
+                }
+
+                facility.SetLevel(targetLevel);
+                ParsekLog.Info("ActionReplay",
+                    $"Facility upgrade: '{facilityId}' level {currentLevel} → {targetLevel} — success");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("ActionReplay",
+                    $"Facility upgrade: '{facilityId}' — FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Converts a normalized level (0.0-1.0) to an integer level.
+        /// </summary>
+        internal static int ComputeTargetLevel(double normalizedLevel, int maxLevel)
+        {
+            int level = (int)Math.Round(normalizedLevel * maxLevel);
+            return Math.Max(0, Math.Min(level, maxLevel));
+        }
+
+        /// <summary>
+        /// Pure decision logic for facility upgrade replay.
+        /// </summary>
+        internal static ReplayDecision DecideFacilityReplay(
+            string facilityId, int currentLevel, int targetLevel)
+        {
+            if (string.IsNullOrEmpty(facilityId)) return ReplayDecision.Fail;
+            if (currentLevel >= targetLevel) return ReplayDecision.Skip;
+            return ReplayDecision.Act;
+        }
+
+        #endregion
+
+        #region Phase 4: Crew Hire
+
+        /// <summary>
+        /// Hires a crew member with the name and trait from the committed event.
+        /// SuppressCrewEvents must be set to prevent re-recording.
+        /// </summary>
+        internal static bool ReplayCrewHire(GameStateEvent e, out bool skipped)
+        {
+            skipped = false;
+            string kerbalName = e.key;
+
+            if (string.IsNullOrEmpty(kerbalName))
+            {
+                ParsekLog.Warn("ActionReplay", "Crew hire: empty kerbalName — FAILED");
+                return false;
+            }
+
+            var roster = HighLogic.CurrentGame?.CrewRoster;
+            if (roster == null)
+            {
+                ParsekLog.Warn("ActionReplay",
+                    $"Crew hire: '{kerbalName}' — CrewRoster null, FAILED");
+                return false;
+            }
+
+            // Check if already exists
+            if (roster[kerbalName] != null)
+            {
+                skipped = true;
+                ParsekLog.Info("ActionReplay",
+                    $"Crew hire: '{kerbalName}' — already in roster, skipping");
+                return true;
+            }
+
+            try
+            {
+                ProtoCrewMember newCrew = roster.GetNewKerbal(ProtoCrewMember.KerbalType.Crew);
+                if (newCrew == null)
+                {
+                    ParsekLog.Warn("ActionReplay",
+                        $"Crew hire: '{kerbalName}' — GetNewKerbal returned null, FAILED");
+                    return false;
+                }
+
+                newCrew.ChangeName(kerbalName);
+
+                string trait = ParseDetailField(e.detail, "trait");
+                if (!string.IsNullOrEmpty(trait))
+                    KerbalRoster.SetExperienceTrait(newCrew, trait);
+
+                newCrew.rosterStatus = ProtoCrewMember.RosterStatus.Available;
+
+                ParsekLog.Info("ActionReplay",
+                    $"Crew hire: '{kerbalName}' trait={trait ?? "?"} — success");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("ActionReplay",
+                    $"Crew hire: '{kerbalName}' — FAILED: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Pure decision logic for crew hire replay.
+        /// </summary>
+        internal static ReplayDecision DecideCrewReplay(string kerbalName, bool alreadyInRoster)
+        {
+            if (string.IsNullOrEmpty(kerbalName)) return ReplayDecision.Fail;
+            if (alreadyInRoster) return ReplayDecision.Skip;
+            return ReplayDecision.Act;
+        }
+
+        #endregion
+
+        #region Utilities
+
         /// <summary>
         /// Parses a named field from a semicolon-delimited key=value detail string.
         /// Example: ParseDetailField("cost=5;parts=a,b", "parts") returns "a,b".
@@ -237,5 +507,7 @@ namespace Parsek
             }
             return null;
         }
+
+        #endregion
     }
 }
