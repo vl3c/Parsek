@@ -952,13 +952,16 @@ namespace Parsek
             GUILayout.Space(5);
             GUILayout.BeginHorizontal();
 
-            string statsLabel = showExpandedStats ? "Stats \u25c0" : "Stats \u25b6";
-            if (GUILayout.Button(statsLabel, GUILayout.Width(65)))
+            if (committed.Count > 0)
             {
-                showExpandedStats = !showExpandedStats;
-                ParsekLog.Verbose("UI", $"Recordings Stats toggled: {(showExpandedStats ? "expanded" : "collapsed")}");
-                if (showExpandedStats && recordingsWindowRect.width < 1015f)
-                    recordingsWindowRect.width = 1015f;
+                string statsLabel = showExpandedStats ? "Stats \u25c0" : "Stats \u25b6";
+                if (GUILayout.Button(statsLabel, GUILayout.Width(65)))
+                {
+                    showExpandedStats = !showExpandedStats;
+                    ParsekLog.Verbose("UI", $"Recordings Stats toggled: {(showExpandedStats ? "expanded" : "collapsed")}");
+                    if (showExpandedStats && recordingsWindowRect.width < 1015f)
+                        recordingsWindowRect.width = 1015f;
+                }
             }
 
             if (GUILayout.Button("Close"))
