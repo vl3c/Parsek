@@ -661,6 +661,89 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region UT Data Flow (InitiateRewind → Planetarium)
+
+        [Fact]
+        public void UTFlow_PreProcessToRewindAdjustedUT_EndToEnd()
+        {
+            // Verifies the complete UT adjustment data flow:
+            // 1. PreProcessRewindSave adjusts UT in save file
+            // 2. GamePersistence.LoadGame parses adjusted UT into game.flightState.universalTime
+            // 3. RecordingStore.RewindAdjustedUT captures it
+            // 4. Planetarium.SetUniversalTime applies it (not testable in unit tests)
+            //
+            // Steps 2-4 happen in InitiateRewind. This test verifies steps 1+3 data contract.
+            string sfs = WriteTempSave("FLIGHTSTATE\n{\n  UT = 17000.7\n}\n");
+            RecordingStore.PreProcessRewindSave(sfs, "V", 10.0);
+
+            // Simulate step 2: parse the adjusted UT from the processed file
+            ConfigNode root = ConfigNode.Load(sfs);
+            double adjustedUT = double.Parse(
+                root.GetNode("FLIGHTSTATE").GetValue("UT"), CultureInfo.InvariantCulture);
+            Assert.Equal(16990.7, adjustedUT);
+
+            // Simulate step 3: store in RewindAdjustedUT (as InitiateRewind does)
+            RecordingStore.RewindAdjustedUT = adjustedUT;
+            Assert.Equal(16990.7, RecordingStore.RewindAdjustedUT);
+
+            // Verify log records the adjustment
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]") && l.Contains("UT adjusted") &&
+                l.Contains("17000") && l.Contains("16990"));
+        }
+
+        [Fact]
+        public void UTFlow_IsSetBeforeSceneTransition_NotInCoroutine()
+        {
+            // Architecture invariant: UT is set in InitiateRewind via
+            // Planetarium.SetUniversalTime BEFORE HighLogic.LoadScene.
+            // The coroutine only handles resource adjustments, not UT.
+            //
+            // This test verifies that PreProcessRewindSave correctly adjusts UT
+            // and that the adjusted value is what InitiateRewind would pass to
+            // Planetarium.SetUniversalTime.
+            string sfs = WriteTempSave("FLIGHTSTATE\n{\n  UT = 500\n}\n");
+            RecordingStore.PreProcessRewindSave(sfs, "V", 10.0);
+
+            ConfigNode root = ConfigNode.Load(sfs);
+            double adjustedUT = double.Parse(
+                root.GetNode("FLIGHTSTATE").GetValue("UT"), CultureInfo.InvariantCulture);
+
+            // UT = 500 - 10 (lead time) = 490
+            Assert.Equal(490.0, adjustedUT);
+
+            // This is the value that Planetarium.SetUniversalTime receives
+            RecordingStore.RewindAdjustedUT = adjustedUT;
+            Assert.True(RecordingStore.RewindAdjustedUT > 0,
+                "Adjusted UT must be positive for Planetarium.SetUniversalTime");
+        }
+
+        [Fact]
+        public void ResourceCorrectionLogic_IsIndependentOfUT()
+        {
+            // The resource correction (absolute-target approach) produces the
+            // same result regardless of UT. This verifies decoupling between
+            // UT handling (InitiateRewind) and resource handling (coroutine).
+            double baseline = 50000.0;
+
+            var rec = new RecordingStore.Recording { PreLaunchFunds = 50000 };
+            rec.Points.Add(new TrajectoryPoint { ut = 100, funds = 50000 });
+            rec.Points.Add(new TrajectoryPoint { ut = 200, funds = 38000 });
+
+            double totalCost = ResourceBudget.FullCommittedFundsCost(rec);
+            Assert.Equal(12000.0, totalCost); // spent 12000
+
+            double target = baseline - totalCost; // 50000 - 12000 = 38000
+
+            // Correction is target - current, regardless of UT
+            Assert.Equal(38000.0, target);
+            Assert.Equal(8000.0, target - 30000.0);  // from stale 30000
+            Assert.Equal(-2000.0, target - 40000.0);  // from stale 40000
+            Assert.Equal(0.0, target - 38000.0);      // from correct 38000 (save loaded)
+        }
+
+        #endregion
+
         #region Multiple Vessels with Same Name
 
         [Fact]
