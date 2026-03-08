@@ -302,6 +302,9 @@ namespace Parsek
                         $"Timeline: {recordings.Count} recordings");
                     RecordingStore.RewindUT = 0;
                     RecordingStore.RewindAdjustedUT = 0;
+                    RecordingStore.RewindBaselineFunds = 0;
+                    RecordingStore.RewindBaselineScience = 0;
+                    RecordingStore.RewindBaselineRep = 0;
 
                     return; // Skip ALL existing revert/scene-change logic
                 }
@@ -839,6 +842,9 @@ namespace Parsek
             // in OnLoad after StartCoroutine returns.
             var saved = RecordingStore.RewindReserved;
             double adjustedUT = RecordingStore.RewindAdjustedUT;
+            double baselineFunds = RecordingStore.RewindBaselineFunds;
+            double baselineScience = RecordingStore.RewindBaselineScience;
+            float baselineRep = RecordingStore.RewindBaselineRep;
 
             // CRITICAL: yield at least one frame before touching any singleton.
             // During OnLoad, singletons from the OLD scene may still be alive.
@@ -873,47 +879,58 @@ namespace Parsek
                     $"(post-set check: {Planetarium.GetUniversalTime().ToString("F1", ic)})");
             }
 
-            // Log pre-adjustment state (diagnoses whether scene load restored save values)
+            // Log pre-adjustment state (confirms HighLogic.LoadScene does NOT restore these)
             double preFunds = Funding.Instance.Funds;
             float preScience = ResearchAndDevelopment.Instance.Science;
             float preRep = Reputation.Instance.reputation;
             ParsekLog.Info("Rewind",
                 $"Pre-adjustment state: funds={preFunds.ToString("F1", ic)}, " +
                 $"science={preScience.ToString("F1", ic)}, " +
-                $"rep={preRep.ToString("F1", ic)}");
+                $"rep={preRep.ToString("F1", ic)}, " +
+                $"baseline: funds={baselineFunds.ToString("F1", ic)}, " +
+                $"science={baselineScience.ToString("F1", ic)}, " +
+                $"rep={baselineRep.ToString("F1", ic)}");
 
-            // Compute current full cost (same method used at save time — consistent baseline)
-            var currentReserved = ResourceBudget.ComputeTotalFullCost(
+            // Compute recording + milestone impact (total cost of all committed actions)
+            var totalCost = ResourceBudget.ComputeTotalFullCost(
                 RecordingStore.CommittedRecordings,
                 MilestoneStore.Milestones,
                 RecordingStore.CommittedTrees);
 
-            // Differential deduction (saved was captured before yielding)
-            double deltaFunds = currentReserved.reservedFunds - saved.reservedFunds;
-            double deltaScience = currentReserved.reservedScience - saved.reservedScience;
-            double deltaRep = currentReserved.reservedReputation - saved.reservedReputation;
+            // Compute absolute target values: baseline + recording impact.
+            // HighLogic.LoadScene does NOT restore Funding/R&D/Reputation from the save,
+            // so we must SET resources to the correct values, not add a delta.
+            // Cost convention: negative = recording earned money, positive = recording cost money.
+            // Target = baseline - cost (subtracting a negative cost adds the earnings).
+            double targetFunds = baselineFunds - totalCost.reservedFunds;
+            double targetScience = baselineScience - totalCost.reservedScience;
+            double targetRep = (double)baselineRep - totalCost.reservedReputation;
+
+            double fundsCorrection = targetFunds - preFunds;
+            double scienceCorrection = targetScience - preScience;
+            double repCorrection = targetRep - (double)preRep;
 
             ParsekLog.Info("Rewind",
-                $"Resource adjustment: reserved ({saved.reservedFunds.ToString("F1", ic)}," +
-                $"{saved.reservedScience.ToString("F1", ic)}," +
-                $"{saved.reservedReputation.ToString("F1", ic)}) -> " +
-                $"({currentReserved.reservedFunds.ToString("F1", ic)}," +
-                $"{currentReserved.reservedScience.ToString("F1", ic)}," +
-                $"{currentReserved.reservedReputation.ToString("F1", ic)}), " +
-                $"delta ({deltaFunds.ToString("F1", ic)}," +
-                $"{deltaScience.ToString("F1", ic)}," +
-                $"{deltaRep.ToString("F1", ic)})");
+                $"Resource adjustment: target funds={targetFunds.ToString("F1", ic)}, " +
+                $"science={targetScience.ToString("F1", ic)}, " +
+                $"rep={targetRep.ToString("F1", ic)} " +
+                $"(cost: {totalCost.reservedFunds.ToString("F1", ic)}, " +
+                $"{totalCost.reservedScience.ToString("F1", ic)}, " +
+                $"{totalCost.reservedReputation.ToString("F1", ic)}), " +
+                $"correction: {fundsCorrection.ToString("F1", ic)}, " +
+                $"{scienceCorrection.ToString("F1", ic)}, " +
+                $"{repCorrection.ToString("F1", ic)}");
 
             // Apply with suppression (prevent synthetic game state events)
             GameStateRecorder.SuppressResourceEvents = true;
             try
             {
-                if (deltaFunds != 0)
-                    Funding.Instance.AddFunds(-deltaFunds, TransactionReasons.None);
-                if (deltaScience != 0)
-                    ResearchAndDevelopment.Instance.AddScience((float)-deltaScience, TransactionReasons.None);
-                if (deltaRep != 0)
-                    Reputation.Instance.AddReputation((float)-deltaRep, TransactionReasons.None);
+                if (fundsCorrection != 0)
+                    Funding.Instance.AddFunds(fundsCorrection, TransactionReasons.None);
+                if (scienceCorrection != 0)
+                    ResearchAndDevelopment.Instance.AddScience((float)scienceCorrection, TransactionReasons.None);
+                if (repCorrection != 0)
+                    Reputation.Instance.AddReputation((float)repCorrection, TransactionReasons.None);
             }
             finally
             {

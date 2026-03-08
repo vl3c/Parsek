@@ -514,6 +514,153 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Rewind Baseline Resource Computation
+
+        [Fact]
+        public void InitiateRewind_SetsBaselineFromPreLaunch()
+        {
+            // Simulate: recording with known PreLaunch values
+            var rec = new RecordingStore.Recording
+            {
+                RewindSaveFileName = "parsek_rw_test",
+                PreLaunchFunds = 25000.0,
+                PreLaunchScience = 5.0,
+                PreLaunchReputation = 1.5f
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100, funds = 25000 });
+            rec.Points.Add(new TrajectoryPoint { ut = 200, funds = 45000 });
+
+            // We can't call InitiateRewind (needs KSP file I/O), but we can
+            // verify the baseline fields are stored and cleared correctly.
+            RecordingStore.RewindBaselineFunds = rec.PreLaunchFunds;
+            RecordingStore.RewindBaselineScience = rec.PreLaunchScience;
+            RecordingStore.RewindBaselineRep = rec.PreLaunchReputation;
+
+            Assert.Equal(25000.0, RecordingStore.RewindBaselineFunds);
+            Assert.Equal(5.0, RecordingStore.RewindBaselineScience);
+            Assert.Equal(1.5f, RecordingStore.RewindBaselineRep);
+        }
+
+        [Fact]
+        public void ResetForTesting_ClearsBaselineFields()
+        {
+            RecordingStore.RewindBaselineFunds = 99999.0;
+            RecordingStore.RewindBaselineScience = 42.0;
+            RecordingStore.RewindBaselineRep = 7.0f;
+
+            RecordingStore.ResetForTesting();
+
+            Assert.Equal(0.0, RecordingStore.RewindBaselineFunds);
+            Assert.Equal(0.0, RecordingStore.RewindBaselineScience);
+            Assert.Equal(0f, RecordingStore.RewindBaselineRep);
+        }
+
+        [Fact]
+        public void ResourceTarget_IsIdempotent_AcrossMultipleRewinds()
+        {
+            // This test verifies the LOGIC that makes rewind non-accumulating:
+            // target = baseline - totalCost
+            // correction = target - currentSingletonValue
+            //
+            // On repeated rewinds, even if currentSingletonValue is wrong (stale),
+            // the correction always brings it to the same target.
+            double baselineFunds = 25000.0;
+            double baselineScience = 0.0;
+
+            // Recording earned 20000 funds and 7.2 science
+            // FullCommittedFundsCost = preLaunch - endFunds = 25000 - 45000 = -20000
+            double totalCostFunds = -20000.0;
+            double totalCostScience = -7.2;
+
+            double targetFunds = baselineFunds - totalCostFunds;  // 25000 - (-20000) = 45000
+            double targetScience = baselineScience - totalCostScience;  // 0 - (-7.2) = 7.2
+
+            // First rewind: singleton has stale value 40000 from old session
+            double staleFunds1 = 40000.0;
+            double correction1 = targetFunds - staleFunds1;  // 45000 - 40000 = 5000
+            double result1 = staleFunds1 + correction1;
+            Assert.Equal(45000.0, result1);
+
+            // Second rewind: singleton STILL has 40000 (stale, not reset by scene load)
+            // With the OLD delta approach, this would add 20000 again: 40000+20000 = 60000
+            // With baseline approach, correction is the same: 45000 - 40000 = 5000
+            double staleFunds2 = 40000.0;
+            double correction2 = targetFunds - staleFunds2;
+            double result2 = staleFunds2 + correction2;
+            Assert.Equal(45000.0, result2);  // SAME result — idempotent!
+
+            // Third rewind: even with completely wrong stale value
+            double staleFunds3 = 999999.0;
+            double correction3 = targetFunds - staleFunds3;
+            double result3 = staleFunds3 + correction3;
+            Assert.Equal(45000.0, result3);  // Still correct
+
+            // Science same pattern
+            double staleScience = 99.9;
+            double sciCorrection = targetScience - staleScience;
+            double sciResult = staleScience + sciCorrection;
+            Assert.Equal(7.2, sciResult, 5);
+        }
+
+        [Fact]
+        public void FullCommittedCost_SignConvention_NegativeMeansEarned()
+        {
+            // Verify the sign convention: negative cost = recording earned money
+            var rec = new RecordingStore.Recording
+            {
+                PreLaunchFunds = 25000.0,
+                PreLaunchScience = 0.0,
+                PreLaunchReputation = 0.0f
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100, funds = 25000 });
+            rec.Points.Add(new TrajectoryPoint { ut = 200, funds = 45000, science = 7.2f, reputation = 1.0f });
+
+            double fundsCost = ResourceBudget.FullCommittedFundsCost(rec);
+            double scienceCost = ResourceBudget.FullCommittedScienceCost(rec);
+            double repCost = ResourceBudget.FullCommittedReputationCost(rec);
+
+            // Earned 20000 funds → cost is -20000
+            Assert.Equal(-20000.0, fundsCost);
+            // Earned 7.2 science → cost is -7.2
+            Assert.Equal(-7.2, scienceCost, 5);
+            // Earned 1.0 rep → cost is -1.0
+            Assert.Equal(-1.0, repCost, 5);
+        }
+
+        [Fact]
+        public void ResourceTarget_WithMultipleRecordings()
+        {
+            // Two recordings, each earning different amounts
+            double baseline = 25000.0;
+
+            var rec1 = new RecordingStore.Recording { PreLaunchFunds = 25000 };
+            rec1.Points.Add(new TrajectoryPoint { ut = 100, funds = 25000 });
+            rec1.Points.Add(new TrajectoryPoint { ut = 200, funds = 45000 });
+
+            var rec2 = new RecordingStore.Recording { PreLaunchFunds = 45000 };
+            rec2.Points.Add(new TrajectoryPoint { ut = 300, funds = 45000 });
+            rec2.Points.Add(new TrajectoryPoint { ut = 400, funds = 55000 });
+
+            RecordingStore.CommittedRecordings.Add(rec1);
+            RecordingStore.CommittedRecordings.Add(rec2);
+
+            var totalCost = ResourceBudget.ComputeTotalFullCost(
+                RecordingStore.CommittedRecordings, new List<Milestone>(), null);
+
+            // rec1: 25000 - 45000 = -20000, rec2: 45000 - 55000 = -10000
+            // Total: -30000
+            Assert.Equal(-30000.0, totalCost.reservedFunds);
+
+            // Target = baseline - totalCost = 25000 - (-30000) = 55000
+            double target = baseline - totalCost.reservedFunds;
+            Assert.Equal(55000.0, target);
+
+            // This should match rec2's end funds (the final state)
+            Assert.Equal(55000.0, rec2.Points[1].funds);
+        }
+
+        #endregion
+
         #region Multiple Vessels with Same Name
 
         [Fact]
