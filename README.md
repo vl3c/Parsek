@@ -64,6 +64,7 @@ Parsek's infrastructure — looped playback, vessel snapshots, game state tracki
 
 - **Logistics network** — fly a cargo route once, Parsek records it, then that recording becomes a reusable supply route that replays automatically between bases
 - **Multiplayer-like experience** — share recording files with other players and watch their missions play out as ghosts in your game, turning single-player KSP into a shared timeline
+- **Space race** — competing space programs on Kerbin racing to objectives, with ghost replays of rival missions playing out alongside yours — multiplayer or AI-driven
 
 See the [roadmap](docs/roadmap.md) for what's planned and what's possible.
 
