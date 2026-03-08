@@ -273,13 +273,25 @@ namespace Parsek
             try
             {
                 var ap = PartLoader.getPartInfoByName(partName);
-                if (ap == null)
+                bool partExists = ap != null;
+                bool isAlreadyPurchased = partExists
+                    && ResearchAndDevelopment.Instance != null
+                    && ResearchAndDevelopment.PartModelPurchased(ap);
+
+                var decision = DecidePartReplay(partName, partExists, isAlreadyPurchased);
+
+                if (decision == ReplayDecision.Skip)
                 {
-                    ParsekLog.Warn("ActionReplay",
-                        $"Part purchase: '{partName}' — part not found (PartLoader), skipping");
                     skipped = true;
-                    return false;
+                    if (!partExists)
+                        ParsekLog.Warn("ActionReplay",
+                            $"Part purchase: '{partName}' — part not found (PartLoader), skipping");
+                    else
+                        ParsekLog.Info("ActionReplay",
+                            $"Part purchase: '{partName}' — already purchased, skipping");
+                    return true;
                 }
+
                 if (ResearchAndDevelopment.Instance != null
                     && ResearchAndDevelopment.IsExperimentalPart(ap))
                 {
@@ -288,15 +300,6 @@ namespace Parsek
                     ResearchAndDevelopment.RemoveExperimentalPart(ap);
                     ParsekLog.Info("ActionReplay",
                         $"Part purchase: '{partName}' — success (removed from experimental)");
-                    return true;
-                }
-
-                if (ResearchAndDevelopment.Instance != null
-                    && ResearchAndDevelopment.PartModelPurchased(ap))
-                {
-                    skipped = true;
-                    ParsekLog.Info("ActionReplay",
-                        $"Part purchase: '{partName}' — already purchased, skipping");
                     return true;
                 }
 
@@ -329,7 +332,7 @@ namespace Parsek
         internal static ReplayDecision DecidePartReplay(string partName, bool partExists, bool isAlreadyPurchased)
         {
             if (string.IsNullOrEmpty(partName)) return ReplayDecision.Fail;
-            if (!partExists) return ReplayDecision.Fail;
+            if (!partExists) return ReplayDecision.Skip;
             if (isAlreadyPurchased) return ReplayDecision.Skip;
             return ReplayDecision.Act;
         }
@@ -362,7 +365,7 @@ namespace Parsek
                     ParsekLog.Warn("ActionReplay",
                         $"Facility upgrade: '{facilityId}' — facility not found, skipping");
                     skipped = true;
-                    return false;
+                    return true;
                 }
 
                 var facility = proto.facilityRefs[0];
@@ -439,8 +442,8 @@ namespace Parsek
                 return false;
             }
 
-            // Check if already exists
-            if (roster[kerbalName] != null)
+            var decision = DecideCrewReplay(kerbalName, roster[kerbalName] != null);
+            if (decision == ReplayDecision.Skip)
             {
                 skipped = true;
                 ParsekLog.Info("ActionReplay",

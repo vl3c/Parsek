@@ -431,9 +431,9 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DecidePartReplay_PartNotFound_Fails()
+        public void DecidePartReplay_PartNotFound_Skips()
         {
-            Assert.Equal(ReplayDecision.Fail, ActionReplay.DecidePartReplay("mk1pod.v2", false, false));
+            Assert.Equal(ReplayDecision.Skip, ActionReplay.DecidePartReplay("mk1pod.v2", false, false));
         }
 
         [Fact]
