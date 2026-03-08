@@ -2,7 +2,7 @@
 
 ![Parsek](img/ksp-parsek-stylized.jpg)
 
-*Record, rewind and merge your parallel-sekuential adventures.*
+*Record, rewind and merge your parallel-sekuential adventures to a single player main timeline.*
 
 **Time-rewind mission recording for KSP1.** Record missions sequentially, return to an earlier time, and watch them play out in parallel alongside you while you fly new ones.
 
