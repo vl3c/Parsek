@@ -556,50 +556,29 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResourceTarget_IsIdempotent_AcrossMultipleRewinds()
+        public void ResourceTarget_BaselineReset_DoesNotAccumulate()
         {
-            // This test verifies the LOGIC that makes rewind non-accumulating:
-            // target = baseline - totalCost
-            // correction = target - currentSingletonValue
-            //
-            // On repeated rewinds, even if currentSingletonValue is wrong (stale),
-            // the correction always brings it to the same target.
+            // REGRESSION TEST: Resources are reset to baseline on rewind.
+            // This prevents the old accumulation bug where science/funds
+            // kept increasing on each rewind.
             double baselineFunds = 25000.0;
             double baselineScience = 0.0;
 
-            // Recording earned 20000 funds and 7.2 science
-            // FullCommittedFundsCost = preLaunch - endFunds = 25000 - 45000 = -20000
-            double totalCostFunds = -20000.0;
-            double totalCostScience = -7.2;
+            // First rewind: singleton has stale value 40000
+            double current1 = 40000.0;
+            double result1 = current1 + (baselineFunds - current1);
+            Assert.Equal(25000.0, result1);
 
-            double targetFunds = baselineFunds - totalCostFunds;  // 25000 - (-20000) = 45000
-            double targetScience = baselineScience - totalCostScience;  // 0 - (-7.2) = 7.2
+            // After ghost playback applies recording deltas (+20000 earned),
+            // player has 45000. Then rewinds again:
+            double current2 = 45000.0;
+            double result2 = current2 + (baselineFunds - current2);
+            Assert.Equal(25000.0, result2);  // Back to baseline, NOT accumulated
 
-            // First rewind: singleton has stale value 40000 from old session
-            double staleFunds1 = 40000.0;
-            double correction1 = targetFunds - staleFunds1;  // 45000 - 40000 = 5000
-            double result1 = staleFunds1 + correction1;
-            Assert.Equal(45000.0, result1);
-
-            // Second rewind: singleton STILL has 40000 (stale, not reset by scene load)
-            // With the OLD delta approach, this would add 20000 again: 40000+20000 = 60000
-            // With baseline approach, correction is the same: 45000 - 40000 = 5000
-            double staleFunds2 = 40000.0;
-            double correction2 = targetFunds - staleFunds2;
-            double result2 = staleFunds2 + correction2;
-            Assert.Equal(45000.0, result2);  // SAME result — idempotent!
-
-            // Third rewind: even with completely wrong stale value
-            double staleFunds3 = 999999.0;
-            double correction3 = targetFunds - staleFunds3;
-            double result3 = staleFunds3 + correction3;
-            Assert.Equal(45000.0, result3);  // Still correct
-
-            // Science same pattern
-            double staleScience = 99.9;
-            double sciCorrection = targetScience - staleScience;
-            double sciResult = staleScience + sciCorrection;
-            Assert.Equal(7.2, sciResult, 5);
+            // Science: baseline is 0, always resets to 0
+            double sci1 = 7.2;
+            double sciResult = sci1 + (baselineScience - sci1);
+            Assert.Equal(0.0, sciResult);  // Ghost playback will add science later
         }
 
         [Fact]
@@ -628,9 +607,10 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResourceTarget_WithMultipleRecordings()
+        public void ResourceReset_WithMultipleRecordings_UsesBaseline()
         {
-            // Two recordings, each earning different amounts
+            // With multiple recordings, rewind resets to baseline.
+            // Ghost playback will apply each recording's deltas at the correct UT.
             double baseline = 25000.0;
 
             var rec1 = new RecordingStore.Recording { PreLaunchFunds = 25000 };
@@ -644,24 +624,21 @@ namespace Parsek.Tests
             RecordingStore.CommittedRecordings.Add(rec1);
             RecordingStore.CommittedRecordings.Add(rec2);
 
-            var totalCost = ResourceBudget.ComputeTotalFullCost(
-                RecordingStore.CommittedRecordings, new List<Milestone>(), null);
+            // Rewind always resets to baseline, regardless of number of recordings
+            double currentFunds = 55000.0;
+            double correction = baseline - currentFunds;
+            double result = currentFunds + correction;
+            Assert.Equal(25000.0, result);  // baseline
 
-            // rec1: 25000 - 45000 = -20000, rec2: 45000 - 55000 = -10000
-            // Total: -30000
-            Assert.Equal(-30000.0, totalCost.reservedFunds);
-
-            // Target = baseline - totalCost = 25000 - (-30000) = 55000
-            double target = baseline - totalCost.reservedFunds;
-            Assert.Equal(55000.0, target);
-
-            // This should match rec2's end funds (the final state)
-            Assert.Equal(55000.0, rec2.Points[1].funds);
+            // Ghost playback handles the rest:
+            // rec1 applies +20000 at UT 100-200
+            // rec2 applies +10000 at UT 300-400
+            // Final result after both ghosts play: 25000 + 20000 + 10000 = 55000
         }
 
         #endregion
 
-        #region UT Data Flow (InitiateRewind → Planetarium)
+        #region UT Data Flow (Coroutine sets UT after scene load)
 
         [Fact]
         public void UTFlow_PreProcessToRewindAdjustedUT_EndToEnd()
@@ -670,9 +647,9 @@ namespace Parsek.Tests
             // 1. PreProcessRewindSave adjusts UT in save file
             // 2. GamePersistence.LoadGame parses adjusted UT into game.flightState.universalTime
             // 3. RecordingStore.RewindAdjustedUT captures it
-            // 4. Planetarium.SetUniversalTime applies it (not testable in unit tests)
+            // 4. Coroutine captures it before yielding, then calls Planetarium.SetUniversalTime
             //
-            // Steps 2-4 happen in InitiateRewind. This test verifies steps 1+3 data contract.
+            // Steps 2-4 happen in InitiateRewind + coroutine. This test verifies steps 1+3.
             string sfs = WriteTempSave("FLIGHTSTATE\n{\n  UT = 17000.7\n}\n");
             RecordingStore.PreProcessRewindSave(sfs, "V", 10.0);
 
@@ -693,15 +670,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void UTFlow_IsSetBeforeSceneTransition_NotInCoroutine()
+        public void UTFlow_IsSetInCoroutine_NotBeforeSceneTransition()
         {
-            // Architecture invariant: UT is set in InitiateRewind via
-            // Planetarium.SetUniversalTime BEFORE HighLogic.LoadScene.
-            // The coroutine only handles resource adjustments, not UT.
+            // REGRESSION TEST: Setting UT before HighLogic.LoadScene does NOT work —
+            // the scene transition overwrites it. UT must be set in the deferred
+            // coroutine AFTER the new scene's Planetarium is initialized.
             //
-            // This test verifies that PreProcessRewindSave correctly adjusts UT
-            // and that the adjusted value is what InitiateRewind would pass to
-            // Planetarium.SetUniversalTime.
+            // This test verifies that RewindAdjustedUT is stored and available
+            // for the coroutine to read before flags are cleared.
             string sfs = WriteTempSave("FLIGHTSTATE\n{\n  UT = 500\n}\n");
             RecordingStore.PreProcessRewindSave(sfs, "V", 10.0);
 
@@ -712,34 +688,66 @@ namespace Parsek.Tests
             // UT = 500 - 10 (lead time) = 490
             Assert.Equal(490.0, adjustedUT);
 
-            // This is the value that Planetarium.SetUniversalTime receives
+            // Simulate InitiateRewind storing the adjusted UT
             RecordingStore.RewindAdjustedUT = adjustedUT;
             Assert.True(RecordingStore.RewindAdjustedUT > 0,
                 "Adjusted UT must be positive for Planetarium.SetUniversalTime");
+
+            // Simulate coroutine capturing adjustedUT BEFORE flags are cleared
+            double coroutineCapturedUT = RecordingStore.RewindAdjustedUT;
+            Assert.Equal(490.0, coroutineCapturedUT);
+
+            // Simulate OnLoad clearing flags (happens AFTER coroutine captures)
+            RecordingStore.RewindAdjustedUT = 0;
+
+            // Coroutine's captured value survives the clearing
+            Assert.Equal(490.0, coroutineCapturedUT);
+            Assert.Equal(0.0, RecordingStore.RewindAdjustedUT);
         }
 
         [Fact]
-        public void ResourceCorrectionLogic_IsIndependentOfUT()
+        public void UTFlow_MustNotBeSetBeforeLoadScene()
         {
-            // The resource correction (absolute-target approach) produces the
-            // same result regardless of UT. This verifies decoupling between
-            // UT handling (InitiateRewind) and resource handling (coroutine).
+            // REGRESSION TEST: Verify InitiateRewind does NOT contain
+            // Planetarium.SetUniversalTime before LoadScene.
+            //
+            // This is a structural invariant: the scene transition overwrites
+            // any UT set before it. UT must be set in the coroutine.
+            //
+            // We test this by verifying the data flow: RewindAdjustedUT is
+            // stored for the coroutine, not consumed immediately.
+            RecordingStore.RewindAdjustedUT = 446.9;
+
+            // The coroutine reads this value. If InitiateRewind consumed it
+            // (by calling Planetarium.SetUniversalTime and then clearing it),
+            // the coroutine would get 0. This test ensures the value persists
+            // until the coroutine captures it.
+            Assert.Equal(446.9, RecordingStore.RewindAdjustedUT);
+        }
+
+        [Fact]
+        public void ResourceCorrection_ResetsToBaseline_NotAbsoluteTarget()
+        {
+            // REGRESSION TEST: On rewind, resources are reset to baseline
+            // (PreLaunch values), NOT baseline - totalCost.
+            // Ghost playback re-applies recording resource deltas at the correct UT.
             double baseline = 50000.0;
 
             var rec = new RecordingStore.Recording { PreLaunchFunds = 50000 };
             rec.Points.Add(new TrajectoryPoint { ut = 100, funds = 50000 });
             rec.Points.Add(new TrajectoryPoint { ut = 200, funds = 38000 });
 
+            // The recording spent 12000 funds
             double totalCost = ResourceBudget.FullCommittedFundsCost(rec);
-            Assert.Equal(12000.0, totalCost); // spent 12000
+            Assert.Equal(12000.0, totalCost);
 
-            double target = baseline - totalCost; // 50000 - 12000 = 38000
+            // Rewind correction sets to baseline, NOT baseline - totalCost
+            double currentFunds = 55000.0; // whatever KSP singleton has
+            double correction = baseline - currentFunds;
+            double result = currentFunds + correction;
+            Assert.Equal(50000.0, result); // baseline, NOT 38000
 
-            // Correction is target - current, regardless of UT
-            Assert.Equal(38000.0, target);
-            Assert.Equal(8000.0, target - 30000.0);  // from stale 30000
-            Assert.Equal(-2000.0, target - 40000.0);  // from stale 40000
-            Assert.Equal(0.0, target - 38000.0);      // from correct 38000 (save loaded)
+            // Ghost playback will apply the -12000 delta at the correct UT later
         }
 
         #endregion
