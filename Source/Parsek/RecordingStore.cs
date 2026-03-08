@@ -1010,9 +1010,10 @@ namespace Parsek
                     return;
                 }
 
-                // Load into SpaceCenter — player can enter buildings or launch a new vessel
-                HighLogic.CurrentGame = game;
-                HighLogic.LoadScene(GameScenes.SPACECENTER);
+                // Load into SpaceCenter — game.Start() initializes UT from flightState
+                // and triggers scene load. Without Start(), Planetarium keeps the old UT.
+                game.startScene = GameScenes.SPACECENTER;
+                game.Start();
 
                 if (!SuppressLogging)
                     ParsekLog.Info("Rewind",
