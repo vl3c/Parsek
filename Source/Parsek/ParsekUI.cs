@@ -117,25 +117,25 @@ namespace Parsek
         {
             GUILayout.BeginVertical();
 
-            // Status
-            GUILayout.Label($"Status: {GetStatusText()}");
-            GUILayout.Space(5);
-
-            // Recording info
+            // --- Status section ---
+            GUILayout.Label("Status", GUI.skin.box);
+            GUILayout.Label($"State: {GetStatusText()}");
             GUILayout.Label($"Recorded Points: {flight.recording.Count}");
             if (flight.recording.Count > 0)
             {
                 double duration = flight.recording[flight.recording.Count - 1].ut - flight.recording[0].ut;
                 GUILayout.Label($"Duration: {duration:F1}s");
             }
+            GUILayout.Label($"Active Ghosts: {flight.TimelineGhostCount}");
 
-            // Timeline info
+            // Compact budget summary (full display in Actions window)
+            DrawCompactBudgetLine();
+
+            // --- Timeline section ---
+            GUILayout.Space(5);
+            GUILayout.Label("Timeline", GUI.skin.box);
+
             int committedCount = RecordingStore.CommittedRecordings.Count;
-            int activeGhosts = flight.TimelineGhostCount;
-            GUILayout.Label($"Timeline: {committedCount} recording(s), {activeGhosts} active ghost(s)");
-
-            int actionCount = MilestoneStore.GetPendingEventCount() + GameStateStore.GetUncommittedEventCount();
-            GUILayout.BeginHorizontal();
             if (GUILayout.Button($"Recordings ({committedCount})"))
             {
                 showRecordingsWindow = !showRecordingsWindow;
@@ -143,25 +143,23 @@ namespace Parsek
                     deleteConfirmIndex = -1;
                 ParsekLog.Verbose("UI", $"Recordings window toggled: {(showRecordingsWindow ? "open" : "closed")}");
             }
-            if (GUILayout.Button($"Actions ({actionCount})"))
+
+            int actionCount = MilestoneStore.GetPendingEventCount() + GameStateStore.GetUncommittedEventCount();
+            if (GUILayout.Button($"Game Actions ({actionCount})"))
             {
                 showActionsWindow = !showActionsWindow;
                 ParsekLog.Verbose("UI", $"Actions window toggled: {(showActionsWindow ? "open" : "closed")}");
             }
+
             if (GUILayout.Button("Settings"))
             {
                 showSettingsWindow = !showSettingsWindow;
                 ParsekLog.Verbose("UI", $"Settings window toggled: {(showSettingsWindow ? "open" : "closed")}");
             }
-            GUILayout.EndHorizontal();
 
-            // Compact budget summary (full display in Actions window)
-            DrawCompactBudgetLine();
-
+            // --- Recording section ---
             GUILayout.Space(5);
-
-            // Recording controls
-            GUILayout.BeginHorizontal();
+            GUILayout.Label("Recording", GUI.skin.box);
 
             if (!flight.IsRecording)
             {
@@ -180,29 +178,25 @@ namespace Parsek
                 }
             }
 
-            GUILayout.EndHorizontal();
-
-            GUILayout.BeginHorizontal();
-
-            GUI.enabled = !flight.IsRecording && flight.recording.Count > 0 && !flight.IsPlaying;
-            if (GUILayout.Button("Preview Playback"))
+            if (!flight.IsPlaying)
             {
-                ParsekLog.Verbose("UI", "Preview Playback button clicked");
-                flight.StartPlayback();
+                GUI.enabled = !flight.IsRecording && flight.recording.Count > 0;
+                if (GUILayout.Button("Preview Playback"))
+                {
+                    ParsekLog.Verbose("UI", "Preview Playback button clicked");
+                    flight.StartPlayback();
+                }
+                GUI.enabled = true;
+            }
+            else
+            {
+                if (GUILayout.Button("Stop Preview"))
+                {
+                    ParsekLog.Verbose("UI", "Stop Preview button clicked");
+                    flight.StopPlayback();
+                }
             }
 
-            GUI.enabled = flight.IsPlaying;
-            if (GUILayout.Button("Stop Preview"))
-            {
-                ParsekLog.Verbose("UI", "Stop Preview button clicked");
-                flight.StopPlayback();
-            }
-
-            GUI.enabled = true;
-
-            GUILayout.EndHorizontal();
-
-            GUILayout.Space(5);
             GUI.enabled = !flight.IsRecording && !flight.IsPlaying && flight.recording.Count > 0;
             if (GUILayout.Button("Clear Current Recording"))
             {
@@ -217,8 +211,8 @@ namespace Parsek
                 && RecordingStore.IsStableState((int)FlightGlobals.ActiveVessel.situation);
             GUI.enabled = (canCommitStandalone || canCommitTree) && stableSituation;
             if (GUILayout.Button(stableSituation
-                ? new GUIContent("Commit Flight")
-                : new GUIContent("Commit Flight", "Land or stop before committing.")))
+                ? new GUIContent("Commit Recording to Timeline")
+                : new GUIContent("Commit Recording to Timeline", "Land or stop before committing.")))
             {
                 ParsekLog.Verbose("UI", "Commit Flight button clicked");
                 if (flight.HasActiveTree)
