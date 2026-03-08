@@ -10,6 +10,8 @@ namespace Parsek
         private static List<GameStateEvent> events = new List<GameStateEvent>();
         private static List<ContractSnapshot> contractSnapshots = new List<ContractSnapshot>();
         private static List<GameStateBaseline> baselines = new List<GameStateBaseline>();
+        private static Dictionary<string, float> committedScienceSubjects = new Dictionary<string, float>();
+        private static Dictionary<string, float> originalScienceValues = new Dictionary<string, float>();
 
         private static bool initialLoadDone = false;
         private static string lastSaveFolder = null;
@@ -179,6 +181,198 @@ namespace Parsek
 
         #endregion
 
+        #region Committed Science Subjects
+
+        /// <summary>
+        /// Merges pending science subjects into the committed store.
+        /// For each subject, keeps the maximum science value (handles partial experiments).
+        /// </summary>
+        internal static void CommitScienceSubjects(List<PendingScienceSubject> pending)
+        {
+            if (pending == null || pending.Count == 0) return;
+
+            int added = 0, updated = 0;
+            for (int i = 0; i < pending.Count; i++)
+            {
+                string id = pending[i].subjectId;
+                float science = pending[i].science;
+
+                float existing;
+                if (committedScienceSubjects.TryGetValue(id, out existing))
+                {
+                    if (science > existing)
+                    {
+                        committedScienceSubjects[id] = science;
+                        updated++;
+                    }
+                }
+                else
+                {
+                    committedScienceSubjects[id] = science;
+                    added++;
+                }
+            }
+
+            ParsekLog.Info("GameStateStore",
+                $"CommitScienceSubjects: {added} added, {updated} updated (total={committedScienceSubjects.Count})");
+        }
+
+        /// <summary>
+        /// Tries to get the committed science value for a subject.
+        /// Returns false if the subject has not been committed.
+        /// </summary>
+        internal static bool TryGetCommittedSubjectScience(string subjectId, out float science)
+        {
+            return committedScienceSubjects.TryGetValue(subjectId, out science);
+        }
+
+        internal static int CommittedScienceSubjectCount => committedScienceSubjects.Count;
+        internal static int OriginalScienceValueCount => originalScienceValues.Count;
+
+        internal static bool TryGetOriginalScience(string subjectId, out float science)
+        {
+            return originalScienceValues.TryGetValue(subjectId, out science);
+        }
+
+        /// <summary>
+        /// Records the original (pre-mutation) science value for a subject.
+        /// Only stores the first value — subsequent calls for the same subject are ignored,
+        /// preserving the true pre-Parsek baseline.
+        /// Called by ScienceSubjectPatch before mutating ScienceSubject.science.
+        /// </summary>
+        internal static void RecordOriginalScience(string subjectId, float originalScience)
+        {
+            if (originalScienceValues.ContainsKey(subjectId)) return;
+            originalScienceValues[subjectId] = originalScience;
+            ParsekLog.Verbose("GameStateStore",
+                $"Recorded original science for {subjectId}: {originalScience:F1}");
+        }
+
+        internal static void ClearScienceSubjects()
+        {
+            int count = committedScienceSubjects.Count;
+
+            // Clear committed first so the Harmony patch becomes a no-op
+            committedScienceSubjects.Clear();
+
+            // Restore KSP R&D state to pre-mutation values
+            RestoreScienceInRnD();
+
+            originalScienceValues.Clear();
+            ParsekLog.Info("GameStateStore",
+                $"Cleared {count} committed science subjects and restored R&D state");
+        }
+
+        /// <summary>
+        /// Restores ScienceSubject.science values in KSP's R&D to their
+        /// pre-mutation originals. Must be called AFTER clearing committedScienceSubjects
+        /// so the Harmony postfix is a no-op during subject lookup.
+        /// </summary>
+        private static void RestoreScienceInRnD()
+        {
+            if (originalScienceValues.Count == 0) return;
+
+            // ResearchAndDevelopment is only available in career/science mode during gameplay
+            if (ResearchAndDevelopment.Instance == null)
+            {
+                ParsekLog.Verbose("GameStateStore",
+                    "R&D instance unavailable — skipping science restore (values will persist in save)");
+                return;
+            }
+
+            int restored = 0;
+            foreach (var kvp in originalScienceValues)
+            {
+                ScienceSubject subject = ResearchAndDevelopment.GetSubjectByID(kvp.Key);
+                if (subject != null && subject.science != kvp.Value)
+                {
+                    ParsekLog.Verbose("GameStateStore",
+                        $"Restoring R&D science: {kvp.Key} {subject.science:F1} → {kvp.Value:F1}");
+                    subject.science = kvp.Value;
+                    restored++;
+                }
+            }
+
+            if (restored > 0)
+                ParsekLog.Info("GameStateStore", $"Restored {restored} science subjects in R&D");
+        }
+
+        /// <summary>
+        /// Serializes committed science subjects into a SCIENCE_SUBJECTS ConfigNode on the parent.
+        /// </summary>
+        internal static void SerializeScienceSubjectsInto(ConfigNode parent)
+        {
+            if (committedScienceSubjects.Count == 0 && originalScienceValues.Count == 0) return;
+
+            ConfigNode sciNode = parent.AddNode("SCIENCE_SUBJECTS");
+            foreach (var kvp in committedScienceSubjects)
+            {
+                ConfigNode entry = sciNode.AddNode("SUBJECT");
+                entry.AddValue("id", kvp.Key);
+                entry.AddValue("science", kvp.Value.ToString("R", CultureInfo.InvariantCulture));
+            }
+
+            if (originalScienceValues.Count > 0)
+            {
+                ConfigNode origNode = sciNode.AddNode("ORIGINALS");
+                foreach (var kvp in originalScienceValues)
+                {
+                    ConfigNode entry = origNode.AddNode("SUBJECT");
+                    entry.AddValue("id", kvp.Key);
+                    entry.AddValue("science", kvp.Value.ToString("R", CultureInfo.InvariantCulture));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Deserializes committed science subjects from a SCIENCE_SUBJECTS ConfigNode on the parent.
+        /// </summary>
+        internal static void DeserializeScienceSubjectsFrom(ConfigNode parent)
+        {
+            ConfigNode sciSubjectsNode = parent.GetNode("SCIENCE_SUBJECTS");
+            if (sciSubjectsNode == null) return;
+
+            ConfigNode[] subjectNodes = sciSubjectsNode.GetNodes("SUBJECT");
+            if (subjectNodes != null)
+            {
+                foreach (var sn in subjectNodes)
+                {
+                    string id = sn.GetValue("id");
+                    string sciStr = sn.GetValue("science");
+                    float sci;
+                    if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(sciStr) &&
+                        float.TryParse(sciStr, System.Globalization.NumberStyles.Float,
+                            CultureInfo.InvariantCulture, out sci))
+                    {
+                        committedScienceSubjects[id] = sci;
+                    }
+                }
+            }
+
+            ConfigNode origNode = sciSubjectsNode.GetNode("ORIGINALS");
+            if (origNode != null)
+            {
+                ConfigNode[] origSubjects = origNode.GetNodes("SUBJECT");
+                if (origSubjects != null)
+                {
+                    foreach (var sn in origSubjects)
+                    {
+                        string id = sn.GetValue("id");
+                        string sciStr = sn.GetValue("science");
+                        float sci;
+                        if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(sciStr) &&
+                            float.TryParse(sciStr, System.Globalization.NumberStyles.Float,
+                                CultureInfo.InvariantCulture, out sci))
+                        {
+                            originalScienceValues[id] = sci;
+                        }
+                    }
+                }
+            }
+        }
+
+        #endregion
+
         #region Baseline Management
 
         internal static void AddBaseline(GameStateBaseline baseline)
@@ -257,10 +451,13 @@ namespace Parsek
                 foreach (var snap in contractSnapshots)
                     snap.SerializeInto(rootNode);
 
+                SerializeScienceSubjectsInto(rootNode);
+
                 SafeWriteConfigNode(rootNode, path);
 
                 ParsekLog.Info("GameStateStore",
-                    $"Saved {events.Count} game state events, {contractSnapshots.Count} contract snapshots to {path}");
+                    $"Saved {events.Count} game state events, {contractSnapshots.Count} contract snapshots, " +
+                    $"{committedScienceSubjects.Count} science subjects to {path}");
                 return true;
             }
             catch (Exception ex)
@@ -289,6 +486,8 @@ namespace Parsek
             initialLoadDone = true;
             events.Clear();
             contractSnapshots.Clear();
+            committedScienceSubjects.Clear();
+            originalScienceValues.Clear();
 
             string path = RecordingPaths.ResolveSaveScopedPath(
                 RecordingPaths.BuildGameStateEventsRelativePath());
@@ -334,8 +533,11 @@ namespace Parsek
                         contractSnapshots.Add(ContractSnapshot.DeserializeFrom(sn));
                 }
 
+                DeserializeScienceSubjectsFrom(rootNode);
+
                 ParsekLog.Info("GameStateStore",
-                    $"Loaded {events.Count} game state events, {contractSnapshots.Count} contract snapshots from {path}");
+                    $"Loaded {events.Count} game state events, {contractSnapshots.Count} contract snapshots, " +
+                    $"{committedScienceSubjects.Count} science subjects from {path}");
 
                 // Log event type distribution for diagnostics
                 if (events.Count > 0)
@@ -481,6 +683,8 @@ namespace Parsek
             events.Clear();
             contractSnapshots.Clear();
             baselines.Clear();
+            committedScienceSubjects.Clear();
+            originalScienceValues.Clear();
             initialLoadDone = false;
             lastSaveFolder = null;
         }

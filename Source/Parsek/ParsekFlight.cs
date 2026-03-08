@@ -3205,6 +3205,7 @@ namespace Parsek
         {
             recorder = null;
             lastPlaybackIndex = 0;
+            GameStateRecorder.PendingScienceSubjects.Clear();
             Log("Recording cleared");
         }
 
