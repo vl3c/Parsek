@@ -60,7 +60,7 @@ Requires .NET SDK and KSP assemblies in `Kerbal Space Program/KSP_x64_Data/Manag
 
 ## Beyond Recording
 
-Parsek's infrastructure — looped playback, vessel snapshots, game state tracking, resource budgeting — forms a natural foundation for building on top of. Some possibilities:
+Parsek's infrastructure — looped playback, vessel snapshots, game state tracking, resource budgeting — forms a natural foundation for building on top of. These are not planned features, just ideas that the architecture makes possible:
 
 - **Logistics network** — fly a cargo route once, Parsek records it, then that recording becomes a reusable supply route that replays automatically between bases
 - **Multiplayer-like experience** — share recording files with other players and watch their missions play out as ghosts in your game, turning single-player KSP into a shared timeline
