@@ -34,6 +34,8 @@ namespace Parsek
         private double recordingStartUT;
         private GameObject ghostObject;
         private List<Material> previewGhostMaterials = new List<Material>();
+        private GhostPlaybackState previewGhostState;
+        private RecordingStore.Recording previewRecording;
         internal int lastPlaybackIndex = 0;
 
         // Per-ghost playback state (bundled to prevent dict-sync bugs)
@@ -3750,20 +3752,142 @@ namespace Parsek
 
             ExitAllWarpForPlaybackStart("Preview");
 
-            Color previewColor = Color.green;
-            ghostObject = BuildPreviewGhostFromActiveVessel("Parsek_Ghost_Preview");
-            if (ghostObject != null)
+            // Build preview ghost from CaptureAtStop snapshot (same as timeline ghosts)
+            // so that part events play back identically.
+            previewRecording = null;
+            previewGhostState = null;
+            GameObject ghost = null;
+            bool builtFromSnapshot = false;
+
+            var capture = recorder?.CaptureAtStop;
+            if (capture != null)
             {
-                previewGhostMaterials = new List<Material>();
-                Log("Manual preview ghost: built from active vessel snapshot");
+                previewRecording = capture;
+                List<ParachuteGhostInfo> parachuteInfoList;
+                List<JettisonGhostInfo> jettisonInfoList;
+                List<EngineGhostInfo> engineInfoList;
+                List<DeployableGhostInfo> deployableInfoList;
+                List<HeatGhostInfo> heatInfoList;
+                List<LightGhostInfo> lightInfoList;
+                List<FairingGhostInfo> fairingInfoList;
+                List<RcsGhostInfo> rcsInfoList;
+                List<RoboticGhostInfo> roboticInfoList;
+                ghost = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
+                    previewRecording, "Parsek_Ghost_Preview",
+                    out parachuteInfoList, out jettisonInfoList, out engineInfoList,
+                    out deployableInfoList, out heatInfoList, out lightInfoList,
+                    out fairingInfoList, out rcsInfoList, out roboticInfoList);
+                builtFromSnapshot = ghost != null;
+
+                if (builtFromSnapshot)
+                {
+                    previewGhostState = new GhostPlaybackState
+                    {
+                        ghost = ghost,
+                        playbackIndex = 0,
+                        partEventIndex = 0,
+                        partTree = GhostVisualBuilder.BuildPartSubtreeMap(
+                            GhostVisualBuilder.GetGhostSnapshot(previewRecording))
+                    };
+
+                    previewGhostState.materials = new List<Material>();
+
+                    if (parachuteInfoList != null)
+                    {
+                        previewGhostState.parachuteInfos = new Dictionary<uint, ParachuteGhostInfo>();
+                        for (int i = 0; i < parachuteInfoList.Count; i++)
+                            previewGhostState.parachuteInfos[parachuteInfoList[i].partPersistentId] = parachuteInfoList[i];
+                    }
+                    if (jettisonInfoList != null)
+                    {
+                        previewGhostState.jettisonInfos = new Dictionary<uint, JettisonGhostInfo>();
+                        for (int i = 0; i < jettisonInfoList.Count; i++)
+                            previewGhostState.jettisonInfos[jettisonInfoList[i].partPersistentId] = jettisonInfoList[i];
+                    }
+                    if (engineInfoList != null)
+                    {
+                        previewGhostState.engineInfos = new Dictionary<ulong, EngineGhostInfo>();
+                        for (int i = 0; i < engineInfoList.Count; i++)
+                        {
+                            ulong key = FlightRecorder.EncodeEngineKey(
+                                engineInfoList[i].partPersistentId, engineInfoList[i].moduleIndex);
+                            previewGhostState.engineInfos[key] = engineInfoList[i];
+                        }
+                    }
+                    if (deployableInfoList != null)
+                    {
+                        previewGhostState.deployableInfos = new Dictionary<uint, DeployableGhostInfo>();
+                        for (int i = 0; i < deployableInfoList.Count; i++)
+                            previewGhostState.deployableInfos[deployableInfoList[i].partPersistentId] = deployableInfoList[i];
+                    }
+                    if (heatInfoList != null)
+                    {
+                        previewGhostState.heatInfos = new Dictionary<uint, HeatGhostInfo>();
+                        for (int i = 0; i < heatInfoList.Count; i++)
+                            previewGhostState.heatInfos[heatInfoList[i].partPersistentId] = heatInfoList[i];
+                    }
+                    if (lightInfoList != null)
+                    {
+                        previewGhostState.lightInfos = new Dictionary<uint, LightGhostInfo>();
+                        previewGhostState.lightPlaybackStates = new Dictionary<uint, LightPlaybackState>();
+                        for (int i = 0; i < lightInfoList.Count; i++)
+                        {
+                            previewGhostState.lightInfos[lightInfoList[i].partPersistentId] = lightInfoList[i];
+                            previewGhostState.lightPlaybackStates[lightInfoList[i].partPersistentId] = new LightPlaybackState();
+                        }
+                    }
+                    if (fairingInfoList != null)
+                    {
+                        previewGhostState.fairingInfos = new Dictionary<uint, FairingGhostInfo>();
+                        for (int i = 0; i < fairingInfoList.Count; i++)
+                            previewGhostState.fairingInfos[fairingInfoList[i].partPersistentId] = fairingInfoList[i];
+                    }
+                    if (rcsInfoList != null)
+                    {
+                        previewGhostState.rcsInfos = new Dictionary<ulong, RcsGhostInfo>();
+                        for (int i = 0; i < rcsInfoList.Count; i++)
+                        {
+                            ulong key = FlightRecorder.EncodeEngineKey(
+                                rcsInfoList[i].partPersistentId, rcsInfoList[i].moduleIndex);
+                            previewGhostState.rcsInfos[key] = rcsInfoList[i];
+                        }
+                    }
+                    if (roboticInfoList != null)
+                    {
+                        previewGhostState.roboticInfos = new Dictionary<ulong, RoboticGhostInfo>();
+                        for (int i = 0; i < roboticInfoList.Count; i++)
+                        {
+                            ulong key = FlightRecorder.EncodeEngineKey(
+                                roboticInfoList[i].partPersistentId, roboticInfoList[i].moduleIndex);
+                            previewGhostState.roboticInfos[key] = roboticInfoList[i];
+                        }
+                    }
+
+                    InitializeInventoryPlacementVisibility(previewRecording, previewGhostState);
+
+                    previewGhostState.reentryFxInfo = GhostVisualBuilder.TryBuildReentryFx(
+                        ghost, previewGhostState.heatInfos, -1, previewRecording.VesselName);
+
+                    Log("Manual preview ghost: built from recording-start snapshot (with part events)");
+                }
+            }
+
+            if (!builtFromSnapshot)
+            {
+                Color previewColor = Color.green;
+                ghost = CreateGhostSphere("Parsek_Ghost_Preview", previewColor);
+                var m = ghost.GetComponent<Renderer>()?.material;
+                previewGhostMaterials = m != null ? new List<Material> { m } : new List<Material>();
+                previewGhostState = null;
+                previewRecording = null;
+                Log("Manual preview ghost: using sphere fallback");
             }
             else
             {
-                ghostObject = CreateGhostSphere("Parsek_Ghost_Preview", previewColor);
-                var m = ghostObject.GetComponent<Renderer>()?.material;
-                previewGhostMaterials = m != null ? new List<Material> { m } : new List<Material>();
-                Log("Manual preview ghost: using sphere fallback");
+                previewGhostMaterials = previewGhostState.materials;
             }
+
+            ghostObject = ghost;
 
             // Replay from current time (ghost starts at recording start position)
             playbackStartUT = Planetarium.GetUniversalTime();
@@ -3782,15 +3906,54 @@ namespace Parsek
                 Log("Manual playback stopped");
             isPlaying = false;
 
-            if (previewGhostMaterials != null)
+            if (previewGhostState != null)
             {
+                if (previewGhostState.materials != null)
+                {
+                    for (int i = 0; i < previewGhostState.materials.Count; i++)
+                    {
+                        if (previewGhostState.materials[i] != null)
+                            Destroy(previewGhostState.materials[i]);
+                    }
+                }
+
+                if (previewGhostState.engineInfos != null)
+                {
+                    foreach (var info in previewGhostState.engineInfos.Values)
+                        for (int i = 0; i < info.particleSystems.Count; i++)
+                            if (info.particleSystems[i] != null)
+                                Destroy(info.particleSystems[i].gameObject);
+                }
+
+                if (previewGhostState.rcsInfos != null)
+                {
+                    foreach (var info in previewGhostState.rcsInfos.Values)
+                        for (int i = 0; i < info.particleSystems.Count; i++)
+                            if (info.particleSystems[i] != null)
+                                Destroy(info.particleSystems[i].gameObject);
+                }
+
+                if (previewGhostState.reentryFxInfo != null && previewGhostState.reentryFxInfo.allClonedMaterials != null)
+                {
+                    for (int i = 0; i < previewGhostState.reentryFxInfo.allClonedMaterials.Count; i++)
+                        if (previewGhostState.reentryFxInfo.allClonedMaterials[i] != null)
+                            Destroy(previewGhostState.reentryFxInfo.allClonedMaterials[i]);
+                }
+
+                DestroyAllFakeCanopies(previewGhostState);
+                previewGhostState = null;
+            }
+            else if (previewGhostMaterials != null)
+            {
+                // Sphere fallback path — no GhostPlaybackState
                 for (int i = 0; i < previewGhostMaterials.Count; i++)
                 {
                     if (previewGhostMaterials[i] != null)
                         Destroy(previewGhostMaterials[i]);
                 }
-                previewGhostMaterials.Clear();
             }
+            previewGhostMaterials.Clear();
+            previewRecording = null;
 
             if (ghostObject != null)
             {
@@ -3822,9 +3985,16 @@ namespace Parsek
                 return;
             }
 
-            InterpolationResult unused;
+            InterpolationResult interpResult;
             InterpolateAndPosition(ghostObject, recording, orbitSegments,
-                ref lastPlaybackIndex, recordingTime, 10000, out unused);
+                ref lastPlaybackIndex, recordingTime, 10000, out interpResult);
+
+            if (previewGhostState != null && previewRecording != null)
+            {
+                previewGhostState.SetInterpolated(interpResult);
+                ApplyPartEvents(-1, previewRecording, recordingTime, previewGhostState);
+                UpdateReentryFx(-1, previewGhostState, previewRecording.VesselName ?? "Preview");
+            }
         }
 
         #endregion
@@ -5820,32 +5990,6 @@ namespace Parsek
                     for (int c = 0; c < children.Count; c++)
                         stack.Push(children[c]);
             }
-        }
-
-        GameObject BuildPreviewGhostFromActiveVessel(string name)
-        {
-            Vessel vessel = FlightGlobals.ActiveVessel;
-            if (vessel == null)
-            {
-                ParsekLog.Warn("Flight", "BuildPreviewGhost: no active vessel");
-                return null;
-            }
-
-            ProtoVessel pv = vessel.BackupVessel();
-            if (pv == null)
-            {
-                ParsekLog.Warn("Flight", "BuildPreviewGhost: BackupVessel() returned null");
-                return null;
-            }
-
-            ConfigNode node = new ConfigNode("VESSEL");
-            pv.Save(node);
-
-            var recordingView = new RecordingStore.Recording
-            {
-                VesselSnapshot = node
-            };
-            return GhostVisualBuilder.BuildTimelineGhostFromSnapshot(recordingView, name);
         }
 
         bool IsAnyWarpActive()
