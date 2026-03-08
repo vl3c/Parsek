@@ -803,12 +803,12 @@ All planned part event types are now implemented. 28 event types are recorded; m
 - [x] Game state baselines (`GameStateBaseline`) — captured at commit points for future timeline visualization
 - [x] `FlushPendingEvents` — captures events that happen without a recording (research in R&D, facility upgrades)
 
-**Restore points (done):**
-Auto-saved quicksaves at recording commit points. Launch save captured at recording start, promoted on commit, discarded if recording is discarded. "Go Back" UI loads a restore point, increments epoch, resets playback state, defers resource adjustment, re-reserves crew. All committed recordings replay as ghosts.
+**Rewind (done):**
+Each recording owns a quicksave captured at recording start, stored in `Parsek/Saves/` (invisible to KSP's load menu). A "Rewind" button per recording loads the quicksave, strips vessels, and transitions to Space Center. Resource snapshot captured at save time enables correct differential adjustment. All committed recordings replay as ghosts from the rewound point.
 
-**New source files:** `RestorePointStore.cs` (data model, static store, go-back flags, file I/O), `RestorePointDialog.cs` (picker, confirmation, delete dialogs).
+Rewind infrastructure lives in `RecordingStore.cs` (fields on `Recording`, static rewind flags, `InitiateRewind`, `CanRewind`). No separate store or dialog files.
 
-See `docs/done/design-going-back-in-time.md` and `docs/done/design-restore-points.md` for full design rationale. The mechanism is snapshot-based (like `git checkout`), not event-reversal-based. No timeline branching.
+See `docs/done/design-going-back-in-time.md` and `docs/done/design-restore-points.md` for design rationale. The mechanism is snapshot-based (like `git checkout`), not event-reversal-based. No timeline branching.
 
 ### Phase 6: Recording Tree / Multi-Vessel Recording (Complete)
 

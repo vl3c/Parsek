@@ -28,7 +28,7 @@ namespace Parsek
         private static readonly List<TrajectoryPoint> noRecording = new List<TrajectoryPoint>();
         private static readonly List<OrbitSegment> noOrbitSegments = new List<OrbitSegment>();
 
-        // Manual playback state (F10/F11 preview of current recording)
+        // Manual playback state (preview of current recording)
         private bool isPlaying = false;
         private double playbackStartUT;
         private double recordingStartUT;
@@ -263,7 +263,6 @@ namespace Parsek
         void Start()
         {
             Log("Parsek Flight loaded.");
-            Log("Press F9 to record, F10 to preview playback.");
 
             GameEvents.onGameSceneLoadRequested.Add(OnSceneChangeRequested);
             GameEvents.onFlightReady.Add(OnFlightReady);
@@ -293,7 +292,7 @@ namespace Parsek
             toolbarControl = gameObject.AddComponent<ToolbarControl>();
             toolbarControl.AddToAllToolbars(
                 () => { showUI = true; },
-                () => { showUI = false; },
+                () => { showUI = false; ui.CancelDeleteConfirm(); },
                 ApplicationLauncher.AppScenes.FLIGHT | ApplicationLauncher.AppScenes.MAPVIEW,
                 MODID, "parsekButton",
                 "Parsek/Textures/parsek_38",
@@ -3046,17 +3045,6 @@ namespace Parsek
             pendingBoardingTargetInTree = false;
             dockingInProgress.Clear();
 
-            // Rewind: skip merge dialog checks — CanRewind guarantees no pending recordings.
-            // Must be BEFORE HasPendingTree/HasPending to avoid stale pending state from quicksave.
-            if (RecordingStore.RewindUT > 0)
-            {
-                ParsekLog.Info("Rewind",
-                    $"OnFlightReady: rewind complete at UT {RecordingStore.RewindUT}. " +
-                    $"Timeline: {RecordingStore.CommittedRecordings.Count} recordings");
-                RecordingStore.RewindUT = 0;
-                goto postMergeDialog; // Skip merge dialog checks, continue to crew swap + event subscription
-            }
-
             // Handle pending tree: show tree merge dialog.
             // On non-revert scene changes, pending trees are auto-committed by ParsekScenario.
             // Reaching here means either a revert or a fallback (auto-commit missed).
@@ -3115,8 +3103,6 @@ namespace Parsek
                 }
             }
 
-            postMergeDialog:
-
             // Swap reserved crew out of the active vessel so the player
             // can't record with them again (they belong to deferred-spawn vessels)
             int swapResult = ParsekScenario.SwapReservedCrewInFlight();
@@ -3149,33 +3135,6 @@ namespace Parsek
 
         void HandleInput()
         {
-            // F9 - Toggle recording
-            if (Input.GetKeyDown(KeyCode.F9))
-            {
-                if (!IsRecording)
-                    StartRecording();
-                else
-                    StopRecording();
-            }
-
-            // F10 - Start manual playback (preview current recording)
-            if (Input.GetKeyDown(KeyCode.F10))
-            {
-                if (!IsRecording && recording.Count > 0 && !isPlaying)
-                {
-                    StartPlayback();
-                }
-            }
-
-            // F11 - Stop manual playback
-            if (Input.GetKeyDown(KeyCode.F11))
-            {
-                if (isPlaying)
-                {
-                    StopPlayback();
-                }
-            }
-
             // Backspace - Exit watch mode (return to vessel)
             if (watchedRecordingIndex >= 0 && Input.GetKeyDown(KeyCode.Backspace))
             {
@@ -3663,6 +3622,11 @@ namespace Parsek
                     continue;
                 }
 
+                // Before spawning, recover any timeline-spawned vessel with the same name
+                // to prevent overlap collisions (e.g. an older committed recording already
+                // spawned the same vessel on the pad).
+                RecoverTimelineSpawnedVessel(leaf.VesselName);
+
                 try
                 {
                     uint spawnedPid = VesselSpawner.RespawnVessel(leaf.VesselSnapshot);
@@ -3683,6 +3647,44 @@ namespace Parsek
                 {
                     ParsekLog.Warn("Flight", $"SpawnTreeLeaves: exception spawning '{leaf.VesselName}': {ex.Message}");
                 }
+            }
+        }
+
+        /// <summary>
+        /// Finds and recovers any in-scene vessel that was timeline-spawned from a
+        /// committed recording with the given name. Prevents overlap collisions when
+        /// a tree commit spawns a vessel on top of an already-spawned timeline vessel.
+        /// </summary>
+        void RecoverTimelineSpawnedVessel(string vesselName)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                if (!rec.VesselSpawned || rec.SpawnedVesselPersistentId == 0) continue;
+                if (rec.VesselName != vesselName) continue;
+
+                // Find the loaded vessel by persistent ID
+                Vessel vessel = null;
+                for (int v = 0; v < FlightGlobals.Vessels.Count; v++)
+                {
+                    if (FlightGlobals.Vessels[v].persistentId == rec.SpawnedVesselPersistentId)
+                    {
+                        vessel = FlightGlobals.Vessels[v];
+                        break;
+                    }
+                }
+                if (vessel != null && vessel.loaded)
+                {
+                    ParsekLog.Info("Flight",
+                        $"RecoverTimelineSpawnedVessel: recovering '{vesselName}' pid={rec.SpawnedVesselPersistentId} " +
+                        $"(from recording #{i}) to make room for tree leaf spawn");
+                    ShipConstruction.RecoverVesselFromFlight(vessel.protoVessel, HighLogic.CurrentGame.flightState, true);
+                }
+
+                // Mark recording as no longer having a live vessel
+                rec.VesselSpawned = false;
+                rec.SpawnedVesselPersistentId = 0;
             }
         }
 
@@ -3736,7 +3738,7 @@ namespace Parsek
 
         #endregion
 
-        #region Manual Playback (F10/F11 preview)
+        #region Manual Playback (preview)
 
         public void StartPlayback()
         {
