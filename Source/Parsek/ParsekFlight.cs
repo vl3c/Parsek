@@ -28,7 +28,7 @@ namespace Parsek
         private static readonly List<TrajectoryPoint> noRecording = new List<TrajectoryPoint>();
         private static readonly List<OrbitSegment> noOrbitSegments = new List<OrbitSegment>();
 
-        // Manual playback state (F10/F11 preview of current recording)
+        // Manual playback state (preview of current recording)
         private bool isPlaying = false;
         private double playbackStartUT;
         private double recordingStartUT;
@@ -263,7 +263,6 @@ namespace Parsek
         void Start()
         {
             Log("Parsek Flight loaded.");
-            Log("Press F9 to record, F10 to preview playback.");
 
             GameEvents.onGameSceneLoadRequested.Add(OnSceneChangeRequested);
             GameEvents.onFlightReady.Add(OnFlightReady);
@@ -3136,33 +3135,6 @@ namespace Parsek
 
         void HandleInput()
         {
-            // F9 - Toggle recording
-            if (Input.GetKeyDown(KeyCode.F9))
-            {
-                if (!IsRecording)
-                    StartRecording();
-                else
-                    StopRecording();
-            }
-
-            // F10 - Start manual playback (preview current recording)
-            if (Input.GetKeyDown(KeyCode.F10))
-            {
-                if (!IsRecording && recording.Count > 0 && !isPlaying)
-                {
-                    StartPlayback();
-                }
-            }
-
-            // F11 - Stop manual playback
-            if (Input.GetKeyDown(KeyCode.F11))
-            {
-                if (isPlaying)
-                {
-                    StopPlayback();
-                }
-            }
-
             // Backspace - Exit watch mode (return to vessel)
             if (watchedRecordingIndex >= 0 && Input.GetKeyDown(KeyCode.Backspace))
             {
@@ -3766,7 +3738,7 @@ namespace Parsek
 
         #endregion
 
-        #region Manual Playback (F10/F11 preview)
+        #region Manual Playback (preview)
 
         public void StartPlayback()
         {
