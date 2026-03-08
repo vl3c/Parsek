@@ -225,7 +225,86 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ReplayCommittedActions_FlagsRestoredAfterException()
+        public void ReplayCommittedActions_NullList_NoOp()
+        {
+            ActionReplay.ReplayCommittedActions(null);
+            // No crash = success
+        }
+
+        [Fact]
+        public void ReplayCommittedActions_PartiallyReplayed_CountsOnlyUnreplayed()
+        {
+            try
+            {
+                var milestone = new Milestone
+                {
+                    MilestoneId = "test-partial",
+                    Committed = true,
+                    Events = new List<GameStateEvent>
+                    {
+                        // [0] already replayed
+                        new GameStateEvent
+                        {
+                            ut = 100,
+                            eventType = GameStateEventType.TechResearched,
+                            key = "basicRocketry"
+                        },
+                        // [1] already replayed
+                        new GameStateEvent
+                        {
+                            ut = 200,
+                            eventType = GameStateEventType.FundsChanged,
+                            key = "ContractReward"
+                        },
+                        // [2] already replayed
+                        new GameStateEvent
+                        {
+                            ut = 300,
+                            eventType = GameStateEventType.PartPurchased,
+                            key = "mk1pod.v2"
+                        },
+                        // [3] unreplayed, replayable
+                        new GameStateEvent
+                        {
+                            ut = 400,
+                            eventType = GameStateEventType.TechResearched,
+                            key = "stability"
+                        },
+                        // [4] unreplayed, not replayable
+                        new GameStateEvent
+                        {
+                            ut = 500,
+                            eventType = GameStateEventType.ContractAccepted,
+                            key = "SatelliteContract"
+                        }
+                    },
+                    LastReplayedEventIndex = 2
+                };
+
+                var milestones = new List<Milestone> { milestone };
+                ActionReplay.ReplayCommittedActions(milestones);
+
+                // Events [3] and [4] are unreplayed; only [3] is replayable
+                bool foundActionCount = false;
+                foreach (var line in logLines)
+                {
+                    if (line.Contains("1 unreplayed actions"))
+                    {
+                        foundActionCount = true;
+                        break;
+                    }
+                }
+                Assert.True(foundActionCount,
+                    $"Expected log containing '1 unreplayed actions'. Log lines:\n{string.Join("\n", logLines)}");
+            }
+            finally
+            {
+                Cleanup();
+            }
+        }
+
+        [Fact]
+        public void ReplayCommittedActions_FlagsRestoredAfterCall()
         {
             try
             {
