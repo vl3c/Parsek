@@ -139,6 +139,8 @@ namespace Parsek
             if (GUILayout.Button($"Recordings ({committedCount})"))
             {
                 showRecordingsWindow = !showRecordingsWindow;
+                if (!showRecordingsWindow)
+                    deleteConfirmIndex = -1;
                 ParsekLog.Verbose("UI", $"Recordings window toggled: {(showRecordingsWindow ? "open" : "closed")}");
             }
             if (GUILayout.Button($"Actions ({actionCount})"))
@@ -962,6 +964,7 @@ namespace Parsek
             if (GUILayout.Button("Close"))
             {
                 showRecordingsWindow = false;
+                deleteConfirmIndex = -1;
                 ParsekLog.Verbose("UI", "Recordings window closed via button");
             }
 
@@ -1128,7 +1131,7 @@ namespace Parsek
                 }
             }
 
-            // Delete button
+            // Delete button (X → ? confirm → delete, right-click ? to cancel)
             GUI.enabled = flight.CanDeleteRecording;
             if (deleteConfirmIndex == ri)
             {
@@ -1145,6 +1148,13 @@ namespace Parsek
                     GUI.enabled = true;
                     GUILayout.EndHorizontal();
                     return true; // list changed
+                }
+                // Right-click cancels the delete confirmation
+                if (Event.current.type == EventType.MouseDown && Event.current.button == 1 &&
+                    GUILayoutUtility.GetLastRect().Contains(Event.current.mousePosition))
+                {
+                    deleteConfirmIndex = -1;
+                    Event.current.Use();
                 }
             }
             else
@@ -1227,6 +1237,11 @@ namespace Parsek
                 InvalidateSort();
                 ParsekLog.Verbose("UI", $"Sort column changed: {sortColumn} {(sortAscending ? "asc" : "desc")}");
             }
+        }
+
+        internal void CancelDeleteConfirm()
+        {
+            deleteConfirmIndex = -1;
         }
 
         private void InvalidateSort()
