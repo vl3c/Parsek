@@ -10,10 +10,10 @@
 
 1. **Launch a mission** and fly it normally
 2. **Recording starts automatically** when your vessel leaves the pad
-3. **Revert to launch** when you're done
-4. **Choose what happens** — keep the vessel for later, recover it for funds, or discard
+3. **Merge your recorded mission** to the single player main timeline
+4. **Rewind to any launch**
 5. **Launch another mission** — your recorded flight replays alongside you
-6. **Vessel spawns** at its final position with the original crew when playback finishes
+6. **Vessel spawns** at its final recorded position with the original crew when playback finishes
 
 Recorded vessels are full visual replicas — original part meshes, textures, engine flames, staging, and parachutes all play back at the correct times.
 
@@ -25,17 +25,11 @@ Recorded vessels are full visual replicas — original part meshes, textures, en
 - **Crew management** — reserved crew get temporary replacements so your roster stays full
 - **Orbital recording** — time warp segments use analytical Keplerian orbits
 - **Part events** — staging, decoupling, parachutes, engines, solar panels, antennas, lights, landing gear, cargo bays, fairings, RCS, and inventory deployables replay on the ghost; docking/undocking are recorded as chain boundaries
-- **Resource tracking** — funds, science, and reputation deltas applied at the correct time
+- **Resource tracking** — game actions related to funds, science, and reputation deltas are recorded and applied at the correct time
 - **Recordings manager** — browse, sort, loop, and delete individual recordings
 - **External recording files** — bulk trajectory data stored in sidecar files, keeping saves lightweight
 
 ## Controls
-
-| Key     | Action                               |
-| ------- | ------------------------------------ |
-| **F9**  | Start / Stop recording               |
-| **F10** | Preview playback (current recording) |
-| **F11** | Stop preview                         |
 
 The Parsek window is available from the toolbar button in Flight and Map view.
 
