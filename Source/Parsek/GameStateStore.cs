@@ -234,6 +234,47 @@ namespace Parsek
             ParsekLog.Info("GameStateStore", $"Cleared {count} committed science subjects");
         }
 
+        /// <summary>
+        /// Serializes committed science subjects into a SCIENCE_SUBJECTS ConfigNode on the parent.
+        /// </summary>
+        internal static void SerializeScienceSubjectsInto(ConfigNode parent)
+        {
+            if (committedScienceSubjects.Count == 0) return;
+
+            ConfigNode sciNode = parent.AddNode("SCIENCE_SUBJECTS");
+            foreach (var kvp in committedScienceSubjects)
+            {
+                ConfigNode entry = sciNode.AddNode("SUBJECT");
+                entry.AddValue("id", kvp.Key);
+                entry.AddValue("science", kvp.Value.ToString("R", CultureInfo.InvariantCulture));
+            }
+        }
+
+        /// <summary>
+        /// Deserializes committed science subjects from a SCIENCE_SUBJECTS ConfigNode on the parent.
+        /// </summary>
+        internal static void DeserializeScienceSubjectsFrom(ConfigNode parent)
+        {
+            ConfigNode sciSubjectsNode = parent.GetNode("SCIENCE_SUBJECTS");
+            if (sciSubjectsNode == null) return;
+
+            ConfigNode[] subjectNodes = sciSubjectsNode.GetNodes("SUBJECT");
+            if (subjectNodes == null) return;
+
+            foreach (var sn in subjectNodes)
+            {
+                string id = sn.GetValue("id");
+                string sciStr = sn.GetValue("science");
+                float sci;
+                if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(sciStr) &&
+                    float.TryParse(sciStr, System.Globalization.NumberStyles.Float,
+                        CultureInfo.InvariantCulture, out sci))
+                {
+                    committedScienceSubjects[id] = sci;
+                }
+            }
+        }
+
         #endregion
 
         #region Baseline Management
@@ -314,16 +355,7 @@ namespace Parsek
                 foreach (var snap in contractSnapshots)
                     snap.SerializeInto(rootNode);
 
-                if (committedScienceSubjects.Count > 0)
-                {
-                    ConfigNode sciNode = rootNode.AddNode("SCIENCE_SUBJECTS");
-                    foreach (var kvp in committedScienceSubjects)
-                    {
-                        ConfigNode entry = sciNode.AddNode("SUBJECT");
-                        entry.AddValue("id", kvp.Key);
-                        entry.AddValue("science", kvp.Value.ToString("R", CultureInfo.InvariantCulture));
-                    }
-                }
+                SerializeScienceSubjectsInto(rootNode);
 
                 SafeWriteConfigNode(rootNode, path);
 
@@ -404,26 +436,7 @@ namespace Parsek
                         contractSnapshots.Add(ContractSnapshot.DeserializeFrom(sn));
                 }
 
-                ConfigNode sciSubjectsNode = rootNode.GetNode("SCIENCE_SUBJECTS");
-                if (sciSubjectsNode != null)
-                {
-                    ConfigNode[] subjectNodes = sciSubjectsNode.GetNodes("SUBJECT");
-                    if (subjectNodes != null)
-                    {
-                        foreach (var sn in subjectNodes)
-                        {
-                            string id = sn.GetValue("id");
-                            string sciStr = sn.GetValue("science");
-                            float sci;
-                            if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(sciStr) &&
-                                float.TryParse(sciStr, System.Globalization.NumberStyles.Float,
-                                    CultureInfo.InvariantCulture, out sci))
-                            {
-                                committedScienceSubjects[id] = sci;
-                            }
-                        }
-                    }
-                }
+                DeserializeScienceSubjectsFrom(rootNode);
 
                 ParsekLog.Info("GameStateStore",
                     $"Loaded {events.Count} game state events, {contractSnapshots.Count} contract snapshots, " +
