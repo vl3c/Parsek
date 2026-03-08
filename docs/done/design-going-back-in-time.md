@@ -85,13 +85,13 @@ The game state event system is NOT for reversal. It serves as:
 - UI resource budget display — red/yellow over-commitment warnings
 - Game state baselines — captured at commit points for future timeline visualization
 
-**Remaining:**
-- Restore point auto-saves at commit points
-- "Go Back" UI (restore point picker)
+**Done:**
+- Per-recording rewind saves — quicksave captured at recording start, stored in `Parsek/Saves/`, owned by the recording
+- Rewind UI — per-recording "Rewind" button in Recordings window, confirmation dialog, loads quicksave into Space Center
 
-## Open Design Questions
+## Resolved Design Questions
 
-- How does the restore point UI present available points? Just a UT list? Calendar format? Tied to recording commit times?
-- Should the player be able to create manual restore points, or only auto-generated ones?
-- How do we handle facility upgrades that happened after the restore point? (Player goes back, facility reverts to pre-upgrade state from save load, but recordings don't depend on facilities — so this just works)
-- Do we need to prevent the player from downgrading facilities or cancelling contracts that recordings depend on? (Probably not — recordings capture vessels as-built and don't reference external state)
+- **UI**: Rewind button per recording in the Recordings window (not a separate picker dialog). Each recording with a rewind save shows the button.
+- **Manual vs auto**: Auto-only. Quicksave captured at recording start for every fresh (non-promotion) recording.
+- **Facility upgrades**: Just works — save load naturally reverts facilities, recordings don't depend on facility state.
+- **Vessel spawning on rewind**: Vessels stripped from flight state, game loads into Space Center. Player can enter buildings or launch a new vessel, then watch recordings replay as ghosts.

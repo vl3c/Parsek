@@ -171,8 +171,11 @@ namespace Parsek
                 ScenarioLog($"[Parsek Scenario] Save folder changed to '{currentSave}' — resetting session state");
             }
 
-            // Load crew replacement mappings from the node (both initial and revert paths need this)
-            LoadCrewReplacements(node);
+            // Load crew replacement mappings from the node (both initial and revert paths need this).
+            // Skip during go-back: in-memory crewReplacements is the source of truth
+            // (it has replacements for recordings committed after this quicksave).
+            if (!RecordingStore.IsRewinding)
+                LoadCrewReplacements(node);
 
             // Game state recorder lifecycle — re-subscribe on every OnLoad (handles reverts)
             stateRecorder?.Unsubscribe();
@@ -182,6 +185,30 @@ namespace Parsek
                 GameStateStore.LoadEventFile();
                 GameStateStore.LoadBaselines();
                 MilestoneStore.LoadMilestoneFile();
+
+                // Clean up stale parsek_rw_*.sfs temp files left by a crash during rewind
+                try
+                {
+                    string savesDir = System.IO.Path.Combine(
+                        KSPUtil.ApplicationRootPath ?? "", "saves", HighLogic.SaveFolder ?? "");
+                    if (System.IO.Directory.Exists(savesDir))
+                    {
+                        string[] staleFiles = System.IO.Directory.GetFiles(savesDir, "parsek_rw_*.sfs");
+                        for (int s = 0; s < staleFiles.Length; s++)
+                        {
+                            try
+                            {
+                                System.IO.File.Delete(staleFiles[s]);
+                                ScenarioLog($"[Parsek Scenario] Deleted stale rewind temp file: {System.IO.Path.GetFileName(staleFiles[s])}");
+                            }
+                            catch { }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ScenarioLog($"[Parsek Scenario] Failed to scan for stale rewind temp files: {ex.Message}");
+                }
 
                 // Restore epoch from save
                 string epochStr = node.GetValue("milestoneEpoch");
@@ -232,6 +259,50 @@ namespace Parsek
 
             if (initialLoadDone)
             {
+                // Go-back detection: must be BEFORE revert detection and BEFORE any
+                // .sfs data loading. In-memory state is the source of truth.
+                if (RecordingStore.IsRewinding)
+                {
+                    ParsekLog.Info("Rewind",
+                        $"OnLoad: rewind detected, skipping .sfs recording/crew load " +
+                        $"(using {recordings.Count} in-memory recordings)");
+
+                    // Increment epoch (in-memory, NOT from .sfs — the quicksave has stale epoch)
+                    MilestoneStore.CurrentEpoch++;
+                    ParsekLog.Info("Rewind",
+                        $"OnLoad: epoch incremented to {MilestoneStore.CurrentEpoch}");
+
+                    // Restore milestone mutable state with resetUnmatched=true
+                    // (milestones created after rewind point get reset to unreplayed)
+                    MilestoneStore.RestoreMutableState(node, resetUnmatched: true);
+
+                    // Reset ALL playback state (recordings + trees)
+                    var (standaloneCount, treeCount) = RecordingStore.ResetAllPlaybackState();
+                    ParsekLog.Info("Rewind",
+                        $"OnLoad: resetting playback state for {standaloneCount} recordings + {treeCount} trees");
+
+                    // Set budgetDeductionEpoch BEFORE scheduling coroutine
+                    // (prevents ApplyBudgetDeductionWhenReady from double-deducting)
+                    budgetDeductionEpoch = MilestoneStore.CurrentEpoch;
+
+                    // Schedule resource adjustment (deferred — Funding.Instance etc. not ready in OnLoad)
+                    StartCoroutine(ApplyRewindResourceAdjustment());
+                    ParsekLog.Info("Rewind",
+                        "OnLoad: resource adjustment deferred (waiting for singletons)");
+
+                    // Re-reserve crew from all recording snapshots
+                    ReserveSnapshotCrew();
+
+                    // Clear rewind flags — rewind loads into SpaceCenter, not Flight
+                    RecordingStore.IsRewinding = false;
+                    ParsekLog.Info("Rewind",
+                        $"OnLoad: rewind complete at UT {RecordingStore.RewindUT}. " +
+                        $"Timeline: {recordings.Count} recordings");
+                    RecordingStore.RewindUT = 0;
+
+                    return; // Skip ALL existing revert/scene-change logic
+                }
+
                 // Detect revert vs scene change. On a revert, the quicksave is older:
                 // its epoch is lower (after a prior revert bumped it) or it has fewer
                 // recordings (new ones were committed since launch). On a scene change,
@@ -766,6 +837,80 @@ namespace Parsek
                 $"{recMarked} recording(s), {treeMarked} tree(s), and {mileMarked} milestone(s) marked as fully applied");
         }
 
+        /// <summary>
+        /// Applies the differential resource adjustment after a rewind.
+        /// Deferred via coroutine because Funding/R&amp;D/Reputation singletons
+        /// are not available during OnLoad.
+        /// </summary>
+        private IEnumerator ApplyRewindResourceAdjustment()
+        {
+            // Capture before yielding — RewindReserved could theoretically be overwritten
+            // if another rewind starts before the coroutine completes.
+            var saved = RecordingStore.RewindReserved;
+
+            // Wait until ALL resource singletons are available (same pattern as ApplyBudgetDeductionWhenReady)
+            int maxWait = 120; // ~2 seconds at 60fps
+            while (maxWait-- > 0
+                   && (Funding.Instance == null
+                       || ResearchAndDevelopment.Instance == null
+                       || Reputation.Instance == null))
+                yield return null;
+
+            if (Funding.Instance == null || ResearchAndDevelopment.Instance == null || Reputation.Instance == null)
+            {
+                ParsekLog.Warn("Rewind",
+                    "Resource adjustment aborted: singletons not available after 120 frames");
+                yield break;
+            }
+
+            // Compute current full cost (same method used at save time — consistent baseline)
+            var currentReserved = ResourceBudget.ComputeTotalFullCost(
+                RecordingStore.CommittedRecordings,
+                MilestoneStore.Milestones,
+                RecordingStore.CommittedTrees);
+
+            // Differential deduction (saved was captured before yielding)
+            double deltaFunds = currentReserved.reservedFunds - saved.reservedFunds;
+            double deltaScience = currentReserved.reservedScience - saved.reservedScience;
+            double deltaRep = currentReserved.reservedReputation - saved.reservedReputation;
+
+            var ic = CultureInfo.InvariantCulture;
+            ParsekLog.Info("Rewind",
+                $"Resource adjustment: reserved ({saved.reservedFunds.ToString("F1", ic)}," +
+                $"{saved.reservedScience.ToString("F1", ic)}," +
+                $"{saved.reservedReputation.ToString("F1", ic)}) -> " +
+                $"({currentReserved.reservedFunds.ToString("F1", ic)}," +
+                $"{currentReserved.reservedScience.ToString("F1", ic)}," +
+                $"{currentReserved.reservedReputation.ToString("F1", ic)}), " +
+                $"delta ({deltaFunds.ToString("F1", ic)}," +
+                $"{deltaScience.ToString("F1", ic)}," +
+                $"{deltaRep.ToString("F1", ic)})");
+
+            // Apply with suppression (prevent synthetic game state events)
+            GameStateRecorder.SuppressResourceEvents = true;
+            try
+            {
+                if (deltaFunds != 0)
+                    Funding.Instance.AddFunds(-deltaFunds, TransactionReasons.None);
+                if (deltaScience != 0)
+                    ResearchAndDevelopment.Instance.AddScience((float)-deltaScience, TransactionReasons.None);
+                if (deltaRep != 0)
+                    Reputation.Instance.AddReputation((float)-deltaRep, TransactionReasons.None);
+            }
+            finally
+            {
+                GameStateRecorder.SuppressResourceEvents = false;
+            }
+
+            // Mark everything as fully applied (prevents ghost playback from re-applying)
+            var (recCount, treeCount) = RecordingStore.MarkAllFullyApplied();
+            ParsekLog.Info("Rewind",
+                $"Resource adjustment: marking {recCount} recordings + {treeCount} trees as fully applied");
+
+            // Belt-and-suspenders epoch guard
+            budgetDeductionEpoch = MilestoneStore.CurrentEpoch;
+        }
+
         #endregion
 
         #region Crew Reservation
@@ -794,6 +939,15 @@ namespace Parsek
                 recNode.AddValue("preLaunchScience", rec.PreLaunchScience.ToString("R", CultureInfo.InvariantCulture));
             if (rec.PreLaunchReputation != 0)
                 recNode.AddValue("preLaunchRep", rec.PreLaunchReputation.ToString("R", CultureInfo.InvariantCulture));
+
+            // Rewind save metadata
+            if (!string.IsNullOrEmpty(rec.RewindSaveFileName))
+            {
+                recNode.AddValue("rewindSave", rec.RewindSaveFileName);
+                recNode.AddValue("rewindResFunds", rec.RewindReservedFunds.ToString("R", CultureInfo.InvariantCulture));
+                recNode.AddValue("rewindResSci", rec.RewindReservedScience.ToString("R", CultureInfo.InvariantCulture));
+                recNode.AddValue("rewindResRep", rec.RewindReservedRep.ToString("R", CultureInfo.InvariantCulture));
+            }
 
             // Atmosphere segment metadata (only if set, saves space)
             if (!string.IsNullOrEmpty(rec.SegmentPhase))
@@ -888,6 +1042,30 @@ namespace Parsek
                 float preLaunchRep;
                 if (float.TryParse(preLaunchRepStr, NumberStyles.Float, CultureInfo.InvariantCulture, out preLaunchRep))
                     rec.PreLaunchReputation = preLaunchRep;
+            }
+
+            // Rewind save metadata
+            rec.RewindSaveFileName = recNode.GetValue("rewindSave");
+            string rewindFundsStr = recNode.GetValue("rewindResFunds");
+            if (rewindFundsStr != null)
+            {
+                double rewindFunds;
+                if (double.TryParse(rewindFundsStr, NumberStyles.Float, CultureInfo.InvariantCulture, out rewindFunds))
+                    rec.RewindReservedFunds = rewindFunds;
+            }
+            string rewindSciStr = recNode.GetValue("rewindResSci");
+            if (rewindSciStr != null)
+            {
+                double rewindSci;
+                if (double.TryParse(rewindSciStr, NumberStyles.Float, CultureInfo.InvariantCulture, out rewindSci))
+                    rec.RewindReservedScience = rewindSci;
+            }
+            string rewindRepStr = recNode.GetValue("rewindResRep");
+            if (rewindRepStr != null)
+            {
+                float rewindRep;
+                if (float.TryParse(rewindRepStr, NumberStyles.Float, CultureInfo.InvariantCulture, out rewindRep))
+                    rec.RewindReservedRep = rewindRep;
             }
 
             // Atmosphere segment metadata
@@ -1277,6 +1455,16 @@ namespace Parsek
         private void OnVesselRecovered(ProtoVessel pv, bool fromTrackingStation)
         {
             if (pv == null) return;
+
+            // During rewind, vessels are stripped from the save which fires onVesselRecovered.
+            // Ignore these — the recordings must keep their snapshots for ghost playback and spawning.
+            if (RecordingStore.IsRewinding)
+            {
+                ParsekLog.Info("Scenario",
+                    $"Ignoring recovery of '{pv.vesselName}' during rewind");
+                return;
+            }
+
             string vesselName = pv.vesselName;
             if (string.IsNullOrEmpty(vesselName)) return;
 
@@ -1289,6 +1477,7 @@ namespace Parsek
         private void OnVesselTerminated(ProtoVessel pv)
         {
             if (pv == null) return;
+            if (RecordingStore.IsRewinding) return;
             string vesselName = pv.vesselName;
             if (string.IsNullOrEmpty(vesselName)) return;
 
