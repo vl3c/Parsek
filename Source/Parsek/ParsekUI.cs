@@ -775,7 +775,18 @@ namespace Parsek
             {
                 // Header row
                 GUILayout.BeginHorizontal();
-                GUILayout.Label("", GUILayout.Width(ColW_Enable)); // enable column header
+                // Select-all enable header checkbox
+                int enableCount = 0;
+                for (int i = 0; i < committed.Count; i++)
+                    if (committed[i].PlaybackEnabled) enableCount++;
+                bool allEnabled = enableCount == committed.Count;
+                bool newAllEnabled = GUILayout.Toggle(allEnabled, "", GUILayout.Width(ColW_Enable));
+                if (newAllEnabled != allEnabled)
+                {
+                    for (int i = 0; i < committed.Count; i++)
+                        committed[i].PlaybackEnabled = newAllEnabled;
+                    ParsekLog.Info("UI", $"Set playback enabled for all recordings: enabled={newAllEnabled}");
+                }
                 DrawSortableHeader("#", SortColumn.Index, ColW_Index);
                 GUILayout.Label("Phase", GUILayout.Width(ColW_Phase));
                 DrawSortableHeader("Name", SortColumn.Name, 0, true);
@@ -815,9 +826,9 @@ namespace Parsek
                 GUILayout.Space(ScrollbarWidth);
                 GUILayout.EndHorizontal();
 
-                // Scrollable table body
+                // Scrollable table body (alwaysShowVertical keeps columns aligned with header)
                 recordingsScrollPos = GUILayout.BeginScrollView(
-                    recordingsScrollPos, GUILayout.ExpandHeight(true));
+                    recordingsScrollPos, false, true, GUILayout.ExpandHeight(true));
 
                 // Rebuild if a header click invalidated during this frame
                 RebuildSortedIndices(committed, now);
