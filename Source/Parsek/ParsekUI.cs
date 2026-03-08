@@ -854,6 +854,9 @@ namespace Parsek
                 recordingsScrollPos = GUILayout.BeginScrollView(
                     recordingsScrollPos, GUILayout.ExpandHeight(true));
 
+                // Rebuild if a header click invalidated during this frame
+                RebuildSortedIndices(committed, now);
+
                 // Build chain grouping: chainId → list of sorted row indices
                 var chainRows = new Dictionary<string, List<int>>();
                 var seenChains = new HashSet<string>();
@@ -1229,7 +1232,6 @@ namespace Parsek
         private void InvalidateSort()
         {
             lastSortedCount = -1;
-            sortedIndices = null;
         }
 
         private void RebuildSortedIndices(List<RecordingStore.Recording> committed, double now)
