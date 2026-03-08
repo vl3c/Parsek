@@ -24,6 +24,10 @@ namespace Parsek.Tests.Generators
         private string segmentPhase;
         private string segmentBodyName;
         private bool playbackEnabled = true;
+        private string rewindSaveFileName;
+        private double rewindReservedFunds;
+        private double rewindReservedScience;
+        private float rewindReservedRep;
 
         // Default rotation for points that don't specify one explicitly
         private float defaultRotX, defaultRotY, defaultRotZ;
@@ -203,6 +207,16 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
+        public RecordingBuilder WithRewindSave(string fileName,
+            double funds = 0, double science = 0, float rep = 0)
+        {
+            rewindSaveFileName = fileName;
+            rewindReservedFunds = funds;
+            rewindReservedScience = science;
+            rewindReservedRep = rep;
+            return this;
+        }
+
         public RecordingBuilder WithGhostVisualSnapshot(ConfigNode snapshot)
         {
             ghostVisualSnapshot = snapshot;
@@ -282,7 +296,29 @@ namespace Parsek.Tests.Generators
             if (!playbackEnabled)
                 node.AddValue("playbackEnabled", playbackEnabled.ToString());
 
+            if (!string.IsNullOrEmpty(rewindSaveFileName))
+            {
+                var ic2 = CultureInfo.InvariantCulture;
+                node.AddValue("rewindSave", rewindSaveFileName);
+                node.AddValue("rewindResFunds", rewindReservedFunds.ToString("R", ic2));
+                node.AddValue("rewindResSci", rewindReservedScience.ToString("R", ic2));
+                node.AddValue("rewindResRep", rewindReservedRep.ToString("R", ic2));
+            }
+
             return node;
+        }
+
+        /// <summary>Returns the vessel name.</summary>
+        public string GetVesselName() => vesselName;
+
+        /// <summary>Returns the UT of the first point, or 0 if no points.</summary>
+        public double GetStartUT()
+        {
+            if (points.Count == 0) return 0;
+            var ic = CultureInfo.InvariantCulture;
+            double ut;
+            double.TryParse(points[0].GetValue("ut"), System.Globalization.NumberStyles.Float, ic, out ut);
+            return ut;
         }
 
         /// <summary>Returns the vessel snapshot (may be null).</summary>
@@ -335,7 +371,19 @@ namespace Parsek.Tests.Generators
 
             node.AddValue("lastResIdx", lastResIdx);
 
+            if (!string.IsNullOrEmpty(rewindSaveFileName))
+            {
+                var ic2 = CultureInfo.InvariantCulture;
+                node.AddValue("rewindSave", rewindSaveFileName);
+                node.AddValue("rewindResFunds", rewindReservedFunds.ToString("R", ic2));
+                node.AddValue("rewindResSci", rewindReservedScience.ToString("R", ic2));
+                node.AddValue("rewindResRep", rewindReservedRep.ToString("R", ic2));
+            }
+
             return node;
         }
+
+        /// <summary>Returns the rewind save file name (may be null).</summary>
+        public string GetRewindSaveFileName() => rewindSaveFileName;
     }
 }

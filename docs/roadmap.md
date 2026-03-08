@@ -74,9 +74,9 @@ Reduce sidecar file sizes for long recordings:
 
 ---
 
-## Phase 5: Going Back in Time (Foundation Complete)
+## Phase 5: Going Back in Time — Complete
 
-Foundation for going back in time — milestones, resource budgeting, epoch isolation, and action blocking are implemented. Restore point UI is future work.
+Full going-back-in-time system: milestones, resource budgeting, epoch isolation, action blocking, per-recording rewind saves, and Rewind UI.
 
 ### Milestones (done)
 Game state events (tech research, part purchases, facility upgrades, contracts, crew changes) are captured into milestones — immutable timeline commits independent of recordings. Created at recording commit time and on save (FlushPendingEvents captures events that happen without a flight). Deleting a recording does not delete its milestone.
@@ -93,11 +93,15 @@ On revert, committed funds/science/reputation are deducted from game state so KS
 ### Action blocking (done)
 Harmony patches on `RDTech.UnlockTech` and `UpgradeableFacility.SetLevel` prevent re-researching committed tech or re-upgrading committed facilities. Explanatory popup dialog shows what's blocked and why.
 
-### Remaining
-- [ ] Auto-save restore points at recording commit points
-- [ ] "Go Back" UI — pick a restore point, load it, preserve recording state
+### Rewind (done)
+Each recording owns a quicksave captured at recording start, stored in `Parsek/Saves/` (invisible to KSP's load menu). Resource snapshot (funds, science, reputation) captured alongside the quicksave for correct differential adjustment on rewind. Quicksave deleted when recording is deleted or discarded. Only chain/tree roots get rewind saves (promotions skip capture).
 
-See `docs/design-going-back-in-time.md` for full design rationale.
+### Rewind UI (done)
+"Rewind" button per recording in the Recordings window. Confirmation dialog shows vessel name, launch date, future recording count, and warnings. On confirm: loads the quicksave, strips vessels from flight state, transitions to Space Center (player can enter buildings or launch a new vessel). Increments epoch, resets milestone mutable state, resets playback state, defers resource adjustment coroutine (differential deduction with saved resource snapshot), re-reserves crew, marks all recordings fully applied. All committed recordings replay as ghosts from the rewound point.
+
+**Design:** `docs/done/design-restore-points.md`, `docs/done/design-going-back-in-time.md`
+
+**Test coverage:** 1154 tests pass, 1 skipped, 0 failures.
 
 ---
 

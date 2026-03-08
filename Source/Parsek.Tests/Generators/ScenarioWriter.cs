@@ -179,6 +179,13 @@ namespace Parsek.Tests.Generators
                 string saveDir = Path.GetDirectoryName(outputPath);
                 WriteGameStateFiles(saveDir);
             }
+
+            // Write rewind save files for v3 recordings that have rewind saves
+            if (useV3Format)
+            {
+                string saveDir = Path.GetDirectoryName(outputPath);
+                WriteRewindSaveFiles(saveDir, inputPath);
+            }
         }
 
         /// <summary>
@@ -244,6 +251,28 @@ namespace Parsek.Tests.Generators
                     e.SerializeInto(eventNode);
                 }
                 rootNode.Save(Path.Combine(gameStateDir, "events.pgse"));
+            }
+        }
+
+        /// <summary>
+        /// Copies the source save as each v3 recording's rewind quicksave .sfs file
+        /// in the Parsek/Saves/ subdirectory.
+        /// </summary>
+        public void WriteRewindSaveFiles(string saveDir, string sourceSavePath)
+        {
+            if (!File.Exists(sourceSavePath)) return;
+
+            foreach (var builder in v3Builders)
+            {
+                string rewindName = builder.GetRewindSaveFileName();
+                if (string.IsNullOrEmpty(rewindName)) continue;
+
+                string savesDir = Path.Combine(saveDir, "Parsek", "Saves");
+                if (!Directory.Exists(savesDir))
+                    Directory.CreateDirectory(savesDir);
+
+                string destPath = Path.Combine(savesDir, rewindName + ".sfs");
+                File.Copy(sourceSavePath, destPath, true);
             }
         }
 

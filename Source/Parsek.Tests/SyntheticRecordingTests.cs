@@ -4910,13 +4910,21 @@ namespace Parsek.Tests
 
             var writer = new ScenarioWriter().WithV3Format();
             writer.AddRecording(PadWalk(baseUT).WithLoopPlayback());
-            writer.AddRecording(KscHopper(baseUT).WithLoopPlayback());
-            writer.AddRecording(FleaFlight(baseUT).WithLoopPlayback());
-            writer.AddRecording(SuborbitalArc(baseUT).WithLoopPlayback());
-            writer.AddRecording(KscPadDestroyed(baseUT).WithLoopPlayback());
-            writer.AddRecording(Orbit1(baseUT).WithLoopPlayback());
+
+            // Pad-launch recordings — with rewind saves
+            writer.AddRecording(KscHopper(baseUT).WithLoopPlayback()
+                .WithRewindSave("parsek_rw_hop001"));
+            writer.AddRecording(FleaFlight(baseUT).WithLoopPlayback()
+                .WithRewindSave("parsek_rw_flea01"));
+            writer.AddRecording(SuborbitalArc(baseUT).WithLoopPlayback()
+                .WithRewindSave("parsek_rw_subo01"));
+            writer.AddRecording(KscPadDestroyed(baseUT).WithLoopPlayback()
+                .WithRewindSave("parsek_rw_dest01"));
+            writer.AddRecording(Orbit1(baseUT).WithLoopPlayback()
+                .WithRewindSave("parsek_rw_orb001"));
             writer.AddRecording(CloseSpawnConflict(baseUT).WithLoopPlayback());
-            writer.AddRecording(IslandProbe(baseUT).WithLoopPlayback());
+            writer.AddRecording(IslandProbe(baseUT).WithLoopPlayback()
+                .WithRewindSave("parsek_rw_isle01"));
 
             var lightShowcases = LightShowcaseRecordings(baseUT);
             for (int i = 0; i < lightShowcases.Length; i++)
@@ -4994,15 +5002,19 @@ namespace Parsek.Tests
             writer.AddRecording(InventoryPlacementShowcaseRecording(baseUT));
 
             var chainSegments = EvaBoardChain(baseUT);
+            chainSegments[0].WithRewindSave("parsek_rw_evab01");
             for (int i = 0; i < chainSegments.Length; i++)
                 writer.AddRecording(chainSegments[i].WithLoopPlayback());
             var walkChainSegments = EvaWalkChain(baseUT);
+            walkChainSegments[0].WithRewindSave("parsek_rw_walk01");
             for (int i = 0; i < walkChainSegments.Length; i++)
                 writer.AddRecording(walkChainSegments[i].WithLoopPlayback());
             var atmoChainSegments = KerbinAscentChain(baseUT);
+            atmoChainSegments[0].WithRewindSave("parsek_rw_atmo01");
             for (int i = 0; i < atmoChainSegments.Length; i++)
                 writer.AddRecording(atmoChainSegments[i].WithLoopPlayback());
             var munTransferSegments = KerbinMunTransfer(baseUT);
+            munTransferSegments[0].WithRewindSave("parsek_rw_mun001");
             for (int i = 0; i < munTransferSegments.Length; i++)
                 writer.AddRecording(munTransferSegments[i].WithLoopPlayback());
 
