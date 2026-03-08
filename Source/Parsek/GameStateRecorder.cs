@@ -508,7 +508,11 @@ namespace Parsek
                 return;
             }
 
-            // Record the cumulative science earned for this subject
+            // Record the cumulative science earned for this subject.
+            // Note: subject.science may include Harmony-injected committed science
+            // (from ScienceSubjectPatch) if this experiment was previously committed.
+            // This is correct — max-wins in CommitScienceSubjects ensures the value
+            // only increases, reflecting the true highest science earned.
             PendingScienceSubjects.Add(new PendingScienceSubject
             {
                 subjectId = subject.id,

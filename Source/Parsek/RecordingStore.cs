@@ -338,6 +338,7 @@ namespace Parsek
                 DeleteRecordingFiles(committedRecordings[i]);
             committedRecordings.Clear();
             committedTrees.Clear();
+            GameStateRecorder.PendingScienceSubjects.Clear();
             ResourceBudget.Invalidate();
             Log($"[Parsek] Cleared {count} committed recordings and all trees");
         }
