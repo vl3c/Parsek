@@ -15,6 +15,13 @@ namespace Parsek.Patches
             string techId = __instance.techID;
             if (string.IsNullOrEmpty(techId)) return true;
 
+            if (GameStateRecorder.SuppressBlockingPatches)
+            {
+                ParsekLog.Verbose("TechResearchPatch",
+                    $"Bypassing block for '{techId}' — action replay in progress");
+                return true;
+            }
+
             var committedTechs = MilestoneStore.GetCommittedTechIds();
             if (!committedTechs.Contains(techId))
             {
