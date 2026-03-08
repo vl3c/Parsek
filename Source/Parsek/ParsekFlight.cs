@@ -3650,6 +3650,11 @@ namespace Parsek
                     continue;
                 }
 
+                // Before spawning, recover any timeline-spawned vessel with the same name
+                // to prevent overlap collisions (e.g. an older committed recording already
+                // spawned the same vessel on the pad).
+                RecoverTimelineSpawnedVessel(leaf.VesselName);
+
                 try
                 {
                     uint spawnedPid = VesselSpawner.RespawnVessel(leaf.VesselSnapshot);
@@ -3670,6 +3675,44 @@ namespace Parsek
                 {
                     ParsekLog.Warn("Flight", $"SpawnTreeLeaves: exception spawning '{leaf.VesselName}': {ex.Message}");
                 }
+            }
+        }
+
+        /// <summary>
+        /// Finds and recovers any in-scene vessel that was timeline-spawned from a
+        /// committed recording with the given name. Prevents overlap collisions when
+        /// a tree commit spawns a vessel on top of an already-spawned timeline vessel.
+        /// </summary>
+        void RecoverTimelineSpawnedVessel(string vesselName)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                if (!rec.VesselSpawned || rec.SpawnedVesselPersistentId == 0) continue;
+                if (rec.VesselName != vesselName) continue;
+
+                // Find the loaded vessel by persistent ID
+                Vessel vessel = null;
+                for (int v = 0; v < FlightGlobals.Vessels.Count; v++)
+                {
+                    if (FlightGlobals.Vessels[v].persistentId == rec.SpawnedVesselPersistentId)
+                    {
+                        vessel = FlightGlobals.Vessels[v];
+                        break;
+                    }
+                }
+                if (vessel != null && vessel.loaded)
+                {
+                    ParsekLog.Info("Flight",
+                        $"RecoverTimelineSpawnedVessel: recovering '{vesselName}' pid={rec.SpawnedVesselPersistentId} " +
+                        $"(from recording #{i}) to make room for tree leaf spawn");
+                    ShipConstruction.RecoverVesselFromFlight(vessel.protoVessel, HighLogic.CurrentGame.flightState, true);
+                }
+
+                // Mark recording as no longer having a live vessel
+                rec.VesselSpawned = false;
+                rec.SpawnedVesselPersistentId = 0;
             }
         }
 
