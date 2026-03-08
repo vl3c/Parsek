@@ -26,6 +26,13 @@ namespace Parsek.Patches
             string facilityId = __instance.id;
             if (string.IsNullOrEmpty(facilityId)) return true;
 
+            if (GameStateRecorder.SuppressBlockingPatches)
+            {
+                ParsekLog.Verbose("FacilityUpgradePatch",
+                    $"Bypassing block for '{facilityId}' — action replay in progress");
+                return true;
+            }
+
             var committedFacilities = MilestoneStore.GetCommittedFacilityUpgrades();
             if (!committedFacilities.Contains(facilityId))
             {

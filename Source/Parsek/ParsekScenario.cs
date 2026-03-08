@@ -285,10 +285,13 @@ namespace Parsek
                     // (prevents ApplyBudgetDeductionWhenReady from double-deducting)
                     budgetDeductionEpoch = MilestoneStore.CurrentEpoch;
 
-                    // Schedule resource adjustment (deferred — Funding.Instance etc. not ready in OnLoad)
+                    // Schedule resource + UT adjustment (deferred — singletons from the OLD
+                    // scene may still be alive during OnLoad; we must yield at least one frame
+                    // so the new scene's Funding/R&D/Reputation/Planetarium are initialized).
+                    // Setting UT before LoadScene does NOT work — scene transition overwrites it.
                     StartCoroutine(ApplyRewindResourceAdjustment());
                     ParsekLog.Info("Rewind",
-                        "OnLoad: resource adjustment deferred (waiting for singletons)");
+                        "OnLoad: resource + UT adjustment deferred (waiting for new scene singletons)");
 
                     // Re-reserve crew from all recording snapshots
                     ReserveSnapshotCrew();
@@ -299,6 +302,10 @@ namespace Parsek
                         $"OnLoad: rewind complete at UT {RecordingStore.RewindUT}. " +
                         $"Timeline: {recordings.Count} recordings");
                     RecordingStore.RewindUT = 0;
+                    RecordingStore.RewindAdjustedUT = 0;
+                    RecordingStore.RewindBaselineFunds = 0;
+                    RecordingStore.RewindBaselineScience = 0;
+                    RecordingStore.RewindBaselineRep = 0;
 
                     return; // Skip ALL existing revert/scene-change logic
                 }
@@ -786,6 +793,9 @@ namespace Parsek
                 GameStateRecorder.SuppressResourceEvents = false;
             }
 
+            // Replay committed actions (tech, parts, facilities, crew) before marking
+            ActionReplay.ReplayCommittedActions(MilestoneStore.Milestones);
+
             // Mark all recordings as fully applied so that:
             // 1. ResourceBudget.ComputeTotal returns 0 reserved (deduction already covers it)
             // 2. Ghost replay doesn't re-apply resource deltas (avoiding double-subtraction)
@@ -817,24 +827,9 @@ namespace Parsek
             }
             ParsekLog.Verbose("Scenario", $"  Marked {treeMarked} tree(s) as ResourcesApplied");
 
-            // Mark all milestones as fully replayed (deduction already covers their costs)
-            var milestones = MilestoneStore.Milestones;
-            int mileMarked = 0;
-            for (int i = 0; i < milestones.Count; i++)
-            {
-                if (milestones[i].Events.Count > 0 && milestones[i].LastReplayedEventIndex < milestones[i].Events.Count - 1)
-                {
-                    int oldIdx = milestones[i].LastReplayedEventIndex;
-                    milestones[i].LastReplayedEventIndex = milestones[i].Events.Count - 1;
-                    mileMarked++;
-                    ParsekLog.Verbose("Scenario",
-                        $"  milestone {(milestones[i].MilestoneId != null && milestones[i].MilestoneId.Length >= 8 ? milestones[i].MilestoneId.Substring(0, 8) : milestones[i].MilestoneId ?? "?")}: lastReplayedEventIndex {oldIdx} → {milestones[i].LastReplayedEventIndex}");
-                }
-            }
-
             ParsekLog.Info("Scenario",
                 $"Budget deduction applied for epoch {MilestoneStore.CurrentEpoch} — " +
-                $"{recMarked} recording(s), {treeMarked} tree(s), and {mileMarked} milestone(s) marked as fully applied");
+                $"{recMarked} recording(s) and {treeMarked} tree(s) marked as fully applied");
         }
 
         /// <summary>
@@ -844,11 +839,21 @@ namespace Parsek
         /// </summary>
         private IEnumerator ApplyRewindResourceAdjustment()
         {
-            // Capture before yielding — RewindReserved could theoretically be overwritten
-            // if another rewind starts before the coroutine completes.
+            // Capture rewind state before yielding — flags are cleared synchronously
+            // in OnLoad after StartCoroutine returns.
             var saved = RecordingStore.RewindReserved;
+            double adjustedUT = RecordingStore.RewindAdjustedUT;
+            double baselineFunds = RecordingStore.RewindBaselineFunds;
+            double baselineScience = RecordingStore.RewindBaselineScience;
+            float baselineRep = RecordingStore.RewindBaselineRep;
 
-            // Wait until ALL resource singletons are available (same pattern as ApplyBudgetDeductionWhenReady)
+            // CRITICAL: yield at least one frame before touching any singleton.
+            // During OnLoad, singletons from the OLD scene may still be alive.
+            // Without this yield, AddFunds/AddScience/SetUniversalTime modify the
+            // OLD instances which are then destroyed when the new scene finishes loading.
+            yield return null;
+
+            // Wait until ALL resource singletons are available
             int maxWait = 120; // ~2 seconds at 60fps
             while (maxWait-- > 0
                    && (Funding.Instance == null
@@ -863,49 +868,73 @@ namespace Parsek
                 yield break;
             }
 
-            // Compute current full cost (same method used at save time — consistent baseline)
-            var currentReserved = ResourceBudget.ComputeTotalFullCost(
-                RecordingStore.CommittedRecordings,
-                MilestoneStore.Milestones,
-                RecordingStore.CommittedTrees);
-
-            // Differential deduction (saved was captured before yielding)
-            double deltaFunds = currentReserved.reservedFunds - saved.reservedFunds;
-            double deltaScience = currentReserved.reservedScience - saved.reservedScience;
-            double deltaRep = currentReserved.reservedReputation - saved.reservedReputation;
-
             var ic = CultureInfo.InvariantCulture;
+
+            // Apply adjusted UT — must happen after singletons are ready (new Planetarium).
+            // Setting UT before LoadScene does NOT work — the scene transition overwrites it.
+            if (adjustedUT > 0)
+            {
+                double prePlanetariumUT = Planetarium.GetUniversalTime();
+                Planetarium.SetUniversalTime(adjustedUT);
+                ParsekLog.Info("Rewind",
+                    $"UT adjustment: {prePlanetariumUT.ToString("F1", ic)} → {adjustedUT.ToString("F1", ic)} " +
+                    $"(post-set check: {Planetarium.GetUniversalTime().ToString("F1", ic)})");
+            }
+
+            // Log pre-adjustment state
+            double preFunds = Funding.Instance.Funds;
+            float preScience = ResearchAndDevelopment.Instance.Science;
+            float preRep = Reputation.Instance.reputation;
             ParsekLog.Info("Rewind",
-                $"Resource adjustment: reserved ({saved.reservedFunds.ToString("F1", ic)}," +
-                $"{saved.reservedScience.ToString("F1", ic)}," +
-                $"{saved.reservedReputation.ToString("F1", ic)}) -> " +
-                $"({currentReserved.reservedFunds.ToString("F1", ic)}," +
-                $"{currentReserved.reservedScience.ToString("F1", ic)}," +
-                $"{currentReserved.reservedReputation.ToString("F1", ic)}), " +
-                $"delta ({deltaFunds.ToString("F1", ic)}," +
-                $"{deltaScience.ToString("F1", ic)}," +
-                $"{deltaRep.ToString("F1", ic)})");
+                $"Pre-adjustment state: funds={preFunds.ToString("F1", ic)}, " +
+                $"science={preScience.ToString("F1", ic)}, " +
+                $"rep={preRep.ToString("F1", ic)}, " +
+                $"baseline: funds={baselineFunds.ToString("F1", ic)}, " +
+                $"science={baselineScience.ToString("F1", ic)}, " +
+                $"rep={baselineRep.ToString("F1", ic)}");
+
+            // Reset resources to baseline (the pre-launch snapshot values).
+            // Ghost playback will re-apply recording resource deltas at the correct UT.
+            // ActionReplay handles game-state actions (tech, parts, facilities) without
+            // resource deduction — those costs are part of the recording deltas.
+            double fundsCorrection = baselineFunds - preFunds;
+            double scienceCorrection = baselineScience - preScience;
+            double repCorrection = (double)baselineRep - (double)preRep;
+
+            ParsekLog.Info("Rewind",
+                $"Resource reset to baseline: funds={baselineFunds.ToString("F1", ic)}, " +
+                $"science={baselineScience.ToString("F1", ic)}, " +
+                $"rep={baselineRep.ToString("F1", ic)}, " +
+                $"correction: {fundsCorrection.ToString("F1", ic)}, " +
+                $"{scienceCorrection.ToString("F1", ic)}, " +
+                $"{repCorrection.ToString("F1", ic)}");
 
             // Apply with suppression (prevent synthetic game state events)
             GameStateRecorder.SuppressResourceEvents = true;
             try
             {
-                if (deltaFunds != 0)
-                    Funding.Instance.AddFunds(-deltaFunds, TransactionReasons.None);
-                if (deltaScience != 0)
-                    ResearchAndDevelopment.Instance.AddScience((float)-deltaScience, TransactionReasons.None);
-                if (deltaRep != 0)
-                    Reputation.Instance.AddReputation((float)-deltaRep, TransactionReasons.None);
+                if (fundsCorrection != 0)
+                    Funding.Instance.AddFunds(fundsCorrection, TransactionReasons.None);
+                if (scienceCorrection != 0)
+                    ResearchAndDevelopment.Instance.AddScience((float)scienceCorrection, TransactionReasons.None);
+                if (repCorrection != 0)
+                    Reputation.Instance.AddReputation((float)repCorrection, TransactionReasons.None);
             }
             finally
             {
                 GameStateRecorder.SuppressResourceEvents = false;
             }
 
-            // Mark everything as fully applied (prevents ghost playback from re-applying)
-            var (recCount, treeCount) = RecordingStore.MarkAllFullyApplied();
+            // Log post-adjustment state
             ParsekLog.Info("Rewind",
-                $"Resource adjustment: marking {recCount} recordings + {treeCount} trees as fully applied");
+                $"Post-adjustment state: funds={Funding.Instance.Funds.ToString("F1", ic)}, " +
+                $"science={ResearchAndDevelopment.Instance.Science.ToString("F1", ic)}, " +
+                $"rep={Reputation.Instance.reputation.ToString("F1", ic)}");
+
+            // Replay committed actions (tech, parts, facilities, crew).
+            // Resources are NOT marked fully applied — ghost playback will re-apply
+            // recording resource deltas at the correct UT as the timeline replays.
+            ActionReplay.ReplayCommittedActions(MilestoneStore.Milestones);
 
             // Belt-and-suspenders epoch guard
             budgetDeductionEpoch = MilestoneStore.CurrentEpoch;
