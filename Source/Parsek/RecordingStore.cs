@@ -1047,26 +1047,6 @@ namespace Parsek
                         $"rewindUT={RewindUT:F1}, flags=[IsRewinding={IsRewinding}]");
 
                 HighLogic.CurrentGame = game;
-
-                // Set UT directly on the persistent Planetarium singleton BEFORE scene
-                // transition. Planetarium uses DontDestroyOnLoad — the same instance
-                // survives from Flight to SpaceCenter. Setting UT here is immediate and
-                // reliable, unlike the deferred coroutine approach which risked modifying
-                // a stale Planetarium instance during OnLoad.
-                //
-                // Note: we don't use game.Load() because it calls
-                // ScenarioRunner.SetProtoModules(), which would trigger
-                // ParsekScenario.OnLoad in the Flight scene (before the scene transition),
-                // causing double-OnLoad and overwriting in-memory recording state.
-                if (Planetarium.fetch != null)
-                {
-                    Planetarium.SetUniversalTime(RewindAdjustedUT);
-                    if (!SuppressLogging)
-                        ParsekLog.Info("Rewind",
-                            $"UT set to {RewindAdjustedUT:F1} on persistent Planetarium " +
-                            $"before scene transition");
-                }
-
                 HighLogic.LoadScene(GameScenes.SPACECENTER);
 
                 if (!SuppressLogging)
