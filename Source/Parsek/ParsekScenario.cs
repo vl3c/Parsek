@@ -293,12 +293,22 @@ namespace Parsek
                     // Re-reserve crew from all recording snapshots
                     ReserveSnapshotCrew();
 
+                    // Apply the adjusted UT — HighLogic.LoadScene does NOT read
+                    // flightState.universalTime, so we must set it explicitly.
+                    if (RecordingStore.RewindAdjustedUT > 0)
+                    {
+                        Planetarium.SetUniversalTime(RecordingStore.RewindAdjustedUT);
+                        ParsekLog.Info("Rewind",
+                            $"OnLoad: set Planetarium UT to {RecordingStore.RewindAdjustedUT:F1}");
+                    }
+
                     // Clear rewind flags — rewind loads into SpaceCenter, not Flight
                     RecordingStore.IsRewinding = false;
                     ParsekLog.Info("Rewind",
                         $"OnLoad: rewind complete at UT {RecordingStore.RewindUT}. " +
                         $"Timeline: {recordings.Count} recordings");
                     RecordingStore.RewindUT = 0;
+                    RecordingStore.RewindAdjustedUT = 0;
 
                     return; // Skip ALL existing revert/scene-change logic
                 }
