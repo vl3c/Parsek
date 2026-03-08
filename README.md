@@ -2,7 +2,7 @@
 
 ![Parsek](img/ksp-parsek-stylized.jpg)
 
-*Record, rewind and merge your parallel-sekuential adventures to a single player main timeline.*
+*Record, rewind merge and loop your parallel-sekuential adventures in a single player main timeline.*
 
 **Time-rewind mission recording for KSP1.** Record missions sequentially, return to an earlier time, and watch them play out in parallel alongside you while you fly new ones.
 
@@ -12,7 +12,7 @@
 2. **Recording starts automatically** when your vessel leaves the pad
 3. **Merge your recorded mission** to the single player main timeline
 4. **Rewind to any launch**
-5. **Launch another mission** - your recorded flight replays alongside you
+5. **Launch another mission** - your recorded flight replays alongside you - you can even loop it in the background!
 6. **Vessel spawns** at its final recorded position with the original crew when playback finishes
 
 Recorded vessels are full visual replicas - original part meshes, textures, engine flames, staging, and parachutes all play back at the correct times.
@@ -21,10 +21,11 @@ Recorded vessels are full visual replicas - original part meshes, textures, engi
 
 - **Automatic recording** on launch and EVA from pad
 - **Visual replay** with original part meshes, textures, and engine FX
+- **Looped playback** - fly missions and loop their recordings - add as many rockets, space ships or aircraft in the sky as you want - great for in game video recordings!
 - **Vessel persistence** - recorded vessels spawn with crew, or get recovered for funds
 - **Crew management** - reserved crew get temporary replacements so your roster stays full
 - **Orbital recording** - time warp segments use analytical Keplerian orbits
-- **Part events** - staging, decoupling, parachutes, engines, solar panels, antennas, lights, landing gear, cargo bays, fairings, RCS, and inventory deployables replay on the ghost; docking/undocking are recorded as chain boundaries
+- **Part events** - staging, decoupling, parachutes, engines, solar panels, antennas, lights, landing gear, cargo bays, fairings, RCS, and inventory deployables replay on the ghost; docking / undocking are recorded as chain boundaries
 - **Resource tracking** - game actions related to funds, science, and reputation deltas are recorded and applied at the correct time
 - **Rewind** - go back to any earlier point in your timeline; resources reset to baseline, ghost playback re-applies everything at the correct time
 - **Multi-vessel recording** - undocking, EVA, and docking are tracked automatically; all vessels in a mission record as a single tree
