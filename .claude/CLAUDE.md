@@ -44,10 +44,8 @@ git worktree add ../Parsek-<branch-name> -b <branch-name> HEAD
 
 ## In-Game Controls
 
-- **F9** — Start/Stop recording
-- **F10** — Preview playback
-- **F11** — Stop preview
 - **Toolbar button** — Toggle Parsek UI
+- UI buttons: Start/Stop Recording, Preview Playback, Stop Preview, Clear Current Recording
 
 ## Debug
 
