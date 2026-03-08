@@ -158,17 +158,9 @@ namespace Parsek
             // Compact budget summary (full display in Actions window)
             DrawCompactBudgetLine();
 
-            GUILayout.Space(10);
+            GUILayout.Space(5);
 
-            // Controls
-            GUILayout.Label("Controls:");
-            GUILayout.Label("  F9  - Start/Stop Recording");
-            GUILayout.Label("  F10 - Preview Playback");
-            GUILayout.Label("  F11 - Stop Preview");
-
-            GUILayout.Space(10);
-
-            // Buttons
+            // Recording controls
             GUILayout.BeginHorizontal();
 
             if (!flight.IsRecording)
@@ -210,7 +202,6 @@ namespace Parsek
 
             GUILayout.EndHorizontal();
 
-            // Clear buttons
             GUILayout.Space(5);
             GUI.enabled = !flight.IsRecording && !flight.IsPlaying && flight.recording.Count > 0;
             if (GUILayout.Button("Clear Current Recording"))
@@ -235,6 +226,7 @@ namespace Parsek
                 else
                     flight.CommitFlight();
             }
+            GUI.enabled = true;
 
             GUILayout.EndVertical();
 
