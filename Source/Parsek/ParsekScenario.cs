@@ -285,12 +285,14 @@ namespace Parsek
                     // (prevents ApplyBudgetDeductionWhenReady from double-deducting)
                     budgetDeductionEpoch = MilestoneStore.CurrentEpoch;
 
-                    // Schedule resource + UT adjustment (deferred — singletons from the OLD
+                    // Schedule resource adjustment (deferred — singletons from the OLD
                     // scene may still be alive during OnLoad; we must yield at least one frame
-                    // so the new scene's Funding/R&D/Reputation/Planetarium are initialized).
+                    // so the new scene's Funding/R&D/Reputation are initialized).
+                    // Note: UT was already set in InitiateRewind via Planetarium.SetUniversalTime
+                    // on the persistent singleton before the scene transition.
                     StartCoroutine(ApplyRewindResourceAdjustment());
                     ParsekLog.Info("Rewind",
-                        "OnLoad: resource + UT adjustment deferred (waiting for new scene singletons)");
+                        "OnLoad: resource adjustment deferred (waiting for new scene singletons)");
 
                     // Re-reserve crew from all recording snapshots
                     ReserveSnapshotCrew();
@@ -841,15 +843,16 @@ namespace Parsek
             // Capture rewind state before yielding — flags are cleared synchronously
             // in OnLoad after StartCoroutine returns.
             var saved = RecordingStore.RewindReserved;
-            double adjustedUT = RecordingStore.RewindAdjustedUT;
             double baselineFunds = RecordingStore.RewindBaselineFunds;
             double baselineScience = RecordingStore.RewindBaselineScience;
             float baselineRep = RecordingStore.RewindBaselineRep;
 
             // CRITICAL: yield at least one frame before touching any singleton.
             // During OnLoad, singletons from the OLD scene may still be alive.
-            // Without this yield, AddFunds/AddScience/SetUniversalTime modify the
-            // OLD instances which are then destroyed when the new scene finishes loading.
+            // Without this yield, AddFunds/AddScience modify the OLD instances
+            // which are then destroyed when the new scene finishes loading.
+            // Note: UT is set BEFORE scene transition in InitiateRewind via
+            // Planetarium.SetUniversalTime on the persistent singleton.
             yield return null;
 
             // Wait until ALL resource singletons are available
@@ -869,17 +872,12 @@ namespace Parsek
 
             var ic = CultureInfo.InvariantCulture;
 
-            // Apply adjusted UT — must happen after singletons are ready (new Planetarium)
-            if (adjustedUT > 0)
-            {
-                double prePlanetariumUT = Planetarium.GetUniversalTime();
-                Planetarium.SetUniversalTime(adjustedUT);
-                ParsekLog.Info("Rewind",
-                    $"UT adjustment: {prePlanetariumUT.ToString("F1", ic)} → {adjustedUT.ToString("F1", ic)} " +
-                    $"(post-set check: {Planetarium.GetUniversalTime().ToString("F1", ic)})");
-            }
+            // Verify UT was set correctly by InitiateRewind (informational only)
+            ParsekLog.Info("Rewind",
+                $"UT verification: current={Planetarium.GetUniversalTime().ToString("F1", ic)}" +
+                $" (set in InitiateRewind before scene transition)");
 
-            // Log pre-adjustment state (confirms HighLogic.LoadScene does NOT restore these)
+            // Log pre-adjustment state
             double preFunds = Funding.Instance.Funds;
             float preScience = ResearchAndDevelopment.Instance.Science;
             float preRep = Reputation.Instance.reputation;
@@ -898,8 +896,9 @@ namespace Parsek
                 RecordingStore.CommittedTrees);
 
             // Compute absolute target values: baseline + recording impact.
-            // HighLogic.LoadScene does NOT restore Funding/R&D/Reputation from the save,
-            // so we must SET resources to the correct values, not add a delta.
+            // Even though Funding.OnLoad restores funds from the save, we use the
+            // absolute-target approach (baseline - totalCost) for robustness: it's
+            // idempotent regardless of what the singleton currently holds.
             // Cost convention: negative = recording earned money, positive = recording cost money.
             // Target = baseline - cost (subtracting a negative cost adds the earnings).
             double targetFunds = baselineFunds - totalCost.reservedFunds;
