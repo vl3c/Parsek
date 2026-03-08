@@ -236,14 +236,6 @@ namespace Parsek
                     flight.CommitFlight();
             }
 
-            GUI.enabled = activeGhosts > 0;
-            if (GUILayout.Button($"Despawn Ghosts ({activeGhosts})"))
-            {
-                ParsekLog.Verbose("UI", $"Despawn Ghosts button clicked, count={activeGhosts}");
-                flight.DestroyAllTimelineGhosts();
-                ParsekLog.Info("UI", "Ghosts despawned");
-            }
-
             GUI.enabled = committedCount > 0;
             if (GUILayout.Button($"Wipe Recordings ({committedCount})"))
             {
