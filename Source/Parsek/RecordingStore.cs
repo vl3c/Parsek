@@ -734,6 +734,7 @@ namespace Parsek
             IsRewinding = false;
             RewindUT = 0;
             RewindReserved = default(ResourceBudget.BudgetSummary);
+            GameStateRecorder.PendingScienceSubjects.Clear();
         }
 
         internal static void DeleteRecordingFiles(Recording rec)
