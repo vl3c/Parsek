@@ -28,6 +28,7 @@ Recorded vessels are full visual replicas — original part meshes, textures, en
 - **Resource tracking** — game actions related to funds, science, and reputation deltas are recorded and applied at the correct time
 - **Rewind** — go back to any earlier point in your timeline; resources reset to baseline, ghost playback re-applies everything at the correct time
 - **Multi-vessel recording** — undocking, EVA, and docking are tracked automatically; all vessels in a mission record as a single tree
+- **Career mode integration** — milestones track tech research, part purchases, facility upgrades, and contracts; resource budgeting prevents paradoxes when rewinding
 - **Recordings manager** — browse, sort, loop, and delete individual recordings
 - **External recording files** — bulk trajectory data stored in sidecar files, keeping saves lightweight
 
@@ -56,6 +57,15 @@ dotnet build
 ```
 
 Requires .NET SDK and KSP assemblies in `Kerbal Space Program/KSP_x64_Data/Managed/`.
+
+## Beyond Recording
+
+Parsek's infrastructure — looped playback, vessel snapshots, game state tracking, resource budgeting — forms a natural foundation for building on top of. Some possibilities:
+
+- **Logistics network** — fly a cargo route once, Parsek records it, then that recording becomes a reusable supply route that replays automatically between bases
+- **Multiplayer-like experience** — share recording files with other players and watch their missions play out as ghosts in your game, turning single-player KSP into a shared timeline
+
+See the [roadmap](docs/roadmap.md) for what's planned and what's possible.
 
 ## License
 
