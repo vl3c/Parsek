@@ -152,6 +152,9 @@ namespace Parsek
                             }
                         }
                     }
+
+                    // Mark all events as replayed for this milestone
+                    m.LastReplayedEventIndex = m.Events.Count - 1;
                 }
             }
             finally
