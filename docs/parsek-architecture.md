@@ -804,9 +804,9 @@ All planned part event types are now implemented. 28 event types are recorded; m
 - [x] `FlushPendingEvents` — captures events that happen without a recording (research in R&D, facility upgrades)
 
 **Rewind (done):**
-Each recording owns a quicksave captured at recording start, stored in `Parsek/Saves/` (invisible to KSP's load menu). A "Rewind" button per recording loads the quicksave, strips vessels, and transitions to Space Center. Resource snapshot captured at save time enables correct differential adjustment. All committed recordings replay as ghosts from the rewound point.
+Each recording owns a quicksave captured at recording start, stored in `Parsek/Saves/` (invisible to KSP's load menu). A "Rewind" button per recording loads the quicksave, strips the recorded vessel, sets UT directly on the persistent Planetarium singleton (survives scene transitions via DontDestroyOnLoad), and transitions to Space Center. Absolute-target resource correction uses PreLaunch baseline values to compute `target = baseline - totalCost`, then applies `correction = target - currentValue` — idempotent regardless of stale singleton state. `ActionReplay.ReplayCommittedActions` re-applies committed game actions (tech unlock, part purchase, facility upgrade, crew hire) with idempotent guards. All committed recordings replay as ghosts from the rewound point.
 
-Rewind infrastructure lives in `RecordingStore.cs` (fields on `Recording`, static rewind flags, `InitiateRewind`, `CanRewind`). No separate store or dialog files.
+Rewind infrastructure lives in `RecordingStore.cs` (fields on `Recording`, static rewind flags, `InitiateRewind`, `CanRewind`) and `ActionReplay.cs` (milestone event replay). No separate store or dialog files.
 
 See `docs/done/design-going-back-in-time.md` and `docs/done/design-restore-points.md` for design rationale. The mechanism is snapshot-based (like `git checkout`), not event-reversal-based. No timeline branching.
 

@@ -144,6 +144,27 @@ Milestones are created:
 
 Deleting a recording does not delete its associated milestone.
 
+### Rewind (Going Back in Time)
+
+Rewind lets you go back to any earlier point in your timeline and launch new missions. Existing recordings continue to play as ghosts alongside your new flights.
+
+**How to rewind:**
+1. Open the Recordings Manager (click "Recordings" in the Parsek window)
+2. Click the "Rewind" button next to any recording that has a rewind save
+3. A confirmation dialog shows the vessel name, launch date, and how many future recordings exist
+4. On confirm, the game loads back to that recording's launch point in the Space Center
+
+**What happens on rewind:**
+- Game time rewinds to the recording's launch UT
+- Funds, science, and reputation are adjusted to their correct values (baseline minus all committed costs)
+- Committed game actions (tech research, part purchases, facility upgrades, crew hires) are re-applied automatically
+- All committed recordings replay as ghosts from the rewound point
+- The player can launch new missions with the remaining available resources
+
+**Resource safety:**
+- Resources use absolute-target correction — the correct value is computed from the baseline snapshot, not accumulated incrementally. This means repeated rewinds never cause resource duplication or loss.
+- Committed costs are always deducted: if future recordings have claimed 15,000 funds, those funds are unavailable even though you've gone back in time.
+
 ### Wipe Recordings
 
 Click "Wipe Recordings" in the Parsek UI window to clear all committed recordings. This also frees any reserved crew and removes replacement kerbals. Milestones are preserved.
