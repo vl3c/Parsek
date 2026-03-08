@@ -371,6 +371,149 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region DecidePartReplay
+
+        [Fact]
+        public void DecidePartReplay_EmptyPartName_Fails()
+        {
+            Assert.Equal(ReplayDecision.Fail, ActionReplay.DecidePartReplay("", true, false));
+        }
+
+        [Fact]
+        public void DecidePartReplay_NullPartName_Fails()
+        {
+            Assert.Equal(ReplayDecision.Fail, ActionReplay.DecidePartReplay(null, true, false));
+        }
+
+        [Fact]
+        public void DecidePartReplay_PartNotFound_Fails()
+        {
+            Assert.Equal(ReplayDecision.Fail, ActionReplay.DecidePartReplay("mk1pod.v2", false, false));
+        }
+
+        [Fact]
+        public void DecidePartReplay_AlreadyPurchased_Skips()
+        {
+            Assert.Equal(ReplayDecision.Skip, ActionReplay.DecidePartReplay("mk1pod.v2", true, true));
+        }
+
+        [Fact]
+        public void DecidePartReplay_NotPurchased_Acts()
+        {
+            Assert.Equal(ReplayDecision.Act, ActionReplay.DecidePartReplay("mk1pod.v2", true, false));
+        }
+
+        #endregion
+
+        #region DecideFacilityReplay
+
+        [Fact]
+        public void DecideFacilityReplay_EmptyFacilityId_Fails()
+        {
+            Assert.Equal(ReplayDecision.Fail,
+                ActionReplay.DecideFacilityReplay("", 0, 1));
+        }
+
+        [Fact]
+        public void DecideFacilityReplay_NullFacilityId_Fails()
+        {
+            Assert.Equal(ReplayDecision.Fail,
+                ActionReplay.DecideFacilityReplay(null, 0, 1));
+        }
+
+        [Fact]
+        public void DecideFacilityReplay_AlreadyAtLevel_Skips()
+        {
+            Assert.Equal(ReplayDecision.Skip,
+                ActionReplay.DecideFacilityReplay("SpaceCenter/LaunchPad", 2, 2));
+        }
+
+        [Fact]
+        public void DecideFacilityReplay_AboveTarget_Skips()
+        {
+            Assert.Equal(ReplayDecision.Skip,
+                ActionReplay.DecideFacilityReplay("SpaceCenter/LaunchPad", 3, 2));
+        }
+
+        [Fact]
+        public void DecideFacilityReplay_BelowTarget_Acts()
+        {
+            Assert.Equal(ReplayDecision.Act,
+                ActionReplay.DecideFacilityReplay("SpaceCenter/LaunchPad", 0, 1));
+        }
+
+        #endregion
+
+        #region ComputeTargetLevel
+
+        [Fact]
+        public void ComputeTargetLevel_HalfNormalized_RoundsCorrectly()
+        {
+            Assert.Equal(1, ActionReplay.ComputeTargetLevel(0.5, 2));
+        }
+
+        [Fact]
+        public void ComputeTargetLevel_FullNormalized_ReturnsMax()
+        {
+            Assert.Equal(3, ActionReplay.ComputeTargetLevel(1.0, 3));
+        }
+
+        [Fact]
+        public void ComputeTargetLevel_Zero_ReturnsZero()
+        {
+            Assert.Equal(0, ActionReplay.ComputeTargetLevel(0.0, 3));
+        }
+
+        [Fact]
+        public void ComputeTargetLevel_ClampedAboveMax()
+        {
+            Assert.Equal(2, ActionReplay.ComputeTargetLevel(1.5, 2));
+        }
+
+        [Fact]
+        public void ComputeTargetLevel_ThirdLevel()
+        {
+            // 0.333... * 3 = 1.0, rounds to 1
+            Assert.Equal(1, ActionReplay.ComputeTargetLevel(0.333, 3));
+        }
+
+        [Fact]
+        public void ComputeTargetLevel_TwoThirds()
+        {
+            // 0.667 * 3 = 2.001, rounds to 2
+            Assert.Equal(2, ActionReplay.ComputeTargetLevel(0.667, 3));
+        }
+
+        #endregion
+
+        #region DecideCrewReplay
+
+        [Fact]
+        public void DecideCrewReplay_EmptyName_Fails()
+        {
+            Assert.Equal(ReplayDecision.Fail, ActionReplay.DecideCrewReplay("", false));
+        }
+
+        [Fact]
+        public void DecideCrewReplay_NullName_Fails()
+        {
+            Assert.Equal(ReplayDecision.Fail, ActionReplay.DecideCrewReplay(null, false));
+        }
+
+        [Fact]
+        public void DecideCrewReplay_AlreadyInRoster_Skips()
+        {
+            Assert.Equal(ReplayDecision.Skip, ActionReplay.DecideCrewReplay("Jebediah Kerman", true));
+        }
+
+        [Fact]
+        public void DecideCrewReplay_NotInRoster_Acts()
+        {
+            Assert.Equal(ReplayDecision.Act, ActionReplay.DecideCrewReplay("Jebediah Kerman", false));
+        }
+
+        #endregion
+
         #region ParseDetailField
 
         [Fact]
