@@ -6423,17 +6423,17 @@ namespace Parsek
             }
             if (!ghost.activeSelf) ghost.SetActive(true);
 
-            Vector3 posBefore = bodyBefore.GetWorldSurfacePosition(
+            Vector3d posBefore = bodyBefore.GetWorldSurfacePosition(
                 before.latitude, before.longitude, before.altitude);
-            Vector3 posAfter = bodyAfter.GetWorldSurfacePosition(
+            Vector3d posAfter = bodyAfter.GetWorldSurfacePosition(
                 after.latitude, after.longitude, after.altitude);
 
-            Vector3 interpolatedPos = Vector3.Lerp(posBefore, posAfter, t);
+            Vector3d interpolatedPos = Vector3d.Lerp(posBefore, posAfter, t);
             Quaternion interpolatedRot = Quaternion.Slerp(before.rotation, after.rotation, t);
 
             interpolatedRot = SanitizeQuaternion(interpolatedRot);
 
-            if (float.IsNaN(interpolatedPos.x) || float.IsNaN(interpolatedPos.y) || float.IsNaN(interpolatedPos.z))
+            if (double.IsNaN(interpolatedPos.x) || double.IsNaN(interpolatedPos.y) || double.IsNaN(interpolatedPos.z))
             {
                 Log("Warning: NaN in interpolated position, using 'before' position");
                 interpolatedPos = posBefore;
@@ -6463,7 +6463,7 @@ namespace Parsek
                 return;
             }
 
-            Vector3 worldPos = body.GetWorldSurfacePosition(
+            Vector3d worldPos = body.GetWorldSurfacePosition(
                 point.latitude, point.longitude, point.altitude);
 
             ghost.transform.position = worldPos;
