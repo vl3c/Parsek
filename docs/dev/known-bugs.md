@@ -21,14 +21,14 @@ One recording appears as a green sphere during playback with slight time warp. R
 **Status:** Fixed
 
 ## 5. Atmospheric heating trails look wrong
-Re-entry heating effects appear as orange square sprites instead of the normal trail effect.
+Re-entry heating effects appeared as orange square sprites. Root cause: particle materials created without a texture — Unity renders textureless particles as solid squares. Fix: extract particle texture from stock KSP FX prefab and assign to flame, smoke, and trail materials with proper `_TintColor`.
 
-**Status:** Open
+**Status:** Fixed
 
 ## 6. Loop checkboxes not centered in UI cells
-The per-recording loop checkboxes should be centered within their table cells for a cleaner look.
+Merged `ColW_LoopLabel` + `ColW_LoopToggle` into single `ColW_Loop` column, wrapped toggle in horizontal group with `FlexibleSpace` on both sides.
 
-**Status:** Open (UI polish)
+**Status:** Fixed
 
 ## 7. Rewind button inactive for most recordings
 Most recording entries have the rewind button disabled. Likely because orbit segments and decouple continuation segments create separate entries that lack launch start points. These child segments should be grouped under their parent recording, with only the launch recording exposing the rewind button.
@@ -43,14 +43,14 @@ Related to #7 — rewind availability logic needs to be tightened.
 **Status:** Open
 
 ## 9. Watch camera does not follow recording segment transitions
-When watching a recording and the current segment ends, the next segment in the tree begins playback but the camera stays on the old segment. The watch camera should automatically move to focus on the continuation segment for seamless viewing.
+Added `FindNextWatchTarget` (chain continuation + tree branching) and `TransferWatchToNextSegment` to auto-follow the camera to the next active ghost when a watched segment ends. Preserves saved camera state for Backspace restore.
 
-**Status:** Open
+**Status:** Fixed
 
 ## 10. Ghost wobbles at large distances from Kerbin
-When the ghost vessel is far from Kerbin, it starts to wobble/jitter. Likely a floating-point precision issue with large world coordinates. May need origin-relative positioning or double-precision handling for ghost placement.
+Root cause: `GetWorldSurfacePosition` returns `Vector3d` but was truncated to `Vector3` (float) before interpolation. Fix: use `Vector3d` and `Vector3d.Lerp` throughout, only truncating at the final `transform.position` assignment.
 
-**Status:** Open
+**Status:** Fixed
 
 ## 11. Verify game actions are recorded and reapplied correctly
 Check that all game actions (tech unlocks, part purchases, contract completions, science gains, funds/reputation changes, etc.) are properly recorded during gameplay and then reapplied in the correct order during rewind/playback. Resource variables (funds, science, reputation) should reflect the state at the replayed point in time.
