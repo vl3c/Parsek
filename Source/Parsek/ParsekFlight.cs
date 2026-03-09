@@ -101,6 +101,42 @@ namespace Parsek
 
         private Dictionary<int, GhostPlaybackState> ghostStates = new Dictionary<int, GhostPlaybackState>();
 
+        // --- Floating-origin correction ---
+        // Ghosts are plain GameObjects not registered with KSP's FloatingOrigin.
+        // FloatingOrigin shifts all registered objects in LateUpdate(), but ghosts
+        // positioned in Update() would be left behind, causing one-frame jumps.
+        // We store each ghost's last positioning inputs and re-apply in LateUpdate()
+        // so the position is correct in the post-shift frame that actually renders.
+
+        private enum GhostPosMode { PointInterp, SinglePoint, Orbit, Surface }
+
+        private struct GhostPosEntry
+        {
+            public GameObject ghost;
+            public GhostPosMode mode;
+
+            // PointInterp fields
+            public CelestialBody bodyBefore;
+            public CelestialBody bodyAfter;
+            public double latBefore, lonBefore, altBefore;
+            public double latAfter, lonAfter, altAfter;
+            public float t;
+            public double pointUT;
+            public Quaternion interpolatedRot;
+
+            // SinglePoint fields (also used body/lat/lon/alt from "before")
+            // (uses bodyBefore, latBefore, lonBefore, altBefore, pointUT, interpolatedRot)
+
+            // Orbit fields
+            public int orbitCacheKey;
+            public double orbitUT;
+
+            // Surface fields
+            public Quaternion surfaceRot; // body-relative rotation
+        }
+
+        private readonly List<GhostPosEntry> ghostPosEntries = new List<GhostPosEntry>();
+
         // Auto-record: EVA from pad triggers recording after vessel switch completes
         private bool pendingAutoRecord = false;
 
@@ -702,6 +738,69 @@ namespace Parsek
             }
 
             UpdateTimelinePlayback();
+        }
+
+        /// <summary>
+        /// Re-applies ghost positions after FloatingOrigin has shifted all registered
+        /// objects. Without this, ghosts would be displaced by one frame each time
+        /// the floating origin shifts, causing erratic visual behavior during flight.
+        /// </summary>
+        void LateUpdate()
+        {
+            for (int i = 0; i < ghostPosEntries.Count; i++)
+            {
+                var e = ghostPosEntries[i];
+                if (e.ghost == null || !e.ghost.activeSelf) continue;
+
+                switch (e.mode)
+                {
+                    case GhostPosMode.PointInterp:
+                    {
+                        if (e.bodyBefore == null || e.bodyAfter == null) break;
+                        Vector3d posBefore = e.bodyBefore.GetWorldSurfacePosition(
+                            e.latBefore, e.lonBefore, e.altBefore);
+                        Vector3d posAfter = e.bodyAfter.GetWorldSurfacePosition(
+                            e.latAfter, e.lonAfter, e.altAfter);
+                        Vector3d pos = Vector3d.Lerp(posBefore, posAfter, e.t);
+                        e.ghost.transform.position = pos;
+                        e.ghost.transform.rotation = CorrectForBodyRotation(
+                            e.bodyBefore, e.pointUT, e.interpolatedRot);
+                        break;
+                    }
+                    case GhostPosMode.SinglePoint:
+                    {
+                        if (e.bodyBefore == null) break;
+                        Vector3d pos = e.bodyBefore.GetWorldSurfacePosition(
+                            e.latBefore, e.lonBefore, e.altBefore);
+                        e.ghost.transform.position = pos;
+                        e.ghost.transform.rotation = CorrectForBodyRotation(
+                            e.bodyBefore, e.pointUT, e.interpolatedRot);
+                        break;
+                    }
+                    case GhostPosMode.Orbit:
+                    {
+                        Orbit orbit;
+                        if (orbitCache.TryGetValue(e.orbitCacheKey, out orbit))
+                        {
+                            Vector3d pos = orbit.getPositionAtUT(e.orbitUT);
+                            e.ghost.transform.position = pos;
+                            Vector3d vel = orbit.getOrbitalVelocityAtUT(e.orbitUT);
+                            if (vel.sqrMagnitude > 0.001)
+                                e.ghost.transform.rotation = Quaternion.LookRotation(vel);
+                        }
+                        break;
+                    }
+                    case GhostPosMode.Surface:
+                    {
+                        if (e.bodyBefore == null) break;
+                        e.ghost.transform.position = e.bodyBefore.GetWorldSurfacePosition(
+                            e.latBefore, e.lonBefore, e.altBefore);
+                        e.ghost.transform.rotation = e.bodyBefore.bodyTransform.rotation * e.surfaceRot;
+                        break;
+                    }
+                }
+            }
+            ghostPosEntries.Clear();
         }
 
         void OnGUI()
@@ -6597,6 +6696,21 @@ namespace Parsek
 
             ghost.transform.position = interpolatedPos;
             ghost.transform.rotation = CorrectForBodyRotation(bodyBefore, targetUT, interpolatedRot);
+
+            // Register for LateUpdate re-positioning after FloatingOrigin shift
+            ghostPosEntries.Add(new GhostPosEntry
+            {
+                ghost = ghost,
+                mode = GhostPosMode.PointInterp,
+                bodyBefore = bodyBefore,
+                bodyAfter = bodyAfter,
+                latBefore = before.latitude, lonBefore = before.longitude, altBefore = before.altitude,
+                latAfter = after.latitude, lonAfter = after.longitude, altAfter = after.altitude,
+                t = t,
+                pointUT = targetUT,
+                interpolatedRot = interpolatedRot
+            });
+
             interpResult = new InterpolationResult(
                 Vector3.Lerp(before.velocity, after.velocity, t),
                 after.bodyName,
@@ -6640,6 +6754,17 @@ namespace Parsek
 
             ghost.transform.position = worldPos;
             ghost.transform.rotation = CorrectForBodyRotation(body, point.ut, SanitizeQuaternion(point.rotation));
+
+            // Register for LateUpdate re-positioning after FloatingOrigin shift
+            ghostPosEntries.Add(new GhostPosEntry
+            {
+                ghost = ghost,
+                mode = GhostPosMode.SinglePoint,
+                bodyBefore = body,
+                latBefore = point.latitude, lonBefore = point.longitude, altBefore = point.altitude,
+                pointUT = point.ut,
+                interpolatedRot = SanitizeQuaternion(point.rotation)
+            });
         }
 
         // Delegates to TrajectoryMath — kept for backward compatibility
@@ -6682,6 +6807,15 @@ namespace Parsek
             Vector3d velocity = orbit.getOrbitalVelocityAtUT(ut);
             if (velocity.sqrMagnitude > 0.001)
                 ghost.transform.rotation = Quaternion.LookRotation(velocity);
+
+            // Register for LateUpdate re-positioning after FloatingOrigin shift
+            ghostPosEntries.Add(new GhostPosEntry
+            {
+                ghost = ghost,
+                mode = GhostPosMode.Orbit,
+                orbitCacheKey = cacheKey,
+                orbitUT = ut
+            });
         }
 
         /// <summary>
@@ -6724,6 +6858,17 @@ namespace Parsek
             ghost.transform.position = body.GetWorldSurfacePosition(surfPos.latitude, surfPos.longitude, surfPos.altitude);
             ghost.transform.rotation = body.bodyTransform.rotation * surfPos.rotation;
             ghost.SetActive(true);
+
+            // Register for LateUpdate re-positioning after FloatingOrigin shift
+            ghostPosEntries.Add(new GhostPosEntry
+            {
+                ghost = ghost,
+                mode = GhostPosMode.Surface,
+                bodyBefore = body,
+                latBefore = surfPos.latitude, lonBefore = surfPos.longitude, altBefore = surfPos.altitude,
+                surfaceRot = surfPos.rotation
+            });
+
             ParsekLog.VerboseRateLimited("Flight", "surface-ghost-positioned",
                 $"PositionGhostAtSurface: body={surfPos.body} lat={surfPos.latitude:F4} lon={surfPos.longitude:F4} alt={surfPos.altitude:F1}");
         }
