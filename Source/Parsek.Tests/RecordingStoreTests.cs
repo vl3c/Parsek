@@ -493,6 +493,21 @@ namespace Parsek.Tests
             Assert.Equal("StartSnapshot", selected.GetValue("name"));
         }
 
+        [Fact]
+        public void GetGhostSnapshot_ReturnsGhostWhenVesselSnapshotIsNull()
+        {
+            var rec = new RecordingStore.Recording();
+            var ghost = new ConfigNode("VESSEL");
+            ghost.AddValue("name", "StartSnapshot");
+            rec.VesselSnapshot = null;
+            rec.GhostVisualSnapshot = ghost;
+
+            var selected = GhostVisualBuilder.GetGhostSnapshot(rec);
+
+            Assert.NotNull(selected);
+            Assert.Equal("StartSnapshot", selected.GetValue("name"));
+        }
+
         [Theory]
         [InlineData("1,2,3", true)]
         [InlineData(" 1.5 , -2 , 3 ", true)]
