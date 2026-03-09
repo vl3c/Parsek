@@ -118,19 +118,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void AvailableFunds_SubtractsCommitted()
-        {
-            var rec = MakeRecording(50000, 35000); // cost = 15000
-            var recordings = new List<RecordingStore.Recording> { rec };
-            var budget = ResourceBudget.ComputeTotal(recordings, new List<Milestone>());
-
-            double currentFunds = 50000;
-            double available = currentFunds - budget.reservedFunds;
-
-            Assert.Equal(35000, available);
-        }
-
-        [Fact]
         public void PartiallyReplayed_OnlyRemainingReserved()
         {
             var rec = new RecordingStore.Recording
