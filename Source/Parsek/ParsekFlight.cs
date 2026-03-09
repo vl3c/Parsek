@@ -3164,7 +3164,7 @@ namespace Parsek
             // Propagate tree mode to new recorder so DecideOnVesselSwitch uses tree decisions
             if (activeTree != null)
                 recorder.ActiveTree = activeTree;
-            recorder.StartRecording();
+            recorder.StartRecording(isPromotion: isContinuation);
             if (!recorder.IsRecording)
             {
                 ParsekLog.Warn("Flight", $"StartRecording blocked: {DetermineRecordingBlockReason()}");
@@ -4256,6 +4256,15 @@ namespace Parsek
                     // Mid-chain segment past its own EndUT but chain still playing — hold at final pos
                     if (rec.Points.Count > 0)
                         PositionGhostAt(state.ghost, rec.Points[rec.Points.Count - 1]);
+
+                    // Watch mode: auto-follow to next chain segment
+                    if (watchedRecordingIndex == i)
+                    {
+                        int nextIdx = FindNextWatchTarget(i, rec);
+                        if (nextIdx >= 0)
+                            TransferWatchToNextSegment(nextIdx);
+                    }
+
                     if (pastEnd && rec.TreeId == null)
                         ApplyResourceDeltas(rec, currentUT);
                 }
@@ -4264,10 +4273,17 @@ namespace Parsek
                     // Outside time range, no spawn needed — despawn ghost if active
                     if (ghostActive)
                     {
-                        // Watch mode: hold camera at last position for 3 seconds before destroying
+                        // Watch mode: try auto-follow to next segment before holding/exiting
                         if (watchedRecordingIndex == i)
                         {
-                            if (watchEndHoldUntilUT < 0)
+                            int nextIdx = FindNextWatchTarget(i, rec);
+                            if (nextIdx >= 0)
+                            {
+                                // Found a successor segment with an active ghost — transfer immediately
+                                TransferWatchToNextSegment(nextIdx);
+                                // Fall through to destroy this ghost below (it's past its time range)
+                            }
+                            else if (watchEndHoldUntilUT < 0)
                             {
                                 watchEndHoldUntilUT = Planetarium.GetUniversalTime() + 3.0;
                                 ParsekLog.Info("CameraFollow",
@@ -4279,7 +4295,8 @@ namespace Parsek
                             }
                             else if (Planetarium.GetUniversalTime() < watchEndHoldUntilUT)
                             {
-                                // Still holding — keep ghost alive
+                                // Still holding — try auto-follow each frame (next ghost may spawn during hold)
+                                // (nextIdx was already checked above and was -1, so just keep holding)
                                 if (pastEnd && rec.TreeId == null)
                                     ApplyResourceDeltas(rec, currentUT);
                                 continue;
@@ -6332,6 +6349,138 @@ namespace Parsek
 
             // Not found — exit watch mode
             return (-1, null);
+        }
+
+        /// <summary>
+        /// Finds the next recording to auto-follow when the watched recording ends.
+        /// Handles two cases:
+        /// 1. Chain continuation: next segment with same ChainId, ChainBranch 0, ChainIndex + 1
+        /// 2. Tree branching: child recording via ChildBranchPointId, preferring same VesselPersistentId
+        /// Returns the committed-list index of the next recording, or -1 if none found.
+        /// Only returns a target if its ghost is already active (spawned and playing).
+        /// </summary>
+        int FindNextWatchTarget(int currentIndex, RecordingStore.Recording currentRec)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+
+            // Case 1: Chain continuation
+            if (!string.IsNullOrEmpty(currentRec.ChainId) && currentRec.ChainIndex >= 0
+                && currentRec.ChainBranch == 0)
+            {
+                int nextChainIndex = currentRec.ChainIndex + 1;
+                for (int j = 0; j < committed.Count; j++)
+                {
+                    var candidate = committed[j];
+                    if (candidate.ChainId == currentRec.ChainId
+                        && candidate.ChainBranch == 0
+                        && candidate.ChainIndex == nextChainIndex
+                        && HasActiveGhost(j))
+                    {
+                        return j;
+                    }
+                }
+            }
+
+            // Case 2: Tree branching via ChildBranchPointId
+            if (!string.IsNullOrEmpty(currentRec.ChildBranchPointId)
+                && !string.IsNullOrEmpty(currentRec.TreeId))
+            {
+                // Find the BranchPoint
+                BranchPoint bp = null;
+                for (int t = 0; t < RecordingStore.CommittedTrees.Count; t++)
+                {
+                    var tree = RecordingStore.CommittedTrees[t];
+                    if (tree.Id != currentRec.TreeId) continue;
+                    for (int b = 0; b < tree.BranchPoints.Count; b++)
+                    {
+                        if (tree.BranchPoints[b].Id == currentRec.ChildBranchPointId)
+                        {
+                            bp = tree.BranchPoints[b];
+                            break;
+                        }
+                    }
+                    break;
+                }
+
+                if (bp != null)
+                {
+                    // Prefer child with same VesselPersistentId (same vessel continues)
+                    int fallbackIdx = -1;
+                    for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
+                    {
+                        string childId = bp.ChildRecordingIds[c];
+                        for (int j = 0; j < committed.Count; j++)
+                        {
+                            if (committed[j].RecordingId != childId) continue;
+                            if (!HasActiveGhost(j)) continue;
+
+                            if (committed[j].VesselPersistentId == currentRec.VesselPersistentId)
+                                return j; // same vessel — best match
+
+                            if (fallbackIdx < 0)
+                                fallbackIdx = j; // first active child as fallback
+                        }
+                    }
+                    if (fallbackIdx >= 0)
+                        return fallbackIdx;
+                }
+            }
+
+            return -1;
+        }
+
+        /// <summary>
+        /// Transfers watch mode from the current recording to the next segment.
+        /// Preserves camera state (no restore to player vessel) since we're switching between ghosts.
+        /// </summary>
+        void TransferWatchToNextSegment(int nextIndex)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            if (nextIndex < 0 || nextIndex >= committed.Count) return;
+
+            string oldName = watchedRecordingIndex >= 0 && watchedRecordingIndex < committed.Count
+                ? committed[watchedRecordingIndex].VesselName : "?";
+            string newName = committed[nextIndex].VesselName;
+
+            ParsekLog.Info("CameraFollow",
+                $"Auto-following: #{watchedRecordingIndex} \"{oldName}\" -> #{nextIndex} \"{newName}\"");
+
+            // Verify the target ghost exists before transferring
+            GhostPlaybackState gs;
+            if (!ghostStates.TryGetValue(nextIndex, out gs) || gs == null || gs.ghost == null)
+            {
+                ParsekLog.Warn("CameraFollow",
+                    $"Auto-follow target #{nextIndex} has no active ghost — staying on current");
+                return;
+            }
+
+            // Preserve original camera state across the transition
+            // (ExitWatchMode clears these, but we want Backspace to restore to the original vessel)
+            Vessel preservedVessel = savedCameraVessel;
+            float preservedDistance = savedCameraDistance;
+            float preservedPitch = savedCameraPitch;
+            float preservedHeading = savedCameraHeading;
+
+            // Switch watch mode: exit old (preserving camera position), enter new
+            ExitWatchMode(skipCameraRestore: true);
+
+            // Set up new watch state
+            watchedRecordingIndex = nextIndex;
+            watchedRecordingId = committed[nextIndex].RecordingId;
+
+            // Restore saved camera state so Backspace returns to original vessel
+            savedCameraVessel = preservedVessel;
+            savedCameraDistance = preservedDistance;
+            savedCameraPitch = preservedPitch;
+            savedCameraHeading = preservedHeading;
+
+            FlightCamera.fetch.SetTargetTransform(gs.ghost.transform);
+            InputLockManager.SetControlLock(WatchModeLockMask, WatchModeLockId);
+
+            watchEndHoldUntilUT = -1;
+
+            ParsekLog.Verbose("CameraFollow",
+                $"Camera re-targeted to ghost #{nextIndex} at {gs.ghost.transform.position}");
         }
 
         #endregion
