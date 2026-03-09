@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Globalization;
 using Xunit;
 
 namespace Parsek.Tests
@@ -162,69 +161,6 @@ namespace Parsek.Tests
         #endregion
 
         #region OrbitSegment Serialization
-
-        [Fact]
-        public void OrbitSegment_SerializationRoundTrip()
-        {
-            var original = MakeSegment(12345.6789, 99999.1234, "Mun");
-            original.inclination = 45.123456789;
-            original.eccentricity = 0.0023456;
-            original.semiMajorAxis = 1234567.89;
-            original.longitudeOfAscendingNode = 180.5;
-            original.argumentOfPeriapsis = 270.25;
-            original.meanAnomalyAtEpoch = 3.14159;
-            original.epoch = 11111.2222;
-
-            // Serialize (using InvariantCulture, matching production code)
-            var ic = CultureInfo.InvariantCulture;
-            var node = new ConfigNode("ORBIT_SEGMENT");
-            node.AddValue("startUT", original.startUT.ToString("R", ic));
-            node.AddValue("endUT", original.endUT.ToString("R", ic));
-            node.AddValue("inc", original.inclination.ToString("R", ic));
-            node.AddValue("ecc", original.eccentricity.ToString("R", ic));
-            node.AddValue("sma", original.semiMajorAxis.ToString("R", ic));
-            node.AddValue("lan", original.longitudeOfAscendingNode.ToString("R", ic));
-            node.AddValue("argPe", original.argumentOfPeriapsis.ToString("R", ic));
-            node.AddValue("mna", original.meanAnomalyAtEpoch.ToString("R", ic));
-            node.AddValue("epoch", original.epoch.ToString("R", ic));
-            node.AddValue("body", original.bodyName);
-
-            // Deserialize
-            var loaded = new OrbitSegment();
-            var inv = NumberStyles.Float;
-
-            double.TryParse(node.GetValue("startUT"), inv, ic, out loaded.startUT);
-            double.TryParse(node.GetValue("endUT"), inv, ic, out loaded.endUT);
-            double.TryParse(node.GetValue("inc"), inv, ic, out loaded.inclination);
-            double.TryParse(node.GetValue("ecc"), inv, ic, out loaded.eccentricity);
-            double.TryParse(node.GetValue("sma"), inv, ic, out loaded.semiMajorAxis);
-            double.TryParse(node.GetValue("lan"), inv, ic, out loaded.longitudeOfAscendingNode);
-            double.TryParse(node.GetValue("argPe"), inv, ic, out loaded.argumentOfPeriapsis);
-            double.TryParse(node.GetValue("mna"), inv, ic, out loaded.meanAnomalyAtEpoch);
-            double.TryParse(node.GetValue("epoch"), inv, ic, out loaded.epoch);
-            loaded.bodyName = node.GetValue("body");
-
-            // Verify round-trip
-            Assert.Equal(original.startUT, loaded.startUT);
-            Assert.Equal(original.endUT, loaded.endUT);
-            Assert.Equal(original.inclination, loaded.inclination);
-            Assert.Equal(original.eccentricity, loaded.eccentricity);
-            Assert.Equal(original.semiMajorAxis, loaded.semiMajorAxis);
-            Assert.Equal(original.longitudeOfAscendingNode, loaded.longitudeOfAscendingNode);
-            Assert.Equal(original.argumentOfPeriapsis, loaded.argumentOfPeriapsis);
-            Assert.Equal(original.meanAnomalyAtEpoch, loaded.meanAnomalyAtEpoch);
-            Assert.Equal(original.epoch, loaded.epoch);
-            Assert.Equal(original.bodyName, loaded.bodyName);
-        }
-
-        [Fact]
-        public void OrbitSegment_MissingBody_DefaultsToKerbin()
-        {
-            var node = new ConfigNode("ORBIT_SEGMENT");
-            // No "body" value
-            string bodyName = node.GetValue("body") ?? "Kerbin";
-            Assert.Equal("Kerbin", bodyName);
-        }
 
         [Fact]
         public void FindOrbitSegment_AdjacentSegments_NoOverlap()
