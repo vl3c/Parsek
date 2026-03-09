@@ -6596,7 +6596,7 @@ namespace Parsek
             }
 
             ghost.transform.position = interpolatedPos;
-            ghost.transform.rotation = interpolatedRot;
+            ghost.transform.rotation = CorrectForBodyRotation(bodyBefore, targetUT, interpolatedRot);
             interpResult = new InterpolationResult(
                 Vector3.Lerp(before.velocity, after.velocity, t),
                 after.bodyName,
@@ -6607,6 +6607,22 @@ namespace Parsek
         internal int FindWaypointIndex(double targetUT)
         {
             return TrajectoryMath.FindWaypointIndex(recording, ref lastPlaybackIndex, targetUT);
+        }
+
+        /// <summary>
+        /// Corrects a world-space rotation recorded at pointUT for planetary rotation
+        /// that has occurred between pointUT and the current game UT.
+        /// </summary>
+        static Quaternion CorrectForBodyRotation(CelestialBody body, double pointUT, Quaternion storedRot)
+        {
+            if (body == null || body.rotationPeriod <= 0) return storedRot;
+            double deltaUT = Planetarium.GetUniversalTime() - pointUT;
+            if (System.Math.Abs(deltaUT) < 0.01) return storedRot;
+            float deltaAngle = (float)((deltaUT / body.rotationPeriod) * 360.0);
+            Vector3 axis = (Vector3)body.angularVelocity;
+            if (axis.sqrMagnitude < 1e-10f) return storedRot;
+            axis = axis.normalized;
+            return Quaternion.AngleAxis(deltaAngle, axis) * storedRot;
         }
 
         void PositionGhostAt(GameObject ghost, TrajectoryPoint point)
@@ -6623,7 +6639,7 @@ namespace Parsek
                 point.latitude, point.longitude, point.altitude);
 
             ghost.transform.position = worldPos;
-            ghost.transform.rotation = SanitizeQuaternion(point.rotation);
+            ghost.transform.rotation = CorrectForBodyRotation(body, point.ut, SanitizeQuaternion(point.rotation));
         }
 
         // Delegates to TrajectoryMath — kept for backward compatibility
