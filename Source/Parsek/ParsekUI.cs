@@ -58,8 +58,7 @@ namespace Parsek
         private const float ColW_Launch = 110f;
         private const float ColW_Dur = 55f;
         private const float ColW_Status = 45f;
-        private const float ColW_LoopLabel = 30f;
-        private const float ColW_LoopToggle = 15f;
+        private const float ColW_Loop = 45f;
         private const float ColW_Watch = 50f;
         private const float ColW_Rewind = 55f;
         private const float ColW_Delete = 50f;
@@ -809,8 +808,12 @@ namespace Parsek
                     if (committed[i].LoopPlayback) loopCount++;
 
                 bool allLoop = loopCount == committed.Count;
-                GUILayout.Label("Loop", GUILayout.Width(ColW_LoopLabel));
-                bool newAllLoop = GUILayout.Toggle(allLoop, "", GUILayout.Width(ColW_LoopToggle));
+                GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
+                GUILayout.FlexibleSpace();
+                GUILayout.Label("Loop");
+                bool newAllLoop = GUILayout.Toggle(allLoop, "");
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
                 if (newAllLoop != allLoop)
                 {
                     for (int i = 0; i < committed.Count; i++)
@@ -1055,8 +1058,11 @@ namespace Parsek
             GUILayout.Label(statusText, statusStyle, GUILayout.Width(ColW_Status));
 
             // Loop checkbox
-            GUILayout.Label("", GUILayout.Width(ColW_LoopLabel));
-            bool loop = GUILayout.Toggle(rec.LoopPlayback, "", GUILayout.Width(ColW_LoopToggle));
+            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
+            GUILayout.FlexibleSpace();
+            bool loop = GUILayout.Toggle(rec.LoopPlayback, "");
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
             if (loop != rec.LoopPlayback)
             {
                 rec.LoopPlayback = loop;
