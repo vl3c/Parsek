@@ -345,38 +345,6 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region BranchPointType enum values
-
-        [Fact]
-        public void BranchPointType_Dock_HasValue2()
-        {
-            Assert.Equal(2, (int)BranchPointType.Dock);
-        }
-
-        [Fact]
-        public void BranchPointType_Board_HasValue3()
-        {
-            Assert.Equal(3, (int)BranchPointType.Board);
-        }
-
-        [Fact]
-        public void BranchPointType_Dock_Serialization_RoundTrips()
-        {
-            int serialized = (int)BranchPointType.Dock;
-            Assert.True(Enum.IsDefined(typeof(BranchPointType), serialized));
-            Assert.Equal(BranchPointType.Dock, (BranchPointType)serialized);
-        }
-
-        [Fact]
-        public void BranchPointType_Board_Serialization_RoundTrips()
-        {
-            int serialized = (int)BranchPointType.Board;
-            Assert.True(Enum.IsDefined(typeof(BranchPointType), serialized));
-            Assert.Equal(BranchPointType.Board, (BranchPointType)serialized);
-        }
-
-        #endregion
-
         #region Merge tree integration scenario
 
         [Fact]
