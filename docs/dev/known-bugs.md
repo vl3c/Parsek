@@ -31,16 +31,14 @@ Merged `ColW_LoopLabel` + `ColW_LoopToggle` into single `ColW_Loop` column, wrap
 **Status:** Fixed
 
 ## 7. Rewind button inactive for most recordings
-Most recording entries have the rewind button disabled. Likely because orbit segments and decouple continuation segments create separate entries that lack launch start points. These child segments should be grouped under their parent recording, with only the launch recording exposing the rewind button.
+Root cause: `StartRecording()` called `FlightRecorder.StartRecording()` with default `isPromotion=false` for chain continuations, creating rewind saves for every segment. Fix: detect continuations via `activeChainId != null` and pass `isPromotion=true` to skip rewind save capture.
 
-**Status:** Open
+**Status:** Fixed
 
 ## 8. Exo-atmospheric segment incorrectly has rewind button active
-Recording segment index 19 (an exo-atmosphere segment inside a group) has the rewind button enabled. Only actual launch/start recordings should offer rewind.
+Same root cause as #7 — atmosphere boundary splits created continuation segments with their own rewind saves. Fixed by the same `isPromotion: isContinuation` change.
 
-Related to #7 — rewind availability logic needs to be tightened.
-
-**Status:** Open
+**Status:** Fixed
 
 ## 9. Watch camera does not follow recording segment transitions
 Added `FindNextWatchTarget` (chain continuation + tree branching) and `TransferWatchToNextSegment` to auto-follow the camera to the next active ghost when a watched segment ends. Preserves saved camera state for Backspace restore.
