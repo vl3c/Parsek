@@ -3155,6 +3155,13 @@ namespace Parsek
 
         public void StartRecording()
         {
+            // Chain continuations (atmosphere/SOI splits, dock/undock, boarding) are NOT
+            // new launches — they must not capture a fresh rewind save.  The rewind save
+            // belongs to the chain root only.  activeChainId is set by
+            // CommitBoundarySplit / CommitChainSegment / CommitDockUndockSegment *before*
+            // this method is called, so a non-null value reliably indicates a continuation.
+            bool isContinuation = activeChainId != null;
+
             recorder = new FlightRecorder();
             if (pendingBoundaryAnchor.HasValue)
             {
