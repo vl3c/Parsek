@@ -6,14 +6,14 @@ After rewinding to an earlier recording, all tech tree nodes unlocked later in t
 **Status:** Open
 
 ## 2. Craft orientation wrong on earlier recording playback
-When playing back an earlier recording, the vessel orientation is incorrect. New issue — not observed before.
+Root cause: rotation stored as world-space quaternion without accounting for planetary rotation between recording and playback time. Fix: `CorrectForBodyRotation` helper computes angular delta from `body.angularVelocity` and `rotationPeriod`, applies correction at both `InterpolateAndPosition` and `PositionGhostAt` paths. No format change needed — works for all existing recordings.
 
-**Status:** Open
+**Status:** Fixed
 
 ## 3. Vessels fly erratically during playback
-Recorded vessels move unpredictably / fly all over the place during ghost playback.
+Root cause: ghost GameObjects not registered with KSP's `FloatingOrigin`. Positions set in `Update()` became stale after `FloatingOrigin.LateUpdate()` shifted all registered objects. Fix: store positioning parameters in `GhostPosEntry` structs, re-compute positions in `LateUpdate()` after FloatingOrigin shifts.
 
-**Status:** Open
+**Status:** Fixed
 
 ## 4. Green sphere instead of vessel model during playback
 One recording appears as a green sphere during playback with slight time warp. Root cause: `ParsekScenario.UpdateRecordingsForTerminalEvent()` cleared `GhostVisualSnapshot` on vessel recovery, causing `GetGhostSnapshot()` to return null and triggering the sphere fallback. Fix: preserve `GhostVisualSnapshot` (immutable) — only clear `VesselSnapshot`.
