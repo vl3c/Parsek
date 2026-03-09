@@ -1454,20 +1454,19 @@ namespace Parsek
 
         /// <summary>
         /// Prepares a standalone pending recording for ghost-only commit (no vessel spawn).
-        /// Nulls snapshots and unreserves crew. Call RecordingStore.CommitPending() after this.
+        /// Nulls vessel snapshot and unreserves crew. Call RecordingStore.CommitPending() after this.
         /// </summary>
         private static void AutoCommitGhostOnly(RecordingStore.Recording pending)
         {
             UnreserveCrewInSnapshot(pending.VesselSnapshot);
             pending.VesselSnapshot = null;
-            pending.GhostVisualSnapshot = null;
             ParsekLog.Info("Scenario", $"Auto-commit ghost-only: '{pending.VesselName}'" +
                 (pending.TerminalStateValue.HasValue ? $" (terminal={pending.TerminalStateValue.Value})" : ""));
         }
 
         /// <summary>
         /// Prepares all recordings in a pending tree for ghost-only commit (no vessel spawn).
-        /// Nulls snapshots and unreserves crew. Call RecordingStore.CommitPendingTree() after this.
+        /// Nulls vessel snapshot and unreserves crew. Call RecordingStore.CommitPendingTree() after this.
         /// </summary>
         private static void AutoCommitTreeGhostOnly(RecordingTree tree)
         {
@@ -1475,7 +1474,6 @@ namespace Parsek
             {
                 UnreserveCrewInSnapshot(rec.VesselSnapshot);
                 rec.VesselSnapshot = null;
-                rec.GhostVisualSnapshot = null;
             }
             ParsekLog.Info("Scenario", $"Auto-commit tree ghost-only: tree '{tree.Id}' " +
                 $"({tree.Recordings.Count} recordings)");
@@ -1539,7 +1537,6 @@ namespace Parsek
                     pending.ExplicitEndUT = ut;
                     UnreserveCrewInSnapshot(pending.VesselSnapshot);
                     pending.VesselSnapshot = null;
-                    pending.GhostVisualSnapshot = null;
                     anyUpdated = true;
                     ParsekLog.Verbose("Scenario", $"Updated pending recording '{pending.VesselName}' with {state}");
                 }
@@ -1556,7 +1553,6 @@ namespace Parsek
                         rec.ExplicitEndUT = ut;
                         UnreserveCrewInSnapshot(rec.VesselSnapshot);
                         rec.VesselSnapshot = null;
-                        rec.GhostVisualSnapshot = null;
                         anyUpdated = true;
                         ParsekLog.Verbose("Scenario", $"Updated pending tree recording '{rec.VesselName}' with {state}");
                     }
@@ -1575,7 +1571,6 @@ namespace Parsek
                     rec.ExplicitEndUT = ut;
                     UnreserveCrewInSnapshot(rec.VesselSnapshot);
                     rec.VesselSnapshot = null;
-                    rec.GhostVisualSnapshot = null;
                     anyUpdated = true;
                     ParsekLog.Verbose("Scenario", $"Updated committed recording '{rec.VesselName}' (#{i}) with {state}");
                     break; // only update the most recent matching recording
