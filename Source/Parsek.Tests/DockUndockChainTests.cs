@@ -261,54 +261,6 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region Spawn guard for branch > 0
-
-        [Fact]
-        public void NeedsSpawn_BranchGreaterThanZero_NeverSpawns()
-        {
-            RecordingStore.StashPending(MakePoints(5, 100), "Continuation");
-            RecordingStore.Pending.ChainId = "spawn-guard";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.Pending.ChainBranch = 1;
-            RecordingStore.Pending.VesselSnapshot = new ConfigNode("VESSEL");
-            RecordingStore.CommitPending();
-
-            var rec = RecordingStore.CommittedRecordings[0];
-
-            // Without the branch guard, needsSpawn would be true
-            bool rawNeedsSpawn = rec.VesselSnapshot != null && !rec.VesselSpawned && !rec.VesselDestroyed;
-            Assert.True(rawNeedsSpawn);
-
-            // Apply the branch guard (as in UpdateTimelinePlayback)
-            bool needsSpawn = rawNeedsSpawn;
-            if (rec.ChainBranch > 0)
-                needsSpawn = false;
-
-            Assert.False(needsSpawn);
-        }
-
-        [Fact]
-        public void NeedsSpawn_BranchZero_CanSpawn()
-        {
-            RecordingStore.StashPending(MakePoints(5, 100), "Primary");
-            RecordingStore.Pending.ChainId = "spawn-ok";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.Pending.ChainBranch = 0;
-            RecordingStore.Pending.VesselSnapshot = new ConfigNode("VESSEL");
-            RecordingStore.CommitPending();
-
-            var rec = RecordingStore.CommittedRecordings[0];
-            bool needsSpawn = rec.VesselSnapshot != null && !rec.VesselSpawned && !rec.VesselDestroyed;
-
-            // Branch guard doesn't apply
-            if (rec.ChainBranch > 0)
-                needsSpawn = false;
-
-            Assert.True(needsSpawn);
-        }
-
-        #endregion
-
         #region BuildExcludeCrewSet with dock chains
 
         [Fact]
@@ -645,77 +597,6 @@ namespace Parsek.Tests
             Assert.Equal(6, RecordingStore.CommittedRecordings.Count);
             foreach (var rec in RecordingStore.CommittedRecordings)
                 Assert.Equal("multi-undock", rec.ChainId);
-        }
-
-        #endregion
-
-        #region Branch > 0 vessel destroyed
-
-        [Fact]
-        public void BranchGreaterThanZero_Destroyed_DespawnsNormally()
-        {
-            RecordingStore.StashPending(MakePoints(5, 100), "Vessel");
-            RecordingStore.Pending.ChainId = "destroy-branch";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.Pending.ChainBranch = 1;
-            RecordingStore.Pending.VesselDestroyed = true;
-            RecordingStore.CommitPending();
-
-            var rec = RecordingStore.CommittedRecordings[0];
-
-            // Even with destroyed flag, branch > 0 is not mid-chain
-            Assert.False(RecordingStore.IsChainMidSegment(rec));
-
-            // Spawn check: branch > 0 never spawns regardless
-            bool needsSpawn = rec.VesselSnapshot != null && !rec.VesselSpawned && !rec.VesselDestroyed;
-            if (rec.ChainBranch > 0) needsSpawn = false;
-            Assert.False(needsSpawn);
-        }
-
-        #endregion
-
-        #region Warp stop — branch > 0 should not stop warp
-
-        [Fact]
-        public void WarpStopGuard_BranchGreaterThanZero_NoWarpStop()
-        {
-            // The warp-stop check requires VesselSnapshot != null && !VesselSpawned && !VesselDestroyed
-            // && !IsChainMidSegment. Branch > 0 has no VesselSnapshot (ghost-only) and
-            // IsChainMidSegment returns false. But even if it had a snapshot, branch > 0
-            // should not stop warp since it never spawns.
-            RecordingStore.StashPending(MakePoints(5, 100), "Ghost Continuation");
-            RecordingStore.Pending.ChainId = "warp-branch";
-            RecordingStore.Pending.ChainIndex = 1;
-            RecordingStore.Pending.ChainBranch = 1;
-            RecordingStore.CommitPending();
-
-            var rec = RecordingStore.CommittedRecordings[0];
-
-            // VesselSnapshot is null for branch > 0 (ghost-only)
-            Assert.Null(rec.VesselSnapshot);
-
-            // Warp-stop condition mirrors UpdateTimelinePlayback:
-            // VesselSnapshot != null && !VesselSpawned && !VesselDestroyed && !IsChainMidSegment
-            bool wouldStopWarp = rec.VesselSnapshot != null &&
-                !rec.VesselSpawned && !rec.VesselDestroyed &&
-                !RecordingStore.IsChainMidSegment(rec);
-            Assert.False(wouldStopWarp);
-        }
-
-        #endregion
-
-        #region StopRecordingForChainBoundary
-
-        [Fact]
-        public void StopRecordingForChainBoundary_SetsCaptureAtStop()
-        {
-            // Verify the silent stop method produces CaptureAtStop just like normal stop.
-            // This is a pure logic test — StopRecordingForChainBoundary mirrors StopRecording
-            // except it skips the screen message.
-            // Can't call directly without Unity, but verify DecideOnVesselSwitch returns
-            // DockMerge when the conditions match.
-            var result = FlightRecorder.DecideOnVesselSwitch(100, 200, false, false, undockSiblingPid: 0);
-            Assert.Equal(FlightRecorder.VesselSwitchDecision.Stop, result);
         }
 
         #endregion

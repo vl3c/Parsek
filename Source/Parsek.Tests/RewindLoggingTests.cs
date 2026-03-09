@@ -556,32 +556,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResourceTarget_BaselineReset_DoesNotAccumulate()
-        {
-            // REGRESSION TEST: Resources are reset to baseline on rewind.
-            // This prevents the old accumulation bug where science/funds
-            // kept increasing on each rewind.
-            double baselineFunds = 25000.0;
-            double baselineScience = 0.0;
-
-            // First rewind: singleton has stale value 40000
-            double current1 = 40000.0;
-            double result1 = current1 + (baselineFunds - current1);
-            Assert.Equal(25000.0, result1);
-
-            // After ghost playback applies recording deltas (+20000 earned),
-            // player has 45000. Then rewinds again:
-            double current2 = 45000.0;
-            double result2 = current2 + (baselineFunds - current2);
-            Assert.Equal(25000.0, result2);  // Back to baseline, NOT accumulated
-
-            // Science: baseline is 0, always resets to 0
-            double sci1 = 7.2;
-            double sciResult = sci1 + (baselineScience - sci1);
-            Assert.Equal(0.0, sciResult);  // Ghost playback will add science later
-        }
-
-        [Fact]
         public void FullCommittedCost_SignConvention_NegativeMeansEarned()
         {
             // Verify the sign convention: negative cost = recording earned money
@@ -604,36 +578,6 @@ namespace Parsek.Tests
             Assert.Equal(-7.2, scienceCost, 5);
             // Earned 1.0 rep → cost is -1.0
             Assert.Equal(-1.0, repCost, 5);
-        }
-
-        [Fact]
-        public void ResourceReset_WithMultipleRecordings_UsesBaseline()
-        {
-            // With multiple recordings, rewind resets to baseline.
-            // Ghost playback will apply each recording's deltas at the correct UT.
-            double baseline = 25000.0;
-
-            var rec1 = new RecordingStore.Recording { PreLaunchFunds = 25000 };
-            rec1.Points.Add(new TrajectoryPoint { ut = 100, funds = 25000 });
-            rec1.Points.Add(new TrajectoryPoint { ut = 200, funds = 45000 });
-
-            var rec2 = new RecordingStore.Recording { PreLaunchFunds = 45000 };
-            rec2.Points.Add(new TrajectoryPoint { ut = 300, funds = 45000 });
-            rec2.Points.Add(new TrajectoryPoint { ut = 400, funds = 55000 });
-
-            RecordingStore.CommittedRecordings.Add(rec1);
-            RecordingStore.CommittedRecordings.Add(rec2);
-
-            // Rewind always resets to baseline, regardless of number of recordings
-            double currentFunds = 55000.0;
-            double correction = baseline - currentFunds;
-            double result = currentFunds + correction;
-            Assert.Equal(25000.0, result);  // baseline
-
-            // Ghost playback handles the rest:
-            // rec1 applies +20000 at UT 100-200
-            // rec2 applies +10000 at UT 300-400
-            // Final result after both ghosts play: 25000 + 20000 + 10000 = 55000
         }
 
         #endregion

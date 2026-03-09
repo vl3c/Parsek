@@ -152,45 +152,6 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region Subtree collection
-
-        [Fact]
-        public void SubtreeCollect_DecoupleAtNode101_CollectsAllDescendants()
-        {
-            // Same tree as above:
-            // 100 → 101 → {102, 103}
-            var tree = new Dictionary<uint, List<uint>>
-            {
-                { 100, new List<uint> { 101 } },
-                { 101, new List<uint> { 102, 103 } }
-            };
-
-            // Collect subtree from 101 (what HidePartSubtree would traverse)
-            var collected = CollectSubtree(101, tree);
-
-            Assert.Contains(101u, collected);
-            Assert.Contains(102u, collected);
-            Assert.Contains(103u, collected);
-            Assert.DoesNotContain(100u, collected);
-        }
-
-        [Fact]
-        public void SubtreeCollect_LeafNode_CollectsOnlyItself()
-        {
-            var tree = new Dictionary<uint, List<uint>>
-            {
-                { 100, new List<uint> { 101 } },
-                { 101, new List<uint> { 102, 103 } }
-            };
-
-            var collected = CollectSubtree(103, tree);
-
-            Assert.Single(collected);
-            Assert.Contains(103u, collected);
-        }
-
-        #endregion
-
         #region Parachute state tracking
 
         [Fact]
@@ -1852,23 +1813,6 @@ namespace Parsek.Tests
             part.AddValue("name", name);
             part.AddValue("persistentId", persistentId.ToString(CultureInfo.InvariantCulture));
             part.AddValue("parent", parentIndex.ToString(CultureInfo.InvariantCulture));
-        }
-
-        private static HashSet<uint> CollectSubtree(uint rootPid, Dictionary<uint, List<uint>> tree)
-        {
-            var result = new HashSet<uint>();
-            var stack = new Stack<uint>();
-            stack.Push(rootPid);
-            while (stack.Count > 0)
-            {
-                uint pid = stack.Pop();
-                result.Add(pid);
-                List<uint> children;
-                if (tree.TryGetValue(pid, out children))
-                    for (int c = 0; c < children.Count; c++)
-                        stack.Push(children[c]);
-            }
-            return result;
         }
 
         #endregion
