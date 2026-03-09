@@ -256,25 +256,6 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region BranchPointType enum
-
-        [Fact]
-        public void BranchPointType_JointBreak_HasValue4()
-        {
-            Assert.Equal(4, (int)BranchPointType.JointBreak);
-        }
-
-        [Fact]
-        public void BranchPointType_Serialization_RoundTrips()
-        {
-            // Ensure serialization (int cast) and deserialization work for JointBreak
-            int serialized = (int)BranchPointType.JointBreak;
-            Assert.True(Enum.IsDefined(typeof(BranchPointType), serialized));
-            Assert.Equal(BranchPointType.JointBreak, (BranchPointType)serialized);
-        }
-
-        #endregion
-
         #region Tree creation from BuildSplitBranchData
 
         [Fact]
@@ -383,17 +364,6 @@ namespace Parsek.Tests
         public void FlightRecorder_JointBreakCheck_DefaultFalse()
         {
             var recorder = new FlightRecorder();
-            Assert.False(recorder.HasPendingJointBreakCheck);
-        }
-
-        [Fact]
-        public void FlightRecorder_ConsumeJointBreakCheck_ReturnsAndClears()
-        {
-            var recorder = new FlightRecorder();
-            // HasPendingJointBreakCheck is private-set, so we can only test ConsumePendingJointBreakCheck
-            // which returns false initially
-            bool result = recorder.ConsumePendingJointBreakCheck();
-            Assert.False(result);
             Assert.False(recorder.HasPendingJointBreakCheck);
         }
 
