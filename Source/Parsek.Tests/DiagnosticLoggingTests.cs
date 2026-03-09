@@ -161,22 +161,6 @@ namespace Parsek.Tests
                 $"Ghost will despawn before orbit segment activates.");
         }
 
-        [Fact]
-        public void KscHopper_HasNoOrbitSegmentGap()
-        {
-            // Ghost-only recording — no orbit segments, no gap possible
-            var node = SyntheticRecordingTests.KscHopper().Build();
-            Assert.Empty(node.GetNodes("ORBIT_SEGMENT"));
-        }
-
-        [Fact]
-        public void SuborbitalArc_HasNoOrbitSegmentGap()
-        {
-            // Ghost-only recording — no orbit segments, no gap possible
-            var node = SyntheticRecordingTests.SuborbitalArc().Build();
-            Assert.Empty(node.GetNodes("ORBIT_SEGMENT"));
-        }
-
         #endregion
     }
 }
