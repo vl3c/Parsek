@@ -1874,7 +1874,7 @@ namespace Parsek
                     pending.RewindReservedRep = captured.RewindReservedRep;
                 }
                 RecordingStore.CommitPending();
-                ParsekLog.Warn("Flight", "Split branch failed — fallback committed recording as standalone");
+                ParsekLog.Info("Flight", "Vessel destroyed during split — recording committed as standalone");
             }
             else
             {
