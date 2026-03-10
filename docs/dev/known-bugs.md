@@ -1,9 +1,9 @@
 # Known Bugs
 
 ## 1. Tech tree nodes stay unlocked after rewind
-After rewinding to an earlier recording, all tech tree nodes unlocked later in the game remain unlocked. Expected: revert to the tech tree state from that earlier time and only unlock nodes / buy parts when recorded actions fire at the correct time.
+Root cause: `ActionReplay.ReplayCommittedActions` replayed ALL committed milestone events including those from after the rewind point, re-unlocking tech/parts/facilities that shouldn't exist yet. Fix: added `maxUT` parameter that skips events with `ut > rewindUT`. The rewind path passes `RecordingStore.RewindUT`; non-rewind callers use default `double.MaxValue`.
 
-**Status:** Open
+**Status:** Fixed
 
 ## 2. Craft orientation wrong on earlier recording playback
 Root cause: rotation stored as world-space quaternion without accounting for planetary rotation between recording and playback time. Fix: `CorrectForBodyRotation` helper computes angular delta from `body.angularVelocity` and `rotationPeriod`, applies correction at both `InterpolateAndPosition` and `PositionGhostAt` paths. No format change needed — works for all existing recordings.
