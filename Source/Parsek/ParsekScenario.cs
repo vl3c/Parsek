@@ -842,6 +842,7 @@ namespace Parsek
             // Capture rewind state before yielding — flags are cleared synchronously
             // in OnLoad after StartCoroutine returns.
             var saved = RecordingStore.RewindReserved;
+            double rewindUT = RecordingStore.RewindUT;
             double adjustedUT = RecordingStore.RewindAdjustedUT;
             double baselineFunds = RecordingStore.RewindBaselineFunds;
             double baselineScience = RecordingStore.RewindBaselineScience;
@@ -934,7 +935,9 @@ namespace Parsek
             // Replay committed actions (tech, parts, facilities, crew).
             // Resources are NOT marked fully applied — ghost playback will re-apply
             // recording resource deltas at the correct UT as the timeline replays.
-            ActionReplay.ReplayCommittedActions(MilestoneStore.Milestones);
+            // Pass rewindUT to skip events from after the rewind point (prevents
+            // replaying tech unlocks / part purchases that haven't happened yet).
+            ActionReplay.ReplayCommittedActions(MilestoneStore.Milestones, rewindUT);
 
             // Belt-and-suspenders epoch guard
             budgetDeductionEpoch = MilestoneStore.CurrentEpoch;

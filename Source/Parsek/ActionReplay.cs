@@ -35,7 +35,7 @@ namespace Parsek
         /// Sets suppression flags around the replay loop to prevent recording replayed
         /// actions as new game state events and to bypass blocking Harmony patches.
         /// </summary>
-        internal static void ReplayCommittedActions(IReadOnlyList<Milestone> milestones)
+        internal static void ReplayCommittedActions(IReadOnlyList<Milestone> milestones, double maxUT = double.MaxValue)
         {
             if (milestones == null || milestones.Count == 0) return;
 
@@ -50,6 +50,7 @@ namespace Parsek
                 int unreplayed = 0;
                 for (int j = m.LastReplayedEventIndex + 1; j < m.Events.Count; j++)
                 {
+                    if (m.Events[j].ut > maxUT) break;
                     if (IsReplayableEvent(m.Events[j].eventType))
                         unreplayed++;
                 }
@@ -63,8 +64,9 @@ namespace Parsek
 
             if (totalActions == 0) return;
 
+            string utNote = maxUT < double.MaxValue ? $" (maxUT={maxUT:F0})" : "";
             ParsekLog.Info("ActionReplay",
-                $"Replaying {totalActions} unreplayed actions from {milestoneCount} milestones");
+                $"Replaying {totalActions} unreplayed actions from {milestoneCount} milestones{utNote}");
 
             int techCount = 0;
             int partCount = 0;
@@ -83,9 +85,12 @@ namespace Parsek
                     var m = milestones[i];
                     if (!m.Committed) continue;
 
+                    int newLastReplayed = m.LastReplayedEventIndex;
                     for (int j = m.LastReplayedEventIndex + 1; j < m.Events.Count; j++)
                     {
                         var evt = m.Events[j];
+                        if (evt.ut > maxUT) break;
+                        newLastReplayed = j;
                         if (!IsReplayableEvent(evt.eventType)) continue;
 
                         switch (evt.eventType)
@@ -153,8 +158,8 @@ namespace Parsek
                         }
                     }
 
-                    // Mark all events as replayed for this milestone
-                    m.LastReplayedEventIndex = m.Events.Count - 1;
+                    // Mark events up to maxUT as replayed
+                    m.LastReplayedEventIndex = newLastReplayed;
                 }
             }
             finally
