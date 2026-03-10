@@ -1,0 +1,56 @@
+# Known Bugs
+
+## 1. Tech tree nodes stay unlocked after rewind
+Root cause: `ActionReplay.ReplayCommittedActions` replayed ALL committed milestone events including those from after the rewind point, re-unlocking tech/parts/facilities that shouldn't exist yet. Fix: added `maxUT` parameter that skips events with `ut > rewindUT`. The rewind path passes `RecordingStore.RewindUT`; non-rewind callers use default `double.MaxValue`.
+
+**Status:** Fixed
+
+## 2. Craft orientation wrong on earlier recording playback
+Root cause: rotation stored as world-space quaternion without accounting for planetary rotation between recording and playback time. Fix: `CorrectForBodyRotation` helper computes angular delta from `body.angularVelocity` and `rotationPeriod`, applies correction at both `InterpolateAndPosition` and `PositionGhostAt` paths. No format change needed — works for all existing recordings.
+
+**Status:** Fixed
+
+## 3. Vessels fly erratically during playback
+Root cause: ghost GameObjects not registered with KSP's `FloatingOrigin`. Positions set in `Update()` became stale after `FloatingOrigin.LateUpdate()` shifted all registered objects. Fix: store positioning parameters in `GhostPosEntry` structs, re-compute positions in `LateUpdate()` after FloatingOrigin shifts.
+
+**Status:** Fixed
+
+## 4. Green sphere instead of vessel model during playback
+One recording appears as a green sphere during playback with slight time warp. Root cause: `ParsekScenario.UpdateRecordingsForTerminalEvent()` cleared `GhostVisualSnapshot` on vessel recovery, causing `GetGhostSnapshot()` to return null and triggering the sphere fallback. Fix: preserve `GhostVisualSnapshot` (immutable) — only clear `VesselSnapshot`.
+
+**Status:** Fixed
+
+## 5. Atmospheric heating trails look wrong
+Re-entry heating effects appeared as orange square sprites. Root cause: particle materials created without a texture — Unity renders textureless particles as solid squares. Fix: extract particle texture from stock KSP FX prefab and assign to flame, smoke, and trail materials with proper `_TintColor`.
+
+**Status:** Fixed
+
+## 6. Loop checkboxes not centered in UI cells
+Merged `ColW_LoopLabel` + `ColW_LoopToggle` into single `ColW_Loop` column, wrapped toggle in horizontal group with `FlexibleSpace` on both sides.
+
+**Status:** Fixed
+
+## 7. Rewind button inactive for most recordings
+Root cause: `StartRecording()` called `FlightRecorder.StartRecording()` with default `isPromotion=false` for chain continuations, creating rewind saves for every segment. Fix: detect continuations via `activeChainId != null` and pass `isPromotion=true` to skip rewind save capture.
+
+**Status:** Fixed
+
+## 8. Exo-atmospheric segment incorrectly has rewind button active
+Same root cause as #7 — atmosphere boundary splits created continuation segments with their own rewind saves. Fixed by the same `isPromotion: isContinuation` change.
+
+**Status:** Fixed
+
+## 9. Watch camera does not follow recording segment transitions
+Added `FindNextWatchTarget` (chain continuation + tree branching) and `TransferWatchToNextSegment` to auto-follow the camera to the next active ghost when a watched segment ends. Preserves saved camera state for Backspace restore.
+
+**Status:** Fixed
+
+## 10. Ghost wobbles at large distances from Kerbin
+Root cause: `GetWorldSurfacePosition` returns `Vector3d` but was truncated to `Vector3` (float) before interpolation. Fix: use `Vector3d` and `Vector3d.Lerp` throughout, only truncating at the final `transform.position` assignment.
+
+**Status:** Fixed
+
+## 11. Verify game actions are recorded and reapplied correctly
+Audit of KSP log (2026-03-09) confirms all game actions properly captured: 9 tech unlocks, 54+ part purchases, 10 contract offers — all in 6 milestones. Resource events correctly captured and suppressed during timeline replay. No gaps, no errors.
+
+**Status:** Verified — no issues found

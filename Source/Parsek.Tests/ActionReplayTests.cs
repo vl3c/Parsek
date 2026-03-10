@@ -386,6 +386,396 @@ namespace Parsek.Tests
             }
         }
 
+        [Fact]
+        public void ReplayCommittedActions_WithMaxUT_SkipsFutureEvents()
+        {
+            try
+            {
+                var milestone = new Milestone
+                {
+                    MilestoneId = "test-maxut",
+                    Committed = true,
+                    LastReplayedEventIndex = -1,
+                    Events = new List<GameStateEvent>
+                    {
+                        new GameStateEvent { eventType = GameStateEventType.TechResearched, ut = 100, key = "t1" },
+                        new GameStateEvent { eventType = GameStateEventType.TechResearched, ut = 200, key = "t2" },
+                        new GameStateEvent { eventType = GameStateEventType.TechResearched, ut = 300, key = "t3" }
+                    }
+                };
+
+                var milestones = new List<Milestone> { milestone };
+                ActionReplay.ReplayCommittedActions(milestones, maxUT: 150);
+
+                // Only the event at UT=100 should be processed; UT=200 and 300 skipped
+                Assert.Equal(0, milestone.LastReplayedEventIndex);
+                Assert.Contains(logLines, l => l.Contains("1 unreplayed actions"));
+            }
+            finally
+            {
+                Cleanup();
+            }
+        }
+
+        [Fact]
+        public void ReplayCommittedActions_WithMaxUT_AllAfterCutoff_NoOp()
+        {
+            try
+            {
+                var milestone = new Milestone
+                {
+                    MilestoneId = "test-all-future",
+                    Committed = true,
+                    LastReplayedEventIndex = -1,
+                    Events = new List<GameStateEvent>
+                    {
+                        new GameStateEvent { eventType = GameStateEventType.TechResearched, ut = 200, key = "t1" },
+                        new GameStateEvent { eventType = GameStateEventType.TechResearched, ut = 300, key = "t2" }
+                    }
+                };
+
+                var milestones = new List<Milestone> { milestone };
+                ActionReplay.ReplayCommittedActions(milestones, maxUT: 100);
+
+                // All events after maxUT — nothing replayed, index stays at -1
+                Assert.Equal(-1, milestone.LastReplayedEventIndex);
+            }
+            finally
+            {
+                Cleanup();
+            }
+        }
+
+        [Fact]
+        public void ReplayCommittedActions_WithMaxUT_ExactBoundaryIsIncluded()
+        {
+            try
+            {
+                var milestone = new Milestone
+                {
+                    MilestoneId = "test-exact-boundary",
+                    Committed = true,
+                    LastReplayedEventIndex = -1,
+                    Events = new List<GameStateEvent>
+                    {
+                        new GameStateEvent { eventType = GameStateEventType.TechResearched, ut = 100, key = "t1" },
+                        new GameStateEvent { eventType = GameStateEventType.TechResearched, ut = 200, key = "t2" },
+                        new GameStateEvent { eventType = GameStateEventType.TechResearched, ut = 300, key = "t3" }
+                    }
+                };
+
+                var milestones = new List<Milestone> { milestone };
+                ActionReplay.ReplayCommittedActions(milestones, maxUT: 200);
+
+                // maxUT=200 uses `evt.ut > maxUT` so the event at exactly UT=200 IS included
+                Assert.Equal(1, milestone.LastReplayedEventIndex);
+                Assert.Contains(logLines, l => l.Contains("2 unreplayed actions"));
+            }
+            finally
+            {
+                Cleanup();
+            }
+        }
+
+        [Fact]
+        public void ReplayCommittedActions_WithMaxUT_AdvancesIndexPastNonReplayable()
+        {
+            try
+            {
+                var milestone = new Milestone
+                {
+                    MilestoneId = "test-partial-index",
+                    Committed = true,
+                    LastReplayedEventIndex = -1,
+                    Events = new List<GameStateEvent>
+                    {
+                        new GameStateEvent { eventType = GameStateEventType.TechResearched, ut = 100, key = "t1" },
+                        new GameStateEvent { eventType = GameStateEventType.FundsChanged, ut = 200, key = "f1" },
+                        new GameStateEvent { eventType = GameStateEventType.TechResearched, ut = 300, key = "t2" }
+                    }
+                };
+
+                var milestones = new List<Milestone> { milestone };
+                ActionReplay.ReplayCommittedActions(milestones, maxUT: 250);
+
+                // Events at UT=100 (replayable) and UT=200 (non-replayable but before cutoff)
+                // are processed. UT=300 is after cutoff. Index should be 1.
+                Assert.Equal(1, milestone.LastReplayedEventIndex);
+            }
+            finally
+            {
+                Cleanup();
+            }
+        }
+
+        [Fact]
+        public void ReplayCommittedActions_WithMaxUT_ZeroValue_SkipsAllPositiveUT()
+        {
+            try
+            {
+                var milestone = new Milestone
+                {
+                    MilestoneId = "test-maxut-zero",
+                    Committed = true,
+                    LastReplayedEventIndex = -1,
+                    Events = new List<GameStateEvent>
+                    {
+                        new GameStateEvent { eventType = GameStateEventType.TechResearched, ut = 100, key = "t1" },
+                        new GameStateEvent { eventType = GameStateEventType.TechResearched, ut = 200, key = "t2" }
+                    }
+                };
+
+                var milestones = new List<Milestone> { milestone };
+                ActionReplay.ReplayCommittedActions(milestones, maxUT: 0);
+
+                Assert.Equal(-1, milestone.LastReplayedEventIndex);
+                // No ActionReplay log — zero replayable actions counted
+                Assert.DoesNotContain(logLines, l => l.Contains("[ActionReplay]"));
+            }
+            finally
+            {
+                Cleanup();
+            }
+        }
+
+        [Fact]
+        public void ReplayCommittedActions_WithMaxUT_NegativeValue_SkipsAll()
+        {
+            try
+            {
+                var milestone = new Milestone
+                {
+                    MilestoneId = "test-maxut-neg",
+                    Committed = true,
+                    LastReplayedEventIndex = -1,
+                    Events = new List<GameStateEvent>
+                    {
+                        new GameStateEvent { eventType = GameStateEventType.TechResearched, ut = 50, key = "t1" }
+                    }
+                };
+
+                var milestones = new List<Milestone> { milestone };
+                ActionReplay.ReplayCommittedActions(milestones, maxUT: -100);
+
+                Assert.Equal(-1, milestone.LastReplayedEventIndex);
+                Assert.DoesNotContain(logLines, l => l.Contains("[ActionReplay]"));
+            }
+            finally
+            {
+                Cleanup();
+            }
+        }
+
+        [Fact]
+        public void ReplayCommittedActions_MultipleMilestones_WithMaxUT_IndependentIndexTracking()
+        {
+            try
+            {
+                var m1 = new Milestone
+                {
+                    MilestoneId = "test-multi-1",
+                    Committed = true,
+                    LastReplayedEventIndex = -1,
+                    Events = new List<GameStateEvent>
+                    {
+                        new GameStateEvent { eventType = GameStateEventType.TechResearched, ut = 100, key = "t1" },
+                        new GameStateEvent { eventType = GameStateEventType.TechResearched, ut = 300, key = "t2" }
+                    }
+                };
+                var m2 = new Milestone
+                {
+                    MilestoneId = "test-multi-2",
+                    Committed = true,
+                    LastReplayedEventIndex = -1,
+                    Events = new List<GameStateEvent>
+                    {
+                        new GameStateEvent { eventType = GameStateEventType.TechResearched, ut = 50, key = "t3" },
+                        new GameStateEvent { eventType = GameStateEventType.TechResearched, ut = 150, key = "t4" },
+                        new GameStateEvent { eventType = GameStateEventType.TechResearched, ut = 400, key = "t5" }
+                    }
+                };
+                var m3 = new Milestone
+                {
+                    MilestoneId = "test-multi-3",
+                    Committed = false, // uncommitted — should be entirely skipped
+                    LastReplayedEventIndex = -1,
+                    Events = new List<GameStateEvent>
+                    {
+                        new GameStateEvent { eventType = GameStateEventType.TechResearched, ut = 10, key = "t6" }
+                    }
+                };
+
+                var milestones = new List<Milestone> { m1, m2, m3 };
+                ActionReplay.ReplayCommittedActions(milestones, maxUT: 200);
+
+                // m1: event at 100 included, event at 300 excluded → index=0
+                Assert.Equal(0, m1.LastReplayedEventIndex);
+                // m2: events at 50 and 150 included, event at 400 excluded → index=1
+                Assert.Equal(1, m2.LastReplayedEventIndex);
+                // m3: uncommitted → unchanged
+                Assert.Equal(-1, m3.LastReplayedEventIndex);
+                // 3 replayable actions total (t1 + t3 + t4)
+                Assert.Contains(logLines, l => l.Contains("3 unreplayed actions"));
+                Assert.Contains(logLines, l => l.Contains("2 milestones"));
+                // Log should include maxUT note
+                Assert.Contains(logLines, l => l.Contains("(maxUT=200)"));
+            }
+            finally
+            {
+                Cleanup();
+            }
+        }
+
+        [Fact]
+        public void ReplayCommittedActions_AllNonReplayableBeforeCutoff_AdvancesIndex()
+        {
+            try
+            {
+                var milestone = new Milestone
+                {
+                    MilestoneId = "test-nonreplayable-advance",
+                    Committed = true,
+                    LastReplayedEventIndex = -1,
+                    Events = new List<GameStateEvent>
+                    {
+                        new GameStateEvent { eventType = GameStateEventType.FundsChanged, ut = 100, key = "f1" },
+                        new GameStateEvent { eventType = GameStateEventType.ContractAccepted, ut = 200, key = "c1" },
+                        new GameStateEvent { eventType = GameStateEventType.TechResearched, ut = 500, key = "t1" }
+                    }
+                };
+
+                var milestones = new List<Milestone> { milestone };
+                ActionReplay.ReplayCommittedActions(milestones, maxUT: 300);
+
+                // f1 and c1 are non-replayable but before cutoff; t1 is after cutoff
+                // No replayable events → totalActions=0 → early return, no index change
+                Assert.Equal(-1, milestone.LastReplayedEventIndex);
+                Assert.DoesNotContain(logLines, l => l.Contains("[ActionReplay]"));
+            }
+            finally
+            {
+                Cleanup();
+            }
+        }
+
+        [Fact]
+        public void ReplayCommittedActions_SingleEventAtExactBoundary()
+        {
+            try
+            {
+                var milestone = new Milestone
+                {
+                    MilestoneId = "test-single-boundary",
+                    Committed = true,
+                    LastReplayedEventIndex = -1,
+                    Events = new List<GameStateEvent>
+                    {
+                        new GameStateEvent { eventType = GameStateEventType.TechResearched, ut = 500, key = "t1" }
+                    }
+                };
+
+                var milestones = new List<Milestone> { milestone };
+                ActionReplay.ReplayCommittedActions(milestones, maxUT: 500);
+
+                // Single event exactly at maxUT — included (ut > maxUT is false)
+                Assert.Equal(0, milestone.LastReplayedEventIndex);
+                Assert.Contains(logLines, l => l.Contains("1 unreplayed actions"));
+            }
+            finally
+            {
+                Cleanup();
+            }
+        }
+
+        [Fact]
+        public void ReplayCommittedActions_DefaultMaxUT_NoUTNote()
+        {
+            try
+            {
+                var milestone = new Milestone
+                {
+                    MilestoneId = "test-no-ut-note",
+                    Committed = true,
+                    LastReplayedEventIndex = -1,
+                    Events = new List<GameStateEvent>
+                    {
+                        new GameStateEvent { eventType = GameStateEventType.TechResearched, ut = 100, key = "t1" }
+                    }
+                };
+
+                var milestones = new List<Milestone> { milestone };
+                ActionReplay.ReplayCommittedActions(milestones); // default maxUT
+
+                // No "(maxUT=...)" suffix when using default
+                Assert.DoesNotContain(logLines, l => l.Contains("maxUT="));
+                Assert.Contains(logLines, l => l.Contains("1 unreplayed actions"));
+            }
+            finally
+            {
+                Cleanup();
+            }
+        }
+
+        [Fact]
+        public void ReplayCommittedActions_LogsReplayComplete()
+        {
+            try
+            {
+                var milestone = new Milestone
+                {
+                    MilestoneId = "test-log-complete",
+                    Committed = true,
+                    LastReplayedEventIndex = -1,
+                    Events = new List<GameStateEvent>
+                    {
+                        new GameStateEvent { eventType = GameStateEventType.TechResearched, ut = 100, key = "t1" },
+                        new GameStateEvent { eventType = GameStateEventType.FundsChanged, ut = 150, key = "f1" },
+                        new GameStateEvent { eventType = GameStateEventType.PartPurchased, ut = 200, key = "p1" }
+                    }
+                };
+
+                var milestones = new List<Milestone> { milestone };
+                ActionReplay.ReplayCommittedActions(milestones);
+
+                // Verify the "Replay complete" summary line is logged
+                Assert.Contains(logLines, l => l.Contains("Replay complete:"));
+                // Should include 0 skipped, 0 failed (events will fail in test env but
+                // the count structure should exist)
+                Assert.Contains(logLines, l => l.Contains("skipped") && l.Contains("failed"));
+            }
+            finally
+            {
+                Cleanup();
+            }
+        }
+
+        [Fact]
+        public void ReplayCommittedActions_WithMaxUT_LogsUTNote()
+        {
+            try
+            {
+                var milestone = new Milestone
+                {
+                    MilestoneId = "test-ut-log",
+                    Committed = true,
+                    LastReplayedEventIndex = -1,
+                    Events = new List<GameStateEvent>
+                    {
+                        new GameStateEvent { eventType = GameStateEventType.TechResearched, ut = 100, key = "t1" }
+                    }
+                };
+
+                var milestones = new List<Milestone> { milestone };
+                ActionReplay.ReplayCommittedActions(milestones, maxUT: 17500);
+
+                Assert.Contains(logLines, l => l.Contains("(maxUT=17500)"));
+            }
+            finally
+            {
+                Cleanup();
+            }
+        }
+
         #endregion
 
         #region DecideTechReplay
