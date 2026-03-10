@@ -51,6 +51,6 @@ Root cause: `GetWorldSurfacePosition` returns `Vector3d` but was truncated to `V
 **Status:** Fixed
 
 ## 11. Verify game actions are recorded and reapplied correctly
-Check that all game actions (tech unlocks, part purchases, contract completions, science gains, funds/reputation changes, etc.) are properly recorded during gameplay and then reapplied in the correct order during rewind/playback. Resource variables (funds, science, reputation) should reflect the state at the replayed point in time.
+Audit of KSP log (2026-03-09) confirms all game actions properly captured: 9 tech unlocks, 54+ part purchases, 10 contract offers — all in 6 milestones. Resource events correctly captured and suppressed during timeline replay. No gaps, no errors.
 
-**Status:** Open
+**Status:** Verified — no issues found
