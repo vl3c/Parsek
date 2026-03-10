@@ -5596,6 +5596,16 @@ namespace Parsek
                 }
             }
 
+            // Resolve a soft particle texture from stock FX prefabs
+            Texture particleTexture = null;
+            GameObject fxSource = FindFxPrefab("fx_exhaustFlame_yellow");
+            if (fxSource != null)
+            {
+                var sourceRenderer = fxSource.GetComponentInChildren<ParticleSystemRenderer>(true);
+                if (sourceRenderer != null && sourceRenderer.sharedMaterial != null)
+                    particleTexture = sourceRenderer.sharedMaterial.mainTexture;
+            }
+
             // --- Layer B: Flame particles (vessel-attached) ---
             {
                 GameObject flameObj = new GameObject("ReentryFlame");
@@ -5629,6 +5639,9 @@ namespace Parsek
                     if (additiveShader != null)
                     {
                         var flameMat = new Material(additiveShader);
+                        if (particleTexture != null)
+                            flameMat.mainTexture = particleTexture;
+                        flameMat.SetColor("_TintColor", new Color(1f, 0.7f, 0.2f, 0.9f));
                         flameRenderer.material = flameMat;
                         info.allClonedMaterials.Add(flameMat);
                     }
@@ -5672,6 +5685,9 @@ namespace Parsek
                     if (alphaBlendedShader != null)
                     {
                         var smokeMat = new Material(alphaBlendedShader);
+                        if (particleTexture != null)
+                            smokeMat.mainTexture = particleTexture;
+                        smokeMat.SetColor("_TintColor", new Color(1f, 0.5f, 0.1f, 0.7f));
                         smokeRenderer.material = smokeMat;
                         info.allClonedMaterials.Add(smokeMat);
                     }
@@ -5719,6 +5735,9 @@ namespace Parsek
                 if (trailShader != null)
                 {
                     var trailMat = new Material(trailShader);
+                    if (particleTexture != null)
+                        trailMat.mainTexture = particleTexture;
+                    trailMat.SetColor("_TintColor", new Color(1f, 0.8f, 0.5f, 1f));
                     trail.material = trailMat;
                     info.allClonedMaterials.Add(trailMat);
                 }

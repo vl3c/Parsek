@@ -1,3 +1,6 @@
+# Dev logs (KSP logs, saves, recordings — large files for debugging)
+docs/dev/logs/
+
 # Build outputs
 bin/
 obj/

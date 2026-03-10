@@ -493,6 +493,52 @@ namespace Parsek.Tests
             Assert.Equal("StartSnapshot", selected.GetValue("name"));
         }
 
+        [Fact]
+        public void GetGhostSnapshot_ReturnsGhostWhenVesselSnapshotIsNull()
+        {
+            var rec = new RecordingStore.Recording();
+            var ghost = new ConfigNode("VESSEL");
+            ghost.AddValue("name", "StartSnapshot");
+            rec.VesselSnapshot = null;
+            rec.GhostVisualSnapshot = ghost;
+
+            var selected = GhostVisualBuilder.GetGhostSnapshot(rec);
+
+            Assert.NotNull(selected);
+            Assert.Equal("StartSnapshot", selected.GetValue("name"));
+        }
+
+        [Fact]
+        public void GetGhostSnapshot_BothNull_ReturnsNull()
+        {
+            var rec = new RecordingStore.Recording();
+            rec.VesselSnapshot = null;
+            rec.GhostVisualSnapshot = null;
+
+            Assert.Null(GhostVisualBuilder.GetGhostSnapshot(rec));
+        }
+
+        [Fact]
+        public void GetGhostSnapshot_NullRecording_ReturnsNull()
+        {
+            Assert.Null(GhostVisualBuilder.GetGhostSnapshot(null));
+        }
+
+        [Fact]
+        public void GetGhostSnapshot_OnlyVesselSnapshot_ReturnsFallback()
+        {
+            var rec = new RecordingStore.Recording();
+            var vessel = new ConfigNode("VESSEL");
+            vessel.AddValue("name", "VesselFallback");
+            rec.VesselSnapshot = vessel;
+            rec.GhostVisualSnapshot = null;
+
+            var selected = GhostVisualBuilder.GetGhostSnapshot(rec);
+
+            Assert.NotNull(selected);
+            Assert.Equal("VesselFallback", selected.GetValue("name"));
+        }
+
         [Theory]
         [InlineData("1,2,3", true)]
         [InlineData(" 1.5 , -2 , 3 ", true)]
