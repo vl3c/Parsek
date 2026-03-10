@@ -1037,9 +1037,10 @@ namespace Parsek
                 rec.LastAppliedResourceIndex = targetIndex;
                 anyApplied = true;
 
+                var ic = CultureInfo.InvariantCulture;
                 ParsekLog.Info("Scenario",
                     $"Resource tick: \"{rec.VesselName}\" idx {startIdx}\u2192{targetIndex}" +
-                    $" funds={fundsDelta:+0.0;-0.0} sci={scienceDelta:+0.0;-0.0} rep={repDelta:+0.0;-0.0}");
+                    $" funds={fundsDelta.ToString("+0.0;-0.0", ic)} sci={scienceDelta.ToString("+0.0;-0.0", ic)} rep={repDelta.ToString("+0.0;-0.0", ic)}");
 
                 if (targetIndex == rec.Points.Count - 1)
                 {
@@ -1082,8 +1083,9 @@ namespace Parsek
                         if (delta < 0 && Funding.Instance.Funds + delta < 0)
                             delta = -Funding.Instance.Funds;
                         Funding.Instance.AddFunds(delta, TransactionReasons.None);
+                        var ic = CultureInfo.InvariantCulture;
                         ParsekLog.Info("Scenario",
-                            $"Tree resource tick: funds {delta:+0.0;-0.0} (tree '{tree.TreeName}')");
+                            $"Tree resource tick: funds {delta.ToString("+0.0;-0.0", ic)} (tree '{tree.TreeName}')");
                     }
 
                     if (tree.DeltaScience != 0 && ResearchAndDevelopment.Instance != null)
@@ -1092,8 +1094,9 @@ namespace Parsek
                         if (delta < 0 && ResearchAndDevelopment.Instance.Science + delta < 0)
                             delta = -ResearchAndDevelopment.Instance.Science;
                         ResearchAndDevelopment.Instance.AddScience((float)delta, TransactionReasons.None);
+                        var ic = CultureInfo.InvariantCulture;
                         ParsekLog.Info("Scenario",
-                            $"Tree resource tick: science {delta:+0.0;-0.0} (tree '{tree.TreeName}')");
+                            $"Tree resource tick: science {delta.ToString("+0.0;-0.0", ic)} (tree '{tree.TreeName}')");
                     }
 
                     if (tree.DeltaReputation != 0 && Reputation.Instance != null)
@@ -1102,8 +1105,9 @@ namespace Parsek
                         if (delta < 0 && Reputation.CurrentRep + delta < 0)
                             delta = -Reputation.CurrentRep;
                         Reputation.Instance.AddReputation(delta, TransactionReasons.None);
+                        var ic = CultureInfo.InvariantCulture;
                         ParsekLog.Info("Scenario",
-                            $"Tree resource tick: reputation {delta:+0.0;-0.0} (tree '{tree.TreeName}')");
+                            $"Tree resource tick: reputation {delta.ToString("+0.0;-0.0", ic)} (tree '{tree.TreeName}')");
                     }
                 }
                 finally
