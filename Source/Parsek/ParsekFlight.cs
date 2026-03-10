@@ -101,6 +101,42 @@ namespace Parsek
 
         private Dictionary<int, GhostPlaybackState> ghostStates = new Dictionary<int, GhostPlaybackState>();
 
+        // --- Floating-origin correction ---
+        // Ghosts are plain GameObjects not registered with KSP's FloatingOrigin.
+        // FloatingOrigin shifts all registered objects in LateUpdate(), but ghosts
+        // positioned in Update() would be left behind, causing one-frame jumps.
+        // We store each ghost's last positioning inputs and re-apply in LateUpdate()
+        // so the position is correct in the post-shift frame that actually renders.
+
+        private enum GhostPosMode { PointInterp, SinglePoint, Orbit, Surface }
+
+        private struct GhostPosEntry
+        {
+            public GameObject ghost;
+            public GhostPosMode mode;
+
+            // PointInterp fields
+            public CelestialBody bodyBefore;
+            public CelestialBody bodyAfter;
+            public double latBefore, lonBefore, altBefore;
+            public double latAfter, lonAfter, altAfter;
+            public float t;
+            public double pointUT;
+            public Quaternion interpolatedRot;
+
+            // SinglePoint fields (also used body/lat/lon/alt from "before")
+            // (uses bodyBefore, latBefore, lonBefore, altBefore, pointUT, interpolatedRot)
+
+            // Orbit fields
+            public int orbitCacheKey;
+            public double orbitUT;
+
+            // Surface fields
+            public Quaternion surfaceRot; // body-relative rotation
+        }
+
+        private readonly List<GhostPosEntry> ghostPosEntries = new List<GhostPosEntry>();
+
         // Auto-record: EVA from pad triggers recording after vessel switch completes
         private bool pendingAutoRecord = false;
 
@@ -702,6 +738,69 @@ namespace Parsek
             }
 
             UpdateTimelinePlayback();
+        }
+
+        /// <summary>
+        /// Re-applies ghost positions after FloatingOrigin has shifted all registered
+        /// objects. Without this, ghosts would be displaced by one frame each time
+        /// the floating origin shifts, causing erratic visual behavior during flight.
+        /// </summary>
+        void LateUpdate()
+        {
+            for (int i = 0; i < ghostPosEntries.Count; i++)
+            {
+                var e = ghostPosEntries[i];
+                if (e.ghost == null || !e.ghost.activeSelf) continue;
+
+                switch (e.mode)
+                {
+                    case GhostPosMode.PointInterp:
+                    {
+                        if (e.bodyBefore == null || e.bodyAfter == null) break;
+                        Vector3d posBefore = e.bodyBefore.GetWorldSurfacePosition(
+                            e.latBefore, e.lonBefore, e.altBefore);
+                        Vector3d posAfter = e.bodyAfter.GetWorldSurfacePosition(
+                            e.latAfter, e.lonAfter, e.altAfter);
+                        Vector3d pos = Vector3d.Lerp(posBefore, posAfter, e.t);
+                        e.ghost.transform.position = pos;
+                        e.ghost.transform.rotation = CorrectForBodyRotation(
+                            e.bodyBefore, e.pointUT, e.interpolatedRot);
+                        break;
+                    }
+                    case GhostPosMode.SinglePoint:
+                    {
+                        if (e.bodyBefore == null) break;
+                        Vector3d pos = e.bodyBefore.GetWorldSurfacePosition(
+                            e.latBefore, e.lonBefore, e.altBefore);
+                        e.ghost.transform.position = pos;
+                        e.ghost.transform.rotation = CorrectForBodyRotation(
+                            e.bodyBefore, e.pointUT, e.interpolatedRot);
+                        break;
+                    }
+                    case GhostPosMode.Orbit:
+                    {
+                        Orbit orbit;
+                        if (orbitCache.TryGetValue(e.orbitCacheKey, out orbit))
+                        {
+                            Vector3d pos = orbit.getPositionAtUT(e.orbitUT);
+                            e.ghost.transform.position = pos;
+                            Vector3d vel = orbit.getOrbitalVelocityAtUT(e.orbitUT);
+                            if (vel.sqrMagnitude > 0.001)
+                                e.ghost.transform.rotation = Quaternion.LookRotation(vel);
+                        }
+                        break;
+                    }
+                    case GhostPosMode.Surface:
+                    {
+                        if (e.bodyBefore == null) break;
+                        e.ghost.transform.position = e.bodyBefore.GetWorldSurfacePosition(
+                            e.latBefore, e.lonBefore, e.altBefore);
+                        e.ghost.transform.rotation = e.bodyBefore.bodyTransform.rotation * e.surfaceRot;
+                        break;
+                    }
+                }
+            }
+            ghostPosEntries.Clear();
         }
 
         void OnGUI()
@@ -1775,7 +1874,7 @@ namespace Parsek
                     pending.RewindReservedRep = captured.RewindReservedRep;
                 }
                 RecordingStore.CommitPending();
-                ParsekLog.Warn("Flight", "Split branch failed — fallback committed recording as standalone");
+                ParsekLog.Info("Flight", "Vessel destroyed during split — recording committed as standalone");
             }
             else
             {
@@ -3155,6 +3254,13 @@ namespace Parsek
 
         public void StartRecording()
         {
+            // Chain continuations (atmosphere/SOI splits, dock/undock, boarding) are NOT
+            // new launches — they must not capture a fresh rewind save.  The rewind save
+            // belongs to the chain root only.  activeChainId is set by
+            // CommitBoundarySplit / CommitChainSegment / CommitDockUndockSegment *before*
+            // this method is called, so a non-null value reliably indicates a continuation.
+            bool isContinuation = activeChainId != null;
+
             recorder = new FlightRecorder();
             if (pendingBoundaryAnchor.HasValue)
             {
@@ -3164,7 +3270,7 @@ namespace Parsek
             // Propagate tree mode to new recorder so DecideOnVesselSwitch uses tree decisions
             if (activeTree != null)
                 recorder.ActiveTree = activeTree;
-            recorder.StartRecording();
+            recorder.StartRecording(isPromotion: isContinuation);
             if (!recorder.IsRecording)
             {
                 ParsekLog.Warn("Flight", $"StartRecording blocked: {DetermineRecordingBlockReason()}");
@@ -4256,6 +4362,15 @@ namespace Parsek
                     // Mid-chain segment past its own EndUT but chain still playing — hold at final pos
                     if (rec.Points.Count > 0)
                         PositionGhostAt(state.ghost, rec.Points[rec.Points.Count - 1]);
+
+                    // Watch mode: auto-follow to next chain segment
+                    if (watchedRecordingIndex == i)
+                    {
+                        int nextIdx = FindNextWatchTarget(i, rec);
+                        if (nextIdx >= 0)
+                            TransferWatchToNextSegment(nextIdx);
+                    }
+
                     if (pastEnd && rec.TreeId == null)
                         ApplyResourceDeltas(rec, currentUT);
                 }
@@ -4264,10 +4379,17 @@ namespace Parsek
                     // Outside time range, no spawn needed — despawn ghost if active
                     if (ghostActive)
                     {
-                        // Watch mode: hold camera at last position for 3 seconds before destroying
+                        // Watch mode: try auto-follow to next segment before holding/exiting
                         if (watchedRecordingIndex == i)
                         {
-                            if (watchEndHoldUntilUT < 0)
+                            int nextIdx = FindNextWatchTarget(i, rec);
+                            if (nextIdx >= 0)
+                            {
+                                // Found a successor segment with an active ghost — transfer immediately
+                                TransferWatchToNextSegment(nextIdx);
+                                // Fall through to destroy this ghost below (it's past its time range)
+                            }
+                            else if (watchEndHoldUntilUT < 0)
                             {
                                 watchEndHoldUntilUT = Planetarium.GetUniversalTime() + 3.0;
                                 ParsekLog.Info("CameraFollow",
@@ -4279,7 +4401,8 @@ namespace Parsek
                             }
                             else if (Planetarium.GetUniversalTime() < watchEndHoldUntilUT)
                             {
-                                // Still holding — keep ghost alive
+                                // Still holding — try auto-follow each frame (next ghost may spawn during hold)
+                                // (nextIdx was already checked above and was -1, so just keep holding)
                                 if (pastEnd && rec.TreeId == null)
                                     ApplyResourceDeltas(rec, currentUT);
                                 continue;
@@ -6334,6 +6457,138 @@ namespace Parsek
             return (-1, null);
         }
 
+        /// <summary>
+        /// Finds the next recording to auto-follow when the watched recording ends.
+        /// Handles two cases:
+        /// 1. Chain continuation: next segment with same ChainId, ChainBranch 0, ChainIndex + 1
+        /// 2. Tree branching: child recording via ChildBranchPointId, preferring same VesselPersistentId
+        /// Returns the committed-list index of the next recording, or -1 if none found.
+        /// Only returns a target if its ghost is already active (spawned and playing).
+        /// </summary>
+        int FindNextWatchTarget(int currentIndex, RecordingStore.Recording currentRec)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+
+            // Case 1: Chain continuation
+            if (!string.IsNullOrEmpty(currentRec.ChainId) && currentRec.ChainIndex >= 0
+                && currentRec.ChainBranch == 0)
+            {
+                int nextChainIndex = currentRec.ChainIndex + 1;
+                for (int j = 0; j < committed.Count; j++)
+                {
+                    var candidate = committed[j];
+                    if (candidate.ChainId == currentRec.ChainId
+                        && candidate.ChainBranch == 0
+                        && candidate.ChainIndex == nextChainIndex
+                        && HasActiveGhost(j))
+                    {
+                        return j;
+                    }
+                }
+            }
+
+            // Case 2: Tree branching via ChildBranchPointId
+            if (!string.IsNullOrEmpty(currentRec.ChildBranchPointId)
+                && !string.IsNullOrEmpty(currentRec.TreeId))
+            {
+                // Find the BranchPoint
+                BranchPoint bp = null;
+                for (int t = 0; t < RecordingStore.CommittedTrees.Count; t++)
+                {
+                    var tree = RecordingStore.CommittedTrees[t];
+                    if (tree.Id != currentRec.TreeId) continue;
+                    for (int b = 0; b < tree.BranchPoints.Count; b++)
+                    {
+                        if (tree.BranchPoints[b].Id == currentRec.ChildBranchPointId)
+                        {
+                            bp = tree.BranchPoints[b];
+                            break;
+                        }
+                    }
+                    break;
+                }
+
+                if (bp != null)
+                {
+                    // Prefer child with same VesselPersistentId (same vessel continues)
+                    int fallbackIdx = -1;
+                    for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
+                    {
+                        string childId = bp.ChildRecordingIds[c];
+                        for (int j = 0; j < committed.Count; j++)
+                        {
+                            if (committed[j].RecordingId != childId) continue;
+                            if (!HasActiveGhost(j)) continue;
+
+                            if (committed[j].VesselPersistentId == currentRec.VesselPersistentId)
+                                return j; // same vessel — best match
+
+                            if (fallbackIdx < 0)
+                                fallbackIdx = j; // first active child as fallback
+                        }
+                    }
+                    if (fallbackIdx >= 0)
+                        return fallbackIdx;
+                }
+            }
+
+            return -1;
+        }
+
+        /// <summary>
+        /// Transfers watch mode from the current recording to the next segment.
+        /// Preserves camera state (no restore to player vessel) since we're switching between ghosts.
+        /// </summary>
+        void TransferWatchToNextSegment(int nextIndex)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            if (nextIndex < 0 || nextIndex >= committed.Count) return;
+
+            string oldName = watchedRecordingIndex >= 0 && watchedRecordingIndex < committed.Count
+                ? committed[watchedRecordingIndex].VesselName : "?";
+            string newName = committed[nextIndex].VesselName;
+
+            ParsekLog.Info("CameraFollow",
+                $"Auto-following: #{watchedRecordingIndex} \"{oldName}\" -> #{nextIndex} \"{newName}\"");
+
+            // Verify the target ghost exists before transferring
+            GhostPlaybackState gs;
+            if (!ghostStates.TryGetValue(nextIndex, out gs) || gs == null || gs.ghost == null)
+            {
+                ParsekLog.Warn("CameraFollow",
+                    $"Auto-follow target #{nextIndex} has no active ghost — staying on current");
+                return;
+            }
+
+            // Preserve original camera state across the transition
+            // (ExitWatchMode clears these, but we want Backspace to restore to the original vessel)
+            Vessel preservedVessel = savedCameraVessel;
+            float preservedDistance = savedCameraDistance;
+            float preservedPitch = savedCameraPitch;
+            float preservedHeading = savedCameraHeading;
+
+            // Switch watch mode: exit old (preserving camera position), enter new
+            ExitWatchMode(skipCameraRestore: true);
+
+            // Set up new watch state
+            watchedRecordingIndex = nextIndex;
+            watchedRecordingId = committed[nextIndex].RecordingId;
+
+            // Restore saved camera state so Backspace returns to original vessel
+            savedCameraVessel = preservedVessel;
+            savedCameraDistance = preservedDistance;
+            savedCameraPitch = preservedPitch;
+            savedCameraHeading = preservedHeading;
+
+            FlightCamera.fetch.SetTargetTransform(gs.ghost.transform);
+            InputLockManager.SetControlLock(WatchModeLockMask, WatchModeLockId);
+
+            watchEndHoldUntilUT = -1;
+
+            ParsekLog.Verbose("CameraFollow",
+                $"Camera re-targeted to ghost #{nextIndex} at {gs.ghost.transform.position}");
+        }
+
         #endregion
 
         IEnumerator DeferredActivateVessel(uint pid)
@@ -6423,24 +6678,39 @@ namespace Parsek
             }
             if (!ghost.activeSelf) ghost.SetActive(true);
 
-            Vector3 posBefore = bodyBefore.GetWorldSurfacePosition(
+            Vector3d posBefore = bodyBefore.GetWorldSurfacePosition(
                 before.latitude, before.longitude, before.altitude);
-            Vector3 posAfter = bodyAfter.GetWorldSurfacePosition(
+            Vector3d posAfter = bodyAfter.GetWorldSurfacePosition(
                 after.latitude, after.longitude, after.altitude);
 
-            Vector3 interpolatedPos = Vector3.Lerp(posBefore, posAfter, t);
+            Vector3d interpolatedPos = Vector3d.Lerp(posBefore, posAfter, t);
             Quaternion interpolatedRot = Quaternion.Slerp(before.rotation, after.rotation, t);
 
             interpolatedRot = SanitizeQuaternion(interpolatedRot);
 
-            if (float.IsNaN(interpolatedPos.x) || float.IsNaN(interpolatedPos.y) || float.IsNaN(interpolatedPos.z))
+            if (double.IsNaN(interpolatedPos.x) || double.IsNaN(interpolatedPos.y) || double.IsNaN(interpolatedPos.z))
             {
                 Log("Warning: NaN in interpolated position, using 'before' position");
                 interpolatedPos = posBefore;
             }
 
             ghost.transform.position = interpolatedPos;
-            ghost.transform.rotation = interpolatedRot;
+            ghost.transform.rotation = CorrectForBodyRotation(bodyBefore, targetUT, interpolatedRot);
+
+            // Register for LateUpdate re-positioning after FloatingOrigin shift
+            ghostPosEntries.Add(new GhostPosEntry
+            {
+                ghost = ghost,
+                mode = GhostPosMode.PointInterp,
+                bodyBefore = bodyBefore,
+                bodyAfter = bodyAfter,
+                latBefore = before.latitude, lonBefore = before.longitude, altBefore = before.altitude,
+                latAfter = after.latitude, lonAfter = after.longitude, altAfter = after.altitude,
+                t = t,
+                pointUT = targetUT,
+                interpolatedRot = interpolatedRot
+            });
+
             interpResult = new InterpolationResult(
                 Vector3.Lerp(before.velocity, after.velocity, t),
                 after.bodyName,
@@ -6453,6 +6723,22 @@ namespace Parsek
             return TrajectoryMath.FindWaypointIndex(recording, ref lastPlaybackIndex, targetUT);
         }
 
+        /// <summary>
+        /// Corrects a world-space rotation recorded at pointUT for planetary rotation
+        /// that has occurred between pointUT and the current game UT.
+        /// </summary>
+        static Quaternion CorrectForBodyRotation(CelestialBody body, double pointUT, Quaternion storedRot)
+        {
+            if (body == null || body.rotationPeriod <= 0) return storedRot;
+            double deltaUT = Planetarium.GetUniversalTime() - pointUT;
+            if (System.Math.Abs(deltaUT) < 0.01) return storedRot;
+            float deltaAngle = (float)((deltaUT / body.rotationPeriod) * 360.0);
+            Vector3 axis = (Vector3)body.angularVelocity;
+            if (axis.sqrMagnitude < 1e-10f) return storedRot;
+            axis = axis.normalized;
+            return Quaternion.AngleAxis(deltaAngle, axis) * storedRot;
+        }
+
         void PositionGhostAt(GameObject ghost, TrajectoryPoint point)
         {
             CelestialBody body = FlightGlobals.Bodies.Find(b => b.name == point.bodyName);
@@ -6463,11 +6749,22 @@ namespace Parsek
                 return;
             }
 
-            Vector3 worldPos = body.GetWorldSurfacePosition(
+            Vector3d worldPos = body.GetWorldSurfacePosition(
                 point.latitude, point.longitude, point.altitude);
 
             ghost.transform.position = worldPos;
-            ghost.transform.rotation = SanitizeQuaternion(point.rotation);
+            ghost.transform.rotation = CorrectForBodyRotation(body, point.ut, SanitizeQuaternion(point.rotation));
+
+            // Register for LateUpdate re-positioning after FloatingOrigin shift
+            ghostPosEntries.Add(new GhostPosEntry
+            {
+                ghost = ghost,
+                mode = GhostPosMode.SinglePoint,
+                bodyBefore = body,
+                latBefore = point.latitude, lonBefore = point.longitude, altBefore = point.altitude,
+                pointUT = point.ut,
+                interpolatedRot = SanitizeQuaternion(point.rotation)
+            });
         }
 
         // Delegates to TrajectoryMath — kept for backward compatibility
@@ -6510,6 +6807,15 @@ namespace Parsek
             Vector3d velocity = orbit.getOrbitalVelocityAtUT(ut);
             if (velocity.sqrMagnitude > 0.001)
                 ghost.transform.rotation = Quaternion.LookRotation(velocity);
+
+            // Register for LateUpdate re-positioning after FloatingOrigin shift
+            ghostPosEntries.Add(new GhostPosEntry
+            {
+                ghost = ghost,
+                mode = GhostPosMode.Orbit,
+                orbitCacheKey = cacheKey,
+                orbitUT = ut
+            });
         }
 
         /// <summary>
@@ -6552,6 +6858,17 @@ namespace Parsek
             ghost.transform.position = body.GetWorldSurfacePosition(surfPos.latitude, surfPos.longitude, surfPos.altitude);
             ghost.transform.rotation = body.bodyTransform.rotation * surfPos.rotation;
             ghost.SetActive(true);
+
+            // Register for LateUpdate re-positioning after FloatingOrigin shift
+            ghostPosEntries.Add(new GhostPosEntry
+            {
+                ghost = ghost,
+                mode = GhostPosMode.Surface,
+                bodyBefore = body,
+                latBefore = surfPos.latitude, lonBefore = surfPos.longitude, altBefore = surfPos.altitude,
+                surfaceRot = surfPos.rotation
+            });
+
             ParsekLog.VerboseRateLimited("Flight", "surface-ghost-positioned",
                 $"PositionGhostAtSurface: body={surfPos.body} lat={surfPos.latitude:F4} lon={surfPos.longitude:F4} alt={surfPos.altitude:F1}");
         }
