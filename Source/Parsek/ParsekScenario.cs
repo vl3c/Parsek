@@ -21,6 +21,9 @@ namespace Parsek
 
         #endregion
 
+        // Gates Update() resource ticking while coroutines reset resource baselines
+        private bool resourceTickingSuspended = false;
+
         #region Crew Replacements
 
         // Maps reserved kerbal name → replacement kerbal name
@@ -289,6 +292,7 @@ namespace Parsek
                     // scene may still be alive during OnLoad; we must yield at least one frame
                     // so the new scene's Funding/R&D/Reputation/Planetarium are initialized).
                     // Setting UT before LoadScene does NOT work — scene transition overwrites it.
+                    resourceTickingSuspended = true;
                     StartCoroutine(ApplyRewindResourceAdjustment());
                     ParsekLog.Info("Rewind",
                         "OnLoad: resource + UT adjustment deferred (waiting for new scene singletons)");
@@ -456,6 +460,7 @@ namespace Parsek
 
                     // Schedule committed resource deduction (singletons may not be ready yet)
                     ParsekLog.Verbose("Scenario", "Scheduling budget deduction coroutine (singletons may not be ready yet)");
+                    resourceTickingSuspended = true;
                     StartCoroutine(ApplyBudgetDeductionWhenReady());
                 }
                 else
@@ -739,6 +744,7 @@ namespace Parsek
             {
                 ParsekLog.Verbose("Scenario",
                     $"Budget deduction already applied for epoch {budgetDeductionEpoch} (current={MilestoneStore.CurrentEpoch})");
+                resourceTickingSuspended = false;
                 yield break;
             }
             budgetDeductionEpoch = MilestoneStore.CurrentEpoch;
@@ -752,6 +758,7 @@ namespace Parsek
                 && budget.reservedReputation <= 0)
             {
                 ParsekLog.Verbose("Scenario", "No committed budget to deduct on revert — all zero");
+                resourceTickingSuspended = false;
                 yield break;
             }
 
@@ -830,6 +837,7 @@ namespace Parsek
             ParsekLog.Info("Scenario",
                 $"Budget deduction applied for epoch {MilestoneStore.CurrentEpoch} — " +
                 $"{recMarked} recording(s) and {treeMarked} tree(s) marked as fully applied");
+            resourceTickingSuspended = false;
         }
 
         /// <summary>
@@ -866,6 +874,7 @@ namespace Parsek
             {
                 ParsekLog.Warn("Rewind",
                     "Resource adjustment aborted: singletons not available after 120 frames");
+                resourceTickingSuspended = false;
                 yield break;
             }
 
@@ -941,6 +950,179 @@ namespace Parsek
 
             // Belt-and-suspenders epoch guard
             budgetDeductionEpoch = MilestoneStore.CurrentEpoch;
+            resourceTickingSuspended = false;
+        }
+
+        #endregion
+
+        #region Resource Ticking
+
+        /// <summary>
+        /// Ticks resource deltas for committed recordings in non-Flight scenes.
+        /// Flight scene is handled by ParsekFlight.UpdateTimelinePlayback.
+        /// </summary>
+        private void Update()
+        {
+            if (HighLogic.LoadedScene == GameScenes.FLIGHT)
+                return;
+
+            if (resourceTickingSuspended)
+                return;
+
+            if (Funding.Instance == null && ResearchAndDevelopment.Instance == null
+                && Reputation.Instance == null)
+                return;
+
+            double currentUT = Planetarium.GetUniversalTime();
+            TickStandaloneResourceDeltas(currentUT);
+            TickTreeResourceDeltas(currentUT);
+        }
+
+        private void TickStandaloneResourceDeltas(double currentUT)
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            bool anyApplied = false;
+
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var rec = recordings[i];
+
+                if (rec.TreeId != null) continue;
+                if (rec.LoopPlayback) continue;
+                if (rec.Points.Count < 2) continue;
+
+                int targetIndex = ParsekFlight.ComputeTargetResourceIndex(
+                    rec.Points, rec.LastAppliedResourceIndex, currentUT);
+
+                if (targetIndex <= rec.LastAppliedResourceIndex)
+                    continue;
+
+                int startIdx = Math.Max(rec.LastAppliedResourceIndex, 0);
+                TrajectoryPoint fromPoint = rec.Points[startIdx];
+                TrajectoryPoint toPoint = rec.Points[targetIndex];
+
+                double fundsDelta = toPoint.funds - fromPoint.funds;
+                float scienceDelta = toPoint.science - fromPoint.science;
+                float repDelta = toPoint.reputation - fromPoint.reputation;
+
+                GameStateRecorder.SuppressResourceEvents = true;
+                try
+                {
+                    if (fundsDelta != 0 && Funding.Instance != null)
+                    {
+                        if (fundsDelta < 0 && Funding.Instance.Funds + fundsDelta < 0)
+                            fundsDelta = -Funding.Instance.Funds;
+                        Funding.Instance.AddFunds(fundsDelta, TransactionReasons.None);
+                    }
+
+                    if (scienceDelta != 0 && ResearchAndDevelopment.Instance != null)
+                    {
+                        if (scienceDelta < 0 && ResearchAndDevelopment.Instance.Science + scienceDelta < 0)
+                            scienceDelta = -ResearchAndDevelopment.Instance.Science;
+                        ResearchAndDevelopment.Instance.AddScience(scienceDelta, TransactionReasons.None);
+                    }
+
+                    if (repDelta != 0 && Reputation.Instance != null)
+                    {
+                        if (repDelta < 0 && Reputation.CurrentRep + repDelta < 0)
+                            repDelta = -Reputation.CurrentRep;
+                        Reputation.Instance.AddReputation(repDelta, TransactionReasons.None);
+                    }
+                }
+                finally
+                {
+                    GameStateRecorder.SuppressResourceEvents = false;
+                }
+
+                rec.LastAppliedResourceIndex = targetIndex;
+                anyApplied = true;
+
+                var ic = CultureInfo.InvariantCulture;
+                ParsekLog.Info("Scenario",
+                    $"Resource tick: \"{rec.VesselName}\" idx {startIdx}\u2192{targetIndex}" +
+                    $" funds={fundsDelta.ToString("+0.0;-0.0", ic)} sci={scienceDelta.ToString("+0.0;-0.0", ic)} rep={repDelta.ToString("+0.0;-0.0", ic)}");
+
+                if (targetIndex == rec.Points.Count - 1)
+                {
+                    ParsekLog.Info("Scenario",
+                        $"Resource tick complete for \"{rec.VesselName}\"");
+                }
+            }
+
+            if (anyApplied)
+                ResourceBudget.Invalidate();
+        }
+
+        private void TickTreeResourceDeltas(double currentUT)
+        {
+            var trees = RecordingStore.CommittedTrees;
+            bool anyApplied = false;
+
+            for (int i = 0; i < trees.Count; i++)
+            {
+                var tree = trees[i];
+                if (tree.ResourcesApplied)
+                    continue;
+
+                double treeEndUT = 0;
+                foreach (var rec in tree.Recordings.Values)
+                {
+                    double recEnd = rec.EndUT;
+                    if (recEnd > treeEndUT) treeEndUT = recEnd;
+                }
+
+                if (currentUT <= treeEndUT)
+                    continue;
+
+                GameStateRecorder.SuppressResourceEvents = true;
+                try
+                {
+                    if (tree.DeltaFunds != 0 && Funding.Instance != null)
+                    {
+                        double delta = tree.DeltaFunds;
+                        if (delta < 0 && Funding.Instance.Funds + delta < 0)
+                            delta = -Funding.Instance.Funds;
+                        Funding.Instance.AddFunds(delta, TransactionReasons.None);
+                        var ic = CultureInfo.InvariantCulture;
+                        ParsekLog.Info("Scenario",
+                            $"Tree resource tick: funds {delta.ToString("+0.0;-0.0", ic)} (tree '{tree.TreeName}')");
+                    }
+
+                    if (tree.DeltaScience != 0 && ResearchAndDevelopment.Instance != null)
+                    {
+                        double delta = tree.DeltaScience;
+                        if (delta < 0 && ResearchAndDevelopment.Instance.Science + delta < 0)
+                            delta = -ResearchAndDevelopment.Instance.Science;
+                        ResearchAndDevelopment.Instance.AddScience((float)delta, TransactionReasons.None);
+                        var ic = CultureInfo.InvariantCulture;
+                        ParsekLog.Info("Scenario",
+                            $"Tree resource tick: science {delta.ToString("+0.0;-0.0", ic)} (tree '{tree.TreeName}')");
+                    }
+
+                    if (tree.DeltaReputation != 0 && Reputation.Instance != null)
+                    {
+                        float delta = tree.DeltaReputation;
+                        if (delta < 0 && Reputation.CurrentRep + delta < 0)
+                            delta = -Reputation.CurrentRep;
+                        Reputation.Instance.AddReputation(delta, TransactionReasons.None);
+                        var ic = CultureInfo.InvariantCulture;
+                        ParsekLog.Info("Scenario",
+                            $"Tree resource tick: reputation {delta.ToString("+0.0;-0.0", ic)} (tree '{tree.TreeName}')");
+                    }
+                }
+                finally
+                {
+                    GameStateRecorder.SuppressResourceEvents = false;
+                }
+
+                tree.ResourcesApplied = true;
+                anyApplied = true;
+                ParsekLog.Info("Scenario",
+                    $"Tree resource lump sum applied for '{tree.TreeName}'");
+            }
+
+            if (anyApplied)
+                ResourceBudget.Invalidate();
         }
 
         #endregion
