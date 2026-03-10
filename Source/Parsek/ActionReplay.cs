@@ -35,6 +35,10 @@ namespace Parsek
         /// Sets suppression flags around the replay loop to prevent recording replayed
         /// actions as new game state events and to bypass blocking Harmony patches.
         /// </summary>
+        /// <param name="milestones">Milestones to replay. Events within each milestone
+        /// must be sorted by UT (guaranteed by MilestoneStore.CreateMilestone).</param>
+        /// <param name="maxUT">Only replay events with ut &lt;= maxUT. Events exactly at
+        /// maxUT ARE included (uses strict greater-than comparison for the cutoff).</param>
         internal static void ReplayCommittedActions(IReadOnlyList<Milestone> milestones, double maxUT = double.MaxValue)
         {
             if (milestones == null || milestones.Count == 0) return;
