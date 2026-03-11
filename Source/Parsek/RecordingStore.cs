@@ -15,7 +15,6 @@ namespace Parsek
     public static class RecordingStore
     {
         public const int CurrentRecordingFormatVersion = 5;
-        public const int CurrentGhostGeometryVersion = 1;
 
         // When true, suppresses logging calls (for unit testing outside Unity)
         internal static bool SuppressLogging;
@@ -68,7 +67,7 @@ namespace Parsek
         {
             public string RecordingId = Guid.NewGuid().ToString("N");
             public int RecordingFormatVersion = CurrentRecordingFormatVersion;
-            public int GhostGeometryVersion = CurrentGhostGeometryVersion;
+            public int GhostGeometryVersion = 1; // Legacy field, kept for deserialization backward compat
             public List<TrajectoryPoint> Points = new List<TrajectoryPoint>();
             public List<OrbitSegment> OrbitSegments = new List<OrbitSegment>();
             public List<PartEvent> PartEvents = new List<PartEvent>();
@@ -95,8 +94,8 @@ namespace Parsek
             public string GhostGeometryRelativePath;
             public bool GhostGeometryAvailable;
             public string GhostGeometryCaptureError;
-            public string GhostGeometryCaptureStrategy = "stub_v1";
-            public string GhostGeometryProbeStatus = "uninitialized";
+            public string GhostGeometryCaptureStrategy; // Legacy field, kept for deserialization
+            public string GhostGeometryProbeStatus;    // Legacy field, kept for deserialization
 
             // --- Tree linkage (null for legacy/standalone recordings) ---
             public string TreeId;                          // null = standalone (pre-tree recording)
@@ -192,13 +191,7 @@ namespace Parsek
                 VesselDestroyed = source.VesselDestroyed;
                 VesselSituation = source.VesselSituation;
                 MaxDistanceFromLaunch = source.MaxDistanceFromLaunch;
-                GhostGeometryRelativePath = source.GhostGeometryRelativePath;
-                GhostGeometryAvailable = source.GhostGeometryAvailable;
-                GhostGeometryCaptureError = source.GhostGeometryCaptureError;
-                GhostGeometryCaptureStrategy = source.GhostGeometryCaptureStrategy;
-                GhostGeometryProbeStatus = source.GhostGeometryProbeStatus;
                 RecordingFormatVersion = source.RecordingFormatVersion;
-                GhostGeometryVersion = source.GhostGeometryVersion;
                 ParentRecordingId = source.ParentRecordingId;
                 EvaCrewName = source.EvaCrewName;
                 ChainId = source.ChainId;
@@ -269,7 +262,6 @@ namespace Parsek
             List<OrbitSegment> orbitSegments = null,
             string recordingId = null,
             int? recordingFormatVersion = null,
-            int? ghostGeometryVersion = null,
             List<PartEvent> partEvents = null)
         {
             if (points == null || points.Count < 2)
@@ -282,7 +274,6 @@ namespace Parsek
             {
                 RecordingId = string.IsNullOrEmpty(recordingId) ? Guid.NewGuid().ToString("N") : recordingId,
                 RecordingFormatVersion = recordingFormatVersion ?? CurrentRecordingFormatVersion,
-                GhostGeometryVersion = ghostGeometryVersion ?? CurrentGhostGeometryVersion,
                 Points = new List<TrajectoryPoint>(points),
                 OrbitSegments = orbitSegments != null
                     ? new List<OrbitSegment>(orbitSegments)
@@ -793,6 +784,118 @@ namespace Parsek
             {
                 ParsekLog.Warn("RecordingStore", $"Failed to delete file '{relativePath}': {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Known sidecar file suffixes for recording files. Used for orphan detection.
+        /// </summary>
+        private static readonly string[] RecordingFileSuffixes = { ".prec", "_vessel.craft", "_ghost.craft", ".pcrf" };
+
+        /// <summary>
+        /// Extracts the recording ID from a sidecar filename by stripping known suffixes.
+        /// Returns null if the filename doesn't match any known suffix.
+        /// </summary>
+        internal static string ExtractRecordingIdFromFileName(string fileName)
+        {
+            if (string.IsNullOrEmpty(fileName))
+                return null;
+
+            for (int i = 0; i < RecordingFileSuffixes.Length; i++)
+            {
+                if (fileName.EndsWith(RecordingFileSuffixes[i], StringComparison.OrdinalIgnoreCase))
+                    return fileName.Substring(0, fileName.Length - RecordingFileSuffixes[i].Length);
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Deletes orphaned sidecar files in the Parsek/Recordings/ directory that don't
+        /// correspond to any known recording ID. Called after all recordings and trees are loaded.
+        /// </summary>
+        internal static void CleanOrphanFiles()
+        {
+            // Resolve without creating — don't create an empty directory just to scan it
+            string root = KSPUtil.ApplicationRootPath ?? "";
+            string saveFolder = HighLogic.SaveFolder ?? "";
+            if (string.IsNullOrEmpty(root) || string.IsNullOrEmpty(saveFolder))
+            {
+                ParsekLog.Verbose("RecordingStore", "CleanOrphanFiles: no save context — skipping");
+                return;
+            }
+            string recordingsDir = Path.GetFullPath(Path.Combine(root, "saves", saveFolder, "Parsek", "Recordings"));
+            if (!Directory.Exists(recordingsDir))
+            {
+                ParsekLog.Verbose("RecordingStore", "CleanOrphanFiles: no recordings directory — skipping");
+                return;
+            }
+
+            // Build set of known recording IDs from committed recordings + trees.
+            // Note: pending recording is not included because this method is called
+            // from ParsekScenario.OnLoad before any pending state is created.
+            var knownIds = new HashSet<string>();
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                if (!string.IsNullOrEmpty(committedRecordings[i].RecordingId))
+                    knownIds.Add(committedRecordings[i].RecordingId);
+            }
+            for (int t = 0; t < committedTrees.Count; t++)
+            {
+                foreach (var kvp in committedTrees[t].Recordings)
+                {
+                    if (!string.IsNullOrEmpty(kvp.Value.RecordingId))
+                        knownIds.Add(kvp.Value.RecordingId);
+                }
+            }
+
+            string[] files;
+            try
+            {
+                files = Directory.GetFiles(recordingsDir);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("RecordingStore", $"CleanOrphanFiles: failed to list directory: {ex.Message}");
+                return;
+            }
+
+            ParsekLog.Verbose("RecordingStore",
+                $"CleanOrphanFiles: scanning {files.Length} file(s) against {knownIds.Count} known recording ID(s)");
+
+            int orphanCount = 0;
+            int skippedUnrecognized = 0;
+            for (int i = 0; i < files.Length; i++)
+            {
+                string fileName = Path.GetFileName(files[i]);
+                string extractedId = ExtractRecordingIdFromFileName(fileName);
+                if (extractedId == null)
+                {
+                    skippedUnrecognized++;
+                    continue; // Not a recognized sidecar file — leave it alone
+                }
+
+                if (!knownIds.Contains(extractedId))
+                {
+                    try
+                    {
+                        File.Delete(files[i]);
+                        orphanCount++;
+                        ParsekLog.Verbose("RecordingStore", $"Deleted orphan file: {fileName} (id={extractedId})");
+                    }
+                    catch (Exception ex)
+                    {
+                        ParsekLog.Warn("RecordingStore", $"Failed to delete orphan file '{fileName}': {ex.Message}");
+                    }
+                }
+            }
+
+            if (orphanCount > 0)
+                ParsekLog.Info("RecordingStore",
+                    $"Cleaned {orphanCount} orphaned recording file(s)" +
+                    (skippedUnrecognized > 0 ? $", skipped {skippedUnrecognized} unrecognized file(s)" : ""));
+            else
+                ParsekLog.Verbose("RecordingStore",
+                    $"CleanOrphanFiles: no orphans found" +
+                    (skippedUnrecognized > 0 ? $", skipped {skippedUnrecognized} unrecognized file(s)" : ""));
         }
 
         #region Rewind

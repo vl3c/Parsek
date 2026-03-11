@@ -5560,7 +5560,7 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Copies sidecar files (.prec, _vessel.craft, _ghost.craft, .pcrf) and rewind
+        /// Copies sidecar files (.prec, _vessel.craft, _ghost.craft) and rewind
         /// save files from the default career to the target save directory.
         /// </summary>
         private static void CopyRealRecordingFiles(
@@ -5579,7 +5579,7 @@ namespace Parsek.Tests
                     string id = recordings[i].GetValue("recordingId");
                     if (string.IsNullOrEmpty(id)) continue;
 
-                    string[] suffixes = { ".prec", "_vessel.craft", "_ghost.craft", ".pcrf" };
+                    string[] suffixes = { ".prec", "_vessel.craft", "_ghost.craft" };
                     for (int s = 0; s < suffixes.Length; s++)
                     {
                         string fileName = id + suffixes[s];
