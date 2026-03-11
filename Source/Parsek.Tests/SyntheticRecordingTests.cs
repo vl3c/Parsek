@@ -90,9 +90,9 @@ namespace Parsek.Tests
         // Reentry South:     +0s   to +90s   (90s looped ghost, reentry FX)
 
         // Approximate "upright on surface" rotation at KSC for UT ~17000.
-        // From real recording data at UT=17285. Close enough for synthetic visuals
-        // (Kerbin rotates ~4° in the difference, negligible for ghost appearance).
-        private const float KscRotX = 0.33f, KscRotY = -0.63f, KscRotZ = -0.63f, KscRotW = -0.33f;
+        // Surface-relative rotation for upright vessel at KSC pad (v5 format).
+        // Captured empirically from v.srfRelRotation in KSP runtime.
+        private const float KscRotX = -0.7009714f, KscRotY = -0.09230039f, KscRotZ = -0.09728389f, KscRotW = 0.7004681f;
 
         internal static RecordingBuilder PadWalk(double baseUT = 0)
         {

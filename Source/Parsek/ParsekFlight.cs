@@ -1878,9 +1878,35 @@ namespace Parsek
                     pending.RewindReservedFunds = captured.RewindReservedFunds;
                     pending.RewindReservedScience = captured.RewindReservedScience;
                     pending.RewindReservedRep = captured.RewindReservedRep;
+
+                    // Preserve chain membership if this segment was part of a chain
+                    if (activeChainId != null)
+                    {
+                        pending.ChainId = activeChainId;
+                        pending.ChainIndex = activeChainNextIndex;
+                        pending.ParentRecordingId = activeChainPrevId;
+                        pending.EvaCrewName = activeChainCrewName;
+                    }
+
+                    // Tag segment phase if untagged
+                    if (string.IsNullOrEmpty(pending.SegmentPhase))
+                    {
+                        var v = FlightGlobals.ActiveVessel;
+                        if (v != null && v.mainBody != null)
+                        {
+                            pending.SegmentBodyName = v.mainBody.name;
+                            if (v.mainBody.atmosphere)
+                                pending.SegmentPhase = v.altitude < v.mainBody.atmosphereDepth ? "atmo" : "exo";
+                            else
+                                pending.SegmentPhase = "space";
+                        }
+                    }
                 }
                 RecordingStore.CommitPending();
-                ParsekLog.Info("Flight", "Vessel destroyed during split — recording committed as standalone");
+                string chainInfo = activeChainId != null
+                    ? $" (chain={activeChainId}, idx={activeChainNextIndex})"
+                    : " (standalone)";
+                ParsekLog.Info("Flight", $"Vessel destroyed during split — recording committed{chainInfo}");
             }
             else
             {
