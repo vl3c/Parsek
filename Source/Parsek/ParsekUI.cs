@@ -66,6 +66,7 @@ namespace Parsek
 
         // Chain grouping state
         private HashSet<string> expandedChains = new HashSet<string>();
+        private bool expandedShowcases;
 
         // Cached phase label styles
         private GUIStyle phaseStyleAtmo;
@@ -839,6 +840,7 @@ namespace Parsek
                 // Build chain grouping: chainId → list of sorted row indices
                 var chainRows = new Dictionary<string, List<int>>();
                 var seenChains = new HashSet<string>();
+                var showcaseRows = new List<int>();
 
                 for (int row = 0; row < sortedIndices.Length; row++)
                 {
@@ -854,19 +856,66 @@ namespace Parsek
                         }
                         list.Add(ri);
                     }
+                    else if (rec.VesselName != null && rec.VesselName.StartsWith("Part Showcase"))
+                    {
+                        showcaseRows.Add(ri);
+                    }
                 }
 
                 // Draw in sorted order — standalone rows inline, chain groups
                 // emitted at the position of their first sorted member
                 bool deleted = false;
+                bool showcaseHeaderDrawn = false;
+                var showcaseSet = new HashSet<int>(showcaseRows);
                 for (int row = 0; row < sortedIndices.Length && !deleted; row++)
                 {
                     int ri = sortedIndices[row];
                     var rec = committed[ri];
 
-                    if (string.IsNullOrEmpty(rec.ChainId))
+                    if (showcaseSet.Contains(ri))
                     {
-                        // Standalone recording
+                        if (!showcaseHeaderDrawn)
+                        {
+                            showcaseHeaderDrawn = true;
+                            // Showcase group header
+                            GUILayout.BeginHorizontal();
+
+                            // Group enable checkbox
+                            int showcaseEnabledCount = 0;
+                            for (int s = 0; s < showcaseRows.Count; s++)
+                                if (committed[showcaseRows[s]].PlaybackEnabled) showcaseEnabledCount++;
+                            bool allShowcasesEnabled = showcaseEnabledCount == showcaseRows.Count;
+                            bool newShowcasesEnabled = GUILayout.Toggle(allShowcasesEnabled, "", GUILayout.Width(ColW_Enable));
+                            if (newShowcasesEnabled != allShowcasesEnabled)
+                            {
+                                for (int s = 0; s < showcaseRows.Count; s++)
+                                    committed[showcaseRows[s]].PlaybackEnabled = newShowcasesEnabled;
+                                ParsekLog.Info("UI", $"Set playback enabled for all showcases: enabled={newShowcasesEnabled}");
+                            }
+
+                            string arrow = expandedShowcases ? "\u25bc" : "\u25b6";
+                            if (GUILayout.Button($"{arrow} Part Showcases ({showcaseRows.Count})",
+                                GUI.skin.label, GUILayout.ExpandWidth(true)))
+                            {
+                                expandedShowcases = !expandedShowcases;
+                                ParsekLog.Verbose("UI", $"Showcases {(expandedShowcases ? "expanded" : "collapsed")} ({showcaseRows.Count} recordings)");
+                            }
+                            GUILayout.EndHorizontal();
+
+                            if (expandedShowcases)
+                            {
+                                for (int s = 0; s < showcaseRows.Count; s++)
+                                {
+                                    if (DrawRecordingRow(showcaseRows[s], committed, now, true))
+                                    { deleted = true; break; }
+                                }
+                            }
+                        }
+                        // else: showcase already drawn with group — skip
+                    }
+                    else if (string.IsNullOrEmpty(rec.ChainId))
+                    {
+                        // Standalone recording (non-showcase)
                         if (DrawRecordingRow(ri, committed, now, false))
                         { deleted = true; break; }
                     }

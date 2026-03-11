@@ -5030,6 +5030,10 @@ namespace Parsek.Tests
             writer.AddTree(EvaTree(baseUT));
             writer.AddTree(DestructionTree(baseUT));
 
+            // Add real recordings from the default career (if available)
+            string kspRoot = ResolveKspRoot();
+            var realRecordingNodes = AddRealCareerRecordings(writer, kspRoot);
+
             foreach (string file in targets)
             {
                 string savePath = Path.Combine(saveDir, file);
@@ -5040,6 +5044,13 @@ namespace Parsek.Tests
                 try
                 {
                     writer.InjectIntoSaveFile(savePath, tempPath);
+
+                    // Copy real recording sidecar files from default career
+                    if (realRecordingNodes.Length > 0)
+                    {
+                        string defaultCareerDir = Path.Combine(kspRoot, "saves", "default");
+                        CopyRealRecordingFiles(defaultCareerDir, saveDir, realRecordingNodes);
+                    }
 
                     string content = File.ReadAllText(tempPath);
                     Assert.Contains("name = ParsekScenario", content);
@@ -5262,6 +5273,12 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Surviving Capsule", content);
                     Assert.Contains("vesselName = Destroyed Booster", content);
 
+                    // Real recordings from default career (conditional)
+                    if (realRecordingNodes.Length > 0)
+                    {
+                        Assert.Contains("vesselName = R0", content);
+                    }
+
                     Assert.Contains("FLIGHTSTATE", content);
 
                     // v3: no inline trajectory POINT data in .sfs
@@ -5274,7 +5291,7 @@ namespace Parsek.Tests
                     Assert.DoesNotContain("\tPOINT\n", scenarioSection);
 
                     // Game action milestone data in .sfs
-                    Assert.Contains("milestoneEpoch = 0", content);
+                    Assert.Contains("milestoneEpoch", content);
                     Assert.Contains("MILESTONE_STATE", content);
 
                     File.Copy(tempPath, savePath, overwrite: true);
@@ -5295,8 +5312,9 @@ namespace Parsek.Tests
                     $"Expected Parsek/Recordings directory at {recordingsDir}");
 
                 string[] precFiles = Directory.GetFiles(recordingsDir, "*.prec");
-                Assert.True(precFiles.Length >= 232,
-                    $"Expected at least 232 .prec files (8 baseline + 10 lights + 18 deployables + 7 gear + 11 cargo + 45 engines + 2 ladders + 5 RCS + 5 fairings + 2 extra radiators + 2 drills + 8 deployed science + 2 animation-group + 5 parachutes + 12 special deploy animations + 9 jettison + 21 robotics + 1 aero-surface + 3 robot-arm-scanner + 24 control-surface + 6 wheel-dynamics + 13 animate-heat + 1 inventory-placement + 3 board-chain + 2 walk-chain + 3 atmo-chain + 4 mun-transfer-chain), found {precFiles.Length}");
+                int expectedMin = 232 + realRecordingNodes.Length;
+                Assert.True(precFiles.Length >= expectedMin,
+                    $"Expected at least {expectedMin} .prec files (232 synthetic + {realRecordingNodes.Length} real), found {precFiles.Length}");
 
                 // Verify game state sidecar files
                 string gameStateDir = Path.Combine(saveDir, "Parsek", "GameState");
@@ -5453,6 +5471,122 @@ namespace Parsek.Tests
             writer.AddGameStateEvent(fundsEarned);
             writer.AddGameStateEvent(scienceSpent);
             writer.AddGameStateEvent(repGained);
+        }
+
+        #endregion
+
+        #region Real Career Recordings
+
+        /// <summary>
+        /// Parses real recordings from the default career's persistent.sfs and adds them
+        /// to the writer. Returns the array of RECORDING ConfigNodes that were added
+        /// (empty array if the default career is absent).
+        /// </summary>
+        private static ConfigNode[] AddRealCareerRecordings(ScenarioWriter writer, string kspRoot)
+        {
+            string defaultPersistent = Path.Combine(kspRoot, "saves", "default", "persistent.sfs");
+            if (!File.Exists(defaultPersistent))
+                return new ConfigNode[0];
+
+            var root = ConfigNode.Load(defaultPersistent);
+            if (root == null)
+                return new ConfigNode[0];
+
+            // persistent.sfs has GAME as the root node wrapping everything
+            var gameNode = root.HasNode("GAME") ? root.GetNode("GAME") : root;
+
+            // Find ParsekScenario
+            ConfigNode scenarioNode = null;
+            foreach (ConfigNode sn in gameNode.GetNodes("SCENARIO"))
+            {
+                if (sn.GetValue("name") == "ParsekScenario")
+                {
+                    scenarioNode = sn;
+                    break;
+                }
+            }
+
+            if (scenarioNode == null)
+                return new ConfigNode[0];
+
+            // Add all recordings with loopPlayback forced on
+            var recNodes = scenarioNode.GetNodes("RECORDING");
+            for (int i = 0; i < recNodes.Length; i++)
+            {
+                recNodes[i].SetValue("loopPlayback", "True", true);
+                writer.AddRecording(recNodes[i]);
+            }
+
+            // Add milestone states from the real career
+            var milestoneStates = scenarioNode.GetNodes("MILESTONE_STATE");
+            for (int i = 0; i < milestoneStates.Length; i++)
+                writer.AddRawMilestoneState(milestoneStates[i]);
+
+            // Propagate milestone epoch (take the max of existing and parsed)
+            string epochStr = scenarioNode.GetValue("milestoneEpoch");
+            if (epochStr != null)
+            {
+                uint epoch;
+                if (uint.TryParse(epochStr, System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture, out epoch))
+                {
+                    writer.WithMilestoneEpoch(epoch);
+                }
+            }
+
+            return recNodes;
+        }
+
+        /// <summary>
+        /// Copies sidecar files (.prec, _vessel.craft, _ghost.craft, .pcrf) and rewind
+        /// save files from the default career to the target save directory.
+        /// </summary>
+        private static void CopyRealRecordingFiles(
+            string sourceCareerDir, string targetSaveDir, ConfigNode[] recordings)
+        {
+            // Copy recording sidecar files
+            string srcRecDir = Path.Combine(sourceCareerDir, "Parsek", "Recordings");
+            string dstRecDir = Path.Combine(targetSaveDir, "Parsek", "Recordings");
+            if (Directory.Exists(srcRecDir))
+            {
+                if (!Directory.Exists(dstRecDir))
+                    Directory.CreateDirectory(dstRecDir);
+
+                for (int i = 0; i < recordings.Length; i++)
+                {
+                    string id = recordings[i].GetValue("recordingId");
+                    if (string.IsNullOrEmpty(id)) continue;
+
+                    string[] suffixes = { ".prec", "_vessel.craft", "_ghost.craft", ".pcrf" };
+                    for (int s = 0; s < suffixes.Length; s++)
+                    {
+                        string fileName = id + suffixes[s];
+                        string src = Path.Combine(srcRecDir, fileName);
+                        if (File.Exists(src))
+                            File.Copy(src, Path.Combine(dstRecDir, fileName), true);
+                    }
+                }
+            }
+
+            // Copy rewind save files
+            string srcSavesDir = Path.Combine(sourceCareerDir, "Parsek", "Saves");
+            string dstSavesDir = Path.Combine(targetSaveDir, "Parsek", "Saves");
+            if (Directory.Exists(srcSavesDir))
+            {
+                for (int i = 0; i < recordings.Length; i++)
+                {
+                    string rewindSave = recordings[i].GetValue("rewindSave");
+                    if (string.IsNullOrEmpty(rewindSave)) continue;
+
+                    string src = Path.Combine(srcSavesDir, rewindSave + ".sfs");
+                    if (File.Exists(src))
+                    {
+                        if (!Directory.Exists(dstSavesDir))
+                            Directory.CreateDirectory(dstSavesDir);
+                        File.Copy(src, Path.Combine(dstSavesDir, rewindSave + ".sfs"), true);
+                    }
+                }
+            }
         }
 
         #endregion
