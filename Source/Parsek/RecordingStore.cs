@@ -858,13 +858,20 @@ namespace Parsek
                 return;
             }
 
+            ParsekLog.Verbose("RecordingStore",
+                $"CleanOrphanFiles: scanning {files.Length} file(s) against {knownIds.Count} known recording ID(s)");
+
             int orphanCount = 0;
+            int skippedUnrecognized = 0;
             for (int i = 0; i < files.Length; i++)
             {
                 string fileName = Path.GetFileName(files[i]);
                 string extractedId = ExtractRecordingIdFromFileName(fileName);
                 if (extractedId == null)
+                {
+                    skippedUnrecognized++;
                     continue; // Not a recognized sidecar file — leave it alone
+                }
 
                 if (!knownIds.Contains(extractedId))
                 {
@@ -872,7 +879,7 @@ namespace Parsek
                     {
                         File.Delete(files[i]);
                         orphanCount++;
-                        ParsekLog.Verbose("RecordingStore", $"Deleted orphan file: {fileName}");
+                        ParsekLog.Verbose("RecordingStore", $"Deleted orphan file: {fileName} (id={extractedId})");
                     }
                     catch (Exception ex)
                     {
@@ -882,9 +889,13 @@ namespace Parsek
             }
 
             if (orphanCount > 0)
-                ParsekLog.Info("RecordingStore", $"Cleaned {orphanCount} orphaned recording file(s)");
+                ParsekLog.Info("RecordingStore",
+                    $"Cleaned {orphanCount} orphaned recording file(s)" +
+                    (skippedUnrecognized > 0 ? $", skipped {skippedUnrecognized} unrecognized file(s)" : ""));
             else
-                ParsekLog.Verbose("RecordingStore", "CleanOrphanFiles: no orphans found");
+                ParsekLog.Verbose("RecordingStore",
+                    $"CleanOrphanFiles: no orphans found" +
+                    (skippedUnrecognized > 0 ? $", skipped {skippedUnrecognized} unrecognized file(s)" : ""));
         }
 
         #region Rewind
