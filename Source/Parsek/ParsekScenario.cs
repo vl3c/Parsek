@@ -1161,6 +1161,10 @@ namespace Parsek
                 recNode.AddValue("rewindResRep", rec.RewindReservedRep.ToString("R", CultureInfo.InvariantCulture));
             }
 
+            // UI grouping tag
+            if (!string.IsNullOrEmpty(rec.RecordingGroup))
+                recNode.AddValue("recordingGroup", rec.RecordingGroup);
+
             // Atmosphere segment metadata (only if set, saves space)
             if (!string.IsNullOrEmpty(rec.SegmentPhase))
                 recNode.AddValue("segmentPhase", rec.SegmentPhase);
@@ -1279,6 +1283,9 @@ namespace Parsek
                 if (float.TryParse(rewindRepStr, NumberStyles.Float, CultureInfo.InvariantCulture, out rewindRep))
                     rec.RewindReservedRep = rewindRep;
             }
+
+            // UI grouping tag
+            rec.RecordingGroup = recNode.GetValue("recordingGroup");
 
             // Atmosphere segment metadata
             rec.SegmentPhase = recNode.GetValue("segmentPhase");

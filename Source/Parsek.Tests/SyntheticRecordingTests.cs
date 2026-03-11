@@ -96,29 +96,28 @@ namespace Parsek.Tests
 
         internal static RecordingBuilder PadWalk(double baseUT = 0)
         {
-            // EVA: Jeb walks ~200m east from launchpad at ground level
+            // EVA: Jeb walks ~200m along the road east of the VAB (flat terrain, no structures)
             double t = baseUT + 30;
             var b = new RecordingBuilder("Pad Walk");
             b.WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW);
-            double baseLat = -0.0972;
-            double baseLon = -74.5575;
+            double baseLat = -0.0465;
+            double baseLon = -74.6100;
 
-            b.AddPoint(t,     baseLat, baseLon,          66);
-            b.AddPoint(t+3,   baseLat, baseLon + 0.0002, 66);
-            b.AddPoint(t+6,   baseLat, baseLon + 0.0004, 66);
-            b.AddPoint(t+9,   baseLat, baseLon + 0.0006, 66.5);
-            b.AddPoint(t+12,  baseLat, baseLon + 0.0008, 66.5);
-            b.AddPoint(t+15,  baseLat, baseLon + 0.0010, 67);
-            b.AddPoint(t+18,  baseLat, baseLon + 0.0012, 67);
-            b.AddPoint(t+21,  baseLat, baseLon + 0.0014, 66.5);
-            b.AddPoint(t+24,  baseLat, baseLon + 0.0016, 66.5);
-            b.AddPoint(t+30,  baseLat, baseLon + 0.0018, 66);
+            b.AddPoint(t,     baseLat, baseLon,          69);
+            b.AddPoint(t+3,   baseLat, baseLon + 0.0002, 69);
+            b.AddPoint(t+6,   baseLat, baseLon + 0.0004, 69);
+            b.AddPoint(t+9,   baseLat, baseLon + 0.0006, 69);
+            b.AddPoint(t+12,  baseLat, baseLon + 0.0008, 69);
+            b.AddPoint(t+15,  baseLat, baseLon + 0.0010, 69);
+            b.AddPoint(t+18,  baseLat, baseLon + 0.0012, 69);
+            b.AddPoint(t+21,  baseLat, baseLon + 0.0014, 69);
+            b.AddPoint(t+24,  baseLat, baseLon + 0.0016, 69);
+            b.AddPoint(t+30,  baseLat, baseLon + 0.0018, 69);
 
             // Ghost-only EVA snapshot (no vessel spawn, no crew reservation)
             b.WithGhostVisualSnapshot(
-                VesselSnapshotBuilder.CrewedShip("Jebediah Kerman", "Jebediah Kerman", pid: 55555555)
-                    .WithType("EVA")
-                    .AsLanded(baseLat, baseLon + 0.0018, 66));
+                VesselSnapshotBuilder.EvaKerbal("Jebediah Kerman", pid: 55555555)
+                    .AsLanded(baseLat, baseLon + 0.0018, 69));
 
             return b;
         }
@@ -448,8 +447,7 @@ namespace Parsek.Tests
 
             // Ghost-only (EVA mid-chain)
             seg1.WithGhostVisualSnapshot(
-                VesselSnapshotBuilder.CrewedShip("Jebediah Kerman", "Jebediah Kerman", pid: 77777777)
-                    .WithType("EVA")
+                VesselSnapshotBuilder.EvaKerbal("Jebediah Kerman", pid: 77777777)
                     .AsLanded(baseLat, evaLon + 0.0008, 70));
 
             // Segment 2: Vessel resume, 20s — back on FleaRocket
@@ -551,8 +549,7 @@ namespace Parsek.Tests
 
             // Ghost-only EVA snapshot
             seg1.WithGhostVisualSnapshot(
-                VesselSnapshotBuilder.CrewedShip("Bill Kerman", "Bill Kerman", pid: 99999999)
-                    .WithType("EVA")
+                VesselSnapshotBuilder.EvaKerbal("Bill Kerman", pid: 99999999)
                     .AsLanded(landLat - 0.0004, landLon + 0.0003, 55));
 
             return new[] { seg0, seg1 };
@@ -869,7 +866,8 @@ namespace Parsek.Tests
 
             var b = new RecordingBuilder(vesselName)
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
-                .WithLoopPlayback(loop: true, pauseSeconds: 0.0);
+                .WithLoopPlayback(loop: true, pauseSeconds: 0.0)
+                .WithRecordingGroup("Part Showcases");
 
             // Static trajectory (24s) so the visual focus is part event playback.
             for (int i = 0; i <= 8; i++)
@@ -936,7 +934,8 @@ namespace Parsek.Tests
 
             var b = new RecordingBuilder(vesselName)
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
-                .WithLoopPlayback(loop: true, pauseSeconds: 0.0);
+                .WithLoopPlayback(loop: true, pauseSeconds: 0.0)
+                .WithRecordingGroup("Part Showcases");
 
             for (int i = 0; i <= 8; i++)
                 b.AddPoint(t + (i * 3), lat, lon, alt);
@@ -1321,7 +1320,8 @@ namespace Parsek.Tests
 
             var b = new RecordingBuilder(vesselName)
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
-                .WithLoopPlayback(loop: true, pauseSeconds: 0.0);
+                .WithLoopPlayback(loop: true, pauseSeconds: 0.0)
+                .WithRecordingGroup("Part Showcases");
 
             // Static trajectory (24s).
             for (int i = 0; i <= 8; i++)
@@ -1366,7 +1366,8 @@ namespace Parsek.Tests
 
             var b = new RecordingBuilder(vesselName)
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
-                .WithLoopPlayback(loop: true, pauseSeconds: 0.0);
+                .WithLoopPlayback(loop: true, pauseSeconds: 0.0)
+                .WithRecordingGroup("Part Showcases");
 
             for (int i = 0; i <= 8; i++)
                 b.AddPoint(t + (i * 3), lat, lon, alt);
@@ -1775,7 +1776,8 @@ namespace Parsek.Tests
 
             var b = new RecordingBuilder(vesselName)
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
-                .WithLoopPlayback(loop: true, pauseSeconds: 0.0);
+                .WithLoopPlayback(loop: true, pauseSeconds: 0.0)
+                .WithRecordingGroup("Part Showcases");
 
             // Static trajectory (24s)
             for (int i = 0; i <= 8; i++)
@@ -2140,7 +2142,8 @@ namespace Parsek.Tests
             alt += ShowcaseAltitudeOffset(partName);
             var b = new RecordingBuilder("Part Showcase - Inventory Placement")
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
-                .WithLoopPlayback(loop: true, pauseSeconds: 0.0);
+                .WithLoopPlayback(loop: true, pauseSeconds: 0.0)
+                .WithRecordingGroup("Part Showcases");
 
             for (int i = 0; i <= 8; i++)
                 b.AddPoint(t + (i * 3), lat, lon, alt);
@@ -4925,22 +4928,24 @@ namespace Parsek.Tests
             double baseUT = ReadUTFromSave(targetPath);
 
             var writer = new ScenarioWriter().WithV3Format();
-            writer.AddRecording(PadWalk(baseUT).WithLoopPlayback());
+            writer.AddRecording(PadWalk(baseUT).WithLoopPlayback()
+                .WithRecordingGroup("Synthetic"));
 
             // Pad-launch recordings — with rewind saves
             writer.AddRecording(KscHopper(baseUT).WithLoopPlayback()
-                .WithRewindSave("parsek_rw_hop001"));
+                .WithRewindSave("parsek_rw_hop001").WithRecordingGroup("Synthetic"));
             writer.AddRecording(FleaFlight(baseUT).WithLoopPlayback()
-                .WithRewindSave("parsek_rw_flea01"));
+                .WithRewindSave("parsek_rw_flea01").WithRecordingGroup("Synthetic"));
             writer.AddRecording(SuborbitalArc(baseUT).WithLoopPlayback()
-                .WithRewindSave("parsek_rw_subo01"));
+                .WithRewindSave("parsek_rw_subo01").WithRecordingGroup("Synthetic"));
             writer.AddRecording(KscPadDestroyed(baseUT).WithLoopPlayback()
-                .WithRewindSave("parsek_rw_dest01"));
+                .WithRewindSave("parsek_rw_dest01").WithRecordingGroup("Synthetic"));
             writer.AddRecording(Orbit1(baseUT).WithLoopPlayback()
-                .WithRewindSave("parsek_rw_orb001"));
-            writer.AddRecording(CloseSpawnConflict(baseUT).WithLoopPlayback());
+                .WithRewindSave("parsek_rw_orb001").WithRecordingGroup("Synthetic"));
+            writer.AddRecording(CloseSpawnConflict(baseUT).WithLoopPlayback()
+                .WithRecordingGroup("Synthetic"));
             writer.AddRecording(IslandProbe(baseUT).WithLoopPlayback()
-                .WithRewindSave("parsek_rw_isle01"));
+                .WithRewindSave("parsek_rw_isle01").WithRecordingGroup("Synthetic"));
 
             var lightShowcases = LightShowcaseRecordings(baseUT);
             for (int i = 0; i < lightShowcases.Length; i++)
@@ -5020,23 +5025,23 @@ namespace Parsek.Tests
             var chainSegments = EvaBoardChain(baseUT);
             chainSegments[0].WithRewindSave("parsek_rw_evab01");
             for (int i = 0; i < chainSegments.Length; i++)
-                writer.AddRecording(chainSegments[i].WithLoopPlayback());
+                writer.AddRecording(chainSegments[i].WithLoopPlayback().WithRecordingGroup("Synthetic"));
             var walkChainSegments = EvaWalkChain(baseUT);
             walkChainSegments[0].WithRewindSave("parsek_rw_walk01");
             for (int i = 0; i < walkChainSegments.Length; i++)
-                writer.AddRecording(walkChainSegments[i].WithLoopPlayback());
+                writer.AddRecording(walkChainSegments[i].WithLoopPlayback().WithRecordingGroup("Synthetic"));
             var atmoChainSegments = KerbinAscentChain(baseUT);
             atmoChainSegments[0].WithRewindSave("parsek_rw_atmo01");
             for (int i = 0; i < atmoChainSegments.Length; i++)
-                writer.AddRecording(atmoChainSegments[i].WithLoopPlayback());
+                writer.AddRecording(atmoChainSegments[i].WithLoopPlayback().WithRecordingGroup("Synthetic"));
             var munTransferSegments = KerbinMunTransfer(baseUT);
             munTransferSegments[0].WithRewindSave("parsek_rw_mun001");
             for (int i = 0; i < munTransferSegments.Length; i++)
-                writer.AddRecording(munTransferSegments[i].WithLoopPlayback());
+                writer.AddRecording(munTransferSegments[i].WithLoopPlayback().WithRecordingGroup("Synthetic"));
 
-            writer.AddRecording(ReentryEast(baseUT).WithLoopPlayback());
-            writer.AddRecording(ReentryShallow(baseUT).WithLoopPlayback());
-            writer.AddRecording(ReentrySouth(baseUT).WithLoopPlayback());
+            writer.AddRecording(ReentryEast(baseUT).WithLoopPlayback().WithRecordingGroup("Synthetic"));
+            writer.AddRecording(ReentryShallow(baseUT).WithLoopPlayback().WithRecordingGroup("Synthetic"));
+            writer.AddRecording(ReentrySouth(baseUT).WithLoopPlayback().WithRecordingGroup("Synthetic"));
 
             // Add synthetic game actions so the Actions window has visible entries
             AddSyntheticGameActions(writer, baseUT);
