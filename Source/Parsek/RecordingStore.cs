@@ -14,7 +14,7 @@ namespace Parsek
     /// </summary>
     public static class RecordingStore
     {
-        public const int CurrentRecordingFormatVersion = 4;
+        public const int CurrentRecordingFormatVersion = 5;
         public const int CurrentGhostGeometryVersion = 1;
 
         // When true, suppresses logging calls (for unit testing outside Unity)
@@ -1335,7 +1335,7 @@ namespace Parsek
 
                 // Save .prec trajectory file
                 var precNode = new ConfigNode("PARSEK_RECORDING");
-                precNode.AddValue("version", CurrentRecordingFormatVersion);
+                precNode.AddValue("version", rec.RecordingFormatVersion);
                 precNode.AddValue("recordingId", rec.RecordingId);
                 SerializeTrajectoryInto(precNode, rec);
 

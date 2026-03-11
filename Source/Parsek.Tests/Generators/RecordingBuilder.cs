@@ -33,6 +33,7 @@ namespace Parsek.Tests.Generators
         private float defaultRotX, defaultRotY, defaultRotZ;
         private float defaultRotW = 1;
         private bool hasDefaultRotation;
+        private int formatVersion = 5;
 
         public RecordingBuilder(string vesselName)
         {
@@ -51,6 +52,12 @@ namespace Parsek.Tests.Generators
             defaultRotZ = z;
             defaultRotW = w;
             hasDefaultRotation = true;
+            return this;
+        }
+
+        public RecordingBuilder WithFormatVersion(int version)
+        {
+            formatVersion = version;
             return this;
         }
 
@@ -245,7 +252,7 @@ namespace Parsek.Tests.Generators
         public ConfigNode BuildTrajectoryNode()
         {
             var node = new ConfigNode("PARSEK_RECORDING");
-            node.AddValue("version", "4");
+            node.AddValue("version", formatVersion.ToString());
             node.AddValue("recordingId", GetRecordingId());
 
             foreach (var pt in points)
@@ -267,7 +274,7 @@ namespace Parsek.Tests.Generators
             node.AddValue("vesselName", vesselName);
             node.AddValue("pointCount", points.Count);
             node.AddValue("recordingId", GetRecordingId());
-            node.AddValue("recordingFormatVersion", "4");
+            node.AddValue("recordingFormatVersion", formatVersion.ToString());
             node.AddValue("loopPlayback", loopPlayback.ToString());
             node.AddValue("loopPauseSeconds", loopPauseSeconds.ToString("R", CultureInfo.InvariantCulture));
 
