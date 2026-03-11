@@ -66,7 +66,7 @@ namespace Parsek
 
         // Chain grouping state
         private HashSet<string> expandedChains = new HashSet<string>();
-        private bool expandedShowcases;
+        private HashSet<string> expandedGroups = new HashSet<string>();
 
         // Cached phase label styles
         private GUIStyle phaseStyleAtmo;
@@ -838,9 +838,10 @@ namespace Parsek
                 RebuildSortedIndices(committed, now);
 
                 // Build chain grouping: chainId → list of sorted row indices
+                // Build tag grouping: recordingGroup → list of sorted row indices
                 var chainRows = new Dictionary<string, List<int>>();
                 var seenChains = new HashSet<string>();
-                var showcaseRows = new List<int>();
+                var groupRows = new Dictionary<string, List<int>>();
 
                 for (int row = 0; row < sortedIndices.Length; row++)
                 {
@@ -856,62 +857,75 @@ namespace Parsek
                         }
                         list.Add(ri);
                     }
-                    else if (rec.VesselName != null && rec.VesselName.StartsWith("Part Showcase"))
+                    else if (!string.IsNullOrEmpty(rec.RecordingGroup))
                     {
-                        showcaseRows.Add(ri);
+                        List<int> list;
+                        if (!groupRows.TryGetValue(rec.RecordingGroup, out list))
+                        {
+                            list = new List<int>();
+                            groupRows[rec.RecordingGroup] = list;
+                        }
+                        list.Add(ri);
                     }
                 }
 
                 // Draw in sorted order — standalone rows inline, chain groups
                 // emitted at the position of their first sorted member
                 bool deleted = false;
-                bool showcaseHeaderDrawn = false;
-                var showcaseSet = new HashSet<int>(showcaseRows);
+                var groupSet = new HashSet<int>();
+                foreach (var glist in groupRows.Values)
+                    foreach (var gi in glist) groupSet.Add(gi);
+                var drawnGroups = new HashSet<string>();
+
                 for (int row = 0; row < sortedIndices.Length && !deleted; row++)
                 {
                     int ri = sortedIndices[row];
                     var rec = committed[ri];
 
-                    if (showcaseSet.Contains(ri))
+                    if (groupSet.Contains(ri))
                     {
-                        if (!showcaseHeaderDrawn)
+                        string grp = rec.RecordingGroup;
+                        if (drawnGroups.Add(grp))
                         {
-                            showcaseHeaderDrawn = true;
-                            // Showcase group header
+                            var members = groupRows[grp];
+                            // Group header
                             GUILayout.BeginHorizontal();
 
                             // Group enable checkbox
-                            int showcaseEnabledCount = 0;
-                            for (int s = 0; s < showcaseRows.Count; s++)
-                                if (committed[showcaseRows[s]].PlaybackEnabled) showcaseEnabledCount++;
-                            bool allShowcasesEnabled = showcaseEnabledCount == showcaseRows.Count;
-                            bool newShowcasesEnabled = GUILayout.Toggle(allShowcasesEnabled, "", GUILayout.Width(ColW_Enable));
-                            if (newShowcasesEnabled != allShowcasesEnabled)
+                            int enabledCount = 0;
+                            for (int s = 0; s < members.Count; s++)
+                                if (committed[members[s]].PlaybackEnabled) enabledCount++;
+                            bool grpAllEnabled = enabledCount == members.Count;
+                            bool grpNewEnabled = GUILayout.Toggle(grpAllEnabled, "", GUILayout.Width(ColW_Enable));
+                            if (grpNewEnabled != grpAllEnabled)
                             {
-                                for (int s = 0; s < showcaseRows.Count; s++)
-                                    committed[showcaseRows[s]].PlaybackEnabled = newShowcasesEnabled;
-                                ParsekLog.Info("UI", $"Set playback enabled for all showcases: enabled={newShowcasesEnabled}");
+                                for (int s = 0; s < members.Count; s++)
+                                    committed[members[s]].PlaybackEnabled = grpNewEnabled;
+                                ParsekLog.Info("UI", $"Set playback enabled for group '{grp}': enabled={grpNewEnabled}");
                             }
 
-                            string arrow = expandedShowcases ? "\u25bc" : "\u25b6";
-                            if (GUILayout.Button($"{arrow} Part Showcases ({showcaseRows.Count})",
+                            bool expanded = expandedGroups.Contains(grp);
+                            string arrow = expanded ? "\u25bc" : "\u25b6";
+                            if (GUILayout.Button($"{arrow} {grp} ({members.Count})",
                                 GUI.skin.label, GUILayout.ExpandWidth(true)))
                             {
-                                expandedShowcases = !expandedShowcases;
-                                ParsekLog.Verbose("UI", $"Showcases {(expandedShowcases ? "expanded" : "collapsed")} ({showcaseRows.Count} recordings)");
+                                if (expanded) expandedGroups.Remove(grp);
+                                else expandedGroups.Add(grp);
+                                expanded = !expanded;
+                                ParsekLog.Verbose("UI", $"Group '{grp}' {(expanded ? "expanded" : "collapsed")} ({members.Count} recordings)");
                             }
                             GUILayout.EndHorizontal();
 
-                            if (expandedShowcases)
+                            if (expanded)
                             {
-                                for (int s = 0; s < showcaseRows.Count; s++)
+                                for (int s = 0; s < members.Count; s++)
                                 {
-                                    if (DrawRecordingRow(showcaseRows[s], committed, now, true))
+                                    if (DrawRecordingRow(members[s], committed, now, true))
                                     { deleted = true; break; }
                                 }
                             }
                         }
-                        // else: showcase already drawn with group — skip
+                        // else: already drawn with group — skip
                     }
                     else if (string.IsNullOrEmpty(rec.ChainId))
                     {

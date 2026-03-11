@@ -24,6 +24,7 @@ namespace Parsek.Tests.Generators
         private string segmentPhase;
         private string segmentBodyName;
         private bool playbackEnabled = true;
+        private string recordingGroup;
         private string rewindSaveFileName;
         private double rewindReservedFunds;
         private double rewindReservedScience;
@@ -214,6 +215,12 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
+        public RecordingBuilder WithRecordingGroup(string group)
+        {
+            recordingGroup = group;
+            return this;
+        }
+
         public RecordingBuilder WithRewindSave(string fileName,
             double funds = 0, double science = 0, float rep = 0)
         {
@@ -296,6 +303,8 @@ namespace Parsek.Tests.Generators
             node.AddValue("lastResIdx", lastResIdx);
 
             // Atmosphere segment metadata
+            if (!string.IsNullOrEmpty(recordingGroup))
+                node.AddValue("recordingGroup", recordingGroup);
             if (!string.IsNullOrEmpty(segmentPhase))
                 node.AddValue("segmentPhase", segmentPhase);
             if (!string.IsNullOrEmpty(segmentBodyName))
