@@ -371,8 +371,9 @@ namespace Parsek
                         facilityId, out var proto)
                     || proto.facilityRefs == null || proto.facilityRefs.Count == 0)
                 {
-                    ParsekLog.Warn("ActionReplay",
-                        $"Facility upgrade: '{facilityId}' — facility not found, skipping");
+                    ParsekLog.Info("ActionReplay",
+                        $"Facility upgrade: '{facilityId}' — facility not found, skipping " +
+                        "(expected in Flight scene where facility refs are unavailable)");
                     skipped = true;
                     return true;
                 }
