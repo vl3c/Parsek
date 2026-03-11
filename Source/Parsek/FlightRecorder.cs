@@ -3233,6 +3233,13 @@ namespace Parsek
             ParsekLog.Verbose("Recorder", $"Boundary detection initialized: body={v.mainBody?.name}, " +
                 $"inAtmo={wasInAtmosphere}, hasAtmo={v.mainBody?.atmosphere}, alt={v.altitude:F0}m");
 
+            // Log surface-relative rotation for synthetic recording calibration
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            ParsekLog.Info("Recorder",
+                $"srfRelRotation=({v.srfRelRotation.x.ToString("R", ic)},{v.srfRelRotation.y.ToString("R", ic)}," +
+                $"{v.srfRelRotation.z.ToString("R", ic)},{v.srfRelRotation.w.ToString("R", ic)}) " +
+                $"UT={Planetarium.GetUniversalTime().ToString("R", ic)}");
+
             // Insert boundary anchor from previous chain segment if present.
             // Must come AFTER the lastRecordedUT reset above so the anchor's
             // UT is preserved (prevents duplicate-UT with the first live sample).
@@ -3502,6 +3509,19 @@ namespace Parsek
             }
 
             IsRecording = true;
+
+            // Restore rewind save from CaptureAtStop — StopRecordingForChainBoundary
+            // cleared RewindSaveFileName after copying it to CaptureAtStop, so if we
+            // resume, we need to reclaim it before discarding CaptureAtStop.
+            if (CaptureAtStop != null && !string.IsNullOrEmpty(CaptureAtStop.RewindSaveFileName)
+                && string.IsNullOrEmpty(RewindSaveFileName))
+            {
+                RewindSaveFileName = CaptureAtStop.RewindSaveFileName;
+                RewindReservedFunds = CaptureAtStop.RewindReservedFunds;
+                RewindReservedScience = CaptureAtStop.RewindReservedScience;
+                RewindReservedRep = CaptureAtStop.RewindReservedRep;
+            }
+
             CaptureAtStop = null;
             HasPendingJointBreakCheck = false;
 
