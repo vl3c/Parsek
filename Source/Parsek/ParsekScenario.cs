@@ -597,9 +597,6 @@ namespace Parsek
                     (rec.Points.Count > 0 ? $", UT {rec.StartUT:F0}-{rec.EndUT:F0}" : ", degraded (0 points)") +
                     (rec.VesselSnapshot != null ? " (vessel spawn)" :
                      rec.GhostVisualSnapshot != null ? " (ghost-only)" : "") +
-                    (!string.IsNullOrEmpty(rec.GhostGeometryRelativePath)
-                        ? $" (ghost geometry: {(rec.GhostGeometryAvailable ? "ready" : "fallback")})"
-                        : "") +
                     phaseInfo + chainInfo + enabledInfo);
             }
 
@@ -636,6 +633,9 @@ namespace Parsek
                         $"{tree.Recordings.Count} recordings, {tree.BranchPoints.Count} branch points");
                 }
             }
+
+            // Clean orphaned sidecar files (recordings deleted in previous sessions)
+            RecordingStore.CleanOrphanFiles();
 
             // Restore milestone mutable state (LastReplayedEventIndex) from .sfs
             MilestoneStore.RestoreMutableState(node);
@@ -1135,16 +1135,8 @@ namespace Parsek
         {
             recNode.AddValue("recordingId", rec.RecordingId ?? "");
             recNode.AddValue("recordingFormatVersion", rec.RecordingFormatVersion);
-            recNode.AddValue("ghostGeometryVersion", rec.GhostGeometryVersion);
             recNode.AddValue("loopPlayback", rec.LoopPlayback);
             recNode.AddValue("loopPauseSeconds", rec.LoopPauseSeconds.ToString("R", CultureInfo.InvariantCulture));
-            recNode.AddValue("ghostGeometryStrategy", rec.GhostGeometryCaptureStrategy ?? "stub_v1");
-            recNode.AddValue("ghostGeometryProbeStatus", rec.GhostGeometryProbeStatus ?? "unknown");
-            if (!string.IsNullOrEmpty(rec.GhostGeometryRelativePath))
-                recNode.AddValue("ghostGeometryPath", rec.GhostGeometryRelativePath);
-            recNode.AddValue("ghostGeometryAvailable", rec.GhostGeometryAvailable);
-            if (!string.IsNullOrEmpty(rec.GhostGeometryCaptureError))
-                recNode.AddValue("ghostGeometryError", rec.GhostGeometryCaptureError);
             if (rec.PreLaunchFunds != 0)
                 recNode.AddValue("preLaunchFunds", rec.PreLaunchFunds.ToString("R", CultureInfo.InvariantCulture));
             if (rec.PreLaunchScience != 0)
