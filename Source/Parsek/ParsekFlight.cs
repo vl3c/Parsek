@@ -5972,7 +5972,7 @@ namespace Parsek
                         var emission = flame.emission;
                         emission.rateOverTime = flameFraction * GhostVisualBuilder.ReentryFlameMaxEmission;
                         var main = flame.main;
-                        main.startSize = Mathf.Lerp(1f, 5f, flameFraction);
+                        main.startSize = Mathf.Lerp(0.5f, 2f, flameFraction);
                         if (surfaceVel.sqrMagnitude > 1f)
                             flame.transform.rotation = Quaternion.LookRotation(surfaceVel.normalized);
                         if (!flame.isPlaying) flame.Play();
@@ -6001,7 +6001,7 @@ namespace Parsek
                         var emission = smoke.emission;
                         emission.rateOverTime = smokeFraction * GhostVisualBuilder.ReentrySmokeMaxEmission;
                         var main = smoke.main;
-                        main.startSize = Mathf.Lerp(2f, 10f, smokeFraction);
+                        main.startSize = Mathf.Lerp(1f, 5f, smokeFraction);
                         if (surfaceVel.sqrMagnitude > 1f)
                             smoke.transform.rotation = Quaternion.LookRotation(surfaceVel.normalized);
                         if (!smoke.isPlaying) smoke.Play();
