@@ -2583,7 +2583,7 @@ namespace Parsek.Tests
 
                 // Serialize to ConfigNode
                 var node = new ConfigNode("PARSEK_RECORDING");
-                node.AddValue("version", "4");
+                node.AddValue("version", "5");
                 node.AddValue("recordingId", rec.RecordingId);
                 RecordingStore.SerializeTrajectoryInto(node, rec);
 
@@ -2650,7 +2650,7 @@ namespace Parsek.Tests
 
                 // Serialize to ConfigNode and save to file
                 var precNode = new ConfigNode("PARSEK_RECORDING");
-                precNode.AddValue("version", "4");
+                precNode.AddValue("version", "5");
                 precNode.AddValue("recordingId", "filetest");
                 RecordingStore.SerializeTrajectoryInto(precNode, rec);
 
@@ -2661,7 +2661,7 @@ namespace Parsek.Tests
                 Assert.True(File.Exists(precPath), "Expected .prec file to be written");
                 string content = File.ReadAllText(precPath);
                 Assert.Contains("recordingId = filetest", content);
-                Assert.Contains("version = 4", content);
+                Assert.Contains("version = 5", content);
                 Assert.Contains("POINT", content);
                 Assert.Contains("ut = 500", content);
                 Assert.Contains("ut = 503", content);
@@ -2699,7 +2699,7 @@ namespace Parsek.Tests
             // Has metadata
             Assert.Equal("Test Vessel", v3Node.GetValue("vesselName"));
             Assert.Equal("abc123", v3Node.GetValue("recordingId"));
-            Assert.Equal("4", v3Node.GetValue("recordingFormatVersion"));
+            Assert.Equal("5", v3Node.GetValue("recordingFormatVersion"));
             Assert.Equal("2", v3Node.GetValue("pointCount"));
 
             // No inline bulk data
@@ -2737,11 +2737,27 @@ namespace Parsek.Tests
             var trajNode = builder.BuildTrajectoryNode();
 
             Assert.Equal("PARSEK_RECORDING", trajNode.name);
-            Assert.Equal("4", trajNode.GetValue("version"));
+            Assert.Equal("5", trajNode.GetValue("version"));
             Assert.Equal("abc123", trajNode.GetValue("recordingId"));
             Assert.Equal(2, trajNode.GetNodes("POINT").Length);
             Assert.Single(trajNode.GetNodes("ORBIT_SEGMENT"));
             Assert.Single(trajNode.GetNodes("PART_EVENT"));
+        }
+
+        [Fact]
+        public void RecordingBuilder_WithFormatVersion4_PreservesV4()
+        {
+            var builder = new RecordingBuilder("V4 Test")
+                .WithRecordingId("v4test")
+                .WithFormatVersion(4)
+                .AddPoint(100, 0, 0, 0)
+                .AddPoint(103, 0.1, 0.1, 100);
+
+            var trajNode = builder.BuildTrajectoryNode();
+            Assert.Equal("4", trajNode.GetValue("version"));
+
+            var metaNode = builder.BuildV3Metadata();
+            Assert.Equal("4", metaNode.GetValue("recordingFormatVersion"));
         }
 
         [Fact]
@@ -2753,7 +2769,7 @@ namespace Parsek.Tests
             var scenarioNode = writer.BuildScenarioNode();
             var recNode = scenarioNode.GetNodes("RECORDING")[0];
 
-            Assert.Equal("4", recNode.GetValue("recordingFormatVersion"));
+            Assert.Equal("5", recNode.GetValue("recordingFormatVersion"));
             Assert.Equal("KSC Hopper", recNode.GetValue("vesselName"));
             Assert.Empty(recNode.GetNodes("POINT"));
             Assert.Null(recNode.GetNode("VESSEL_SNAPSHOT"));
@@ -5283,7 +5299,7 @@ namespace Parsek.Tests
 
                     // v3: no inline trajectory POINT data in .sfs
                     // (BRANCH_POINT nodes in RECORDING_TREE are expected)
-                    Assert.Contains("recordingFormatVersion = 4", content);
+                    Assert.Contains("recordingFormatVersion = 5", content);
                     var scenarioSection = content.Substring(
                         content.IndexOf("name = ParsekScenario"),
                         content.IndexOf("FLIGHTSTATE") - content.IndexOf("name = ParsekScenario"));
