@@ -5560,7 +5560,7 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Copies sidecar files (.prec, _vessel.craft, _ghost.craft, .pcrf) and rewind
+        /// Copies sidecar files (.prec, _vessel.craft, _ghost.craft) and rewind
         /// save files from the default career to the target save directory.
         /// </summary>
         private static void CopyRealRecordingFiles(
