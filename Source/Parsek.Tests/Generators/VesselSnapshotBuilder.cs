@@ -33,6 +33,16 @@ namespace Parsek.Tests.Generators
             return b;
         }
 
+        public static VesselSnapshotBuilder EvaKerbal(string kerbalName, uint pid = 1000000)
+        {
+            var b = new VesselSnapshotBuilder();
+            b.name = kerbalName;
+            b.persistentId = pid;
+            b.type = "EVA";
+            b.AddPart("kerbalEVA", kerbalName);
+            return b;
+        }
+
         public static VesselSnapshotBuilder ProbeShip(string name, uint pid = 1000000)
         {
             var b = new VesselSnapshotBuilder();
