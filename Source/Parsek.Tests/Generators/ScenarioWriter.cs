@@ -15,6 +15,7 @@ namespace Parsek.Tests.Generators
             = new List<(string, string)>();
         private readonly List<Milestone> milestones = new List<Milestone>();
         private readonly List<GameStateEvent> gameStateEvents = new List<GameStateEvent>();
+        private readonly List<ConfigNode> rawMilestoneStates = new List<ConfigNode>();
         private uint milestoneEpoch;
         private bool useV3Format;
 
@@ -66,6 +67,12 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
+        public ScenarioWriter AddRawMilestoneState(ConfigNode stateNode)
+        {
+            rawMilestoneStates.Add(stateNode);
+            return this;
+        }
+
         internal ScenarioWriter AddMilestone(Milestone milestone)
         {
             milestones.Add(milestone);
@@ -114,6 +121,9 @@ namespace Parsek.Tests.Generators
                         m.LastReplayedEventIndex.ToString(ic));
                 }
             }
+
+            foreach (var rawMs in rawMilestoneStates)
+                node.AddNode("MILESTONE_STATE", rawMs);
 
             return node;
         }
