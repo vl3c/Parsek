@@ -146,3 +146,41 @@ In the second segment of a chain recording (e.g., Kerbin exo after atmosphere ex
 **Reproduction:** Record a full flight with staging (R2 default career). Watch the exo-atmospheric chain segment — after the booster separates, the remaining vessel orientation is visibly wrong.
 
 **Status:** Open — needs investigation of rotation handling around decouple events in the playback path
+
+## 21. Ghost build warning spam for snapshot-less recordings
+
+Recordings without a ghost visual snapshot (e.g., "KSC Pad Destroyed" synthetic recording) trigger `Ghost build aborted: no snapshot node` every frame during playback. In one session this produced 60+ identical WARN entries over 4 minutes, filling the log.
+
+**Root cause:** `GhostVisualBuilder.TryBuild()` is called each playback update for active recordings. When snapshot is null it logs WARN and returns, but there's no cooldown or flag to suppress repeated attempts.
+
+**Fix options:** (1) Set a `ghostBuildAttempted` flag on the recording after first failure to skip subsequent attempts, (2) only log once per recording per flight scene, (3) fall back to sphere silently without WARN for recordings known to lack snapshots.
+
+**Status:** Open
+
+## 22. Facility not found during action replay on rewind
+
+During rewind, action replay logs `Facility upgrade: 'SpaceCenter/LaunchPad' — facility not found, skipping`. The facility upgrade is silently skipped, potentially leaving game state inconsistent.
+
+**Root cause:** Likely a timing issue — `ActionReplay.ReplayCommittedActions` runs during `OnLoad` before KSP's `SpaceCenter` facility objects are fully instantiated. The facility lookup returns null.
+
+**Reproduction:** Rewind to a point before a launchpad upgrade milestone. Check log for "facility not found" warning.
+
+**Status:** Open — needs investigation of facility readiness timing in the rewind path
+
+## 23. Real career recordings missing ghost geometry (sphere fallback)
+
+12 real career recordings loaded with `(ghost geometry: fallback)` — they render as green spheres instead of vessel models. These recordings have vessel snapshots but no `.pcrf` ghost geometry sidecar files.
+
+**Root cause:** Ghost geometry capture (`GhostGeometryCapture`) requires the vessel's 3D model to be loaded in the scene. Real career recordings were created before ghost geometry capture was implemented, or the capture failed silently at recording time.
+
+**Fix options:** (1) Re-record affected flights with current code, (2) add a geometry regeneration tool that loads vessel snapshot → captures geometry → writes .pcrf, (3) accept sphere fallback for legacy recordings.
+
+**Status:** Open — cosmetic only, playback works with sphere fallback
+
+## 24. Part variant renderer fallback on ghost builds
+
+During ghost visual builds, some parts log `Variant active-state fallback: no active variant renderers found`. The ghost part renders but may show incorrect variant appearance (e.g., wrong texture/color for parts with multiple visual variants like fuel tanks).
+
+**Root cause:** `GhostVisualBuilder` attempts to match the recorded part variant by enabling/disabling variant-specific renderers. When no renderer is tagged as active for the recorded variant, all renderers fall back to their default state.
+
+**Status:** Open — low severity, cosmetic only
