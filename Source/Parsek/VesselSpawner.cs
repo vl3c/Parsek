@@ -649,15 +649,6 @@ namespace Parsek
                 pending.VesselSnapshot = destroyedFallbackSnapshot != null
                     ? destroyedFallbackSnapshot.CreateCopy()
                     : null;
-                pending.GhostGeometryAvailable = false;
-                pending.GhostGeometryCaptureError = pending.VesselSnapshot != null
-                    ? "vessel_destroyed_using_last_snapshot"
-                    : "vessel_destroyed";
-                pending.GhostGeometryCaptureStrategy = "live_hierarchy_probe_v1";
-                pending.GhostGeometryProbeStatus = pending.VesselSnapshot != null
-                    ? "vessel_destroyed_with_snapshot"
-                    : "vessel_destroyed";
-
                 // Use last recorded point for distance (may be a different SOI)
                 var lastPoint = pending.Points[pending.Points.Count - 1];
                 CelestialBody bodyLast = FlightGlobals.Bodies?.Find(b => b.name == lastPoint.bodyName);
@@ -684,10 +675,6 @@ namespace Parsek
             {
                 pending.VesselDestroyed = true;
                 pending.VesselSnapshot = null;
-                pending.GhostGeometryAvailable = false;
-                pending.GhostGeometryCaptureError = "no_active_vessel";
-                pending.GhostGeometryCaptureStrategy = "live_hierarchy_probe_v1";
-                pending.GhostGeometryProbeStatus = "no_active_vessel";
                 pending.VesselSituation = "Unknown (no active vessel)";
                 ParsekLog.Info("Spawner", "No active vessel at snapshot time");
                 return;
@@ -712,10 +699,6 @@ namespace Parsek
             {
                 pending.VesselDestroyed = true;
                 pending.VesselSnapshot = null;
-                pending.GhostGeometryAvailable = false;
-                pending.GhostGeometryCaptureError = "snapshot_backup_failed";
-                pending.GhostGeometryCaptureStrategy = "live_hierarchy_probe_v1";
-                pending.GhostGeometryProbeStatus = "snapshot_backup_failed";
                 pending.VesselSituation = "Unknown (snapshot failed)";
                 ParsekLog.Error("Spawner", "Failed to backup active vessel at snapshot time");
                 return;
@@ -727,9 +710,6 @@ namespace Parsek
             pending.VesselSituation = vessel.isEVA
                 ? $"EVA {vessel.mainBody.name}"
                 : $"{vessel.situation} {vessel.mainBody.name}";
-
-            // Atomic capture: snapshot and ghost geometry metadata are captured together.
-            GhostGeometryCapture.CaptureStub(pending, vessel);
 
             ParsekLog.Info("Spawner", $"Vessel snapshot taken. Distance from launch: {pending.DistanceFromLaunch:F0}m, " +
                 $"Max distance: {pending.MaxDistanceFromLaunch:F0}m, Situation: {pending.VesselSituation}");

@@ -5579,7 +5579,7 @@ namespace Parsek.Tests
                     string id = recordings[i].GetValue("recordingId");
                     if (string.IsNullOrEmpty(id)) continue;
 
-                    string[] suffixes = { ".prec", "_vessel.craft", "_ghost.craft", ".pcrf" };
+                    string[] suffixes = { ".prec", "_vessel.craft", "_ghost.craft" };
                     for (int s = 0; s < suffixes.Length; s++)
                     {
                         string fileName = id + suffixes[s];

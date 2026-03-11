@@ -973,7 +973,7 @@ namespace Parsek
                     recorder.OrbitSegments,
                     recordingId: captured != null ? captured.RecordingId : null,
                     recordingFormatVersion: captured != null ? (int?)captured.RecordingFormatVersion : null,
-                    ghostGeometryVersion: captured != null ? (int?)captured.GhostGeometryVersion : null,
+
                     partEvents: recorder.PartEvents);
 
                 // Use stop-time atomic capture when available; fallback to scene-change capture.
@@ -1193,7 +1193,6 @@ namespace Parsek
                 recorder.OrbitSegments,
                 recordingId: captured != null ? captured.RecordingId : null,
                 recordingFormatVersion: captured != null ? (int?)captured.RecordingFormatVersion : null,
-                ghostGeometryVersion: captured != null ? (int?)captured.GhostGeometryVersion : null,
                 partEvents: recorder.PartEvents);
 
             if (captured != null)
@@ -2403,7 +2402,6 @@ namespace Parsek
                 segmentRecorder.OrbitSegments,
                 recordingId: segmentId,
                 recordingFormatVersion: segmentRecorder.CaptureAtStop.RecordingFormatVersion,
-                ghostGeometryVersion: segmentRecorder.CaptureAtStop.GhostGeometryVersion,
                 partEvents: segmentRecorder.PartEvents);
 
             if (!RecordingStore.HasPending)
@@ -2840,7 +2838,6 @@ namespace Parsek
                 segmentRecorder.OrbitSegments,
                 recordingId: segmentId,
                 recordingFormatVersion: segmentRecorder.CaptureAtStop.RecordingFormatVersion,
-                ghostGeometryVersion: segmentRecorder.CaptureAtStop.GhostGeometryVersion,
                 partEvents: segmentRecorder.PartEvents);
 
             if (!RecordingStore.HasPending)
@@ -2916,7 +2913,6 @@ namespace Parsek
                 recorder.OrbitSegments,
                 recordingId: segmentId,
                 recordingFormatVersion: captured != null ? (int?)captured.RecordingFormatVersion : null,
-                ghostGeometryVersion: captured != null ? (int?)captured.GhostGeometryVersion : null,
                 partEvents: recorder.PartEvents);
 
             if (!RecordingStore.HasPending)
@@ -3407,7 +3403,6 @@ namespace Parsek
                 recorder.OrbitSegments,
                 recordingId: captured != null ? captured.RecordingId : null,
                 recordingFormatVersion: captured != null ? (int?)captured.RecordingFormatVersion : null,
-                ghostGeometryVersion: captured != null ? (int?)captured.GhostGeometryVersion : null,
                 partEvents: recorder.PartEvents);
 
             if (!RecordingStore.HasPending)
