@@ -94,8 +94,8 @@ namespace Parsek
             public string GhostGeometryRelativePath;
             public bool GhostGeometryAvailable;
             public string GhostGeometryCaptureError;
-            public string GhostGeometryCaptureStrategy = "stub_v1";
-            public string GhostGeometryProbeStatus = "uninitialized";
+            public string GhostGeometryCaptureStrategy; // Legacy field, kept for deserialization
+            public string GhostGeometryProbeStatus;    // Legacy field, kept for deserialization
 
             // --- Tree linkage (null for legacy/standalone recordings) ---
             public string TreeId;                          // null = standalone (pre-tree recording)
@@ -814,14 +814,24 @@ namespace Parsek
         /// </summary>
         internal static void CleanOrphanFiles()
         {
-            string recordingsDir = RecordingPaths.EnsureRecordingsDirectory();
-            if (string.IsNullOrEmpty(recordingsDir) || !Directory.Exists(recordingsDir))
+            // Resolve without creating — don't create an empty directory just to scan it
+            string root = KSPUtil.ApplicationRootPath ?? "";
+            string saveFolder = HighLogic.SaveFolder ?? "";
+            if (string.IsNullOrEmpty(root) || string.IsNullOrEmpty(saveFolder))
+            {
+                ParsekLog.Verbose("RecordingStore", "CleanOrphanFiles: no save context — skipping");
+                return;
+            }
+            string recordingsDir = Path.GetFullPath(Path.Combine(root, "saves", saveFolder, "Parsek", "Recordings"));
+            if (!Directory.Exists(recordingsDir))
             {
                 ParsekLog.Verbose("RecordingStore", "CleanOrphanFiles: no recordings directory — skipping");
                 return;
             }
 
-            // Build set of known recording IDs from committed recordings + trees
+            // Build set of known recording IDs from committed recordings + trees.
+            // Note: pending recording is not included because this method is called
+            // from ParsekScenario.OnLoad before any pending state is created.
             var knownIds = new HashSet<string>();
             for (int i = 0; i < committedRecordings.Count; i++)
             {
