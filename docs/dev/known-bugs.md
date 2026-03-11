@@ -77,13 +77,13 @@ Some chain recordings that start with a launch don't have the R (rewind) button 
 
 After bumping to format v5 (surface-relative rotation), the synthetic test recordings still use the old KscRot constants `(0.33, -0.63, -0.63, -0.33)` which were world-space rotation values. These are now interpreted as surface-relative, producing incorrect ghost orientation. Need to capture the actual `v.srfRelRotation` from KSP for an upright vessel at KSC and update the constants.
 
-**Status:** Open — needs empirical capture from KSP runtime
+**Status:** Fixed — constants updated to `(-0.7009714, -0.09230039, -0.09728389, 0.7004681)` captured from KSP runtime
 
 ## 15. CorrectForBodyRotation still produces visible drift for v4 recordings with large UT deltas
 
 The old v4 body rotation correction (`CorrectForBodyRotation`) accumulates floating-point error when `deltaUT` is large (thousands of seconds). Real recordings from the default career played in the test career have ~18000s delta, producing ~315° correction with visible orientation error. v5 recordings eliminate this, but existing v4 recordings (including the 20 real career recordings added to the injector) still use the old path.
 
-**Status:** Open — v4 recordings cannot be auto-migrated (requires runtime body rotation data). Re-recording with v5 code is the fix.
+**Status:** Fixed — `RecordingStore.MigrateV4ToV5` auto-converts v4 recordings to v5 at flight-scene load using runtime body rotation data. Migration uses modular angle arithmetic to avoid float drift, saves updated .prec file permanently.
 
 ## 16. Orbital recording fidelity during time warp vs real-time
 
