@@ -5613,11 +5613,11 @@ namespace Parsek
 
                 ParticleSystem flame = flameObj.AddComponent<ParticleSystem>();
                 var main = flame.main;
-                main.simulationSpace = ParticleSystemSimulationSpace.Local;
-                main.startLifetime = new ParticleSystem.MinMaxCurve(0.3f, 0.8f);
+                main.simulationSpace = ParticleSystemSimulationSpace.World;
+                main.startLifetime = new ParticleSystem.MinMaxCurve(0.15f, 0.5f);
                 main.startColor = new ParticleSystem.MinMaxGradient(new Color(1f, 0.7f, 0.2f, 0.9f));
-                main.startSize = new ParticleSystem.MinMaxCurve(2f, 5f);
-                main.startSpeed = new ParticleSystem.MinMaxCurve(5f, 15f);
+                main.startSize = new ParticleSystem.MinMaxCurve(0.5f, 1.5f);
+                main.startSpeed = new ParticleSystem.MinMaxCurve(1f, 5f);
                 main.maxParticles = 500;
                 main.playOnAwake = false;
 
@@ -5628,13 +5628,13 @@ namespace Parsek
                 var shape = flame.shape;
                 shape.enabled = true;
                 shape.shapeType = ParticleSystemShapeType.Cone;
-                shape.angle = 25f;
-                shape.radius = 1f;
+                shape.angle = 15f;
+                shape.radius = 0.3f;
 
                 var flameRenderer = flameObj.GetComponent<ParticleSystemRenderer>();
                 if (flameRenderer != null)
                 {
-                    flameRenderer.maxParticleSize = 80f;
+                    flameRenderer.maxParticleSize = 15f;
                     Shader additiveShader = Shader.Find("KSP/Particles/Additive");
                     if (additiveShader != null)
                     {
@@ -5662,7 +5662,7 @@ namespace Parsek
                 main.simulationSpace = ParticleSystemSimulationSpace.World;
                 main.startLifetime = new ParticleSystem.MinMaxCurve(4f, 10f);
                 main.startColor = new ParticleSystem.MinMaxGradient(new Color(1f, 0.5f, 0.1f, 0.7f));
-                main.startSize = new ParticleSystem.MinMaxCurve(3f, 8f);
+                main.startSize = new ParticleSystem.MinMaxCurve(1.5f, 4f);
                 main.startSpeed = new ParticleSystem.MinMaxCurve(0f, 0.5f);
                 main.maxParticles = 2000;
                 main.gravityModifier = 0.03f;
@@ -5675,12 +5675,12 @@ namespace Parsek
                 var shape = smoke.shape;
                 shape.enabled = true;
                 shape.shapeType = ParticleSystemShapeType.Sphere;
-                shape.radius = 0.5f;
+                shape.radius = 0.3f;
 
                 var smokeRenderer = smokeObj.GetComponent<ParticleSystemRenderer>();
                 if (smokeRenderer != null)
                 {
-                    smokeRenderer.maxParticleSize = 80f;
+                    smokeRenderer.maxParticleSize = 40f;
                     Shader alphaBlendedShader = Shader.Find("KSP/Particles/Alpha Blended");
                     if (alphaBlendedShader != null)
                     {
