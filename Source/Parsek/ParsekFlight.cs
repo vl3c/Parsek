@@ -3135,6 +3135,16 @@ namespace Parsek
         {
             Log("Flight ready. Checking for pending recordings...");
 
+            // Auto-migrate v4 recordings to v5 (world-space → surface-relative rotation)
+            if (FlightGlobals.Bodies != null && FlightGlobals.Bodies.Count > 0)
+            {
+                foreach (var rec in RecordingStore.CommittedRecordings)
+                {
+                    if (rec.RecordingFormatVersion < 5 && rec.Points.Count > 0)
+                        RecordingStore.MigrateV4ToV5(rec);
+                }
+            }
+
             // Shutdown background recorder before clearing tree
             if (backgroundRecorder != null)
             {
@@ -6765,19 +6775,15 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Corrects a world-space rotation recorded at pointUT for planetary rotation
-        /// that has occurred between pointUT and the current game UT.
+        /// Legacy v4 fallback — returns storedRot unchanged.
+        /// KSP's world frame co-rotates with the body surface, so world-space
+        /// rotations are already valid at any UT. The old time-delta correction
+        /// was incorrect and has been removed. All v4 recordings are auto-migrated
+        /// to v5 at flight-scene load; this path only executes if migration failed.
         /// </summary>
         static Quaternion CorrectForBodyRotation(CelestialBody body, double pointUT, Quaternion storedRot)
         {
-            if (body == null || body.rotationPeriod <= 0) return storedRot;
-            double deltaUT = Planetarium.GetUniversalTime() - pointUT;
-            if (System.Math.Abs(deltaUT) < 0.01) return storedRot;
-            float deltaAngle = (float)((deltaUT / body.rotationPeriod) * 360.0);
-            Vector3 axis = (Vector3)body.angularVelocity;
-            if (axis.sqrMagnitude < 1e-10f) return storedRot;
-            axis = axis.normalized;
-            return Quaternion.AngleAxis(deltaAngle, axis) * storedRot;
+            return storedRot;
         }
 
         void PositionGhostAt(GameObject ghost, TrajectoryPoint point, bool surfaceRelativeRotation = false)
