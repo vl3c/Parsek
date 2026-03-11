@@ -71,7 +71,7 @@ Some chain recordings that start with a launch don't have the R (rewind) button 
 
 **Fix:** In `ResumeAfterFalseAlarm`, restore `RewindSaveFileName` (and reserved funds/science/rep) from `CaptureAtStop` before clearing it. Only restore if `RewindSaveFileName` is currently empty (to avoid overwriting a legitimate rewind save).
 
-**Status:** Fixed (code written, pending build/test)
+**Status:** Fixed
 
 ## 14. Synthetic recording rotation constants are world-space, not surface-relative (v5)
 
