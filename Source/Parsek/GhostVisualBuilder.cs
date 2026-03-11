@@ -403,7 +403,7 @@ namespace Parsek
             ConfigNode snapshotNode = GetGhostSnapshot(rec);
             if (snapshotNode == null)
             {
-                ParsekLog.Warn("GhostVisual",
+                ParsekLog.Info("GhostVisual",
                     $"Ghost build aborted for '{rec?.VesselName ?? "unknown"}': no snapshot node");
                 return null;
             }
@@ -411,7 +411,7 @@ namespace Parsek
             var partNodes = snapshotNode.GetNodes("PART");
             if (partNodes == null || partNodes.Length == 0)
             {
-                ParsekLog.Warn("GhostVisual",
+                ParsekLog.Info("GhostVisual",
                     $"Ghost build aborted for '{rec?.VesselName ?? "unknown"}': snapshot has no PART nodes");
                 return null;
             }
@@ -4394,10 +4394,10 @@ namespace Parsek
                 ParsekLog.Verbose("GhostVisual", $"  Variant selection: '{selectedVariantName}' with " +
                     $"{selectedVariantGameObjects.Count} GAMEOBJECT rules");
             }
-            if (hasPartVariants && !filterInactiveVariantRenderers)
+            if (hasPartVariants && !filterInactiveVariantRenderers && !hasVariantGameObjectRules)
             {
-                ParsekLog.Verbose("GhostVisual", $"  Variant active-state fallback: no active variant renderers found " +
-                    $"(active MR={activeMR}, active SMR={activeSMR})");
+                ParsekLog.Verbose("GhostVisual", $"  Variant fallback: no active variant renderers and no GAMEOBJECT rules " +
+                    $"— including all renderers (active MR={activeMR}, active SMR={activeSMR})");
             }
 
             // Name by persistentId for O(1) lookup during playback; fall back to part name

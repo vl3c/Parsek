@@ -4799,20 +4799,29 @@ namespace Parsek
 
             // Use a slightly different color to distinguish from manual preview
             Color ghostColor = new Color(0.2f, 1f, 0.4f, 0.8f); // bright green-cyan
-            List<ParachuteGhostInfo> parachuteInfoList;
-            List<JettisonGhostInfo> jettisonInfoList;
-            List<EngineGhostInfo> engineInfoList;
-            List<DeployableGhostInfo> deployableInfoList;
-            List<HeatGhostInfo> heatInfoList;
-            List<LightGhostInfo> lightInfoList;
-            List<FairingGhostInfo> fairingInfoList;
-            List<RcsGhostInfo> rcsInfoList;
-            List<RoboticGhostInfo> roboticInfoList;
-            GameObject ghost = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
-                rec, $"Parsek_Timeline_{index}", out parachuteInfoList, out jettisonInfoList,
-                out engineInfoList, out deployableInfoList, out heatInfoList, out lightInfoList, out fairingInfoList,
-                out rcsInfoList, out roboticInfoList);
-            bool builtFromSnapshot = ghost != null;
+            List<ParachuteGhostInfo> parachuteInfoList = null;
+            List<JettisonGhostInfo> jettisonInfoList = null;
+            List<EngineGhostInfo> engineInfoList = null;
+            List<DeployableGhostInfo> deployableInfoList = null;
+            List<HeatGhostInfo> heatInfoList = null;
+            List<LightGhostInfo> lightInfoList = null;
+            List<FairingGhostInfo> fairingInfoList = null;
+            List<RcsGhostInfo> rcsInfoList = null;
+            List<RoboticGhostInfo> roboticInfoList = null;
+            GameObject ghost = null;
+            bool builtFromSnapshot = false;
+
+            // Skip expensive snapshot build when no snapshot exists — go straight to sphere fallback.
+            // Avoids per-loop-cycle warning spam for snapshot-less recordings (bug #21).
+            if (GhostVisualBuilder.GetGhostSnapshot(rec) != null)
+            {
+                ghost = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
+                    rec, $"Parsek_Timeline_{index}", out parachuteInfoList, out jettisonInfoList,
+                    out engineInfoList, out deployableInfoList, out heatInfoList, out lightInfoList, out fairingInfoList,
+                    out rcsInfoList, out roboticInfoList);
+                builtFromSnapshot = ghost != null;
+            }
+
             if (ghost == null)
             {
                 ghost = CreateGhostSphere($"Parsek_Timeline_{index}", ghostColor);
