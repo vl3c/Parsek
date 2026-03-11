@@ -129,7 +129,11 @@ Ghost engine nozzle continues glowing after the engine shutdown event during pla
 
 **Reproduction:** Record a flight with booster separation (engine burns out → decouples). Watch the ghost playback — the booster nozzle continues glowing even after the engine cutoff event fires.
 
-**Status:** Open — needs investigation of engine FX state management in `GhostVisualBuilder`/`ParsekFlight` part event application
+**Root cause:** Two issues: (1) `EngineShutdown` stopped the exhaust particle FX but did not reset the heat animation emissive glow (`ModuleAnimateHeat` material properties) — the nozzle mesh stayed emissive. (2) If `EngineShutdown` was not recorded before a `Decoupled` event (same-frame burnout+decouple race), engine/RCS particle systems were not explicitly stopped before the part was hidden.
+
+**Fix:** `EngineShutdown` now also calls `ApplyHeatState(heated: false)` to reset nozzle emissive materials. `Decoupled` and `Destroyed` events now defensively call `StopEngineFxForPart` and `StopRcsFxForPart` (plus heat reset) before hiding the part, ensuring no orphaned FX regardless of event ordering.
+
+**Status:** Fixed
 
 ## 19. Watch (W) button does not work for looped recording segments
 
@@ -137,7 +141,11 @@ Pressing W to watch a looped recording segment does nothing — the camera does 
 
 **Reproduction:** Enable loop on any recording segment, press W on that segment in the UI. Camera stays on the active vessel instead of switching to the ghost.
 
-**Status:** Open — needs investigation of watch target logic for looped playback in `ParsekFlight`/`ParsekUI`
+**Root cause:** In `UpdateLoopingTimelinePlayback`, the pause window path called `PositionGhostAt` but never called `SetInterpolated`, leaving `lastInterpolatedBodyName` null on the `GhostPlaybackState`. When the ghost was respawned at a cycle boundary and the first frame fell in the pause window, the body name stayed null for the entire pause duration. `IsGhostOnSameBody` returned false → W button was disabled (grayed out). Even outside the pause window, a freshly spawned ghost had null body name for the first frame.
+
+**Fix:** The pause window path now initializes `lastInterpolatedBodyName` and `lastInterpolatedAltitude` from the last trajectory point when they are empty. This ensures `IsGhostOnSameBody` returns true as soon as the ghost exists.
+
+**Status:** Fixed
 
 ## 20. Ghost orientation wrong in exo-atmospheric segment after staging
 
