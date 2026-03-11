@@ -4586,8 +4586,16 @@ namespace Parsek
 
             if (inPauseWindow)
             {
-                PositionGhostAt(state.ghost, rec.Points[rec.Points.Count - 1], rec.RecordingFormatVersion >= 5);
-                if (state != null && state.reentryFxInfo != null)
+                var lastPt = rec.Points[rec.Points.Count - 1];
+                PositionGhostAt(state.ghost, lastPt, rec.RecordingFormatVersion >= 5);
+                // Ensure body/altitude are set even during pause — needed for
+                // IsGhostOnSameBody (watch button) after a cycle-change respawn.
+                if (string.IsNullOrEmpty(state.lastInterpolatedBodyName))
+                {
+                    state.lastInterpolatedBodyName = lastPt.bodyName;
+                    state.lastInterpolatedAltitude = lastPt.altitude;
+                }
+                if (state.reentryFxInfo != null)
                 {
                     // Only zero velocity — keep body/altitude from last frame for smooth intensity decay
                     state.lastInterpolatedVelocity = Vector3.zero;
@@ -5094,6 +5102,9 @@ namespace Parsek
                 switch (evt.eventType)
                 {
                     case PartEventType.Decoupled:
+                        StopEngineFxForPart(state, evt.partPersistentId);
+                        StopRcsFxForPart(state, evt.partPersistentId);
+                        ApplyHeatState(state, evt, heated: false);
                         if (tree != null)
                             HidePartSubtree(ghost, evt.partPersistentId, tree);
                         else
@@ -5101,6 +5112,9 @@ namespace Parsek
                         Log($"Part event applied: Decoupled '{evt.partName}' pid={evt.partPersistentId}");
                         break;
                     case PartEventType.Destroyed:
+                        StopEngineFxForPart(state, evt.partPersistentId);
+                        StopRcsFxForPart(state, evt.partPersistentId);
+                        ApplyHeatState(state, evt, heated: false);
                         HideGhostPart(ghost, evt.partPersistentId);
                         Log($"Part event applied: Destroyed '{evt.partName}' pid={evt.partPersistentId}");
                         break;
@@ -5196,6 +5210,9 @@ namespace Parsek
                         break;
                     case PartEventType.EngineShutdown:
                         SetEngineEmission(state, evt, 0f);
+                        // Also reset heat animation glow — engine nozzles stay emissive
+                        // after shutdown if ThermalAnimationCold hasn't fired yet.
+                        ApplyHeatState(state, evt, heated: false);
                         Log($"Part event applied: EngineShutdown '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex}");
                         break;
                     case PartEventType.EngineThrottle:
@@ -5477,6 +5494,54 @@ namespace Parsek
                         ps.isPlaying);
                     string diagKey = $"engine-fx-{evt.partPersistentId}-{evt.moduleIndex}-{ps.GetInstanceID()}";
                     ParsekLog.VerboseRateLimited("Flight", diagKey, diagLine, 0.5);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Stop all engine FX particle systems for a given part (by PID).
+        /// Used defensively on decouple/destroy to ensure no orphaned engine glow.
+        /// </summary>
+        static void StopEngineFxForPart(GhostPlaybackState state, uint partPersistentId)
+        {
+            if (state?.engineInfos == null) return;
+            foreach (var info in state.engineInfos.Values)
+            {
+                if (info.partPersistentId != partPersistentId) continue;
+                for (int i = 0; i < info.particleSystems.Count; i++)
+                {
+                    var ps = info.particleSystems[i];
+                    if (ps == null) continue;
+                    var emission = ps.emission;
+                    emission.enabled = false;
+                    emission.rateOverTimeMultiplier = 0;
+                    ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                    ps.Clear(true);
+                    SetParticleRenderersEnabled(ps, false);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Stop all RCS FX particle systems for a given part (by PID).
+        /// Used defensively on decouple/destroy to ensure no orphaned RCS glow.
+        /// </summary>
+        static void StopRcsFxForPart(GhostPlaybackState state, uint partPersistentId)
+        {
+            if (state?.rcsInfos == null) return;
+            foreach (var info in state.rcsInfos.Values)
+            {
+                if (info.partPersistentId != partPersistentId) continue;
+                for (int i = 0; i < info.particleSystems.Count; i++)
+                {
+                    var ps = info.particleSystems[i];
+                    if (ps == null) continue;
+                    var emission = ps.emission;
+                    emission.enabled = false;
+                    emission.rateOverTimeMultiplier = 0;
+                    ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                    ps.Clear(true);
+                    SetParticleRenderersEnabled(ps, false);
                 }
             }
         }
