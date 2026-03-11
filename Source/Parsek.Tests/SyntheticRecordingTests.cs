@@ -5530,11 +5530,12 @@ namespace Parsek.Tests
             if (scenarioNode == null)
                 return new ConfigNode[0];
 
-            // Add all recordings with loopPlayback forced on
+            // Add all recordings with loopPlayback forced on and grouped
             var recNodes = scenarioNode.GetNodes("RECORDING");
             for (int i = 0; i < recNodes.Length; i++)
             {
                 recNodes[i].SetValue("loopPlayback", "True", true);
+                recNodes[i].SetValue("recordingGroup", "Real Recordings", true);
                 writer.AddRecording(recNodes[i]);
             }
 
