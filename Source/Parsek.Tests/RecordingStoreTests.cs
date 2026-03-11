@@ -296,6 +296,39 @@ namespace Parsek.Tests
             Assert.Equal("Mun", target.OrbitSegments[0].bodyName);
         }
 
+        /// <summary>
+        /// Verifies that legacy ghost geometry fields populated on the source recording
+        /// are NOT propagated to the target. Catches regressions if someone re-adds
+        /// ghost geometry copying to ApplyPersistenceArtifactsFrom.
+        /// </summary>
+        [Fact]
+        public void ApplyPersistenceArtifactsFrom_DoesNotCopyLegacyGhostGeometryFields()
+        {
+            var source = new RecordingStore.Recording
+            {
+                RecordingId = "src",
+                // Simulate a legacy recording that had ghost geometry fields populated
+                GhostGeometryRelativePath = "Parsek/Recordings/src.pcrf",
+                GhostGeometryAvailable = true,
+                GhostGeometryCaptureError = "none",
+                GhostGeometryCaptureStrategy = "live_hierarchy_probe_v1",
+                GhostGeometryProbeStatus = "ready_for_hierarchy_clone",
+                GhostGeometryVersion = 5,
+            };
+            source.Points.AddRange(MakePoints(3));
+
+            var target = new RecordingStore.Recording { VesselName = "Target", Points = MakePoints(2) };
+            target.ApplyPersistenceArtifactsFrom(source);
+
+            // Ghost geometry fields must NOT transfer — they are dead legacy fields
+            Assert.Null(target.GhostGeometryRelativePath);
+            Assert.False(target.GhostGeometryAvailable);
+            Assert.Null(target.GhostGeometryCaptureError);
+            Assert.Null(target.GhostGeometryCaptureStrategy);
+            Assert.Null(target.GhostGeometryProbeStatus);
+            Assert.Equal(1, target.GhostGeometryVersion); // default, not copied from source
+        }
+
         [Fact]
         public void RecordingMetadata_SaveLoad_RoundTrip()
         {
@@ -428,7 +461,13 @@ namespace Parsek.Tests
         [InlineData("abc123_vessel.craft", "abc123")]
         [InlineData("abc123_ghost.craft", "abc123")]
         [InlineData("abc123.pcrf", "abc123")]
+        [InlineData("a1b2c3d4e5f6.prec", "a1b2c3d4e5f6")]           // GUID-style ID
+        [InlineData("id.with.dots.prec", "id.with.dots")]             // dots in ID
+        [InlineData("abc123.prec.tmp", null)]                         // safe-write temp file — should be ignored
+        [InlineData("abc123.PREC", "abc123")]                         // case-insensitive suffix matching
+        [InlineData("abc123_GHOST.CRAFT", "abc123")]                  // case-insensitive suffix matching
         [InlineData("readme.txt", null)]
+        [InlineData("notes.md", null)]
         [InlineData("", null)]
         [InlineData(null, null)]
         public void ExtractRecordingIdFromFileName_Works(string fileName, string expected)
