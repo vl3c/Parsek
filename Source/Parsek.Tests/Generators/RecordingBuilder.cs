@@ -24,6 +24,7 @@ namespace Parsek.Tests.Generators
         private string segmentPhase;
         private string segmentBodyName;
         private bool playbackEnabled = true;
+        private string recordingGroup;
         private string rewindSaveFileName;
         private double rewindReservedFunds;
         private double rewindReservedScience;
@@ -33,6 +34,7 @@ namespace Parsek.Tests.Generators
         private float defaultRotX, defaultRotY, defaultRotZ;
         private float defaultRotW = 1;
         private bool hasDefaultRotation;
+        private int formatVersion = 5;
 
         public RecordingBuilder(string vesselName)
         {
@@ -51,6 +53,12 @@ namespace Parsek.Tests.Generators
             defaultRotZ = z;
             defaultRotW = w;
             hasDefaultRotation = true;
+            return this;
+        }
+
+        public RecordingBuilder WithFormatVersion(int version)
+        {
+            formatVersion = version;
             return this;
         }
 
@@ -207,6 +215,12 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
+        public RecordingBuilder WithRecordingGroup(string group)
+        {
+            recordingGroup = group;
+            return this;
+        }
+
         public RecordingBuilder WithRewindSave(string fileName,
             double funds = 0, double science = 0, float rep = 0)
         {
@@ -245,7 +259,7 @@ namespace Parsek.Tests.Generators
         public ConfigNode BuildTrajectoryNode()
         {
             var node = new ConfigNode("PARSEK_RECORDING");
-            node.AddValue("version", "4");
+            node.AddValue("version", formatVersion.ToString());
             node.AddValue("recordingId", GetRecordingId());
 
             foreach (var pt in points)
@@ -267,7 +281,7 @@ namespace Parsek.Tests.Generators
             node.AddValue("vesselName", vesselName);
             node.AddValue("pointCount", points.Count);
             node.AddValue("recordingId", GetRecordingId());
-            node.AddValue("recordingFormatVersion", "4");
+            node.AddValue("recordingFormatVersion", formatVersion.ToString());
             node.AddValue("loopPlayback", loopPlayback.ToString());
             node.AddValue("loopPauseSeconds", loopPauseSeconds.ToString("R", CultureInfo.InvariantCulture));
 
@@ -289,6 +303,8 @@ namespace Parsek.Tests.Generators
             node.AddValue("lastResIdx", lastResIdx);
 
             // Atmosphere segment metadata
+            if (!string.IsNullOrEmpty(recordingGroup))
+                node.AddValue("recordingGroup", recordingGroup);
             if (!string.IsNullOrEmpty(segmentPhase))
                 node.AddValue("segmentPhase", segmentPhase);
             if (!string.IsNullOrEmpty(segmentBodyName))

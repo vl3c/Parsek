@@ -127,6 +127,10 @@ namespace Parsek
             // SinglePoint fields (also used body/lat/lon/alt from "before")
             // (uses bodyBefore, latBefore, lonBefore, altBefore, pointUT, interpolatedRot)
 
+            // v5+: rotation is surface-relative (multiply by body rotation at playback)
+            // v4:  rotation is world-space (use CorrectForBodyRotation time-delta correction)
+            public bool surfaceRelativeRotation;
+
             // Orbit fields
             public int orbitCacheKey;
             public double orbitUT;
@@ -763,8 +767,9 @@ namespace Parsek
                             e.latAfter, e.lonAfter, e.altAfter);
                         Vector3d pos = Vector3d.Lerp(posBefore, posAfter, e.t);
                         e.ghost.transform.position = pos;
-                        e.ghost.transform.rotation = CorrectForBodyRotation(
-                            e.bodyBefore, e.pointUT, e.interpolatedRot);
+                        e.ghost.transform.rotation = e.surfaceRelativeRotation
+                            ? e.bodyBefore.bodyTransform.rotation * e.interpolatedRot
+                            : CorrectForBodyRotation(e.bodyBefore, e.pointUT, e.interpolatedRot);
                         break;
                     }
                     case GhostPosMode.SinglePoint:
@@ -773,8 +778,9 @@ namespace Parsek
                         Vector3d pos = e.bodyBefore.GetWorldSurfacePosition(
                             e.latBefore, e.lonBefore, e.altBefore);
                         e.ghost.transform.position = pos;
-                        e.ghost.transform.rotation = CorrectForBodyRotation(
-                            e.bodyBefore, e.pointUT, e.interpolatedRot);
+                        e.ghost.transform.rotation = e.surfaceRelativeRotation
+                            ? e.bodyBefore.bodyTransform.rotation * e.interpolatedRot
+                            : CorrectForBodyRotation(e.bodyBefore, e.pointUT, e.interpolatedRot);
                         break;
                     }
                     case GhostPosMode.Orbit:
@@ -1872,9 +1878,35 @@ namespace Parsek
                     pending.RewindReservedFunds = captured.RewindReservedFunds;
                     pending.RewindReservedScience = captured.RewindReservedScience;
                     pending.RewindReservedRep = captured.RewindReservedRep;
+
+                    // Preserve chain membership if this segment was part of a chain
+                    if (activeChainId != null)
+                    {
+                        pending.ChainId = activeChainId;
+                        pending.ChainIndex = activeChainNextIndex;
+                        pending.ParentRecordingId = activeChainPrevId;
+                        pending.EvaCrewName = activeChainCrewName;
+                    }
+
+                    // Tag segment phase if untagged
+                    if (string.IsNullOrEmpty(pending.SegmentPhase))
+                    {
+                        var v = FlightGlobals.ActiveVessel;
+                        if (v != null && v.mainBody != null)
+                        {
+                            pending.SegmentBodyName = v.mainBody.name;
+                            if (v.mainBody.atmosphere)
+                                pending.SegmentPhase = v.altitude < v.mainBody.atmosphereDepth ? "atmo" : "exo";
+                            else
+                                pending.SegmentPhase = "space";
+                        }
+                    }
                 }
                 RecordingStore.CommitPending();
-                ParsekLog.Info("Flight", "Vessel destroyed during split — recording committed as standalone");
+                string chainInfo = activeChainId != null
+                    ? $" (chain={activeChainId}, idx={activeChainNextIndex})"
+                    : " (standalone)";
+                ParsekLog.Info("Flight", $"Vessel destroyed during split — recording committed{chainInfo}");
             }
             else
             {
@@ -2492,7 +2524,7 @@ namespace Parsek
                 latitude = v.latitude,
                 longitude = v.longitude,
                 altitude = v.altitude,
-                rotation = v.transform.rotation,
+                rotation = v.srfRelRotation,
                 velocity = velocity,
                 bodyName = v.mainBody.name,
                 funds = lastPoint.funds,
@@ -2967,7 +2999,7 @@ namespace Parsek
                 latitude = otherVessel.latitude,
                 longitude = otherVessel.longitude,
                 altitude = otherVessel.altitude,
-                rotation = otherVessel.transform.rotation,
+                rotation = otherVessel.srfRelRotation,
                 velocity = velocity,
                 bodyName = otherVessel.mainBody.name
             };
@@ -2980,7 +3012,7 @@ namespace Parsek
                 ChainBranch = 1, // parallel branch — ghost-only, never spawns
                 GhostVisualSnapshot = ghostSnapshot,
                 RecordingId = System.Guid.NewGuid().ToString("N"),
-                RecordingFormatVersion = 4
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion
             };
             contRec.Points.Add(seedPoint);
 
@@ -3040,7 +3072,7 @@ namespace Parsek
                 latitude = v.latitude,
                 longitude = v.longitude,
                 altitude = v.altitude,
-                rotation = v.transform.rotation,
+                rotation = v.srfRelRotation,
                 velocity = velocity,
                 bodyName = v.mainBody.name,
                 funds = lastPoint.funds,
@@ -3102,6 +3134,16 @@ namespace Parsek
         void OnFlightReady()
         {
             Log("Flight ready. Checking for pending recordings...");
+
+            // Auto-migrate v4 recordings to v5 (world-space → surface-relative rotation)
+            if (FlightGlobals.Bodies != null && FlightGlobals.Bodies.Count > 0)
+            {
+                foreach (var rec in RecordingStore.CommittedRecordings)
+                {
+                    if (rec.RecordingFormatVersion < 5 && rec.Points.Count > 0)
+                        RecordingStore.MigrateV4ToV5(rec);
+                }
+            }
 
             // Shutdown background recorder before clearing tree
             if (backgroundRecorder != null)
@@ -4097,8 +4139,10 @@ namespace Parsek
             }
 
             InterpolationResult interpResult;
+            bool srfRel = previewRecording != null && previewRecording.RecordingFormatVersion >= 5;
             InterpolateAndPosition(ghostObject, recording, orbitSegments,
-                ref lastPlaybackIndex, recordingTime, 10000, out interpResult);
+                ref lastPlaybackIndex, recordingTime, 10000, out interpResult,
+                surfaceRelativeRotation: srfRel);
 
             if (previewGhostState != null && previewRecording != null)
             {
@@ -4284,8 +4328,10 @@ namespace Parsek
                         int playbackIdx = state.playbackIndex;
 
                         InterpolationResult interpResult;
+                        bool srfRel = rec.RecordingFormatVersion >= 5;
                         InterpolateAndPosition(state.ghost, rec.Points, rec.OrbitSegments,
-                            ref playbackIdx, currentUT, i * 10000, out interpResult);
+                            ref playbackIdx, currentUT, i * 10000, out interpResult,
+                            surfaceRelativeRotation: srfRel);
                         state.SetInterpolated(interpResult);
                         state.playbackIndex = playbackIdx;
 
@@ -4325,7 +4371,7 @@ namespace Parsek
                     // Ghost was playing, UT crossed chain EndUT — spawn vessel, despawn ghost
                     Log($"Ghost EXITED range: #{i} \"{rec.VesselName}\" at UT {currentUT:F1} — spawning vessel");
                     if (rec.Points.Count > 0)
-                        PositionGhostAt(state.ghost, rec.Points[rec.Points.Count - 1]);
+                        PositionGhostAt(state.ghost, rec.Points[rec.Points.Count - 1], rec.RecordingFormatVersion >= 5);
 
                     // Watch mode: exit and switch player to spawned vessel
                     if (watchedRecordingIndex == i)
@@ -4361,7 +4407,7 @@ namespace Parsek
                 {
                     // Mid-chain segment past its own EndUT but chain still playing — hold at final pos
                     if (rec.Points.Count > 0)
-                        PositionGhostAt(state.ghost, rec.Points[rec.Points.Count - 1]);
+                        PositionGhostAt(state.ghost, rec.Points[rec.Points.Count - 1], rec.RecordingFormatVersion >= 5);
 
                     // Watch mode: auto-follow to next chain segment
                     if (watchedRecordingIndex == i)
@@ -4540,7 +4586,7 @@ namespace Parsek
 
             if (inPauseWindow)
             {
-                PositionGhostAt(state.ghost, rec.Points[rec.Points.Count - 1]);
+                PositionGhostAt(state.ghost, rec.Points[rec.Points.Count - 1], rec.RecordingFormatVersion >= 5);
                 if (state != null && state.reentryFxInfo != null)
                 {
                     // Only zero velocity — keep body/altitude from last frame for smooth intensity decay
@@ -4552,8 +4598,10 @@ namespace Parsek
 
             int playbackIdx = state.playbackIndex;
             InterpolationResult interpResult;
+            bool srfRel = rec.RecordingFormatVersion >= 5;
             InterpolateAndPosition(state.ghost, rec.Points, rec.OrbitSegments,
-                ref playbackIdx, loopUT, recIdx * 10000, out interpResult);
+                ref playbackIdx, loopUT, recIdx * 10000, out interpResult,
+                surfaceRelativeRotation: srfRel);
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
 
@@ -6640,7 +6688,7 @@ namespace Parsek
             return ghost;
         }
 
-        void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points, ref int cachedIndex, double targetUT, out InterpolationResult interpResult)
+        void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points, ref int cachedIndex, double targetUT, out InterpolationResult interpResult, bool surfaceRelativeRotation = false)
         {
             if (points == null || points.Count == 0) { interpResult = InterpolationResult.Zero; ghost.SetActive(false); return; }
 
@@ -6648,7 +6696,7 @@ namespace Parsek
 
             if (indexBefore < 0)
             {
-                PositionGhostAt(ghost, points[0]);
+                PositionGhostAt(ghost, points[0], surfaceRelativeRotation);
                 interpResult = new InterpolationResult(points[0].velocity, points[0].bodyName, points[0].altitude);
                 return;
             }
@@ -6659,7 +6707,7 @@ namespace Parsek
             double segmentDuration = after.ut - before.ut;
             if (segmentDuration <= 0.0001)
             {
-                PositionGhostAt(ghost, before);
+                PositionGhostAt(ghost, before, surfaceRelativeRotation);
                 interpResult = new InterpolationResult(before.velocity, before.bodyName, before.altitude);
                 return;
             }
@@ -6695,7 +6743,9 @@ namespace Parsek
             }
 
             ghost.transform.position = interpolatedPos;
-            ghost.transform.rotation = CorrectForBodyRotation(bodyBefore, targetUT, interpolatedRot);
+            ghost.transform.rotation = surfaceRelativeRotation
+                ? bodyBefore.bodyTransform.rotation * interpolatedRot
+                : CorrectForBodyRotation(bodyBefore, targetUT, interpolatedRot);
 
             // Register for LateUpdate re-positioning after FloatingOrigin shift
             ghostPosEntries.Add(new GhostPosEntry
@@ -6708,7 +6758,8 @@ namespace Parsek
                 latAfter = after.latitude, lonAfter = after.longitude, altAfter = after.altitude,
                 t = t,
                 pointUT = targetUT,
-                interpolatedRot = interpolatedRot
+                interpolatedRot = interpolatedRot,
+                surfaceRelativeRotation = surfaceRelativeRotation
             });
 
             interpResult = new InterpolationResult(
@@ -6724,22 +6775,18 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Corrects a world-space rotation recorded at pointUT for planetary rotation
-        /// that has occurred between pointUT and the current game UT.
+        /// Legacy v4 fallback — returns storedRot unchanged.
+        /// KSP's world frame co-rotates with the body surface, so world-space
+        /// rotations are already valid at any UT. The old time-delta correction
+        /// was incorrect and has been removed. All v4 recordings are auto-migrated
+        /// to v5 at flight-scene load; this path only executes if migration failed.
         /// </summary>
         static Quaternion CorrectForBodyRotation(CelestialBody body, double pointUT, Quaternion storedRot)
         {
-            if (body == null || body.rotationPeriod <= 0) return storedRot;
-            double deltaUT = Planetarium.GetUniversalTime() - pointUT;
-            if (System.Math.Abs(deltaUT) < 0.01) return storedRot;
-            float deltaAngle = (float)((deltaUT / body.rotationPeriod) * 360.0);
-            Vector3 axis = (Vector3)body.angularVelocity;
-            if (axis.sqrMagnitude < 1e-10f) return storedRot;
-            axis = axis.normalized;
-            return Quaternion.AngleAxis(deltaAngle, axis) * storedRot;
+            return storedRot;
         }
 
-        void PositionGhostAt(GameObject ghost, TrajectoryPoint point)
+        void PositionGhostAt(GameObject ghost, TrajectoryPoint point, bool surfaceRelativeRotation = false)
         {
             CelestialBody body = FlightGlobals.Bodies.Find(b => b.name == point.bodyName);
             if (body == null)
@@ -6752,8 +6799,11 @@ namespace Parsek
             Vector3d worldPos = body.GetWorldSurfacePosition(
                 point.latitude, point.longitude, point.altitude);
 
+            Quaternion sanitized = SanitizeQuaternion(point.rotation);
             ghost.transform.position = worldPos;
-            ghost.transform.rotation = CorrectForBodyRotation(body, point.ut, SanitizeQuaternion(point.rotation));
+            ghost.transform.rotation = surfaceRelativeRotation
+                ? body.bodyTransform.rotation * sanitized
+                : CorrectForBodyRotation(body, point.ut, sanitized);
 
             // Register for LateUpdate re-positioning after FloatingOrigin shift
             ghostPosEntries.Add(new GhostPosEntry
@@ -6763,7 +6813,8 @@ namespace Parsek
                 bodyBefore = body,
                 latBefore = point.latitude, lonBefore = point.longitude, altBefore = point.altitude,
                 pointUT = point.ut,
-                interpolatedRot = SanitizeQuaternion(point.rotation)
+                interpolatedRot = sanitized,
+                surfaceRelativeRotation = surfaceRelativeRotation
             });
         }
 
@@ -6875,7 +6926,7 @@ namespace Parsek
 
         void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points,
             List<OrbitSegment> segments, ref int cachedIndex, double targetUT, int orbitCacheBase,
-            out InterpolationResult interpResult)
+            out InterpolationResult interpResult, bool surfaceRelativeRotation = false)
         {
             // Check orbit segments first
             if (segments != null && segments.Count > 0)
@@ -6902,7 +6953,7 @@ namespace Parsek
             }
 
             // Fall through to point-based interpolation
-            InterpolateAndPosition(ghost, points, ref cachedIndex, targetUT, out interpResult);
+            InterpolateAndPosition(ghost, points, ref cachedIndex, targetUT, out interpResult, surfaceRelativeRotation);
         }
 
         // Delegates to TrajectoryMath — kept for backward compatibility

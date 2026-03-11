@@ -66,6 +66,7 @@ namespace Parsek
 
         // Chain grouping state
         private HashSet<string> expandedChains = new HashSet<string>();
+        private HashSet<string> expandedGroups = new HashSet<string>();
 
         // Cached phase label styles
         private GUIStyle phaseStyleAtmo;
@@ -837,8 +838,10 @@ namespace Parsek
                 RebuildSortedIndices(committed, now);
 
                 // Build chain grouping: chainId → list of sorted row indices
+                // Build tag grouping: recordingGroup → list of sorted row indices
                 var chainRows = new Dictionary<string, List<int>>();
                 var seenChains = new HashSet<string>();
+                var groupRows = new Dictionary<string, List<int>>();
 
                 for (int row = 0; row < sortedIndices.Length; row++)
                 {
@@ -854,19 +857,79 @@ namespace Parsek
                         }
                         list.Add(ri);
                     }
+                    else if (!string.IsNullOrEmpty(rec.RecordingGroup))
+                    {
+                        List<int> list;
+                        if (!groupRows.TryGetValue(rec.RecordingGroup, out list))
+                        {
+                            list = new List<int>();
+                            groupRows[rec.RecordingGroup] = list;
+                        }
+                        list.Add(ri);
+                    }
                 }
 
                 // Draw in sorted order — standalone rows inline, chain groups
                 // emitted at the position of their first sorted member
                 bool deleted = false;
+                var groupSet = new HashSet<int>();
+                foreach (var glist in groupRows.Values)
+                    foreach (var gi in glist) groupSet.Add(gi);
+                var drawnGroups = new HashSet<string>();
+
                 for (int row = 0; row < sortedIndices.Length && !deleted; row++)
                 {
                     int ri = sortedIndices[row];
                     var rec = committed[ri];
 
-                    if (string.IsNullOrEmpty(rec.ChainId))
+                    if (groupSet.Contains(ri))
                     {
-                        // Standalone recording
+                        string grp = rec.RecordingGroup;
+                        if (drawnGroups.Add(grp))
+                        {
+                            var members = groupRows[grp];
+                            // Group header
+                            GUILayout.BeginHorizontal();
+
+                            // Group enable checkbox
+                            int enabledCount = 0;
+                            for (int s = 0; s < members.Count; s++)
+                                if (committed[members[s]].PlaybackEnabled) enabledCount++;
+                            bool grpAllEnabled = enabledCount == members.Count;
+                            bool grpNewEnabled = GUILayout.Toggle(grpAllEnabled, "", GUILayout.Width(ColW_Enable));
+                            if (grpNewEnabled != grpAllEnabled)
+                            {
+                                for (int s = 0; s < members.Count; s++)
+                                    committed[members[s]].PlaybackEnabled = grpNewEnabled;
+                                ParsekLog.Info("UI", $"Set playback enabled for group '{grp}': enabled={grpNewEnabled}");
+                            }
+
+                            bool expanded = expandedGroups.Contains(grp);
+                            string arrow = expanded ? "\u25bc" : "\u25b6";
+                            if (GUILayout.Button($"{arrow} {grp} ({members.Count})",
+                                GUI.skin.label, GUILayout.ExpandWidth(true)))
+                            {
+                                if (expanded) expandedGroups.Remove(grp);
+                                else expandedGroups.Add(grp);
+                                expanded = !expanded;
+                                ParsekLog.Verbose("UI", $"Group '{grp}' {(expanded ? "expanded" : "collapsed")} ({members.Count} recordings)");
+                            }
+                            GUILayout.EndHorizontal();
+
+                            if (expanded)
+                            {
+                                for (int s = 0; s < members.Count; s++)
+                                {
+                                    if (DrawRecordingRow(members[s], committed, now, true))
+                                    { deleted = true; break; }
+                                }
+                            }
+                        }
+                        // else: already drawn with group — skip
+                    }
+                    else if (string.IsNullOrEmpty(rec.ChainId))
+                    {
+                        // Standalone recording (non-showcase)
                         if (DrawRecordingRow(ri, committed, now, false))
                         { deleted = true; break; }
                     }

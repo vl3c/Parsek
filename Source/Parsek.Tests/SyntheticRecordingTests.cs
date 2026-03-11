@@ -90,35 +90,34 @@ namespace Parsek.Tests
         // Reentry South:     +0s   to +90s   (90s looped ghost, reentry FX)
 
         // Approximate "upright on surface" rotation at KSC for UT ~17000.
-        // From real recording data at UT=17285. Close enough for synthetic visuals
-        // (Kerbin rotates ~4° in the difference, negligible for ghost appearance).
-        private const float KscRotX = 0.33f, KscRotY = -0.63f, KscRotZ = -0.63f, KscRotW = -0.33f;
+        // Surface-relative rotation for upright vessel at KSC pad (v5 format).
+        // Captured empirically from v.srfRelRotation in KSP runtime.
+        private const float KscRotX = -0.7009714f, KscRotY = -0.09230039f, KscRotZ = -0.09728389f, KscRotW = 0.7004681f;
 
         internal static RecordingBuilder PadWalk(double baseUT = 0)
         {
-            // EVA: Jeb walks ~200m east from launchpad at ground level
+            // EVA: Jeb walks ~200m along the road east of the VAB (flat terrain, no structures)
             double t = baseUT + 30;
             var b = new RecordingBuilder("Pad Walk");
             b.WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW);
-            double baseLat = -0.0972;
-            double baseLon = -74.5575;
+            double baseLat = -0.0465;
+            double baseLon = -74.6100;
 
-            b.AddPoint(t,     baseLat, baseLon,          66);
-            b.AddPoint(t+3,   baseLat, baseLon + 0.0002, 66);
-            b.AddPoint(t+6,   baseLat, baseLon + 0.0004, 66);
-            b.AddPoint(t+9,   baseLat, baseLon + 0.0006, 66.5);
-            b.AddPoint(t+12,  baseLat, baseLon + 0.0008, 66.5);
-            b.AddPoint(t+15,  baseLat, baseLon + 0.0010, 67);
-            b.AddPoint(t+18,  baseLat, baseLon + 0.0012, 67);
-            b.AddPoint(t+21,  baseLat, baseLon + 0.0014, 66.5);
-            b.AddPoint(t+24,  baseLat, baseLon + 0.0016, 66.5);
-            b.AddPoint(t+30,  baseLat, baseLon + 0.0018, 66);
+            b.AddPoint(t,     baseLat, baseLon,          69);
+            b.AddPoint(t+3,   baseLat, baseLon + 0.0002, 69);
+            b.AddPoint(t+6,   baseLat, baseLon + 0.0004, 69);
+            b.AddPoint(t+9,   baseLat, baseLon + 0.0006, 69);
+            b.AddPoint(t+12,  baseLat, baseLon + 0.0008, 69);
+            b.AddPoint(t+15,  baseLat, baseLon + 0.0010, 69);
+            b.AddPoint(t+18,  baseLat, baseLon + 0.0012, 69);
+            b.AddPoint(t+21,  baseLat, baseLon + 0.0014, 69);
+            b.AddPoint(t+24,  baseLat, baseLon + 0.0016, 69);
+            b.AddPoint(t+30,  baseLat, baseLon + 0.0018, 69);
 
             // Ghost-only EVA snapshot (no vessel spawn, no crew reservation)
             b.WithGhostVisualSnapshot(
-                VesselSnapshotBuilder.CrewedShip("Jebediah Kerman", "Jebediah Kerman", pid: 55555555)
-                    .WithType("EVA")
-                    .AsLanded(baseLat, baseLon + 0.0018, 66));
+                VesselSnapshotBuilder.EvaKerbal("Jebediah Kerman", pid: 55555555)
+                    .AsLanded(baseLat, baseLon + 0.0018, 69));
 
             return b;
         }
@@ -448,8 +447,7 @@ namespace Parsek.Tests
 
             // Ghost-only (EVA mid-chain)
             seg1.WithGhostVisualSnapshot(
-                VesselSnapshotBuilder.CrewedShip("Jebediah Kerman", "Jebediah Kerman", pid: 77777777)
-                    .WithType("EVA")
+                VesselSnapshotBuilder.EvaKerbal("Jebediah Kerman", pid: 77777777)
                     .AsLanded(baseLat, evaLon + 0.0008, 70));
 
             // Segment 2: Vessel resume, 20s — back on FleaRocket
@@ -551,8 +549,7 @@ namespace Parsek.Tests
 
             // Ghost-only EVA snapshot
             seg1.WithGhostVisualSnapshot(
-                VesselSnapshotBuilder.CrewedShip("Bill Kerman", "Bill Kerman", pid: 99999999)
-                    .WithType("EVA")
+                VesselSnapshotBuilder.EvaKerbal("Bill Kerman", pid: 99999999)
                     .AsLanded(landLat - 0.0004, landLon + 0.0003, 55));
 
             return new[] { seg0, seg1 };
@@ -869,7 +866,8 @@ namespace Parsek.Tests
 
             var b = new RecordingBuilder(vesselName)
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
-                .WithLoopPlayback(loop: true, pauseSeconds: 0.0);
+                .WithLoopPlayback(loop: true, pauseSeconds: 0.0)
+                .WithRecordingGroup("Part Showcases");
 
             // Static trajectory (24s) so the visual focus is part event playback.
             for (int i = 0; i <= 8; i++)
@@ -936,7 +934,8 @@ namespace Parsek.Tests
 
             var b = new RecordingBuilder(vesselName)
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
-                .WithLoopPlayback(loop: true, pauseSeconds: 0.0);
+                .WithLoopPlayback(loop: true, pauseSeconds: 0.0)
+                .WithRecordingGroup("Part Showcases");
 
             for (int i = 0; i <= 8; i++)
                 b.AddPoint(t + (i * 3), lat, lon, alt);
@@ -1321,7 +1320,8 @@ namespace Parsek.Tests
 
             var b = new RecordingBuilder(vesselName)
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
-                .WithLoopPlayback(loop: true, pauseSeconds: 0.0);
+                .WithLoopPlayback(loop: true, pauseSeconds: 0.0)
+                .WithRecordingGroup("Part Showcases");
 
             // Static trajectory (24s).
             for (int i = 0; i <= 8; i++)
@@ -1366,7 +1366,8 @@ namespace Parsek.Tests
 
             var b = new RecordingBuilder(vesselName)
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
-                .WithLoopPlayback(loop: true, pauseSeconds: 0.0);
+                .WithLoopPlayback(loop: true, pauseSeconds: 0.0)
+                .WithRecordingGroup("Part Showcases");
 
             for (int i = 0; i <= 8; i++)
                 b.AddPoint(t + (i * 3), lat, lon, alt);
@@ -1775,7 +1776,8 @@ namespace Parsek.Tests
 
             var b = new RecordingBuilder(vesselName)
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
-                .WithLoopPlayback(loop: true, pauseSeconds: 0.0);
+                .WithLoopPlayback(loop: true, pauseSeconds: 0.0)
+                .WithRecordingGroup("Part Showcases");
 
             // Static trajectory (24s)
             for (int i = 0; i <= 8; i++)
@@ -2140,7 +2142,8 @@ namespace Parsek.Tests
             alt += ShowcaseAltitudeOffset(partName);
             var b = new RecordingBuilder("Part Showcase - Inventory Placement")
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
-                .WithLoopPlayback(loop: true, pauseSeconds: 0.0);
+                .WithLoopPlayback(loop: true, pauseSeconds: 0.0)
+                .WithRecordingGroup("Part Showcases");
 
             for (int i = 0; i <= 8; i++)
                 b.AddPoint(t + (i * 3), lat, lon, alt);
@@ -2583,7 +2586,7 @@ namespace Parsek.Tests
 
                 // Serialize to ConfigNode
                 var node = new ConfigNode("PARSEK_RECORDING");
-                node.AddValue("version", "4");
+                node.AddValue("version", "5");
                 node.AddValue("recordingId", rec.RecordingId);
                 RecordingStore.SerializeTrajectoryInto(node, rec);
 
@@ -2650,7 +2653,7 @@ namespace Parsek.Tests
 
                 // Serialize to ConfigNode and save to file
                 var precNode = new ConfigNode("PARSEK_RECORDING");
-                precNode.AddValue("version", "4");
+                precNode.AddValue("version", "5");
                 precNode.AddValue("recordingId", "filetest");
                 RecordingStore.SerializeTrajectoryInto(precNode, rec);
 
@@ -2661,7 +2664,7 @@ namespace Parsek.Tests
                 Assert.True(File.Exists(precPath), "Expected .prec file to be written");
                 string content = File.ReadAllText(precPath);
                 Assert.Contains("recordingId = filetest", content);
-                Assert.Contains("version = 4", content);
+                Assert.Contains("version = 5", content);
                 Assert.Contains("POINT", content);
                 Assert.Contains("ut = 500", content);
                 Assert.Contains("ut = 503", content);
@@ -2699,7 +2702,7 @@ namespace Parsek.Tests
             // Has metadata
             Assert.Equal("Test Vessel", v3Node.GetValue("vesselName"));
             Assert.Equal("abc123", v3Node.GetValue("recordingId"));
-            Assert.Equal("4", v3Node.GetValue("recordingFormatVersion"));
+            Assert.Equal("5", v3Node.GetValue("recordingFormatVersion"));
             Assert.Equal("2", v3Node.GetValue("pointCount"));
 
             // No inline bulk data
@@ -2737,11 +2740,27 @@ namespace Parsek.Tests
             var trajNode = builder.BuildTrajectoryNode();
 
             Assert.Equal("PARSEK_RECORDING", trajNode.name);
-            Assert.Equal("4", trajNode.GetValue("version"));
+            Assert.Equal("5", trajNode.GetValue("version"));
             Assert.Equal("abc123", trajNode.GetValue("recordingId"));
             Assert.Equal(2, trajNode.GetNodes("POINT").Length);
             Assert.Single(trajNode.GetNodes("ORBIT_SEGMENT"));
             Assert.Single(trajNode.GetNodes("PART_EVENT"));
+        }
+
+        [Fact]
+        public void RecordingBuilder_WithFormatVersion4_PreservesV4()
+        {
+            var builder = new RecordingBuilder("V4 Test")
+                .WithRecordingId("v4test")
+                .WithFormatVersion(4)
+                .AddPoint(100, 0, 0, 0)
+                .AddPoint(103, 0.1, 0.1, 100);
+
+            var trajNode = builder.BuildTrajectoryNode();
+            Assert.Equal("4", trajNode.GetValue("version"));
+
+            var metaNode = builder.BuildV3Metadata();
+            Assert.Equal("4", metaNode.GetValue("recordingFormatVersion"));
         }
 
         [Fact]
@@ -2753,7 +2772,7 @@ namespace Parsek.Tests
             var scenarioNode = writer.BuildScenarioNode();
             var recNode = scenarioNode.GetNodes("RECORDING")[0];
 
-            Assert.Equal("4", recNode.GetValue("recordingFormatVersion"));
+            Assert.Equal("5", recNode.GetValue("recordingFormatVersion"));
             Assert.Equal("KSC Hopper", recNode.GetValue("vesselName"));
             Assert.Empty(recNode.GetNodes("POINT"));
             Assert.Null(recNode.GetNode("VESSEL_SNAPSHOT"));
@@ -4909,22 +4928,24 @@ namespace Parsek.Tests
             double baseUT = ReadUTFromSave(targetPath);
 
             var writer = new ScenarioWriter().WithV3Format();
-            writer.AddRecording(PadWalk(baseUT).WithLoopPlayback());
+            writer.AddRecording(PadWalk(baseUT).WithLoopPlayback()
+                .WithRecordingGroup("Synthetic"));
 
             // Pad-launch recordings — with rewind saves
             writer.AddRecording(KscHopper(baseUT).WithLoopPlayback()
-                .WithRewindSave("parsek_rw_hop001"));
+                .WithRewindSave("parsek_rw_hop001").WithRecordingGroup("Synthetic"));
             writer.AddRecording(FleaFlight(baseUT).WithLoopPlayback()
-                .WithRewindSave("parsek_rw_flea01"));
+                .WithRewindSave("parsek_rw_flea01").WithRecordingGroup("Synthetic"));
             writer.AddRecording(SuborbitalArc(baseUT).WithLoopPlayback()
-                .WithRewindSave("parsek_rw_subo01"));
+                .WithRewindSave("parsek_rw_subo01").WithRecordingGroup("Synthetic"));
             writer.AddRecording(KscPadDestroyed(baseUT).WithLoopPlayback()
-                .WithRewindSave("parsek_rw_dest01"));
+                .WithRewindSave("parsek_rw_dest01").WithRecordingGroup("Synthetic"));
             writer.AddRecording(Orbit1(baseUT).WithLoopPlayback()
-                .WithRewindSave("parsek_rw_orb001"));
-            writer.AddRecording(CloseSpawnConflict(baseUT).WithLoopPlayback());
+                .WithRewindSave("parsek_rw_orb001").WithRecordingGroup("Synthetic"));
+            writer.AddRecording(CloseSpawnConflict(baseUT).WithLoopPlayback()
+                .WithRecordingGroup("Synthetic"));
             writer.AddRecording(IslandProbe(baseUT).WithLoopPlayback()
-                .WithRewindSave("parsek_rw_isle01"));
+                .WithRewindSave("parsek_rw_isle01").WithRecordingGroup("Synthetic"));
 
             var lightShowcases = LightShowcaseRecordings(baseUT);
             for (int i = 0; i < lightShowcases.Length; i++)
@@ -5004,23 +5025,23 @@ namespace Parsek.Tests
             var chainSegments = EvaBoardChain(baseUT);
             chainSegments[0].WithRewindSave("parsek_rw_evab01");
             for (int i = 0; i < chainSegments.Length; i++)
-                writer.AddRecording(chainSegments[i].WithLoopPlayback());
+                writer.AddRecording(chainSegments[i].WithLoopPlayback().WithRecordingGroup("Synthetic"));
             var walkChainSegments = EvaWalkChain(baseUT);
             walkChainSegments[0].WithRewindSave("parsek_rw_walk01");
             for (int i = 0; i < walkChainSegments.Length; i++)
-                writer.AddRecording(walkChainSegments[i].WithLoopPlayback());
+                writer.AddRecording(walkChainSegments[i].WithLoopPlayback().WithRecordingGroup("Synthetic"));
             var atmoChainSegments = KerbinAscentChain(baseUT);
             atmoChainSegments[0].WithRewindSave("parsek_rw_atmo01");
             for (int i = 0; i < atmoChainSegments.Length; i++)
-                writer.AddRecording(atmoChainSegments[i].WithLoopPlayback());
+                writer.AddRecording(atmoChainSegments[i].WithLoopPlayback().WithRecordingGroup("Synthetic"));
             var munTransferSegments = KerbinMunTransfer(baseUT);
             munTransferSegments[0].WithRewindSave("parsek_rw_mun001");
             for (int i = 0; i < munTransferSegments.Length; i++)
-                writer.AddRecording(munTransferSegments[i].WithLoopPlayback());
+                writer.AddRecording(munTransferSegments[i].WithLoopPlayback().WithRecordingGroup("Synthetic"));
 
-            writer.AddRecording(ReentryEast(baseUT).WithLoopPlayback());
-            writer.AddRecording(ReentryShallow(baseUT).WithLoopPlayback());
-            writer.AddRecording(ReentrySouth(baseUT).WithLoopPlayback());
+            writer.AddRecording(ReentryEast(baseUT).WithLoopPlayback().WithRecordingGroup("Synthetic"));
+            writer.AddRecording(ReentryShallow(baseUT).WithLoopPlayback().WithRecordingGroup("Synthetic"));
+            writer.AddRecording(ReentrySouth(baseUT).WithLoopPlayback().WithRecordingGroup("Synthetic"));
 
             // Add synthetic game actions so the Actions window has visible entries
             AddSyntheticGameActions(writer, baseUT);
@@ -5029,6 +5050,10 @@ namespace Parsek.Tests
             writer.AddTree(SimpleUndockTree(baseUT));
             writer.AddTree(EvaTree(baseUT));
             writer.AddTree(DestructionTree(baseUT));
+
+            // Add real recordings from the default career (if available)
+            string kspRoot = ResolveKspRoot();
+            var realRecordingNodes = AddRealCareerRecordings(writer, kspRoot);
 
             foreach (string file in targets)
             {
@@ -5040,6 +5065,13 @@ namespace Parsek.Tests
                 try
                 {
                     writer.InjectIntoSaveFile(savePath, tempPath);
+
+                    // Copy real recording sidecar files from default career
+                    if (realRecordingNodes.Length > 0)
+                    {
+                        string defaultCareerDir = Path.Combine(kspRoot, "saves", "default");
+                        CopyRealRecordingFiles(defaultCareerDir, saveDir, realRecordingNodes);
+                    }
 
                     string content = File.ReadAllText(tempPath);
                     Assert.Contains("name = ParsekScenario", content);
@@ -5262,11 +5294,17 @@ namespace Parsek.Tests
                     Assert.Contains("vesselName = Surviving Capsule", content);
                     Assert.Contains("vesselName = Destroyed Booster", content);
 
+                    // Real recordings from default career (conditional)
+                    if (realRecordingNodes.Length > 0)
+                    {
+                        Assert.Contains("vesselName = R0", content);
+                    }
+
                     Assert.Contains("FLIGHTSTATE", content);
 
                     // v3: no inline trajectory POINT data in .sfs
                     // (BRANCH_POINT nodes in RECORDING_TREE are expected)
-                    Assert.Contains("recordingFormatVersion = 4", content);
+                    Assert.Contains("recordingFormatVersion = 5", content);
                     var scenarioSection = content.Substring(
                         content.IndexOf("name = ParsekScenario"),
                         content.IndexOf("FLIGHTSTATE") - content.IndexOf("name = ParsekScenario"));
@@ -5274,7 +5312,7 @@ namespace Parsek.Tests
                     Assert.DoesNotContain("\tPOINT\n", scenarioSection);
 
                     // Game action milestone data in .sfs
-                    Assert.Contains("milestoneEpoch = 0", content);
+                    Assert.Contains("milestoneEpoch", content);
                     Assert.Contains("MILESTONE_STATE", content);
 
                     File.Copy(tempPath, savePath, overwrite: true);
@@ -5295,8 +5333,9 @@ namespace Parsek.Tests
                     $"Expected Parsek/Recordings directory at {recordingsDir}");
 
                 string[] precFiles = Directory.GetFiles(recordingsDir, "*.prec");
-                Assert.True(precFiles.Length >= 232,
-                    $"Expected at least 232 .prec files (8 baseline + 10 lights + 18 deployables + 7 gear + 11 cargo + 45 engines + 2 ladders + 5 RCS + 5 fairings + 2 extra radiators + 2 drills + 8 deployed science + 2 animation-group + 5 parachutes + 12 special deploy animations + 9 jettison + 21 robotics + 1 aero-surface + 3 robot-arm-scanner + 24 control-surface + 6 wheel-dynamics + 13 animate-heat + 1 inventory-placement + 3 board-chain + 2 walk-chain + 3 atmo-chain + 4 mun-transfer-chain), found {precFiles.Length}");
+                int expectedMin = 232 + realRecordingNodes.Length;
+                Assert.True(precFiles.Length >= expectedMin,
+                    $"Expected at least {expectedMin} .prec files (232 synthetic + {realRecordingNodes.Length} real), found {precFiles.Length}");
 
                 // Verify game state sidecar files
                 string gameStateDir = Path.Combine(saveDir, "Parsek", "GameState");
@@ -5453,6 +5492,123 @@ namespace Parsek.Tests
             writer.AddGameStateEvent(fundsEarned);
             writer.AddGameStateEvent(scienceSpent);
             writer.AddGameStateEvent(repGained);
+        }
+
+        #endregion
+
+        #region Real Career Recordings
+
+        /// <summary>
+        /// Parses real recordings from the default career's persistent.sfs and adds them
+        /// to the writer. Returns the array of RECORDING ConfigNodes that were added
+        /// (empty array if the default career is absent).
+        /// </summary>
+        private static ConfigNode[] AddRealCareerRecordings(ScenarioWriter writer, string kspRoot)
+        {
+            string defaultPersistent = Path.Combine(kspRoot, "saves", "default", "persistent.sfs");
+            if (!File.Exists(defaultPersistent))
+                return new ConfigNode[0];
+
+            var root = ConfigNode.Load(defaultPersistent);
+            if (root == null)
+                return new ConfigNode[0];
+
+            // persistent.sfs has GAME as the root node wrapping everything
+            var gameNode = root.HasNode("GAME") ? root.GetNode("GAME") : root;
+
+            // Find ParsekScenario
+            ConfigNode scenarioNode = null;
+            foreach (ConfigNode sn in gameNode.GetNodes("SCENARIO"))
+            {
+                if (sn.GetValue("name") == "ParsekScenario")
+                {
+                    scenarioNode = sn;
+                    break;
+                }
+            }
+
+            if (scenarioNode == null)
+                return new ConfigNode[0];
+
+            // Add all recordings with loopPlayback forced on and grouped
+            var recNodes = scenarioNode.GetNodes("RECORDING");
+            for (int i = 0; i < recNodes.Length; i++)
+            {
+                recNodes[i].SetValue("loopPlayback", "True", true);
+                recNodes[i].SetValue("recordingGroup", "Real Recordings", true);
+                writer.AddRecording(recNodes[i]);
+            }
+
+            // Add milestone states from the real career
+            var milestoneStates = scenarioNode.GetNodes("MILESTONE_STATE");
+            for (int i = 0; i < milestoneStates.Length; i++)
+                writer.AddRawMilestoneState(milestoneStates[i]);
+
+            // Propagate milestone epoch (take the max of existing and parsed)
+            string epochStr = scenarioNode.GetValue("milestoneEpoch");
+            if (epochStr != null)
+            {
+                uint epoch;
+                if (uint.TryParse(epochStr, System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture, out epoch))
+                {
+                    writer.WithMilestoneEpoch(epoch);
+                }
+            }
+
+            return recNodes;
+        }
+
+        /// <summary>
+        /// Copies sidecar files (.prec, _vessel.craft, _ghost.craft, .pcrf) and rewind
+        /// save files from the default career to the target save directory.
+        /// </summary>
+        private static void CopyRealRecordingFiles(
+            string sourceCareerDir, string targetSaveDir, ConfigNode[] recordings)
+        {
+            // Copy recording sidecar files
+            string srcRecDir = Path.Combine(sourceCareerDir, "Parsek", "Recordings");
+            string dstRecDir = Path.Combine(targetSaveDir, "Parsek", "Recordings");
+            if (Directory.Exists(srcRecDir))
+            {
+                if (!Directory.Exists(dstRecDir))
+                    Directory.CreateDirectory(dstRecDir);
+
+                for (int i = 0; i < recordings.Length; i++)
+                {
+                    string id = recordings[i].GetValue("recordingId");
+                    if (string.IsNullOrEmpty(id)) continue;
+
+                    string[] suffixes = { ".prec", "_vessel.craft", "_ghost.craft", ".pcrf" };
+                    for (int s = 0; s < suffixes.Length; s++)
+                    {
+                        string fileName = id + suffixes[s];
+                        string src = Path.Combine(srcRecDir, fileName);
+                        if (File.Exists(src))
+                            File.Copy(src, Path.Combine(dstRecDir, fileName), true);
+                    }
+                }
+            }
+
+            // Copy rewind save files
+            string srcSavesDir = Path.Combine(sourceCareerDir, "Parsek", "Saves");
+            string dstSavesDir = Path.Combine(targetSaveDir, "Parsek", "Saves");
+            if (Directory.Exists(srcSavesDir))
+            {
+                for (int i = 0; i < recordings.Length; i++)
+                {
+                    string rewindSave = recordings[i].GetValue("rewindSave");
+                    if (string.IsNullOrEmpty(rewindSave)) continue;
+
+                    string src = Path.Combine(srcSavesDir, rewindSave + ".sfs");
+                    if (File.Exists(src))
+                    {
+                        if (!Directory.Exists(dstSavesDir))
+                            Directory.CreateDirectory(dstSavesDir);
+                        File.Copy(src, Path.Combine(dstSavesDir, rewindSave + ".sfs"), true);
+                    }
+                }
+            }
         }
 
         #endregion

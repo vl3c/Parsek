@@ -55,7 +55,6 @@ namespace Parsek
                 ConfigNode recNode = node.AddNode("RECORDING");
 
                 // Write bulk data to external files
-                rec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
                 if (!RecordingStore.SaveRecordingFiles(rec))
                     ScenarioLog($"[Parsek Scenario] WARNING: File write failed for '{rec.VesselName}'");
 
@@ -108,7 +107,6 @@ namespace Parsek
                 // Write bulk data to external files for each recording in the tree
                 foreach (var rec in tree.Recordings.Values)
                 {
-                    rec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
                     if (!RecordingStore.SaveRecordingFiles(rec))
                         ScenarioLog($"[Parsek Scenario] WARNING: File write failed for tree recording '{rec.VesselName}'");
                 }
@@ -1163,6 +1161,10 @@ namespace Parsek
                 recNode.AddValue("rewindResRep", rec.RewindReservedRep.ToString("R", CultureInfo.InvariantCulture));
             }
 
+            // UI grouping tag
+            if (!string.IsNullOrEmpty(rec.RecordingGroup))
+                recNode.AddValue("recordingGroup", rec.RecordingGroup);
+
             // Atmosphere segment metadata (only if set, saves space)
             if (!string.IsNullOrEmpty(rec.SegmentPhase))
                 recNode.AddValue("segmentPhase", rec.SegmentPhase);
@@ -1281,6 +1283,9 @@ namespace Parsek
                 if (float.TryParse(rewindRepStr, NumberStyles.Float, CultureInfo.InvariantCulture, out rewindRep))
                     rec.RewindReservedRep = rewindRep;
             }
+
+            // UI grouping tag
+            rec.RecordingGroup = recNode.GetValue("recordingGroup");
 
             // Atmosphere segment metadata
             rec.SegmentPhase = recNode.GetValue("segmentPhase");

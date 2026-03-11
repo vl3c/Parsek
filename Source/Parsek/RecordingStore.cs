@@ -14,7 +14,7 @@ namespace Parsek
     /// </summary>
     public static class RecordingStore
     {
-        public const int CurrentRecordingFormatVersion = 4;
+        public const int CurrentRecordingFormatVersion = 5;
         public const int CurrentGhostGeometryVersion = 1;
 
         // When true, suppresses logging calls (for unit testing outside Unity)
@@ -74,6 +74,9 @@ namespace Parsek
             public List<PartEvent> PartEvents = new List<PartEvent>();
             public bool LoopPlayback;
             public double LoopPauseSeconds = 10.0;
+
+            // UI grouping tag (e.g. "Synthetic", "Part Showcase")
+            public string RecordingGroup;
 
             // Atmosphere segment metadata
             public string SegmentPhase;      // "atmo" or "exo" (null = untagged/legacy)
@@ -1335,7 +1338,7 @@ namespace Parsek
 
                 // Save .prec trajectory file
                 var precNode = new ConfigNode("PARSEK_RECORDING");
-                precNode.AddValue("version", CurrentRecordingFormatVersion);
+                precNode.AddValue("version", rec.RecordingFormatVersion);
                 precNode.AddValue("recordingId", rec.RecordingId);
                 SerializeTrajectoryInto(precNode, rec);
 
@@ -1476,6 +1479,59 @@ namespace Parsek
                 Log($"[Parsek] Failed to load recording files for {rec.RecordingId}: {ex.Message}");
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Migrates a v4 recording's rotation data from world-space to surface-relative (v5).
+        /// Must be called when CelestialBody data is available (flight scene).
+        /// KSP's world frame co-rotates with the parent body, so bodyTransform.rotation
+        /// represents axial tilt only (time-invariant). Migration is simply
+        /// surfaceRelRot = Inverse(bodyRot) * worldRot — no time delta needed.
+        /// </summary>
+        internal static bool MigrateV4ToV5(Recording rec)
+        {
+            if (rec == null || rec.RecordingFormatVersion >= 5 || rec.Points.Count == 0)
+                return false;
+
+            string lastBody = null;
+            CelestialBody body = null;
+            Quaternion invBodyRot = Quaternion.identity;
+
+            int converted = 0;
+            for (int i = 0; i < rec.Points.Count; i++)
+            {
+                var pt = rec.Points[i];
+
+                // Cache body lookup
+                if (pt.bodyName != lastBody)
+                {
+                    body = FlightGlobals.Bodies.Find(b => b.name == pt.bodyName);
+                    lastBody = pt.bodyName;
+                    if (body != null)
+                    {
+                        // KSP's world frame co-rotates with the body surface.
+                        // body.bodyTransform.rotation represents axial tilt only,
+                        // NOT spin — so it's essentially constant over time.
+                        // surfaceRelRot = Inverse(bodyRot) * worldRot. No time delta needed.
+                        invBodyRot = Quaternion.Inverse(body.bodyTransform.rotation);
+                    }
+                }
+
+                if (body == null) continue;
+
+                pt.rotation = invBodyRot * pt.rotation;
+                rec.Points[i] = pt;
+                converted++;
+            }
+
+            if (converted == 0) return false;
+
+            rec.RecordingFormatVersion = 5;
+
+            // Save the migrated .prec file
+            bool saved = SaveRecordingFiles(rec);
+            Log($"Migrated recording {rec.RecordingId} from v4→v5: {converted} points converted, saved={saved}");
+            return saved;
         }
 
         private static void SafeWriteConfigNode(ConfigNode node, string path)
