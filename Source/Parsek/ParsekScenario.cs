@@ -55,7 +55,6 @@ namespace Parsek
                 ConfigNode recNode = node.AddNode("RECORDING");
 
                 // Write bulk data to external files
-                rec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
                 if (!RecordingStore.SaveRecordingFiles(rec))
                     ScenarioLog($"[Parsek Scenario] WARNING: File write failed for '{rec.VesselName}'");
 
@@ -108,7 +107,6 @@ namespace Parsek
                 // Write bulk data to external files for each recording in the tree
                 foreach (var rec in tree.Recordings.Values)
                 {
-                    rec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
                     if (!RecordingStore.SaveRecordingFiles(rec))
                         ScenarioLog($"[Parsek Scenario] WARNING: File write failed for tree recording '{rec.VesselName}'");
                 }

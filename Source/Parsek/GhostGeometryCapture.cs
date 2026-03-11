@@ -18,7 +18,6 @@ namespace Parsek
                 return;
             }
 
-            rec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
             rec.GhostGeometryVersion = RecordingStore.CurrentGhostGeometryVersion;
             rec.GhostGeometryRelativePath = RecordingPaths.BuildGhostGeometryRelativePath(rec.RecordingId);
             rec.GhostGeometryAvailable = false;
