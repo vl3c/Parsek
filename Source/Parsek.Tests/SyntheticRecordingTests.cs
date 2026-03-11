@@ -507,12 +507,12 @@ namespace Parsek.Tests
             seg0.AddPoint(t + 40, baseLat, baseLon + 0.0079,   160);
             seg0.AddPoint(t + 45, baseLat, baseLon + 0.0084,   110);
             seg0.AddPoint(t + 50, baseLat - 0.0005, baseLon + 0.0088, 80);
-            // Parachute descent — slow final approach
-            seg0.AddPoint(t + 55, baseLat - 0.0008, baseLon + 0.0091, 70);
-            seg0.AddPoint(t + 60, baseLat - 0.0012, baseLon + 0.0093, 62);
-            seg0.AddPoint(t + 65, baseLat - 0.0014, baseLon + 0.0094, 57);
-            seg0.AddPoint(t + 70, baseLat - 0.0016, baseLon + 0.0095, 55);
-            seg0.AddPoint(t + 75, baseLat - 0.0016, baseLon + 0.0095, 55); // landed
+            // Parachute descent — slow final approach (KSC terrain ~67-69m)
+            seg0.AddPoint(t + 55, baseLat - 0.0008, baseLon + 0.0091, 75);
+            seg0.AddPoint(t + 60, baseLat - 0.0012, baseLon + 0.0093, 72);
+            seg0.AddPoint(t + 65, baseLat - 0.0014, baseLon + 0.0094, 70);
+            seg0.AddPoint(t + 70, baseLat - 0.0016, baseLon + 0.0095, 69);
+            seg0.AddPoint(t + 75, baseLat - 0.0016, baseLon + 0.0095, 69); // landed
 
             // Engine events: SRB ignition and burnout
             seg0.AddPartEvent(t, 101111, 5, "solidBooster.sm.v2", value: 1f);
@@ -525,10 +525,10 @@ namespace Parsek.Tests
             double landLon = baseLon + 0.0095;
             seg0.WithVesselSnapshot(
                 VesselSnapshotBuilder.FleaRocket("Landing Craft", "Bill Kerman", pid: 88888888)
-                    .AsLanded(landLat, landLon, 55));
+                    .AsLanded(landLat, landLon, 69));
             seg0.WithGhostVisualSnapshot(
                 VesselSnapshotBuilder.FleaRocket("Landing Craft", "Bill Kerman", pid: 88888888)
-                    .AsLanded(landLat, landLon, 55));
+                    .AsLanded(landLat, landLon, 69));
 
             // Segment 1: EVA walk — Bill walks ~25m from landing point (25s)
             var seg1 = new RecordingBuilder("Bill Kerman")
@@ -540,17 +540,17 @@ namespace Parsek.Tests
                 .WithEvaCrewName("Bill Kerman");
 
             // Boundary anchor — same position as vessel's final point
-            seg1.AddPoint(t + 75, landLat,           landLon,            55);
-            seg1.AddPoint(t + 80, landLat - 0.0001,  landLon + 0.0001,  55);
-            seg1.AddPoint(t + 85, landLat - 0.0002,  landLon + 0.0002,  55);
-            seg1.AddPoint(t + 90, landLat - 0.0003,  landLon + 0.0002,  55);
-            seg1.AddPoint(t + 95, landLat - 0.0003,  landLon + 0.0003,  55);
-            seg1.AddPoint(t + 100, landLat - 0.0004, landLon + 0.0003,  55);
+            seg1.AddPoint(t + 75, landLat,           landLon,            69);
+            seg1.AddPoint(t + 80, landLat - 0.0001,  landLon + 0.0001,  69);
+            seg1.AddPoint(t + 85, landLat - 0.0002,  landLon + 0.0002,  69);
+            seg1.AddPoint(t + 90, landLat - 0.0003,  landLon + 0.0002,  69);
+            seg1.AddPoint(t + 95, landLat - 0.0003,  landLon + 0.0003,  69);
+            seg1.AddPoint(t + 100, landLat - 0.0004, landLon + 0.0003,  69);
 
             // Ghost-only EVA snapshot
             seg1.WithGhostVisualSnapshot(
                 VesselSnapshotBuilder.EvaKerbal("Bill Kerman", pid: 99999999)
-                    .AsLanded(landLat - 0.0004, landLon + 0.0003, 55));
+                    .AsLanded(landLat - 0.0004, landLon + 0.0003, 69));
 
             return new[] { seg0, seg1 };
         }
