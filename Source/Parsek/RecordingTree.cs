@@ -202,7 +202,6 @@ namespace Parsek
 
             // Existing recording metadata
             recNode.AddValue("recordingFormatVersion", rec.RecordingFormatVersion);
-            recNode.AddValue("ghostGeometryVersion", rec.GhostGeometryVersion);
             recNode.AddValue("loopPlayback", rec.LoopPlayback);
             recNode.AddValue("loopPauseSeconds", rec.LoopPauseSeconds.ToString("R", ic));
             if (!rec.PlaybackEnabled)
@@ -244,15 +243,6 @@ namespace Parsek
                 recNode.AddValue("rewindResSci", rec.RewindReservedScience.ToString("R", ic));
                 recNode.AddValue("rewindResRep", rec.RewindReservedRep.ToString("R", ic));
             }
-
-            // Ghost geometry metadata
-            recNode.AddValue("ghostGeometryStrategy", rec.GhostGeometryCaptureStrategy ?? "stub_v1");
-            recNode.AddValue("ghostGeometryProbeStatus", rec.GhostGeometryProbeStatus ?? "unknown");
-            if (!string.IsNullOrEmpty(rec.GhostGeometryRelativePath))
-                recNode.AddValue("ghostGeometryPath", rec.GhostGeometryRelativePath);
-            recNode.AddValue("ghostGeometryAvailable", rec.GhostGeometryAvailable);
-            if (!string.IsNullOrEmpty(rec.GhostGeometryCaptureError))
-                recNode.AddValue("ghostGeometryError", rec.GhostGeometryCaptureError);
 
             // Mutable playback state (parallels ParsekScenario.OnSave standalone fields)
             if (rec.SpawnedVesselPersistentId != 0)

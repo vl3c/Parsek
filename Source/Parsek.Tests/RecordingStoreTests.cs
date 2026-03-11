@@ -168,12 +168,6 @@ namespace Parsek.Tests
             Assert.Equal(0, rec.MaxDistanceFromLaunch);
             Assert.False(string.IsNullOrEmpty(rec.RecordingId));
             Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, rec.RecordingFormatVersion);
-            Assert.Equal(RecordingStore.CurrentGhostGeometryVersion, rec.GhostGeometryVersion);
-            Assert.False(rec.GhostGeometryAvailable);
-            Assert.Null(rec.GhostGeometryRelativePath);
-            Assert.Null(rec.GhostGeometryCaptureError);
-            Assert.Equal("stub_v1", rec.GhostGeometryCaptureStrategy);
-            Assert.Equal("uninitialized", rec.GhostGeometryProbeStatus);
         }
 
         [Fact]
@@ -229,8 +223,6 @@ namespace Parsek.Tests
             Assert.False(string.IsNullOrEmpty(RecordingStore.Pending.RecordingId));
             Assert.Equal(RecordingStore.CurrentRecordingFormatVersion,
                 RecordingStore.Pending.RecordingFormatVersion);
-            Assert.Equal(RecordingStore.CurrentGhostGeometryVersion,
-                RecordingStore.Pending.GhostGeometryVersion);
         }
 
         [Fact]
@@ -249,13 +241,11 @@ namespace Parsek.Tests
                 points,
                 "Ship",
                 recordingId: "fixedid",
-                recordingFormatVersion: 7,
-                ghostGeometryVersion: 3);
+                recordingFormatVersion: 7);
 
             Assert.True(RecordingStore.HasPending);
             Assert.Equal("fixedid", RecordingStore.Pending.RecordingId);
             Assert.Equal(7, RecordingStore.Pending.RecordingFormatVersion);
-            Assert.Equal(3, RecordingStore.Pending.GhostGeometryVersion);
         }
 
         [Fact]
@@ -269,16 +259,12 @@ namespace Parsek.Tests
             {
                 RecordingId = "abc",
                 RecordingFormatVersion = 9,
-                GhostGeometryVersion = 4,
                 VesselSnapshot = vesselSnapshot,
                 GhostVisualSnapshot = ghostSnapshot,
                 DistanceFromLaunch = 123,
                 VesselDestroyed = true,
                 VesselSituation = "Destroyed",
                 MaxDistanceFromLaunch = 456,
-                GhostGeometryRelativePath = "Parsek/Recordings/abc.pcrf",
-                GhostGeometryAvailable = false,
-                GhostGeometryCaptureError = "stub_not_implemented"
             };
             source.Points.AddRange(MakePoints(4));
             source.OrbitSegments.Add(new OrbitSegment { startUT = 1, endUT = 2, bodyName = "Kerbin" });
@@ -294,7 +280,6 @@ namespace Parsek.Tests
 
             Assert.Equal("abc", target.RecordingId);
             Assert.Equal(9, target.RecordingFormatVersion);
-            Assert.Equal(4, target.GhostGeometryVersion);
             Assert.NotNull(target.VesselSnapshot);
             Assert.NotNull(target.GhostVisualSnapshot);
             Assert.Equal("Vessel A", target.VesselSnapshot.GetValue("name"));
@@ -305,34 +290,10 @@ namespace Parsek.Tests
             Assert.True(target.VesselDestroyed);
             Assert.Equal("Destroyed", target.VesselSituation);
             Assert.Equal(456, target.MaxDistanceFromLaunch);
-            Assert.Equal("Parsek/Recordings/abc.pcrf", target.GhostGeometryRelativePath);
-            Assert.False(target.GhostGeometryAvailable);
-            Assert.Equal("stub_not_implemented", target.GhostGeometryCaptureError);
             Assert.Equal(2, target.Points.Count);
             Assert.Equal("Target", target.VesselName);
             Assert.Single(target.OrbitSegments);
             Assert.Equal("Mun", target.OrbitSegments[0].bodyName);
-        }
-
-        [Fact]
-        public void CaptureStub_NoSaveContext_SetsErrorAndDoesNotThrow()
-        {
-            var rec = new RecordingStore.Recording
-            {
-                RecordingId = "test-no-save-context",
-                VesselName = "Ship"
-            };
-
-            GhostGeometryCapture.CaptureStub(rec, vesselAtCapture: null);
-
-            Assert.Equal("Parsek/Recordings/test-no-save-context.pcrf".Replace('/', System.IO.Path.DirectorySeparatorChar),
-                rec.GhostGeometryRelativePath);
-            Assert.True(
-                rec.GhostGeometryCaptureError == "no_save_context" ||
-                (rec.GhostGeometryCaptureError != null &&
-                 rec.GhostGeometryCaptureError.StartsWith("stub_write_failed:")),
-                $"Unexpected capture error value: {rec.GhostGeometryCaptureError}");
-            Assert.False(rec.GhostGeometryAvailable);
         }
 
         [Fact]
@@ -342,14 +303,8 @@ namespace Parsek.Tests
             {
                 RecordingId = "meta123",
                 RecordingFormatVersion = 12,
-                GhostGeometryVersion = 8,
                 LoopPlayback = true,
                 LoopPauseSeconds = 2.5,
-                GhostGeometryRelativePath = "Parsek/Recordings/meta123.pcrf",
-                GhostGeometryAvailable = true,
-                GhostGeometryCaptureError = "none",
-                GhostGeometryCaptureStrategy = "live_hierarchy_probe_v1",
-                GhostGeometryProbeStatus = "ready_for_hierarchy_clone"
             };
 
             var node = new ConfigNode("RECORDING");
@@ -360,14 +315,14 @@ namespace Parsek.Tests
 
             Assert.Equal("meta123", loaded.RecordingId);
             Assert.Equal(12, loaded.RecordingFormatVersion);
-            Assert.Equal(8, loaded.GhostGeometryVersion);
             Assert.True(loaded.LoopPlayback);
             Assert.Equal(2.5, loaded.LoopPauseSeconds);
-            Assert.Equal("Parsek/Recordings/meta123.pcrf", loaded.GhostGeometryRelativePath);
-            Assert.True(loaded.GhostGeometryAvailable);
-            Assert.Equal("none", loaded.GhostGeometryCaptureError);
-            Assert.Equal("live_hierarchy_probe_v1", loaded.GhostGeometryCaptureStrategy);
-            Assert.Equal("ready_for_hierarchy_clone", loaded.GhostGeometryProbeStatus);
+
+            // Ghost geometry fields are no longer serialized on save
+            Assert.Null(node.GetValue("ghostGeometryVersion"));
+            Assert.Null(node.GetValue("ghostGeometryStrategy"));
+            Assert.Null(node.GetValue("ghostGeometryPath"));
+            Assert.Null(node.GetValue("ghostGeometryAvailable"));
         }
 
         [Fact]
@@ -378,20 +333,36 @@ namespace Parsek.Tests
 
             string defaultId = loaded.RecordingId;
             int defaultRecVer = loaded.RecordingFormatVersion;
-            int defaultGeomVer = loaded.GhostGeometryVersion;
 
             ParsekScenario.LoadRecordingMetadata(node, loaded);
 
             Assert.Equal(defaultId, loaded.RecordingId);
             Assert.Equal(defaultRecVer, loaded.RecordingFormatVersion);
-            Assert.Equal(defaultGeomVer, loaded.GhostGeometryVersion);
             Assert.False(loaded.LoopPlayback);
             Assert.Equal(10.0, loaded.LoopPauseSeconds);
-            Assert.Null(loaded.GhostGeometryRelativePath);
-            Assert.False(loaded.GhostGeometryAvailable);
-            Assert.Null(loaded.GhostGeometryCaptureError);
-            Assert.Equal("stub_v1", loaded.GhostGeometryCaptureStrategy);
-            Assert.Equal("uninitialized", loaded.GhostGeometryProbeStatus);
+        }
+
+        [Fact]
+        public void RecordingMetadata_BackwardCompat_LoadsLegacyGhostGeometryFields()
+        {
+            // Legacy save files may contain ghost geometry fields — verify they deserialize
+            // without error (backward compat) even though they're no longer written.
+            var node = new ConfigNode("RECORDING");
+            node.AddValue("recordingId", "legacy-rec");
+            node.AddValue("ghostGeometryVersion", "8");
+            node.AddValue("ghostGeometryStrategy", "live_hierarchy_probe_v1");
+            node.AddValue("ghostGeometryProbeStatus", "ready_for_hierarchy_clone");
+            node.AddValue("ghostGeometryPath", "Parsek/Recordings/legacy.pcrf");
+            node.AddValue("ghostGeometryAvailable", "True");
+            node.AddValue("ghostGeometryError", "none");
+
+            var loaded = new RecordingStore.Recording();
+            ParsekScenario.LoadRecordingMetadata(node, loaded);
+
+            Assert.Equal("legacy-rec", loaded.RecordingId);
+            Assert.Equal(8, loaded.GhostGeometryVersion);
+            Assert.Equal("Parsek/Recordings/legacy.pcrf", loaded.GhostGeometryRelativePath);
+            Assert.True(loaded.GhostGeometryAvailable);
         }
 
         [Fact]
@@ -453,16 +424,16 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        [InlineData(false, 3, 0, "vessel_not_loaded")]
-        [InlineData(true, 0, 0, "no_parts")]
-        [InlineData(true, 3, 0, "ready_for_hierarchy_clone")]
-        [InlineData(true, 3, 1, "partial_missing_transforms")]
-        [InlineData(true, 3, 3, "missing_transforms")]
-        public void DetermineProbeStatus_ClassifiesExpected(
-            bool loaded, int partCount, int missing, string expected)
+        [InlineData("abc123.prec", "abc123")]
+        [InlineData("abc123_vessel.craft", "abc123")]
+        [InlineData("abc123_ghost.craft", "abc123")]
+        [InlineData("abc123.pcrf", "abc123")]
+        [InlineData("readme.txt", null)]
+        [InlineData("", null)]
+        [InlineData(null, null)]
+        public void ExtractRecordingIdFromFileName_Works(string fileName, string expected)
         {
-            string actual = GhostGeometryCapture.DetermineProbeStatus(loaded, partCount, missing);
-            Assert.Equal(expected, actual);
+            Assert.Equal(expected, RecordingStore.ExtractRecordingIdFromFileName(fileName));
         }
 
         [Theory]

@@ -175,15 +175,20 @@ During rewind, action replay logs `Facility upgrade: 'SpaceCenter/LaunchPad' —
 
 **Status:** Fixed — downgraded from WARN to INFO with explanatory message ("expected in Flight scene where facility refs are unavailable"). The facility level data from the quicksave is authoritative; the action replay skip is harmless.
 
-## 23. Real career recordings missing ghost geometry (sphere fallback)
+## 23. Ghost geometry log noise and orphaned .pcrf files
 
-12 real career recordings loaded with `(ghost geometry: fallback)` — they render as green spheres instead of vessel models. These recordings have vessel snapshots but no `.pcrf` ghost geometry sidecar files.
+Original report: "Real career recordings missing ghost geometry (sphere fallback)". Investigation revealed the ghost visuals work correctly via `_ghost.craft` snapshots for all real career recordings — the `.pcrf` system was stub-only plumbing that was never completed.
 
-**Root cause:** Ghost geometry capture (`GhostGeometryCapture`) requires the vessel's 3D model to be loaded in the scene. Real career recordings were created before ghost geometry capture was implemented, or the capture failed silently at recording time.
+Three issues found:
+1. **Misleading log message**: `ParsekScenario` logged `(ghost geometry: fallback)` for all recordings with `.pcrf` stubs, making it sound like ghost visuals were broken. The `GhostGeometryAvailable` field was always `false` since `GhostGeometryCapture.CaptureStub()` only wrote metadata stubs.
+2. **Orphaned `.pcrf` files**: 19+ stub files left on disk for recording IDs that no longer existed in save files, created by `CaptureStub` for recordings later deleted.
+3. **Dead `.pcrf` stub system**: `GhostGeometryCapture` wrote stub-only `.pcrf` files never consumed by any code. Ghost visuals are built entirely from `_ghost.craft` snapshots via `GhostVisualBuilder.BuildTimelineGhostFromSnapshot()`.
 
-**Fix options:** (1) Re-record affected flights with current code, (2) add a geometry regeneration tool that loads vessel snapshot → captures geometry → writes .pcrf, (3) accept sphere fallback for legacy recordings.
+The only actual sphere fallback was "KSC Pad Destroyed" — a synthetic recording intentionally created without a vessel snapshot.
 
-**Status:** Open — cosmetic only, playback works with sphere fallback
+**Fix:** Deleted `GhostGeometryCapture.cs`. Stopped writing ghost geometry fields (`ghostGeometryVersion`, `ghostGeometryStrategy`, `ghostGeometryProbeStatus`, `ghostGeometryPath`, `ghostGeometryAvailable`, `ghostGeometryError`) in save serialization. Kept deserialization for backward compat with existing saves. Removed `CaptureStub` call from `VesselSpawner.SnapshotVessel`. Removed misleading log message. Added `RecordingStore.CleanOrphanFiles()` to scan `Parsek/Recordings/` on load and delete sidecar files for recording IDs not in the save.
+
+**Status:** Fixed
 
 ## 24. Part variant renderer fallback on ghost builds
 

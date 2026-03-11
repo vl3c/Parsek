@@ -19,7 +19,6 @@ Parsek/
 ├── OrbitSegment.cs            # Keplerian orbit parameters for on-rails recording
 ├── PartEvent.cs               # Part event enum + struct (28 event types)
 ├── GhostVisualBuilder.cs      # Ghost mesh building from vessel snapshots (engine/RCS FX, fairings)
-├── GhostGeometryCapture.cs    # Ghost geometry baking for persistence
 ├── VesselSpawner.cs           # Vessel spawn/recover/snapshot utilities
 ├── MergeDialog.cs             # Post-revert merge dialog
 ├── RecordingPaths.cs          # Save-scoped path resolution for external recording files
