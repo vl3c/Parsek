@@ -129,7 +129,6 @@ namespace Parsek
         public List<HeatMaterialState> glowMaterials = new List<HeatMaterialState>();
         public List<Material> allClonedMaterials = new List<Material>();
         public float lastIntensity;
-        public Vector3 lastVelocity;
         public float vesselLength;
     }
 
@@ -5598,17 +5597,23 @@ namespace Parsek
             }
 
             // --- Measure vessel bounds for streak sizing ---
-            float vesselLength = ComputeGhostLength(ghostRoot);
+            // Reuse the renderers array already fetched for Layer A to avoid a second hierarchy scan
+            float vesselLength = ComputeGhostLength(ghostRoot, renderers);
             info.vesselLength = vesselLength;
 
             // --- Fire streak trails ---
             // Multiple thin TrailRenderers offset around the nose, creating smooth
             // fire streaks that flow behind the vessel during atmospheric reentry.
             Shader streakShader = Shader.Find("KSP/Particles/Additive");
+            if (streakShader == null)
+            {
+                ParsekLog.Warn("ReentryFx",
+                    $"Shader 'KSP/Particles/Additive' not found — streak trails will not be created for ghost #{ghostIndex}");
+            }
             float noseOffset = vesselLength * 0.5f;
 
             // Angle offsets for streak emitters around the vessel cross-section
-            for (int s = 0; s < ReentryStreakCount; s++)
+            for (int s = 0; streakShader != null && s < ReentryStreakCount; s++)
             {
                 float angle = (s / (float)ReentryStreakCount) * Mathf.PI * 2f;
                 float offsetX = Mathf.Cos(angle) * ReentryStreakSpreadRadius * vesselLength;
@@ -5630,13 +5635,10 @@ namespace Parsek
                 trail.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                 trail.receiveShadows = false;
 
-                if (streakShader != null)
-                {
-                    var trailMat = new Material(streakShader);
-                    trailMat.SetColor("_TintColor", new Color(1f, 0.65f, 0.25f, 0.85f));
-                    trail.material = trailMat;
-                    info.allClonedMaterials.Add(trailMat);
-                }
+                var trailMat = new Material(streakShader);
+                trailMat.SetColor("_TintColor", new Color(1f, 0.65f, 0.25f, 0.85f));
+                trail.material = trailMat;
+                info.allClonedMaterials.Add(trailMat);
 
                 // Color gradient: bright orange-yellow at head -> deep orange-red -> transparent
                 Gradient streakGradient = new Gradient();
@@ -5676,10 +5678,12 @@ namespace Parsek
         /// <summary>
         /// Computes the local-space length of a ghost vessel along its Y axis (nose-to-tail)
         /// from the combined bounds of all renderers. Returns a minimum of 2m.
+        /// Accepts an optional pre-fetched renderer array to avoid duplicate hierarchy scans.
         /// </summary>
-        internal static float ComputeGhostLength(GameObject ghostRoot)
+        internal static float ComputeGhostLength(GameObject ghostRoot, Renderer[] renderers = null)
         {
-            var renderers = ghostRoot.GetComponentsInChildren<Renderer>(true);
+            if (renderers == null)
+                renderers = ghostRoot.GetComponentsInChildren<Renderer>(true);
             if (renderers == null || renderers.Length == 0)
                 return 2f;
 

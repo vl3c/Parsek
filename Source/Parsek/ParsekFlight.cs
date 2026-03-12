@@ -5825,7 +5825,7 @@ namespace Parsek
         {
             DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, altitude, 0f, vesselName);
             info.lastIntensity = 0f;
-            info.lastVelocity = Vector3.zero;
+
         }
 
         private void UpdateReentryFx(int recIdx, GhostPlaybackState state, string vesselName)
@@ -5900,7 +5900,6 @@ namespace Parsek
 
             DriveReentryLayers(info, smoothedIntensity, surfaceVel, recIdx, bodyName, altitude, q, vesselName);
             info.lastIntensity = smoothedIntensity;
-            info.lastVelocity = surfaceVel;
         }
 
         private void DriveReentryLayers(ReentryFxInfo info, float intensity, Vector3 surfaceVel,
@@ -5964,10 +5963,12 @@ namespace Parsek
                 if (intensity > GhostVisualBuilder.ReentryStreakThreshold)
                 {
                     float streakFraction = Mathf.InverseLerp(GhostVisualBuilder.ReentryStreakThreshold, 1f, intensity);
+                    // Scale widths proportionally to vessel size (reference = 10m vessel)
+                    float lengthScale = Mathf.Clamp(info.vesselLength / 10f, 0.5f, 3f);
                     float startW = Mathf.Lerp(GhostVisualBuilder.ReentryStreakStartWidthMin,
-                        GhostVisualBuilder.ReentryStreakStartWidthMax, streakFraction);
+                        GhostVisualBuilder.ReentryStreakStartWidthMax, streakFraction) * lengthScale;
                     float endW = Mathf.Lerp(GhostVisualBuilder.ReentryStreakEndWidthMin,
-                        GhostVisualBuilder.ReentryStreakEndWidthMax, streakFraction);
+                        GhostVisualBuilder.ReentryStreakEndWidthMax, streakFraction) * lengthScale;
 
                     for (int i = 0; i < info.streakTrails.Count; i++)
                     {
@@ -5996,7 +5997,7 @@ namespace Parsek
             if (info == null) return;
 
             info.lastIntensity = 0f;
-            info.lastVelocity = Vector3.zero;
+
 
             if (info.streakTrails != null)
             {
