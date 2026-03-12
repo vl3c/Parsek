@@ -928,5 +928,55 @@ namespace Parsek.Tests
             Assert.Contains("45", msg);
             Assert.Contains("Duration:", msg);
         }
+
+        [Fact]
+        public void SyncVersionFromPrecFile_UpgradesStaleMetadata()
+        {
+            var rec = new RecordingStore.Recording
+            {
+                RecordingId = "synctest",
+                RecordingFormatVersion = 4
+            };
+
+            var precNode = new ConfigNode("PARSEK_RECORDING");
+            precNode.AddValue("version", "5");
+
+            RecordingStore.SyncVersionFromPrecFile(precNode, rec);
+
+            Assert.Equal(5, rec.RecordingFormatVersion);
+        }
+
+        [Fact]
+        public void SyncVersionFromPrecFile_DoesNotDowngrade()
+        {
+            var rec = new RecordingStore.Recording
+            {
+                RecordingId = "synctest",
+                RecordingFormatVersion = 5
+            };
+
+            var precNode = new ConfigNode("PARSEK_RECORDING");
+            precNode.AddValue("version", "4");
+
+            RecordingStore.SyncVersionFromPrecFile(precNode, rec);
+
+            Assert.Equal(5, rec.RecordingFormatVersion);
+        }
+
+        [Fact]
+        public void SyncVersionFromPrecFile_NoVersionField_NoChange()
+        {
+            var rec = new RecordingStore.Recording
+            {
+                RecordingId = "synctest",
+                RecordingFormatVersion = 4
+            };
+
+            var precNode = new ConfigNode("PARSEK_RECORDING");
+
+            RecordingStore.SyncVersionFromPrecFile(precNode, rec);
+
+            Assert.Equal(4, rec.RecordingFormatVersion);
+        }
     }
 }

@@ -1545,6 +1545,11 @@ namespace Parsek
                     return false;
                 }
 
+                // Sync format version from .prec file (authoritative for data format).
+                // Prevents double-migration when .sfs metadata is stale (e.g., quicksave
+                // made before an in-flight v4→v5 migration updated the persistent save).
+                SyncVersionFromPrecFile(precNode, rec);
+
                 DeserializeTrajectoryFrom(precNode, rec);
 
                 // Load _vessel.craft — ConfigNode.Load returns the snapshot directly
@@ -1581,6 +1586,26 @@ namespace Parsek
             {
                 Log($"[Parsek] Failed to load recording files for {rec.RecordingId}: {ex.Message}");
                 return false;
+            }
+        }
+
+        /// <summary>
+        /// Syncs RecordingFormatVersion from the .prec file's version field.
+        /// The .prec file is authoritative for data format; if its version is higher
+        /// than the .sfs metadata, the recording's version is updated to match.
+        /// </summary>
+        internal static void SyncVersionFromPrecFile(ConfigNode precNode, Recording rec)
+        {
+            string fileVersion = precNode.GetValue("version");
+            if (fileVersion == null) return;
+
+            int precVersion;
+            if (int.TryParse(fileVersion, NumberStyles.Integer,
+                    CultureInfo.InvariantCulture, out precVersion)
+                && precVersion > rec.RecordingFormatVersion)
+            {
+                Log($"Version sync: {rec.RecordingId} .sfs says v{rec.RecordingFormatVersion} but .prec says v{precVersion} — updating");
+                rec.RecordingFormatVersion = precVersion;
             }
         }
 
