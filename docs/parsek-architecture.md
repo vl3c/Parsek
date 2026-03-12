@@ -306,7 +306,7 @@ public class PlaybackEngine : MonoBehaviour
 | Mode | Description | Status |
 |------|-------------|--------|
 | Kinematic | Direct position/rotation setting | Done |
-| On-Rails | Analytical Keplerian orbit during time warp segments | Done |
+| On-Rails | Analytical Keplerian orbit during time warp segments, with orbital-frame-relative rotation (preserves SAS attitude) and optional spin-forward (PersistentRotation mod) | Done |
 
 ---
 
@@ -687,6 +687,7 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 
 | Mod | Integration |
 |-----|-------------|
+| PersistentRotation | Detected at recording start. When active and vessel is spinning (>0.05 rad/s), angular velocity is recorded. Ghost vessels spin during orbital playback. |
 | Kerbal Alarm Clock | Auto-create alarms for ghost playback windows |
 
 ---
@@ -717,7 +718,7 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 
 **Recording & playback mechanics (done):**
 - [ ] Take control of playback vessel (experimental/partial; not fully supported yet)
-- [x] Orbital/time-warp recording (save orbit params instead of sampling)
+- [x] Orbital/time-warp recording (save orbit params instead of sampling, with attitude preservation and PersistentRotation spin support)
 - [x] Ghost as actual vessel model (opaque replica from prefab meshes)
 - [x] Adaptive threshold sampling (velocity direction >2deg, speed >5%, 3s backstop)
 - [x] ClickThroughBlocker for UI windows
