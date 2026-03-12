@@ -67,7 +67,7 @@ Vessel destroyed near KSC. No snapshot - exercises the destroyed/no-snapshot fal
 
 ### 6. Orbit-1 (+180 to +3180) - Vessel Spawn (orbit)
 
-Bill's crewed vessel (pod+tank+engine) ascends to orbit. At +680, the ghost transitions to the **orbital segment** - position computed analytically from Keplerian parameters. **Vessel spawns** in orbit at EndUT. Bill is marked Assigned in Astronaut Complex until spawn.
+Bill's crewed vessel (pod+tank+engine) ascends to orbit. At +680, the ghost transitions to the **orbital segment** - position computed analytically from Keplerian parameters. The orbital segment includes orbital-frame rotation data (`ofrY: 1` = retrograde attitude) to exercise the orbital rotation fidelity feature. **Vessel spawns** in orbit at EndUT. Bill is marked Assigned in Astronaut Complex until spawn.
 
 ### 7. Close Spawn Conflict (+210 to +222) - Vessel Spawn (landed)
 

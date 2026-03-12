@@ -87,33 +87,21 @@ The old v4 body rotation correction (`CorrectForBodyRotation`) accumulates float
 
 ## 16. Orbital recording fidelity during time warp vs real-time
 
-When in orbit, unclear whether position and orientation are recorded correctly in all cases:
-- **Real-time (no warp):** Position and orientation changes (user attitude adjustments, RCS maneuvers) should be recorded at full physics-frame fidelity, same as atmospheric flight.
-- **Time warp (on rails):** Vessel is locked to orbital rail with fixed orientation. Only orbital position matters — orientation is locked by KSP. Recording should capture the orbital rail parameters.
-- **Potential bugs:** (1) Are real-time orbital maneuvers captured at full fidelity? (2) Is the transition between real-time and on-rails handled correctly (boundary points)? (3) Does playback correctly switch between point-based and orbit-based ghost positioning? Need to verify the full orbital recording pipeline end-to-end.
+Ghost orientation was wrong during orbital (on-rails) segments — all vessels appeared prograde-locked regardless of their actual attitude.
 
-### Orbital orientation — known deficiency
+**Root cause:** Playback derived ghost rotation from velocity direction (`Quaternion.LookRotation(velocity)`) without storing the vessel's actual attitude at the on-rails boundary.
 
-Current playback derives ghost rotation from velocity direction (`Quaternion.LookRotation(velocity)`) during orbital segments. This is **wrong** for any vessel not locked to prograde — retrograde, normal, radial, free-spinning vessels will all appear prograde-locked.
+**Fix:** Orbital segments now store the vessel's rotation relative to the orbital velocity frame (prograde/radial/normal) as 4 optional ConfigNode keys (`ofrX/Y/Z/W`). At playback, the orbital frame is reconstructed from the Keplerian orbit at the target UT and the stored offset is applied. A vessel holding retrograde gets a 180-degree yaw offset that persists around the entire orbit.
 
-**Correct approach** (from PersistentRotation mod analysis, see `docs/dev/reference/PersistentRotation-architecture-analysis.md`):
+Additionally, when the PersistentRotation mod is detected at recording time and the vessel is spinning (angular velocity > 0.05 rad/s), the vessel-local angular velocity is stored (`avX/Y/Z`) and the ghost is spun forward during playback, matching what the player saw with PersistentRotation active.
 
-1. **At on-rails boundary:** Store angular momentum (`vessel.angularMomentum`) and current rotation. Angular momentum is the right quantity because it's conserved across MOI changes (fuel burn); angular velocity (`omega = L/I`) is not.
+No format version bump — missing keys default to prograde fallback (backward compatible). Old Parsek versions ignore unknown keys (forward compatible).
 
-2. **During warp playback:** Simulate spin forward: `Quaternion.AngleAxis(omega.magnitude * dt, worldAxis) * storedRotation`. This produces realistic tumble/spin during ghost orbital segments.
+See `docs/dev/design-orbital-rotation.md` for full design.
 
-3. **`Planetarium.right` drift:** The inertial reference frame shifts over time. Any rotation stored in inertial frame needs `Planetarium.Rotation` stored alongside it. Our v5 surface-relative approach avoids this for surface/atmo, but orbital segments will need it. Store `Planetarium.Rotation` at each on-rails boundary point.
+**Remaining open item:** `Planetarium.right` drift may cause minor orientation mismatch for very long orbital segments (interplanetary transfers). Requires empirical measurement before deciding whether to implement drift compensation (future Phase 6).
 
-4. **Reference frame choice for orbital rotation:** Surface-relative (`v.srfRelRotation`) is meaningless in orbit (body rotates underneath). Need either inertial-frame rotation + Planetarium.Rotation snapshot, or body-orbit-frame rotation.
-
-### Implementation plan (future)
-
-- Add `angularMomentum` field to on-rails boundary `TrajectoryPoint` (or new `OrbitSegment` field)
-- Store `Planetarium.Rotation` at boundary points
-- At playback: for orbital segments, use stored rotation + angular momentum to compute spin-forward orientation instead of velocity-derived prograde
-- For real-time orbital flight (no warp): already recorded correctly via physics-frame sampling with v5 surface-relative rotation
-
-**Status:** Open — needs investigation and implementation (format v6 candidate)
+**Status:** Fixed
 
 ## 17. Re-entry flame effects too large and pointing wrong direction
 
@@ -197,3 +185,11 @@ During ghost visual builds, some parts log `Variant active-state fallback: no ac
 **Root cause:** `GhostVisualBuilder` attempts to match the recorded part variant by enabling/disabling variant-specific renderers. When no renderer is tagged as active for the recorded variant, all renderers fall back to their default state. However, when the variant has GAMEOBJECT rules in the part config, those rules still filter renderers correctly — the fallback warning was firing even when GAMEOBJECT rule filtering was working.
 
 **Status:** Fixed — variant fallback warning now only fires when BOTH active-state filtering AND GAMEOBJECT rules are unavailable (the true fallback case). When GAMEOBJECT rules exist, variant filtering works correctly and no warning is logged.
+
+## 25. Flaky test: CommittedActionTests.GetCommittedTechIds_MultipleMilestones
+
+`CommittedActionTests.GetCommittedTechIds_MultipleMilestones` intermittently fails when run as part of the full test suite but passes in isolation. Likely a shared static state issue — the test depends on `MilestoneStore` or `RecordingStore` state that another test in the same suite leaves dirty.
+
+**Reproduction:** `dotnet test` (full suite) — fails ~50% of runs. `dotnet test --filter GetCommittedTechIds_MultipleMilestones` — always passes.
+
+**Status:** Open — needs investigation of shared state cleanup between tests

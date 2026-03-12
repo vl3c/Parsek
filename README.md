@@ -24,7 +24,7 @@ Recorded vessels are full visual replicas - original part meshes, textures, engi
 - **Looped playback** - fly missions and loop their recordings - add as many rockets, spaceships or aircraft in the sky as you want - great for in-game video recordings!
 - **Vessel persistence** - recorded vessels spawn with crew, or get recovered for funds
 - **Crew management** - reserved crew get temporary replacements so your roster stays full
-- **Orbital recording** - time warp segments use analytical Keplerian orbits
+- **Orbital recording** - time warp segments use analytical Keplerian orbits with attitude preservation (SAS-locked orientations like retrograde, normal, radial hold correctly throughout the orbit)
 - **Part events** - staging, decoupling, parachutes, engines, solar panels, antennas, lights, landing gear, cargo bays, fairings, RCS, and inventory deployables replay on the ghost; docking / undocking are recorded as chain boundaries
 - **Resource tracking** - game actions related to funds, science, and reputation deltas are recorded and applied at the correct time
 - **Rewind** - go back to any earlier point in your timeline; resources reset to baseline, ghost playback re-applies everything at the correct time
@@ -36,6 +36,12 @@ Recorded vessels are full visual replicas - original part meshes, textures, engi
 ## Controls
 
 The Parsek window is available from the toolbar button in Flight and Map view.
+
+## Supported Mods
+
+| Mod | Integration |
+|-----|-------------|
+| [PersistentRotation](https://github.com/MarkusA380/PersistentRotation) | When detected, Parsek records vessel angular velocity at time warp boundaries. Ghost vessels spin during orbital playback, matching what the player saw with PersistentRotation active. Without it, ghosts hold their SAS-locked attitude (the correct behavior for stock KSP, which freezes rotation on rails). |
 
 ## Installation
 
@@ -81,6 +87,7 @@ Parsek was inspired by and learned from the KSP modding community. The following
 
 - **[FMRS](https://github.com/linuxgurugamer/FMRS)** (linuxgurugamer / dtobi) - time-revert patterns for stage recovery
 - **[Persistent Trails](https://github.com/JPLRepo/KSPPersistentTrails)** (JPLRepo) - trajectory recording and adaptive sampling
+- **[PersistentRotation](https://github.com/MarkusA380/PersistentRotation)** (MarkusA380) - orbital rotation persistence, angular velocity handling during time warp
 - **[KSP Community Fixes](https://github.com/KSPModdingLibs/KSPCommunityFixes)** (gotmachine / KSPModdingLibs) - Harmony patching patterns, performance techniques
 - **[VesselMover](https://github.com/jrodrigv/VesselMover)** (jrodrigv / BDArmory team) - vessel positioning and geographic coordinate handling
 - **[StageRecovery](https://github.com/linuxgurugamer/StageRecovery)** (linuxgurugamer / magico13) - GameEvents + polling hybrid for event detection
