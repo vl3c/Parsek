@@ -6949,7 +6949,7 @@ namespace Parsek
             bool hasOfr = TrajectoryMath.HasOrbitalFrameRotation(segment);
             bool spinning = TrajectoryMath.IsSpinning(segment);
 
-            if (spinning && velocity.sqrMagnitude > 0.001)
+            if (spinning)
             {
                 // Spin-forward path: reconstruct boundary world rotation from orbit at startUT
                 Vector3d velAtStart = orbit.getOrbitalVelocityAtUT(segment.startUT);
@@ -6958,7 +6958,11 @@ namespace Parsek
 
                 Quaternion orbFrameAtStart;
                 if (Mathf.Abs(Vector3.Dot(((Vector3)velAtStart).normalized, ((Vector3)radialAtStart).normalized)) > 0.99f)
+                {
                     orbFrameAtStart = Quaternion.LookRotation(velAtStart);
+                    ParsekLog.VerboseRateLimited("Playback", $"orbit-near-parallel-start-{cacheKey}",
+                        $"Orbit segment {cacheKey}: velocity/radialOut near-parallel at startUT, LookRotation fallback");
+                }
                 else
                     orbFrameAtStart = Quaternion.LookRotation(velAtStart, radialAtStart);
 
@@ -6976,7 +6980,11 @@ namespace Parsek
 
                 Quaternion orbFrame;
                 if (Mathf.Abs(Vector3.Dot(((Vector3)velocity).normalized, ((Vector3)radialOut).normalized)) > 0.99f)
+                {
                     orbFrame = Quaternion.LookRotation(velocity);
+                    ParsekLog.VerboseRateLimited("Playback", $"orbit-near-parallel-{cacheKey}",
+                        $"Orbit segment {cacheKey}: velocity/radialOut near-parallel, LookRotation fallback");
+                }
                 else
                     orbFrame = Quaternion.LookRotation(velocity, radialOut);
 
