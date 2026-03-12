@@ -123,15 +123,23 @@ namespace Parsek
         public GameObject fairingMeshObject;
     }
 
+    internal struct FireShellMesh
+    {
+        public Mesh mesh;
+        public Transform transform;
+    }
+
     internal class ReentryFxInfo
     {
-        public List<ParticleSystem> flameParticles = new List<ParticleSystem>();
-        public List<ParticleSystem> smokeParticles = new List<ParticleSystem>();
-        public TrailRenderer trailRenderer;
+        public ParticleSystem fireParticles;
+        public Mesh combinedEmissionMesh; // combined ghost meshes for surface emission, needs Destroy
+        public Texture2D generatedTexture; // runtime soft-circle, needs Destroy on cleanup
+        public List<FireShellMesh> fireShellMeshes; // mesh+transform pairs for DrawMesh flame overlay
+        public Material fireShellMaterial; // additive material for flame shell passes
         public List<HeatMaterialState> glowMaterials = new List<HeatMaterialState>();
         public List<Material> allClonedMaterials = new List<Material>();
         public float lastIntensity;
-        public Vector3 lastVelocity;
+        public float vesselLength;
     }
 
     internal static class GhostVisualBuilder
@@ -152,23 +160,36 @@ namespace Parsek
         private static readonly Color HeatTintColor = new Color(1f, 0.45f, 0.2f, 1f);
         private static readonly Color HeatEmissionColor = new Color(1.5f, 0.6f, 0.15f, 1f);
 
-        // Reentry FX intensity thresholds
-        private const float ReentryQThresholdLow = 500f;
-        private const float ReentryQThresholdHigh = 20000f;
-        private const float ReentrySpeedThresholdLow = 400f;
+        // Reentry FX thresholds — matched to KSP stock Physics.cfg aeroFX parameters
+        // KSP shows thermal FX (orange flames) starting at Mach 2.5, fully orange at Mach 3.75
+        // aeroFXStrength ∝ velocity^3.5 * (0.0091 * density^0.5 + 0.09 * density^2)
+        // Density fade starts at 0.0015 kg/m³ (near edge of atmosphere)
+        internal const float AeroFxThermalStartMach = 2.5f;
+        internal const float AeroFxThermalFullMach = 3.75f;
+        internal const float AeroFxVelocityExponent = 3.5f;
+        internal const float AeroFxDensityScalar1 = 0.0091f;
+        internal const float AeroFxDensityExponent1 = 0.5f;
+        internal const float AeroFxDensityScalar2 = 0.09f;
+        internal const float AeroFxDensityExponent2 = 2f;
+        internal const float AeroFxDensityFadeStart = 0.0015f;
         internal static readonly Color ReentryHotEmissionLow = new Color(1.5f, 0.6f, 0.15f, 1f);
         internal static readonly Color ReentryHotEmissionHigh = new Color(2.0f, 1.5f, 0.8f, 1f);
-        internal const float ReentrySmoothingRate = 5.0f;
-        internal const float ReentryLayerAThreshold = 0.05f;
-        internal const float ReentryLayerBThreshold = 0.15f;
-        internal const float ReentryLayerCThreshold = 0.3f;
-        internal const float ReentryLayerDThreshold = 0.1f;
-        internal const float ReentryFlameMaxEmission = 200f;
-        internal const float ReentrySmokeMaxEmission = 80f;
-        internal const float ReentryTrailMinWidth = 5f;
-        internal const float ReentryTrailMaxWidth = 20f;
-        internal const float ReentryTrailEndMinWidth = 1f;
-        internal const float ReentryTrailEndMaxWidth = 5f;
+        internal const float ReentrySmoothingRate = 18.0f;
+        internal const float ReentryLayerAThreshold = 0.02f;
+        internal const float ReentryFireThreshold = 0.02f;
+
+        // Fire envelope particle configuration
+        internal const float ReentryFireLifetimeMin = 0.1f;
+        internal const float ReentryFireLifetimeMax = 0.35f;
+        internal const int ReentryFireMaxParticles = 1500;
+        internal const float ReentryFireEmissionMin = 300f;
+        internal const float ReentryFireEmissionMax = 2000f;
+
+        // Fire shell overlay: ghost meshes drawn at offsets along velocity
+        // Approximates KSP's FXCamera replacement shader (vertex displacement along airflow)
+        internal const int ReentryFireShellPasses = 4;
+        internal const float ReentryFireShellMaxOffset = 0.05f; // fraction of vesselLength
+        internal static readonly Color ReentryFireShellColor = new Color(1f, 0.45f, 0.12f, 1f);
 
         // Cache for PREFAB_PARTICLE fx_* prefabs found on PartLoader part prefabs.
         // Built once from PartLoader.LoadedPartsList (stable prefab templates).
@@ -5481,8 +5502,8 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Creates all four reentry FX layers (glow materials, flame particles,
-        /// smoke trail, condensation trail) on a ghost root GameObject.
+        /// Creates reentry FX layers (glow materials + fire streak trails)
+        /// on a ghost root GameObject.
         /// Called once at ghost spawn time; FX start dormant and are driven by UpdateReentryFx.
         /// </summary>
         internal static ReentryFxInfo TryBuildReentryFx(
@@ -5509,6 +5530,12 @@ namespace Parsek
                 {
                     Renderer renderer = renderers[r];
                     if (renderer == null) continue;
+
+                    // Skip particle and trail renderers — cloning their materials breaks
+                    // sprite sheet animation (TextureSheetAnimation UV state is lost),
+                    // causing particles to render the full texture atlas as a square.
+                    if (renderer is ParticleSystemRenderer || renderer is TrailRenderer)
+                        continue;
 
                     // Walk up hierarchy to find ghost_part_{persistentId} parent
                     uint partPid = 0;
@@ -5596,181 +5623,184 @@ namespace Parsek
                 }
             }
 
-            // Resolve a soft particle texture from stock FX prefabs
-            Texture particleTexture = null;
-            GameObject fxSource = FindFxPrefab("fx_exhaustFlame_yellow");
-            if (fxSource != null)
+            // --- Measure vessel bounds for streak sizing ---
+            // Reuse the renderers array already fetched for Layer A to avoid a second hierarchy scan
+            float vesselLength = ComputeGhostLength(ghostRoot, renderers);
+            info.vesselLength = vesselLength;
+
+            // --- Fire streak trails ---
+            // --- Fire envelope particles (mesh-surface emission) ---
+            // Emulates KSP's stock aeroFX approach: fire originates from the vessel's
+            // own geometry surface. We combine all ghost meshes into one, use it as the
+            // particle emission shape, and simulate in world space. As the vessel moves
+            // through the air, particles stay in place and naturally streak backward
+            // along the airflow — the same visual result as the stock replacement shader.
+            Shader particleShader = Shader.Find("KSP/Particles/Additive");
+            if (particleShader == null)
             {
-                var sourceRenderer = fxSource.GetComponentInChildren<ParticleSystemRenderer>(true);
-                if (sourceRenderer != null && sourceRenderer.sharedMaterial != null)
-                    particleTexture = sourceRenderer.sharedMaterial.mainTexture;
+                ParsekLog.Warn("ReentryFx",
+                    $"Shader 'KSP/Particles/Additive' not found — fire particles will not be created for ghost #{ghostIndex}");
             }
-
-            // --- Layer B: Flame particles (vessel-attached) ---
+            else
             {
-                GameObject flameObj = new GameObject("ReentryFlame");
-                flameObj.transform.SetParent(ghostRoot.transform, false);
-
-                ParticleSystem flame = flameObj.AddComponent<ParticleSystem>();
-                var main = flame.main;
-                main.simulationSpace = ParticleSystemSimulationSpace.World;
-                main.startLifetime = new ParticleSystem.MinMaxCurve(0.15f, 0.5f);
-                main.startColor = new ParticleSystem.MinMaxGradient(new Color(1f, 0.7f, 0.2f, 0.9f));
-                main.startSize = new ParticleSystem.MinMaxCurve(0.5f, 1.5f);
-                main.startSpeed = new ParticleSystem.MinMaxCurve(1f, 5f);
-                main.maxParticles = 500;
-                main.playOnAwake = false;
-
-                var emission = flame.emission;
-                emission.enabled = true;
-                emission.rateOverTime = 0f;
-
-                var shape = flame.shape;
-                shape.enabled = true;
-                shape.shapeType = ParticleSystemShapeType.Cone;
-                shape.angle = 15f;
-                shape.radius = 0.3f;
-
-                var flameRenderer = flameObj.GetComponent<ParticleSystemRenderer>();
-                if (flameRenderer != null)
+                // Combine all ghost meshes into a single emission shape
+                MeshFilter[] meshFilters = ghostRoot.GetComponentsInChildren<MeshFilter>(true);
+                var combines = new System.Collections.Generic.List<CombineInstance>();
+                Matrix4x4 rootWorldToLocal = ghostRoot.transform.worldToLocalMatrix;
+                for (int m = 0; m < meshFilters.Length; m++)
                 {
-                    flameRenderer.maxParticleSize = 15f;
-                    Shader additiveShader = Shader.Find("KSP/Particles/Additive");
-                    if (additiveShader != null)
-                    {
-                        var flameMat = new Material(additiveShader);
-                        if (particleTexture != null)
-                            flameMat.mainTexture = particleTexture;
-                        flameMat.SetColor("_TintColor", new Color(1f, 0.7f, 0.2f, 0.9f));
-                        flameRenderer.material = flameMat;
-                        info.allClonedMaterials.Add(flameMat);
-                    }
+                    MeshFilter mf = meshFilters[m];
+                    if (mf == null || mf.sharedMesh == null) continue;
+                    if (!mf.gameObject.activeInHierarchy) continue;
+                    CombineInstance ci = default;
+                    ci.mesh = mf.sharedMesh;
+                    ci.transform = rootWorldToLocal * mf.transform.localToWorldMatrix;
+                    combines.Add(ci);
                 }
 
-                flame.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                flame.Clear(true);
-                info.flameParticles.Add(flame);
-            }
-
-            // --- Layer C: Smoke trail (world-space) ---
-            {
-                GameObject smokeObj = new GameObject("ReentrySmoke");
-                smokeObj.transform.SetParent(ghostRoot.transform, false);
-
-                ParticleSystem smoke = smokeObj.AddComponent<ParticleSystem>();
-                var main = smoke.main;
-                main.simulationSpace = ParticleSystemSimulationSpace.World;
-                main.startLifetime = new ParticleSystem.MinMaxCurve(4f, 10f);
-                main.startColor = new ParticleSystem.MinMaxGradient(new Color(1f, 0.5f, 0.1f, 0.7f));
-                main.startSize = new ParticleSystem.MinMaxCurve(1.5f, 4f);
-                main.startSpeed = new ParticleSystem.MinMaxCurve(0f, 0.5f);
-                main.maxParticles = 2000;
-                main.gravityModifier = 0.03f;
-                main.playOnAwake = false;
-
-                var emission = smoke.emission;
-                emission.enabled = true;
-                emission.rateOverTime = 0f;
-
-                var shape = smoke.shape;
-                shape.enabled = true;
-                shape.shapeType = ParticleSystemShapeType.Sphere;
-                shape.radius = 0.3f;
-
-                var smokeRenderer = smokeObj.GetComponent<ParticleSystemRenderer>();
-                if (smokeRenderer != null)
+                Mesh combinedMesh = null;
+                if (combines.Count > 0)
                 {
-                    smokeRenderer.maxParticleSize = 40f;
-                    Shader alphaBlendedShader = Shader.Find("KSP/Particles/Alpha Blended");
-                    if (alphaBlendedShader != null)
-                    {
-                        var smokeMat = new Material(alphaBlendedShader);
-                        if (particleTexture != null)
-                            smokeMat.mainTexture = particleTexture;
-                        smokeMat.SetColor("_TintColor", new Color(1f, 0.5f, 0.1f, 0.7f));
-                        smokeRenderer.material = smokeMat;
-                        info.allClonedMaterials.Add(smokeMat);
-                    }
+                    combinedMesh = new Mesh();
+                    combinedMesh.CombineMeshes(combines.ToArray(), true, true);
                 }
 
-                // Color over lifetime: orange -> dark gray -> transparent
-                var colorOverLifetime = smoke.colorOverLifetime;
+                GameObject fireObj = new GameObject("ReentryFire");
+                fireObj.transform.SetParent(ghostRoot.transform, false);
+                fireObj.transform.localPosition = Vector3.zero;
+                fireObj.transform.localRotation = Quaternion.identity;
+
+                ParticleSystem ps = fireObj.AddComponent<ParticleSystem>();
+
+                var main = ps.main;
+                main.simulationSpace = ParticleSystemSimulationSpace.World;
+                main.startLifetime = new ParticleSystem.MinMaxCurve(ReentryFireLifetimeMin, ReentryFireLifetimeMax);
+                // Small outward push from surface normal — particles drift slightly away from hull
+                // Small outward push from surface normal — particles drift slightly away from hull
+                main.startSpeed = new ParticleSystem.MinMaxCurve(1f, 4f);
+                main.startSize = new ParticleSystem.MinMaxCurve(vesselLength * 0.06f, vesselLength * 0.2f);
+                main.maxParticles = ReentryFireMaxParticles;
+                main.playOnAwake = false;
+                main.prewarm = false;
+                main.startColor = new ParticleSystem.MinMaxGradient(
+                    new Color(1f, 0.8f, 0.3f, 0.8f),
+                    new Color(1f, 0.5f, 0.15f, 0.9f));
+
+                // Shape: emit from vessel mesh surface
+                var shape = ps.shape;
+                if (combinedMesh != null)
+                {
+                    shape.shapeType = ParticleSystemShapeType.Mesh;
+                    shape.mesh = combinedMesh;
+                    shape.meshShapeType = ParticleSystemMeshShapeType.Triangle;
+                    shape.normalOffset = 0.05f;
+                }
+                else
+                {
+                    // Fallback: sphere if no meshes available
+                    shape.shapeType = ParticleSystemShapeType.Sphere;
+                    shape.radius = vesselLength * 0.3f;
+                    ParsekLog.Warn("ReentryFx",
+                        $"No mesh filters found on ghost #{ghostIndex} — using sphere emission fallback");
+                }
+
+                // Emission: driven by DriveReentryLayers
+                var emission = ps.emission;
+                emission.enabled = true;
+                emission.rateOverTimeMultiplier = 0f;
+
+                // Color over lifetime: bright yellow-white → orange → deep red → fade out
+                var colorOverLifetime = ps.colorOverLifetime;
                 colorOverLifetime.enabled = true;
-                Gradient gradient = new Gradient();
-                gradient.SetKeys(
+                var fireGradient = new Gradient();
+                fireGradient.SetKeys(
                     new GradientColorKey[]
                     {
-                        new GradientColorKey(new Color(1f, 0.5f, 0.1f), 0f),
-                        new GradientColorKey(new Color(0.3f, 0.3f, 0.3f), 0.5f),
-                        new GradientColorKey(new Color(0.2f, 0.2f, 0.2f), 1f)
+                        new GradientColorKey(new Color(1f, 0.9f, 0.5f), 0f),
+                        new GradientColorKey(new Color(1f, 0.5f, 0.1f), 0.3f),
+                        new GradientColorKey(new Color(0.8f, 0.2f, 0.05f), 0.7f),
+                        new GradientColorKey(new Color(0.4f, 0.1f, 0.02f), 1f)
                     },
                     new GradientAlphaKey[]
                     {
-                        new GradientAlphaKey(0.7f, 0f),
-                        new GradientAlphaKey(0.4f, 0.5f),
+                        new GradientAlphaKey(0.8f, 0f),
+                        new GradientAlphaKey(0.5f, 0.3f),
+                        new GradientAlphaKey(0.15f, 0.7f),
                         new GradientAlphaKey(0f, 1f)
                     }
                 );
-                colorOverLifetime.color = new ParticleSystem.MinMaxGradient(gradient);
+                colorOverLifetime.color = fireGradient;
 
-                smoke.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                smoke.Clear(true);
-                info.smokeParticles.Add(smoke);
+                // Size over lifetime: particles expand as they cool
+                var sizeOverLifetime = ps.sizeOverLifetime;
+                sizeOverLifetime.enabled = true;
+                sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(1f,
+                    new AnimationCurve(new Keyframe(0f, 0.6f), new Keyframe(0.5f, 1.2f), new Keyframe(1f, 1.6f)));
+
+                // Noise: turbulence for organic fire look
+                var noise = ps.noise;
+                noise.enabled = true;
+                noise.strength = vesselLength * 0.06f;
+                noise.frequency = 3f;
+                noise.scrollSpeed = 2f;
+                noise.damping = true;
+
+                // Material: additive shader with runtime soft-circle texture
+                var psRenderer = fireObj.GetComponent<ParticleSystemRenderer>();
+                psRenderer.renderMode = ParticleSystemRenderMode.Billboard;
+                psRenderer.maxParticleSize = 10f;
+
+                Texture2D softCircle = CreateSoftCircleTexture(32);
+                info.generatedTexture = softCircle;
+
+                var fireMat = new Material(particleShader);
+                fireMat.mainTexture = softCircle;
+                fireMat.SetColor("_TintColor", new Color(1f, 0.6f, 0.2f, 0.5f));
+                psRenderer.material = fireMat;
+                info.allClonedMaterials.Add(fireMat);
+
+                ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                ps.Clear(true);
+
+                info.fireParticles = ps;
+                info.combinedEmissionMesh = combinedMesh;
+
+                ParsekLog.Log($"  ReentryFx: combined {combines.Count} meshes into emission shape " +
+                    $"({(combinedMesh != null ? combinedMesh.vertexCount : 0)} verts) for ghost #{ghostIndex}");
             }
 
-            // --- Layer D: Condensation trail (TrailRenderer) ---
+            // --- Fire shell overlay: collect mesh+transform pairs for DrawMesh ---
+            // Used to re-draw the ghost geometry offset along velocity with additive blending,
+            // approximating KSP's FXCamera replacement shader vertex displacement.
             {
-                GameObject trailObj = new GameObject("ReentryTrail");
-                trailObj.transform.SetParent(ghostRoot.transform, false);
-
-                TrailRenderer trail = trailObj.AddComponent<TrailRenderer>();
-                trail.time = 5f;
-                trail.startWidth = 10f;
-                trail.endWidth = 2f;
-                trail.numCornerVertices = 2;
-                trail.numCapVertices = 2;
-                trail.minVertexDistance = 5f;
-
-                Shader trailShader = Shader.Find("KSP/Particles/Additive");
-                if (trailShader != null)
+                MeshFilter[] allMeshFilters = ghostRoot.GetComponentsInChildren<MeshFilter>(true);
+                var shellMeshes = new List<FireShellMesh>();
+                for (int m = 0; m < allMeshFilters.Length; m++)
                 {
-                    var trailMat = new Material(trailShader);
-                    if (particleTexture != null)
-                        trailMat.mainTexture = particleTexture;
-                    trailMat.SetColor("_TintColor", new Color(1f, 0.8f, 0.5f, 1f));
-                    trail.material = trailMat;
-                    info.allClonedMaterials.Add(trailMat);
+                    MeshFilter mf = allMeshFilters[m];
+                    if (mf == null || mf.sharedMesh == null) continue;
+                    if (!mf.gameObject.activeInHierarchy) continue;
+                    shellMeshes.Add(new FireShellMesh { mesh = mf.sharedMesh, transform = mf.transform });
+                }
+                info.fireShellMeshes = shellMeshes;
+
+                Shader shellShader = Shader.Find("KSP/Particles/Additive");
+                if (shellShader != null)
+                {
+                    var shellMat = new Material(shellShader);
+                    shellMat.SetColor("_TintColor", ReentryFireShellColor);
+                    info.fireShellMaterial = shellMat;
+                    info.allClonedMaterials.Add(shellMat);
                 }
 
-                // Color gradient: bright orange-white -> transparent
-                Gradient trailGradient = new Gradient();
-                trailGradient.SetKeys(
-                    new GradientColorKey[]
-                    {
-                        new GradientColorKey(new Color(1f, 0.8f, 0.5f), 0f),
-                        new GradientColorKey(new Color(1f, 0.6f, 0.3f), 0.5f),
-                        new GradientColorKey(new Color(0.8f, 0.4f, 0.1f), 1f)
-                    },
-                    new GradientAlphaKey[]
-                    {
-                        new GradientAlphaKey(1f, 0f),
-                        new GradientAlphaKey(0.5f, 0.5f),
-                        new GradientAlphaKey(0f, 1f)
-                    }
-                );
-                trail.colorGradient = trailGradient;
-
-                // Start disabled (dormant)
-                trail.emitting = false;
-
-                info.trailRenderer = trail;
+                ParsekLog.Log($"  ReentryFx: {shellMeshes.Count} meshes collected for fire shell overlay on ghost #{ghostIndex}");
             }
 
             // --- Logging ---
             ParsekLog.Verbose("ReentryFx",
-                $"Built for ghost #{ghostIndex} \"{vesselName}\" — {info.flameParticles.Count} flame systems, " +
-                $"{info.smokeParticles.Count} smoke systems, trail={info.trailRenderer != null}, " +
-                $"glow materials={info.glowMaterials.Count}");
+                $"Built for ghost #{ghostIndex} \"{vesselName}\" — fireParticles={info.fireParticles != null}, " +
+                $"fireShell={info.fireShellMeshes?.Count ?? 0} meshes, " +
+                $"glow materials={info.glowMaterials.Count}, vesselLength={vesselLength:F1}m");
             if (skippedHeatCount > 0)
                 ParsekLog.Verbose("ReentryFx",
                     $"Skipped {skippedHeatCount} renderers already managed by HeatGhostInfo for ghost #{ghostIndex}");
@@ -5779,36 +5809,181 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Computes reentry visual intensity from speed and dynamic pressure.
+        /// Rebuilds the combined emission mesh and fire shell mesh list from currently active
+        /// ghost parts. Call after decouple/destroy events so particles and fire shell overlays
+        /// no longer emit from removed parts.
+        /// </summary>
+        internal static void RebuildReentryMeshes(GameObject ghostRoot, ReentryFxInfo info)
+        {
+            if (info == null || ghostRoot == null) return;
+
+            // Rebuild combined emission mesh
+            MeshFilter[] meshFilters = ghostRoot.GetComponentsInChildren<MeshFilter>(false); // false = only active
+            var combines = new System.Collections.Generic.List<CombineInstance>();
+            Matrix4x4 rootWorldToLocal = ghostRoot.transform.worldToLocalMatrix;
+            for (int m = 0; m < meshFilters.Length; m++)
+            {
+                MeshFilter mf = meshFilters[m];
+                if (mf == null || mf.sharedMesh == null) continue;
+                CombineInstance ci = default;
+                ci.mesh = mf.sharedMesh;
+                ci.transform = rootWorldToLocal * mf.transform.localToWorldMatrix;
+                combines.Add(ci);
+            }
+
+            // Destroy old combined mesh
+            if (info.combinedEmissionMesh != null)
+                Object.Destroy(info.combinedEmissionMesh);
+
+            if (combines.Count > 0)
+            {
+                Mesh newMesh = new Mesh();
+                newMesh.CombineMeshes(combines.ToArray(), true, true);
+                info.combinedEmissionMesh = newMesh;
+
+                if (info.fireParticles != null)
+                {
+                    var shape = info.fireParticles.shape;
+                    shape.shapeType = ParticleSystemShapeType.Mesh;
+                    shape.mesh = newMesh;
+                }
+            }
+            else
+            {
+                info.combinedEmissionMesh = null;
+            }
+
+            // Rebuild fire shell mesh list from active parts only
+            var shellMeshes = new List<FireShellMesh>();
+            for (int m = 0; m < meshFilters.Length; m++)
+            {
+                MeshFilter mf = meshFilters[m];
+                if (mf == null || mf.sharedMesh == null) continue;
+                shellMeshes.Add(new FireShellMesh { mesh = mf.sharedMesh, transform = mf.transform });
+            }
+            info.fireShellMeshes = shellMeshes;
+
+            ParsekLog.Log($"  ReentryFx: rebuilt emission mesh ({combines.Count} meshes, " +
+                $"{(info.combinedEmissionMesh != null ? info.combinedEmissionMesh.vertexCount : 0)} verts) " +
+                $"and {shellMeshes.Count} fire shell meshes after decouple");
+        }
+
+        /// <summary>
+        /// Computes the local-space length of a ghost vessel along its Y axis (nose-to-tail)
+        /// from the combined bounds of all renderers. Returns a minimum of 2m.
+        /// Accepts an optional pre-fetched renderer array to avoid duplicate hierarchy scans.
+        /// </summary>
+        internal static float ComputeGhostLength(GameObject ghostRoot, Renderer[] renderers = null)
+        {
+            if (renderers == null)
+                renderers = ghostRoot.GetComponentsInChildren<Renderer>(true);
+            if (renderers == null || renderers.Length == 0)
+                return 2f;
+
+            Bounds combined = default;
+            bool initialized = false;
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                if (renderers[i] == null) continue;
+                Bounds b = renderers[i].bounds;
+                if (b.size.sqrMagnitude < 0.0001f) continue;
+
+                // Transform world bounds to local space of ghostRoot
+                Vector3 localCenter = ghostRoot.transform.InverseTransformPoint(b.center);
+                Vector3 localExtents = b.extents; // Approximate — rotation not critical for length estimate
+
+                Bounds localBounds = new Bounds(localCenter, localExtents * 2f);
+                if (!initialized)
+                {
+                    combined = localBounds;
+                    initialized = true;
+                }
+                else
+                {
+                    combined.Encapsulate(localBounds);
+                }
+            }
+
+            if (!initialized) return 2f;
+
+            // Y axis is typically nose-to-tail in KSP vessel space
+            float length = combined.size.y;
+            return Mathf.Max(length, 2f);
+        }
+
+        /// <summary>
+        /// Creates a soft-circle texture at runtime for additive particle rendering.
+        /// White center fading to transparent edges — avoids sprite sheet issues.
+        /// </summary>
+        private static Texture2D CreateSoftCircleTexture(int size)
+        {
+            var tex = new Texture2D(size, size, TextureFormat.ARGB32, false);
+            float center = size * 0.5f;
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dist = Mathf.Sqrt((x - center) * (x - center) + (y - center) * (y - center)) / center;
+                    float alpha = Mathf.Clamp01(1f - dist);
+                    alpha *= alpha; // quadratic falloff for soft edges
+                    tex.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
+                }
+            }
+            tex.Apply(false, true); // makeNoLongerReadable for GPU-only
+            return tex;
+        }
+
+        /// <summary>
+        /// Computes reentry visual intensity matched to KSP stock aeroFX from Physics.cfg.
         /// Pure function — no Unity dependencies, no side effects.
         /// Returns 0-1 float: 0 = no effect, 1 = maximum reentry FX.
+        ///
+        /// KSP stock formula:
+        ///   aeroFXStrength = velocity^3.5 * (0.0091 * density^0.5 + 0.09 * density^2)
+        ///   Thermal FX (orange flames) starts at Mach 2.5, fully at Mach 3.75
+        ///   Density fade below 0.0015 kg/m³
         /// </summary>
-        internal static float ComputeReentryIntensity(float speed, float dynamicPressure)
+        internal static float ComputeReentryIntensity(float speed, float density, float machNumber)
         {
             // Guard: NaN or negative inputs
             if (float.IsNaN(speed) || speed < 0f)
                 return 0f;
-            if (float.IsNaN(dynamicPressure) || dynamicPressure < 0f)
+            if (float.IsNaN(density) || density < 0f)
+                return 0f;
+            if (float.IsNaN(machNumber) || machNumber < 0f)
                 return 0f;
 
-            // Speed gate: slow flight in thick atmosphere should not glow
-            if (speed < ReentrySpeedThresholdLow)
+            // Mach gate: KSP thermal FX starts at Mach 2.5
+            if (machNumber < AeroFxThermalStartMach)
                 return 0f;
 
-            // Handle infinity (e.g. extreme density values)
-            if (float.IsPositiveInfinity(dynamicPressure))
+            // Density gate: FX fades near the edge of atmosphere
+            if (density < AeroFxDensityFadeStart)
+                return 0f;
+
+            // Handle infinities
+            if (float.IsPositiveInfinity(speed) || float.IsPositiveInfinity(density))
                 return 1f;
 
-            // Threshold ramp
-            if (dynamicPressure < ReentryQThresholdLow)
-                return 0f;
-            if (dynamicPressure >= ReentryQThresholdHigh)
-                return 1f;
+            // KSP aeroFX strength: velocity^3.5 * (s1 * density^e1 + s2 * density^e2)
+            double velTerm = System.Math.Pow(speed, AeroFxVelocityExponent);
+            double densityTerm = AeroFxDensityScalar1 * System.Math.Pow(density, AeroFxDensityExponent1)
+                               + AeroFxDensityScalar2 * System.Math.Pow(density, AeroFxDensityExponent2);
+            double rawStrength = velTerm * densityTerm;
 
-            // Linear ramp between low and high thresholds
-            float intensity = (dynamicPressure - ReentryQThresholdLow) / (ReentryQThresholdHigh - ReentryQThresholdLow);
+            // Normalize so intensity=1.0 at Mach 3.75 / ~20km altitude (density≈0.1).
+            // Reentry heating is visible at high altitude, not sea level — calibrating to
+            // sea level (density 1.225) produces a denominator 100x too large, making all
+            // real reentry conditions round to zero intensity.
+            double refSpeed = 340.0 * AeroFxThermalFullMach;
+            double refDensity = 0.1;
+            double refStrength = System.Math.Pow(refSpeed, AeroFxVelocityExponent)
+                               * (AeroFxDensityScalar1 * System.Math.Pow(refDensity, AeroFxDensityExponent1)
+                               +  AeroFxDensityScalar2 * System.Math.Pow(refDensity, AeroFxDensityExponent2));
 
-            // Clamp for safety (should already be in [0,1] from the guards above)
+            float intensity = (float)(rawStrength / refStrength);
+
+            // Clamp
             if (intensity < 0f) intensity = 0f;
             if (intensity > 1f) intensity = 1f;
 
