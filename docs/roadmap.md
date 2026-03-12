@@ -29,6 +29,18 @@ Recordings Manager UI with sortable columns, per-recording loop/delete, and stat
 
 ---
 
+### Orbital Rotation Fidelity
+
+Ghost vessels in orbital segments now preserve their recorded attitude instead of always facing prograde. Rotation is stored relative to the orbital velocity frame (prograde/radial/normal) at the on-rails boundary and reconstructed at playback from the Keplerian orbit. SAS-locked orientations (retrograde, normal, radial, etc.) hold correctly throughout the orbit.
+
+When the PersistentRotation mod is detected, Parsek also records the vessel's angular velocity. Spinning vessels are spun forward during playback, matching what the player saw with PersistentRotation active. Without the mod, ghosts hold their boundary attitude (correct for stock KSP, which freezes rotation on rails).
+
+Old recordings without attitude data fall back to prograde (unchanged behavior). No format version bump required.
+
+**Design:** `docs/dev/done/design-orbital-rotation.md`
+
+---
+
 ## Phase 3: Polish & Usability - Complete
 
 Make the existing loop frictionless and configurable for different play styles.
