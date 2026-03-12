@@ -5764,12 +5764,12 @@ namespace Parsek
                                + AeroFxDensityScalar2 * System.Math.Pow(density, AeroFxDensityExponent2);
             double rawStrength = velTerm * densityTerm;
 
-            // Normalize: at Kerbin sea level (density≈1.225), Mach 3.75 (~1275 m/s) should be ~1.0
-            // Reference: 1275^3.5 * (0.0091*1.225^0.5 + 0.09*1.225^2) ≈ 1275^3.5 * 0.145 ≈ big
-            // Use a calibration constant so intensity=1.0 at the "fully orange" condition.
-            // Kerbin sea level: density=1.225, speed of sound≈340 m/s, Mach 3.75 = 1275 m/s
+            // Normalize so intensity=1.0 at Mach 3.75 / ~20km altitude (density≈0.1).
+            // Reentry heating is visible at high altitude, not sea level — calibrating to
+            // sea level (density 1.225) produces a denominator 100x too large, making all
+            // real reentry conditions round to zero intensity.
             double refSpeed = 340.0 * AeroFxThermalFullMach;
-            double refDensity = 1.225;
+            double refDensity = 0.1;
             double refStrength = System.Math.Pow(refSpeed, AeroFxVelocityExponent)
                                * (AeroFxDensityScalar1 * System.Math.Pow(refDensity, AeroFxDensityExponent1)
                                +  AeroFxDensityScalar2 * System.Math.Pow(refDensity, AeroFxDensityExponent2));
