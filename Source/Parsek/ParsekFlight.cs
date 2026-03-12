@@ -4086,12 +4086,7 @@ namespace Parsek
                                 Destroy(info.particleSystems[i].gameObject);
                 }
 
-                if (previewGhostState.reentryFxInfo != null && previewGhostState.reentryFxInfo.allClonedMaterials != null)
-                {
-                    for (int i = 0; i < previewGhostState.reentryFxInfo.allClonedMaterials.Count; i++)
-                        if (previewGhostState.reentryFxInfo.allClonedMaterials[i] != null)
-                            Destroy(previewGhostState.reentryFxInfo.allClonedMaterials[i]);
-                }
+                DestroyReentryFxResources(previewGhostState.reentryFxInfo);
 
                 DestroyAllFakeCanopies(previewGhostState);
                 previewGhostState = null;
@@ -4984,12 +4979,7 @@ namespace Parsek
                             Destroy(info.particleSystems[i].gameObject);
             }
 
-            if (state.reentryFxInfo != null && state.reentryFxInfo.allClonedMaterials != null)
-            {
-                for (int i = 0; i < state.reentryFxInfo.allClonedMaterials.Count; i++)
-                    if (state.reentryFxInfo.allClonedMaterials[i] != null)
-                        Destroy(state.reentryFxInfo.allClonedMaterials[i]);
-            }
+            DestroyReentryFxResources(state.reentryFxInfo);
 
             if (state.ghost != null)
                 Destroy(state.ghost);
@@ -5960,38 +5950,45 @@ namespace Parsek
                 }
             }
 
-            // Fire streak trails
-            if (info.streakTrails != null)
+            // Fire envelope particles
+            if (info.fireParticles != null)
             {
-                if (intensity > GhostVisualBuilder.ReentryStreakThreshold)
+                if (intensity > GhostVisualBuilder.ReentryFireThreshold)
                 {
-                    float streakFraction = Mathf.InverseLerp(GhostVisualBuilder.ReentryStreakThreshold, 1f, intensity);
-                    // Scale widths proportionally to vessel size (reference = 10m vessel)
-                    float lengthScale = Mathf.Clamp(info.vesselLength / 10f, 0.5f, 3f);
-                    float startW = Mathf.Lerp(GhostVisualBuilder.ReentryStreakStartWidthMin,
-                        GhostVisualBuilder.ReentryStreakStartWidthMax, streakFraction) * lengthScale;
-                    float endW = Mathf.Lerp(GhostVisualBuilder.ReentryStreakEndWidthMin,
-                        GhostVisualBuilder.ReentryStreakEndWidthMax, streakFraction) * lengthScale;
+                    float fireFraction = Mathf.InverseLerp(GhostVisualBuilder.ReentryFireThreshold, 1f, intensity);
 
-                    for (int i = 0; i < info.streakTrails.Count; i++)
-                    {
-                        TrailRenderer streak = info.streakTrails[i];
-                        if (streak == null) continue;
-                        streak.startWidth = startW;
-                        streak.endWidth = endW;
-                        streak.emitting = true;
-                    }
+                    var emissionMod = info.fireParticles.emission;
+                    emissionMod.rateOverTimeMultiplier = Mathf.Lerp(
+                        GhostVisualBuilder.ReentryFireEmissionMin,
+                        GhostVisualBuilder.ReentryFireEmissionMax, fireFraction);
+
+                    var mainMod = info.fireParticles.main;
+                    mainMod.startSizeMultiplier = Mathf.Lerp(0.8f, 2.0f, fireFraction);
+
+                    if (!info.fireParticles.isPlaying)
+                        info.fireParticles.Play();
                 }
                 else
                 {
-                    for (int i = 0; i < info.streakTrails.Count; i++)
+                    if (info.fireParticles.isPlaying)
                     {
-                        TrailRenderer streak = info.streakTrails[i];
-                        if (streak == null) continue;
-                        streak.emitting = false;
+                        info.fireParticles.Stop(true, ParticleSystemStopBehavior.StopEmitting);
                     }
                 }
             }
+        }
+
+        private void DestroyReentryFxResources(ReentryFxInfo info)
+        {
+            if (info == null) return;
+            if (info.allClonedMaterials != null)
+                for (int i = 0; i < info.allClonedMaterials.Count; i++)
+                    if (info.allClonedMaterials[i] != null)
+                        Destroy(info.allClonedMaterials[i]);
+            if (info.generatedTexture != null)
+                Destroy(info.generatedTexture);
+            if (info.combinedEmissionMesh != null)
+                Destroy(info.combinedEmissionMesh);
         }
 
         private static void ResetReentryFx(GhostPlaybackState state, int recIdx)
@@ -6002,16 +5999,10 @@ namespace Parsek
             info.lastIntensity = 0f;
 
 
-            if (info.streakTrails != null)
+            if (info.fireParticles != null)
             {
-                for (int i = 0; i < info.streakTrails.Count; i++)
-                {
-                    if (info.streakTrails[i] != null)
-                    {
-                        info.streakTrails[i].Clear();
-                        info.streakTrails[i].emitting = false;
-                    }
-                }
+                info.fireParticles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                info.fireParticles.Clear(true);
             }
 
             if (info.glowMaterials != null)
@@ -6027,7 +6018,7 @@ namespace Parsek
                 }
             }
 
-            ParsekLog.Verbose("Flight", $"ReentryFx: Loop reset for ghost #{recIdx} — cleared streak trails and glow");
+            ParsekLog.Verbose("Flight", $"ReentryFx: Loop reset for ghost #{recIdx} — cleared fire particles and glow");
         }
 
         static bool ApplyDeployableState(GhostPlaybackState state, PartEvent evt, bool deployed)

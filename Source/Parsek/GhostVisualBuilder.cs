@@ -125,7 +125,9 @@ namespace Parsek
 
     internal class ReentryFxInfo
     {
-        public List<TrailRenderer> streakTrails = new List<TrailRenderer>();
+        public ParticleSystem fireParticles;
+        public Mesh combinedEmissionMesh; // combined ghost meshes for surface emission, needs Destroy
+        public Texture2D generatedTexture; // runtime soft-circle, needs Destroy on cleanup
         public List<HeatMaterialState> glowMaterials = new List<HeatMaterialState>();
         public List<Material> allClonedMaterials = new List<Material>();
         public float lastIntensity;
@@ -164,19 +166,16 @@ namespace Parsek
         internal const float AeroFxDensityFadeStart = 0.0015f;
         internal static readonly Color ReentryHotEmissionLow = new Color(1.5f, 0.6f, 0.15f, 1f);
         internal static readonly Color ReentryHotEmissionHigh = new Color(2.0f, 1.5f, 0.8f, 1f);
-        internal const float ReentrySmoothingRate = 5.0f;
-        internal const float ReentryLayerAThreshold = 0.05f;
-        internal const float ReentryStreakThreshold = 0.08f;
+        internal const float ReentrySmoothingRate = 18.0f;
+        internal const float ReentryLayerAThreshold = 0.02f;
+        internal const float ReentryFireThreshold = 0.02f;
 
-        // Streak trail configuration
-        internal const int ReentryStreakCount = 5;
-        internal const float ReentryStreakSpreadRadius = 0.35f;
-        internal const float ReentryStreakDuration = 0.8f;
-        internal const float ReentryStreakStartWidthMin = 0.15f;
-        internal const float ReentryStreakStartWidthMax = 0.6f;
-        internal const float ReentryStreakEndWidthMin = 0.02f;
-        internal const float ReentryStreakEndWidthMax = 0.15f;
-        internal const float ReentryStreakMinVertexDistance = 0.5f;
+        // Fire envelope particle configuration
+        internal const float ReentryFireLifetimeMin = 0.1f;
+        internal const float ReentryFireLifetimeMax = 0.35f;
+        internal const int ReentryFireMaxParticles = 1500;
+        internal const float ReentryFireEmissionMin = 300f;
+        internal const float ReentryFireEmissionMax = 2000f;
 
         // Cache for PREFAB_PARTICLE fx_* prefabs found on PartLoader part prefabs.
         // Built once from PartLoader.LoadedPartsList (stable prefab templates).
@@ -5518,6 +5517,12 @@ namespace Parsek
                     Renderer renderer = renderers[r];
                     if (renderer == null) continue;
 
+                    // Skip particle and trail renderers — cloning their materials breaks
+                    // sprite sheet animation (TextureSheetAnimation UV state is lost),
+                    // causing particles to render the full texture atlas as a square.
+                    if (renderer is ParticleSystemRenderer || renderer is TrailRenderer)
+                        continue;
+
                     // Walk up hierarchy to find ghost_part_{persistentId} parent
                     uint partPid = 0;
                     bool foundPart = false;
@@ -5610,71 +5615,149 @@ namespace Parsek
             info.vesselLength = vesselLength;
 
             // --- Fire streak trails ---
-            // Multiple thin TrailRenderers offset around the nose, creating smooth
-            // fire streaks that flow behind the vessel during atmospheric reentry.
-            Shader streakShader = Shader.Find("KSP/Particles/Additive");
-            if (streakShader == null)
+            // --- Fire envelope particles (mesh-surface emission) ---
+            // Emulates KSP's stock aeroFX approach: fire originates from the vessel's
+            // own geometry surface. We combine all ghost meshes into one, use it as the
+            // particle emission shape, and simulate in world space. As the vessel moves
+            // through the air, particles stay in place and naturally streak backward
+            // along the airflow — the same visual result as the stock replacement shader.
+            Shader particleShader = Shader.Find("KSP/Particles/Additive");
+            if (particleShader == null)
             {
                 ParsekLog.Warn("ReentryFx",
-                    $"Shader 'KSP/Particles/Additive' not found — streak trails will not be created for ghost #{ghostIndex}");
+                    $"Shader 'KSP/Particles/Additive' not found — fire particles will not be created for ghost #{ghostIndex}");
             }
-            float noseOffset = vesselLength * 0.5f;
-
-            // Angle offsets for streak emitters around the vessel cross-section
-            for (int s = 0; streakShader != null && s < ReentryStreakCount; s++)
+            else
             {
-                float angle = (s / (float)ReentryStreakCount) * Mathf.PI * 2f;
-                float offsetX = Mathf.Cos(angle) * ReentryStreakSpreadRadius * vesselLength;
-                float offsetZ = Mathf.Sin(angle) * ReentryStreakSpreadRadius * vesselLength;
+                // Combine all ghost meshes into a single emission shape
+                MeshFilter[] meshFilters = ghostRoot.GetComponentsInChildren<MeshFilter>(true);
+                var combines = new System.Collections.Generic.List<CombineInstance>();
+                Matrix4x4 rootWorldToLocal = ghostRoot.transform.worldToLocalMatrix;
+                for (int m = 0; m < meshFilters.Length; m++)
+                {
+                    MeshFilter mf = meshFilters[m];
+                    if (mf == null || mf.sharedMesh == null) continue;
+                    if (!mf.gameObject.activeInHierarchy) continue;
+                    CombineInstance ci = default;
+                    ci.mesh = mf.sharedMesh;
+                    ci.transform = rootWorldToLocal * mf.transform.localToWorldMatrix;
+                    combines.Add(ci);
+                }
 
-                GameObject streakObj = new GameObject($"ReentryStreak_{s}");
-                streakObj.transform.SetParent(ghostRoot.transform, false);
-                // Position at nose tip, spread radially
-                streakObj.transform.localPosition = new Vector3(offsetX, noseOffset, offsetZ);
+                Mesh combinedMesh = null;
+                if (combines.Count > 0)
+                {
+                    combinedMesh = new Mesh();
+                    combinedMesh.CombineMeshes(combines.ToArray(), true, true);
+                }
 
-                TrailRenderer trail = streakObj.AddComponent<TrailRenderer>();
-                trail.time = ReentryStreakDuration;
-                trail.startWidth = 0.3f;
-                trail.endWidth = 0.02f;
-                trail.numCornerVertices = 3;
-                trail.numCapVertices = 2;
-                trail.minVertexDistance = ReentryStreakMinVertexDistance;
-                trail.autodestruct = false;
-                trail.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-                trail.receiveShadows = false;
+                GameObject fireObj = new GameObject("ReentryFire");
+                fireObj.transform.SetParent(ghostRoot.transform, false);
+                fireObj.transform.localPosition = Vector3.zero;
+                fireObj.transform.localRotation = Quaternion.identity;
 
-                var trailMat = new Material(streakShader);
-                trailMat.SetColor("_TintColor", new Color(1f, 0.65f, 0.25f, 0.85f));
-                trail.material = trailMat;
-                info.allClonedMaterials.Add(trailMat);
+                ParticleSystem ps = fireObj.AddComponent<ParticleSystem>();
 
-                // Color gradient: bright orange-yellow at head -> deep orange-red -> transparent
-                Gradient streakGradient = new Gradient();
-                // Vary hue slightly per streak for visual richness
-                float hueShift = (s % 3) * 0.03f;
-                streakGradient.SetKeys(
+                var main = ps.main;
+                main.simulationSpace = ParticleSystemSimulationSpace.World;
+                main.startLifetime = new ParticleSystem.MinMaxCurve(ReentryFireLifetimeMin, ReentryFireLifetimeMax);
+                // Small outward push from surface normal — particles drift slightly away from hull
+                // Small outward push from surface normal — particles drift slightly away from hull
+                main.startSpeed = new ParticleSystem.MinMaxCurve(1f, 4f);
+                main.startSize = new ParticleSystem.MinMaxCurve(vesselLength * 0.06f, vesselLength * 0.2f);
+                main.maxParticles = ReentryFireMaxParticles;
+                main.playOnAwake = false;
+                main.prewarm = false;
+                main.startColor = new ParticleSystem.MinMaxGradient(
+                    new Color(1f, 0.8f, 0.3f, 0.8f),
+                    new Color(1f, 0.5f, 0.15f, 0.9f));
+
+                // Shape: emit from vessel mesh surface
+                var shape = ps.shape;
+                if (combinedMesh != null)
+                {
+                    shape.shapeType = ParticleSystemShapeType.Mesh;
+                    shape.mesh = combinedMesh;
+                    shape.meshShapeType = ParticleSystemMeshShapeType.Triangle;
+                    shape.normalOffset = 0.05f;
+                }
+                else
+                {
+                    // Fallback: sphere if no meshes available
+                    shape.shapeType = ParticleSystemShapeType.Sphere;
+                    shape.radius = vesselLength * 0.3f;
+                    ParsekLog.Warn("ReentryFx",
+                        $"No mesh filters found on ghost #{ghostIndex} — using sphere emission fallback");
+                }
+
+                // Emission: driven by DriveReentryLayers
+                var emission = ps.emission;
+                emission.enabled = true;
+                emission.rateOverTimeMultiplier = 0f;
+
+                // Color over lifetime: bright yellow-white → orange → deep red → fade out
+                var colorOverLifetime = ps.colorOverLifetime;
+                colorOverLifetime.enabled = true;
+                var fireGradient = new Gradient();
+                fireGradient.SetKeys(
                     new GradientColorKey[]
                     {
-                        new GradientColorKey(new Color(1f, 0.75f - hueShift, 0.3f + hueShift), 0f),
-                        new GradientColorKey(new Color(1f, 0.45f - hueShift, 0.1f), 0.4f),
-                        new GradientColorKey(new Color(0.6f, 0.2f, 0.05f), 1f)
+                        new GradientColorKey(new Color(1f, 0.9f, 0.5f), 0f),
+                        new GradientColorKey(new Color(1f, 0.5f, 0.1f), 0.3f),
+                        new GradientColorKey(new Color(0.8f, 0.2f, 0.05f), 0.7f),
+                        new GradientColorKey(new Color(0.4f, 0.1f, 0.02f), 1f)
                     },
                     new GradientAlphaKey[]
                     {
-                        new GradientAlphaKey(0.9f, 0f),
-                        new GradientAlphaKey(0.5f, 0.4f),
+                        new GradientAlphaKey(0.8f, 0f),
+                        new GradientAlphaKey(0.5f, 0.3f),
+                        new GradientAlphaKey(0.15f, 0.7f),
                         new GradientAlphaKey(0f, 1f)
                     }
                 );
-                trail.colorGradient = streakGradient;
+                colorOverLifetime.color = fireGradient;
 
-                trail.emitting = false;
-                info.streakTrails.Add(trail);
+                // Size over lifetime: particles expand as they cool
+                var sizeOverLifetime = ps.sizeOverLifetime;
+                sizeOverLifetime.enabled = true;
+                sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(1f,
+                    new AnimationCurve(new Keyframe(0f, 0.6f), new Keyframe(0.5f, 1.2f), new Keyframe(1f, 1.6f)));
+
+                // Noise: turbulence for organic fire look
+                var noise = ps.noise;
+                noise.enabled = true;
+                noise.strength = vesselLength * 0.06f;
+                noise.frequency = 3f;
+                noise.scrollSpeed = 2f;
+                noise.damping = true;
+
+                // Material: additive shader with runtime soft-circle texture
+                var psRenderer = fireObj.GetComponent<ParticleSystemRenderer>();
+                psRenderer.renderMode = ParticleSystemRenderMode.Billboard;
+                psRenderer.maxParticleSize = 10f;
+
+                Texture2D softCircle = CreateSoftCircleTexture(32);
+                info.generatedTexture = softCircle;
+
+                var fireMat = new Material(particleShader);
+                fireMat.mainTexture = softCircle;
+                fireMat.SetColor("_TintColor", new Color(1f, 0.6f, 0.2f, 0.5f));
+                psRenderer.material = fireMat;
+                info.allClonedMaterials.Add(fireMat);
+
+                ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                ps.Clear(true);
+
+                info.fireParticles = ps;
+                info.combinedEmissionMesh = combinedMesh;
+
+                ParsekLog.Log($"  ReentryFx: combined {combines.Count} meshes into emission shape " +
+                    $"({(combinedMesh != null ? combinedMesh.vertexCount : 0)} verts) for ghost #{ghostIndex}");
             }
 
             // --- Logging ---
             ParsekLog.Verbose("ReentryFx",
-                $"Built for ghost #{ghostIndex} \"{vesselName}\" — {info.streakTrails.Count} streak trails, " +
+                $"Built for ghost #{ghostIndex} \"{vesselName}\" — fireParticles={info.fireParticles != null}, " +
                 $"glow materials={info.glowMaterials.Count}, vesselLength={vesselLength:F1}m");
             if (skippedHeatCount > 0)
                 ParsekLog.Verbose("ReentryFx",
@@ -5724,6 +5807,28 @@ namespace Parsek
             // Y axis is typically nose-to-tail in KSP vessel space
             float length = combined.size.y;
             return Mathf.Max(length, 2f);
+        }
+
+        /// <summary>
+        /// Creates a soft-circle texture at runtime for additive particle rendering.
+        /// White center fading to transparent edges — avoids sprite sheet issues.
+        /// </summary>
+        private static Texture2D CreateSoftCircleTexture(int size)
+        {
+            var tex = new Texture2D(size, size, TextureFormat.ARGB32, false);
+            float center = size * 0.5f;
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dist = Mathf.Sqrt((x - center) * (x - center) + (y - center) * (y - center)) / center;
+                    float alpha = Mathf.Clamp01(1f - dist);
+                    alpha *= alpha; // quadratic falloff for soft edges
+                    tex.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
+                }
+            }
+            tex.Apply(false, true); // makeNoLongerReadable for GPU-only
+            return tex;
         }
 
         /// <summary>
