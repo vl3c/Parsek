@@ -3285,8 +3285,16 @@ namespace Parsek
                     epoch = v.orbit.epoch,
                     bodyName = v.mainBody.name
                 };
+
+                // Capture orbital-frame rotation (vessel is packed, so rb is null — no angular velocity)
+                Vector3d orbVel = v.obt_velocity;
+                Vector3d radialOut = (v.CoMD - v.mainBody.position).normalized;
+                currentOrbitSegment.orbitalFrameRotation =
+                    TrajectoryMath.ComputeOrbitalFrameRotation(v.transform.rotation, orbVel, radialOut);
+
                 isOnRails = true;
-                ParsekLog.Info("Recorder", $"Recording started on rails — capturing orbit (body={v.mainBody.name})");
+                ParsekLog.Info("Recorder",
+                    $"Recording started on rails — orbit segment (body={v.mainBody.name}, ofrRot={currentOrbitSegment.orbitalFrameRotation})");
             }
 
             // Register the Harmony patch to call us each physics frame
@@ -3783,13 +3791,16 @@ namespace Parsek
                 TrajectoryMath.ComputeOrbitalFrameRotation(v.transform.rotation, orbVel, radialOut);
 
             // Capture angular velocity if PersistentRotation is active and vessel is spinning
-            if (hasPersistentRotation && v.rootPart != null && v.rootPart.rb != null
-                && v.angularVelocity.magnitude > TrajectoryMath.SpinThreshold)
+            if (hasPersistentRotation && v.rootPart != null && v.rootPart.rb != null)
             {
-                currentOrbitSegment.angularVelocity =
-                    Quaternion.Inverse(v.transform.rotation) * v.angularVelocity;
-                ParsekLog.Verbose("Recorder",
-                    $"Spinning vessel detected (|angVel|={v.angularVelocity.magnitude:F4}), recording angular velocity for spin-forward");
+                Vector3 worldAngVel = v.angularVelocity;
+                if (worldAngVel.magnitude > TrajectoryMath.SpinThreshold)
+                {
+                    currentOrbitSegment.angularVelocity =
+                        Quaternion.Inverse(v.transform.rotation) * worldAngVel;
+                    ParsekLog.Verbose("Recorder",
+                        $"Spinning vessel detected (|angVel|={worldAngVel.magnitude:F4}), recording angular velocity for spin-forward");
+                }
             }
 
             isOnRails = true;
@@ -3862,12 +3873,10 @@ namespace Parsek
             currentOrbitSegment.orbitalFrameRotation =
                 TrajectoryMath.ComputeOrbitalFrameRotation(v.transform.rotation, orbVel, radialOut);
 
-            if (hasPersistentRotation && v.rootPart != null && v.rootPart.rb != null
-                && v.angularVelocity.magnitude > TrajectoryMath.SpinThreshold)
-            {
-                currentOrbitSegment.angularVelocity =
-                    Quaternion.Inverse(v.transform.rotation) * v.angularVelocity;
-            }
+            // Note: vessel is on rails during SOI change — rb is null, so angular velocity
+            // is unavailable here. Spin data is only captured at the initial go-on-rails boundary.
+            // A spinning vessel crossing an SOI boundary will use orbital-frame rotation (not spin-forward)
+            // for the new segment. This is an acceptable v1 limitation.
 
             // Reseed atmosphere state for the new body
             ReseedAtmosphereState(v);
