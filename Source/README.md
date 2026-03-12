@@ -9,20 +9,38 @@ Parsek/
 ├── FlightRecorder.cs          # Physics-frame recording logic (Harmony-driven, part event polling)
 ├── ParsekHarmony.cs           # Harmony patcher entry point (KSPAddon.Startup.Instantly)
 ├── Patches/
-│   └── PhysicsFramePatch.cs   # Harmony postfix hook for per-frame sampling
+│   ├── PhysicsFramePatch.cs   # Harmony postfix hook for per-frame sampling
+│   ├── TechResearchPatch.cs   # Action blocking: prevent re-researching committed tech
+│   ├── FacilityUpgradePatch.cs # Action blocking: prevent re-upgrading committed facilities
+│   └── ScienceSubjectPatch.cs # Science subject tracking patch
 ├── ParsekUI.cs                # UI windows (main window, recordings manager) and map view markers
+├── ParsekSettings.cs          # GameParameters settings (auto-record, thresholds)
 ├── RecordingStore.cs          # Static storage for pending/committed recordings (survives scene changes)
 ├── ParsekScenario.cs          # ScenarioModule - persists recordings to save games, crew reservation
 ├── ParsekLog.cs               # Shared logging utilities
 ├── TrajectoryPoint.cs         # Position/rotation/resource data struct
-├── TrajectoryMath.cs          # Pure static math (sampling, interpolation, orbit search)
-├── OrbitSegment.cs            # Keplerian orbit parameters for on-rails recording
+├── TrajectoryMath.cs          # Pure static math (sampling, interpolation, orbit search, orbital-frame rotation)
+├── OrbitSegment.cs            # Keplerian orbit parameters + orbital-frame rotation for on-rails recording
 ├── PartEvent.cs               # Part event enum + struct (28 event types)
-├── GhostVisualBuilder.cs      # Ghost mesh building from vessel snapshots (engine/RCS FX, fairings)
+├── GhostVisualBuilder.cs      # Ghost mesh building from vessel snapshots (engine/RCS FX, fairings, re-entry)
 ├── VesselSpawner.cs           # Vessel spawn/recover/snapshot utilities
 ├── MergeDialog.cs             # Post-revert merge dialog
 ├── RecordingPaths.cs          # Save-scoped path resolution for external recording files
-└── ParsekToolbarRegistration.cs # ToolbarControl registration
+├── ParsekToolbarRegistration.cs # ToolbarControl registration
+├── ActionReplay.cs            # Replays committed game actions (tech, parts, facilities) after rewind
+├── CommittedActionDialog.cs   # Popup dialog for blocked actions
+├── GameStateEvent.cs          # Career event struct (tech, parts, facilities, contracts, crew, resources)
+├── GameStateRecorder.cs       # Subscribes to KSP career GameEvents, records into GameStateStore
+├── GameStateStore.cs          # Static persistent event log
+├── GameStateBaseline.cs       # Full game state snapshot at commit points
+├── Milestone.cs               # Groups game state events into committed timeline units
+├── MilestoneStore.cs          # Milestone collection management
+├── ResourceBudget.cs          # On-the-fly resource budget computation from recordings + milestones
+├── RecordingTree.cs           # Rooted DAG of recordings for multi-vessel missions
+├── BranchPoint.cs             # Links parent/child recordings at split/merge events
+├── BackgroundRecorder.cs      # Dual-mode recording for non-active tree vessels
+├── TerminalState.cs           # How a recording ended (8 end conditions)
+└── SurfacePosition.cs         # Background recording data for landed/splashed vessels
 
 Parsek.Tests/
 ├── Generators/
@@ -30,11 +48,10 @@ Parsek.Tests/
 │   ├── VesselSnapshotBuilder.cs     # Minimal VESSEL ConfigNode builder
 │   └── ScenarioWriter.cs           # SCENARIO assembly + .sfs injection
 ├── WaypointSearchTests.cs           # FindWaypointIndex binary search tests
-├── InterpolationTests.cs            # Interpolation and edge case tests
 ├── TrajectoryPointTests.cs          # TrajectoryPoint struct tests
 ├── QuaternionSanitizationTests.cs   # Quaternion NaN/Infinity handling tests
 ├── AdaptiveSamplingTests.cs         # Adaptive threshold sampling tests
-├── OrbitSegmentTests.cs             # Orbit segment serialization tests
+├── OrbitSegmentTests.cs             # Orbit segment + orbital-frame rotation tests
 ├── RecordingStoreTests.cs           # RecordingStore stash/commit/discard tests
 ├── VesselPersistenceTests.cs        # Merge-decision logic tests
 ├── PartEventTests.cs                # Part event serialization, subtree, transition tests
@@ -43,7 +60,33 @@ Parsek.Tests/
 ├── DiagnosticLoggingTests.cs        # Regression tests for playback logging
 ├── RuntimePolicyTests.cs            # Runtime decision logic tests
 ├── RecordingsManagerTests.cs        # Recordings Manager UI logic tests
-└── SyntheticRecordingTests.cs       # Synthetic recording generation + save file injection
+├── SyntheticRecordingTests.cs       # Synthetic recording generation + save file injection
+├── ActionReplayTests.cs             # Action replay tests
+├── AtmosphereSplitTests.cs          # Atmosphere boundary split tests
+├── BackgroundRecorderTests.cs       # Background recorder tests
+├── BackwardCompatTests.cs           # Backward compatibility tests
+├── CameraFollowTests.cs            # Camera follow ghost tests
+├── CommittedActionTests.cs          # Committed action blocking tests
+├── ComputeStatsTests.cs            # Recording statistics computation tests
+├── FxDiagnosticsTests.cs           # FX diagnostic logging tests
+├── GameStateEventTests.cs          # Game state event serialization tests
+├── LiveKspLogValidationTests.cs    # KSP.log contract validation
+├── MergeDialogTests.cs             # Merge dialog logic tests
+├── MergeEventDetectionTests.cs     # Tree merge event detection tests
+├── MilestoneTests.cs               # Milestone creation/replay tests
+├── ParsekLogTests.cs               # Logging utility tests
+├── ParsekKspLogParserTests.cs      # KSP log parser tests
+├── ParsekLogContractCheckerTests.cs # Log contract checker tests
+├── RecordingTreeTests.cs           # Recording tree serialization/query tests
+├── ReentryIntensityTests.cs        # Re-entry FX intensity formula tests
+├── ResourceBudgetTests.cs          # Resource budget computation tests
+├── RewindTests.cs                  # Rewind logic tests
+├── RewindLoggingTests.cs           # Rewind diagnostic logging tests
+├── SplitEventDetectionTests.cs     # Tree split event detection tests
+├── TerminalEventTests.cs           # Terminal event detection tests
+├── TreeCommitTests.cs              # Tree commit logic tests
+├── TreeLogVerificationTests.cs     # Tree logging verification tests
+└── VesselSwitchTreeTests.cs        # Vessel switch tree decision tests
 ```
 
 ## Building
@@ -86,7 +129,7 @@ cd Source/Parsek.Tests
 dotnet test
 ```
 
-652 tests total: 651 pass, 1 skipped (QuaternionSlerp NaN edge case - Unity behavior).
+1263 tests total.
 
 ### Live KSP Log Validation
 
