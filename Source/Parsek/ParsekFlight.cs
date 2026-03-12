@@ -5890,20 +5890,23 @@ namespace Parsek
                 return;
             }
 
-            float q = (float)(0.5 * density * speed * speed);
-            float rawIntensity = GhostVisualBuilder.ComputeReentryIntensity(speed, q);
+            // Compute Mach number for aeroFX threshold matching
+            double speedOfSound = body.GetSpeedOfSound(pressure, density);
+            float machNumber = (speedOfSound > 0) ? (float)(speed / speedOfSound) : 0f;
+
+            float rawIntensity = GhostVisualBuilder.ComputeReentryIntensity(speed, (float)density, machNumber);
 
             float smoothedIntensity = Mathf.Lerp(info.lastIntensity, rawIntensity,
                 1f - Mathf.Exp(-GhostVisualBuilder.ReentrySmoothingRate * Time.deltaTime));
             if (smoothedIntensity < 0.001f && rawIntensity == 0f)
                 smoothedIntensity = 0f;
 
-            DriveReentryLayers(info, smoothedIntensity, surfaceVel, recIdx, bodyName, altitude, q, vesselName);
+            DriveReentryLayers(info, smoothedIntensity, surfaceVel, recIdx, bodyName, altitude, machNumber, vesselName);
             info.lastIntensity = smoothedIntensity;
         }
 
         private void DriveReentryLayers(ReentryFxInfo info, float intensity, Vector3 surfaceVel,
-            int recIdx, string bodyName, double altitude, float dynamicPressure, string vesselName)
+            int recIdx, string bodyName, double altitude, float machNumber, string vesselName)
         {
             bool wasActive = info.lastIntensity > 0f;
             bool isActive = intensity > 0f;
@@ -5912,7 +5915,7 @@ namespace Parsek
             {
                 float speed = surfaceVel.magnitude;
                 ParsekLog.Verbose("Flight",
-                    $"ReentryFx: Activated for ghost #{recIdx} \"{vesselName}\" — intensity={intensity:F2}, q={dynamicPressure:F0} Pa, speed={speed:F0} m/s, alt={altitude:F0} m, body={bodyName}");
+                    $"ReentryFx: Activated for ghost #{recIdx} \"{vesselName}\" — intensity={intensity:F2}, Mach={machNumber:F2}, speed={speed:F0} m/s, alt={altitude:F0} m, body={bodyName}");
             }
             else if (!isActive && wasActive)
             {

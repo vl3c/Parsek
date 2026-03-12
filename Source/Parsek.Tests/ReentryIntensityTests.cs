@@ -4,194 +4,291 @@ namespace Parsek.Tests
 {
     public class ReentryIntensityTests
     {
+        // Kerbin reference values for test readability
+        // Sea-level density ≈ 1.225 kg/m³, speed of sound ≈ 340 m/s
+        // Thermal FX starts at Mach 2.5 (850 m/s), fully orange at Mach 3.75 (1275 m/s)
+        const float KerbinSeaLevelDensity = 1.225f;
+        const float KerbinSpeedOfSound = 340f;
+
         // --- Basic threshold behavior ---
 
         [Fact]
-        public void Vacuum_ZeroSpeedZeroPressure_ReturnsZero()
+        public void Vacuum_ZeroEverything_ReturnsZero()
         {
-            float intensity = GhostVisualBuilder.ComputeReentryIntensity(speed: 0f, dynamicPressure: 0f);
+            float intensity = GhostVisualBuilder.ComputeReentryIntensity(
+                speed: 0f, density: 0f, machNumber: 0f);
             Assert.Equal(0f, intensity);
         }
 
         [Fact]
-        public void MidRange_ReturnsIntensityBetweenZeroAndOne()
+        public void BelowMachThreshold_SeaLevel_ReturnsZero()
         {
-            float intensity = GhostVisualBuilder.ComputeReentryIntensity(speed: 1500f, dynamicPressure: 10000f);
-            Assert.True(intensity > 0f, $"Expected intensity > 0, got {intensity}");
-            Assert.True(intensity < 1f, $"Expected intensity < 1, got {intensity}");
+            // Mach 2.0 — below thermal FX start (Mach 2.5)
+            float speed = 2.0f * KerbinSpeedOfSound;
+            float intensity = GhostVisualBuilder.ComputeReentryIntensity(
+                speed: speed, density: KerbinSeaLevelDensity, machNumber: 2.0f);
+            Assert.Equal(0f, intensity);
         }
 
         [Fact]
-        public void Saturated_HighPressureHighSpeed_ReturnsOne()
+        public void AtMachThreshold_SeaLevel_ReturnsNonZero()
         {
-            float intensity = GhostVisualBuilder.ComputeReentryIntensity(speed: 2500f, dynamicPressure: 30000f);
+            // Mach 2.5 — exactly at thermal FX start
+            float speed = 2.5f * KerbinSpeedOfSound;
+            float intensity = GhostVisualBuilder.ComputeReentryIntensity(
+                speed: speed, density: KerbinSeaLevelDensity, machNumber: 2.5f);
+            Assert.True(intensity > 0f, $"Mach 2.5 at sea level should produce non-zero intensity, got {intensity}");
+        }
+
+        [Fact]
+        public void FullThermal_SeaLevel_ReturnsOne()
+        {
+            // Mach 3.75 at sea level — the calibration reference, should be ≈1.0
+            float speed = 3.75f * KerbinSpeedOfSound;
+            float intensity = GhostVisualBuilder.ComputeReentryIntensity(
+                speed: speed, density: KerbinSeaLevelDensity, machNumber: 3.75f);
             Assert.Equal(1f, intensity);
         }
 
         [Fact]
-        public void BelowSpeedThreshold_HighPressure_ReturnsZero()
+        public void AboveFullThermal_SeaLevel_ClampedToOne()
         {
-            // Slow flight in thick atmosphere should not trigger reentry FX
-            float intensity = GhostVisualBuilder.ComputeReentryIntensity(speed: 200f, dynamicPressure: 15000f);
-            Assert.Equal(0f, intensity);
-        }
-
-        // --- Edge values ---
-
-        [Fact]
-        public void DynamicPressureNaN_ReturnsZero()
-        {
-            float intensity = GhostVisualBuilder.ComputeReentryIntensity(speed: 1500f, dynamicPressure: float.NaN);
-            Assert.Equal(0f, intensity);
-        }
-
-        [Fact]
-        public void DynamicPressureNegative_ReturnsZero()
-        {
-            float intensity = GhostVisualBuilder.ComputeReentryIntensity(speed: 1500f, dynamicPressure: -100f);
-            Assert.Equal(0f, intensity);
-        }
-
-        [Fact]
-        public void SpeedNaN_ReturnsZero()
-        {
-            float intensity = GhostVisualBuilder.ComputeReentryIntensity(speed: float.NaN, dynamicPressure: 10000f);
-            Assert.Equal(0f, intensity);
-        }
-
-        [Fact]
-        public void DynamicPressurePositiveInfinity_ReturnsOne()
-        {
-            float intensity = GhostVisualBuilder.ComputeReentryIntensity(speed: 2000f, dynamicPressure: float.PositiveInfinity);
+            // Mach 5 at sea level — above saturation, clamped
+            float speed = 5f * KerbinSpeedOfSound;
+            float intensity = GhostVisualBuilder.ComputeReentryIntensity(
+                speed: speed, density: KerbinSeaLevelDensity, machNumber: 5f);
             Assert.Equal(1f, intensity);
         }
 
         [Fact]
-        public void SpeedNegative_ReturnsZero()
+        public void MidRange_Mach3_SeaLevel_BetweenZeroAndOne()
         {
-            float intensity = GhostVisualBuilder.ComputeReentryIntensity(speed: -500f, dynamicPressure: 10000f);
+            // Mach 3 at sea level — between start and full
+            float speed = 3f * KerbinSpeedOfSound;
+            float intensity = GhostVisualBuilder.ComputeReentryIntensity(
+                speed: speed, density: KerbinSeaLevelDensity, machNumber: 3f);
+            Assert.True(intensity > 0f, $"Expected intensity > 0 at Mach 3, got {intensity}");
+            Assert.True(intensity < 1f, $"Expected intensity < 1 at Mach 3, got {intensity}");
+        }
+
+        // --- Density effects ---
+
+        [Fact]
+        public void BelowDensityFade_HighMach_ReturnsZero()
+        {
+            // Density below 0.0015 — near vacuum, FX fades out
+            float speed = 4f * KerbinSpeedOfSound;
+            float intensity = GhostVisualBuilder.ComputeReentryIntensity(
+                speed: speed, density: 0.001f, machNumber: 4f);
             Assert.Equal(0f, intensity);
         }
 
         [Fact]
-        public void DynamicPressureNegativeInfinity_ReturnsZero()
+        public void LowDensity_HighMach_LowerIntensity()
         {
-            float intensity = GhostVisualBuilder.ComputeReentryIntensity(speed: 2000f, dynamicPressure: float.NegativeInfinity);
-            Assert.Equal(0f, intensity);
-        }
-
-        [Fact]
-        public void SpeedPositiveInfinity_DependsOnPressure()
-        {
-            // Speed gate passes (infinity > 400), so result depends on q ramp
-            // q=10000 is mid-range between low (500) and high (20000) thresholds
-            float intensity = GhostVisualBuilder.ComputeReentryIntensity(speed: float.PositiveInfinity, dynamicPressure: 10000f);
-            Assert.True(intensity > 0f, $"Expected intensity > 0, got {intensity}");
-            Assert.True(intensity < 1f, $"Expected intensity < 1, got {intensity}");
+            // High altitude, thin air — lower intensity than sea level at same Mach
+            float speed = 3.5f * KerbinSpeedOfSound;
+            float seaLevel = GhostVisualBuilder.ComputeReentryIntensity(
+                speed: speed, density: KerbinSeaLevelDensity, machNumber: 3.5f);
+            float highAlt = GhostVisualBuilder.ComputeReentryIntensity(
+                speed: speed, density: 0.01f, machNumber: 3.5f);
+            Assert.True(highAlt < seaLevel,
+                $"High altitude intensity ({highAlt}) should be less than sea level ({seaLevel})");
+            Assert.True(highAlt > 0f,
+                $"High altitude should still have some intensity at Mach 3.5, got {highAlt}");
         }
 
         // --- Body-agnostic behavior ---
 
         [Fact]
-        public void EveLikeDensity_HighPressure_Saturated()
+        public void EveLikeDensity_HighMach_Saturated()
         {
-            // Eve-like: density=6.0 kg/m^3, speed=800 m/s
-            // q = 0.5 * 6.0 * 800^2 = 1,920,000 Pa — well above ReentryQThresholdHigh
-            float q = 0.5f * 6.0f * 800f * 800f;
-            float intensity = GhostVisualBuilder.ComputeReentryIntensity(speed: 800f, dynamicPressure: q);
+            // Eve-like: very dense atmosphere (density=6.0), Mach 3
+            // Much higher density than Kerbin → saturated
+            float speed = 3f * 270f; // Eve speed of sound ~270 m/s
+            float intensity = GhostVisualBuilder.ComputeReentryIntensity(
+                speed: speed, density: 6.0f, machNumber: 3f);
             Assert.Equal(1f, intensity);
         }
 
         [Fact]
-        public void DunaLikeDensity_ModeratePressure_BetweenZeroAndOne()
+        public void DunaLikeDensity_HighMach_LowIntensity()
         {
-            // Duna-like: density=0.02 kg/m^3, speed=800 m/s
-            // q = 0.5 * 0.02 * 800^2 = 6400 Pa — between ReentryQThresholdLow and High
-            float q = 0.5f * 0.02f * 800f * 800f;
-            float intensity = GhostVisualBuilder.ComputeReentryIntensity(speed: 800f, dynamicPressure: q);
-            Assert.True(intensity > 0f, $"Expected intensity > 0 for Duna-like conditions, got {intensity}");
-            Assert.True(intensity < 1f, $"Expected intensity < 1 for Duna-like conditions, got {intensity}");
+            // Duna-like: thin atmosphere (density=0.02), Mach 4
+            float speed = 4f * 240f; // Duna speed of sound ~240 m/s
+            float intensity = GhostVisualBuilder.ComputeReentryIntensity(
+                speed: speed, density: 0.02f, machNumber: 4f);
+            Assert.True(intensity > 0f, $"Duna-like at Mach 4 should produce some intensity, got {intensity}");
+            Assert.True(intensity < 1f, $"Duna-like thin atmo should not saturate, got {intensity}");
         }
 
-        // --- Linear ramp verification ---
+        // --- Edge values ---
 
         [Fact]
-        public void ExactlyAtLowThreshold_ReturnsZero()
+        public void SpeedNaN_ReturnsZero()
         {
-            // q exactly at ReentryQThresholdLow (500) — at threshold, not above
-            float intensity = GhostVisualBuilder.ComputeReentryIntensity(speed: 1000f, dynamicPressure: 500f);
+            float intensity = GhostVisualBuilder.ComputeReentryIntensity(
+                speed: float.NaN, density: 1f, machNumber: 3f);
             Assert.Equal(0f, intensity);
         }
 
         [Fact]
-        public void ExactlyAtHighThreshold_ReturnsOne()
+        public void DensityNaN_ReturnsZero()
         {
-            // q exactly at ReentryQThresholdHigh (20000)
-            float intensity = GhostVisualBuilder.ComputeReentryIntensity(speed: 1000f, dynamicPressure: 20000f);
+            float intensity = GhostVisualBuilder.ComputeReentryIntensity(
+                speed: 1000f, density: float.NaN, machNumber: 3f);
+            Assert.Equal(0f, intensity);
+        }
+
+        [Fact]
+        public void MachNaN_ReturnsZero()
+        {
+            float intensity = GhostVisualBuilder.ComputeReentryIntensity(
+                speed: 1000f, density: 1f, machNumber: float.NaN);
+            Assert.Equal(0f, intensity);
+        }
+
+        [Fact]
+        public void AllNaN_ReturnsZero()
+        {
+            float intensity = GhostVisualBuilder.ComputeReentryIntensity(
+                speed: float.NaN, density: float.NaN, machNumber: float.NaN);
+            Assert.Equal(0f, intensity);
+        }
+
+        [Fact]
+        public void SpeedNegative_ReturnsZero()
+        {
+            float intensity = GhostVisualBuilder.ComputeReentryIntensity(
+                speed: -500f, density: 1f, machNumber: 3f);
+            Assert.Equal(0f, intensity);
+        }
+
+        [Fact]
+        public void DensityNegative_ReturnsZero()
+        {
+            float intensity = GhostVisualBuilder.ComputeReentryIntensity(
+                speed: 1000f, density: -1f, machNumber: 3f);
+            Assert.Equal(0f, intensity);
+        }
+
+        [Fact]
+        public void MachNegative_ReturnsZero()
+        {
+            float intensity = GhostVisualBuilder.ComputeReentryIntensity(
+                speed: 1000f, density: 1f, machNumber: -1f);
+            Assert.Equal(0f, intensity);
+        }
+
+        [Fact]
+        public void SpeedPositiveInfinity_ReturnsOne()
+        {
+            float intensity = GhostVisualBuilder.ComputeReentryIntensity(
+                speed: float.PositiveInfinity, density: 1f, machNumber: 3f);
             Assert.Equal(1f, intensity);
         }
 
         [Fact]
-        public void MidpointOfRamp_ReturnsApproxHalf()
+        public void DensityPositiveInfinity_ReturnsOne()
         {
-            // q at midpoint: (500 + 20000) / 2 = 10250
-            // Expected intensity: (10250 - 500) / (20000 - 500) = 9750 / 19500 = 0.5
-            float intensity = GhostVisualBuilder.ComputeReentryIntensity(speed: 1000f, dynamicPressure: 10250f);
-            Assert.Equal(0.5, (double)intensity, 4);
+            float intensity = GhostVisualBuilder.ComputeReentryIntensity(
+                speed: 1000f, density: float.PositiveInfinity, machNumber: 3f);
+            Assert.Equal(1f, intensity);
         }
-
-        // --- Parameterized edge cases ---
-
-        [Theory]
-        [InlineData(0f, 0f, 0f)]           // Vacuum
-        [InlineData(100f, 0f, 0f)]          // Slow, no pressure
-        [InlineData(200f, 15000f, 0f)]      // Below speed threshold
-        [InlineData(399f, 15000f, 0f)]      // Just below speed threshold
-        [InlineData(1000f, 499f, 0f)]       // Just below q low threshold
-        [InlineData(2000f, 25000f, 1f)]     // Saturated
-        [InlineData(3000f, 50000f, 1f)]     // Far above saturation
-        public void ParameterizedThresholds(float speed, float q, float expected)
-        {
-            float intensity = GhostVisualBuilder.ComputeReentryIntensity(speed, q);
-            Assert.Equal((double)expected, (double)intensity, 4);
-        }
-
-        [Theory]
-        [InlineData(1000f, 5250f, 0.2436f)]   // (5250-500)/(20000-500) = 4750/19500 ≈ 0.2436
-        [InlineData(1000f, 10250f, 0.5f)]      // midpoint
-        [InlineData(1000f, 15125f, 0.75f)]     // (15125-500)/19500 = 14625/19500 = 0.75
-        public void LinearRampValues(float speed, float q, float expected)
-        {
-            float intensity = GhostVisualBuilder.ComputeReentryIntensity(speed, q);
-            Assert.Equal((double)expected, (double)intensity, 3);
-        }
-
-        // --- Both NaN inputs ---
 
         [Fact]
-        public void BothNaN_ReturnsZero()
+        public void DensityNegativeInfinity_ReturnsZero()
         {
-            float intensity = GhostVisualBuilder.ComputeReentryIntensity(speed: float.NaN, dynamicPressure: float.NaN);
+            float intensity = GhostVisualBuilder.ComputeReentryIntensity(
+                speed: 1000f, density: float.NegativeInfinity, machNumber: 3f);
             Assert.Equal(0f, intensity);
         }
 
-        // --- Speed exactly at threshold ---
+        // --- Mach threshold boundary ---
 
         [Fact]
-        public void SpeedExactlyAtThreshold_WithHighPressure_ReturnsZero()
+        public void JustBelowMachThreshold_ReturnsZero()
         {
-            // Speed exactly at 400 (threshold is <400 returns 0, so 400 should pass)
-            float intensity = GhostVisualBuilder.ComputeReentryIntensity(speed: 400f, dynamicPressure: 15000f);
-            Assert.True(intensity > 0f, $"Speed at threshold (400) with high q should produce non-zero intensity, got {intensity}");
-        }
-
-        [Fact]
-        public void SpeedJustBelowThreshold_ReturnsZero()
-        {
-            float intensity = GhostVisualBuilder.ComputeReentryIntensity(speed: 399.9f, dynamicPressure: 15000f);
+            float speed = 2.49f * KerbinSpeedOfSound;
+            float intensity = GhostVisualBuilder.ComputeReentryIntensity(
+                speed: speed, density: KerbinSeaLevelDensity, machNumber: 2.49f);
             Assert.Equal(0f, intensity);
         }
 
+        // --- Parameterized tests ---
+
+        [Theory]
+        [InlineData(0f, 0f, 0f)]         // Vacuum
+        [InlineData(100f, 1.0f, 0.3f)]   // Subsonic, below Mach 2.5
+        [InlineData(500f, 1.0f, 1.5f)]   // Supersonic but below Mach 2.5
+        [InlineData(800f, 1.0f, 2.35f)]  // Below Mach 2.5
+        [InlineData(800f, 0.001f, 2.5f)] // At Mach threshold but below density fade
+        public void BelowThreshold_ReturnsZero(float speed, float density, float mach)
+        {
+            float intensity = GhostVisualBuilder.ComputeReentryIntensity(speed, density, mach);
+            Assert.Equal(0f, intensity);
+        }
+
+        [Theory]
+        [InlineData(1000f, 1.0f, 3.0f)]   // Mid-range Mach, sea level
+        [InlineData(1100f, 0.5f, 3.2f)]   // Mid-range Mach, mid altitude
+        [InlineData(900f, 0.1f, 2.6f)]    // Just above Mach threshold, moderate density
+        public void MidRange_ReturnsBetweenZeroAndOne(float speed, float density, float mach)
+        {
+            float intensity = GhostVisualBuilder.ComputeReentryIntensity(speed, density, mach);
+            Assert.True(intensity > 0f, $"Expected > 0 for speed={speed}, density={density}, mach={mach}, got {intensity}");
+            Assert.True(intensity < 1f, $"Expected < 1 for speed={speed}, density={density}, mach={mach}, got {intensity}");
+        }
+
+        // --- Monotonicity: higher Mach → higher intensity at same density ---
+
+        [Fact]
+        public void HigherMach_HigherIntensity_SameDensity()
+        {
+            float density = 0.5f;
+            float i1 = GhostVisualBuilder.ComputeReentryIntensity(
+                speed: 2.6f * KerbinSpeedOfSound, density: density, machNumber: 2.6f);
+            float i2 = GhostVisualBuilder.ComputeReentryIntensity(
+                speed: 3.0f * KerbinSpeedOfSound, density: density, machNumber: 3.0f);
+            float i3 = GhostVisualBuilder.ComputeReentryIntensity(
+                speed: 3.5f * KerbinSpeedOfSound, density: density, machNumber: 3.5f);
+
+            Assert.True(i2 > i1, $"Mach 3.0 intensity ({i2}) should be > Mach 2.6 ({i1})");
+            Assert.True(i3 > i2, $"Mach 3.5 intensity ({i3}) should be > Mach 3.0 ({i2})");
+        }
+
+        // --- Monotonicity: higher density → higher intensity at same Mach ---
+
+        [Fact]
+        public void HigherDensity_HigherIntensity_SameMach()
+        {
+            float mach = 3.0f;
+            float speed = mach * KerbinSpeedOfSound;
+            float i1 = GhostVisualBuilder.ComputeReentryIntensity(
+                speed: speed, density: 0.01f, machNumber: mach);
+            float i2 = GhostVisualBuilder.ComputeReentryIntensity(
+                speed: speed, density: 0.1f, machNumber: mach);
+            float i3 = GhostVisualBuilder.ComputeReentryIntensity(
+                speed: speed, density: 1.0f, machNumber: mach);
+
+            Assert.True(i2 > i1, $"Density 0.1 intensity ({i2}) should be > density 0.01 ({i1})");
+            Assert.True(i3 > i2, $"Density 1.0 intensity ({i3}) should be > density 0.1 ({i2})");
+        }
+
+        // --- KSP Physics.cfg constants are exposed correctly ---
+
+        [Fact]
+        public void Constants_MatchKspPhysicsCfg()
+        {
+            Assert.Equal(2.5f, GhostVisualBuilder.AeroFxThermalStartMach);
+            Assert.Equal(3.75f, GhostVisualBuilder.AeroFxThermalFullMach);
+            Assert.Equal(3.5f, GhostVisualBuilder.AeroFxVelocityExponent);
+            Assert.Equal(0.0091f, GhostVisualBuilder.AeroFxDensityScalar1);
+            Assert.Equal(0.5f, GhostVisualBuilder.AeroFxDensityExponent1);
+            Assert.Equal(0.09f, GhostVisualBuilder.AeroFxDensityScalar2);
+            Assert.Equal(2f, GhostVisualBuilder.AeroFxDensityExponent2);
+            Assert.Equal(0.0015f, GhostVisualBuilder.AeroFxDensityFadeStart);
+        }
     }
 
     public class AltitudeInterpolationTests

@@ -150,10 +150,18 @@ namespace Parsek
         private static readonly Color HeatTintColor = new Color(1f, 0.45f, 0.2f, 1f);
         private static readonly Color HeatEmissionColor = new Color(1.5f, 0.6f, 0.15f, 1f);
 
-        // Reentry FX intensity thresholds
-        private const float ReentryQThresholdLow = 500f;
-        private const float ReentryQThresholdHigh = 20000f;
-        private const float ReentrySpeedThresholdLow = 400f;
+        // Reentry FX thresholds — matched to KSP stock Physics.cfg aeroFX parameters
+        // KSP shows thermal FX (orange flames) starting at Mach 2.5, fully orange at Mach 3.75
+        // aeroFXStrength ∝ velocity^3.5 * (0.0091 * density^0.5 + 0.09 * density^2)
+        // Density fade starts at 0.0015 kg/m³ (near edge of atmosphere)
+        internal const float AeroFxThermalStartMach = 2.5f;
+        internal const float AeroFxThermalFullMach = 3.75f;
+        internal const float AeroFxVelocityExponent = 3.5f;
+        internal const float AeroFxDensityScalar1 = 0.0091f;
+        internal const float AeroFxDensityExponent1 = 0.5f;
+        internal const float AeroFxDensityScalar2 = 0.09f;
+        internal const float AeroFxDensityExponent2 = 2f;
+        internal const float AeroFxDensityFadeStart = 0.0015f;
         internal static readonly Color ReentryHotEmissionLow = new Color(1.5f, 0.6f, 0.15f, 1f);
         internal static readonly Color ReentryHotEmissionHigh = new Color(2.0f, 1.5f, 0.8f, 1f);
         internal const float ReentrySmoothingRate = 5.0f;
@@ -5719,36 +5727,56 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Computes reentry visual intensity from speed and dynamic pressure.
+        /// Computes reentry visual intensity matched to KSP stock aeroFX from Physics.cfg.
         /// Pure function — no Unity dependencies, no side effects.
         /// Returns 0-1 float: 0 = no effect, 1 = maximum reentry FX.
+        ///
+        /// KSP stock formula:
+        ///   aeroFXStrength = velocity^3.5 * (0.0091 * density^0.5 + 0.09 * density^2)
+        ///   Thermal FX (orange flames) starts at Mach 2.5, fully at Mach 3.75
+        ///   Density fade below 0.0015 kg/m³
         /// </summary>
-        internal static float ComputeReentryIntensity(float speed, float dynamicPressure)
+        internal static float ComputeReentryIntensity(float speed, float density, float machNumber)
         {
             // Guard: NaN or negative inputs
             if (float.IsNaN(speed) || speed < 0f)
                 return 0f;
-            if (float.IsNaN(dynamicPressure) || dynamicPressure < 0f)
+            if (float.IsNaN(density) || density < 0f)
+                return 0f;
+            if (float.IsNaN(machNumber) || machNumber < 0f)
                 return 0f;
 
-            // Speed gate: slow flight in thick atmosphere should not glow
-            if (speed < ReentrySpeedThresholdLow)
+            // Mach gate: KSP thermal FX starts at Mach 2.5
+            if (machNumber < AeroFxThermalStartMach)
                 return 0f;
 
-            // Handle infinity (e.g. extreme density values)
-            if (float.IsPositiveInfinity(dynamicPressure))
+            // Density gate: FX fades near the edge of atmosphere
+            if (density < AeroFxDensityFadeStart)
+                return 0f;
+
+            // Handle infinities
+            if (float.IsPositiveInfinity(speed) || float.IsPositiveInfinity(density))
                 return 1f;
 
-            // Threshold ramp
-            if (dynamicPressure < ReentryQThresholdLow)
-                return 0f;
-            if (dynamicPressure >= ReentryQThresholdHigh)
-                return 1f;
+            // KSP aeroFX strength: velocity^3.5 * (s1 * density^e1 + s2 * density^e2)
+            double velTerm = System.Math.Pow(speed, AeroFxVelocityExponent);
+            double densityTerm = AeroFxDensityScalar1 * System.Math.Pow(density, AeroFxDensityExponent1)
+                               + AeroFxDensityScalar2 * System.Math.Pow(density, AeroFxDensityExponent2);
+            double rawStrength = velTerm * densityTerm;
 
-            // Linear ramp between low and high thresholds
-            float intensity = (dynamicPressure - ReentryQThresholdLow) / (ReentryQThresholdHigh - ReentryQThresholdLow);
+            // Normalize: at Kerbin sea level (density≈1.225), Mach 3.75 (~1275 m/s) should be ~1.0
+            // Reference: 1275^3.5 * (0.0091*1.225^0.5 + 0.09*1.225^2) ≈ 1275^3.5 * 0.145 ≈ big
+            // Use a calibration constant so intensity=1.0 at the "fully orange" condition.
+            // Kerbin sea level: density=1.225, speed of sound≈340 m/s, Mach 3.75 = 1275 m/s
+            double refSpeed = 340.0 * AeroFxThermalFullMach;
+            double refDensity = 1.225;
+            double refStrength = System.Math.Pow(refSpeed, AeroFxVelocityExponent)
+                               * (AeroFxDensityScalar1 * System.Math.Pow(refDensity, AeroFxDensityExponent1)
+                               +  AeroFxDensityScalar2 * System.Math.Pow(refDensity, AeroFxDensityExponent2));
 
-            // Clamp for safety (should already be in [0,1] from the guards above)
+            float intensity = (float)(rawStrength / refStrength);
+
+            // Clamp
             if (intensity < 0f) intensity = 0f;
             if (intensity > 1f) intensity = 1f;
 
