@@ -5958,79 +5958,34 @@ namespace Parsek
                 }
             }
 
-            // Layer B: Flame particles
-            if (info.flameParticles != null)
+            // Fire streak trails
+            if (info.streakTrails != null)
             {
-                for (int i = 0; i < info.flameParticles.Count; i++)
+                if (intensity > GhostVisualBuilder.ReentryStreakThreshold)
                 {
-                    ParticleSystem flame = info.flameParticles[i];
-                    if (flame == null) continue;
+                    float streakFraction = Mathf.InverseLerp(GhostVisualBuilder.ReentryStreakThreshold, 1f, intensity);
+                    float startW = Mathf.Lerp(GhostVisualBuilder.ReentryStreakStartWidthMin,
+                        GhostVisualBuilder.ReentryStreakStartWidthMax, streakFraction);
+                    float endW = Mathf.Lerp(GhostVisualBuilder.ReentryStreakEndWidthMin,
+                        GhostVisualBuilder.ReentryStreakEndWidthMax, streakFraction);
 
-                    if (intensity > GhostVisualBuilder.ReentryLayerBThreshold)
+                    for (int i = 0; i < info.streakTrails.Count; i++)
                     {
-                        float flameFraction = Mathf.InverseLerp(GhostVisualBuilder.ReentryLayerBThreshold, 1f, intensity);
-                        var emission = flame.emission;
-                        emission.rateOverTime = flameFraction * GhostVisualBuilder.ReentryFlameMaxEmission;
-                        var main = flame.main;
-                        main.startSize = Mathf.Lerp(0.5f, 2f, flameFraction);
-                        if (surfaceVel.sqrMagnitude > 1f)
-                            flame.transform.rotation = Quaternion.LookRotation(surfaceVel.normalized);
-                        if (!flame.isPlaying) flame.Play();
+                        TrailRenderer streak = info.streakTrails[i];
+                        if (streak == null) continue;
+                        streak.startWidth = startW;
+                        streak.endWidth = endW;
+                        streak.emitting = true;
                     }
-                    else
-                    {
-                        var emission = flame.emission;
-                        emission.rateOverTime = 0f;
-                        if (flame.particleCount == 0 && flame.isPlaying)
-                            flame.Stop();
-                    }
-                }
-            }
-
-            // Layer C: Smoke/plasma trail
-            if (info.smokeParticles != null)
-            {
-                for (int i = 0; i < info.smokeParticles.Count; i++)
-                {
-                    ParticleSystem smoke = info.smokeParticles[i];
-                    if (smoke == null) continue;
-
-                    if (intensity > GhostVisualBuilder.ReentryLayerCThreshold)
-                    {
-                        float smokeFraction = Mathf.InverseLerp(GhostVisualBuilder.ReentryLayerCThreshold, 1f, intensity);
-                        var emission = smoke.emission;
-                        emission.rateOverTime = smokeFraction * GhostVisualBuilder.ReentrySmokeMaxEmission;
-                        var main = smoke.main;
-                        main.startSize = Mathf.Lerp(1f, 5f, smokeFraction);
-                        if (surfaceVel.sqrMagnitude > 1f)
-                            smoke.transform.rotation = Quaternion.LookRotation(surfaceVel.normalized);
-                        if (!smoke.isPlaying) smoke.Play();
-                    }
-                    else
-                    {
-                        var emission = smoke.emission;
-                        emission.rateOverTime = 0f;
-                        if (smoke.particleCount == 0 && smoke.isPlaying)
-                            smoke.Stop();
-                    }
-                }
-            }
-
-            // Layer D: Trail renderer
-            if (info.trailRenderer != null)
-            {
-                if (intensity > GhostVisualBuilder.ReentryLayerDThreshold)
-                {
-                    float trailFraction = Mathf.InverseLerp(GhostVisualBuilder.ReentryLayerDThreshold, 1f, intensity);
-                    info.trailRenderer.startWidth = Mathf.Lerp(
-                        GhostVisualBuilder.ReentryTrailMinWidth, GhostVisualBuilder.ReentryTrailMaxWidth, trailFraction);
-                    info.trailRenderer.endWidth = Mathf.Lerp(
-                        GhostVisualBuilder.ReentryTrailEndMinWidth, GhostVisualBuilder.ReentryTrailEndMaxWidth, trailFraction);
-                    info.trailRenderer.emitting = true;
                 }
                 else
                 {
-                    info.trailRenderer.emitting = false;
+                    for (int i = 0; i < info.streakTrails.Count; i++)
+                    {
+                        TrailRenderer streak = info.streakTrails[i];
+                        if (streak == null) continue;
+                        streak.emitting = false;
+                    }
                 }
             }
         }
@@ -6043,32 +5998,14 @@ namespace Parsek
             info.lastIntensity = 0f;
             info.lastVelocity = Vector3.zero;
 
-            if (info.trailRenderer != null)
+            if (info.streakTrails != null)
             {
-                info.trailRenderer.Clear();
-                info.trailRenderer.emitting = false;
-            }
-
-            if (info.flameParticles != null)
-            {
-                for (int i = 0; i < info.flameParticles.Count; i++)
+                for (int i = 0; i < info.streakTrails.Count; i++)
                 {
-                    if (info.flameParticles[i] != null)
+                    if (info.streakTrails[i] != null)
                     {
-                        info.flameParticles[i].Clear(true);
-                        info.flameParticles[i].Stop();
-                    }
-                }
-            }
-
-            if (info.smokeParticles != null)
-            {
-                for (int i = 0; i < info.smokeParticles.Count; i++)
-                {
-                    if (info.smokeParticles[i] != null)
-                    {
-                        info.smokeParticles[i].Clear(true);
-                        info.smokeParticles[i].Stop();
+                        info.streakTrails[i].Clear();
+                        info.streakTrails[i].emitting = false;
                     }
                 }
             }
@@ -6086,7 +6023,7 @@ namespace Parsek
                 }
             }
 
-            ParsekLog.Verbose("Flight", $"ReentryFx: Loop reset for ghost #{recIdx} — cleared trail and particles");
+            ParsekLog.Verbose("Flight", $"ReentryFx: Loop reset for ghost #{recIdx} — cleared streak trails and glow");
         }
 
         static bool ApplyDeployableState(GhostPlaybackState state, PartEvent evt, bool deployed)
