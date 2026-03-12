@@ -5309,10 +5309,12 @@ namespace Parsek
                         break;
                     case PartEventType.InventoryPartPlaced:
                         SetGhostPartActive(ghost, evt.partPersistentId, true);
+                        visibilityChanged = true;
                         Log($"Part event applied: InventoryPartPlaced '{evt.partName}' pid={evt.partPersistentId}");
                         break;
                     case PartEventType.InventoryPartRemoved:
                         SetGhostPartActive(ghost, evt.partPersistentId, false);
+                        visibilityChanged = true;
                         Log($"Part event applied: InventoryPartRemoved '{evt.partName}' pid={evt.partPersistentId}");
                         break;
                 }
@@ -5320,7 +5322,7 @@ namespace Parsek
             }
 
             state.partEventIndex = evtIdx;
-            if (visibilityChanged && recIdx == watchedRecordingIndex)
+            if (visibilityChanged)
                 RecalculateCameraPivot(state);
             UpdateBlinkingLights(state, currentUT);
             UpdateActiveRobotics(state, currentUT);
