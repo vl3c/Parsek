@@ -220,7 +220,7 @@ The script exits non-zero if required log contracts fail.
 - **TrajectoryPoint** - struct storing per-tick data: position (lat/lon/alt), rotation, velocity, body name, and career resources (funds, science, reputation). All timestamps use absolute UT.
 - **PartEvent** - struct + enum covering 28 event types: decoupled, destroyed, parachute deploy/cut/destroyed, shroud jettison, engine ignition/shutdown/throttle, deployable extend/retract, light on/off/blink, gear deploy/retract, cargo bay open/close, fairing jettison, RCS activate/stop/throttle, dock/undock, inventory place/remove.
 
-### External Recording Files (v4)
+### External Recording Files (v5)
 
 Bulk data (trajectory points, orbit segments, part events, snapshots) is stored in external sidecar files under `saves/<save>/Parsek/Recordings/`, keeping the `.sfs` save file lightweight. File types: `.prec` (trajectory), `_vessel.craft` / `_ghost.craft` (vessel snapshots). Safe-write via `.tmp` + rename.
 
@@ -234,7 +234,7 @@ On scene change (revert), the active vessel is snapshotted via `Vessel.BackupVes
 | Vessel moved >=100m AND destroyed | **Merge only** (trajectory captured) |
 | Vessel moved >=100m AND intact | **Persist** (respawn via ProtoVessel injection) |
 
-Vessel respawn uses `ProtoVessel` injection into `flightState.protoVessels`. Recovery uses `ShipConstruction.RecoverVesselFromFlight`. Vessel snapshots are persisted to external `.craft` sidecar files (v4 format).
+Vessel respawn uses `ProtoVessel` injection into `flightState.protoVessels`. Recovery uses `ShipConstruction.RecoverVesselFromFlight`. Vessel snapshots are persisted to external `.craft` sidecar files (v5 format).
 
 ### Crew Replacement System
 
