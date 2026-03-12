@@ -66,6 +66,7 @@ namespace Parsek
             public Dictionary<uint, FairingGhostInfo> fairingInfos;
             public Dictionary<uint, GameObject> fakeCanopies;
             public ReentryFxInfo reentryFxInfo;
+            public Transform cameraPivot; // child of ghost; centroid of active parts — camera targets this
             public Vector3 lastInterpolatedVelocity;
             public string lastInterpolatedBodyName;
             public double lastInterpolatedAltitude;
@@ -1250,7 +1251,7 @@ namespace Parsek
             {
                 GhostPlaybackState ws;
                 if (ghostStates.TryGetValue(watchedRecordingIndex, out ws) && ws != null && ws.ghost != null)
-                    FlightCamera.fetch.SetTargetTransform(ws.ghost.transform);
+                    FlightCamera.fetch.SetTargetTransform(ws.cameraPivot ?? ws.ghost.transform);
                 ParsekLog.Verbose("CameraFollow",
                     $"onVesselChange fired while watching \u2014 re-targeting camera to ghost #{watchedRecordingIndex}");
             }
@@ -4569,7 +4570,7 @@ namespace Parsek
 
                 // Ghost was rebuilt for new loop cycle — re-target camera
                 if (watchedRecordingIndex == recIdx && state.ghost != null)
-                    FlightCamera.fetch.SetTargetTransform(state.ghost.transform);
+                    FlightCamera.fetch.SetTargetTransform(state.cameraPivot ?? state.ghost.transform);
             }
 
             if (state == null || state.ghost == null)
@@ -4834,9 +4835,13 @@ namespace Parsek
                     : $"Timeline ghost #{index}: built from vessel snapshot");
             }
 
+            var cameraPivotObj = new GameObject("cameraPivot");
+            cameraPivotObj.transform.SetParent(ghost.transform, false);
+
             var state = new GhostPlaybackState
             {
                 ghost = ghost,
+                cameraPivot = cameraPivotObj.transform,
                 playbackIndex = 0,
                 partEventIndex = 0,
                 partTree = GhostVisualBuilder.BuildPartSubtreeMap(GhostVisualBuilder.GetGhostSnapshot(rec))
@@ -4940,6 +4945,7 @@ namespace Parsek
                 rec.VesselName);
 
             ghostStates[index] = state;
+            RecalculateCameraPivot(state);
         }
 
         internal void DestroyTimelineGhost(int index)
@@ -5090,6 +5096,7 @@ namespace Parsek
             int evtIdx = state.partEventIndex;
             var tree = state.partTree;
             var ghost = state.ghost;
+            bool visibilityChanged = false;
 
             while (evtIdx < rec.PartEvents.Count && rec.PartEvents[evtIdx].ut <= currentUT)
             {
@@ -5106,6 +5113,7 @@ namespace Parsek
                             HideGhostPart(ghost, evt.partPersistentId);
                         Log($"Part event applied: Decoupled '{evt.partName}' pid={evt.partPersistentId}");
                         GhostVisualBuilder.RebuildReentryMeshes(ghost, state.reentryFxInfo);
+                        visibilityChanged = true;
                         break;
                     case PartEventType.Destroyed:
                         StopEngineFxForPart(state, evt.partPersistentId);
@@ -5114,6 +5122,7 @@ namespace Parsek
                         HideGhostPart(ghost, evt.partPersistentId);
                         Log($"Part event applied: Destroyed '{evt.partName}' pid={evt.partPersistentId}");
                         GhostVisualBuilder.RebuildReentryMeshes(ghost, state.reentryFxInfo);
+                        visibilityChanged = true;
                         break;
                     case PartEventType.ParachuteCut:
                         if (state.parachuteInfos != null)
@@ -5148,6 +5157,7 @@ namespace Parsek
                         DestroyFakeCanopy(state, evt.partPersistentId);
                         HideGhostPart(ghost, evt.partPersistentId);
                         Log($"Part event applied: ParachuteDestroyed '{evt.partName}' pid={evt.partPersistentId}");
+                        visibilityChanged = true;
                         break;
                     case PartEventType.ParachuteSemiDeployed:
                         if (state.parachuteInfos != null)
@@ -5310,6 +5320,8 @@ namespace Parsek
             }
 
             state.partEventIndex = evtIdx;
+            if (visibilityChanged && recIdx == watchedRecordingIndex)
+                RecalculateCameraPivot(state);
             UpdateBlinkingLights(state, currentUT);
             UpdateActiveRobotics(state, currentUT);
         }
@@ -6204,6 +6216,29 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Recompute the camera pivot to the centroid of all active ghost_part_ children.
+        /// Called after part visibility changes (decouple, destroy, etc.) so the camera
+        /// stays centered on the remaining visible mesh.
+        /// </summary>
+        static void RecalculateCameraPivot(GhostPlaybackState state)
+        {
+            if (state.cameraPivot == null || state.ghost == null) return;
+            var ghostTransform = state.ghost.transform;
+            int count = 0;
+            Vector3 sum = Vector3.zero;
+            for (int i = 0; i < ghostTransform.childCount; i++)
+            {
+                var child = ghostTransform.GetChild(i);
+                if (child.gameObject.activeSelf && child.name.StartsWith("ghost_part_"))
+                {
+                    sum += child.localPosition;
+                    count++;
+                }
+            }
+            state.cameraPivot.localPosition = count > 0 ? sum / count : Vector3.zero;
+        }
+
         bool IsAnyWarpActive()
         {
             // CurrentRateIndex > 0 covers both rails warp and physics warp.
@@ -6412,8 +6447,8 @@ namespace Parsek
                 savedCameraHeading = FlightCamera.fetch.camHdg;
             }
 
-            // Point camera at ghost
-            FlightCamera.fetch.SetTargetTransform(gs.ghost.transform);
+            // Point camera at ghost (use cameraPivot — centroid of active parts)
+            FlightCamera.fetch.SetTargetTransform(gs.cameraPivot ?? gs.ghost.transform);
             FlightCamera.fetch.SetDistance(50f);  // override [75,400] entry clamp
             ParsekLog.Verbose("CameraFollow",
                 $"FlightCamera.SetTargetTransform on ghost #{index} at {gs.ghost.transform.position}, distance={FlightCamera.fetch.Distance.ToString("F1", CultureInfo.InvariantCulture)}");
@@ -6664,7 +6699,7 @@ namespace Parsek
             savedCameraPitch = preservedPitch;
             savedCameraHeading = preservedHeading;
 
-            FlightCamera.fetch.SetTargetTransform(gs.ghost.transform);
+            FlightCamera.fetch.SetTargetTransform(gs.cameraPivot ?? gs.ghost.transform);
             InputLockManager.SetControlLock(WatchModeLockMask, WatchModeLockId);
 
             watchEndHoldUntilUT = -1;
