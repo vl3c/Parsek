@@ -159,8 +159,8 @@ Making "jump into a ghost and fly it" reliable is desirable but creates paradox 
 
 Current status: experimental button exists in UI, not recommended for normal play.
 
-### Camera follow for ghost vessels
-Allow the player to move the camera to a recorded vessel during playback. Clicking a ghost (or selecting it from the UI) anchors the camera on that vessel, letting the player watch the mission from that perspective without interrupting their current flight.
+### ~~Camera follow for ghost vessels~~ (Done)
+The W (Watch) button in the Recordings Manager moves the camera to a ghost vessel during playback. The camera follows the ghost until the player presses Backspace to return. Camera automatically recenters on visible parts after separation events.
 
 ### Planetarium.right drift compensation for long orbital segments
 KSP's inertial reference frame (`Planetarium.right`) may drift over very long time warp durations. This could cause ghost orientation mismatch for interplanetary transfer segments. Needs empirical measurement first — if drift is sub-degree for typical segment lengths, no fix needed. If significant, store `Planetarium.right` snapshot at recording time and apply correction at playback (~10 lines + 3 ConfigNode keys). See `docs/dev/done/design-orbital-rotation.md` Phase 6.
