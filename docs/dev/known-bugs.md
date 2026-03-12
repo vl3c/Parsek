@@ -97,9 +97,7 @@ Additionally, when the PersistentRotation mod is detected at recording time and 
 
 No format version bump — missing keys default to prograde fallback (backward compatible). Old Parsek versions ignore unknown keys (forward compatible).
 
-See `docs/dev/design-orbital-rotation.md` for full design.
-
-**Remaining open item:** `Planetarium.right` drift may cause minor orientation mismatch for very long orbital segments (interplanetary transfers). Requires empirical measurement before deciding whether to implement drift compensation (future Phase 6).
+See `docs/dev/done/design-orbital-rotation.md` for full design.
 
 **Status:** Fixed
 

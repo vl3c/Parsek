@@ -19,15 +19,15 @@ Like git, you can go back to any earlier point and start new work. Existing reco
 - Orbital/time-warp recording with analytical Keplerian orbits
 - Auto-recording on launch and EVA
 - Chained recordings (vessel → EVA → vessel, docking/undocking)
-- External recording files (v4 format)
+- External recording files (v5 format, surface-relative rotation)
 
 ### Phase 2: Ghost Visual Fidelity
 
 28 part event types recorded and replayed on ghost vessels: decoupling, staging, parachutes, engines (with FX), solar panels, antennas, radiators, landing gear, lights, cargo bays, fairings (runtime mesh), RCS (with FX), docking/undocking, inventory parts.
 
-Recordings Manager UI with sortable columns, per-recording loop/delete, and status indicators.
+Re-entry heating FX with mesh-surface fire particles matching stock KSP aeroFX intensity formula.
 
----
+Recordings Manager UI with sortable columns, per-recording loop/delete, and status indicators.
 
 ### Orbital Rotation Fidelity
 
@@ -38,6 +38,12 @@ When the PersistentRotation mod is detected, Parsek also records the vessel's an
 Old recordings without attitude data fall back to prograde (unchanged behavior). No format version bump required.
 
 **Design:** `docs/dev/done/design-orbital-rotation.md`
+
+### Camera Follow for Ghost Vessels
+
+The W (Watch) button in the Recordings Manager moves the camera to a ghost vessel during playback. The camera follows the ghost until the player presses Backspace to return. Camera automatically recenters on visible parts after separation events.
+
+**Design:** `docs/dev/done/design-camera-follow-ghost.md`
 
 ---
 
@@ -116,7 +122,7 @@ After rewind resource adjustment, `ActionReplay.ReplayCommittedActions` programm
 
 **Design:** `docs/dev/done/design-restore-points.md`, `docs/dev/done/design-going-back-in-time.md`
 
-**Test coverage:** 1251 tests (1250 pass, 1 known failure).
+**Test coverage:** 1263 tests.
 
 ---
 
@@ -148,7 +154,7 @@ The recording tree builds on top of the existing chain system. Each node in the 
 | 12. Tree verbose logging | 11 logging gaps filled across RecordingTree, ParsekFlight, ResourceBudget. |
 | 13. Tree test coverage | 18 non-vacuous tests + 3 synthetic tree recordings for in-game validation. |
 
-**Test coverage:** 1076 tests pass, 1 skipped, 0 failures.
+**Test coverage:** 1263 tests.
 
 ---
 
@@ -159,8 +165,8 @@ Making "jump into a ghost and fly it" reliable is desirable but creates paradox 
 
 Current status: experimental button exists in UI, not recommended for normal play.
 
-### Camera follow for ghost vessels
-Allow the player to move the camera to a recorded vessel during playback. Clicking a ghost (or selecting it from the UI) anchors the camera on that vessel, letting the player watch the mission from that perspective without interrupting their current flight.
+### Planetarium.right drift compensation for long orbital segments
+KSP's inertial reference frame (`Planetarium.right`) may drift over very long time warp durations. This could cause ghost orientation mismatch for interplanetary transfer segments. Needs empirical measurement first — if drift is sub-degree for typical segment lengths, no fix needed. If significant, store `Planetarium.right` snapshot at recording time and apply correction at playback (~10 lines + 3 ConfigNode keys). See `docs/dev/done/design-orbital-rotation.md` Phase 6.
 
 ### Additional part event coverage
 - Control surface deflection (continuous float - thousands of events per flight, unclear visual value)

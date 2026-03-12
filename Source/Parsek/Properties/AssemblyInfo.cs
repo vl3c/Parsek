@@ -17,7 +17,7 @@ using System.Runtime.InteropServices;
 
 [assembly: Guid("a1b2c3d4-e5f6-7890-abcd-ef1234567890")]
 
-[assembly: AssemblyVersion("0.3.1.0")]
-[assembly: AssemblyFileVersion("0.3.1.0")]
+[assembly: AssemblyVersion("0.4.0.0")]
+[assembly: AssemblyFileVersion("0.4.0.0")]
 
-[assembly: KSPAssembly("Parsek", 0, 3)]
+[assembly: KSPAssembly("Parsek", 0, 4)]
