@@ -3827,7 +3827,11 @@ namespace Parsek
             OrbitSegments.Add(currentOrbitSegment);
             isOnRails = false;
 
-            // Record a boundary TrajectoryPoint at current UT
+            // Record a boundary TrajectoryPoint at current UT.
+            // Note: KSP may not perfectly preserve SAS orientation across on/off-rails,
+            // so the vessel's actual rotation here can differ slightly from the orbital-frame
+            // rotation stored at the on-rails boundary. This causes a sub-degree rotation
+            // discontinuity in the ghost at this transition — acceptable.
             SamplePosition(v);
 
             // Reseed atmosphere state for the current body
