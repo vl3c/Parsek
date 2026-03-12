@@ -338,5 +338,58 @@ namespace Parsek
 
             return new Quaternion(q.x / magnitude, q.y / magnitude, q.z / magnitude, q.w / magnitude);
         }
+
+        /// <summary>Spin threshold in rad/s (matches PersistentRotation's threshold).</summary>
+        internal const float SpinThreshold = 0.05f;
+
+        /// <summary>
+        /// Returns true if the segment has recorded orbital-frame rotation data.
+        /// Default struct value (0,0,0,0) = no data.
+        /// </summary>
+        internal static bool HasOrbitalFrameRotation(OrbitSegment seg)
+            => seg.orbitalFrameRotation.x != 0f || seg.orbitalFrameRotation.y != 0f
+            || seg.orbitalFrameRotation.z != 0f || seg.orbitalFrameRotation.w != 0f;
+
+        /// <summary>
+        /// Returns true if the segment has spin data (angular velocity above threshold).
+        /// </summary>
+        internal static bool IsSpinning(OrbitSegment seg)
+            => seg.angularVelocity.sqrMagnitude > SpinThreshold * SpinThreshold;
+
+        /// <summary>
+        /// Computes vessel rotation relative to the orbital velocity frame.
+        /// Returns Inverse(orbFrame) * worldRotation.
+        /// Returns identity if velocity is near-zero (degenerate frame).
+        /// Falls back to LookRotation(velocity) without up hint if velocity
+        /// and radialOut are near-parallel (dot > 0.99).
+        /// </summary>
+        internal static Quaternion ComputeOrbitalFrameRotation(
+            Quaternion worldRotation, Vector3d orbitalVelocity, Vector3d radialOut)
+        {
+            if (orbitalVelocity.sqrMagnitude < 0.001)
+            {
+                ParsekLog.VerboseRateLimited("TrajectoryMath", "ofr-degenerate-velocity",
+                    $"Orbital-frame rotation: degenerate velocity (sqrMag={orbitalVelocity.sqrMagnitude:F6}), using identity");
+                return Quaternion.identity;
+            }
+
+            Vector3 velNorm = ((Vector3)orbitalVelocity).normalized;
+            Vector3 radNorm = ((Vector3)radialOut).normalized;
+            float dot = Vector3.Dot(velNorm, radNorm);
+
+            Quaternion orbFrame;
+            if (Mathf.Abs(dot) > 0.99f)
+            {
+                ParsekLog.VerboseRateLimited("TrajectoryMath", "ofr-near-parallel",
+                    $"Orbital-frame rotation: velocity/radialOut near-parallel (dot={dot:F4}), frame approximated");
+                orbFrame = Quaternion.LookRotation(orbitalVelocity);
+            }
+            else
+            {
+                orbFrame = Quaternion.LookRotation(orbitalVelocity, radialOut);
+            }
+
+            return Quaternion.Inverse(orbFrame) * worldRotation;
+        }
     }
 }
