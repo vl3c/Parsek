@@ -268,6 +268,7 @@ namespace Parsek
         float savedCameraPitch = 0f;
         float savedCameraHeading = 0f;
         double watchEndHoldUntilUT = -1;      // non-looped end hold timer
+        float savedPivotSharpness = 0.5f;
 
         // UI
         private Rect windowRect = new Rect(20, 100, 250, 250);
@@ -809,6 +810,8 @@ namespace Parsek
                 }
             }
             ghostPosEntries.Clear();
+
+            UpdateWatchCamera();
         }
 
         void OnGUI()
@@ -4958,7 +4961,6 @@ namespace Parsek
                 rec.VesselName);
 
             ghostStates[index] = state;
-            RecalculateCameraPivot(state);
         }
 
         internal void DestroyTimelineGhost(int index)
@@ -6232,17 +6234,50 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Set the camera pivot to the root part position (localPosition zero).
-        /// This matches KSP's own camera behavior which orbits around the root part
-        /// (command pod). The root part is always in the surviving stage after decoupling.
+        /// Recalculate cameraPivot position after a visibility change (decouple/destroy).
+        /// Sets localPosition to midpoint of remaining active parts' bounding extent.
         /// </summary>
         static void RecalculateCameraPivot(GhostPlaybackState state)
         {
-            if (state.cameraPivot == null || state.ghost == null) return;
-            state.cameraPivot.localPosition = Vector3.zero;
-            ParsekLog.Info("Flight",
-                $"Camera pivot set to root part origin (0,0,0)" +
-                $" ghostPos=({state.ghost.transform.position.x:F1},{state.ghost.transform.position.y:F1},{state.ghost.transform.position.z:F1})");
+            if (state.ghost == null || state.cameraPivot == null) return;
+            var ghostTransform = state.ghost.transform;
+            int count = 0;
+            Vector3 min = Vector3.zero, max = Vector3.zero;
+            for (int i = 0; i < ghostTransform.childCount; i++)
+            {
+                var child = ghostTransform.GetChild(i);
+                if (!child.gameObject.activeSelf || !child.name.StartsWith("ghost_part_"))
+                    continue;
+                var pos = child.localPosition;
+                if (count == 0) { min = max = pos; }
+                else { min = Vector3.Min(min, pos); max = Vector3.Max(max, pos); }
+                count++;
+            }
+            state.cameraPivot.localPosition = count > 0 ? (min + max) * 0.5f : Vector3.zero;
+            ParsekLog.Info("CameraFollow",
+                $"Camera pivot recalculated: localPos=({state.cameraPivot.localPosition.x:F2},{state.cameraPivot.localPosition.y:F2},{state.cameraPivot.localPosition.z:F2})" +
+                $" activeParts={count}");
+        }
+
+        /// <summary>
+        /// Drive the camera pivot position every frame during watch mode.
+        /// pivotTranslateSharpness is zeroed for the entire watch session to prevent
+        /// KSP from pulling the camera back toward the active vessel.
+        /// </summary>
+        void UpdateWatchCamera()
+        {
+            if (watchedRecordingIndex < 0) return;
+
+            GhostPlaybackState state;
+            if (!ghostStates.TryGetValue(watchedRecordingIndex, out state) ||
+                state == null || state.cameraPivot == null)
+                return;
+
+            // Keep sharpness zeroed — KSP resets it on various events
+            FlightCamera.fetch.pivotTranslateSharpness = 0f;
+
+            // Drive camera orbit center to the cameraPivot's world position
+            FlightCamera.fetch.transform.parent.position = state.cameraPivot.position;
         }
 
         bool IsAnyWarpActive()
@@ -6451,7 +6486,11 @@ namespace Parsek
                 savedCameraDistance = FlightCamera.fetch.Distance;
                 savedCameraPitch = FlightCamera.fetch.camPitch;
                 savedCameraHeading = FlightCamera.fetch.camHdg;
+                savedPivotSharpness = FlightCamera.fetch.pivotTranslateSharpness;
             }
+
+            // Disable KSP's internal pivot tracking — we drive the camera manually
+            FlightCamera.fetch.pivotTranslateSharpness = 0f;
 
             // Point camera at ghost (use cameraPivot — centroid of active parts)
             var watchTarget = gs.cameraPivot ?? gs.ghost.transform;
@@ -6483,6 +6522,7 @@ namespace Parsek
         internal void ExitWatchMode(bool skipCameraRestore = false)
         {
             if (watchedRecordingIndex < 0) return;
+            FlightCamera.fetch.pivotTranslateSharpness = savedPivotSharpness;
 
             // Restore camera to the active vessel (unless switching between ghosts)
             if (!skipCameraRestore)
