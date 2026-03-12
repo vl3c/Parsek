@@ -103,7 +103,9 @@ namespace Parsek.Tests.Generators
         public RecordingBuilder AddOrbitSegment(double startUT, double endUT,
             double inc = 0, double ecc = 0, double sma = 700000,
             double lan = 0, double argPe = 0, double mna = 0, double epoch = 0,
-            string body = "Kerbin")
+            string body = "Kerbin",
+            float ofrX = 0, float ofrY = 0, float ofrZ = 0, float ofrW = 0,
+            float avX = 0, float avY = 0, float avZ = 0)
         {
             var ic = CultureInfo.InvariantCulture;
             var seg = new ConfigNode("ORBIT_SEGMENT");
@@ -117,6 +119,19 @@ namespace Parsek.Tests.Generators
             seg.AddValue("mna", mna.ToString("R", ic));
             seg.AddValue("epoch", epoch.ToString("R", ic));
             seg.AddValue("body", body);
+            if (ofrX != 0 || ofrY != 0 || ofrZ != 0 || ofrW != 0)
+            {
+                seg.AddValue("ofrX", ofrX.ToString("R", ic));
+                seg.AddValue("ofrY", ofrY.ToString("R", ic));
+                seg.AddValue("ofrZ", ofrZ.ToString("R", ic));
+                seg.AddValue("ofrW", ofrW.ToString("R", ic));
+            }
+            if (avX != 0 || avY != 0 || avZ != 0)
+            {
+                seg.AddValue("avX", avX.ToString("R", ic));
+                seg.AddValue("avY", avY.ToString("R", ic));
+                seg.AddValue("avZ", avZ.ToString("R", ic));
+            }
             orbitSegments.Add(seg);
             return this;
         }
