@@ -87,6 +87,7 @@ Parsek was inspired by and learned from the KSP modding community. The following
 - **[Kerbal Alarm Clock](https://github.com/TriggerAu/KerbalAlarmClock)** (TriggerAu) - time-based event scheduling
 - **[ClickThroughBlocker](https://github.com/linuxgurugamer/ClickThroughBlocker)** (linuxgurugamer) - UI click-through prevention
 - **[ToolbarControl](https://github.com/linuxgurugamer/ToolbarControl)** (linuxgurugamer) - toolbar integration
+- **[Camera Focus Changer](https://github.com/linuxgurugamer/camerafocuschanger)** (linuxgurugamer) - camera pivot techniques for ghost vessel tracking
 - **[Module Manager](https://github.com/sarbian/ModuleManager)** (sarbian) - essential config patching
 - **[Harmony (HarmonyKSP)](https://github.com/KSPModdingLibs/HarmonyKSP)** (KSPModdingLibs / pardeike) - runtime method patching
 
