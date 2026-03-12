@@ -800,9 +800,65 @@ namespace Parsek
                         {
                             Vector3d pos = orbit.getPositionAtUT(e.orbitUT);
                             e.ghost.transform.position = pos;
+
                             Vector3d vel = orbit.getOrbitalVelocityAtUT(e.orbitUT);
-                            if (vel.sqrMagnitude > 0.001)
+
+                            if (e.isSpinning)
+                            {
+                                // Spin-forward: recompute boundary world rotation (positions may have shifted by FloatingOrigin)
+                                Vector3d velAtStart = orbit.getOrbitalVelocityAtUT(e.orbitSegmentStartUT);
+                                Vector3d posAtStart = orbit.getPositionAtUT(e.orbitSegmentStartUT);
+
+                                if (e.orbitBody != null)
+                                {
+                                    Vector3d radialAtStart = (posAtStart - (Vector3d)e.orbitBody.position).normalized;
+                                    Quaternion orbFrameAtStart;
+                                    if (Mathf.Abs(Vector3.Dot(((Vector3)velAtStart).normalized, ((Vector3)radialAtStart).normalized)) > 0.99f)
+                                        orbFrameAtStart = Quaternion.LookRotation(velAtStart);
+                                    else
+                                        orbFrameAtStart = Quaternion.LookRotation(velAtStart, radialAtStart);
+
+                                    Quaternion bwRot = orbFrameAtStart * e.orbitFrameRot;
+                                    double dt = e.orbitUT - e.orbitSegmentStartUT;
+                                    Vector3 worldAxis = bwRot * e.orbitAngularVelocity;
+                                    float angle = e.orbitAngularVelocity.magnitude * (float)dt * Mathf.Rad2Deg;
+                                    e.ghost.transform.rotation = Quaternion.AngleAxis(angle, worldAxis) * bwRot;
+                                }
+                                else
+                                {
+                                    // Body null fallback
+                                    if (vel.sqrMagnitude > 0.001)
+                                        e.ghost.transform.rotation = Quaternion.LookRotation(vel);
+                                    ParsekLog.VerboseRateLimited("Playback", $"orbit-late-body-null-{e.orbitCacheKey}",
+                                        $"Orbit LateUpdate: orbitBody null for cache={e.orbitCacheKey}, velocity fallback");
+                                }
+                            }
+                            else if (e.hasOrbitFrameRot && vel.sqrMagnitude > 0.001)
+                            {
+                                // Orbital-frame-relative path
+                                if (e.orbitBody != null)
+                                {
+                                    Vector3d radialOut = (pos - (Vector3d)e.orbitBody.position).normalized;
+                                    Quaternion orbFrame;
+                                    if (Mathf.Abs(Vector3.Dot(((Vector3)vel).normalized, ((Vector3)radialOut).normalized)) > 0.99f)
+                                        orbFrame = Quaternion.LookRotation(vel);
+                                    else
+                                        orbFrame = Quaternion.LookRotation(vel, radialOut);
+
+                                    e.ghost.transform.rotation = orbFrame * e.orbitFrameRot;
+                                }
+                                else
+                                {
+                                    e.ghost.transform.rotation = Quaternion.LookRotation(vel);
+                                    ParsekLog.VerboseRateLimited("Playback", $"orbit-late-body-null-{e.orbitCacheKey}",
+                                        $"Orbit LateUpdate: orbitBody null for cache={e.orbitCacheKey}, velocity fallback");
+                                }
+                            }
+                            else if (vel.sqrMagnitude > 0.001)
+                            {
+                                // Prograde fallback (old recordings)
                                 e.ghost.transform.rotation = Quaternion.LookRotation(vel);
+                            }
                         }
                         break;
                     }
