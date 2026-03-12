@@ -125,13 +125,12 @@ namespace Parsek
 
     internal class ReentryFxInfo
     {
-        public List<ParticleSystem> flameParticles = new List<ParticleSystem>();
-        public List<ParticleSystem> smokeParticles = new List<ParticleSystem>();
-        public TrailRenderer trailRenderer;
+        public List<TrailRenderer> streakTrails = new List<TrailRenderer>();
         public List<HeatMaterialState> glowMaterials = new List<HeatMaterialState>();
         public List<Material> allClonedMaterials = new List<Material>();
         public float lastIntensity;
         public Vector3 lastVelocity;
+        public float vesselLength;
     }
 
     internal static class GhostVisualBuilder
@@ -160,15 +159,17 @@ namespace Parsek
         internal static readonly Color ReentryHotEmissionHigh = new Color(2.0f, 1.5f, 0.8f, 1f);
         internal const float ReentrySmoothingRate = 5.0f;
         internal const float ReentryLayerAThreshold = 0.05f;
-        internal const float ReentryLayerBThreshold = 0.15f;
-        internal const float ReentryLayerCThreshold = 0.3f;
-        internal const float ReentryLayerDThreshold = 0.1f;
-        internal const float ReentryFlameMaxEmission = 200f;
-        internal const float ReentrySmokeMaxEmission = 80f;
-        internal const float ReentryTrailMinWidth = 5f;
-        internal const float ReentryTrailMaxWidth = 20f;
-        internal const float ReentryTrailEndMinWidth = 1f;
-        internal const float ReentryTrailEndMaxWidth = 5f;
+        internal const float ReentryStreakThreshold = 0.08f;
+
+        // Streak trail configuration
+        internal const int ReentryStreakCount = 5;
+        internal const float ReentryStreakSpreadRadius = 0.35f;
+        internal const float ReentryStreakDuration = 0.8f;
+        internal const float ReentryStreakStartWidthMin = 0.15f;
+        internal const float ReentryStreakStartWidthMax = 0.6f;
+        internal const float ReentryStreakEndWidthMin = 0.02f;
+        internal const float ReentryStreakEndWidthMax = 0.15f;
+        internal const float ReentryStreakMinVertexDistance = 0.5f;
 
         // Cache for PREFAB_PARTICLE fx_* prefabs found on PartLoader part prefabs.
         // Built once from PartLoader.LoadedPartsList (stable prefab templates).
@@ -5481,8 +5482,8 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Creates all four reentry FX layers (glow materials, flame particles,
-        /// smoke trail, condensation trail) on a ghost root GameObject.
+        /// Creates reentry FX layers (glow materials + fire streak trails)
+        /// on a ghost root GameObject.
         /// Called once at ghost spawn time; FX start dormant and are driven by UpdateReentryFx.
         /// </summary>
         internal static ReentryFxInfo TryBuildReentryFx(
@@ -5596,186 +5597,121 @@ namespace Parsek
                 }
             }
 
-            // Resolve a soft particle texture from stock FX prefabs
-            Texture particleTexture = null;
-            GameObject fxSource = FindFxPrefab("fx_exhaustFlame_yellow");
-            if (fxSource != null)
+            // --- Measure vessel bounds for streak sizing ---
+            float vesselLength = ComputeGhostLength(ghostRoot);
+            info.vesselLength = vesselLength;
+
+            // --- Fire streak trails ---
+            // Multiple thin TrailRenderers offset around the nose, creating smooth
+            // fire streaks that flow behind the vessel during atmospheric reentry.
+            Shader streakShader = Shader.Find("KSP/Particles/Additive");
+            float noseOffset = vesselLength * 0.5f;
+
+            // Angle offsets for streak emitters around the vessel cross-section
+            for (int s = 0; s < ReentryStreakCount; s++)
             {
-                var sourceRenderer = fxSource.GetComponentInChildren<ParticleSystemRenderer>(true);
-                if (sourceRenderer != null && sourceRenderer.sharedMaterial != null)
-                    particleTexture = sourceRenderer.sharedMaterial.mainTexture;
-            }
+                float angle = (s / (float)ReentryStreakCount) * Mathf.PI * 2f;
+                float offsetX = Mathf.Cos(angle) * ReentryStreakSpreadRadius * vesselLength;
+                float offsetZ = Mathf.Sin(angle) * ReentryStreakSpreadRadius * vesselLength;
 
-            // --- Layer B: Flame particles (vessel-attached) ---
-            {
-                GameObject flameObj = new GameObject("ReentryFlame");
-                flameObj.transform.SetParent(ghostRoot.transform, false);
+                GameObject streakObj = new GameObject($"ReentryStreak_{s}");
+                streakObj.transform.SetParent(ghostRoot.transform, false);
+                // Position at nose tip, spread radially
+                streakObj.transform.localPosition = new Vector3(offsetX, noseOffset, offsetZ);
 
-                ParticleSystem flame = flameObj.AddComponent<ParticleSystem>();
-                var main = flame.main;
-                main.simulationSpace = ParticleSystemSimulationSpace.World;
-                main.startLifetime = new ParticleSystem.MinMaxCurve(0.15f, 0.5f);
-                main.startColor = new ParticleSystem.MinMaxGradient(new Color(1f, 0.7f, 0.2f, 0.9f));
-                main.startSize = new ParticleSystem.MinMaxCurve(0.5f, 1.5f);
-                main.startSpeed = new ParticleSystem.MinMaxCurve(1f, 5f);
-                main.maxParticles = 500;
-                main.playOnAwake = false;
-
-                var emission = flame.emission;
-                emission.enabled = true;
-                emission.rateOverTime = 0f;
-
-                var shape = flame.shape;
-                shape.enabled = true;
-                shape.shapeType = ParticleSystemShapeType.Cone;
-                shape.angle = 15f;
-                shape.radius = 0.3f;
-
-                var flameRenderer = flameObj.GetComponent<ParticleSystemRenderer>();
-                if (flameRenderer != null)
-                {
-                    flameRenderer.maxParticleSize = 15f;
-                    Shader additiveShader = Shader.Find("KSP/Particles/Additive");
-                    if (additiveShader != null)
-                    {
-                        var flameMat = new Material(additiveShader);
-                        if (particleTexture != null)
-                            flameMat.mainTexture = particleTexture;
-                        flameMat.SetColor("_TintColor", new Color(1f, 0.7f, 0.2f, 0.9f));
-                        flameRenderer.material = flameMat;
-                        info.allClonedMaterials.Add(flameMat);
-                    }
-                }
-
-                flame.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                flame.Clear(true);
-                info.flameParticles.Add(flame);
-            }
-
-            // --- Layer C: Smoke trail (world-space) ---
-            {
-                GameObject smokeObj = new GameObject("ReentrySmoke");
-                smokeObj.transform.SetParent(ghostRoot.transform, false);
-
-                ParticleSystem smoke = smokeObj.AddComponent<ParticleSystem>();
-                var main = smoke.main;
-                main.simulationSpace = ParticleSystemSimulationSpace.World;
-                main.startLifetime = new ParticleSystem.MinMaxCurve(4f, 10f);
-                main.startColor = new ParticleSystem.MinMaxGradient(new Color(1f, 0.5f, 0.1f, 0.7f));
-                main.startSize = new ParticleSystem.MinMaxCurve(1.5f, 4f);
-                main.startSpeed = new ParticleSystem.MinMaxCurve(0f, 0.5f);
-                main.maxParticles = 2000;
-                main.gravityModifier = 0.03f;
-                main.playOnAwake = false;
-
-                var emission = smoke.emission;
-                emission.enabled = true;
-                emission.rateOverTime = 0f;
-
-                var shape = smoke.shape;
-                shape.enabled = true;
-                shape.shapeType = ParticleSystemShapeType.Sphere;
-                shape.radius = 0.3f;
-
-                var smokeRenderer = smokeObj.GetComponent<ParticleSystemRenderer>();
-                if (smokeRenderer != null)
-                {
-                    smokeRenderer.maxParticleSize = 40f;
-                    Shader alphaBlendedShader = Shader.Find("KSP/Particles/Alpha Blended");
-                    if (alphaBlendedShader != null)
-                    {
-                        var smokeMat = new Material(alphaBlendedShader);
-                        if (particleTexture != null)
-                            smokeMat.mainTexture = particleTexture;
-                        smokeMat.SetColor("_TintColor", new Color(1f, 0.5f, 0.1f, 0.7f));
-                        smokeRenderer.material = smokeMat;
-                        info.allClonedMaterials.Add(smokeMat);
-                    }
-                }
-
-                // Color over lifetime: orange -> dark gray -> transparent
-                var colorOverLifetime = smoke.colorOverLifetime;
-                colorOverLifetime.enabled = true;
-                Gradient gradient = new Gradient();
-                gradient.SetKeys(
-                    new GradientColorKey[]
-                    {
-                        new GradientColorKey(new Color(1f, 0.5f, 0.1f), 0f),
-                        new GradientColorKey(new Color(0.3f, 0.3f, 0.3f), 0.5f),
-                        new GradientColorKey(new Color(0.2f, 0.2f, 0.2f), 1f)
-                    },
-                    new GradientAlphaKey[]
-                    {
-                        new GradientAlphaKey(0.7f, 0f),
-                        new GradientAlphaKey(0.4f, 0.5f),
-                        new GradientAlphaKey(0f, 1f)
-                    }
-                );
-                colorOverLifetime.color = new ParticleSystem.MinMaxGradient(gradient);
-
-                smoke.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                smoke.Clear(true);
-                info.smokeParticles.Add(smoke);
-            }
-
-            // --- Layer D: Condensation trail (TrailRenderer) ---
-            {
-                GameObject trailObj = new GameObject("ReentryTrail");
-                trailObj.transform.SetParent(ghostRoot.transform, false);
-
-                TrailRenderer trail = trailObj.AddComponent<TrailRenderer>();
-                trail.time = 5f;
-                trail.startWidth = 10f;
-                trail.endWidth = 2f;
-                trail.numCornerVertices = 2;
+                TrailRenderer trail = streakObj.AddComponent<TrailRenderer>();
+                trail.time = ReentryStreakDuration;
+                trail.startWidth = 0.3f;
+                trail.endWidth = 0.02f;
+                trail.numCornerVertices = 3;
                 trail.numCapVertices = 2;
-                trail.minVertexDistance = 5f;
+                trail.minVertexDistance = ReentryStreakMinVertexDistance;
+                trail.autodestruct = false;
+                trail.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                trail.receiveShadows = false;
 
-                Shader trailShader = Shader.Find("KSP/Particles/Additive");
-                if (trailShader != null)
+                if (streakShader != null)
                 {
-                    var trailMat = new Material(trailShader);
-                    if (particleTexture != null)
-                        trailMat.mainTexture = particleTexture;
-                    trailMat.SetColor("_TintColor", new Color(1f, 0.8f, 0.5f, 1f));
+                    var trailMat = new Material(streakShader);
+                    trailMat.SetColor("_TintColor", new Color(1f, 0.65f, 0.25f, 0.85f));
                     trail.material = trailMat;
                     info.allClonedMaterials.Add(trailMat);
                 }
 
-                // Color gradient: bright orange-white -> transparent
-                Gradient trailGradient = new Gradient();
-                trailGradient.SetKeys(
+                // Color gradient: bright orange-yellow at head -> deep orange-red -> transparent
+                Gradient streakGradient = new Gradient();
+                // Vary hue slightly per streak for visual richness
+                float hueShift = (s % 3) * 0.03f;
+                streakGradient.SetKeys(
                     new GradientColorKey[]
                     {
-                        new GradientColorKey(new Color(1f, 0.8f, 0.5f), 0f),
-                        new GradientColorKey(new Color(1f, 0.6f, 0.3f), 0.5f),
-                        new GradientColorKey(new Color(0.8f, 0.4f, 0.1f), 1f)
+                        new GradientColorKey(new Color(1f, 0.75f - hueShift, 0.3f + hueShift), 0f),
+                        new GradientColorKey(new Color(1f, 0.45f - hueShift, 0.1f), 0.4f),
+                        new GradientColorKey(new Color(0.6f, 0.2f, 0.05f), 1f)
                     },
                     new GradientAlphaKey[]
                     {
-                        new GradientAlphaKey(1f, 0f),
-                        new GradientAlphaKey(0.5f, 0.5f),
+                        new GradientAlphaKey(0.9f, 0f),
+                        new GradientAlphaKey(0.5f, 0.4f),
                         new GradientAlphaKey(0f, 1f)
                     }
                 );
-                trail.colorGradient = trailGradient;
+                trail.colorGradient = streakGradient;
 
-                // Start disabled (dormant)
                 trail.emitting = false;
-
-                info.trailRenderer = trail;
+                info.streakTrails.Add(trail);
             }
 
             // --- Logging ---
             ParsekLog.Verbose("ReentryFx",
-                $"Built for ghost #{ghostIndex} \"{vesselName}\" — {info.flameParticles.Count} flame systems, " +
-                $"{info.smokeParticles.Count} smoke systems, trail={info.trailRenderer != null}, " +
-                $"glow materials={info.glowMaterials.Count}");
+                $"Built for ghost #{ghostIndex} \"{vesselName}\" — {info.streakTrails.Count} streak trails, " +
+                $"glow materials={info.glowMaterials.Count}, vesselLength={vesselLength:F1}m");
             if (skippedHeatCount > 0)
                 ParsekLog.Verbose("ReentryFx",
                     $"Skipped {skippedHeatCount} renderers already managed by HeatGhostInfo for ghost #{ghostIndex}");
 
             return info;
+        }
+
+        /// <summary>
+        /// Computes the local-space length of a ghost vessel along its Y axis (nose-to-tail)
+        /// from the combined bounds of all renderers. Returns a minimum of 2m.
+        /// </summary>
+        internal static float ComputeGhostLength(GameObject ghostRoot)
+        {
+            var renderers = ghostRoot.GetComponentsInChildren<Renderer>(true);
+            if (renderers == null || renderers.Length == 0)
+                return 2f;
+
+            Bounds combined = default;
+            bool initialized = false;
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                if (renderers[i] == null) continue;
+                Bounds b = renderers[i].bounds;
+                if (b.size.sqrMagnitude < 0.0001f) continue;
+
+                // Transform world bounds to local space of ghostRoot
+                Vector3 localCenter = ghostRoot.transform.InverseTransformPoint(b.center);
+                Vector3 localExtents = b.extents; // Approximate — rotation not critical for length estimate
+
+                Bounds localBounds = new Bounds(localCenter, localExtents * 2f);
+                if (!initialized)
+                {
+                    combined = localBounds;
+                    initialized = true;
+                }
+                else
+                {
+                    combined.Encapsulate(localBounds);
+                }
+            }
+
+            if (!initialized) return 2f;
+
+            // Y axis is typically nose-to-tail in KSP vessel space
+            float length = combined.size.y;
+            return Mathf.Max(length, 2f);
         }
 
         /// <summary>
