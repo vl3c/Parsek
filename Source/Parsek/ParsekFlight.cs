@@ -814,14 +814,14 @@ namespace Parsek
                                     Vector3d radialAtStart = (posAtStart - (Vector3d)e.orbitBody.position).normalized;
                                     Quaternion orbFrameAtStart;
                                     if (Mathf.Abs(Vector3.Dot(((Vector3)velAtStart).normalized, ((Vector3)radialAtStart).normalized)) > 0.99f)
-                                        orbFrameAtStart = Quaternion.LookRotation(velAtStart);
+                                        orbFrameAtStart = Quaternion.LookRotation(velAtStart, Vector3.up);
                                     else
                                         orbFrameAtStart = Quaternion.LookRotation(velAtStart, radialAtStart);
 
                                     Quaternion bwRot = orbFrameAtStart * e.orbitFrameRot;
                                     double dt = e.orbitUT - e.orbitSegmentStartUT;
                                     Vector3 worldAxis = bwRot * e.orbitAngularVelocity;
-                                    float angle = e.orbitAngularVelocity.magnitude * (float)dt * Mathf.Rad2Deg;
+                                    float angle = (float)((double)e.orbitAngularVelocity.magnitude * dt * Mathf.Rad2Deg);
                                     e.ghost.transform.rotation = Quaternion.AngleAxis(angle, worldAxis) * bwRot;
                                 }
                                 else
@@ -841,7 +841,7 @@ namespace Parsek
                                     Vector3d radialOut = (pos - (Vector3d)e.orbitBody.position).normalized;
                                     Quaternion orbFrame;
                                     if (Mathf.Abs(Vector3.Dot(((Vector3)vel).normalized, ((Vector3)radialOut).normalized)) > 0.99f)
-                                        orbFrame = Quaternion.LookRotation(vel);
+                                        orbFrame = Quaternion.LookRotation(vel, Vector3.up);
                                     else
                                         orbFrame = Quaternion.LookRotation(vel, radialOut);
 
@@ -7015,7 +7015,7 @@ namespace Parsek
                 Quaternion orbFrameAtStart;
                 if (Mathf.Abs(Vector3.Dot(((Vector3)velAtStart).normalized, ((Vector3)radialAtStart).normalized)) > 0.99f)
                 {
-                    orbFrameAtStart = Quaternion.LookRotation(velAtStart);
+                    orbFrameAtStart = Quaternion.LookRotation(velAtStart, Vector3.up);
                     ParsekLog.VerboseRateLimited("Playback", $"orbit-near-parallel-start-{cacheKey}",
                         $"Orbit segment {cacheKey}: velocity/radialOut near-parallel at startUT, LookRotation fallback");
                 }
@@ -7026,7 +7026,7 @@ namespace Parsek
 
                 double dt = ut - segment.startUT;
                 Vector3 worldAxis = boundaryWorldRot * segment.angularVelocity;
-                float angle = segment.angularVelocity.magnitude * (float)dt * Mathf.Rad2Deg;
+                float angle = (float)((double)segment.angularVelocity.magnitude * dt * Mathf.Rad2Deg);
                 ghostRot = Quaternion.AngleAxis(angle, worldAxis) * boundaryWorldRot;
             }
             else if (hasOfr && velocity.sqrMagnitude > 0.001)
@@ -7037,7 +7037,7 @@ namespace Parsek
                 Quaternion orbFrame;
                 if (Mathf.Abs(Vector3.Dot(((Vector3)velocity).normalized, ((Vector3)radialOut).normalized)) > 0.99f)
                 {
-                    orbFrame = Quaternion.LookRotation(velocity);
+                    orbFrame = Quaternion.LookRotation(velocity, Vector3.up);
                     ParsekLog.VerboseRateLimited("Playback", $"orbit-near-parallel-{cacheKey}",
                         $"Orbit segment {cacheKey}: velocity/radialOut near-parallel, LookRotation fallback");
                 }
