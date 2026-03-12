@@ -50,19 +50,19 @@ The stored rotation is a constant offset from the orbital frame. As the orbital 
 ```
 Recording (on-rails boundary, PersistentRotation detected):
   storedRot  = Inverse(orbFrame) * worldRot   <-- same as above
-  angVel     = vessel.angularVelocity          <-- vessel-local-frame, rad/s
+  angVelLocal = Inverse(vessel.rotation) * vessel.angularVelocity  <-- convert world→vessel-local
 
 Playback (any UT during orbital segment):
-  if angVel above threshold:
+  if angVelLocal above threshold:
     boundaryWorldRot = orbFrame(startUT) * storedRot
-    worldAxis = boundaryWorldRot * angVel
+    worldAxis = boundaryWorldRot * angVelLocal        <-- local→world transform
     dt = ut - startUT
-    ghostRot = AngleAxis(|angVel| * dt * Rad2Deg, worldAxis) * boundaryWorldRot
+    ghostRot = AngleAxis(|angVelLocal| * dt * Rad2Deg, worldAxis) * boundaryWorldRot
   else:
     ghostRot = orbFrame(ut) * storedRot       <-- stable path
 ```
 
-When PersistentRotation is active and the vessel is spinning, the ghost is spun forward from the boundary world rotation using the recorded angular velocity. This matches PersistentRotation's `PackedSpin` method, which applies `AngleAxis(omega.magnitude * warpRate, ReferenceTransform.rotation * omega) * currentRotation` each frame.
+When PersistentRotation is active and the vessel is spinning, the ghost is spun forward from the boundary world rotation using the recorded angular velocity. This matches PersistentRotation's `PackedSpin` method, which applies `AngleAxis(omega.magnitude * warpRate, ReferenceTransform.rotation * omega) * currentRotation` each frame. Note: PersistentRotation stores angular velocity in vessel-local frame (via `_angularVelocity` which is set from vessel-frame quantities). We do the same: convert `vessel.angularVelocity` (world-space) to vessel-local at recording time via `Inverse(vessel.rotation) * vessel.angularVelocity`.
 
 **Quaternion multiplication order:** `Inverse(orbFrame) * worldRot` is the correct encoding — it expresses `worldRot` in the coordinate system defined by `orbFrame`. The decoding `orbFrame' * storedRot` reverses this. This is the standard change-of-basis pattern.
 
@@ -230,7 +230,8 @@ public struct OrbitSegment
     public Quaternion orbitalFrameRotation;  // relative to orbital velocity frame; identity = prograde
 
     // New: angular velocity for spin-forward (when PersistentRotation was active)
-    public Vector3 angularVelocity;  // vessel-local-frame angular velocity at boundary (rad/s)
+    public Vector3 angularVelocity;  // vessel-local angular velocity at boundary (rad/s)
+                                     // recorded as: Inverse(v.transform.rotation) * v.angularVelocity
 }
 ```
 
@@ -284,14 +285,14 @@ ORBIT_SEGMENT
     ofrY = 1          // orbital-frame rotation, optional
     ofrZ = 0          // orbital-frame rotation, optional
     ofrW = 0          // orbital-frame rotation, optional
-    avX = 0.1         // angular velocity, optional (only when spinning + PersistentRotation)
-    avY = 0           // angular velocity, optional
-    avZ = 0.03        // angular velocity, optional
+    avX = 0.1         // vessel-local angular velocity, optional (only when spinning + PersistentRotation)
+    avY = 0           // vessel-local angular velocity, optional
+    avZ = 0.03        // vessel-local angular velocity, optional
 }
 ```
 
 - `ofrX/Y/Z/W`: written only when any component is non-zero. Missing = `(0,0,0,0)` = prograde fallback.
-- `avX/Y/Z`: written only when magnitude > `SpinThreshold` (0.05 rad/s) AND PersistentRotation was detected at recording time. Missing = `(0,0,0)` = not spinning.
+- `avX/Y/Z`: vessel-local angular velocity (`Inverse(v.rotation) * v.angularVelocity`), written only when magnitude > `SpinThreshold` (0.05 rad/s) AND PersistentRotation was detected at recording time. Missing = `(0,0,0)` = not spinning.
 - All floats serialized with `ToString("R", CultureInfo.InvariantCulture)` and parsed with `float.TryParse(..., NumberStyles.Float, CultureInfo.InvariantCulture, ...)`.
 
 **No format version bump.** Missing keys default to sentinels. Old Parsek ignores unknown keys. Fully backward and forward compatible.
@@ -309,7 +310,7 @@ private struct GhostPosEntry
     public CelestialBody orbitBody;        // Body reference for radial-out computation in LateUpdate
 
     // New spin-forward fields
-    public Vector3 orbitAngularVelocity;   // Vessel-local angular velocity (rad/s)
+    public Vector3 orbitAngularVelocity;   // Vessel-local angular velocity (rad/s), stored as Inverse(rot)*worldAngVel
     public bool isSpinning;                // True if above threshold
     public double orbitSegmentStartUT;     // Segment start UT for computing dt
     public Quaternion boundaryWorldRot;    // Pre-computed boundary world rotation (for spinning case)
@@ -342,12 +343,15 @@ When the active vessel goes on rails:
 1. Record a boundary TrajectoryPoint (existing behavior)
 2. Capture Keplerian orbital elements (existing behavior)
 3. **New:** Compute orbital-frame-relative rotation via `TrajectoryMath.ComputeOrbitalFrameRotation`
-4. **New:** If `hasPersistentRotation` AND `v.angularVelocity.magnitude > SpinThreshold`: store `v.angularVelocity` in `currentOrbitSegment.angularVelocity`
+4. **New:** If `hasPersistentRotation` AND `v.angularVelocity.magnitude > SpinThreshold`: convert to vessel-local frame via `Inverse(v.transform.rotation) * v.angularVelocity` and store in `currentOrbitSegment.angularVelocity`
+
+   **Why vessel-local?** Unity's `Rigidbody.angularVelocity` (which `vessel.angularVelocity` returns) is world-space. Storing it directly would break spin-forward playback, because the spin-forward formula `boundaryWorldRot * angVel` expects vessel-local input to convert local→world. Additionally, vessel-local is stable across FloatingOrigin shifts and matches PersistentRotation's internal representation.
 
 - Log: `Verbose("Recorder", "Vessel went on rails -- orbit segment (body={body}, ofrRot={rot}, angVel={vel}, persistentRotation={hasPR})")`
 - Log (degenerate velocity): `Verbose("Recorder", "Orbital-frame rotation: degenerate velocity (sqrMag={mag}), using identity")`
 - Log (near-parallel guard): `Verbose("Recorder", "Orbital-frame rotation: velocity/radialOut near-parallel (dot={dot}), frame approximated")`
 - Log (spinning detected): `Verbose("Recorder", "Spinning vessel detected (|angVel|={mag}), recording angular velocity for spin-forward")`
+- **Defensive note:** `vessel.angularVelocity` reads from the rigidbody, which should still exist when `OnVesselGoOnRails` fires (event fires during `Vessel.GoOnRails()` before the rigidbody is destroyed). As a safety measure, guard with a null-check on `v.rootPart?.rb` and fall back to zero angular velocity if null.
 
 ### Recording: SOI Change (`FlightRecorder.OnVesselSOIChanged`)
 
@@ -355,7 +359,7 @@ When SOI changes during on-rails flight:
 1. Close current segment (existing behavior)
 2. Open new segment with new body's orbital elements (existing behavior)
 3. **New:** Compute orbital-frame-relative rotation for the new segment
-4. **New:** If `hasPersistentRotation` AND spinning: store angular velocity
+4. **New:** If `hasPersistentRotation` AND spinning: convert angular velocity to vessel-local and store
 
 - Log: `Verbose("Recorder", "SOI changed {from} -> {to} -- new segment ofrRot={rot}, angVel={vel}")`
 
