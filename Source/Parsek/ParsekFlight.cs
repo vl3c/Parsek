@@ -1251,9 +1251,15 @@ namespace Parsek
             {
                 GhostPlaybackState ws;
                 if (ghostStates.TryGetValue(watchedRecordingIndex, out ws) && ws != null && ws.ghost != null)
-                    FlightCamera.fetch.SetTargetTransform(ws.cameraPivot ?? ws.ghost.transform);
-                ParsekLog.Verbose("CameraFollow",
-                    $"onVesselChange fired while watching \u2014 re-targeting camera to ghost #{watchedRecordingIndex}");
+                {
+                    var target = ws.cameraPivot ?? ws.ghost.transform;
+                    FlightCamera.fetch.SetTargetTransform(target);
+                    ParsekLog.Info("CameraFollow",
+                        $"onVesselChange re-target: ghost #{watchedRecordingIndex}" +
+                        $" target='{target.name}' localPos=({target.localPosition.x:F2},{target.localPosition.y:F2},{target.localPosition.z:F2})" +
+                        $" worldPos=({target.position.x:F1},{target.position.y:F1},{target.position.z:F1})" +
+                        $" camDist={FlightCamera.fetch.Distance:F1}");
+                }
             }
 
             if (activeTree == null) return;
@@ -4570,7 +4576,14 @@ namespace Parsek
 
                 // Ghost was rebuilt for new loop cycle — re-target camera
                 if (watchedRecordingIndex == recIdx && state.ghost != null)
-                    FlightCamera.fetch.SetTargetTransform(state.cameraPivot ?? state.ghost.transform);
+                {
+                    var target = state.cameraPivot ?? state.ghost.transform;
+                    FlightCamera.fetch.SetTargetTransform(target);
+                    ParsekLog.Info("CameraFollow",
+                        $"Loop rebuild re-target: ghost #{recIdx}" +
+                        $" target='{target.name}' localPos=({target.localPosition.x:F2},{target.localPosition.y:F2},{target.localPosition.z:F2})" +
+                        $" camDist={FlightCamera.fetch.Distance:F1}");
+                }
             }
 
             if (state == null || state.ghost == null)
@@ -6219,26 +6232,17 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Recompute the camera pivot to the centroid of all active ghost_part_ children.
-        /// Called after part visibility changes (decouple, destroy, etc.) so the camera
-        /// stays centered on the remaining visible mesh.
+        /// Set the camera pivot to the root part position (localPosition zero).
+        /// This matches KSP's own camera behavior which orbits around the root part
+        /// (command pod). The root part is always in the surviving stage after decoupling.
         /// </summary>
         static void RecalculateCameraPivot(GhostPlaybackState state)
         {
             if (state.cameraPivot == null || state.ghost == null) return;
-            var ghostTransform = state.ghost.transform;
-            int count = 0;
-            Vector3 sum = Vector3.zero;
-            for (int i = 0; i < ghostTransform.childCount; i++)
-            {
-                var child = ghostTransform.GetChild(i);
-                if (child.gameObject.activeSelf && child.name.StartsWith("ghost_part_"))
-                {
-                    sum += child.localPosition;
-                    count++;
-                }
-            }
-            state.cameraPivot.localPosition = count > 0 ? sum / count : Vector3.zero;
+            state.cameraPivot.localPosition = Vector3.zero;
+            ParsekLog.Info("Flight",
+                $"Camera pivot set to root part origin (0,0,0)" +
+                $" ghostPos=({state.ghost.transform.position.x:F1},{state.ghost.transform.position.y:F1},{state.ghost.transform.position.z:F1})");
         }
 
         bool IsAnyWarpActive()
@@ -6450,10 +6454,14 @@ namespace Parsek
             }
 
             // Point camera at ghost (use cameraPivot — centroid of active parts)
-            FlightCamera.fetch.SetTargetTransform(gs.cameraPivot ?? gs.ghost.transform);
+            var watchTarget = gs.cameraPivot ?? gs.ghost.transform;
+            FlightCamera.fetch.SetTargetTransform(watchTarget);
             FlightCamera.fetch.SetDistance(50f);  // override [75,400] entry clamp
-            ParsekLog.Verbose("CameraFollow",
-                $"FlightCamera.SetTargetTransform on ghost #{index} at {gs.ghost.transform.position}, distance={FlightCamera.fetch.Distance.ToString("F1", CultureInfo.InvariantCulture)}");
+            ParsekLog.Info("CameraFollow",
+                $"EnterWatchMode: ghost #{index} \"{committed[index].VesselName}\"" +
+                $" target='{watchTarget.name}' pivotLocal=({watchTarget.localPosition.x:F2},{watchTarget.localPosition.y:F2},{watchTarget.localPosition.z:F2})" +
+                $" ghostPos=({gs.ghost.transform.position.x:F1},{gs.ghost.transform.position.y:F1},{gs.ghost.transform.position.z:F1})" +
+                $" camDist={FlightCamera.fetch.Distance.ToString("F1", CultureInfo.InvariantCulture)}");
 
             // Block inputs that could affect the active vessel
             InputLockManager.SetControlLock(WatchModeLockMask, WatchModeLockId);
@@ -6701,13 +6709,17 @@ namespace Parsek
             savedCameraPitch = preservedPitch;
             savedCameraHeading = preservedHeading;
 
-            FlightCamera.fetch.SetTargetTransform(gs.cameraPivot ?? gs.ghost.transform);
+            var segTarget = gs.cameraPivot ?? gs.ghost.transform;
+            FlightCamera.fetch.SetTargetTransform(segTarget);
             InputLockManager.SetControlLock(WatchModeLockMask, WatchModeLockId);
 
             watchEndHoldUntilUT = -1;
 
-            ParsekLog.Verbose("CameraFollow",
-                $"Camera re-targeted to ghost #{nextIndex} at {gs.ghost.transform.position}");
+            ParsekLog.Info("CameraFollow",
+                $"TransferWatch re-target: ghost #{nextIndex} \"{newName}\"" +
+                $" target='{segTarget.name}' pivotLocal=({segTarget.localPosition.x:F2},{segTarget.localPosition.y:F2},{segTarget.localPosition.z:F2})" +
+                $" ghostPos=({gs.ghost.transform.position.x:F1},{gs.ghost.transform.position.y:F1},{gs.ghost.transform.position.z:F1})" +
+                $" camDist={FlightCamera.fetch.Distance:F1}");
         }
 
         #endregion
