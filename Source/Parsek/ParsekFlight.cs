@@ -100,6 +100,7 @@ namespace Parsek
         }
 
         private Dictionary<int, GhostPlaybackState> ghostStates = new Dictionary<int, GhostPlaybackState>();
+        private readonly MaterialPropertyBlock reentryShellMpb = new MaterialPropertyBlock();
 
         // --- Floating-origin correction ---
         // Ghosts are plain GameObjects not registered with KSP's FloatingOrigin.
@@ -5109,6 +5110,7 @@ namespace Parsek
                         else
                             HideGhostPart(ghost, evt.partPersistentId);
                         Log($"Part event applied: Decoupled '{evt.partName}' pid={evt.partPersistentId}");
+                        GhostVisualBuilder.RebuildReentryMeshes(ghost, state.reentryFxInfo);
                         break;
                     case PartEventType.Destroyed:
                         StopEngineFxForPart(state, evt.partPersistentId);
@@ -5116,6 +5118,7 @@ namespace Parsek
                         ApplyHeatState(state, evt, heated: false);
                         HideGhostPart(ghost, evt.partPersistentId);
                         Log($"Part event applied: Destroyed '{evt.partName}' pid={evt.partPersistentId}");
+                        GhostVisualBuilder.RebuildReentryMeshes(ghost, state.reentryFxInfo);
                         break;
                     case PartEventType.ParachuteCut:
                         if (state.parachuteInfos != null)
@@ -5973,6 +5976,38 @@ namespace Parsek
                     if (info.fireParticles.isPlaying)
                     {
                         info.fireParticles.Stop(true, ParticleSystemStopBehavior.StopEmitting);
+                    }
+                }
+            }
+
+            // Fire shell overlay: re-draw ghost meshes offset along velocity with additive blending
+            // Approximates KSP's FXCamera replacement shader that displaces vertex positions
+            // along the airflow direction, creating the characteristic turbulent flame shell.
+            if (info.fireShellMeshes != null && info.fireShellMaterial != null
+                && intensity > GhostVisualBuilder.ReentryFireThreshold)
+            {
+                Vector3 velDir = surfaceVel.normalized;
+                float maxOffset = info.vesselLength * GhostVisualBuilder.ReentryFireShellMaxOffset * intensity;
+                float baseTint = Mathf.Lerp(0.026f, 0.156f, intensity);
+
+                for (int pass = 0; pass < GhostVisualBuilder.ReentryFireShellPasses; pass++)
+                {
+                    float t = (pass + 1f) / GhostVisualBuilder.ReentryFireShellPasses;
+                    Vector3 offset = -velDir * (maxOffset * t);
+                    float alpha = baseTint * (1f - t * 0.7f); // closer passes are brighter
+                    Color tint = GhostVisualBuilder.ReentryFireShellColor * alpha;
+
+                    reentryShellMpb.SetColor("_TintColor", tint);
+
+                    for (int m = 0; m < info.fireShellMeshes.Count; m++)
+                    {
+                        FireShellMesh fsm = info.fireShellMeshes[m];
+                        if (fsm.mesh == null || fsm.transform == null) continue;
+                        // Skip meshes on decoupled/destroyed parts (SetActive(false))
+                        if (!fsm.transform.gameObject.activeInHierarchy) continue;
+
+                        Matrix4x4 matrix = Matrix4x4.Translate(offset) * fsm.transform.localToWorldMatrix;
+                        Graphics.DrawMesh(fsm.mesh, matrix, info.fireShellMaterial, 0, null, 0, reentryShellMpb);
                     }
                 }
             }

@@ -123,11 +123,19 @@ namespace Parsek
         public GameObject fairingMeshObject;
     }
 
+    internal struct FireShellMesh
+    {
+        public Mesh mesh;
+        public Transform transform;
+    }
+
     internal class ReentryFxInfo
     {
         public ParticleSystem fireParticles;
         public Mesh combinedEmissionMesh; // combined ghost meshes for surface emission, needs Destroy
         public Texture2D generatedTexture; // runtime soft-circle, needs Destroy on cleanup
+        public List<FireShellMesh> fireShellMeshes; // mesh+transform pairs for DrawMesh flame overlay
+        public Material fireShellMaterial; // additive material for flame shell passes
         public List<HeatMaterialState> glowMaterials = new List<HeatMaterialState>();
         public List<Material> allClonedMaterials = new List<Material>();
         public float lastIntensity;
@@ -176,6 +184,12 @@ namespace Parsek
         internal const int ReentryFireMaxParticles = 1500;
         internal const float ReentryFireEmissionMin = 300f;
         internal const float ReentryFireEmissionMax = 2000f;
+
+        // Fire shell overlay: ghost meshes drawn at offsets along velocity
+        // Approximates KSP's FXCamera replacement shader (vertex displacement along airflow)
+        internal const int ReentryFireShellPasses = 4;
+        internal const float ReentryFireShellMaxOffset = 0.05f; // fraction of vesselLength
+        internal static readonly Color ReentryFireShellColor = new Color(1f, 0.45f, 0.12f, 1f);
 
         // Cache for PREFAB_PARTICLE fx_* prefabs found on PartLoader part prefabs.
         // Built once from PartLoader.LoadedPartsList (stable prefab templates).
@@ -5755,15 +5769,103 @@ namespace Parsek
                     $"({(combinedMesh != null ? combinedMesh.vertexCount : 0)} verts) for ghost #{ghostIndex}");
             }
 
+            // --- Fire shell overlay: collect mesh+transform pairs for DrawMesh ---
+            // Used to re-draw the ghost geometry offset along velocity with additive blending,
+            // approximating KSP's FXCamera replacement shader vertex displacement.
+            {
+                MeshFilter[] allMeshFilters = ghostRoot.GetComponentsInChildren<MeshFilter>(true);
+                var shellMeshes = new List<FireShellMesh>();
+                for (int m = 0; m < allMeshFilters.Length; m++)
+                {
+                    MeshFilter mf = allMeshFilters[m];
+                    if (mf == null || mf.sharedMesh == null) continue;
+                    if (!mf.gameObject.activeInHierarchy) continue;
+                    shellMeshes.Add(new FireShellMesh { mesh = mf.sharedMesh, transform = mf.transform });
+                }
+                info.fireShellMeshes = shellMeshes;
+
+                Shader shellShader = Shader.Find("KSP/Particles/Additive");
+                if (shellShader != null)
+                {
+                    var shellMat = new Material(shellShader);
+                    shellMat.SetColor("_TintColor", ReentryFireShellColor);
+                    info.fireShellMaterial = shellMat;
+                    info.allClonedMaterials.Add(shellMat);
+                }
+
+                ParsekLog.Log($"  ReentryFx: {shellMeshes.Count} meshes collected for fire shell overlay on ghost #{ghostIndex}");
+            }
+
             // --- Logging ---
             ParsekLog.Verbose("ReentryFx",
                 $"Built for ghost #{ghostIndex} \"{vesselName}\" — fireParticles={info.fireParticles != null}, " +
+                $"fireShell={info.fireShellMeshes?.Count ?? 0} meshes, " +
                 $"glow materials={info.glowMaterials.Count}, vesselLength={vesselLength:F1}m");
             if (skippedHeatCount > 0)
                 ParsekLog.Verbose("ReentryFx",
                     $"Skipped {skippedHeatCount} renderers already managed by HeatGhostInfo for ghost #{ghostIndex}");
 
             return info;
+        }
+
+        /// <summary>
+        /// Rebuilds the combined emission mesh and fire shell mesh list from currently active
+        /// ghost parts. Call after decouple/destroy events so particles and fire shell overlays
+        /// no longer emit from removed parts.
+        /// </summary>
+        internal static void RebuildReentryMeshes(GameObject ghostRoot, ReentryFxInfo info)
+        {
+            if (info == null || ghostRoot == null) return;
+
+            // Rebuild combined emission mesh
+            MeshFilter[] meshFilters = ghostRoot.GetComponentsInChildren<MeshFilter>(false); // false = only active
+            var combines = new System.Collections.Generic.List<CombineInstance>();
+            Matrix4x4 rootWorldToLocal = ghostRoot.transform.worldToLocalMatrix;
+            for (int m = 0; m < meshFilters.Length; m++)
+            {
+                MeshFilter mf = meshFilters[m];
+                if (mf == null || mf.sharedMesh == null) continue;
+                CombineInstance ci = default;
+                ci.mesh = mf.sharedMesh;
+                ci.transform = rootWorldToLocal * mf.transform.localToWorldMatrix;
+                combines.Add(ci);
+            }
+
+            // Destroy old combined mesh
+            if (info.combinedEmissionMesh != null)
+                Object.Destroy(info.combinedEmissionMesh);
+
+            if (combines.Count > 0)
+            {
+                Mesh newMesh = new Mesh();
+                newMesh.CombineMeshes(combines.ToArray(), true, true);
+                info.combinedEmissionMesh = newMesh;
+
+                if (info.fireParticles != null)
+                {
+                    var shape = info.fireParticles.shape;
+                    shape.shapeType = ParticleSystemShapeType.Mesh;
+                    shape.mesh = newMesh;
+                }
+            }
+            else
+            {
+                info.combinedEmissionMesh = null;
+            }
+
+            // Rebuild fire shell mesh list from active parts only
+            var shellMeshes = new List<FireShellMesh>();
+            for (int m = 0; m < meshFilters.Length; m++)
+            {
+                MeshFilter mf = meshFilters[m];
+                if (mf == null || mf.sharedMesh == null) continue;
+                shellMeshes.Add(new FireShellMesh { mesh = mf.sharedMesh, transform = mf.transform });
+            }
+            info.fireShellMeshes = shellMeshes;
+
+            ParsekLog.Log($"  ReentryFx: rebuilt emission mesh ({combines.Count} meshes, " +
+                $"{(info.combinedEmissionMesh != null ? info.combinedEmissionMesh.vertexCount : 0)} verts) " +
+                $"and {shellMeshes.Count} fire shell meshes after decouple");
         }
 
         /// <summary>
