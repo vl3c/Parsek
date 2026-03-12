@@ -1297,6 +1297,19 @@ namespace Parsek
                 segNode.AddValue("mna", seg.meanAnomalyAtEpoch.ToString("R", ic));
                 segNode.AddValue("epoch", seg.epoch.ToString("R", ic));
                 segNode.AddValue("body", seg.bodyName);
+                if (TrajectoryMath.HasOrbitalFrameRotation(seg))
+                {
+                    segNode.AddValue("ofrX", seg.orbitalFrameRotation.x.ToString("R", ic));
+                    segNode.AddValue("ofrY", seg.orbitalFrameRotation.y.ToString("R", ic));
+                    segNode.AddValue("ofrZ", seg.orbitalFrameRotation.z.ToString("R", ic));
+                    segNode.AddValue("ofrW", seg.orbitalFrameRotation.w.ToString("R", ic));
+                }
+                if (TrajectoryMath.IsSpinning(seg))
+                {
+                    segNode.AddValue("avX", seg.angularVelocity.x.ToString("R", ic));
+                    segNode.AddValue("avY", seg.angularVelocity.y.ToString("R", ic));
+                    segNode.AddValue("avZ", seg.angularVelocity.z.ToString("R", ic));
+                }
             }
 
             for (int pe = 0; pe < rec.PartEvents.Count; pe++)
@@ -1378,6 +1391,23 @@ namespace Parsek
                 double.TryParse(segNode.GetValue("mna"), inv, ic, out seg.meanAnomalyAtEpoch);
                 double.TryParse(segNode.GetValue("epoch"), inv, ic, out seg.epoch);
                 seg.bodyName = segNode.GetValue("body") ?? "Kerbin";
+
+                float ofrX, ofrY, ofrZ, ofrW;
+                if (float.TryParse(segNode.GetValue("ofrX"), inv, ic, out ofrX) &&
+                    float.TryParse(segNode.GetValue("ofrY"), inv, ic, out ofrY) &&
+                    float.TryParse(segNode.GetValue("ofrZ"), inv, ic, out ofrZ) &&
+                    float.TryParse(segNode.GetValue("ofrW"), inv, ic, out ofrW))
+                {
+                    seg.orbitalFrameRotation = new Quaternion(ofrX, ofrY, ofrZ, ofrW);
+                }
+
+                float avX, avY, avZ;
+                if (float.TryParse(segNode.GetValue("avX"), inv, ic, out avX) &&
+                    float.TryParse(segNode.GetValue("avY"), inv, ic, out avY) &&
+                    float.TryParse(segNode.GetValue("avZ"), inv, ic, out avZ))
+                {
+                    seg.angularVelocity = new UnityEngine.Vector3(avX, avY, avZ);
+                }
 
                 rec.OrbitSegments.Add(seg);
             }

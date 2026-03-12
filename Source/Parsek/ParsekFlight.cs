@@ -137,6 +137,15 @@ namespace Parsek
             public int orbitCacheKey;
             public double orbitUT;
 
+            // Orbital rotation fields (Phase: orbital-rotation)
+            public Quaternion orbitFrameRot;       // Orbital-frame-relative rotation from segment
+            public bool hasOrbitFrameRot;          // True if segment has rotation data
+            public CelestialBody orbitBody;        // Body reference for radial-out computation in LateUpdate
+            public Vector3 orbitAngularVelocity;   // Vessel-local angular velocity (rad/s)
+            public bool isSpinning;                // True if above spin threshold
+            public double orbitSegmentStartUT;     // Segment start UT for computing dt
+            public Quaternion boundaryWorldRot;    // Pre-computed boundary world rotation (for spinning case)
+
             // Surface fields
             public Quaternion surfaceRot; // body-relative rotation
         }
@@ -248,6 +257,7 @@ namespace Parsek
         // Diagnostic logging guards (log once per state transition, not per frame)
         private HashSet<int> loggedGhostEnter = new HashSet<int>();
         private HashSet<int> loggedOrbitSegments = new HashSet<int>();
+        private HashSet<int> loggedOrbitRotationSegments = new HashSet<int>();
 
         // Warp-stop guard: only stop time warp once per recording
         private HashSet<int> warpStoppedForRecording = new HashSet<int>();
@@ -793,9 +803,65 @@ namespace Parsek
                         {
                             Vector3d pos = orbit.getPositionAtUT(e.orbitUT);
                             e.ghost.transform.position = pos;
+
                             Vector3d vel = orbit.getOrbitalVelocityAtUT(e.orbitUT);
-                            if (vel.sqrMagnitude > 0.001)
+
+                            if (e.isSpinning)
+                            {
+                                // Spin-forward: recompute boundary world rotation (positions may have shifted by FloatingOrigin)
+                                Vector3d velAtStart = orbit.getOrbitalVelocityAtUT(e.orbitSegmentStartUT);
+                                Vector3d posAtStart = orbit.getPositionAtUT(e.orbitSegmentStartUT);
+
+                                if (e.orbitBody != null)
+                                {
+                                    Vector3d radialAtStart = (posAtStart - (Vector3d)e.orbitBody.position).normalized;
+                                    Quaternion orbFrameAtStart;
+                                    if (Mathf.Abs(Vector3.Dot(((Vector3)velAtStart).normalized, ((Vector3)radialAtStart).normalized)) > 0.99f)
+                                        orbFrameAtStart = Quaternion.LookRotation(velAtStart, Vector3.up);
+                                    else
+                                        orbFrameAtStart = Quaternion.LookRotation(velAtStart, radialAtStart);
+
+                                    Quaternion bwRot = orbFrameAtStart * e.orbitFrameRot;
+                                    double dt = e.orbitUT - e.orbitSegmentStartUT;
+                                    Vector3 worldAxis = bwRot * e.orbitAngularVelocity;
+                                    float angle = (float)((double)e.orbitAngularVelocity.magnitude * dt * Mathf.Rad2Deg);
+                                    e.ghost.transform.rotation = Quaternion.AngleAxis(angle, worldAxis) * bwRot;
+                                }
+                                else
+                                {
+                                    // Body null fallback
+                                    if (vel.sqrMagnitude > 0.001)
+                                        e.ghost.transform.rotation = Quaternion.LookRotation(vel);
+                                    ParsekLog.VerboseRateLimited("Playback", $"orbit-late-body-null-{e.orbitCacheKey}",
+                                        $"Orbit LateUpdate: orbitBody null for cache={e.orbitCacheKey}, velocity fallback");
+                                }
+                            }
+                            else if (e.hasOrbitFrameRot && vel.sqrMagnitude > 0.001)
+                            {
+                                // Orbital-frame-relative path
+                                if (e.orbitBody != null)
+                                {
+                                    Vector3d radialOut = (pos - (Vector3d)e.orbitBody.position).normalized;
+                                    Quaternion orbFrame;
+                                    if (Mathf.Abs(Vector3.Dot(((Vector3)vel).normalized, ((Vector3)radialOut).normalized)) > 0.99f)
+                                        orbFrame = Quaternion.LookRotation(vel, Vector3.up);
+                                    else
+                                        orbFrame = Quaternion.LookRotation(vel, radialOut);
+
+                                    e.ghost.transform.rotation = orbFrame * e.orbitFrameRot;
+                                }
+                                else
+                                {
+                                    e.ghost.transform.rotation = Quaternion.LookRotation(vel);
+                                    ParsekLog.VerboseRateLimited("Playback", $"orbit-late-body-null-{e.orbitCacheKey}",
+                                        $"Orbit LateUpdate: orbitBody null for cache={e.orbitCacheKey}, velocity fallback");
+                                }
+                            }
+                            else if (vel.sqrMagnitude > 0.001)
+                            {
+                                // Prograde fallback (old recordings)
                                 e.ghost.transform.rotation = Quaternion.LookRotation(vel);
+                            }
                         }
                         break;
                     }
@@ -4117,6 +4183,7 @@ namespace Parsek
 
             orbitCache.Clear();
             loggedOrbitSegments.Clear();
+            loggedOrbitRotationSegments.Clear();
         }
 
         void UpdatePlayback()
@@ -5016,6 +5083,7 @@ namespace Parsek
             orbitCache.Clear();
             loggedGhostEnter.Clear();
             loggedOrbitSegments.Clear();
+            loggedOrbitRotationSegments.Clear();
             warpStoppedForRecording.Clear();
         }
 
@@ -5093,6 +5161,7 @@ namespace Parsek
             // Clear diagnostic guards since indices shifted
             loggedGhostEnter.Clear();
             loggedOrbitSegments.Clear();
+            loggedOrbitRotationSegments.Clear();
             warpStoppedForRecording.Clear();
 
             ParsekLog.ScreenMessage($"Recording '{rec.VesselName}' deleted", 2f);
@@ -6979,10 +7048,74 @@ namespace Parsek
             Vector3d worldPos = orbit.getPositionAtUT(ut);
             ghost.transform.position = worldPos;
 
-            // Orient prograde
             Vector3d velocity = orbit.getOrbitalVelocityAtUT(ut);
-            if (velocity.sqrMagnitude > 0.001)
-                ghost.transform.rotation = Quaternion.LookRotation(velocity);
+
+            // Orbital rotation: 3-way branch
+            Quaternion ghostRot = ghost.transform.rotation; // preserve current if no update
+            Quaternion boundaryWorldRot = Quaternion.identity;
+            bool hasOfr = TrajectoryMath.HasOrbitalFrameRotation(segment);
+            bool spinning = TrajectoryMath.IsSpinning(segment);
+
+            if (spinning)
+            {
+                // Spin-forward path: reconstruct boundary world rotation from orbit at startUT
+                Vector3d velAtStart = orbit.getOrbitalVelocityAtUT(segment.startUT);
+                Vector3d posAtStart = orbit.getPositionAtUT(segment.startUT);
+                Vector3d radialAtStart = (posAtStart - (Vector3d)body.position).normalized;
+
+                Quaternion orbFrameAtStart;
+                if (Mathf.Abs(Vector3.Dot(((Vector3)velAtStart).normalized, ((Vector3)radialAtStart).normalized)) > 0.99f)
+                {
+                    orbFrameAtStart = Quaternion.LookRotation(velAtStart, Vector3.up);
+                    ParsekLog.VerboseRateLimited("Playback", $"orbit-near-parallel-start-{cacheKey}",
+                        $"Orbit segment {cacheKey}: velocity/radialOut near-parallel at startUT, LookRotation fallback");
+                }
+                else
+                    orbFrameAtStart = Quaternion.LookRotation(velAtStart, radialAtStart);
+
+                boundaryWorldRot = orbFrameAtStart * segment.orbitalFrameRotation;
+
+                double dt = ut - segment.startUT;
+                Vector3 worldAxis = boundaryWorldRot * segment.angularVelocity;
+                float angle = (float)((double)segment.angularVelocity.magnitude * dt * Mathf.Rad2Deg);
+                ghostRot = Quaternion.AngleAxis(angle, worldAxis) * boundaryWorldRot;
+            }
+            else if (hasOfr && velocity.sqrMagnitude > 0.001)
+            {
+                // Orbital-frame-relative path
+                Vector3d radialOut = (worldPos - (Vector3d)body.position).normalized;
+
+                Quaternion orbFrame;
+                if (Mathf.Abs(Vector3.Dot(((Vector3)velocity).normalized, ((Vector3)radialOut).normalized)) > 0.99f)
+                {
+                    orbFrame = Quaternion.LookRotation(velocity, Vector3.up);
+                    ParsekLog.VerboseRateLimited("Playback", $"orbit-near-parallel-{cacheKey}",
+                        $"Orbit segment {cacheKey}: velocity/radialOut near-parallel, LookRotation fallback");
+                }
+                else
+                    orbFrame = Quaternion.LookRotation(velocity, radialOut);
+
+                ghostRot = orbFrame * segment.orbitalFrameRotation;
+            }
+            else if (velocity.sqrMagnitude > 0.001)
+            {
+                // Prograde fallback (old recordings)
+                ghostRot = Quaternion.LookRotation(velocity);
+            }
+
+            ghost.transform.rotation = ghostRot;
+
+            // First-activation logging (once per segment)
+            if (!loggedOrbitRotationSegments.Contains(cacheKey))
+            {
+                loggedOrbitRotationSegments.Add(cacheKey);
+                if (spinning)
+                    ParsekLog.Verbose("Playback", $"Orbit segment {cacheKey}: spin-forward (|angVel|={segment.angularVelocity.magnitude:F4})");
+                else if (hasOfr)
+                    ParsekLog.Verbose("Playback", $"Orbit segment {cacheKey}: orbital-frame rotation");
+                else
+                    ParsekLog.Verbose("Playback", $"Orbit segment {cacheKey}: velocity-derived prograde (no ofr data)");
+            }
 
             // Register for LateUpdate re-positioning after FloatingOrigin shift
             ghostPosEntries.Add(new GhostPosEntry
@@ -6990,7 +7123,14 @@ namespace Parsek
                 ghost = ghost,
                 mode = GhostPosMode.Orbit,
                 orbitCacheKey = cacheKey,
-                orbitUT = ut
+                orbitUT = ut,
+                orbitFrameRot = segment.orbitalFrameRotation,
+                hasOrbitFrameRot = hasOfr,
+                orbitBody = body,
+                orbitAngularVelocity = segment.angularVelocity,
+                isSpinning = spinning,
+                orbitSegmentStartUT = segment.startUT,
+                boundaryWorldRot = boundaryWorldRot
             });
         }
 
