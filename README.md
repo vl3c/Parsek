@@ -87,6 +87,7 @@ Parsek was inspired by and learned from the KSP modding community. The following
 
 - **[FMRS](https://github.com/linuxgurugamer/FMRS)** (linuxgurugamer / dtobi) - time-revert patterns for stage recovery
 - **[Persistent Trails](https://github.com/JPLRepo/KSPPersistentTrails)** (JPLRepo) - trajectory recording and adaptive sampling
+- **[PersistentRotation](https://github.com/MarkusA380/PersistentRotation)** (MarkusA380) - orbital rotation persistence, angular velocity handling during time warp
 - **[KSP Community Fixes](https://github.com/KSPModdingLibs/KSPCommunityFixes)** (gotmachine / KSPModdingLibs) - Harmony patching patterns, performance techniques
 - **[VesselMover](https://github.com/jrodrigv/VesselMover)** (jrodrigv / BDArmory team) - vessel positioning and geographic coordinate handling
 - **[StageRecovery](https://github.com/linuxgurugamer/StageRecovery)** (linuxgurugamer / magico13) - GameEvents + polling hybrid for event detection
