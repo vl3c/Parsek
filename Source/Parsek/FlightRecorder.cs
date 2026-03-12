@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using KSP.UI.Screens;
 using UnityEngine;
 
@@ -148,6 +149,7 @@ namespace Parsek
 
         // On-rails state
         private bool isOnRails;
+        private bool hasPersistentRotation;
         private OrbitSegment currentOrbitSegment;
 
         // Atmosphere boundary detection
@@ -3222,6 +3224,10 @@ namespace Parsek
             lastRecordedUT = -1;
             lastRecordedVelocity = Vector3.zero;
 
+            hasPersistentRotation = AssemblyLoader.loadedAssemblies.Any(
+                a => a.name == "PersistentRotation");
+            ParsekLog.Info("Recorder", $"PersistentRotation mod detected: {hasPersistentRotation}");
+
             // Seed atmosphere state
             wasInAtmosphere = v.mainBody != null && v.mainBody.atmosphere
                 && v.altitude < v.mainBody.atmosphereDepth;
@@ -3770,8 +3776,28 @@ namespace Parsek
                 bodyName = v.mainBody.name
             };
 
+            // Capture orbital-frame-relative rotation
+            Vector3d orbVel = v.obt_velocity;
+            Vector3d radialOut = (v.CoMD - v.mainBody.position).normalized;
+            currentOrbitSegment.orbitalFrameRotation =
+                TrajectoryMath.ComputeOrbitalFrameRotation(v.transform.rotation, orbVel, radialOut);
+
+            // Capture angular velocity if PersistentRotation is active and vessel is spinning
+            if (hasPersistentRotation && v.rootPart != null && v.rootPart.rb != null
+                && v.angularVelocity.magnitude > TrajectoryMath.SpinThreshold)
+            {
+                currentOrbitSegment.angularVelocity =
+                    Quaternion.Inverse(v.transform.rotation) * v.angularVelocity;
+                ParsekLog.Verbose("Recorder",
+                    $"Spinning vessel detected (|angVel|={v.angularVelocity.magnitude:F4}), recording angular velocity for spin-forward");
+            }
+
             isOnRails = true;
-            ParsekLog.Verbose("Recorder", $"Vessel went on rails — capturing orbit segment (body={v.mainBody.name})");
+            ParsekLog.Verbose("Recorder",
+                $"Vessel went on rails — orbit segment (body={v.mainBody.name}, " +
+                $"ofrRot={currentOrbitSegment.orbitalFrameRotation}, " +
+                $"angVel={currentOrbitSegment.angularVelocity}, " +
+                $"persistentRotation={hasPersistentRotation})");
         }
 
         public void OnVesselGoOffRails(Vessel v)
@@ -3830,6 +3856,19 @@ namespace Parsek
                 bodyName = v.mainBody.name
             };
 
+            // Capture orbital-frame-relative rotation for new SOI
+            Vector3d orbVel = v.obt_velocity;
+            Vector3d radialOut = (v.CoMD - v.mainBody.position).normalized;
+            currentOrbitSegment.orbitalFrameRotation =
+                TrajectoryMath.ComputeOrbitalFrameRotation(v.transform.rotation, orbVel, radialOut);
+
+            if (hasPersistentRotation && v.rootPart != null && v.rootPart.rb != null
+                && v.angularVelocity.magnitude > TrajectoryMath.SpinThreshold)
+            {
+                currentOrbitSegment.angularVelocity =
+                    Quaternion.Inverse(v.transform.rotation) * v.angularVelocity;
+            }
+
             // Reseed atmosphere state for the new body
             ReseedAtmosphereState(v);
 
@@ -3837,7 +3876,9 @@ namespace Parsek
             SoiChangePending = true;
             SoiChangeFromBody = data.from.name;
 
-            ParsekLog.Verbose("Recorder", $"SOI changed during orbit recording: {data.from.name} → {data.to.name}");
+            ParsekLog.Verbose("Recorder",
+                $"SOI changed {data.from.name} → {data.to.name} — new segment ofrRot={currentOrbitSegment.orbitalFrameRotation}, " +
+                $"angVel={currentOrbitSegment.angularVelocity}");
         }
 
         public void OnVesselWillDestroy(Vessel v)
