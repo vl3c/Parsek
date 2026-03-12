@@ -3406,7 +3406,7 @@ namespace Parsek
             {
                 RecordingId = System.Guid.NewGuid().ToString("N"),
                 RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
-                GhostGeometryVersion = RecordingStore.CurrentGhostGeometryVersion,
+
                 VesselName = FlightGlobals.ActiveVessel != null
                     ? FlightGlobals.ActiveVessel.vesselName
                     : "Unknown Vessel",
@@ -3467,7 +3467,7 @@ namespace Parsek
             {
                 RecordingId = System.Guid.NewGuid().ToString("N"),
                 RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
-                GhostGeometryVersion = RecordingStore.CurrentGhostGeometryVersion,
+
                 VesselName = FlightGlobals.ActiveVessel != null
                     ? FlightGlobals.ActiveVessel.vesselName
                     : "Unknown Vessel",
@@ -3605,7 +3605,7 @@ namespace Parsek
                 {
                     RecordingId = System.Guid.NewGuid().ToString("N"),
                     RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
-                    GhostGeometryVersion = RecordingStore.CurrentGhostGeometryVersion,
+    
                     VesselName = recordedVessel != null ? recordedVessel.vesselName : v.vesselName,
                     Points = new List<TrajectoryPoint>(Recording),
                     OrbitSegments = new List<OrbitSegment>(OrbitSegments),

@@ -100,6 +100,7 @@ namespace Parsek
         }
 
         private Dictionary<int, GhostPlaybackState> ghostStates = new Dictionary<int, GhostPlaybackState>();
+        private readonly MaterialPropertyBlock reentryShellMpb = new MaterialPropertyBlock();
 
         // --- Floating-origin correction ---
         // Ghosts are plain GameObjects not registered with KSP's FloatingOrigin.
@@ -1039,7 +1040,7 @@ namespace Parsek
                     recorder.OrbitSegments,
                     recordingId: captured != null ? captured.RecordingId : null,
                     recordingFormatVersion: captured != null ? (int?)captured.RecordingFormatVersion : null,
-                    ghostGeometryVersion: captured != null ? (int?)captured.GhostGeometryVersion : null,
+
                     partEvents: recorder.PartEvents);
 
                 // Use stop-time atomic capture when available; fallback to scene-change capture.
@@ -1259,7 +1260,6 @@ namespace Parsek
                 recorder.OrbitSegments,
                 recordingId: captured != null ? captured.RecordingId : null,
                 recordingFormatVersion: captured != null ? (int?)captured.RecordingFormatVersion : null,
-                ghostGeometryVersion: captured != null ? (int?)captured.GhostGeometryVersion : null,
                 partEvents: recorder.PartEvents);
 
             if (captured != null)
@@ -2469,7 +2469,6 @@ namespace Parsek
                 segmentRecorder.OrbitSegments,
                 recordingId: segmentId,
                 recordingFormatVersion: segmentRecorder.CaptureAtStop.RecordingFormatVersion,
-                ghostGeometryVersion: segmentRecorder.CaptureAtStop.GhostGeometryVersion,
                 partEvents: segmentRecorder.PartEvents);
 
             if (!RecordingStore.HasPending)
@@ -2906,7 +2905,6 @@ namespace Parsek
                 segmentRecorder.OrbitSegments,
                 recordingId: segmentId,
                 recordingFormatVersion: segmentRecorder.CaptureAtStop.RecordingFormatVersion,
-                ghostGeometryVersion: segmentRecorder.CaptureAtStop.GhostGeometryVersion,
                 partEvents: segmentRecorder.PartEvents);
 
             if (!RecordingStore.HasPending)
@@ -2982,7 +2980,6 @@ namespace Parsek
                 recorder.OrbitSegments,
                 recordingId: segmentId,
                 recordingFormatVersion: captured != null ? (int?)captured.RecordingFormatVersion : null,
-                ghostGeometryVersion: captured != null ? (int?)captured.GhostGeometryVersion : null,
                 partEvents: recorder.PartEvents);
 
             if (!RecordingStore.HasPending)
@@ -3473,7 +3470,6 @@ namespace Parsek
                 recorder.OrbitSegments,
                 recordingId: captured != null ? captured.RecordingId : null,
                 recordingFormatVersion: captured != null ? (int?)captured.RecordingFormatVersion : null,
-                ghostGeometryVersion: captured != null ? (int?)captured.GhostGeometryVersion : null,
                 partEvents: recorder.PartEvents);
 
             if (!RecordingStore.HasPending)
@@ -4152,12 +4148,7 @@ namespace Parsek
                                 Destroy(info.particleSystems[i].gameObject);
                 }
 
-                if (previewGhostState.reentryFxInfo != null && previewGhostState.reentryFxInfo.allClonedMaterials != null)
-                {
-                    for (int i = 0; i < previewGhostState.reentryFxInfo.allClonedMaterials.Count; i++)
-                        if (previewGhostState.reentryFxInfo.allClonedMaterials[i] != null)
-                            Destroy(previewGhostState.reentryFxInfo.allClonedMaterials[i]);
-                }
+                DestroyReentryFxResources(previewGhostState.reentryFxInfo);
 
                 DestroyAllFakeCanopies(previewGhostState);
                 previewGhostState = null;
@@ -5051,12 +5042,7 @@ namespace Parsek
                             Destroy(info.particleSystems[i].gameObject);
             }
 
-            if (state.reentryFxInfo != null && state.reentryFxInfo.allClonedMaterials != null)
-            {
-                for (int i = 0; i < state.reentryFxInfo.allClonedMaterials.Count; i++)
-                    if (state.reentryFxInfo.allClonedMaterials[i] != null)
-                        Destroy(state.reentryFxInfo.allClonedMaterials[i]);
-            }
+            DestroyReentryFxResources(state.reentryFxInfo);
 
             if (state.ghost != null)
                 Destroy(state.ghost);
@@ -5188,6 +5174,7 @@ namespace Parsek
                         else
                             HideGhostPart(ghost, evt.partPersistentId);
                         Log($"Part event applied: Decoupled '{evt.partName}' pid={evt.partPersistentId}");
+                        GhostVisualBuilder.RebuildReentryMeshes(ghost, state.reentryFxInfo);
                         break;
                     case PartEventType.Destroyed:
                         StopEngineFxForPart(state, evt.partPersistentId);
@@ -5195,6 +5182,7 @@ namespace Parsek
                         ApplyHeatState(state, evt, heated: false);
                         HideGhostPart(ghost, evt.partPersistentId);
                         Log($"Part event applied: Destroyed '{evt.partName}' pid={evt.partPersistentId}");
+                        GhostVisualBuilder.RebuildReentryMeshes(ghost, state.reentryFxInfo);
                         break;
                     case PartEventType.ParachuteCut:
                         if (state.parachuteInfos != null)
@@ -5894,7 +5882,7 @@ namespace Parsek
         {
             DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, altitude, 0f, vesselName);
             info.lastIntensity = 0f;
-            info.lastVelocity = Vector3.zero;
+
         }
 
         private void UpdateReentryFx(int recIdx, GhostPlaybackState state, string vesselName)
@@ -5959,21 +5947,23 @@ namespace Parsek
                 return;
             }
 
-            float q = (float)(0.5 * density * speed * speed);
-            float rawIntensity = GhostVisualBuilder.ComputeReentryIntensity(speed, q);
+            // Compute Mach number for aeroFX threshold matching
+            double speedOfSound = body.GetSpeedOfSound(pressure, density);
+            float machNumber = (speedOfSound > 0) ? (float)(speed / speedOfSound) : 0f;
+
+            float rawIntensity = GhostVisualBuilder.ComputeReentryIntensity(speed, (float)density, machNumber);
 
             float smoothedIntensity = Mathf.Lerp(info.lastIntensity, rawIntensity,
                 1f - Mathf.Exp(-GhostVisualBuilder.ReentrySmoothingRate * Time.deltaTime));
             if (smoothedIntensity < 0.001f && rawIntensity == 0f)
                 smoothedIntensity = 0f;
 
-            DriveReentryLayers(info, smoothedIntensity, surfaceVel, recIdx, bodyName, altitude, q, vesselName);
+            DriveReentryLayers(info, smoothedIntensity, surfaceVel, recIdx, bodyName, altitude, machNumber, vesselName);
             info.lastIntensity = smoothedIntensity;
-            info.lastVelocity = surfaceVel;
         }
 
         private void DriveReentryLayers(ReentryFxInfo info, float intensity, Vector3 surfaceVel,
-            int recIdx, string bodyName, double altitude, float dynamicPressure, string vesselName)
+            int recIdx, string bodyName, double altitude, float machNumber, string vesselName)
         {
             bool wasActive = info.lastIntensity > 0f;
             bool isActive = intensity > 0f;
@@ -5982,7 +5972,7 @@ namespace Parsek
             {
                 float speed = surfaceVel.magnitude;
                 ParsekLog.Verbose("Flight",
-                    $"ReentryFx: Activated for ghost #{recIdx} \"{vesselName}\" — intensity={intensity:F2}, q={dynamicPressure:F0} Pa, speed={speed:F0} m/s, alt={altitude:F0} m, body={bodyName}");
+                    $"ReentryFx: Activated for ghost #{recIdx} \"{vesselName}\" — intensity={intensity:F2}, Mach={machNumber:F2}, speed={speed:F0} m/s, alt={altitude:F0} m, body={bodyName}");
             }
             else if (!isActive && wasActive)
             {
@@ -6027,81 +6017,77 @@ namespace Parsek
                 }
             }
 
-            // Layer B: Flame particles
-            if (info.flameParticles != null)
+            // Fire envelope particles
+            if (info.fireParticles != null)
             {
-                for (int i = 0; i < info.flameParticles.Count; i++)
+                if (intensity > GhostVisualBuilder.ReentryFireThreshold)
                 {
-                    ParticleSystem flame = info.flameParticles[i];
-                    if (flame == null) continue;
+                    float fireFraction = Mathf.InverseLerp(GhostVisualBuilder.ReentryFireThreshold, 1f, intensity);
 
-                    if (intensity > GhostVisualBuilder.ReentryLayerBThreshold)
-                    {
-                        float flameFraction = Mathf.InverseLerp(GhostVisualBuilder.ReentryLayerBThreshold, 1f, intensity);
-                        var emission = flame.emission;
-                        emission.rateOverTime = flameFraction * GhostVisualBuilder.ReentryFlameMaxEmission;
-                        var main = flame.main;
-                        main.startSize = Mathf.Lerp(0.5f, 2f, flameFraction);
-                        if (surfaceVel.sqrMagnitude > 1f)
-                            flame.transform.rotation = Quaternion.LookRotation(surfaceVel.normalized);
-                        if (!flame.isPlaying) flame.Play();
-                    }
-                    else
-                    {
-                        var emission = flame.emission;
-                        emission.rateOverTime = 0f;
-                        if (flame.particleCount == 0 && flame.isPlaying)
-                            flame.Stop();
-                    }
-                }
-            }
+                    var emissionMod = info.fireParticles.emission;
+                    emissionMod.rateOverTimeMultiplier = Mathf.Lerp(
+                        GhostVisualBuilder.ReentryFireEmissionMin,
+                        GhostVisualBuilder.ReentryFireEmissionMax, fireFraction);
 
-            // Layer C: Smoke/plasma trail
-            if (info.smokeParticles != null)
-            {
-                for (int i = 0; i < info.smokeParticles.Count; i++)
-                {
-                    ParticleSystem smoke = info.smokeParticles[i];
-                    if (smoke == null) continue;
+                    var mainMod = info.fireParticles.main;
+                    mainMod.startSizeMultiplier = Mathf.Lerp(0.8f, 2.0f, fireFraction);
 
-                    if (intensity > GhostVisualBuilder.ReentryLayerCThreshold)
-                    {
-                        float smokeFraction = Mathf.InverseLerp(GhostVisualBuilder.ReentryLayerCThreshold, 1f, intensity);
-                        var emission = smoke.emission;
-                        emission.rateOverTime = smokeFraction * GhostVisualBuilder.ReentrySmokeMaxEmission;
-                        var main = smoke.main;
-                        main.startSize = Mathf.Lerp(1f, 5f, smokeFraction);
-                        if (surfaceVel.sqrMagnitude > 1f)
-                            smoke.transform.rotation = Quaternion.LookRotation(surfaceVel.normalized);
-                        if (!smoke.isPlaying) smoke.Play();
-                    }
-                    else
-                    {
-                        var emission = smoke.emission;
-                        emission.rateOverTime = 0f;
-                        if (smoke.particleCount == 0 && smoke.isPlaying)
-                            smoke.Stop();
-                    }
-                }
-            }
-
-            // Layer D: Trail renderer
-            if (info.trailRenderer != null)
-            {
-                if (intensity > GhostVisualBuilder.ReentryLayerDThreshold)
-                {
-                    float trailFraction = Mathf.InverseLerp(GhostVisualBuilder.ReentryLayerDThreshold, 1f, intensity);
-                    info.trailRenderer.startWidth = Mathf.Lerp(
-                        GhostVisualBuilder.ReentryTrailMinWidth, GhostVisualBuilder.ReentryTrailMaxWidth, trailFraction);
-                    info.trailRenderer.endWidth = Mathf.Lerp(
-                        GhostVisualBuilder.ReentryTrailEndMinWidth, GhostVisualBuilder.ReentryTrailEndMaxWidth, trailFraction);
-                    info.trailRenderer.emitting = true;
+                    if (!info.fireParticles.isPlaying)
+                        info.fireParticles.Play();
                 }
                 else
                 {
-                    info.trailRenderer.emitting = false;
+                    if (info.fireParticles.isPlaying)
+                    {
+                        info.fireParticles.Stop(true, ParticleSystemStopBehavior.StopEmitting);
+                    }
                 }
             }
+
+            // Fire shell overlay: re-draw ghost meshes offset along velocity with additive blending
+            // Approximates KSP's FXCamera replacement shader that displaces vertex positions
+            // along the airflow direction, creating the characteristic turbulent flame shell.
+            if (info.fireShellMeshes != null && info.fireShellMaterial != null
+                && intensity > GhostVisualBuilder.ReentryFireThreshold)
+            {
+                Vector3 velDir = surfaceVel.normalized;
+                float maxOffset = info.vesselLength * GhostVisualBuilder.ReentryFireShellMaxOffset * intensity;
+                float baseTint = Mathf.Lerp(0.026f, 0.156f, intensity);
+
+                for (int pass = 0; pass < GhostVisualBuilder.ReentryFireShellPasses; pass++)
+                {
+                    float t = (pass + 1f) / GhostVisualBuilder.ReentryFireShellPasses;
+                    Vector3 offset = -velDir * (maxOffset * t);
+                    float alpha = baseTint * (1f - t * 0.7f); // closer passes are brighter
+                    Color tint = GhostVisualBuilder.ReentryFireShellColor * alpha;
+
+                    reentryShellMpb.SetColor("_TintColor", tint);
+
+                    for (int m = 0; m < info.fireShellMeshes.Count; m++)
+                    {
+                        FireShellMesh fsm = info.fireShellMeshes[m];
+                        if (fsm.mesh == null || fsm.transform == null) continue;
+                        // Skip meshes on decoupled/destroyed parts (SetActive(false))
+                        if (!fsm.transform.gameObject.activeInHierarchy) continue;
+
+                        Matrix4x4 matrix = Matrix4x4.Translate(offset) * fsm.transform.localToWorldMatrix;
+                        Graphics.DrawMesh(fsm.mesh, matrix, info.fireShellMaterial, 0, null, 0, reentryShellMpb);
+                    }
+                }
+            }
+        }
+
+        private void DestroyReentryFxResources(ReentryFxInfo info)
+        {
+            if (info == null) return;
+            if (info.allClonedMaterials != null)
+                for (int i = 0; i < info.allClonedMaterials.Count; i++)
+                    if (info.allClonedMaterials[i] != null)
+                        Destroy(info.allClonedMaterials[i]);
+            if (info.generatedTexture != null)
+                Destroy(info.generatedTexture);
+            if (info.combinedEmissionMesh != null)
+                Destroy(info.combinedEmissionMesh);
         }
 
         private static void ResetReentryFx(GhostPlaybackState state, int recIdx)
@@ -6110,36 +6096,12 @@ namespace Parsek
             if (info == null) return;
 
             info.lastIntensity = 0f;
-            info.lastVelocity = Vector3.zero;
 
-            if (info.trailRenderer != null)
-            {
-                info.trailRenderer.Clear();
-                info.trailRenderer.emitting = false;
-            }
 
-            if (info.flameParticles != null)
+            if (info.fireParticles != null)
             {
-                for (int i = 0; i < info.flameParticles.Count; i++)
-                {
-                    if (info.flameParticles[i] != null)
-                    {
-                        info.flameParticles[i].Clear(true);
-                        info.flameParticles[i].Stop();
-                    }
-                }
-            }
-
-            if (info.smokeParticles != null)
-            {
-                for (int i = 0; i < info.smokeParticles.Count; i++)
-                {
-                    if (info.smokeParticles[i] != null)
-                    {
-                        info.smokeParticles[i].Clear(true);
-                        info.smokeParticles[i].Stop();
-                    }
-                }
+                info.fireParticles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                info.fireParticles.Clear(true);
             }
 
             if (info.glowMaterials != null)
@@ -6155,7 +6117,7 @@ namespace Parsek
                 }
             }
 
-            ParsekLog.Verbose("Flight", $"ReentryFx: Loop reset for ghost #{recIdx} — cleared trail and particles");
+            ParsekLog.Verbose("Flight", $"ReentryFx: Loop reset for ghost #{recIdx} — cleared fire particles and glow");
         }
 
         static bool ApplyDeployableState(GhostPlaybackState state, PartEvent evt, bool deployed)

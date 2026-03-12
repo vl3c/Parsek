@@ -19,7 +19,6 @@ Parsek/
 ├── OrbitSegment.cs            # Keplerian orbit parameters for on-rails recording
 ├── PartEvent.cs               # Part event enum + struct (28 event types)
 ├── GhostVisualBuilder.cs      # Ghost mesh building from vessel snapshots (engine/RCS FX, fairings)
-├── GhostGeometryCapture.cs    # Ghost geometry baking for persistence
 ├── VesselSpawner.cs           # Vessel spawn/recover/snapshot utilities
 ├── MergeDialog.cs             # Post-revert merge dialog
 ├── RecordingPaths.cs          # Save-scoped path resolution for external recording files
@@ -180,7 +179,7 @@ The script exits non-zero if required log contracts fail.
 
 ### External Recording Files (v4)
 
-Bulk data (trajectory points, orbit segments, part events, snapshots) is stored in external sidecar files under `saves/<save>/Parsek/Recordings/`, keeping the `.sfs` save file lightweight. File types: `.prec` (trajectory), `_vessel.craft` / `_ghost.craft` (vessel snapshots), `.pcrf` (ghost geometry). Safe-write via `.tmp` + rename.
+Bulk data (trajectory points, orbit segments, part events, snapshots) is stored in external sidecar files under `saves/<save>/Parsek/Recordings/`, keeping the `.sfs` save file lightweight. File types: `.prec` (trajectory), `_vessel.craft` / `_ghost.craft` (vessel snapshots). Safe-write via `.tmp` + rename.
 
 ### Vessel Persistence
 
