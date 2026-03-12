@@ -704,6 +704,112 @@ namespace Parsek.Tests
             Assert.False(float.IsInfinity(spunRot.w), "w is Infinity");
         }
 
+        [Fact]
+        public void ComputeOrbitalFrameRotation_OutputIsUnitQuaternion()
+        {
+            // Various input rotations — output must always be unit magnitude
+            var inputs = new[]
+            {
+                (vel: new Vector3d(100, 0, 50), rad: new Vector3d(0, 1, 0),
+                 rot: TrajectoryMath.PureAngleAxis(45, Vector3.up)),
+                (vel: new Vector3d(-30, 10, 80), rad: new Vector3d(0.1, 0.99, 0),
+                 rot: TrajectoryMath.PureAngleAxis(130, Vector3.right)),
+                (vel: new Vector3d(0, 0, 1), rad: new Vector3d(0, 1, 0),
+                 rot: TrajectoryMath.PureLookRotation(new Vector3(0, 0, -1), Vector3.up)), // retrograde
+            };
+
+            foreach (var (vel, rad, rot) in inputs)
+            {
+                Quaternion result = TrajectoryMath.ComputeOrbitalFrameRotation(rot, vel, rad);
+                float mag = Mathf.Sqrt(result.x * result.x + result.y * result.y +
+                                       result.z * result.z + result.w * result.w);
+                Assert.True(Mathf.Abs(mag - 1f) < 0.01f,
+                    $"Non-unit quaternion: mag={mag}, result={result}");
+            }
+        }
+
+        [Fact]
+        public void Serialization_RoundTrip_NegativeComponents()
+        {
+            // Real in-game data had negative quaternion components
+            var rec = new RecordingStore.Recording();
+            rec.Points = MakePoints(2);
+            var seg = MakeSegment(100, 200);
+            seg.orbitalFrameRotation = new Quaternion(-0.6f, -0.3f, 0.6f, 0.3f);
+            rec.OrbitSegments.Add(seg);
+
+            var result = RoundTripSerialize(rec);
+
+            var resSeg = result.OrbitSegments[0];
+            Assert.True(Mathf.Abs(resSeg.orbitalFrameRotation.x - (-0.6f)) < 0.0001f,
+                $"x={resSeg.orbitalFrameRotation.x}");
+            Assert.True(Mathf.Abs(resSeg.orbitalFrameRotation.y - (-0.3f)) < 0.0001f,
+                $"y={resSeg.orbitalFrameRotation.y}");
+            Assert.True(Mathf.Abs(resSeg.orbitalFrameRotation.z - 0.6f) < 0.0001f,
+                $"z={resSeg.orbitalFrameRotation.z}");
+            Assert.True(Mathf.Abs(resSeg.orbitalFrameRotation.w - 0.3f) < 0.0001f,
+                $"w={resSeg.orbitalFrameRotation.w}");
+        }
+
+        [Fact]
+        public void Serialization_RoundTrip_CombinedOfrAndAngVel()
+        {
+            // Both orbital-frame rotation and angular velocity on the same segment
+            var rec = new RecordingStore.Recording();
+            rec.Points = MakePoints(2);
+            var seg = MakeSegment(100, 200);
+            seg.orbitalFrameRotation = new Quaternion(0.1f, 0.7f, -0.1f, -0.7f);
+            seg.angularVelocity = new Vector3(0.3f, -0.1f, 0.5f);
+            rec.OrbitSegments.Add(seg);
+
+            var result = RoundTripSerialize(rec);
+
+            var resSeg = result.OrbitSegments[0];
+            Assert.True(TrajectoryMath.HasOrbitalFrameRotation(resSeg));
+            Assert.True(TrajectoryMath.IsSpinning(resSeg));
+            Assert.True(Mathf.Abs(resSeg.orbitalFrameRotation.y - 0.7f) < 0.0001f);
+            Assert.True(Mathf.Abs(resSeg.angularVelocity.z - 0.5f) < 0.0001f);
+        }
+
+        [Fact]
+        public void Serialization_RoundTrip_MultipleSegmentsDifferentOFR()
+        {
+            // Simulates real in-game session: 6 orbit segments with different orientations
+            var rec = new RecordingStore.Recording();
+            rec.Points = MakePoints(2);
+
+            var rotations = new[]
+            {
+                new Quaternion(0.7f, 0.1f, -0.7f, -0.1f),
+                new Quaternion(-0.6f, -0.3f, 0.6f, 0.3f),
+                new Quaternion(-0.3f, 0.7f, 0.3f, -0.6f),
+                new Quaternion(-0.2f, 0.7f, 0.2f, -0.7f),
+                new Quaternion(0.1f, 0.7f, -0.1f, -0.7f),
+                new Quaternion(0.1f, 0.7f, -0.1f, -0.7f),
+            };
+
+            for (int i = 0; i < rotations.Length; i++)
+            {
+                var seg = MakeSegment(100 + i * 100, 190 + i * 100);
+                seg.orbitalFrameRotation = rotations[i];
+                rec.OrbitSegments.Add(seg);
+            }
+
+            var result = RoundTripSerialize(rec);
+
+            Assert.Equal(6, result.OrbitSegments.Count);
+            for (int i = 0; i < rotations.Length; i++)
+            {
+                var resSeg = result.OrbitSegments[i];
+                Assert.True(TrajectoryMath.HasOrbitalFrameRotation(resSeg),
+                    $"Segment {i} lost OFR data");
+                Assert.True(Mathf.Abs(resSeg.orbitalFrameRotation.x - rotations[i].x) < 0.0001f,
+                    $"Segment {i} x: {resSeg.orbitalFrameRotation.x} != {rotations[i].x}");
+                Assert.True(Mathf.Abs(resSeg.orbitalFrameRotation.y - rotations[i].y) < 0.0001f,
+                    $"Segment {i} y: {resSeg.orbitalFrameRotation.y} != {rotations[i].y}");
+            }
+        }
+
         #endregion
 
         #region Log Assertions
