@@ -1,8 +1,8 @@
 # Parsek: Preliminary Architecture
 
 ## Document Status
-**Version:** 1.0
-**Phase:** Phase 6 complete (recording tree / multi-vessel recording)
+**Version:** 1.1
+**Phase:** Parsek 0.4.0
 **Last Updated:** March 2026
 
 ---
@@ -496,13 +496,13 @@ Time advances
 
 ### Save Game Integration
 
-Using KSP's `ScenarioModule` system (`ParsekScenario`). Lightweight metadata + mutable playback state stored in the `.sfs` save file; bulk data stored in external per-recording sidecar files (format version 4).
+Using KSP's `ScenarioModule` system (`ParsekScenario`). Lightweight metadata + mutable playback state stored in the `.sfs` save file; bulk data stored in external per-recording sidecar files (format version 5).
 
-**In .sfs (per RECORDING node):** `recordingId`, `vesselName`, `pointCount`, `recordingFormatVersion = 4`, mutable state (`vesselDestroyed`, `takenControl`, `spawnedPid`, `lastResIdx`), EVA linkage, ghost geometry metadata.
+**In .sfs (per RECORDING node):** `recordingId`, `vesselName`, `pointCount`, `recordingFormatVersion = 5`, mutable state (`vesselDestroyed`, `takenControl`, `spawnedPid`, `lastResIdx`), EVA linkage, ghost geometry metadata.
 
 **No inline POINT, ORBIT_SEGMENT, PART_EVENT, or snapshot nodes** - all bulk data lives in external files.
 
-### External Recording Files (v4)
+### External Recording Files (v5)
 
 ```
 saves/<save-name>/Parsek/Recordings/
@@ -731,7 +731,7 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 - [x] Part event playback (decoupled subtrees hidden, destroyed parts hidden)
 - [x] Real parachute canopy deploy on ghost (semi-deployed animation sampled from prefab)
 - [x] Event-driven shroud jettison for ghost engine parts
-- [x] External recording files (v4) - bulk data in sidecar files, lightweight .sfs
+- [x] External recording files (v5) - bulk data in sidecar files, lightweight .sfs
 - [x] Engine FX on ghost vessels (modern EFFECTS + legacy fx_* prefab fallback)
 
 **Remaining for MVP:**
@@ -852,9 +852,9 @@ The architecture naturally enables use cases like racing your own ghosts, but th
 1. **Trajectory interpolation:** Linear (`Vector3.Lerp`, `Quaternion.Lerp`) - cubic adds complexity with negligible visual improvement at typical adaptive sample rates.
 2. **Ghost vessel rendering:** Opaque replica from prefab meshes with original materials. No shader modification.
 3. **SOI transitions:** Body name (`string BodyName`) per TrajectoryFrame. Naturally handles multi-body trajectories.
-4. **Recording file size:** External sidecar files (v4) - bulk data in `.prec` and `.craft` files, lightweight metadata in `.sfs`.
+4. **Recording file size:** External sidecar files (v5) - bulk data in `.prec` and `.craft` files, lightweight metadata in `.sfs`.
 5. **Recording tree is additive:** The tree layer builds on top of existing chains. Chain fields, per-segment loop/enable control, atmospheric/SOI phase splits, per-recording resource tracking, and chain merge dialogs are all preserved. The tree adds vessel split/merge tracking, not replaces existing infrastructure.
 
 ---
 
-*Document version: 1.0 - Phase 6 complete (recording tree / multi-vessel recording)*
+*Document version: 1.1 - Parsek 0.4.0 (orbital rotation fidelity, re-entry FX, camera follow)*
