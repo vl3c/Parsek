@@ -325,7 +325,8 @@ namespace Parsek.Tests
             b.AddOrbitSegment(segStart, segEnd,
                 inc: 28.5, ecc: 0.001, sma: 700000,
                 lan: 90, argPe: 45, mna: 0, epoch: segStart,
-                body: "Kerbin");
+                body: "Kerbin",
+                ofrY: 1f);
 
             // Multi-part vessel: command pod + fuel tank + engine (Y-up positions)
             b.WithVesselSnapshot(
@@ -2359,6 +2360,7 @@ namespace Parsek.Tests
 
             var seg = node.GetNodes("ORBIT_SEGMENT")[0];
             Assert.Equal("Kerbin", seg.GetValue("body"));
+            Assert.Equal("1", seg.GetValue("ofrY"));  // retrograde rotation stored
 
             var snapshot = node.GetNode("VESSEL_SNAPSHOT");
             Assert.NotNull(snapshot);
@@ -2378,6 +2380,34 @@ namespace Parsek.Tests
             Assert.Equal("5", partEvents[0].GetValue("type"));   // EngineIgnited
             Assert.Equal("6", partEvents[1].GetValue("type"));   // EngineShutdown
             Assert.Equal("0", partEvents[2].GetValue("type"));   // Decoupled
+        }
+
+        [Fact]
+        public void Orbit1_OrbitSegment_HasAngularVelocityKeys()
+        {
+            // Build and check the orbit segment has no av keys by default
+            var node = Orbit1().Build();
+            var seg = node.GetNodes("ORBIT_SEGMENT")[0];
+            Assert.Null(seg.GetValue("avX"));  // default Orbit1 has no angular velocity
+
+            // Build a fresh one with angular velocity
+            var b2 = new RecordingBuilder("Orbit-1-Spinning");
+            double t = 17180;
+            double segStart = t + 500, segEnd = t + 3000;
+            b2.AddOrbitSegment(segStart, segEnd,
+                inc: 28.5, ecc: 0.001, sma: 700000,
+                lan: 90, argPe: 45, mna: 0, epoch: segStart,
+                body: "Kerbin",
+                avX: 0.1f);
+            var node2 = b2.Build();
+            var seg2 = node2.GetNodes("ORBIT_SEGMENT")[0];
+            Assert.NotNull(seg2.GetValue("avX"));
+            // Parse and verify
+            float avX;
+            Assert.True(float.TryParse(seg2.GetValue("avX"),
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture, out avX));
+            Assert.Equal(0.1f, avX, 0.00001f);  // tolerance
         }
 
         [Fact]
