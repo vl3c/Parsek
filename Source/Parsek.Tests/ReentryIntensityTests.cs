@@ -41,9 +41,10 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void FullThermal_SeaLevel_ReturnsOne()
+        public void FullThermal_SeaLevel_Saturated()
         {
-            // Mach 3.75 at sea level — the calibration reference, should be ≈1.0
+            // Mach 3.75 at sea level — well above calibration reference (density 0.1),
+            // should saturate to 1.0
             float speed = 3.75f * KerbinSpeedOfSound;
             float intensity = GhostVisualBuilder.ComputeReentryIntensity(
                 speed: speed, density: KerbinSeaLevelDensity, machNumber: 3.75f);
@@ -61,12 +62,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void MidRange_Mach3_SeaLevel_BetweenZeroAndOne()
+        public void MidRange_Mach3_HighAltitude_BetweenZeroAndOne()
         {
-            // Mach 3 at sea level — between start and full
+            // Mach 3 at ~20km altitude (density≈0.1) — between start and full
             float speed = 3f * KerbinSpeedOfSound;
             float intensity = GhostVisualBuilder.ComputeReentryIntensity(
-                speed: speed, density: KerbinSeaLevelDensity, machNumber: 3f);
+                speed: speed, density: 0.1f, machNumber: 3f);
             Assert.True(intensity > 0f, $"Expected intensity > 0 at Mach 3, got {intensity}");
             Assert.True(intensity < 1f, $"Expected intensity < 1 at Mach 3, got {intensity}");
         }
@@ -230,8 +231,8 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        [InlineData(1000f, 1.0f, 3.0f)]   // Mid-range Mach, sea level
-        [InlineData(1100f, 0.5f, 3.2f)]   // Mid-range Mach, mid altitude
+        [InlineData(1000f, 0.05f, 3.0f)]  // Mid-range Mach, high altitude (~25km)
+        [InlineData(1100f, 0.02f, 3.2f)]  // Mid-range Mach, upper atmosphere (~30km)
         [InlineData(900f, 0.1f, 2.6f)]    // Just above Mach threshold, moderate density
         public void MidRange_ReturnsBetweenZeroAndOne(float speed, float density, float mach)
         {
@@ -245,7 +246,8 @@ namespace Parsek.Tests
         [Fact]
         public void HigherMach_HigherIntensity_SameDensity()
         {
-            float density = 0.5f;
+            // Use low density (~30km altitude) so values don't all saturate to 1.0
+            float density = 0.02f;
             float i1 = GhostVisualBuilder.ComputeReentryIntensity(
                 speed: 2.6f * KerbinSpeedOfSound, density: density, machNumber: 2.6f);
             float i2 = GhostVisualBuilder.ComputeReentryIntensity(
