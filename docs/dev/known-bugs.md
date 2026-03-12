@@ -99,8 +99,6 @@ No format version bump — missing keys default to prograde fallback (backward c
 
 See `docs/dev/done/design-orbital-rotation.md` for full design.
 
-**Remaining open item:** `Planetarium.right` drift may cause minor orientation mismatch for very long orbital segments (interplanetary transfers). Requires empirical measurement before deciding whether to implement drift compensation (future Phase 6).
-
 **Status:** Fixed
 
 ## 17. Re-entry flame effects too large and pointing wrong direction
