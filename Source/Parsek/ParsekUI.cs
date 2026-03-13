@@ -1649,11 +1649,14 @@ namespace Parsek
         private void ApplyLoopIntervalEdit(RecordingStore.Recording rec, double dur)
         {
             double newInterval;
-            if (double.TryParse(editingLoopPeriodText, out newInterval) && newInterval > -(dur - 0.001))
+            if (double.TryParse(editingLoopPeriodText, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out newInterval)
+                && newInterval > -(dur - 0.001))
             {
                 rec.LoopIntervalSeconds = newInterval;
                 ParsekLog.Info("UI",
-                    $"Recording '{rec.VesselName}' loop interval updated to {rec.LoopIntervalSeconds:F1}s");
+                    $"Recording '{rec.VesselName}' loop interval updated to " +
+                    rec.LoopIntervalSeconds.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + "s");
             }
             else
             {
