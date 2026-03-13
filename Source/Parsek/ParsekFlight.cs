@@ -4203,24 +4203,27 @@ namespace Parsek
             if (recordingTime > recording[recording.Count - 1].ut)
             {
                 Log("Manual playback complete — reached end of recording");
-                if (previewRecording != null
-                    && previewRecording.TerminalStateValue == TerminalState.Destroyed
-                    && ghostObject != null)
+                if (previewRecording != null && ghostObject != null
+                    && ShouldTriggerExplosion(false, previewRecording.TerminalStateValue,
+                           true, previewRecording.VesselName, -1))
                 {
                     Vector3 pos = ghostObject.transform.position;
                     float len = GhostVisualBuilder.ComputeGhostLength(ghostObject);
                     ParsekLog.Info("ExplosionFx",
                         $"Manual preview explosion for \"{previewRecording.VesselName}\" " +
                         $"at ({pos.x:F1},{pos.y:F1},{pos.z:F1}) vesselLength={len:F1}m");
+                    // Hide ghost parts before explosion renders
+                    if (previewGhostState != null)
+                        HideAllGhostParts(previewGhostState);
+                    else
+                    {
+                        var t = ghostObject.transform;
+                        for (int c = 0; c < t.childCount; c++)
+                            t.GetChild(c).gameObject.SetActive(false);
+                    }
                     var explosion = GhostVisualBuilder.SpawnExplosionFx(pos, len);
                     if (explosion != null)
                         activeExplosions.Add(explosion);
-                }
-                else if (previewRecording != null)
-                {
-                    ParsekLog.Verbose("ExplosionFx",
-                        $"Manual preview ended — no explosion (terminalState={previewRecording.TerminalStateValue?.ToString() ?? "null"}" +
-                        $", ghostObject={(ghostObject != null ? "alive" : "null")})");
                 }
                 StopPlayback();
                 ScreenMessage("Preview playback complete", 2f);

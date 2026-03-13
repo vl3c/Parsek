@@ -5915,6 +5915,20 @@ namespace Parsek
         private static Texture2D cachedExplosionTexture;
 
         /// <summary>
+        /// Self-cleanup component: destroys dynamically created Materials when the
+        /// GameObject is destroyed (prevents Material leak on fire-and-forget objects).
+        /// </summary>
+        private class MaterialCleanup : MonoBehaviour
+        {
+            public Material material;
+            void OnDestroy()
+            {
+                if (material != null)
+                    Destroy(material);
+            }
+        }
+
+        /// <summary>
         /// Spawns a fire-and-forget explosion particle effect at the given world position.
         /// The returned GameObject auto-destroys after particles expire.
         /// Used when ghost playback reaches the end of a destroyed recording.
@@ -6014,12 +6028,17 @@ namespace Parsek
             mat.SetColor("_TintColor", new Color(1f, 0.7f, 0.3f, 0.5f));
             psRenderer.material = mat;
 
+            // Attach self-cleanup so the Material is destroyed when the GO is destroyed
+            var cleanup = obj.AddComponent<MaterialCleanup>();
+            cleanup.material = mat;
+
             ps.Play();
 
             // Auto-destroy after max particle lifetime + buffer
             Object.Destroy(obj, 3.5f);
 
-            ParsekLog.Log($"  ExplosionFx: spawned at ({worldPosition.x:F1},{worldPosition.y:F1},{worldPosition.z:F1}) vesselLength={vesselLength:F1}m");
+            ParsekLog.Info("ExplosionFx",
+                $"Spawned at ({worldPosition.x:F1},{worldPosition.y:F1},{worldPosition.z:F1}) vesselLength={vesselLength:F1}m");
 
             return obj;
         }
