@@ -4531,7 +4531,8 @@ namespace Parsek
                             }
                             else if (watchEndHoldUntilUT < 0)
                             {
-                                watchEndHoldUntilUT = Planetarium.GetUniversalTime() + 3.0;
+                                double holdSeconds = rec.TerminalStateValue == TerminalState.Destroyed ? 5.0 : 3.0;
+                                watchEndHoldUntilUT = Planetarium.GetUniversalTime() + holdSeconds;
                                 ParsekLog.Info("CameraFollow",
                                     $"Recording #{i} ended \u2014 holding camera at last position until UT {watchEndHoldUntilUT.ToString("F1", CultureInfo.InvariantCulture)}");
                                 TriggerExplosionIfDestroyed(state, rec, i);
