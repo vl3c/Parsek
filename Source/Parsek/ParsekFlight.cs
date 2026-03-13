@@ -4204,6 +4204,7 @@ namespace Parsek
             if (recordingTime > recording[recording.Count - 1].ut)
             {
                 Log("Manual playback complete — reached end of recording");
+                // explosionAlreadyFired=false is safe: preview is one-shot (StopPlayback called immediately after)
                 if (previewRecording != null && ghostObject != null
                     && ShouldTriggerExplosion(false, previewRecording.TerminalStateValue,
                            true, previewRecording.VesselName, -1))
@@ -5126,12 +5127,15 @@ namespace Parsek
 
         /// <summary>
         /// Checks whether the recording ended with destruction and spawns an explosion FX if so.
-        /// Returns true if an explosion was triggered, false otherwise (guard conditions not met).
         /// Pure decision logic is in ShouldTriggerExplosion; this method handles the side effects.
         /// </summary>
         void TriggerExplosionIfDestroyed(GhostPlaybackState state, RecordingStore.Recording rec, int recIdx)
         {
-            if (state == null) return;
+            if (state == null)
+            {
+                ParsekLog.Verbose("ExplosionFx", $"TriggerExplosionIfDestroyed: ghost #{recIdx} — skipped (state is null)");
+                return;
+            }
             if (!ShouldTriggerExplosion(state.explosionFired, rec.TerminalStateValue,
                     state.ghost != null, rec.VesselName, recIdx))
                 return;
@@ -5202,7 +5206,7 @@ namespace Parsek
                     hidden++;
                 }
             }
-            ParsekLog.Verbose("ExplosionFx", $"HideAllGhostParts: hidden {hidden}/{t.childCount} children");
+            ParsekLog.Verbose("GhostVisual", $"HideAllGhostParts: hidden {hidden}/{t.childCount} children");
         }
 
         void CleanupActiveExplosions()
