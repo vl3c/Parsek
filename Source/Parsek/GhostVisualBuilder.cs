@@ -5911,6 +5911,119 @@ namespace Parsek
             return Mathf.Max(length, 2f);
         }
 
+        // Cached soft-circle texture for explosion FX (avoids per-explosion allocation in looping playback)
+        private static Texture2D cachedExplosionTexture;
+
+        /// <summary>
+        /// Spawns a fire-and-forget explosion particle effect at the given world position.
+        /// The returned GameObject auto-destroys after particles expire.
+        /// Used when ghost playback reaches the end of a destroyed recording.
+        /// </summary>
+        internal static GameObject SpawnExplosionFx(Vector3 worldPosition, float vesselLength)
+        {
+            Shader particleShader = Shader.Find("KSP/Particles/Additive");
+            if (particleShader == null)
+            {
+                ParsekLog.Warn("ExplosionFx", "Shader 'KSP/Particles/Additive' not found — explosion will not be created");
+                return null;
+            }
+
+            var obj = new GameObject("GhostExplosionFx");
+            obj.transform.position = worldPosition;
+
+            var ps = obj.AddComponent<ParticleSystem>();
+
+            // Main module
+            var main = ps.main;
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(1.5f, 2.5f);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(vesselLength * 2f, vesselLength * 6f);
+            main.startSize = new ParticleSystem.MinMaxCurve(vesselLength * 0.08f, vesselLength * 0.35f);
+            main.maxParticles = 200;
+            main.playOnAwake = false;
+            main.prewarm = false;
+            main.loop = false;
+            main.gravityModifier = 0.15f;
+            main.startColor = new ParticleSystem.MinMaxGradient(
+                new Color(1f, 0.9f, 0.5f, 0.9f),
+                new Color(1f, 0.6f, 0.2f, 0.9f));
+
+            // Shape: sphere burst
+            var shape = ps.shape;
+            shape.shapeType = ParticleSystemShapeType.Sphere;
+            shape.radius = vesselLength * 0.2f;
+
+            // Emission: single burst
+            var emission = ps.emission;
+            emission.enabled = true;
+            emission.rateOverTime = 0f;
+            emission.SetBursts(new ParticleSystem.Burst[]
+            {
+                new ParticleSystem.Burst(0f, 100, 150)
+            });
+
+            // Color over lifetime: bright yellow-white → orange → red-brown → fade
+            var colorOverLifetime = ps.colorOverLifetime;
+            colorOverLifetime.enabled = true;
+            var gradient = new Gradient();
+            gradient.SetKeys(
+                new GradientColorKey[]
+                {
+                    new GradientColorKey(new Color(1f, 0.95f, 0.6f), 0f),
+                    new GradientColorKey(new Color(1f, 0.5f, 0.1f), 0.25f),
+                    new GradientColorKey(new Color(0.8f, 0.25f, 0.05f), 0.6f),
+                    new GradientColorKey(new Color(0.3f, 0.1f, 0.02f), 1f)
+                },
+                new GradientAlphaKey[]
+                {
+                    new GradientAlphaKey(0.9f, 0f),
+                    new GradientAlphaKey(0.7f, 0.25f),
+                    new GradientAlphaKey(0.2f, 0.7f),
+                    new GradientAlphaKey(0f, 1f)
+                }
+            );
+            colorOverLifetime.color = gradient;
+
+            // Size over lifetime: expanding fireball
+            var sizeOverLifetime = ps.sizeOverLifetime;
+            sizeOverLifetime.enabled = true;
+            sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(1f,
+                new AnimationCurve(
+                    new Keyframe(0f, 1f),
+                    new Keyframe(0.4f, 1.5f),
+                    new Keyframe(1f, 2.0f)));
+
+            // Noise: turbulence for organic explosion look
+            var noise = ps.noise;
+            noise.enabled = true;
+            noise.strength = vesselLength * 0.15f;
+            noise.frequency = 2.5f;
+            noise.scrollSpeed = 1.5f;
+            noise.damping = true;
+
+            // Renderer: additive shader with soft-circle texture
+            var psRenderer = obj.GetComponent<ParticleSystemRenderer>();
+            psRenderer.renderMode = ParticleSystemRenderMode.Billboard;
+            psRenderer.maxParticleSize = 10f;
+
+            if (cachedExplosionTexture == null)
+                cachedExplosionTexture = CreateSoftCircleTexture(32);
+
+            var mat = new Material(particleShader);
+            mat.mainTexture = cachedExplosionTexture;
+            mat.SetColor("_TintColor", new Color(1f, 0.7f, 0.3f, 0.5f));
+            psRenderer.material = mat;
+
+            ps.Play();
+
+            // Auto-destroy after max particle lifetime + buffer
+            Object.Destroy(obj, 3.5f);
+
+            ParsekLog.Log($"  ExplosionFx: spawned at ({worldPosition.x:F1},{worldPosition.y:F1},{worldPosition.z:F1}) vesselLength={vesselLength:F1}m");
+
+            return obj;
+        }
+
         /// <summary>
         /// Creates a soft-circle texture at runtime for additive particle rendering.
         /// White center fading to transparent edges — avoids sprite sheet issues.

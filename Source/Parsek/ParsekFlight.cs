@@ -66,6 +66,7 @@ namespace Parsek
             public Dictionary<uint, FairingGhostInfo> fairingInfos;
             public Dictionary<uint, GameObject> fakeCanopies;
             public ReentryFxInfo reentryFxInfo;
+            public bool explosionFired;
             public Transform cameraPivot; // child of ghost; centroid of active parts — camera targets this
             public Vector3 lastInterpolatedVelocity;
             public string lastInterpolatedBodyName;
@@ -102,6 +103,7 @@ namespace Parsek
 
         private Dictionary<int, GhostPlaybackState> ghostStates = new Dictionary<int, GhostPlaybackState>();
         private readonly MaterialPropertyBlock reentryShellMpb = new MaterialPropertyBlock();
+        private readonly List<GameObject> activeExplosions = new List<GameObject>();
 
         // --- Floating-origin correction ---
         // Ghosts are plain GameObjects not registered with KSP's FloatingOrigin.
@@ -4201,6 +4203,25 @@ namespace Parsek
             if (recordingTime > recording[recording.Count - 1].ut)
             {
                 Log("Manual playback complete — reached end of recording");
+                if (previewRecording != null
+                    && previewRecording.TerminalStateValue == TerminalState.Destroyed
+                    && ghostObject != null)
+                {
+                    Vector3 pos = ghostObject.transform.position;
+                    float len = GhostVisualBuilder.ComputeGhostLength(ghostObject);
+                    ParsekLog.Info("ExplosionFx",
+                        $"Manual preview explosion for \"{previewRecording.VesselName}\" " +
+                        $"at ({pos.x:F1},{pos.y:F1},{pos.z:F1}) vesselLength={len:F1}m");
+                    var explosion = GhostVisualBuilder.SpawnExplosionFx(pos, len);
+                    if (explosion != null)
+                        activeExplosions.Add(explosion);
+                }
+                else if (previewRecording != null)
+                {
+                    ParsekLog.Verbose("ExplosionFx",
+                        $"Manual preview ended — no explosion (terminalState={previewRecording.TerminalStateValue?.ToString() ?? "null"}" +
+                        $", ghostObject={(ghostObject != null ? "alive" : "null")})");
+                }
                 StopPlayback();
                 ScreenMessage("Preview playback complete", 2f);
                 return;
@@ -4508,6 +4529,7 @@ namespace Parsek
                                 watchEndHoldUntilUT = Planetarium.GetUniversalTime() + 3.0;
                                 ParsekLog.Info("CameraFollow",
                                     $"Recording #{i} ended \u2014 holding camera at last position until UT {watchEndHoldUntilUT.ToString("F1", CultureInfo.InvariantCulture)}");
+                                TriggerExplosionIfDestroyed(state, rec, i);
                                 // Keep ghost alive during hold — skip destroy
                                 if (pastEnd && rec.TreeId == null)
                                     ApplyResourceDeltas(rec, currentUT);
@@ -4530,6 +4552,7 @@ namespace Parsek
                             }
                         }
 
+                        TriggerExplosionIfDestroyed(state, rec, i);
                         Log($"Ghost EXITED range: #{i} \"{rec.VesselName}\" at UT {currentUT:F1} — no vessel to spawn");
                         DestroyTimelineGhost(i);
                     }
@@ -4670,6 +4693,7 @@ namespace Parsek
                     state.lastInterpolatedBodyName = lastPt.bodyName;
                     state.lastInterpolatedAltitude = lastPt.altitude;
                 }
+                TriggerExplosionIfDestroyed(state, rec, recIdx);
                 if (state.reentryFxInfo != null)
                 {
                     // Only zero velocity — keep body/altitude from last frame for smooth intensity decay
@@ -5085,6 +5109,104 @@ namespace Parsek
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
             warpStoppedForRecording.Clear();
+            CleanupActiveExplosions();
+        }
+
+        /// <summary>
+        /// Checks whether the recording ended with destruction and spawns an explosion FX if so.
+        /// Returns true if an explosion was triggered, false otherwise (guard conditions not met).
+        /// Pure decision logic is in ShouldTriggerExplosion; this method handles the side effects.
+        /// </summary>
+        void TriggerExplosionIfDestroyed(GhostPlaybackState state, RecordingStore.Recording rec, int recIdx)
+        {
+            if (state == null) return;
+            if (!ShouldTriggerExplosion(state.explosionFired, rec.TerminalStateValue,
+                    state.ghost != null, rec.VesselName, recIdx))
+                return;
+
+            state.explosionFired = true;
+
+            Vector3 worldPos = state.ghost.transform.position;
+            float vesselLength = state.reentryFxInfo != null
+                ? state.reentryFxInfo.vesselLength
+                : GhostVisualBuilder.ComputeGhostLength(state.ghost);
+
+            ParsekLog.Info("ExplosionFx",
+                $"Triggering explosion for ghost #{recIdx} \"{rec.VesselName}\" " +
+                $"at ({worldPos.x:F1},{worldPos.y:F1},{worldPos.z:F1}) vesselLength={vesselLength:F1}m");
+
+            var explosion = GhostVisualBuilder.SpawnExplosionFx(worldPos, vesselLength);
+            if (explosion != null)
+            {
+                activeExplosions.Add(explosion);
+                ParsekLog.Verbose("ExplosionFx",
+                    $"Explosion GO created for ghost #{recIdx}, activeExplosions.Count={activeExplosions.Count}");
+            }
+
+            // Hide all ghost parts so the explosion plays over empty space
+            HideAllGhostParts(state);
+            ParsekLog.Verbose("ExplosionFx", $"Ghost #{recIdx} parts hidden after explosion");
+        }
+
+        /// <summary>
+        /// Pure decision logic: should we trigger an explosion for this ghost/recording pair?
+        /// Extracted for testability and logging of guard condition skips.
+        /// Parameters are primitives so this can be called from tests without GhostPlaybackState.
+        /// </summary>
+        internal static bool ShouldTriggerExplosion(bool explosionAlreadyFired, TerminalState? terminalState,
+            bool ghostExists, string vesselName, int recIdx)
+        {
+            if (explosionAlreadyFired)
+            {
+                ParsekLog.Verbose("ExplosionFx", $"ShouldTriggerExplosion: ghost #{recIdx} — skipped (already fired)");
+                return false;
+            }
+            if (terminalState != TerminalState.Destroyed)
+            {
+                ParsekLog.Verbose("ExplosionFx",
+                    $"ShouldTriggerExplosion: ghost #{recIdx} — skipped (terminalState={terminalState?.ToString() ?? "null"}, not Destroyed)");
+                return false;
+            }
+            if (!ghostExists)
+            {
+                ParsekLog.Verbose("ExplosionFx", $"ShouldTriggerExplosion: ghost #{recIdx} — skipped (ghost GO is null)");
+                return false;
+            }
+            ParsekLog.Verbose("ExplosionFx", $"ShouldTriggerExplosion: ghost #{recIdx} \"{vesselName}\" — will fire");
+            return true;
+        }
+
+        static void HideAllGhostParts(GhostPlaybackState state)
+        {
+            if (state.ghost == null) return;
+            var t = state.ghost.transform;
+            int hidden = 0;
+            for (int c = 0; c < t.childCount; c++)
+            {
+                var child = t.GetChild(c).gameObject;
+                if (child.activeSelf)
+                {
+                    child.SetActive(false);
+                    hidden++;
+                }
+            }
+            ParsekLog.Verbose("ExplosionFx", $"HideAllGhostParts: hidden {hidden}/{t.childCount} children");
+        }
+
+        void CleanupActiveExplosions()
+        {
+            if (activeExplosions.Count == 0) return;
+            int destroyed = 0;
+            for (int i = activeExplosions.Count - 1; i >= 0; i--)
+            {
+                if (activeExplosions[i] != null)
+                {
+                    Destroy(activeExplosions[i]);
+                    destroyed++;
+                }
+            }
+            ParsekLog.Verbose("ExplosionFx", $"CleanupActiveExplosions: destroyed {destroyed}/{activeExplosions.Count} explosion GOs");
+            activeExplosions.Clear();
         }
 
         public bool CanDeleteRecording =>
