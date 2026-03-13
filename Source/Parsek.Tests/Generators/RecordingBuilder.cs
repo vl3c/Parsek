@@ -29,6 +29,7 @@ namespace Parsek.Tests.Generators
         private double rewindReservedFunds;
         private double rewindReservedScience;
         private float rewindReservedRep;
+        private int? terminalState;
 
         // Default rotation for points that don't specify one explicitly
         private float defaultRotX, defaultRotY, defaultRotZ;
@@ -258,6 +259,12 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
+        public RecordingBuilder WithTerminalState(int terminalState)
+        {
+            this.terminalState = terminalState;
+            return this;
+        }
+
         /// <summary>
         /// Returns the recording ID (auto-generates one if not set).
         /// </summary>
@@ -336,6 +343,9 @@ namespace Parsek.Tests.Generators
                 node.AddValue("rewindResRep", rewindReservedRep.ToString("R", ic2));
             }
 
+            if (terminalState.HasValue)
+                node.AddValue("terminalState", terminalState.Value.ToString(CultureInfo.InvariantCulture));
+
             return node;
         }
 
@@ -410,6 +420,9 @@ namespace Parsek.Tests.Generators
                 node.AddValue("rewindResSci", rewindReservedScience.ToString("R", ic2));
                 node.AddValue("rewindResRep", rewindReservedRep.ToString("R", ic2));
             }
+
+            if (terminalState.HasValue)
+                node.AddValue("terminalState", terminalState.Value.ToString(CultureInfo.InvariantCulture));
 
             return node;
         }
