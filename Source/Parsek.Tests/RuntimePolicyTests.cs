@@ -200,5 +200,156 @@ namespace Parsek.Tests
                 landedLike, terrainAltitude, terrainValid, snapshotAltitude, hasSnapshotAltitude);
             Assert.Equal(expected, actual);
         }
+
+        // --- GetActiveCycles tests ---
+
+        [Fact]
+        public void GetActiveCycles_PositiveInterval_SingleCycleAlways()
+        {
+            // 20s recording, 10s interval, cycleDuration=30
+            // At t=115 (elapsed=15 into cycle 0 of range starting at 100)
+            ParsekFlight.GetActiveCycles(
+                currentUT: 115, startUT: 100, endUT: 120,
+                intervalSeconds: 10, maxCycles: 5,
+                out int first, out int last);
+            Assert.Equal(0, first);
+            Assert.Equal(0, last);
+        }
+
+        [Fact]
+        public void GetActiveCycles_PositiveInterval_SecondCycle()
+        {
+            // 20s recording, 10s interval, cycleDuration=30
+            // At t=135 (elapsed=35): cycle 1, phase=5
+            ParsekFlight.GetActiveCycles(
+                currentUT: 135, startUT: 100, endUT: 120,
+                intervalSeconds: 10, maxCycles: 5,
+                out int first, out int last);
+            Assert.Equal(1, first);
+            Assert.Equal(1, last);
+        }
+
+        [Fact]
+        public void GetActiveCycles_ZeroInterval_SingleCycleAlways()
+        {
+            // 20s recording, 0s interval, cycleDuration=20
+            // At t=110 (elapsed=10): cycle 0, phase=10
+            ParsekFlight.GetActiveCycles(
+                currentUT: 110, startUT: 100, endUT: 120,
+                intervalSeconds: 0, maxCycles: 5,
+                out int first, out int last);
+            Assert.Equal(0, first);
+            Assert.Equal(0, last);
+        }
+
+        [Fact]
+        public void GetActiveCycles_ZeroInterval_ThirdCycle()
+        {
+            // 20s recording, 0s interval, cycleDuration=20
+            // At t=145 (elapsed=45): cycle 2, phase=5
+            ParsekFlight.GetActiveCycles(
+                currentUT: 145, startUT: 100, endUT: 120,
+                intervalSeconds: 0, maxCycles: 5,
+                out int first, out int last);
+            Assert.Equal(2, first);
+            Assert.Equal(2, last);
+        }
+
+        [Fact]
+        public void GetActiveCycles_NegativeInterval_OverlapWindow()
+        {
+            // 60s recording, -20s interval, cycleDuration=40
+            // At t=150 (elapsed=50): lastCycle=floor(50/40)=1
+            // elapsedMinusDuration=50-60=-10 → firstCycle=0
+            // Cycle 0 started at 100, plays from 100..160 → phase at t=150 is 50 (still playing)
+            // Cycle 1 started at 140, plays from 100..160 → phase at t=150 is 10 (playing)
+            ParsekFlight.GetActiveCycles(
+                currentUT: 150, startUT: 100, endUT: 160,
+                intervalSeconds: -20, maxCycles: 5,
+                out int first, out int last);
+            Assert.Equal(0, first);
+            Assert.Equal(1, last);
+        }
+
+        [Fact]
+        public void GetActiveCycles_NegativeInterval_ThreeOverlapping()
+        {
+            // 60s recording, -40s interval, cycleDuration=20
+            // At t=145 (elapsed=45): lastCycle=floor(45/20)=2
+            // elapsedMinusDuration=45-60=-15 → firstCycle=0
+            // So cycles 0, 1, 2 are all active
+            ParsekFlight.GetActiveCycles(
+                currentUT: 145, startUT: 100, endUT: 160,
+                intervalSeconds: -40, maxCycles: 5,
+                out int first, out int last);
+            Assert.Equal(0, first);
+            Assert.Equal(2, last);
+        }
+
+        [Fact]
+        public void GetActiveCycles_NegativeInterval_MaxCyclesCap()
+        {
+            // 60s recording, -40s interval, cycleDuration=20
+            // maxCycles=2, so even if 3 are active, cap to 2
+            ParsekFlight.GetActiveCycles(
+                currentUT: 145, startUT: 100, endUT: 160,
+                intervalSeconds: -40, maxCycles: 2,
+                out int first, out int last);
+            Assert.Equal(1, first);  // capped: last(2) - maxCycles(2) + 1 = 1
+            Assert.Equal(2, last);
+        }
+
+        [Fact]
+        public void GetActiveCycles_BeforeStart_ReturnsZero()
+        {
+            ParsekFlight.GetActiveCycles(
+                currentUT: 50, startUT: 100, endUT: 160,
+                intervalSeconds: -20, maxCycles: 5,
+                out int first, out int last);
+            Assert.Equal(0, first);
+            Assert.Equal(0, last);
+        }
+
+        [Fact]
+        public void GetActiveCycles_VeryLargePositiveInterval()
+        {
+            // 20s recording, 1000s interval, cycleDuration=1020
+            // At t=1130 (elapsed=1030): cycle 1, phase=10 (in playback)
+            ParsekFlight.GetActiveCycles(
+                currentUT: 1130, startUT: 100, endUT: 120,
+                intervalSeconds: 1000, maxCycles: 5,
+                out int first, out int last);
+            Assert.Equal(1, first);
+            Assert.Equal(1, last);
+        }
+
+        [Fact]
+        public void GetActiveCycles_NearMinCycleDuration()
+        {
+            // 10s recording, interval = -9.999 → cycleDuration = 0.001
+            ParsekFlight.GetActiveCycles(
+                currentUT: 100.005, startUT: 100, endUT: 110,
+                intervalSeconds: -9.999, maxCycles: 5,
+                out int first, out int last);
+            // With cycleDuration=0.001, elapsed=0.005 → lastCycle=5
+            // But maxCycles=5 caps to first=1
+            Assert.True(last >= first);
+            Assert.True(last - first + 1 <= 5);
+        }
+
+        [Fact]
+        public void TryComputeLoopPlaybackUT_NegativeInterval_ReturnsPlaybackPhase()
+        {
+            // 20s recording, -5s interval, cycleDuration=15
+            // At t=118 (elapsed=18): cycle 1, phase=3
+            bool ok = ParsekFlight.TryComputeLoopPlaybackUT(
+                currentUT: 118, startUT: 100, endUT: 120,
+                intervalSeconds: -5,
+                out double loopUT, out int cycleIndex);
+
+            Assert.True(ok);
+            Assert.Equal(1, cycleIndex);
+            Assert.Equal(103.0, loopUT, 6);
+        }
     }
 }
