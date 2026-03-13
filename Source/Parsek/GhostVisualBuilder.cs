@@ -5953,7 +5953,7 @@ namespace Parsek
             main.startLifetime = new ParticleSystem.MinMaxCurve(1.5f, 2.5f);
             main.startSpeed = new ParticleSystem.MinMaxCurve(vesselLength * 2f, vesselLength * 6f);
             main.startSize = new ParticleSystem.MinMaxCurve(vesselLength * 0.08f, vesselLength * 0.35f);
-            main.maxParticles = 200;
+            main.maxParticles = 400;
             main.playOnAwake = false;
             main.prewarm = false;
             main.loop = false;
@@ -5973,7 +5973,7 @@ namespace Parsek
             emission.rateOverTime = 0f;
             emission.SetBursts(new ParticleSystem.Burst[]
             {
-                new ParticleSystem.Burst(0f, 100, 150)
+                new ParticleSystem.Burst(0f, 200, 300)
             });
 
             // Color over lifetime: bright yellow-white → orange → red-brown → fade
