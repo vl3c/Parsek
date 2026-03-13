@@ -1206,28 +1206,17 @@ namespace Parsek
                 }
             }
 
-            // Delete button (X → ? confirm → delete, right-click ? to cancel)
+            // Delete button (X → ? → PopupDialog confirm → delete)
             GUI.enabled = InFlight ? flight.CanDeleteRecording : true;
             if (deleteConfirmIndex == ri)
             {
                 if (GUILayout.Button("?", GUILayout.Width(ColW_Delete)))
                 {
                     deleteConfirmIndex = -1;
-                    if (editingLoopPeriodIdx == ri)
-                        editingLoopPeriodIdx = -1;
-                    else if (editingLoopPeriodIdx > ri)
-                        editingLoopPeriodIdx--;
-                    ParsekLog.Info("UI", $"Delete confirmed for recording index={ri} name='{rec.VesselName}'");
-                    if (InFlight)
-                        flight.DeleteRecording(ri);
-                    else
-                        RecordingStore.DeleteRecordingFull(ri);
-                    InvalidateSort();
-                    GUI.enabled = true;
-                    GUILayout.EndHorizontal();
-                    return true; // list changed
+                    ParsekLog.Verbose("UI", $"Delete confirm clicked for recording index={ri} name='{rec.VesselName}'");
+                    ShowDeleteRecordingConfirmation(ri, rec.VesselName);
                 }
-                // Right-click cancels the delete confirmation
+                // Right-click cancels
                 if (Event.current.type == EventType.MouseDown && Event.current.button == 1 &&
                     GUILayoutUtility.GetLastRect().Contains(Event.current.mousePosition))
                 {
@@ -1256,6 +1245,39 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        private void ShowDeleteRecordingConfirmation(int index, string vesselName)
+        {
+            int capturedIndex = index;
+            string capturedName = vesselName;
+            PopupDialog.SpawnPopupDialog(
+                new Vector2(0.5f, 0.5f),
+                new Vector2(0.5f, 0.5f),
+                new MultiOptionDialog(
+                    "ParsekDeleteRecordingConfirm",
+                    $"Delete recording \"{capturedName}\" and its files?\n\nThis cannot be undone.",
+                    "Confirm Delete Recording",
+                    HighLogic.UISkin,
+                    new DialogGUIButton("Delete", () =>
+                    {
+                        ParsekLog.Info("UI", $"Delete confirmed for recording index={capturedIndex} name='{capturedName}'");
+                        if (editingLoopPeriodIdx == capturedIndex)
+                            editingLoopPeriodIdx = -1;
+                        else if (editingLoopPeriodIdx > capturedIndex)
+                            editingLoopPeriodIdx--;
+                        if (InFlight)
+                            flight.DeleteRecording(capturedIndex);
+                        else
+                            RecordingStore.DeleteRecordingFull(capturedIndex);
+                        InvalidateSort();
+                    }),
+                    new DialogGUIButton("Cancel", () =>
+                    {
+                        ParsekLog.Verbose("UI", $"Delete cancelled for recording '{capturedName}'");
+                    })
+                ),
+                false, HighLogic.UISkin);
         }
 
         private void ShowRewindConfirmation(RecordingStore.Recording rec)
