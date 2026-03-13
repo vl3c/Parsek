@@ -16,7 +16,7 @@ namespace Parsek
         private ToolbarControl toolbarControl;
         private ParsekUI ui;
         private bool showUI;
-        private Rect windowRect = new Rect(20, 100, 250, 250);
+        private Rect windowRect = new Rect(20, 100, 200, 10);
 
         void Start()
         {
@@ -44,7 +44,7 @@ namespace Parsek
 
             windowRect = ClickThruBlocker.GUILayoutWindow(
                 GetInstanceID(), windowRect, ui.DrawWindow,
-                "Parsek");
+                "Parsek", GUILayout.Width(250));
 
             ui.DrawRecordingsWindowIfOpen(windowRect);
             ui.DrawActionsWindowIfOpen(windowRect);
