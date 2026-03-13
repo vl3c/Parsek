@@ -822,7 +822,9 @@ namespace Parsek
                     ParsekLog.Info("UI", $"Set loop playback for all recordings: enabled={newAllLoop}");
                 }
 
-                GUILayout.Label("Period", GUILayout.Width(ColW_Period));
+                GUILayout.Label(new GUIContent("Every",
+                    "Loop interval (seconds):\n  Positive: wait N seconds after end\n  Zero: restart immediately\n  Negative: overlap by N seconds"),
+                    GUILayout.Width(ColW_Period));
 
                 GUILayout.Label("Watch", GUILayout.Width(ColW_Watch));
                 GUILayout.Label("Rewind", GUILayout.Width(ColW_Rewind));
@@ -1536,6 +1538,15 @@ namespace Parsek
                 content, tooltipLabelStyle);
         }
 
+        private static readonly GUIContent intervalTooltip = new GUIContent("",
+            "Loop interval (seconds):\n  Positive: wait N seconds after end\n  Zero: restart immediately\n  Negative: overlap by N seconds");
+
+        private string FormatInterval(double interval)
+        {
+            string sign = interval < 0 ? "-" : "";
+            return sign + FormatDuration(System.Math.Abs(interval));
+        }
+
         private void DrawLoopPeriodCell(RecordingStore.Recording rec, int ri, double dur)
         {
             if (!rec.LoopPlayback)
@@ -1556,14 +1567,14 @@ namespace Parsek
                     Event.current.keyCode == KeyCode.Return &&
                     GUI.GetNameOfFocusedControl() == "PeriodEdit")
                 {
-                    ApplyLoopPeriodEdit(rec, dur);
+                    ApplyLoopIntervalEdit(rec, dur);
                     editingLoopPeriodIdx = -1;
                 }
             }
             else
             {
-                double period = dur + rec.LoopIntervalSeconds;
-                if (GUILayout.Button(FormatDuration(period), GUILayout.Width(ColW_Period)))
+                var content = new GUIContent(FormatInterval(rec.LoopIntervalSeconds), intervalTooltip.tooltip);
+                if (GUILayout.Button(content, GUILayout.Width(ColW_Period)))
                 {
                     // Save any in-progress edit on another recording
                     if (editingLoopPeriodIdx >= 0)
@@ -1573,31 +1584,29 @@ namespace Parsek
                         {
                             var editRec = committed[editingLoopPeriodIdx];
                             double editDur = editRec.EndUT - editRec.StartUT;
-                            ApplyLoopPeriodEdit(editRec, editDur);
+                            ApplyLoopIntervalEdit(editRec, editDur);
                         }
                     }
 
                     editingLoopPeriodIdx = ri;
-                    editingLoopPeriodText = ((int)(dur + rec.LoopIntervalSeconds)).ToString();
+                    editingLoopPeriodText = ((int)rec.LoopIntervalSeconds).ToString();
                 }
             }
         }
 
-        private void ApplyLoopPeriodEdit(RecordingStore.Recording rec, double dur)
+        private void ApplyLoopIntervalEdit(RecordingStore.Recording rec, double dur)
         {
-            double newPeriod;
-            if (double.TryParse(editingLoopPeriodText, out newPeriod) && newPeriod > 0)
+            double newInterval;
+            if (double.TryParse(editingLoopPeriodText, out newInterval) && newInterval > -(dur - 0.001))
             {
-                double pause = newPeriod - dur;
-                if (pause < 0) pause = 0;
-                rec.LoopIntervalSeconds = pause;
+                rec.LoopIntervalSeconds = newInterval;
                 ParsekLog.Info("UI",
-                    $"Recording '{rec.VesselName}' loop period updated to {(dur + rec.LoopIntervalSeconds):F1}s (pause={pause:F1}s)");
+                    $"Recording '{rec.VesselName}' loop interval updated to {rec.LoopIntervalSeconds:F1}s");
             }
             else
             {
                 ParsekLog.Warn("UI",
-                    $"Rejected loop period edit '{editingLoopPeriodText}' for recording '{rec.VesselName}'");
+                    $"Rejected loop interval edit '{editingLoopPeriodText}' for recording '{rec.VesselName}'");
             }
         }
 
