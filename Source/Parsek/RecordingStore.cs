@@ -679,6 +679,24 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Deletes a recording from the committed list, cleans up sidecar files, and
+        /// unreserves crew. Use when there are no active ghosts (e.g. KSC scene).
+        /// In flight scene, use ParsekFlight.DeleteRecording instead (handles ghost cleanup).
+        /// </summary>
+        public static void DeleteRecordingFull(int index)
+        {
+            if (index < 0 || index >= committedRecordings.Count)
+            {
+                ParsekLog.Warn("RecordingStore", $"DeleteRecordingFull: invalid index={index} (count={committedRecordings.Count})");
+                return;
+            }
+            var rec = committedRecordings[index];
+            ParsekLog.Info("RecordingStore", $"DeleteRecordingFull: deleting '{rec.VesselName}' at index {index}");
+            ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
+            RemoveRecordingAt(index);
+        }
+
+        /// <summary>
         /// Returns true if any branch-0 enabled segment in the chain has LoopPlayback set.
         /// </summary>
         internal static bool IsChainLooping(string chainId)

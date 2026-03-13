@@ -10,6 +10,10 @@ namespace Parsek
     /// </summary>
     public class ParsekUI
     {
+        public enum UIMode { Flight, KSC }
+        private readonly UIMode mode;
+        private bool InFlight => mode == UIMode.Flight;
+
         private readonly ParsekFlight flight;
 
         // Map view markers
@@ -111,6 +115,13 @@ namespace Parsek
         public ParsekUI(ParsekFlight flight)
         {
             this.flight = flight;
+            this.mode = UIMode.Flight;
+        }
+
+        public ParsekUI(UIMode mode)
+        {
+            this.flight = null;
+            this.mode = mode;
         }
 
         private const float SpacingSmall = 3f;
@@ -120,16 +131,9 @@ namespace Parsek
         {
             GUILayout.BeginVertical();
 
-            // --- Status ---
-            GUILayout.Label("Status", GUI.skin.box);
-            GUILayout.Label($"State: {GetStatusText()}");
-            GUILayout.Label($"Recorded Points: {flight.recording.Count}");
-            if (flight.recording.Count > 0)
-            {
-                double duration = flight.recording[flight.recording.Count - 1].ut - flight.recording[0].ut;
-                GUILayout.Label($"Duration: {duration:F1}s");
-            }
-            GUILayout.Label($"Active Ghosts: {flight.TimelineGhostCount}");
+            if (InFlight)
+                DrawFlightStatus();
+
             DrawCompactBudgetLine();
 
             // --- Timeline buttons ---
@@ -151,7 +155,38 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Actions window toggled: {(showActionsWindow ? "open" : "closed")}");
             }
 
-            // --- Recording controls ---
+            if (InFlight)
+                DrawFlightRecordingControls();
+
+            // --- Settings button ---
+            GUILayout.Space(SpacingLarge);
+            if (GUILayout.Button("Settings"))
+            {
+                showSettingsWindow = !showSettingsWindow;
+                ParsekLog.Verbose("UI", $"Settings window toggled: {(showSettingsWindow ? "open" : "closed")}");
+            }
+
+            GUILayout.EndVertical();
+
+            // Make window draggable
+            GUI.DragWindow();
+        }
+
+        private void DrawFlightStatus()
+        {
+            GUILayout.Label("Status", GUI.skin.box);
+            GUILayout.Label($"State: {GetStatusText()}");
+            GUILayout.Label($"Recorded Points: {flight.recording.Count}");
+            if (flight.recording.Count > 0)
+            {
+                double duration = flight.recording[flight.recording.Count - 1].ut - flight.recording[0].ut;
+                GUILayout.Label($"Duration: {duration:F1}s");
+            }
+            GUILayout.Label($"Active Ghosts: {flight.TimelineGhostCount}");
+        }
+
+        private void DrawFlightRecordingControls()
+        {
             GUILayout.Space(SpacingLarge);
 
             if (!flight.IsRecording)
@@ -214,19 +249,6 @@ namespace Parsek
                     flight.CommitFlight();
             }
             GUI.enabled = true;
-
-            // --- Settings button ---
-            GUILayout.Space(SpacingLarge);
-            if (GUILayout.Button("Settings"))
-            {
-                showSettingsWindow = !showSettingsWindow;
-                ParsekLog.Verbose("UI", $"Settings window toggled: {(showSettingsWindow ? "open" : "closed")}");
-            }
-
-            GUILayout.EndVertical();
-
-            // Make window draggable
-            GUI.DragWindow();
         }
 
         /// <summary>
@@ -826,8 +848,11 @@ namespace Parsek
                     "Loop interval (seconds):\n  Positive: wait N seconds after end\n  Zero: restart immediately\n  Negative: overlap by N seconds"),
                     GUILayout.Width(ColW_Period));
 
-                GUILayout.Label("Watch", GUILayout.Width(ColW_Watch));
-                GUILayout.Label("Rewind", GUILayout.Width(ColW_Rewind));
+                if (InFlight)
+                {
+                    GUILayout.Label("Watch", GUILayout.Width(ColW_Watch));
+                    GUILayout.Label("Rewind", GUILayout.Width(ColW_Rewind));
+                }
                 GUILayout.Label("Delete", GUILayout.Width(ColW_Delete));
                 GUILayout.Space(ScrollbarWidth);
                 GUILayout.EndHorizontal();
@@ -1139,7 +1164,8 @@ namespace Parsek
             // Period
             DrawLoopPeriodCell(rec, ri, dur);
 
-            // Watch button
+            // Watch button (flight only)
+            if (InFlight)
             {
                 bool hasGhost = flight.HasActiveGhost(ri);
                 bool sameBody = flight.IsGhostOnSameBody(ri);
@@ -1160,7 +1186,8 @@ namespace Parsek
                 GUI.enabled = true;
             }
 
-            // Rewind button
+            // Rewind button (flight only)
+            if (InFlight)
             {
                 bool hasRewindSave = !string.IsNullOrEmpty(rec.RewindSaveFileName);
                 if (hasRewindSave)
@@ -1180,7 +1207,7 @@ namespace Parsek
             }
 
             // Delete button (X → ? confirm → delete, right-click ? to cancel)
-            GUI.enabled = flight.CanDeleteRecording;
+            GUI.enabled = InFlight ? flight.CanDeleteRecording : true;
             if (deleteConfirmIndex == ri)
             {
                 if (GUILayout.Button("?", GUILayout.Width(ColW_Delete)))
@@ -1191,7 +1218,10 @@ namespace Parsek
                     else if (editingLoopPeriodIdx > ri)
                         editingLoopPeriodIdx--;
                     ParsekLog.Info("UI", $"Delete confirmed for recording index={ri} name='{rec.VesselName}'");
-                    flight.DeleteRecording(ri);
+                    if (InFlight)
+                        flight.DeleteRecording(ri);
+                    else
+                        RecordingStore.DeleteRecordingFull(ri);
                     InvalidateSort();
                     GUI.enabled = true;
                     GUILayout.EndHorizontal();
@@ -1302,7 +1332,7 @@ namespace Parsek
                         foreach (var rec in RecordingStore.CommittedRecordings)
                             ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
                         ParsekScenario.ClearReplacements();
-                        flight.DestroyAllTimelineGhosts();
+                        if (InFlight) flight.DestroyAllTimelineGhosts();
                         RecordingStore.ClearCommitted();
                         GameStateStore.ClearScienceSubjects();
                         ParsekLog.Info("UI", "All recordings wiped");
@@ -1789,14 +1819,17 @@ namespace Parsek
                 ShowWipeActionsConfirmation(milestoneCount);
             GUI.enabled = true;
 
-            int activeGhosts = flight.TimelineGhostCount;
-            GUI.enabled = activeGhosts > 0;
-            if (GUILayout.Button($"Despawn Ghosts ({activeGhosts})"))
+            if (InFlight)
             {
-                flight.DestroyAllTimelineGhosts();
-                ParsekLog.Info("UI", "Ghosts despawned from settings");
+                int activeGhosts = flight.TimelineGhostCount;
+                GUI.enabled = activeGhosts > 0;
+                if (GUILayout.Button($"Despawn Ghosts ({activeGhosts})"))
+                {
+                    flight.DestroyAllTimelineGhosts();
+                    ParsekLog.Info("UI", "Ghosts despawned from settings");
+                }
+                GUI.enabled = true;
             }
-            GUI.enabled = true;
 
             GUILayout.Space(SpacingLarge);
             GUILayout.BeginHorizontal();
