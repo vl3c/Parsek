@@ -287,6 +287,7 @@ namespace Parsek.Tests
             b.AddPoint(t + 12, lat, lon + 0.0012, 65, funds: 43429);
 
             // No snapshot intentionally to force destroyed/no-snapshot fallback path.
+            b.WithTerminalState((int)TerminalState.Destroyed);
             return b;
         }
 

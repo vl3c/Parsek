@@ -343,10 +343,16 @@ namespace Parsek
                 // save preserves these, preventing duplicate spawns and ghost replays.
                 // NOTE: This loop only covers standalone recordings (not tree recordings).
                 // Tree recordings get their mutable state from RECORDING_TREE nodes below.
-                // Use a separate counter (standaloneIdx) for savedRecNodes because tree
-                // recordings are interspersed in the in-memory list but absent from the
-                // saved RECORDING nodes.
-                int standaloneIdx = 0;
+                // Match by recordingId (not positional index) — the saved RECORDING nodes
+                // may be from a stale quicksave with a different number/order of recordings
+                // than the current in-memory list (e.g. after clear-all + re-record).
+                var savedRecById = new Dictionary<string, ConfigNode>(savedRecNodes.Length);
+                for (int s = 0; s < savedRecNodes.Length; s++)
+                {
+                    string sid = savedRecNodes[s].GetValue("recordingId");
+                    if (!string.IsNullOrEmpty(sid))
+                        savedRecById[sid] = savedRecNodes[s];
+                }
                 for (int i = 0; i < recordings.Count; i++)
                 {
                     // Skip tree recordings — their mutable state is restored from tree nodes
@@ -358,21 +364,22 @@ namespace Parsek
                     uint savedPid = 0;
                     bool savedTaken = false;
                     int resIdx = -1;
-                    if (standaloneIdx < savedRecNodes.Length)
+                    ConfigNode savedNode;
+                    if (recordings[i].RecordingId != null && savedRecById.TryGetValue(recordings[i].RecordingId, out savedNode))
                     {
-                        string pidStr = savedRecNodes[standaloneIdx].GetValue("spawnedPid");
+                        string pidStr = savedNode.GetValue("spawnedPid");
                         if (pidStr != null && !uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out savedPid))
                             ParsekLog.Warn("Scenario", $"Failed to parse spawnedPid '{pidStr}' for recording #{i}");
 
-                        string takenStr = savedRecNodes[standaloneIdx].GetValue("takenControl");
+                        string takenStr = savedNode.GetValue("takenControl");
                         if (takenStr != null && !bool.TryParse(takenStr, out savedTaken))
                             ParsekLog.Warn("Scenario", $"Failed to parse takenControl '{takenStr}' for recording #{i}");
 
-                        string resIdxStr = savedRecNodes[standaloneIdx].GetValue("lastResIdx");
+                        string resIdxStr = savedNode.GetValue("lastResIdx");
                         if (resIdxStr != null && !int.TryParse(resIdxStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out resIdx))
                             ParsekLog.Warn("Scenario", $"Failed to parse lastResIdx '{resIdxStr}' for recording #{i}");
 
-                        string playbackEnabledStr = savedRecNodes[standaloneIdx].GetValue("playbackEnabled");
+                        string playbackEnabledStr = savedNode.GetValue("playbackEnabled");
                         if (playbackEnabledStr != null)
                         {
                             bool savedPlaybackEnabled;
@@ -382,10 +389,15 @@ namespace Parsek
                                 ParsekLog.Warn("Scenario", $"Failed to parse playbackEnabled '{playbackEnabledStr}' for recording #{i}");
                         }
                     }
+                    else
+                    {
+                        ParsekLog.Verbose("Scenario",
+                            $"No saved mutable state for recording #{i} \"{recordings[i].VesselName}\" " +
+                            $"(id={recordings[i].RecordingId ?? "null"}) — using defaults");
+                    }
                     recordings[i].SpawnedVesselPersistentId = savedPid;
                     recordings[i].TakenControl = savedTaken;
                     recordings[i].LastAppliedResourceIndex = resIdx;
-                    standaloneIdx++;
                 }
 
                 // Restore tree recording mutable state from RECORDING_TREE nodes.
