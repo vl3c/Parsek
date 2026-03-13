@@ -1967,6 +1967,13 @@ namespace Parsek
                         pending.EvaCrewName = activeChainCrewName;
                     }
 
+                    // Set terminal state for destroyed vessels
+                    if (captured.VesselDestroyed)
+                    {
+                        pending.TerminalStateValue = TerminalState.Destroyed;
+                        ParsekLog.Verbose("Flight", "FallbackCommitSplitRecorder: set TerminalState=Destroyed");
+                    }
+
                     // Tag segment phase if untagged
                     if (string.IsNullOrEmpty(pending.SegmentPhase))
                     {
