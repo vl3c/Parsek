@@ -66,6 +66,7 @@ namespace Parsek
             public Dictionary<uint, FairingGhostInfo> fairingInfos;
             public Dictionary<uint, GameObject> fakeCanopies;
             public ReentryFxInfo reentryFxInfo;
+            public MaterialPropertyBlock reentryMpb; // per-ghost to avoid shared-state bugs with overlapping ghosts
             public Transform cameraPivot; // child of ghost; centroid of active parts — camera targets this
             public Vector3 lastInterpolatedVelocity;
             public string lastInterpolatedBodyName;
@@ -101,7 +102,10 @@ namespace Parsek
         }
 
         private Dictionary<int, GhostPlaybackState> ghostStates = new Dictionary<int, GhostPlaybackState>();
-        private readonly MaterialPropertyBlock reentryShellMpb = new MaterialPropertyBlock();
+
+        // Older cycle ghosts still alive due to negative interval overlap
+        private Dictionary<int, List<GhostPlaybackState>> overlapGhosts = new Dictionary<int, List<GhostPlaybackState>>();
+        private const int MaxOverlapGhostsPerRecording = 5;
 
         // --- Floating-origin correction ---
         // Ghosts are plain GameObjects not registered with KSP's FloatingOrigin.
@@ -4619,6 +4623,17 @@ namespace Parsek
             GhostPlaybackState state,
             bool ghostActive)
         {
+            double intervalSeconds = GetLoopIntervalSeconds(rec);
+            double duration = rec.EndUT - rec.StartUT;
+
+            // For negative intervals: use multi-cycle overlap path
+            if (intervalSeconds < 0)
+            {
+                UpdateOverlapLoopPlayback(recIdx, rec, currentUT, state, ghostActive, intervalSeconds, duration);
+                return;
+            }
+
+            // --- Positive/zero interval: single ghost path (no overlap) ---
             double loopUT;
             int cycleIndex;
             bool inPauseWindow;
@@ -4645,7 +4660,7 @@ namespace Parsek
                 state = ghostStates[recIdx];
                 state.loopCycleIndex = cycleIndex;
                 if (loggedGhostEnter.Add(recIdx))
-                    Log($"Ghost ENTERED range: #{recIdx} \"{rec.VesselName}\" at UT {currentUT:F1} (loop)");
+                    Log($"Ghost ENTERED range: #{recIdx} \"{rec.VesselName}\" at UT {currentUT:F1} (loop cycle={cycleIndex})");
 
                 // Ghost was rebuilt for new loop cycle — re-target camera
                 if (watchedRecordingIndex == recIdx && state.ghost != null)
@@ -4693,6 +4708,143 @@ namespace Parsek
 
             ApplyPartEvents(recIdx, rec, loopUT, state);
             UpdateReentryFx(recIdx, state, rec.VesselName);
+        }
+
+        /// <summary>
+        /// Multi-cycle overlap path for negative intervals. Multiple ghosts from
+        /// different cycles may be visible simultaneously.
+        /// </summary>
+        private void UpdateOverlapLoopPlayback(
+            int recIdx,
+            RecordingStore.Recording rec,
+            double currentUT,
+            GhostPlaybackState primaryState,
+            bool primaryActive,
+            double intervalSeconds,
+            double duration)
+        {
+            if (currentUT < rec.StartUT)
+            {
+                if (primaryActive) DestroyTimelineGhost(recIdx);
+                DestroyAllOverlapGhosts(recIdx);
+                return;
+            }
+
+            double cycleDuration = duration + intervalSeconds;
+            if (cycleDuration < MinCycleDuration) cycleDuration = MinCycleDuration;
+
+            int firstCycle, lastCycle;
+            GetActiveCycles(currentUT, rec.StartUT, rec.EndUT, intervalSeconds,
+                MaxOverlapGhostsPerRecording, out firstCycle, out lastCycle);
+
+            // Ensure overlap list exists
+            List<GhostPlaybackState> overlaps;
+            if (!overlapGhosts.TryGetValue(recIdx, out overlaps))
+            {
+                overlaps = new List<GhostPlaybackState>();
+                overlapGhosts[recIdx] = overlaps;
+            }
+
+            bool srfRel = rec.RecordingFormatVersion >= 5;
+
+            // Primary ghost always represents the newest (lastCycle)
+            // Check if primary needs to be rebuilt for a new cycle
+            bool primaryCycleChanged = !primaryActive || primaryState == null
+                || primaryState.loopCycleIndex != lastCycle;
+
+            if (primaryCycleChanged)
+            {
+                // Move old primary to overlap list if still alive
+                if (primaryActive && primaryState != null && primaryState.ghost != null)
+                {
+                    // Detach from ghostStates (don't destroy) — move to overlap
+                    ghostStates.Remove(recIdx);
+                    overlaps.Add(primaryState);
+                    ParsekLog.Verbose("Flight",
+                        $"Ghost #{recIdx} cycle={primaryState.loopCycleIndex} moved to overlap list");
+                }
+                else if (primaryActive)
+                {
+                    DestroyTimelineGhost(recIdx);
+                }
+
+                // Spawn new primary for lastCycle
+                SpawnTimelineGhost(recIdx, rec);
+                primaryState = ghostStates[recIdx];
+                primaryState.loopCycleIndex = lastCycle;
+                ParsekLog.Info("Flight",
+                    $"Ghost ENTERED range: #{recIdx} \"{rec.VesselName}\" cycle={lastCycle} at UT {currentUT:F1} (overlap)");
+
+                // Re-target camera
+                if (watchedRecordingIndex == recIdx && primaryState.ghost != null)
+                {
+                    var target = primaryState.cameraPivot ?? primaryState.ghost.transform;
+                    FlightCamera.fetch.SetTargetTransform(target);
+                    ParsekLog.Info("CameraFollow",
+                        $"Overlap cycle re-target: ghost #{recIdx} cycle={lastCycle}");
+                }
+            }
+
+            // Update primary ghost position
+            if (primaryState != null && primaryState.ghost != null)
+            {
+                double cycleStartUT = rec.StartUT + lastCycle * cycleDuration;
+                double phase = currentUT - cycleStartUT;
+                if (phase < 0) phase = 0;
+                if (phase > duration) phase = duration;
+                double loopUT = rec.StartUT + phase;
+
+                int playbackIdx = primaryState.playbackIndex;
+                InterpolationResult interpResult;
+                InterpolateAndPosition(primaryState.ghost, rec.Points, rec.OrbitSegments,
+                    ref playbackIdx, loopUT, recIdx * 10000, out interpResult,
+                    surfaceRelativeRotation: srfRel);
+                primaryState.SetInterpolated(interpResult);
+                primaryState.playbackIndex = playbackIdx;
+
+                ApplyPartEvents(recIdx, rec, loopUT, primaryState);
+                UpdateReentryFx(recIdx, primaryState, rec.VesselName);
+            }
+
+            // Update overlap ghosts (older cycles)
+            for (int i = overlaps.Count - 1; i >= 0; i--)
+            {
+                var ovState = overlaps[i];
+                if (ovState == null || ovState.ghost == null)
+                {
+                    overlaps.RemoveAt(i);
+                    continue;
+                }
+
+                int cycle = ovState.loopCycleIndex;
+
+                // Check if this cycle has expired (phase > duration)
+                double cycleStart = rec.StartUT + cycle * cycleDuration;
+                double phase = currentUT - cycleStart;
+                if (phase > duration || cycle < firstCycle)
+                {
+                    ParsekLog.Info("Flight",
+                        $"Ghost EXITED range: #{recIdx} \"{rec.VesselName}\" cycle={cycle} (overlap expired)");
+                    DestroyOverlapGhostState(ovState);
+                    overlaps.RemoveAt(i);
+                    continue;
+                }
+
+                if (phase < 0) phase = 0;
+                if (phase > duration) phase = duration;
+                double loopUT = rec.StartUT + phase;
+
+                int playbackIdx = ovState.playbackIndex;
+                InterpolationResult interpResult;
+                InterpolateAndPosition(ovState.ghost, rec.Points, rec.OrbitSegments,
+                    ref playbackIdx, loopUT, recIdx * 10000 + (cycle + 1) * 100, out interpResult,
+                    surfaceRelativeRotation: srfRel);
+                ovState.SetInterpolated(interpResult);
+                ovState.playbackIndex = playbackIdx;
+
+                ApplyPartEvents(recIdx, rec, loopUT, ovState);
+                UpdateReentryFx(recIdx, ovState, rec.VesselName);
+            }
         }
 
         /// <summary>
@@ -5029,6 +5181,7 @@ namespace Parsek
                 state.heatInfos,
                 index,
                 rec.VesselName);
+            state.reentryMpb = new MaterialPropertyBlock();
 
             ghostStates[index] = state;
         }
@@ -5083,11 +5236,65 @@ namespace Parsek
             {
                 DestroyTimelineGhost(key);
             }
+
+            // Destroy all overlap ghosts
+            foreach (var kvp in overlapGhosts)
+            {
+                for (int i = 0; i < kvp.Value.Count; i++)
+                    DestroyOverlapGhostState(kvp.Value[i]);
+            }
+            overlapGhosts.Clear();
+
             orbitCache.Clear();
             loggedGhostEnter.Clear();
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
             warpStoppedForRecording.Clear();
+        }
+
+        /// <summary>
+        /// Destroys a single overlap ghost's resources (materials, FX, GameObject).
+        /// Does NOT remove from any collection — caller handles that.
+        /// </summary>
+        private void DestroyOverlapGhostState(GhostPlaybackState state)
+        {
+            if (state == null) return;
+
+            if (state.materials != null)
+            {
+                for (int i = 0; i < state.materials.Count; i++)
+                    if (state.materials[i] != null)
+                        Destroy(state.materials[i]);
+            }
+
+            if (state.engineInfos != null)
+                foreach (var info in state.engineInfos.Values)
+                    for (int i = 0; i < info.particleSystems.Count; i++)
+                        if (info.particleSystems[i] != null)
+                            Destroy(info.particleSystems[i].gameObject);
+
+            if (state.rcsInfos != null)
+                foreach (var info in state.rcsInfos.Values)
+                    for (int i = 0; i < info.particleSystems.Count; i++)
+                        if (info.particleSystems[i] != null)
+                            Destroy(info.particleSystems[i].gameObject);
+
+            DestroyReentryFxResources(state.reentryFxInfo);
+            if (state.ghost != null) Destroy(state.ghost);
+            DestroyAllFakeCanopies(state);
+        }
+
+        /// <summary>
+        /// Destroys all overlap ghosts for a single recording index.
+        /// </summary>
+        private void DestroyAllOverlapGhosts(int recIdx)
+        {
+            List<GhostPlaybackState> list;
+            if (!overlapGhosts.TryGetValue(recIdx, out list)) return;
+
+            for (int i = 0; i < list.Count; i++)
+                DestroyOverlapGhostState(list[i]);
+            list.Clear();
         }
 
         public bool CanDeleteRecording =>
@@ -5116,7 +5323,8 @@ namespace Parsek
             // Unreserve crew
             ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
 
-            // Destroy ghost if active
+            // Destroy ghost if active (primary + overlap)
+            DestroyAllOverlapGhosts(index);
             DestroyTimelineGhost(index);
 
             // Remove from store (handles chain degradation + file deletion)
@@ -5155,6 +5363,18 @@ namespace Parsek
                 else if (kvp.Key > index)
                     ghostStates[kvp.Key - 1] = kvp.Value;
                 // kvp.Key == index was already removed by DestroyTimelineGhost
+            }
+
+            // Reindex overlap ghosts the same way
+            var oldOverlap = new Dictionary<int, List<GhostPlaybackState>>(overlapGhosts);
+            overlapGhosts.Clear();
+            foreach (var kvp in oldOverlap)
+            {
+                if (kvp.Key < index)
+                    overlapGhosts[kvp.Key] = kvp.Value;
+                else if (kvp.Key > index)
+                    overlapGhosts[kvp.Key - 1] = kvp.Value;
+                // kvp.Key == index was already destroyed by DestroyAllOverlapGhosts
             }
 
             // Clear orbit cache — keys are index-derived (i * 10000 + segIdx),
@@ -5990,12 +6210,13 @@ namespace Parsek
             if (smoothedIntensity < 0.001f && rawIntensity == 0f)
                 smoothedIntensity = 0f;
 
-            DriveReentryLayers(info, smoothedIntensity, surfaceVel, recIdx, bodyName, altitude, machNumber, vesselName);
+            DriveReentryLayers(info, smoothedIntensity, surfaceVel, recIdx, bodyName, altitude, machNumber, vesselName, state);
             info.lastIntensity = smoothedIntensity;
         }
 
         private void DriveReentryLayers(ReentryFxInfo info, float intensity, Vector3 surfaceVel,
-            int recIdx, string bodyName, double altitude, float machNumber, string vesselName)
+            int recIdx, string bodyName, double altitude, float machNumber, string vesselName,
+            GhostPlaybackState state = null)
         {
             bool wasActive = info.lastIntensity > 0f;
             bool isActive = intensity > 0f;
@@ -6093,7 +6314,8 @@ namespace Parsek
                     float alpha = baseTint * (1f - t * 0.7f); // closer passes are brighter
                     Color tint = GhostVisualBuilder.ReentryFireShellColor * alpha;
 
-                    reentryShellMpb.SetColor("_TintColor", tint);
+                    var mpb = state.reentryMpb ?? new MaterialPropertyBlock();
+                    mpb.SetColor("_TintColor", tint);
 
                     for (int m = 0; m < info.fireShellMeshes.Count; m++)
                     {
@@ -6103,7 +6325,7 @@ namespace Parsek
                         if (!fsm.transform.gameObject.activeInHierarchy) continue;
 
                         Matrix4x4 matrix = Matrix4x4.Translate(offset) * fsm.transform.localToWorldMatrix;
-                        Graphics.DrawMesh(fsm.mesh, matrix, info.fireShellMaterial, 0, null, 0, reentryShellMpb);
+                        Graphics.DrawMesh(fsm.mesh, matrix, info.fireShellMaterial, 0, null, 0, mpb);
                     }
                 }
             }
