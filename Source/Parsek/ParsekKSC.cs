@@ -54,6 +54,7 @@ namespace Parsek
         void OnDestroy()
         {
             ParsekLog.Info("KSC", "ParsekKSC destroyed");
+            ui?.Cleanup();
             if (toolbarControl != null)
             {
                 toolbarControl.OnDestroy();

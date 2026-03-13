@@ -5410,6 +5410,8 @@ namespace Parsek
         private void DestroyOverlapGhostState(GhostPlaybackState state)
         {
             if (state == null) return;
+            ParsekLog.Verbose("Flight",
+                $"Destroying overlap ghost cycle={state.loopCycleIndex}");
 
             if (state.materials != null)
             {
@@ -5442,6 +5444,9 @@ namespace Parsek
         {
             List<GhostPlaybackState> list;
             if (!overlapGhosts.TryGetValue(recIdx, out list)) return;
+            if (list.Count > 0)
+                ParsekLog.Verbose("Flight",
+                    $"Destroying all {list.Count} overlap ghost(s) for recording #{recIdx}");
 
             for (int i = 0; i < list.Count; i++)
                 DestroyOverlapGhostState(list[i]);
