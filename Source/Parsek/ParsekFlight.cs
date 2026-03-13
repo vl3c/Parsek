@@ -6423,6 +6423,49 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// Computes the range of active loop cycles at a given time.
+        /// For positive/zero intervals, firstActiveCycle == lastActiveCycle (no overlap).
+        /// For negative intervals, multiple cycles may be active simultaneously.
+        /// </summary>
+        internal static void GetActiveCycles(
+            double currentUT, double startUT, double endUT,
+            double intervalSeconds, int maxCycles,
+            out int firstActiveCycle, out int lastActiveCycle)
+        {
+            firstActiveCycle = 0;
+            lastActiveCycle = 0;
+
+            double duration = endUT - startUT;
+            if (duration <= 0 || currentUT < startUT)
+                return;
+
+            double cycleDuration = duration + intervalSeconds;
+            if (cycleDuration < MinCycleDuration)
+                cycleDuration = MinCycleDuration;
+
+            double elapsed = currentUT - startUT;
+            lastActiveCycle = (int)Math.Floor(elapsed / cycleDuration);
+            if (lastActiveCycle < 0) lastActiveCycle = 0;
+
+            // First cycle whose playback hasn't finished yet
+            double elapsedMinusDuration = elapsed - duration;
+            if (elapsedMinusDuration < 0)
+            {
+                firstActiveCycle = 0;
+            }
+            else
+            {
+                firstActiveCycle = (int)Math.Floor(elapsedMinusDuration / cycleDuration) + 1;
+                if (firstActiveCycle < 0) firstActiveCycle = 0;
+            }
+
+            // Cap by maxCycles
+            if (firstActiveCycle < lastActiveCycle - maxCycles + 1)
+                firstActiveCycle = lastActiveCycle - maxCycles + 1;
+            if (firstActiveCycle < 0) firstActiveCycle = 0;
+        }
+
         internal static bool IsAnyWarpActive(int currentRateIndex, float currentRate)
         {
             return currentRateIndex > 0 || currentRate > 1f;
