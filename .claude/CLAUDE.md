@@ -56,6 +56,27 @@ pwsh -File scripts/validate-ksp-log.ps1            # structured log validation
 
 Alt+F12 opens Unity debug console in-game.
 
+## Logging Requirements
+
+Every action, state transition, guard condition skip, and FX lifecycle event MUST be logged. The KSP.log is our primary debugging tool — if it didn't get logged, it didn't happen.
+
+- Use `ParsekLog.Log` / `ParsekLog.Info` / `ParsekLog.Warn` for important events
+- Use `ParsekLog.Verbose` for high-frequency or detailed diagnostic info
+- Use `ParsekLog.VerboseRateLimited` for per-frame data (avoids log spam)
+- Include subsystem tag, relevant IDs (recording index, vessel name, part PID), and numeric values
+- Log format: `[Parsek][LEVEL][Subsystem] message` (handled by ParsekLog.Write)
+- See existing patterns in `ParsekFlight.cs` (ghost lifecycle) and `GhostVisualBuilder.cs` (FX build chain) for reference
+
+## Testing Requirements
+
+- Every new method with logic (guards, state transitions, decisions) needs unit tests
+- Pure/static methods should be `internal static` for direct testability
+- Use `ParsekLog.TestSinkForTesting` to capture log output and assert on it — log assertions verify that code paths executed and logged the expected data
+- Test pattern: `ParsekLog.TestSinkForTesting = line => logLines.Add(line)` in constructor, `ParsekLog.ResetTestOverrides()` in Dispose
+- Assert with: `Assert.Contains(logLines, l => l.Contains("[Subsystem]") && l.Contains("expected text"))`
+- Use `[Collection("Sequential")]` on test classes that touch shared static state (ParsekLog, RecordingStore, etc.)
+- See `RewindLoggingTests.cs` for the canonical log-capture test pattern
+
 ## Post-Change Checklist
 
 After any change to enums, event types, serialized fields, or schema:
