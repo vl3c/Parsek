@@ -67,6 +67,7 @@ namespace Parsek
             public Dictionary<uint, GameObject> fakeCanopies;
             public ReentryFxInfo reentryFxInfo;
             public bool explosionFired;
+            public bool pauseHidden;
             public Transform cameraPivot; // child of ghost; centroid of active parts — camera targets this
             public Vector3 lastInterpolatedVelocity;
             public string lastInterpolatedBodyName;
@@ -4696,7 +4697,15 @@ namespace Parsek
                     state.lastInterpolatedBodyName = lastPt.bodyName;
                     state.lastInterpolatedAltitude = lastPt.altitude;
                 }
+                // Destroyed recordings get an explosion; all recordings hide during pause
                 TriggerExplosionIfDestroyed(state, rec, recIdx);
+                if (!state.pauseHidden)
+                {
+                    state.pauseHidden = true;
+                    HideAllGhostParts(state);
+                    ParsekLog.Verbose("Flight",
+                        $"Ghost #{recIdx} \"{rec.VesselName}\" hidden during loop pause window");
+                }
                 if (state.reentryFxInfo != null)
                 {
                     // Only zero velocity — keep body/altitude from last frame for smooth intensity decay
