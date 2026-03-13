@@ -262,8 +262,9 @@ namespace Parsek
         // Warp-stop guard: only stop time warp once per recording
         private HashSet<int> warpStoppedForRecording = new HashSet<int>();
         private bool timelineResourceReplayPausedLogged = false;
-        private const double DefaultLoopPauseSeconds = 10.0;
+        private const double DefaultLoopIntervalSeconds = 0.0;
         private const double MinLoopDurationSeconds = 0.001;
+        private const double MinCycleDuration = 0.001;
 
         // Camera follow (watch mode) — transient, never serialized
         private const string WatchModeLockId = "ParsekWatch";
@@ -4564,12 +4565,14 @@ namespace Parsek
             return rec.EndUT - rec.StartUT > MinLoopDurationSeconds;
         }
 
-        private double GetLoopPauseSeconds(RecordingStore.Recording rec)
+        private double GetLoopIntervalSeconds(RecordingStore.Recording rec)
         {
-            if (rec == null) return DefaultLoopPauseSeconds;
-            if (double.IsNaN(rec.LoopPauseSeconds) || double.IsInfinity(rec.LoopPauseSeconds))
-                return DefaultLoopPauseSeconds;
-            return Math.Max(0.0, rec.LoopPauseSeconds);
+            if (rec == null) return DefaultLoopIntervalSeconds;
+            if (double.IsNaN(rec.LoopIntervalSeconds) || double.IsInfinity(rec.LoopIntervalSeconds))
+                return DefaultLoopIntervalSeconds;
+            double duration = rec.EndUT - rec.StartUT;
+            // Clamp so cycleDuration is always >= MinCycleDuration
+            return Math.Max(-duration + MinCycleDuration, rec.LoopIntervalSeconds);
         }
 
         private bool TryComputeLoopPlaybackUT(
@@ -4588,8 +4591,8 @@ namespace Parsek
             double duration = rec.EndUT - rec.StartUT;
             if (duration <= MinLoopDurationSeconds) return false;
 
-            double pauseSeconds = GetLoopPauseSeconds(rec);
-            double cycleDuration = duration + pauseSeconds;
+            double intervalSeconds = GetLoopIntervalSeconds(rec);
+            double cycleDuration = duration + intervalSeconds;
             if (cycleDuration <= MinLoopDurationSeconds)
                 cycleDuration = duration;
 
@@ -4598,7 +4601,7 @@ namespace Parsek
             if (cycleIndex < 0) cycleIndex = 0;
 
             double cycleTime = elapsed - (cycleIndex * cycleDuration);
-            if (pauseSeconds > 0 && cycleTime > duration)
+            if (intervalSeconds > 0 && cycleTime > duration)
             {
                 inPauseWindow = true;
                 loopUT = rec.EndUT;
@@ -6387,27 +6390,31 @@ namespace Parsek
         }
 
         internal static bool TryComputeLoopPlaybackUT(
-            double currentUT, double startUT, double endUT, double pauseSeconds,
+            double currentUT, double startUT, double endUT, double intervalSeconds,
             out double loopUT, out int cycleIndex)
         {
             loopUT = startUT;
             cycleIndex = 0;
 
             double duration = endUT - startUT;
-            if (duration <= 0 || pauseSeconds < 0 || currentUT < startUT)
+            if (duration <= 0 || currentUT < startUT)
                 return false;
 
-            double cycleDuration = duration + pauseSeconds;
-            if (cycleDuration <= 0)
-                return false;
+            double cycleDuration = duration + intervalSeconds;
+            if (cycleDuration <= MinCycleDuration)
+                cycleDuration = MinCycleDuration;
 
             double elapsed = currentUT - startUT;
             cycleIndex = (int)Math.Floor(elapsed / cycleDuration);
             double phase = elapsed - (cycleIndex * cycleDuration);
 
-            const double epsilon = 1e-6;
-            if (phase > duration + epsilon)
-                return false;
+            // For positive intervals: phase > duration means we're in the pause window
+            if (intervalSeconds >= 0)
+            {
+                const double epsilon = 1e-6;
+                if (phase > duration + epsilon)
+                    return false;
+            }
 
             if (phase < 0) phase = 0;
             if (phase > duration) phase = duration;

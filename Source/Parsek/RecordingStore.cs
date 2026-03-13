@@ -72,7 +72,7 @@ namespace Parsek
             public List<OrbitSegment> OrbitSegments = new List<OrbitSegment>();
             public List<PartEvent> PartEvents = new List<PartEvent>();
             public bool LoopPlayback;
-            public double LoopPauseSeconds = 10.0;
+            public double LoopIntervalSeconds = 0.0;
 
             // UI grouping tag (e.g. "Synthetic", "Part Showcase")
             public string RecordingGroup;
@@ -198,7 +198,7 @@ namespace Parsek
                 ChainIndex = source.ChainIndex;
                 ChainBranch = source.ChainBranch;
                 LoopPlayback = source.LoopPlayback;
-                LoopPauseSeconds = source.LoopPauseSeconds;
+                LoopIntervalSeconds = source.LoopIntervalSeconds;
                 PreLaunchFunds = source.PreLaunchFunds;
                 PreLaunchScience = source.PreLaunchScience;
                 PreLaunchReputation = source.PreLaunchReputation;
