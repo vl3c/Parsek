@@ -282,6 +282,7 @@ namespace Parsek
             ControlTypes.CAMERAMODES;
         int watchedRecordingIndex = -1;       // -1 = not watching
         string watchedRecordingId = null;     // stable across index shifts
+        int watchedOverlapCycleIndex = -1;    // which overlap cycle the camera is following (-1 = primary)
         Vessel savedCameraVessel = null;
         float savedCameraDistance = 0f;
         float savedCameraPitch = 0f;
@@ -4326,6 +4327,7 @@ namespace Parsek
                 // Disabled segments: destroy ghost if active, still apply resource deltas
                 if (!rec.PlaybackEnabled)
                 {
+                    DestroyAllOverlapGhosts(i);
                     if (ghostActive)
                     {
                         DestroyTimelineGhost(i);
@@ -4342,6 +4344,9 @@ namespace Parsek
                     UpdateLoopingTimelinePlayback(i, rec, currentUT, state, ghostActive);
                     continue;
                 }
+
+                // Loop was disabled — clean up any leftover overlap ghosts
+                DestroyAllOverlapGhosts(i);
 
                 bool isMidChain = RecordingStore.IsChainMidSegment(rec);
                 double chainEndUT = isMidChain ? RecordingStore.GetChainEndUT(rec) : rec.EndUT;
@@ -4685,7 +4690,10 @@ namespace Parsek
             bool cycleChanged = !ghostActive || state == null || state.loopCycleIndex != cycleIndex;
             if (cycleChanged && ghostActive)
             {
-                // Fire explosion at end of cycle before destroying (works even with zero pause)
+                // Position at final point so explosion appears at crash site, not mid-air
+                if (rec.Points.Count > 0)
+                    PositionGhostAt(state.ghost, rec.Points[rec.Points.Count - 1],
+                        rec.RecordingFormatVersion >= 5);
                 TriggerExplosionIfDestroyed(state, rec, recIdx);
                 ResetReentryFx(state, recIdx);
                 DestroyTimelineGhost(recIdx);
@@ -4823,13 +4831,15 @@ namespace Parsek
                 ParsekLog.Info("Flight",
                     $"Ghost ENTERED range: #{recIdx} \"{rec.VesselName}\" cycle={lastCycle} at UT {currentUT:F1} (overlap)");
 
-                // Re-target camera
-                if (watchedRecordingIndex == recIdx && primaryState.ghost != null)
+                // Re-target camera only if not currently following an overlap ghost
+                if (watchedRecordingIndex == recIdx && watchedOverlapCycleIndex < 0
+                    && primaryState.ghost != null)
                 {
                     var target = primaryState.cameraPivot ?? primaryState.ghost.transform;
                     FlightCamera.fetch.SetTargetTransform(target);
+                    watchedOverlapCycleIndex = lastCycle;
                     ParsekLog.Info("CameraFollow",
-                        $"Overlap cycle re-target: ghost #{recIdx} cycle={lastCycle}");
+                        $"Overlap: camera now following ghost #{recIdx} cycle={lastCycle}");
                 }
             }
 
@@ -4869,8 +4879,24 @@ namespace Parsek
                 // Check if this cycle has expired (phase > duration)
                 double cycleStart = rec.StartUT + cycle * cycleDuration;
                 double phase = currentUT - cycleStart;
-                if (phase > duration || cycle < firstCycle)
+                if (phase > duration)
                 {
+                    // Position at final point so explosion appears at crash site
+                    if (rec.Points.Count > 0)
+                        PositionGhostAt(ovState.ghost, rec.Points[rec.Points.Count - 1], srfRel);
+                    TriggerExplosionIfDestroyed(ovState, rec, recIdx);
+
+                    // If camera was following this cycle, re-target to current primary
+                    if (watchedRecordingIndex == recIdx && watchedOverlapCycleIndex == cycle
+                        && primaryState != null && primaryState.ghost != null)
+                    {
+                        var target = primaryState.cameraPivot ?? primaryState.ghost.transform;
+                        FlightCamera.fetch.SetTargetTransform(target);
+                        watchedOverlapCycleIndex = primaryState.loopCycleIndex;
+                        ParsekLog.Info("CameraFollow",
+                            $"Overlap: watched cycle={cycle} expired, re-targeting to cycle={primaryState.loopCycleIndex}");
+                    }
+
                     ParsekLog.Info("Flight",
                         $"Ghost EXITED range: #{recIdx} \"{rec.VesselName}\" cycle={cycle} (overlap expired)");
                     DestroyOverlapGhostState(ovState);
@@ -6720,9 +6746,38 @@ namespace Parsek
         {
             if (watchedRecordingIndex < 0) return;
 
-            GhostPlaybackState state;
-            if (!ghostStates.TryGetValue(watchedRecordingIndex, out state) ||
-                state == null || state.cameraPivot == null)
+            // Find the ghost we're actually following — may be an overlap ghost, not the primary
+            GhostPlaybackState state = null;
+            if (watchedOverlapCycleIndex >= 0)
+            {
+                // Look for the watched cycle in the overlap list
+                List<GhostPlaybackState> overlaps;
+                if (overlapGhosts.TryGetValue(watchedRecordingIndex, out overlaps))
+                {
+                    for (int i = 0; i < overlaps.Count; i++)
+                    {
+                        if (overlaps[i] != null && overlaps[i].loopCycleIndex == watchedOverlapCycleIndex)
+                        {
+                            state = overlaps[i];
+                            break;
+                        }
+                    }
+                }
+                // Also check if the primary IS the watched cycle
+                if (state == null)
+                {
+                    GhostPlaybackState primary;
+                    if (ghostStates.TryGetValue(watchedRecordingIndex, out primary)
+                        && primary != null && primary.loopCycleIndex == watchedOverlapCycleIndex)
+                        state = primary;
+                }
+            }
+            else
+            {
+                ghostStates.TryGetValue(watchedRecordingIndex, out state);
+            }
+
+            if (state == null || state.cameraPivot == null)
                 return;
 
             // Keep sharpness zeroed — KSP resets it on various events
@@ -6995,6 +7050,7 @@ namespace Parsek
             var watchTarget = gs.cameraPivot ?? gs.ghost.transform;
             FlightCamera.fetch.SetTargetTransform(watchTarget);
             FlightCamera.fetch.SetDistance(50f);  // override [75,400] entry clamp
+            watchedOverlapCycleIndex = gs.loopCycleIndex; // track which cycle we're following
             ParsekLog.Info("CameraFollow",
                 $"EnterWatchMode: ghost #{index} \"{committed[index].VesselName}\"" +
                 $" target='{watchTarget.name}' pivotLocal=({watchTarget.localPosition.x:F2},{watchTarget.localPosition.y:F2},{watchTarget.localPosition.z:F2})" +
@@ -7058,6 +7114,7 @@ namespace Parsek
 
             watchedRecordingIndex = -1;
             watchedRecordingId = null;
+            watchedOverlapCycleIndex = -1;
             savedCameraVessel = null;
             savedCameraDistance = 0f;
             savedCameraPitch = 0f;
