@@ -270,7 +270,7 @@ namespace Parsek
         // Warp-stop guard: only stop time warp once per recording
         private HashSet<int> warpStoppedForRecording = new HashSet<int>();
         private bool timelineResourceReplayPausedLogged = false;
-        private const double DefaultLoopIntervalSeconds = 0.0;
+        private const double DefaultLoopIntervalSeconds = 10.0;
         private const double MinLoopDurationSeconds = 0.001;
         private const double MinCycleDuration = 0.001;
 
@@ -4685,6 +4685,8 @@ namespace Parsek
             bool cycleChanged = !ghostActive || state == null || state.loopCycleIndex != cycleIndex;
             if (cycleChanged && ghostActive)
             {
+                // Fire explosion at end of cycle before destroying (works even with zero pause)
+                TriggerExplosionIfDestroyed(state, rec, recIdx);
                 ResetReentryFx(state, recIdx);
                 DestroyTimelineGhost(recIdx);
                 ghostActive = false;

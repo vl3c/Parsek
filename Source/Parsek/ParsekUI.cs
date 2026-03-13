@@ -62,7 +62,7 @@ namespace Parsek
         private const float ColW_Launch = 110f;
         private const float ColW_Dur = 55f;
         private const float ColW_Status = 45f;
-        private const float ColW_Loop = 45f;
+        private const float ColW_Loop = 55f;
         private const float ColW_Watch = 50f;
         private const float ColW_Rewind = 55f;
         private const float ColW_Delete = 50f;
@@ -360,12 +360,9 @@ namespace Parsek
 
             if (parts.Count > 0)
             {
-                string line = "Reserved: " + string.Join("  ", parts);
-                if (GUILayout.Button(line, GUI.skin.label))
-                {
-                    showActionsWindow = !showActionsWindow;
-                    ParsekLog.Verbose("UI", $"Budget line clicked — Actions window toggled: {(showActionsWindow ? "open" : "closed")}");
-                }
+                GUILayout.Label("Reserved:");
+                for (int i = 0; i < parts.Count; i++)
+                    GUILayout.Label("  \u2022 " + parts[i]);
             }
         }
 
@@ -702,10 +699,11 @@ namespace Parsek
             // Position to the right of main window on first open
             if (recordingsWindowRect.width < 1f)
             {
+                float recHeight = InFlight ? mainWindowRect.height : mainWindowRect.height * 2;
                 recordingsWindowRect = new Rect(
                     mainWindowRect.x + mainWindowRect.width + 10,
                     mainWindowRect.y,
-                    790, mainWindowRect.height);
+                    790, recHeight);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI", $"Recordings window initial position: x={recordingsWindowRect.x.ToString("F0", ic)} y={recordingsWindowRect.y.ToString("F0", ic)}");
             }
@@ -849,10 +847,8 @@ namespace Parsek
                     GUILayout.Width(ColW_Period));
 
                 if (InFlight)
-                {
                     GUILayout.Label("Watch", GUILayout.Width(ColW_Watch));
-                    GUILayout.Label("Rewind", GUILayout.Width(ColW_Rewind));
-                }
+                GUILayout.Label("Rewind", GUILayout.Width(ColW_Rewind));
                 GUILayout.Label("Delete", GUILayout.Width(ColW_Delete));
                 GUILayout.Space(ScrollbarWidth);
                 GUILayout.EndHorizontal();
@@ -1186,14 +1182,14 @@ namespace Parsek
                 GUI.enabled = true;
             }
 
-            // Rewind button (flight only)
-            if (InFlight)
+            // Rewind button
             {
                 bool hasRewindSave = !string.IsNullOrEmpty(rec.RewindSaveFileName);
                 if (hasRewindSave)
                 {
                     string rewindReason;
-                    bool canRewind = RecordingStore.CanRewind(rec, out rewindReason, isRecording: flight.IsRecording);
+                    bool isRecording = InFlight && flight.IsRecording;
+                    bool canRewind = RecordingStore.CanRewind(rec, out rewindReason, isRecording: isRecording);
                     GUI.enabled = canRewind;
                     string tooltip = canRewind ? "Rewind to this launch" : rewindReason;
                     if (GUILayout.Button(new GUIContent("R", tooltip), GUILayout.Width(ColW_Rewind)))

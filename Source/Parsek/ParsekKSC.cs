@@ -44,7 +44,7 @@ namespace Parsek
 
             windowRect = ClickThruBlocker.GUILayoutWindow(
                 GetInstanceID(), windowRect, ui.DrawWindow,
-                "Parsek", GUILayout.Width(250));
+                "Parsek");
 
             ui.DrawRecordingsWindowIfOpen(windowRect);
             ui.DrawActionsWindowIfOpen(windowRect);
