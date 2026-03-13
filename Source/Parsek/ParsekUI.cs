@@ -842,9 +842,12 @@ namespace Parsek
                     ParsekLog.Info("UI", $"Set loop playback for all recordings: enabled={newAllLoop}");
                 }
 
+                GUILayout.BeginHorizontal(GUILayout.Width(ColW_Period));
+                GUILayout.FlexibleSpace();
                 GUILayout.Label(new GUIContent("Every",
-                    "Loop interval (seconds):\n  Positive: wait N seconds after end\n  Zero: restart immediately\n  Negative: overlap by N seconds"),
-                    GUILayout.Width(ColW_Period));
+                    "Loop interval (seconds):\n  Positive: wait N seconds after end\n  Zero: restart immediately\n  Negative: overlap by N seconds"));
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
 
                 if (InFlight)
                     GUILayout.Label("Watch", GUILayout.Width(ColW_Watch));
