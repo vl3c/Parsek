@@ -5951,7 +5951,7 @@ namespace Parsek
             var main = ps.main;
             main.simulationSpace = ParticleSystemSimulationSpace.World;
             main.startLifetime = new ParticleSystem.MinMaxCurve(1.5f, 2.5f);
-            main.startSpeed = new ParticleSystem.MinMaxCurve(vesselLength * 2f, vesselLength * 6f);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(vesselLength * 1f, vesselLength * 3f);
             main.startSize = new ParticleSystem.MinMaxCurve(vesselLength * 0.08f, vesselLength * 0.35f);
             main.maxParticles = 400;
             main.playOnAwake = false;
@@ -6032,10 +6032,95 @@ namespace Parsek
             var cleanup = obj.AddComponent<MaterialCleanup>();
             cleanup.material = mat;
 
+            // --- Smoke child particle system ---
+            Shader alphaShader = Shader.Find("KSP/Particles/Alpha Blended");
+            if (alphaShader != null)
+            {
+                var smokeObj = new GameObject("Smoke");
+                smokeObj.transform.SetParent(obj.transform, false);
+
+                var smokePs = smokeObj.AddComponent<ParticleSystem>();
+                var smokeMain = smokePs.main;
+                smokeMain.simulationSpace = ParticleSystemSimulationSpace.World;
+                smokeMain.startLifetime = new ParticleSystem.MinMaxCurve(2.0f, 3.5f);
+                smokeMain.startSpeed = new ParticleSystem.MinMaxCurve(vesselLength * 0.25f, vesselLength * 1f);
+                smokeMain.startSize = new ParticleSystem.MinMaxCurve(vesselLength * 0.3f, vesselLength * 0.8f);
+                smokeMain.maxParticles = 400;
+                smokeMain.playOnAwake = false;
+                smokeMain.loop = false;
+                smokeMain.gravityModifier = 0.03f;
+                smokeMain.startColor = new ParticleSystem.MinMaxGradient(
+                    new Color(0.3f, 0.3f, 0.3f, 0.6f),
+                    new Color(0.15f, 0.12f, 0.1f, 0.5f));
+
+                var smokeShape = smokePs.shape;
+                smokeShape.shapeType = ParticleSystemShapeType.Sphere;
+                smokeShape.radius = vesselLength * 0.3f;
+
+                var smokeEmission = smokePs.emission;
+                smokeEmission.enabled = true;
+                smokeEmission.rateOverTime = 0f;
+                smokeEmission.SetBursts(new ParticleSystem.Burst[]
+                {
+                    new ParticleSystem.Burst(0.1f, 160, 240)
+                });
+
+                var smokeColor = smokePs.colorOverLifetime;
+                smokeColor.enabled = true;
+                var smokeGradient = new Gradient();
+                smokeGradient.SetKeys(
+                    new GradientColorKey[]
+                    {
+                        new GradientColorKey(new Color(0.4f, 0.35f, 0.3f), 0f),
+                        new GradientColorKey(new Color(0.25f, 0.22f, 0.2f), 0.4f),
+                        new GradientColorKey(new Color(0.15f, 0.13f, 0.12f), 1f)
+                    },
+                    new GradientAlphaKey[]
+                    {
+                        new GradientAlphaKey(0.0f, 0f),
+                        new GradientAlphaKey(0.5f, 0.1f),
+                        new GradientAlphaKey(0.4f, 0.5f),
+                        new GradientAlphaKey(0f, 1f)
+                    }
+                );
+                smokeColor.color = smokeGradient;
+
+                var smokeSize = smokePs.sizeOverLifetime;
+                smokeSize.enabled = true;
+                smokeSize.size = new ParticleSystem.MinMaxCurve(1f,
+                    new AnimationCurve(
+                        new Keyframe(0f, 0.5f),
+                        new Keyframe(0.3f, 1.5f),
+                        new Keyframe(1f, 3.0f)));
+
+                var smokeNoise = smokePs.noise;
+                smokeNoise.enabled = true;
+                smokeNoise.strength = vesselLength * 0.2f;
+                smokeNoise.frequency = 1.5f;
+                smokeNoise.scrollSpeed = 0.8f;
+                smokeNoise.damping = true;
+
+                var smokeRenderer = smokeObj.GetComponent<ParticleSystemRenderer>();
+                smokeRenderer.renderMode = ParticleSystemRenderMode.Billboard;
+                smokeRenderer.maxParticleSize = 12f;
+
+                if (cachedExplosionTexture == null)
+                    cachedExplosionTexture = CreateSoftCircleTexture(32);
+                var smokeMat = new Material(alphaShader);
+                smokeMat.mainTexture = cachedExplosionTexture;
+                smokeMat.SetColor("_TintColor", new Color(0.3f, 0.25f, 0.2f, 0.5f));
+                smokeRenderer.material = smokeMat;
+
+                var smokeCleanup = smokeObj.AddComponent<MaterialCleanup>();
+                smokeCleanup.material = smokeMat;
+
+                smokePs.Play();
+            }
+
             ps.Play();
 
-            // Auto-destroy after max particle lifetime + buffer
-            Object.Destroy(obj, 3.5f);
+            // Auto-destroy after max smoke lifetime + buffer
+            Object.Destroy(obj, 5.0f);
 
             ParsekLog.Info("ExplosionFx",
                 $"Spawned at ({worldPosition.x:F1},{worldPosition.y:F1},{worldPosition.z:F1}) vesselLength={vesselLength:F1}m");

@@ -5205,16 +5205,20 @@ namespace Parsek
             if (state.ghost == null) return;
             var t = state.ghost.transform;
             int hidden = 0;
+            // Keep cameraPivot active — FlightCamera targets it during watch-mode hold.
+            // Disabling it would make KSP snap the camera back to the active vessel.
+            var pivotT = state.cameraPivot;
             for (int c = 0; c < t.childCount; c++)
             {
-                var child = t.GetChild(c).gameObject;
-                if (child.activeSelf)
+                var child = t.GetChild(c);
+                if (pivotT != null && child == pivotT) continue;
+                if (child.gameObject.activeSelf)
                 {
-                    child.SetActive(false);
+                    child.gameObject.SetActive(false);
                     hidden++;
                 }
             }
-            ParsekLog.Verbose("GhostVisual", $"HideAllGhostParts: hidden {hidden}/{t.childCount} children");
+            ParsekLog.Verbose("GhostVisual", $"HideAllGhostParts: hidden {hidden}/{t.childCount} children (cameraPivot preserved)");
         }
 
         void CleanupActiveExplosions()
