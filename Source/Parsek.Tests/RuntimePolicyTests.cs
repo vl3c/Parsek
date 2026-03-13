@@ -174,7 +174,7 @@ namespace Parsek.Tests
                 currentUT,
                 startUT: 100,
                 endUT: 120,
-                pauseSeconds: 10,
+                intervalSeconds: 10,
                 out double loopUT,
                 out int cycleIndex);
 

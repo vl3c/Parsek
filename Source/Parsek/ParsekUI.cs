@@ -1562,7 +1562,7 @@ namespace Parsek
             }
             else
             {
-                double period = dur + rec.LoopPauseSeconds;
+                double period = dur + rec.LoopIntervalSeconds;
                 if (GUILayout.Button(FormatDuration(period), GUILayout.Width(ColW_Period)))
                 {
                     // Save any in-progress edit on another recording
@@ -1578,7 +1578,7 @@ namespace Parsek
                     }
 
                     editingLoopPeriodIdx = ri;
-                    editingLoopPeriodText = ((int)(dur + rec.LoopPauseSeconds)).ToString();
+                    editingLoopPeriodText = ((int)(dur + rec.LoopIntervalSeconds)).ToString();
                 }
             }
         }
@@ -1590,9 +1590,9 @@ namespace Parsek
             {
                 double pause = newPeriod - dur;
                 if (pause < 0) pause = 0;
-                rec.LoopPauseSeconds = pause;
+                rec.LoopIntervalSeconds = pause;
                 ParsekLog.Info("UI",
-                    $"Recording '{rec.VesselName}' loop period updated to {(dur + rec.LoopPauseSeconds):F1}s (pause={pause:F1}s)");
+                    $"Recording '{rec.VesselName}' loop period updated to {(dur + rec.LoopIntervalSeconds):F1}s (pause={pause:F1}s)");
             }
             else
             {
