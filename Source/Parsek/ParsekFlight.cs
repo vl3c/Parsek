@@ -1311,14 +1311,15 @@ namespace Parsek
             recorder = null;
             lastPlaybackIndex = 0;
 
-            // Auto-discard pad failures: destroyed within seconds of first movement
+            // Auto-discard short destroyed recordings (pad failures, immediate explosions).
+            // After stationary trimming, real flights are typically 10s+.
             if (RecordingStore.HasPending)
             {
                 double flightDuration = RecordingStore.Pending.EndUT - RecordingStore.Pending.StartUT;
-                if (flightDuration < 5.0)
+                if (flightDuration < 10.0)
                 {
-                    Log($"Post-destruction: recording too short ({flightDuration:F1}s) — auto-discarding pad failure");
-                    ScreenMessage("Recording discarded — pad failure", 3f);
+                    Log($"Post-destruction: recording too short ({flightDuration:F1}s) — auto-discarding");
+                    ScreenMessage("Recording discarded — too short", 3f);
                     RecordingStore.DiscardPending();
                     yield break;
                 }
@@ -2012,6 +2013,20 @@ namespace Parsek
                         }
                     }
                 }
+
+                // Auto-discard short destroyed recordings (pad failures, immediate explosions)
+                if (RecordingStore.Pending.VesselDestroyed)
+                {
+                    double dur = RecordingStore.Pending.EndUT - RecordingStore.Pending.StartUT;
+                    if (dur < 10.0)
+                    {
+                        ParsekLog.Info("Flight",
+                            $"Vessel destroyed during split — recording too short ({dur:F1}s), discarding");
+                        RecordingStore.DiscardPending();
+                        return;
+                    }
+                }
+
                 RecordingStore.CommitPending();
                 string chainInfo = activeChainId != null
                     ? $" (chain={activeChainId}, idx={activeChainNextIndex})"
