@@ -1,6 +1,9 @@
 # Dev logs (KSP logs, saves, recordings — large files for debugging)
 docs/dev/logs/
 
+# Generator scripts and intermediate data (kept locally for re-runs)
+docs/dev/scripts/
+
 # Build outputs
 bin/
 obj/
