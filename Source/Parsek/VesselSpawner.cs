@@ -484,12 +484,7 @@ namespace Parsek
 
             // Extract crew from the snapshot and find duplicates
             var snapshotCrew = ParsekScenario.ExtractCrewFromSnapshot(snapshot);
-            var duplicates = new HashSet<string>();
-            foreach (string name in snapshotCrew)
-            {
-                if (existingCrew.Contains(name))
-                    duplicates.Add(name);
-            }
+            var duplicates = FindDuplicateCrew(snapshotCrew, existingCrew);
 
             if (duplicates.Count == 0) return;
 

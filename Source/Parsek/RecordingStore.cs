@@ -1170,26 +1170,27 @@ namespace Parsek
                 File.Copy(sourcePath, tempPath, true);
 
                 // Pre-process the save file before KSP parses it:
-                // 1. Remove only the recorded vessel (other vessels stay intact)
+                // 1. Remove recorded vessel + any EVA child vessels (other vessels stay intact)
                 // 2. Wind back UT by 10 seconds so the player can reach the pad before launch
                 const double rewindLeadTime = 10.0;
-                PreProcessRewindSave(tempPath, rec.VesselName, rewindLeadTime);
 
-                // Also strip EVA child recording vessels in the same chain.
-                // The rewind targets the parent vessel, but EVA children have different
-                // vessel names (the kerbal's name) and would otherwise survive the strip.
+                // Collect all vessel names to strip in a single file I/O pass
+                var stripNames = new HashSet<string> { rec.VesselName };
                 if (!string.IsNullOrEmpty(rec.ChainId))
                 {
+                    // EVA child recordings have different vessel names (the kerbal's name)
+                    // and would otherwise survive the strip
                     foreach (var committed in committedRecordings)
                     {
                         if (committed.ChainId == rec.ChainId &&
                             !string.IsNullOrEmpty(committed.EvaCrewName) &&
                             committed.VesselName != rec.VesselName)
                         {
-                            PreProcessRewindSave(tempPath, committed.VesselName, 0);
+                            stripNames.Add(committed.VesselName);
                         }
                     }
                 }
+                PreProcessRewindSave(tempPath, stripNames, rewindLeadTime);
 
                 Game game = GamePersistence.LoadGame(tempCopyName, HighLogic.SaveFolder, true, false);
 
@@ -1268,6 +1269,11 @@ namespace Parsek
         /// </summary>
         internal static void PreProcessRewindSave(string sfsPath, string vesselName, double leadTime)
         {
+            PreProcessRewindSave(sfsPath, new HashSet<string> { vesselName }, leadTime);
+        }
+
+        internal static void PreProcessRewindSave(string sfsPath, HashSet<string> vesselNames, double leadTime)
+        {
             ConfigNode root = ConfigNode.Load(sfsPath);
             if (root == null)
                 return;
@@ -1304,21 +1310,24 @@ namespace Parsek
                             $"PreProcessRewindSave: missing or invalid UT value '{utStr ?? "(null)"}' in FLIGHTSTATE");
                 }
 
-                // Remove only the recorded vessel — all other vessels stay intact
+                // Remove vessels matching any of the target names
                 int removed = 0;
                 var vesselNodes = flightState.GetNodes("VESSEL");
                 for (int i = vesselNodes.Length - 1; i >= 0; i--)
                 {
                     string name = vesselNodes[i].GetValue("name");
-                    if (name == vesselName)
+                    if (vesselNames.Contains(name))
                     {
                         flightState.RemoveNode(vesselNodes[i]);
                         removed++;
                     }
                 }
                 if (!SuppressLogging)
+                {
+                    string namesStr = string.Join(", ", vesselNames);
                     ParsekLog.Info("Rewind",
-                        $"Stripped {removed} vessel(s) named '{vesselName}' from save");
+                        $"Stripped {removed} vessel(s) matching [{namesStr}] from save");
+                }
             }
 
             root.Save(sfsPath);

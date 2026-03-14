@@ -378,7 +378,7 @@ namespace Parsek.Tests
                 l.Contains("[Rewind]") && l.Contains("Stripped"));
             Assert.NotNull(stripLog);
             Assert.Contains("2 vessel(s)", stripLog);
-            Assert.Contains("'Target'", stripLog);
+            Assert.Contains("Target", stripLog);
         }
 
         #endregion
