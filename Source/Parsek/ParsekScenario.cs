@@ -546,6 +546,10 @@ namespace Parsek
                 RecordingStore.IsRewinding = false;
                 RecordingStore.RewindUT = 0;
                 RecordingStore.RewindAdjustedUT = 0;
+                RecordingStore.RewindReserved = default(ResourceBudget.BudgetSummary);
+                RecordingStore.RewindBaselineFunds = 0;
+                RecordingStore.RewindBaselineScience = 0;
+                RecordingStore.RewindBaselineRep = 0;
             }
 
             recordings.Clear();
