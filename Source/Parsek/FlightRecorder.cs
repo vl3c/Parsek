@@ -3912,9 +3912,15 @@ namespace Parsek
                     isOnRails = false;
                 }
 
+                // Capture final trajectory point at destruction — the last adaptively-sampled
+                // point can be meters above/away from the actual impact location.
+                SamplePosition(v);
+
                 VesselDestroyedDuringRecording = true;
                 RefreshBackupSnapshot(v, "destroy_event", force: true);
-                ParsekLog.Warn("Recorder", "Active vessel destroyed during recording");
+                ParsekLog.Warn("Recorder",
+                    $"Active vessel destroyed during recording — captured final position at " +
+                    $"lat={v.latitude:F4} lon={v.longitude:F4} alt={v.altitude:F1}m");
             }
         }
 
