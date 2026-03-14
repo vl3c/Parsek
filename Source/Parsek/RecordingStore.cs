@@ -1189,6 +1189,9 @@ namespace Parsek
                             stripNames.Add(committed.VesselName);
                         }
                     }
+                    if (stripNames.Count > 1 && !SuppressLogging)
+                        ParsekLog.Info("Rewind",
+                            $"Rewind strip includes {stripNames.Count - 1} EVA child vessel name(s) from chain '{rec.ChainId}'");
                 }
                 PreProcessRewindSave(tempPath, stripNames, rewindLeadTime);
 

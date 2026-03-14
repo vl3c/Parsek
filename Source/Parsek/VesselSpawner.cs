@@ -480,13 +480,22 @@ namespace Parsek
 
             // Build set of crew names already on loaded vessels
             var existingCrew = BuildExistingCrewSet();
-            if (existingCrew.Count == 0) return;
+            if (existingCrew.Count == 0)
+            {
+                ParsekLog.Verbose("Spawner", "Crew dedup: no existing crew in scene — skipped");
+                return;
+            }
 
             // Extract crew from the snapshot and find duplicates
             var snapshotCrew = ParsekScenario.ExtractCrewFromSnapshot(snapshot);
             var duplicates = FindDuplicateCrew(snapshotCrew, existingCrew);
 
-            if (duplicates.Count == 0) return;
+            if (duplicates.Count == 0)
+            {
+                ParsekLog.Verbose("Spawner",
+                    $"Crew dedup: checked {snapshotCrew.Count} crew against {existingCrew.Count} existing — no duplicates");
+                return;
+            }
 
             // Remove duplicates from snapshot parts (same pattern as RemoveSpecificCrewFromSnapshot)
             foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
