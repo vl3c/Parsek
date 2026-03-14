@@ -2025,7 +2025,8 @@ namespace Parsek
                     }
                 }
 
-                // Destroyed vessels: discard pad failures, otherwise show merge dialog
+                // Destroyed vessels: discard pad failures, otherwise commit or defer to dialog.
+                // Dialog is deferred via coroutine so it appears AFTER KSP's crash report.
                 if (RecordingStore.Pending.VesselDestroyed)
                 {
                     double dur = RecordingStore.Pending.EndUT - RecordingStore.Pending.StartUT;
@@ -2037,9 +2038,19 @@ namespace Parsek
                         RecordingStore.DiscardPending();
                         return;
                     }
-                    ParsekLog.Info("Flight",
-                        $"Vessel destroyed during split — commit or dialog ({dur:F1}s)");
-                    CommitOrShowDialog(RecordingStore.Pending);
+                    if (ParsekSettings.Current?.autoMerge != false)
+                    {
+                        RecordingStore.CommitPending();
+                        ParsekLog.Info("Flight",
+                            $"Vessel destroyed during split — auto-merged ({dur:F1}s)");
+                    }
+                    else
+                    {
+                        // Defer dialog — pending stays stashed, coroutine shows it after 2s
+                        ParsekLog.Info("Flight",
+                            $"Vessel destroyed during split — deferring dialog ({dur:F1}s)");
+                        StartCoroutine(ShowDeferredSplitMergeDialog());
+                    }
                     return;
                 }
 
@@ -7992,6 +8003,21 @@ namespace Parsek
                 Log($"Showing merge dialog for {pending.VesselName} ({pending.Points.Count} points)");
                 MergeDialog.Show(pending);
             }
+        }
+
+        /// <summary>
+        /// Deferred merge dialog for destroyed vessels in the split path.
+        /// Waits 2 seconds so the dialog appears after KSP's crash report.
+        /// </summary>
+        IEnumerator ShowDeferredSplitMergeDialog()
+        {
+            yield return new WaitForSeconds(2f);
+
+            if (!RecordingStore.HasPending)
+                yield break;
+
+            Log($"Showing deferred split merge dialog for {RecordingStore.Pending.VesselName}");
+            MergeDialog.Show(RecordingStore.Pending);
         }
 
         void Log(string message) => ParsekLog.Verbose("Flight", message);
