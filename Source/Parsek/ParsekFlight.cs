@@ -1321,12 +1321,13 @@ namespace Parsek
             recorder = null;
             lastPlaybackIndex = 0;
 
-            // Auto-discard short destroyed recordings (pad failures, immediate explosions).
-            // After stationary trimming, real flights are typically 10s+.
+            // Auto-discard very short destroyed recordings (pad failures, immediate explosions).
+            // Threshold is 5s after stationary trimming — trimming can remove 1-3s from the
+            // start, so a 10s raw flight might be 7-8s after trimming.
             if (RecordingStore.HasPending)
             {
                 double flightDuration = RecordingStore.Pending.EndUT - RecordingStore.Pending.StartUT;
-                if (flightDuration < 10.0)
+                if (flightDuration < 5.0)
                 {
                     Log($"Post-destruction: recording too short ({flightDuration:F1}s) — auto-discarding");
                     ScreenMessage("Recording discarded — too short", 3f);
@@ -2028,7 +2029,7 @@ namespace Parsek
                 if (RecordingStore.Pending.VesselDestroyed)
                 {
                     double dur = RecordingStore.Pending.EndUT - RecordingStore.Pending.StartUT;
-                    if (dur < 10.0)
+                    if (dur < 5.0)
                     {
                         ParsekLog.Info("Flight",
                             $"Vessel destroyed during split — recording too short ({dur:F1}s), discarding");
