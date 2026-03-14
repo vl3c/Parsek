@@ -113,6 +113,28 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PreProcessRewindSave_MultipleNames_StripsAllMatching()
+        {
+            string sfs = WriteTempSave(
+                "FLIGHTSTATE\n{\n  UT = 17000\n" +
+                "  VESSEL\n  {\n    name = MyRocket\n  }\n" +
+                "  VESSEL\n  {\n    name = Valentina Kerman\n  }\n" +
+                "  VESSEL\n  {\n    name = Debris\n  }\n}\n");
+
+            var names = new HashSet<string> { "MyRocket", "Valentina Kerman" };
+            RecordingStore.PreProcessRewindSave(sfs, names, 10.0);
+
+            ConfigNode root = ConfigNode.Load(sfs);
+            var fs = root.GetNode("FLIGHTSTATE");
+            var vessels = fs.GetNodes("VESSEL");
+            Assert.Single(vessels);
+            Assert.Equal("Debris", vessels[0].GetValue("name"));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]") && l.Contains("Stripped 2 vessel"));
+        }
+
+        [Fact]
         public void PreProcessRewindSave_NoMatchingVessel_StripsZero()
         {
             string sfs = WriteTempSave(
@@ -378,7 +400,7 @@ namespace Parsek.Tests
                 l.Contains("[Rewind]") && l.Contains("Stripped"));
             Assert.NotNull(stripLog);
             Assert.Contains("2 vessel(s)", stripLog);
-            Assert.Contains("'Target'", stripLog);
+            Assert.Contains("Target", stripLog);
         }
 
         #endregion

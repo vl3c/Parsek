@@ -191,3 +191,27 @@ During ghost visual builds, some parts log `Variant active-state fallback: no ac
 **Reproduction:** `dotnet test` (full suite) — fails ~50% of runs. `dotnet test --filter GetCommittedTechIds_MultipleMilestones` — always passes.
 
 **Status:** Open — needs investigation of shared state cleanup between tests
+
+## 26. EVA crew swap fails after merging from KSC
+
+When `autoMerge` is off and an EVA recording is merged via the dialog in KSC (not Flight), the crew reservation (Valentina → Agasel) is created correctly, but on revert `SwapReservedCrewInFlight` finds 0 matches on the active vessel. The reserved crew member (Valentina) is not in the active vessel's part crew list after revert, causing a duplicate kerbal on spawn.
+
+**Reproduction:** Career mode → disable auto-merge → EVA Valentina from pad → walk around → go to KSC → merge dialog appears → click Merge → revert to launch → ghost shows different kerbal walking, but Valentina also spawns at the end = 2 Valentinas.
+
+**Root cause:** Two issues:
+1. The rewind is on the parent vessel recording, so `PreProcessRewindSave` strips the rocket's name — not the EVA kerbal's. The EVA vessel survives the strip.
+2. `SwapReservedCrewInFlight` only iterates `ActiveVessel.parts` crew. EVA kerbals are separate vessels, so the swap finds no match.
+
+**Status:** Fixed — two-layer fix:
+1. `PreProcessRewindSave` now also strips EVA child recording vessels from the rewind save (root cause)
+2. `SwapReservedCrewInFlight` removes reserved EVA vessels as defense-in-depth
+
+## 27. F9 quickload can silently overwrite a pending recording
+
+If the player has an unresolved pending recording (merge dialog not yet shown/clicked) AND an active recording in progress, pressing F9 quickload causes `OnSceneChangeRequested` to stash the active recording as a new pending — overwriting the old pending silently. The old recording's data and crew reservations are lost.
+
+**Reproduction:** Requires both an active recording and an unresolved pending simultaneously — very rare in practice. Could theoretically happen if: record flight A → go to KSC (pending A) → launch new vessel → record flight B → F9 quickload (pending A overwritten by pending B).
+
+**Root cause:** `RecordingStore.StashPending` overwrites the existing `pendingRecording` static field without checking if one already exists. No warning logged.
+
+**Status:** Open — pre-existing, very unlikely edge case

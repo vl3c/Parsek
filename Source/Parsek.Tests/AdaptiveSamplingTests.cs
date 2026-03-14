@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using Xunit;
 
@@ -258,6 +259,61 @@ namespace Parsek.Tests
 
             // Negative interval: 99-100 = -1, not >= 3
             Assert.False(result);
+        }
+
+        // --- FindFirstMovingPoint tests ---
+
+        private static List<TrajectoryPoint> MakePoints(params (double alt, float speed)[] specs)
+        {
+            var points = new List<TrajectoryPoint>();
+            for (int i = 0; i < specs.Length; i++)
+            {
+                points.Add(new TrajectoryPoint
+                {
+                    ut = 100 + i,
+                    altitude = specs[i].alt,
+                    velocity = new Vector3(specs[i].speed, 0, 0)
+                });
+            }
+            return points;
+        }
+
+        [Fact]
+        public void FindFirstMoving_AllStationary_ReturnsZero()
+        {
+            var points = MakePoints((78, 0.3f), (78, 0.5f), (78, 0.2f));
+            Assert.Equal(0, TrajectoryMath.FindFirstMovingPoint(points));
+        }
+
+        [Fact]
+        public void FindFirstMoving_MovingFromStart_ReturnsZero()
+        {
+            var points = MakePoints((78, 10f), (80, 15f));
+            Assert.Equal(0, TrajectoryMath.FindFirstMovingPoint(points));
+        }
+
+        [Fact]
+        public void FindFirstMoving_AltitudeChange_ReturnsCorrectIndex()
+        {
+            // Pad at alt 78, then lifts off at index 3
+            var points = MakePoints((78, 0.3f), (78, 0.5f), (78.2, 0.4f), (79.5, 2f), (85, 10f));
+            Assert.Equal(3, TrajectoryMath.FindFirstMovingPoint(points));
+        }
+
+        [Fact]
+        public void FindFirstMoving_SpeedThreshold_ReturnsCorrectIndex()
+        {
+            // Runway: same altitude, picks up speed at index 2
+            var points = MakePoints((10, 0.3f), (10, 2f), (10, 6f), (10, 15f));
+            Assert.Equal(2, TrajectoryMath.FindFirstMovingPoint(points));
+        }
+
+        [Fact]
+        public void FindFirstMoving_NullOrShort_ReturnsZero()
+        {
+            Assert.Equal(0, TrajectoryMath.FindFirstMovingPoint(null));
+            Assert.Equal(0, TrajectoryMath.FindFirstMovingPoint(new List<TrajectoryPoint>()));
+            Assert.Equal(0, TrajectoryMath.FindFirstMovingPoint(MakePoints((78, 0.1f))));
         }
     }
 }
