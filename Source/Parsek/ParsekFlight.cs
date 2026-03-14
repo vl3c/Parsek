@@ -6771,7 +6771,8 @@ namespace Parsek
                         $"Overlap: explosion hold ended, waiting for next launch to follow");
                 }
                 // During hold, keep camera where it is (don't update position)
-                FlightCamera.fetch.pivotTranslateSharpness = 0f;
+                if (FlightCamera.fetch != null)
+                    FlightCamera.fetch.pivotTranslateSharpness = 0f;
                 return;
             }
 
@@ -6807,6 +6808,9 @@ namespace Parsek
             }
 
             if (state == null || state.cameraPivot == null)
+                return;
+            if (FlightCamera.fetch == null || FlightCamera.fetch.transform == null
+                || FlightCamera.fetch.transform.parent == null)
                 return;
 
             // Keep sharpness zeroed — KSP resets it on various events
