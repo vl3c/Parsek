@@ -1321,16 +1321,16 @@ namespace Parsek
             recorder = null;
             lastPlaybackIndex = 0;
 
-            // Auto-discard very short destroyed recordings (pad failures, immediate explosions).
-            // Threshold is 5s after stationary trimming — trimming can remove 1-3s from the
-            // start, so a 10s raw flight might be 7-8s after trimming.
+            // Auto-discard pad failures: destroyed within 10s AND never moved far from spawn.
+            // Real crashes (even short ones) travel 50+ meters; pad failures stay near the pad.
             if (RecordingStore.HasPending)
             {
                 double flightDuration = RecordingStore.Pending.EndUT - RecordingStore.Pending.StartUT;
-                if (flightDuration < 5.0)
+                double maxDist = RecordingStore.Pending.MaxDistanceFromLaunch;
+                if (flightDuration < 10.0 && maxDist < 30.0)
                 {
-                    Log($"Post-destruction: recording too short ({flightDuration:F1}s) — auto-discarding");
-                    ScreenMessage("Recording discarded — too short", 3f);
+                    Log($"Post-destruction: pad failure ({flightDuration:F1}s, {maxDist:F0}m) — auto-discarding");
+                    ScreenMessage("Recording discarded — pad failure", 3f);
                     RecordingStore.DiscardPending();
                     yield break;
                 }
@@ -2025,14 +2025,15 @@ namespace Parsek
                     }
                 }
 
-                // Destroyed vessels: discard if too short, otherwise show merge dialog
+                // Destroyed vessels: discard pad failures, otherwise show merge dialog
                 if (RecordingStore.Pending.VesselDestroyed)
                 {
                     double dur = RecordingStore.Pending.EndUT - RecordingStore.Pending.StartUT;
-                    if (dur < 5.0)
+                    double maxDist = RecordingStore.Pending.MaxDistanceFromLaunch;
+                    if (dur < 10.0 && maxDist < 30.0)
                     {
                         ParsekLog.Info("Flight",
-                            $"Vessel destroyed during split — recording too short ({dur:F1}s), discarding");
+                            $"Vessel destroyed during split — pad failure ({dur:F1}s, {maxDist:F0}m), discarding");
                         RecordingStore.DiscardPending();
                         return;
                     }
