@@ -5885,6 +5885,9 @@ namespace Parsek
             for (int i = 0; i < renderers.Length; i++)
             {
                 if (renderers[i] == null) continue;
+                // Skip particle system renderers — their bounds encompass all active
+                // particles which can span hundreds of meters (engine plumes, RCS jets)
+                if (renderers[i] is ParticleSystemRenderer) continue;
                 Bounds b = renderers[i].bounds;
                 if (b.size.sqrMagnitude < 0.0001f) continue;
 

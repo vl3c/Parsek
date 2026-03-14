@@ -42,6 +42,10 @@ namespace Parsek
         // Pass int.MaxValue to GetActiveCycles so the cycle range is unlimited.
         private const int MaxOverlapGhostsPerRecording = int.MaxValue;
 
+        // Distance culling: skip part events and deactivate ghosts beyond this range from camera.
+        // 25km matches Kerbal Konstructs' default activation range for statics.
+        private const float GhostCullDistanceSq = 25000f * 25000f;
+
         void Start()
         {
             ParsekLog.Info("KSC", "ParsekKSC starting in Space Center scene");
@@ -200,7 +204,9 @@ namespace Parsek
                     ref state.playbackIndex, targetUT,
                     rec.RecordingFormatVersion >= 5);
 
-                ParsekFlight.ApplyPartEvents(recIdx, rec, targetUT, state);
+                // Distance culling: skip expensive part events for ghosts too far from camera
+                if (IsGhostInCullRange(state.ghost))
+                    ParsekFlight.ApplyPartEvents(recIdx, rec, targetUT, state);
 
                 if (!state.explosionFired && targetUT >= rec.EndUT)
                     TriggerExplosionIfDestroyed(state, rec, recIdx);
@@ -308,7 +314,9 @@ namespace Parsek
 
                 InterpolateAndPositionKsc(primaryState.ghost, rec.Points,
                     ref primaryState.playbackIndex, loopUT, srfRel);
-                ParsekFlight.ApplyPartEvents(recIdx, rec, loopUT, primaryState);
+
+                if (IsGhostInCullRange(primaryState.ghost))
+                    ParsekFlight.ApplyPartEvents(recIdx, rec, loopUT, primaryState);
 
                 if (!primaryState.explosionFired && phase >= duration)
                     TriggerExplosionIfDestroyed(primaryState, rec, recIdx);
@@ -347,7 +355,9 @@ namespace Parsek
 
                 InterpolateAndPositionKsc(ovState.ghost, rec.Points,
                     ref ovState.playbackIndex, loopUT, srfRel);
-                ParsekFlight.ApplyPartEvents(recIdx, rec, loopUT, ovState);
+
+                if (IsGhostInCullRange(ovState.ghost))
+                    ParsekFlight.ApplyPartEvents(recIdx, rec, loopUT, ovState);
             }
         }
 
@@ -631,6 +641,25 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Check if a ghost is within rendering distance of the KSC camera.
+        /// Ghosts beyond 25km are deactivated to skip expensive part event processing.
+        /// </summary>
+        static bool IsGhostInCullRange(GameObject ghost)
+        {
+            if (ghost == null) return false;
+            Camera cam = PlanetariumCamera.Camera;
+            if (cam == null) return true; // can't cull without a camera
+            float sqrDist = (ghost.transform.position - cam.transform.position).sqrMagnitude;
+            if (sqrDist > GhostCullDistanceSq)
+            {
+                if (ghost.activeSelf) ghost.SetActive(false);
+                return false;
+            }
+            if (!ghost.activeSelf) ghost.SetActive(true);
+            return true;
+        }
+
+        /// <summary>
         /// Cached body lookup — avoids per-frame lambda allocation from FlightGlobals.Bodies.Find.
         /// </summary>
         CelestialBody LookupBody(string bodyName)
@@ -716,16 +745,15 @@ namespace Parsek
             state.explosionFired = true;
 
             Vector3 worldPos = state.ghost.transform.position;
+            // ComputeGhostLength excludes ParticleSystemRenderer bounds, so this
+            // returns the actual vessel mesh size (not inflated by engine plume particles).
             float vesselLength = GhostVisualBuilder.ComputeGhostLength(state.ghost);
-            // Scale down for KSC view — from the distant KSC camera, full-size
-            // explosions look disproportionately huge. Use a fraction of vessel length.
-            float kscExplosionScale = Mathf.Max(vesselLength * 0.15f, 2f);
 
             ParsekLog.Info("KSCGhost",
                 $"Explosion for ghost #{recIdx} \"{rec.VesselName}\" " +
-                $"vesselLength={vesselLength:F1}m kscScale={kscExplosionScale:F1}m");
+                $"vesselLength={vesselLength:F1}m");
 
-            var explosion = GhostVisualBuilder.SpawnExplosionFx(worldPos, kscExplosionScale);
+            var explosion = GhostVisualBuilder.SpawnExplosionFx(worldPos, vesselLength);
             if (explosion != null)
                 Destroy(explosion, 6f);
 
