@@ -20,15 +20,18 @@ checked in; re-run the extraction from the KSP GameData directory to refresh.
 
 ## Known Visual Playback Issues
 
-| Bug | Description | Affected Parts |
-|-----|-------------|----------------|
-| #29 | Ghost parts missing or wrong state | rover wheels, SmallGearBay |
-| #30 | RCS fires constantly | all RCS parts |
-| #31 | Engine shroud/cover variants | multi-variant engines |
-| #32 | LES plumes need verification | LaunchEscapeSystem |
-| #33 | Crash breakup not progressive | all parts |
-| #34 | ShouldTriggerExplosion log spam (performance, not visual) | all ghost parts |
-| #35 | Engine FX one-frame delay | all engine parts |
+| Bug | Description | Status | Affected Parts |
+|-----|-------------|--------|----------------|
+| #28 | Building collision doesn't set TerminalState.Destroyed | Open | crash into KSC buildings |
+| #29 | Ghost parts missing or wrong state | Open | rover wheels, SmallGearBay |
+| #30 | RCS fires constantly | Open | all RCS parts |
+| #31 | Engine shroud/cover variants | Open | multi-variant engines |
+| #32 | LES plumes need verification | Open | LaunchEscapeSystem |
+| #33 | Crash breakup not progressive | Open | all parts |
+| #34 | ShouldTriggerExplosion log spam | Fixed | all ghost parts |
+| #35 | Engine FX playing=False first frame | Not a bug | all engine parts |
+| #36 | GhostVisual VERBOSE log spam | Fixed | all ghost parts |
+| #37 | Ghost shows wrong texture variant | Open | parts with TEXTURE variant rules |
 
 ## Unsupported Visual Module Types
 
