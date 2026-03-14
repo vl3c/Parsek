@@ -4727,7 +4727,7 @@ namespace Parsek
                     ParsekLog.Info("CameraFollow",
                         $"Loop: watched cycle={state?.loopCycleIndex} exploded, holding camera for {OverlapExplosionHoldSeconds:F0}s");
                 }
-                else if (newWatchCycle == -1)
+                else if (newWatchCycle == -1 && isWatching)
                 {
                     // Explosion already fired (e.g. during pause window with time warp) or
                     // non-explosion terminal state — mark ready for immediate re-target
