@@ -1768,7 +1768,7 @@ namespace Parsek
                 ParsekLog.Info("UI", $"Setting changed: autoMerge={s.autoMerge}");
             }
 
-            bool autoWarpStop = GUILayout.Toggle(s.autoWarpStop, "Auto-stop time warp");
+            bool autoWarpStop = GUILayout.Toggle(s.autoWarpStop, "Stop time warp for ghost playback");
             if (autoWarpStop != s.autoWarpStop)
             {
                 s.autoWarpStop = autoWarpStop;

@@ -17,8 +17,8 @@ namespace Parsek
             toolTip = "Automatically start recording when a kerbal goes EVA from the pad")]
         public bool autoRecordOnEva = true;
 
-        [GameParameters.CustomParameterUI("Auto-stop time warp",
-            toolTip = "Stop time warp when a ghost playback is about to begin")]
+        [GameParameters.CustomParameterUI("Stop time warp for ghost playback",
+            toolTip = "Automatically exit time warp when a ghost recording is about to start playing")]
         public bool autoWarpStop = true;
 
         [GameParameters.CustomParameterUI("Auto-split at atmosphere boundary",
