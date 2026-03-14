@@ -165,8 +165,11 @@ namespace Parsek
 
         // Deferred first sample: skip recording while the vessel is still stationary on
         // the pad/runway so the ghost doesn't overlap the real vessel at the start.
+        // Uses altitude change (immune to pad flex) with a speed fallback for runway rolls.
         private bool waitingForMovement;
-        private const float movementSpeedThreshold = 0.5f; // m/s
+        private double waitingForMovementAltitude;
+        private const double movementAltitudeThreshold = 1.0; // meters
+        private const float movementSpeedThreshold = 5.0f; // m/s (runway taxiing)
 
         #region Part Event Subscription
 
@@ -3229,12 +3232,13 @@ namespace Parsek
             lastRecordedUT = -1;
             lastRecordedVelocity = Vector3.zero;
 
-            // Defer first sample until the vessel is actually moving, so the ghost
-            // doesn't overlap the real vessel sitting on the pad/runway at playback start.
+            // Defer first sample until the vessel has actually moved off the pad/runway,
+            // so the ghost doesn't overlap the real vessel at playback start.
             // Only for fresh launches — chain continuations and promotions start immediately.
             waitingForMovement = !isPromotion && BoundaryAnchor == null
                 && (v.situation == Vessel.Situations.PRELAUNCH
                     || v.situation == Vessel.Situations.LANDED);
+            waitingForMovementAltitude = v.altitude;
 
             hasPersistentRotation = AssemblyLoader.loadedAssemblies.Any(
                 a => a.name == "PersistentRotation");
@@ -3699,19 +3703,22 @@ namespace Parsek
             // Krakensbane-corrected true velocity
             Vector3 currentVelocity = (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity());
 
-            // Defer recording until the vessel has meaningful movement (avoids ghost
-            // overlapping the real vessel on the pad/runway at playback start)
+            // Defer recording until the vessel has actually moved off the pad/runway.
+            // Altitude change catches vertical launches; speed catches runway rolls.
+            // Pad flex (rocket settling) produces ~0.5-2 m/s but <1m altitude change.
             if (waitingForMovement)
             {
-                if (currentVelocity.magnitude < movementSpeedThreshold)
+                double altDelta = System.Math.Abs(v.altitude - waitingForMovementAltitude);
+                float speed = currentVelocity.magnitude;
+                if (altDelta < movementAltitudeThreshold && speed < movementSpeedThreshold)
                 {
                     ParsekLog.VerboseRateLimited("Recorder", "waiting-for-movement",
-                        $"Waiting for movement (speed={currentVelocity.magnitude:F2} m/s, threshold={movementSpeedThreshold} m/s)");
+                        $"Waiting for movement (altDelta={altDelta:F2}m, speed={speed:F2} m/s)");
                     return;
                 }
                 waitingForMovement = false;
                 ParsekLog.Info("Recorder",
-                    $"Vessel moving — recording first point (speed={currentVelocity.magnitude:F2} m/s)");
+                    $"Vessel moving — recording first point (altDelta={altDelta:F2}m, speed={speed:F2} m/s)");
             }
 
             if (!TrajectoryMath.ShouldRecordPoint(currentVelocity, lastRecordedVelocity,
@@ -3794,6 +3801,14 @@ namespace Parsek
                 return;
             }
             if (v.persistentId != RecordingVesselId) return;
+
+            // Don't create orbit segments while waiting for the vessel to move off the pad.
+            // Time-warping on the pad produces nonsensical orbital data that puts the ghost underground.
+            if (waitingForMovement)
+            {
+                ParsekLog.Verbose("Recorder", "OnVesselGoOnRails: skipping — still waiting for movement");
+                return;
+            }
 
             // Record a boundary TrajectoryPoint at current UT (stitching point)
             SamplePosition(v);
