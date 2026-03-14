@@ -735,7 +735,7 @@ Parts where the only visual gap is ModuleColorChanger (cabin lights), FXModuleAn
 | FXModuleAnimateThrottle | 33 | Engine nozzle glow animation | Medium — adds visual fidelity |
 | FXModuleAnimateRCS | 5 | RCS thruster response animation | Low — subtle effect |
 | ModulePartFirework | 2 | Firework launch effects | None — novelty |
-| ModuleControlSurface (continuous) | 24 | Continuous deflection angle (binary deploy/retract IS supported) | Priority 1 |
+| ModuleControlSurface (continuous) | 24 | Continuous deflection angle — won't implement (binary deploy/retract is sufficient) | Closed |
 | ModuleAnimateHeat (continuous) | 16 | Continuous thermal intensity (binary hot/cold IS supported) | Priority 2 |
 | ModulePartVariants (TEXTURE/MATERIAL) | many | Variant texture/color not applied to ghost (bug #37) | Medium |
 
@@ -760,21 +760,25 @@ standalone animate-generic, lights/blink, gear deployment, wheel/leg dynamics
 deploy/retract, control surface deploy/retract (binary), robot arm scanner, animate-heat
 (binary hot/cold), inventory placement/removal, docking chain boundaries.
 
-### Priority 1: ModuleControlSurface continuous deflection
+### Priority 1: ModuleControlSurface deploy/retract (binary only)
 
-Binary deploy/retract endpoints are supported and showcased for all 24 control surface parts.
-The gap is continuous deflection angle during flight — elevons, rudders, canards, and
-propeller blades hold a fixed deployed angle on the ghost instead of moving with the airflow.
+Binary deploy/retract endpoints are already supported and showcased for all 24 control surface
+parts. This records the player's toggle action (e.g., flaps locked extended) — same model as
+landing gear. Continuous in-flight deflection angle will NOT be tracked.
 
-**Scope:** 24 parts (AdvancedCanard, airlinerCtrlSrf, airlinerTailFin, CanardController,
-elevon2, elevon3, elevon5, largeFanBlade, largeHeliBlade, largePropeller, mediumFanBlade,
-mediumHeliBlade, mediumPropeller, R8winglet, smallCtrlSrf, smallFanBlade, smallHeliBlade,
-smallPropeller, StandardCtrlSrf, tailfin, winglet3, wingShuttleElevon1, wingShuttleElevon2,
-wingShuttleRudder)
+**Design decision:** No continuous deflection sampling. Rationale: performance and storage
+budget is better spent on vehicle trajectory fidelity than per-part deflection angles. The
+visual difference between a static deployed flap and a continuously-animated one is marginal
+in replay. This matches the existing binary approach for all other deployable modules.
 
-**Work required:** Low-frequency continuous sampling model for deflection values, new
-PartEventType or value field on existing events, playback interpolation of deflection angle.
-Validate on subset (elevon2, wingShuttleRudder, smallPropeller) before broad rollout.
+**Note:** 9 of the 24 parts are propeller/helicopter blades (largeFanBlade, largeHeliBlade,
+largePropeller, mediumFanBlade, mediumHeliBlade, mediumPropeller, smallFanBlade,
+smallHeliBlade, smallPropeller). Their "deploy" is blade pitch — the visual change is
+negligible. The 15 remaining parts (elevons, canards, rudders, winglets) show a visible
+flap position change on deploy/retract.
+
+**Status:** Already implemented — binary deploy/retract works today. No further work needed.
+This item is effectively complete.
 
 ### Priority 2: ModuleAnimateHeat continuous intensity
 
