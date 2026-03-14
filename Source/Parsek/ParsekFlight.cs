@@ -4900,8 +4900,7 @@ namespace Parsek
                     // at the explosion site so it doesn't reference the destroyed ghost
                     if (watchedRecordingIndex == recIdx && watchedOverlapCycleIndex == cycle)
                     {
-                        double holdSeconds = rec.TerminalStateValue == TerminalState.Destroyed ? 5.0 : 3.0;
-                        overlapRetargetAfterUT = Planetarium.GetUniversalTime() + holdSeconds;
+                        overlapRetargetAfterUT = Planetarium.GetUniversalTime() + 3.0;
                         watchedOverlapCycleIndex = -2; // sentinel: waiting to re-target
 
                         // Create temp anchor at ghost position before ghost is destroyed
@@ -4913,7 +4912,7 @@ namespace Parsek
                             FlightCamera.fetch.SetTargetTransform(overlapCameraAnchor.transform);
 
                         ParsekLog.Info("CameraFollow",
-                            $"Overlap: watched cycle={cycle} expired, holding camera at explosion site for {holdSeconds:F0}s");
+                            $"Overlap: watched cycle={cycle} expired, holding camera at explosion site for 3s");
                     }
 
                     ParsekLog.Info("Flight",
@@ -6805,11 +6804,28 @@ namespace Parsek
                         Destroy(overlapCameraAnchor);
                         overlapCameraAnchor = null;
                     }
-                    // Set to -1 so the next new cycle spawn will pick up the camera
-                    watchedOverlapCycleIndex = -1;
                     overlapRetargetAfterUT = -1;
-                    ParsekLog.Info("CameraFollow",
-                        $"Overlap: explosion hold ended, waiting for next launch to follow");
+
+                    // Immediately target the current primary ghost so FlightCamera
+                    // doesn't reference the destroyed anchor
+                    GhostPlaybackState primary;
+                    if (FlightCamera.fetch != null
+                        && ghostStates.TryGetValue(watchedRecordingIndex, out primary)
+                        && primary != null && primary.ghost != null)
+                    {
+                        var target = primary.cameraPivot ?? primary.ghost.transform;
+                        FlightCamera.fetch.SetTargetTransform(target);
+                        watchedOverlapCycleIndex = primary.loopCycleIndex;
+                        ParsekLog.Info("CameraFollow",
+                            $"Overlap: hold ended, now following cycle={primary.loopCycleIndex}");
+                    }
+                    else
+                    {
+                        // No primary available — wait for next spawn
+                        watchedOverlapCycleIndex = -1;
+                        ParsekLog.Info("CameraFollow",
+                            $"Overlap: hold ended, no primary ghost available — waiting for next launch");
+                    }
                 }
                 // During hold, keep camera where it is (don't update position)
                 if (FlightCamera.fetch != null)
