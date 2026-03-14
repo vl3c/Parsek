@@ -3902,20 +3902,28 @@ namespace Parsek
                 ParsekLog.Verbose("Recorder", "OnVesselWillDestroy: no active vessel — skipping");
                 return;
             }
-            if (v == FlightGlobals.ActiveVessel)
-            {
-                // Finalize in-progress orbit segment if on rails
-                if (isOnRails)
-                {
-                    currentOrbitSegment.endUT = Planetarium.GetUniversalTime();
-                    OrbitSegments.Add(currentOrbitSegment);
-                    isOnRails = false;
-                }
+            if (v != FlightGlobals.ActiveVessel) return;
+            if (v.persistentId != RecordingVesselId) return;
 
-                VesselDestroyedDuringRecording = true;
-                RefreshBackupSnapshot(v, "destroy_event", force: true);
-                ParsekLog.Warn("Recorder", "Active vessel destroyed during recording");
+            // Finalize in-progress orbit segment if on rails
+            if (isOnRails)
+            {
+                currentOrbitSegment.endUT = Planetarium.GetUniversalTime();
+                OrbitSegments.Add(currentOrbitSegment);
+                isOnRails = false;
             }
+
+            // Capture final trajectory point at destruction — the last adaptively-sampled
+            // point can be meters above/away from the actual impact location.
+            SamplePosition(v);
+
+            VesselDestroyedDuringRecording = true;
+            RefreshBackupSnapshot(v, "destroy_event", force: true);
+            ParsekLog.Warn("Recorder",
+                "Active vessel destroyed during recording — captured final position at " +
+                $"lat={v.latitude.ToString("F4", CultureInfo.InvariantCulture)} " +
+                $"lon={v.longitude.ToString("F4", CultureInfo.InvariantCulture)} " +
+                $"alt={v.altitude.ToString("F1", CultureInfo.InvariantCulture)}m");
         }
 
         /// <summary>

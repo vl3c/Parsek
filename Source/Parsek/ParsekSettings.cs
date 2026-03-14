@@ -17,8 +17,8 @@ namespace Parsek
             toolTip = "Automatically start recording when a kerbal goes EVA from the pad")]
         public bool autoRecordOnEva = true;
 
-        [GameParameters.CustomParameterUI("Auto-stop time warp",
-            toolTip = "Stop time warp when a ghost playback is about to begin")]
+        [GameParameters.CustomParameterUI("Stop time warp for ghost playback",
+            toolTip = "Automatically exit time warp when a ghost recording is about to start playing")]
         public bool autoWarpStop = true;
 
         [GameParameters.CustomParameterUI("Auto-split at atmosphere boundary",
@@ -28,6 +28,10 @@ namespace Parsek
         [GameParameters.CustomParameterUI("Auto-split at SOI change",
             toolTip = "Automatically split recordings when entering a new sphere of influence")]
         public bool autoSplitAtSoi = true;
+
+        [GameParameters.CustomParameterUI("Auto-merge recordings",
+            toolTip = "When enabled, recordings are committed to the timeline automatically. When disabled, a confirmation dialog appears after each recording.")]
+        public bool autoMerge = false;
 
         [GameParameters.CustomParameterUI("Verbose logging",
             toolTip = "When enabled, write detailed diagnostics to KSP.log (default for development)")]

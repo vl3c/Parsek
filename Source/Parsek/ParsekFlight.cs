@@ -1021,6 +1021,16 @@ namespace Parsek
                     // Revert: preserve snapshots for merge dialog
                     CommitTreeRevert(commitUT);
                 }
+                else if (!ParsekScenario.IsAutoMerge)
+                {
+                    // autoMerge OFF: safe finalization but preserve snapshots for dialog in KSC/TS.
+                    // Uses isSceneExit: true (no live vessel re-snapshots during teardown)
+                    // but skips snapshot nulling so the dialog can offer vessel spawning.
+                    FinalizeTreeRecordings(activeTree, commitUT, isSceneExit: true);
+                    RecordingStore.StashPendingTree(activeTree);
+                    ParsekLog.Info("Flight",
+                        $"CommitTreeSceneExit (autoMerge off): stashed tree '{activeTree.TreeName}' with snapshots preserved");
+                }
                 else
                 {
                     // Scene exit: null snapshots (ghost-only, no spawning outside Flight)
@@ -1245,7 +1255,10 @@ namespace Parsek
         /// </summary>
         IEnumerator ShowPostDestructionMergeDialog()
         {
-            yield return new WaitForSeconds(2f);
+            // Wait one frame to let the destruction sequence complete.
+            // The Harmony patch on FlightResultsDialog.Display suppresses KSP's
+            // crash report until the merge dialog is resolved — no hardcoded delay needed.
+            yield return null;
 
             // Guard: only proceed if recorder still exists and vessel was destroyed
             if (recorder == null || !recorder.VesselDestroyedDuringRecording)
@@ -1311,11 +1324,26 @@ namespace Parsek
             recorder = null;
             lastPlaybackIndex = 0;
 
+            // Auto-discard pad failures: destroyed within 10s AND never moved far from spawn.
+            // Real crashes travel 30+ meters; pad failures stay near the pad.
+            if (RecordingStore.HasPending)
+            {
+                double flightDuration = RecordingStore.Pending.EndUT - RecordingStore.Pending.StartUT;
+                double maxDist = RecordingStore.Pending.MaxDistanceFromLaunch;
+                if (flightDuration < 10.0 && maxDist < 30.0)
+                {
+                    Log($"Post-destruction: pad failure ({flightDuration:F1}s, {maxDist:F0}m) — auto-discarding");
+                    ScreenMessage("Recording discarded — pad failure", 3f);
+                    RecordingStore.DiscardPending();
+                    yield break;
+                }
+            }
+
             // Show merge dialog
             if (RecordingStore.HasPending)
             {
-                Log("Post-destruction: showing merge dialog");
-                MergeDialog.Show(RecordingStore.Pending);
+                Log("Post-destruction: commit or dialog");
+                CommitOrShowDialog(RecordingStore.Pending);
             }
         }
 
@@ -1999,6 +2027,36 @@ namespace Parsek
                         }
                     }
                 }
+
+                // Destroyed vessels: discard pad failures, otherwise commit or defer to dialog.
+                // Dialog is deferred via coroutine so it appears AFTER KSP's crash report.
+                if (RecordingStore.Pending.VesselDestroyed)
+                {
+                    double dur = RecordingStore.Pending.EndUT - RecordingStore.Pending.StartUT;
+                    double maxDist = RecordingStore.Pending.MaxDistanceFromLaunch;
+                    if (dur < 10.0 && maxDist < 30.0)
+                    {
+                        ParsekLog.Info("Flight",
+                            $"Vessel destroyed during split — pad failure ({dur:F1}s, {maxDist:F0}m), discarding");
+                        RecordingStore.DiscardPending();
+                        return;
+                    }
+                    if (ParsekScenario.IsAutoMerge)
+                    {
+                        RecordingStore.CommitPending();
+                        ParsekLog.Info("Flight",
+                            $"Vessel destroyed during split — auto-merged ({dur:F1}s)");
+                    }
+                    else
+                    {
+                        // Defer dialog — pending stays stashed, coroutine shows it after 2s
+                        ParsekLog.Info("Flight",
+                            $"Vessel destroyed during split — deferring dialog ({dur:F1}s)");
+                        StartCoroutine(ShowDeferredSplitMergeDialog());
+                    }
+                    return;
+                }
+
                 RecordingStore.CommitPending();
                 string chainInfo = activeChainId != null
                     ? $" (chain={activeChainId}, idx={activeChainNextIndex})"
@@ -3311,7 +3369,7 @@ namespace Parsek
                 {
                     // Chain-level merge dialog (covers all segments)
                     Log($"Found pending chain recording (chain={pending.ChainId}, idx={pending.ChainIndex})");
-                    MergeDialog.Show(pending);
+                    CommitOrShowDialog(pending);
                 }
                 else if (!string.IsNullOrEmpty(pending.ParentRecordingId))
                 {
@@ -3333,14 +3391,14 @@ namespace Parsek
                     }
                     else
                     {
-                        Log($"EVA child recording has no matching parent — showing merge dialog");
-                        MergeDialog.Show(pending);
+                        Log($"EVA child recording has no matching parent — commit or dialog");
+                        CommitOrShowDialog(pending);
                     }
                 }
                 else
                 {
                     Log($"Found pending recording from {pending.VesselName} ({pending.Points.Count} points)");
-                    MergeDialog.Show(pending);
+                    CommitOrShowDialog(pending);
                 }
             }
 
@@ -7931,6 +7989,42 @@ namespace Parsek
             if (FlightGlobals.ActiveVessel == null)
                 return "no active vessel";
             return "unknown guard in FlightRecorder.StartRecording";
+        }
+
+        /// <summary>
+        /// Commits or shows merge dialog for the pending recording, depending on the autoMerge setting.
+        /// </summary>
+        void CommitOrShowDialog(RecordingStore.Recording pending)
+        {
+            if (ParsekScenario.IsAutoMerge)
+            {
+                RecordingStore.CommitPending();
+                Log($"Auto-merged recording from {pending.VesselName} ({pending.Points.Count} points)");
+            }
+            else
+            {
+                Log($"Showing merge dialog for {pending.VesselName} ({pending.Points.Count} points)");
+                MergeDialog.Show(pending);
+            }
+        }
+
+        /// <summary>
+        /// Deferred merge dialog for destroyed vessels in the split path.
+        /// Waits one frame to let the destruction sequence complete. The Harmony
+        /// patch on FlightResultsDialog.Display handles ordering with KSP's report.
+        /// </summary>
+        IEnumerator ShowDeferredSplitMergeDialog()
+        {
+            yield return null;
+
+            if (!RecordingStore.HasPending)
+            {
+                Log("Deferred split merge dialog: pending consumed during wait — aborting");
+                yield break;
+            }
+
+            Log($"Showing deferred split merge dialog for {RecordingStore.Pending.VesselName}");
+            MergeDialog.Show(RecordingStore.Pending);
         }
 
         void Log(string message) => ParsekLog.Verbose("Flight", message);
