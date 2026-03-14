@@ -359,10 +359,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void WatchCycleOnRebuild_Watching_AlreadyInHold_ReturnsReady()
+        public void WatchCycleOnRebuild_Watching_AlreadyInHold_StaysInHold()
         {
-            // Already in hold (-2) but no new explosion needed → -1 (ready)
-            Assert.Equal(-1, ParsekFlight.ComputeWatchCycleOnLoopRebuild(-2, true, false, false));
+            // Already in hold (-2) — don't restart, let existing hold expire
+            Assert.Equal(-2, ParsekFlight.ComputeWatchCycleOnLoopRebuild(-2, true, false, false));
+            // Even if a new explosion is needed, don't restart the hold
+            Assert.Equal(-2, ParsekFlight.ComputeWatchCycleOnLoopRebuild(-2, true, true, false));
         }
 
         #endregion

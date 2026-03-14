@@ -7048,6 +7048,10 @@ namespace Parsek
             int currentWatchCycle, bool isWatching, bool needsExplosion, bool inPauseWindow)
         {
             if (!isWatching) return currentWatchCycle;
+            // Already in a hold — don't start another one, let the current hold
+            // expire naturally. Otherwise the timer keeps resetting during time warp
+            // and the camera never re-targets.
+            if (currentWatchCycle == -2) return currentWatchCycle;
             if (needsExplosion && !inPauseWindow) return -2; // hold at explosion site
             return -1; // ready for immediate re-target
         }
