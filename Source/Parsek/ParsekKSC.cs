@@ -25,9 +25,22 @@ namespace Parsek
         private Dictionary<int, ParsekFlight.GhostPlaybackState> kscGhosts =
             new Dictionary<int, ParsekFlight.GhostPlaybackState>();
 
+        // Overlap ghosts for negative loop intervals (multiple simultaneous ghosts per recording)
+        private Dictionary<int, List<ParsekFlight.GhostPlaybackState>> kscOverlapGhosts =
+            new Dictionary<int, List<ParsekFlight.GhostPlaybackState>>();
+
+        // Cached body lookup to avoid per-frame lambda allocations
+        private Dictionary<string, CelestialBody> bodyCache;
+
+        // One-time log tracking (avoids repeating the same log every frame)
+        private HashSet<int> loggedGhostSpawn = new HashSet<int>();
+
         private const double DefaultLoopIntervalSeconds = 10.0;
         private const double MinLoopDurationSeconds = 0.001;
         private const double MinCycleDuration = 0.001;
+        // No artificial cap on overlap ghosts — natural phase expiration keeps count bounded.
+        // Pass int.MaxValue to GetActiveCycles so the cycle range is unlimited.
+        private const int MaxOverlapGhostsPerRecording = int.MaxValue;
 
         void Start()
         {
@@ -46,16 +59,37 @@ namespace Parsek
                 ParsekFlight.MODNAME
             );
 
+            // Build body lookup cache
+            bodyCache = new Dictionary<string, CelestialBody>();
+            if (FlightGlobals.Bodies != null)
+            {
+                for (int i = 0; i < FlightGlobals.Bodies.Count; i++)
+                {
+                    var b = FlightGlobals.Bodies[i];
+                    if (b != null && !string.IsNullOrEmpty(b.name))
+                        bodyCache[b.name] = b;
+                }
+                ParsekLog.Verbose("KSC", $"Body cache built: {bodyCache.Count} bodies");
+            }
+
             int ghostCount = 0;
             var committed = RecordingStore.CommittedRecordings;
             for (int i = 0; i < committed.Count; i++)
             {
-                if (ShouldShowInKSC(committed[i]))
+                var rec = committed[i];
+                if (ShouldShowInKSC(rec))
+                {
                     ghostCount++;
+                    ParsekLog.Verbose("KSCGhost",
+                        $"Recording #{i} \"{rec.VesselName}\" eligible: " +
+                        $"UT=[{rec.StartUT:F1},{rec.EndUT:F1}] loop={rec.LoopPlayback} " +
+                        $"terminal={rec.TerminalStateValue} points={rec.Points.Count}");
+                }
             }
 
             ParsekLog.Info("KSC",
-                $"ParsekKSC initialized, {committed.Count} committed recordings, {ghostCount} eligible for KSC ghost playback");
+                $"ParsekKSC initialized, {committed.Count} committed recordings, " +
+                $"{ghostCount} eligible for KSC ghost playback");
         }
 
         void OnGUI()
@@ -85,73 +119,252 @@ namespace Parsek
                 var rec = committed[i];
                 if (!ShouldShowInKSC(rec)) continue;
 
-                double targetUT;
-                int cycleIndex;
-                bool inRange;
-                bool inPauseWindow = false;
-
+                // Branch: looping recordings check interval sign for overlap support
                 if (rec.LoopPlayback)
                 {
-                    inRange = TryComputeLoopUT(rec, currentUT,
+                    double duration = rec.EndUT - rec.StartUT;
+                    if (duration <= MinLoopDurationSeconds) continue;
+
+                    double intervalSeconds = GetLoopIntervalSeconds(rec);
+                    if (intervalSeconds < 0)
+                    {
+                        // Negative interval: multi-ghost overlap path
+                        UpdateOverlapKsc(i, rec, currentUT, intervalSeconds, duration);
+                        continue;
+                    }
+
+                    // Positive/zero interval: single-ghost path — clean up any leftover overlaps
+                    DestroyAllKscOverlapGhosts(i);
+
+                    double targetUT;
+                    int cycleIndex;
+                    bool inPauseWindow;
+                    bool inRange = TryComputeLoopUT(rec, currentUT,
                         out targetUT, out cycleIndex, out inPauseWindow);
+
+                    UpdateSingleGhostKsc(i, rec, currentUT, targetUT, cycleIndex,
+                        inRange, inPauseWindow);
                 }
                 else
                 {
-                    inRange = currentUT >= rec.StartUT && currentUT <= rec.EndUT;
-                    targetUT = currentUT;
-                    cycleIndex = 0;
-                }
-
-                ParsekFlight.GhostPlaybackState state;
-                kscGhosts.TryGetValue(i, out state);
-                bool ghostActive = state != null && state.ghost != null;
-
-                if (inRange && !inPauseWindow)
-                {
-                    // Loop cycle change: destroy + respawn for clean visual state + reset event indices
-                    if (ghostActive && rec.LoopPlayback && state.loopCycleIndex != cycleIndex)
-                    {
-                        DestroyKscGhost(state, i);
-                        kscGhosts.Remove(i);
-                        ghostActive = false;
-                        state = null;
-                    }
-
-                    if (!ghostActive)
-                    {
-                        state = SpawnKscGhost(rec, i);
-                        if (state == null) continue;
-                        state.loopCycleIndex = cycleIndex;
-                        kscGhosts[i] = state;
-                    }
-
-                    InterpolateAndPositionKsc(
-                        state.ghost, rec.Points,
-                        ref state.playbackIndex, targetUT,
-                        rec.RecordingFormatVersion >= 5);
-
-                    ParsekFlight.ApplyPartEvents(i, rec, targetUT, state);
-                }
-                else if (ghostActive)
-                {
-                    if (inPauseWindow)
-                    {
-                        // In the pause between loop cycles — hide ghost parts
-                        if (!state.pauseHidden)
-                        {
-                            state.pauseHidden = true;
-                            ParsekFlight.HideAllGhostParts(state);
-                            ParsekLog.Verbose("KSCGhost",
-                                $"Ghost #{i} \"{rec.VesselName}\" hidden during loop pause window");
-                        }
-                    }
-                    else
-                    {
-                        DestroyKscGhost(state, i);
-                        kscGhosts.Remove(i);
-                    }
+                    // Non-looping: raw UT range check
+                    DestroyAllKscOverlapGhosts(i);
+                    bool inRange = currentUT >= rec.StartUT && currentUT <= rec.EndUT;
+                    UpdateSingleGhostKsc(i, rec, currentUT, currentUT, 0, inRange, false);
                 }
             }
+        }
+
+        /// <summary>
+        /// Single-ghost playback path (positive/zero loop interval, or non-looping).
+        /// </summary>
+        void UpdateSingleGhostKsc(int recIdx, RecordingStore.Recording rec,
+            double currentUT, double targetUT, int cycleIndex,
+            bool inRange, bool inPauseWindow)
+        {
+            ParsekFlight.GhostPlaybackState state;
+            kscGhosts.TryGetValue(recIdx, out state);
+            bool ghostActive = state != null && state.ghost != null;
+
+            if (inRange && !inPauseWindow)
+            {
+                // Loop cycle change: destroy + respawn to guarantee clean visual state
+                if (ghostActive && rec.LoopPlayback && state.loopCycleIndex != cycleIndex)
+                {
+                    int oldCycle = state.loopCycleIndex;
+                    TriggerExplosionIfDestroyed(state, rec, recIdx);
+                    DestroyKscGhost(state, recIdx);
+                    kscGhosts.Remove(recIdx);
+                    ghostActive = false;
+                    state = null;
+                    ParsekLog.Verbose("KSCGhost",
+                        $"Ghost #{recIdx} \"{rec.VesselName}\" cycle change {oldCycle}→{cycleIndex}");
+                }
+
+                if (!ghostActive)
+                {
+                    state = SpawnKscGhost(rec, recIdx);
+                    if (state == null) return;
+                    state.loopCycleIndex = cycleIndex;
+                    kscGhosts[recIdx] = state;
+                    if (loggedGhostSpawn.Add(recIdx))
+                        ParsekLog.Info("KSCGhost",
+                            $"Ghost #{recIdx} \"{rec.VesselName}\" entered range: " +
+                            $"targetUT={targetUT:F1} recUT=[{rec.StartUT:F1},{rec.EndUT:F1}] " +
+                            $"cycle={cycleIndex} loop={rec.LoopPlayback} " +
+                            $"terminal={rec.TerminalStateValue}");
+                }
+
+                InterpolateAndPositionKsc(
+                    state.ghost, rec.Points,
+                    ref state.playbackIndex, targetUT,
+                    rec.RecordingFormatVersion >= 5);
+
+                ParsekFlight.ApplyPartEvents(recIdx, rec, targetUT, state);
+
+                if (!state.explosionFired && targetUT >= rec.EndUT)
+                    TriggerExplosionIfDestroyed(state, rec, recIdx);
+            }
+            else if (ghostActive)
+            {
+                if (inPauseWindow)
+                {
+                    if (!state.explosionFired)
+                        TriggerExplosionIfDestroyed(state, rec, recIdx);
+                    if (!state.pauseHidden)
+                    {
+                        state.pauseHidden = true;
+                        ParsekFlight.HideAllGhostParts(state);
+                        ParsekLog.Verbose("KSCGhost",
+                            $"Ghost #{recIdx} \"{rec.VesselName}\" hidden during loop pause window");
+                    }
+                }
+                else
+                {
+                    TriggerExplosionIfDestroyed(state, rec, recIdx);
+                    ParsekLog.Verbose("KSCGhost",
+                        $"Ghost #{recIdx} \"{rec.VesselName}\" exited range at UT {currentUT:F1}");
+                    DestroyKscGhost(state, recIdx);
+                    kscGhosts.Remove(recIdx);
+                    loggedGhostSpawn.Remove(recIdx);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Multi-ghost overlap path for negative loop intervals.
+        /// Multiple ghosts from different cycles visible simultaneously.
+        /// Simplified version of ParsekFlight.UpdateOverlapLoopPlayback
+        /// (no camera logic, no reentry FX).
+        /// </summary>
+        void UpdateOverlapKsc(int recIdx, RecordingStore.Recording rec,
+            double currentUT, double intervalSeconds, double duration)
+        {
+            ParsekFlight.GhostPlaybackState primaryState;
+            kscGhosts.TryGetValue(recIdx, out primaryState);
+            bool primaryActive = primaryState != null && primaryState.ghost != null;
+
+            if (currentUT < rec.StartUT)
+            {
+                if (primaryActive) { DestroyKscGhost(primaryState, recIdx); kscGhosts.Remove(recIdx); }
+                DestroyAllKscOverlapGhosts(recIdx);
+                return;
+            }
+
+            double cycleDuration = duration + intervalSeconds;
+            if (cycleDuration < MinCycleDuration) cycleDuration = MinCycleDuration;
+
+            int firstCycle, lastCycle;
+            ParsekFlight.GetActiveCycles(currentUT, rec.StartUT, rec.EndUT,
+                intervalSeconds, MaxOverlapGhostsPerRecording, out firstCycle, out lastCycle);
+
+            // Ensure overlap list exists
+            List<ParsekFlight.GhostPlaybackState> overlaps;
+            if (!kscOverlapGhosts.TryGetValue(recIdx, out overlaps))
+            {
+                overlaps = new List<ParsekFlight.GhostPlaybackState>();
+                kscOverlapGhosts[recIdx] = overlaps;
+            }
+
+            bool srfRel = rec.RecordingFormatVersion >= 5;
+
+            // --- Primary ghost = newest cycle (lastCycle) ---
+            bool primaryCycleChanged = !primaryActive || primaryState == null
+                || primaryState.loopCycleIndex != lastCycle;
+
+            if (primaryCycleChanged)
+            {
+                // Move old primary to overlap list (don't destroy — it keeps playing)
+                if (primaryActive && primaryState != null && primaryState.ghost != null)
+                {
+                    kscGhosts.Remove(recIdx);
+                    overlaps.Add(primaryState);
+                    ParsekLog.Verbose("KSCGhost",
+                        $"Ghost #{recIdx} cycle={primaryState.loopCycleIndex} moved to overlap list");
+                }
+                else if (primaryActive)
+                {
+                    DestroyKscGhost(primaryState, recIdx);
+                    kscGhosts.Remove(recIdx);
+                }
+
+                // Spawn new primary for lastCycle
+                primaryState = SpawnKscGhost(rec, recIdx);
+                if (primaryState == null) return;
+                primaryState.loopCycleIndex = lastCycle;
+                kscGhosts[recIdx] = primaryState;
+                ParsekLog.Info("KSCGhost",
+                    $"Ghost #{recIdx} \"{rec.VesselName}\" overlap spawn cycle={lastCycle}");
+            }
+
+            // Position and animate primary
+            if (primaryState != null && primaryState.ghost != null)
+            {
+                double cycleStartUT = rec.StartUT + lastCycle * cycleDuration;
+                double phase = currentUT - cycleStartUT;
+                if (phase < 0) phase = 0;
+                if (phase > duration) phase = duration;
+                double loopUT = rec.StartUT + phase;
+
+                InterpolateAndPositionKsc(primaryState.ghost, rec.Points,
+                    ref primaryState.playbackIndex, loopUT, srfRel);
+                ParsekFlight.ApplyPartEvents(recIdx, rec, loopUT, primaryState);
+
+                if (!primaryState.explosionFired && phase >= duration)
+                    TriggerExplosionIfDestroyed(primaryState, rec, recIdx);
+            }
+
+            // --- Overlap ghosts (older cycles, reverse iterate) ---
+            for (int j = overlaps.Count - 1; j >= 0; j--)
+            {
+                var ovState = overlaps[j];
+                if (ovState == null || ovState.ghost == null)
+                {
+                    overlaps.RemoveAt(j);
+                    continue;
+                }
+
+                int cycle = ovState.loopCycleIndex;
+                double cycleStart = rec.StartUT + cycle * cycleDuration;
+                double phase = currentUT - cycleStart;
+
+                if (phase > duration)
+                {
+                    // Cycle expired — position at end, explode, destroy
+                    if (rec.Points.Count > 0)
+                        PositionGhostAtPoint(ovState.ghost,
+                            rec.Points[rec.Points.Count - 1], srfRel);
+                    TriggerExplosionIfDestroyed(ovState, rec, recIdx);
+                    ParsekLog.Verbose("KSCGhost",
+                        $"Ghost #{recIdx} overlap cycle={cycle} expired, destroying");
+                    DestroyKscGhost(ovState, recIdx);
+                    overlaps.RemoveAt(j);
+                    continue;
+                }
+
+                if (phase < 0) phase = 0;
+                double loopUT = rec.StartUT + phase;
+
+                InterpolateAndPositionKsc(ovState.ghost, rec.Points,
+                    ref ovState.playbackIndex, loopUT, srfRel);
+                ParsekFlight.ApplyPartEvents(recIdx, rec, loopUT, ovState);
+            }
+        }
+
+        /// <summary>
+        /// Destroy all overlap ghosts for a recording.
+        /// Called when transitioning from negative to positive interval, or on cleanup.
+        /// </summary>
+        void DestroyAllKscOverlapGhosts(int recIdx)
+        {
+            List<ParsekFlight.GhostPlaybackState> list;
+            if (!kscOverlapGhosts.TryGetValue(recIdx, out list)) return;
+            if (list.Count > 0)
+                ParsekLog.Verbose("KSCGhost",
+                    $"Destroying {list.Count} overlap ghost(s) for recording #{recIdx}");
+            for (int i = 0; i < list.Count; i++)
+                DestroyKscGhost(list[i], recIdx);
+            list.Clear();
         }
 
         /// <summary>
@@ -163,8 +376,6 @@ namespace Parsek
             if (rec.Points == null || rec.Points.Count < 2) return false;
             // Only Kerbin recordings (KSC is on Kerbin)
             if (rec.Points[0].bodyName != "Kerbin") return false;
-            // Skip chain mid-segments (they'd create overlapping ghosts)
-            if (!string.IsNullOrEmpty(rec.ChainId) && rec.ChainIndex > 0) return false;
             return true;
         }
 
@@ -318,8 +529,9 @@ namespace Parsek
         /// Simplified version — no FloatingOrigin GhostPosEntry registration
         /// (positions are recomputed from lat/lon/alt each frame, so origin
         /// shifts are handled automatically).
+        /// Stops positioning when the trajectory leaves Kerbin.
         /// </summary>
-        internal static void InterpolateAndPositionKsc(
+        internal void InterpolateAndPositionKsc(
             GameObject ghost, List<TrajectoryPoint> points,
             ref int cachedIndex, double targetUT,
             bool surfaceRelativeRotation)
@@ -342,6 +554,13 @@ namespace Parsek
             TrajectoryPoint before = points[indexBefore];
             TrajectoryPoint after = points[indexBefore + 1];
 
+            // Stop positioning when trajectory leaves Kerbin
+            if (before.bodyName != "Kerbin" || after.bodyName != "Kerbin")
+            {
+                ghost.SetActive(false);
+                return;
+            }
+
             double segmentDuration = after.ut - before.ut;
             if (segmentDuration <= 0.0001)
             {
@@ -352,8 +571,8 @@ namespace Parsek
             float t = (float)((targetUT - before.ut) / segmentDuration);
             t = Mathf.Clamp01(t);
 
-            CelestialBody bodyBefore = FlightGlobals.Bodies.Find(b => b.name == before.bodyName);
-            CelestialBody bodyAfter = FlightGlobals.Bodies.Find(b => b.name == after.bodyName);
+            CelestialBody bodyBefore = LookupBody(before.bodyName);
+            CelestialBody bodyAfter = LookupBody(after.bodyName);
             if (bodyBefore == null || bodyAfter == null)
             {
                 ParsekLog.VerboseRateLimited("KSCGhost", "interp-no-body",
@@ -387,10 +606,16 @@ namespace Parsek
         /// <summary>
         /// Position ghost at a single trajectory point (no interpolation).
         /// </summary>
-        static void PositionGhostAtPoint(GameObject ghost, TrajectoryPoint point,
+        void PositionGhostAtPoint(GameObject ghost, TrajectoryPoint point,
             bool surfaceRelativeRotation)
         {
-            CelestialBody body = FlightGlobals.Bodies.Find(b => b.name == point.bodyName);
+            if (point.bodyName != "Kerbin")
+            {
+                ghost.SetActive(false);
+                return;
+            }
+
+            CelestialBody body = LookupBody(point.bodyName);
             if (body == null) return;
 
             Vector3d worldPos = body.GetWorldSurfacePosition(
@@ -406,7 +631,23 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Compute loop playback UT for a recording.
+        /// Cached body lookup — avoids per-frame lambda allocation from FlightGlobals.Bodies.Find.
+        /// </summary>
+        CelestialBody LookupBody(string bodyName)
+        {
+            if (bodyCache != null)
+            {
+                CelestialBody cached;
+                if (bodyCache.TryGetValue(bodyName, out cached))
+                    return cached;
+            }
+            // Fallback if cache miss (shouldn't happen for Kerbin)
+            return FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+        }
+
+        /// <summary>
+        /// Compute loop playback UT for a recording (positive/zero interval path only).
+        /// Negative intervals use UpdateOverlapKsc with GetActiveCycles instead.
         /// Reimplemented from ParsekFlight.TryComputeLoopPlaybackUT (instance version)
         /// because the static 6-param overload doesn't return pause-window state.
         /// </summary>
@@ -447,13 +688,48 @@ namespace Parsek
             return true;
         }
 
-        static double GetLoopIntervalSeconds(RecordingStore.Recording rec)
+        /// <summary>
+        /// Get the loop interval for a recording. Matches ParsekFlight logic:
+        /// clamped so cycleDuration is always >= MinCycleDuration.
+        /// Negative intervals mean shorter cycles (overlapping launches from KSC).
+        /// </summary>
+        internal static double GetLoopIntervalSeconds(RecordingStore.Recording rec)
         {
             if (rec == null) return DefaultLoopIntervalSeconds;
             if (double.IsNaN(rec.LoopIntervalSeconds) || double.IsInfinity(rec.LoopIntervalSeconds))
                 return DefaultLoopIntervalSeconds;
             double duration = rec.EndUT - rec.StartUT;
             return Math.Max(-duration + MinCycleDuration, rec.LoopIntervalSeconds);
+        }
+
+        /// <summary>
+        /// Trigger explosion FX if the recording ended with vessel destruction.
+        /// Guards against repeat firing via state.explosionFired.
+        /// </summary>
+        void TriggerExplosionIfDestroyed(ParsekFlight.GhostPlaybackState state,
+            RecordingStore.Recording rec, int recIdx)
+        {
+            if (state == null || state.ghost == null) return;
+            if (state.explosionFired) return;
+            if (rec.TerminalStateValue != TerminalState.Destroyed) return;
+
+            state.explosionFired = true;
+
+            Vector3 worldPos = state.ghost.transform.position;
+            float vesselLength = GhostVisualBuilder.ComputeGhostLength(state.ghost);
+            // Scale down for KSC view — from the distant KSC camera, full-size
+            // explosions look disproportionately huge. Use a fraction of vessel length.
+            float kscExplosionScale = Mathf.Max(vesselLength * 0.15f, 2f);
+
+            ParsekLog.Info("KSCGhost",
+                $"Explosion for ghost #{recIdx} \"{rec.VesselName}\" " +
+                $"vesselLength={vesselLength:F1}m kscScale={kscExplosionScale:F1}m");
+
+            var explosion = GhostVisualBuilder.SpawnExplosionFx(worldPos, kscExplosionScale);
+            if (explosion != null)
+                Destroy(explosion, 6f);
+
+            ParsekFlight.HideAllGhostParts(state);
         }
 
         /// <summary>
@@ -511,10 +787,15 @@ namespace Parsek
 
         void OnDestroy()
         {
-            // Clean up all KSC ghosts
+            // Clean up all KSC ghosts (primary + overlap)
             foreach (var kv in kscGhosts)
                 DestroyKscGhost(kv.Value, kv.Key);
             kscGhosts.Clear();
+
+            foreach (var kv in kscOverlapGhosts)
+                for (int i = 0; i < kv.Value.Count; i++)
+                    DestroyKscGhost(kv.Value[i], kv.Key);
+            kscOverlapGhosts.Clear();
 
             ParsekLog.Info("KSC", "ParsekKSC destroyed");
             ui?.Cleanup();
