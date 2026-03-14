@@ -52,7 +52,7 @@
 │                                                                  │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐ │
 │  │  Recording  │  │  Timeline   │  │  Playback Controls      │ │
-│  │  Controls   │  │  Viewer     │  │  (take control, etc.)   │ │
+│  │  Controls   │  │  Viewer     │  │  (watch, loop, etc.)   │ │
 │  └─────────────┘  └─────────────┘  └─────────────────────────┘ │
 │                                                                  │
 └──────────────────────────────────────────────────────────────────┘
@@ -412,8 +412,6 @@ public class PlaybackVessel
     // Vessel reference (when spawned)
     public Vessel KSPVessel { get; }
     
-    // Control
-    public void TakeControl();  // Player assumes control
 }
 ```
 
@@ -629,7 +627,7 @@ Summary of the recording strategy derived from mod analysis:
 │ Status: In transit              │
 │ Next event: SOI change (D182)   │
 │                                 │
-│ [Take Control] [Warp to Event]  │
+│ [Watch] [Warp to Event]         │
 └─────────────────────────────────┘
 ```
 

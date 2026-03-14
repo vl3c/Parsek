@@ -160,11 +160,6 @@ The recording tree builds on top of the existing chain system. Each node in the 
 
 ## Future
 
-### Take Control stabilization
-Making "jump into a ghost and fly it" reliable is desirable but creates paradox problems: what happens to the recording's future events, reserved crew, and applied resource deltas? Each answer requires hard restrictions that may frustrate players. This needs careful design and should not be rushed.
-
-Current status: experimental button exists in UI, not recommended for normal play.
-
 ### Planetarium.right drift compensation for long orbital segments
 KSP's inertial reference frame (`Planetarium.right`) may drift over very long time warp durations. This could cause ghost orientation mismatch for interplanetary transfer segments. Needs empirical measurement first — if drift is sub-degree for typical segment lengths, no fix needed. If significant, store `Planetarium.right` snapshot at recording time and apply correction at playback (~10 lines + 3 ConfigNode keys). See `docs/dev/done/design-orbital-rotation.md` Phase 6.
 
@@ -183,5 +178,6 @@ If the game crashes or the player alt-F4s while a merge dialog is pending, the r
 - **Racing modes or lap timing**
 - **AI playback or autopilot**
 - **Multiplayer synchronization**
+- **Taking control of recorded vessels** - jumping into a ghost mid-playback creates unresolvable paradoxes (recording future events, reserved crew, applied resource deltas). The complexity is not worth the payoff.
 - **Timeline branching or alternate histories**
 - **Logistics network** - Parsek's recording infrastructure (looped playback, chain segments, vessel snapshots, game state events, resource tracking) forms a natural foundation for automated supply routes between bases. The concept: fly a cargo mission once, Parsek records it, then that recording becomes a reusable logistics route that periodically deducts fuel at the origin and delivers cargo at the destination, with the ghost replaying visually during transit. This will be built as a separate mod on top of Parsek rather than integrated directly. See `docs/dev/research/logistics-network-design.md` for the full design exploration.

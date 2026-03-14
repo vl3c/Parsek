@@ -4413,7 +4413,7 @@ namespace Parsek
                 bool isMidChain = RecordingStore.IsChainMidSegment(rec);
                 double chainEndUT = isMidChain ? RecordingStore.GetChainEndUT(rec) : rec.EndUT;
                 bool pastChainEnd = currentUT > chainEndUT;
-                bool needsSpawn = rec.VesselSnapshot != null && !rec.VesselSpawned && !rec.VesselDestroyed && !rec.TakenControl;
+                bool needsSpawn = rec.VesselSnapshot != null && !rec.VesselSpawned && !rec.VesselDestroyed;
 
                 // Branch > 0 recordings are ghost-only (undock continuations) — never spawn
                 if (needsSpawn && rec.ChainBranch > 0)
@@ -4476,14 +4476,6 @@ namespace Parsek
                     rec.VesselSpawned = true;
                     needsSpawn = false;
                     Log($"Vessel already spawned (pid={rec.SpawnedVesselPersistentId}) — skipping duplicate spawn for recording #{i}");
-                }
-
-                // Skip ghost playback entirely for recordings where player took control
-                if (rec.TakenControl)
-                {
-                    if (ghostActive)
-                        DestroyTimelineGhost(i);
-                    continue;
                 }
 
                 if (inRange)
@@ -7259,10 +7251,6 @@ namespace Parsek
             string ghostBody = gs.lastInterpolatedBodyName;
             string activeBody = FlightGlobals.ActiveVessel?.mainBody?.name;
             if (string.IsNullOrEmpty(ghostBody) || string.IsNullOrEmpty(activeBody) || ghostBody != activeBody)
-                return;
-
-            // Cannot enter watch mode for a taken-control recording
-            if (committed[index].TakenControl)
                 return;
 
             // Flight warning: if active vessel is in an unsafe state, show a brief screen message
