@@ -205,6 +205,70 @@ namespace Parsek.Tests
             Assert.Single(logLines, l => l.Contains("already fired") && l.Contains("#2"));
         }
 
+        // --- ApplyDestroyedFallback tests ---
+
+        [Fact]
+        public void ApplyDestroyedFallback_WasDestroyed_NullTerminal_SetsDestroyed()
+        {
+            var rec = new RecordingStore.Recording();
+            rec.TerminalStateValue = null;
+
+            bool result = ParsekFlight.ApplyDestroyedFallback(true, rec);
+
+            Assert.True(result);
+            Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
+            Assert.Contains(logLines, l => l.Contains("overriding TerminalState") && l.Contains("null"));
+        }
+
+        [Fact]
+        public void ApplyDestroyedFallback_WasDestroyed_LandedTerminal_OverridesToDestroyed()
+        {
+            var rec = new RecordingStore.Recording();
+            rec.TerminalStateValue = TerminalState.Landed;
+
+            bool result = ParsekFlight.ApplyDestroyedFallback(true, rec);
+
+            Assert.True(result);
+            Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
+            Assert.Contains(logLines, l => l.Contains("overriding TerminalState") && l.Contains("Landed"));
+        }
+
+        [Fact]
+        public void ApplyDestroyedFallback_WasDestroyed_AlreadyDestroyed_NoChange()
+        {
+            var rec = new RecordingStore.Recording();
+            rec.TerminalStateValue = TerminalState.Destroyed;
+
+            bool result = ParsekFlight.ApplyDestroyedFallback(true, rec);
+
+            Assert.False(result);
+            Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
+        }
+
+        [Fact]
+        public void ApplyDestroyedFallback_NotDestroyed_NullTerminal_NoChange()
+        {
+            var rec = new RecordingStore.Recording();
+            rec.TerminalStateValue = null;
+
+            bool result = ParsekFlight.ApplyDestroyedFallback(false, rec);
+
+            Assert.False(result);
+            Assert.Null(rec.TerminalStateValue);
+        }
+
+        [Fact]
+        public void ApplyDestroyedFallback_NotDestroyed_LandedTerminal_NoChange()
+        {
+            var rec = new RecordingStore.Recording();
+            rec.TerminalStateValue = TerminalState.Landed;
+
+            bool result = ParsekFlight.ApplyDestroyedFallback(false, rec);
+
+            Assert.False(result);
+            Assert.Equal(TerminalState.Landed, rec.TerminalStateValue);
+        }
+
         // --- RecordingBuilder.WithTerminalState serialization ---
 
         [Fact]
