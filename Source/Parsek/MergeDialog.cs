@@ -11,6 +11,15 @@ namespace Parsek
     /// </summary>
     public static class MergeDialog
     {
+        /// <summary>
+        /// Clears the deferred merge dialog flag in ParsekScenario.
+        /// Called from every button callback so the flag doesn't block re-showing.
+        /// </summary>
+        internal static void ClearPendingFlag()
+        {
+            ParsekScenario.MergeDialogPending = false;
+        }
+
         public static void Show(RecordingStore.Recording pending)
         {
             if (pending == null)
@@ -66,6 +75,7 @@ namespace Parsek
                                 ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
                             pending.VesselSnapshot = null;
                             RecordingStore.CommitPending();
+                            ClearPendingFlag();
                             ParsekLog.ScreenMessage("Recording merged to timeline!", 3f);
                             ParsekLog.Info("MergeDialog", "User chose: Merge to Timeline (vessel destroyed)");
                         }),
@@ -73,6 +83,7 @@ namespace Parsek
                         {
                             ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
                             RecordingStore.DiscardPending();
+                            ClearPendingFlag();
                             ParsekLog.ScreenMessage("Recording discarded", 2f);
                             ParsekLog.Info("MergeDialog", "User chose: Discard");
                         })
@@ -89,6 +100,7 @@ namespace Parsek
                             RecordingStore.CommitPending();
                             ParsekScenario.ReserveSnapshotCrew();
                             ParsekScenario.SwapReservedCrewInFlight();
+                            ClearPendingFlag();
                             ParsekLog.ScreenMessage("Recording merged — vessel will appear after ghost playback", 3f);
                             ParsekLog.Info("MergeDialog", "User chose: Merge to Timeline (deferred spawn)");
                         }),
@@ -96,6 +108,7 @@ namespace Parsek
                         {
                             ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
                             RecordingStore.DiscardPending();
+                            ClearPendingFlag();
                             ParsekLog.ScreenMessage("Recording discarded", 2f);
                             ParsekLog.Info("MergeDialog", "User chose: Discard");
                         })
@@ -110,6 +123,7 @@ namespace Parsek
 
             string message = BuildMergeMessage(pending, duration, recommended);
 
+            PopupDialog.DismissPopup("ParsekMerge");
             PopupDialog.SpawnPopupDialog(
                 new Vector2(0.5f, 0.5f),
                 new Vector2(0.5f, 0.5f),
@@ -145,12 +159,14 @@ namespace Parsek
                         RecordingStore.CommitPending();
                         ParsekScenario.ReserveSnapshotCrew();
                         ParsekScenario.SwapReservedCrewInFlight();
+                        ClearPendingFlag();
                         ParsekLog.ScreenMessage($"Mission chain ({totalSegments} segments) merged — vessel will appear!", 3f);
                         ParsekLog.Info("MergeDialog", $"User chose: Chain Merge to Timeline ({totalSegments} segments)");
                     }),
                     new DialogGUIButton("Discard All", () =>
                     {
                         DiscardChain(pending, chainId);
+                        ClearPendingFlag();
                         ParsekLog.ScreenMessage($"Mission chain ({totalSegments} segments) discarded", 2f);
                         ParsekLog.Info("MergeDialog", $"User chose: Chain Discard ({totalSegments} segments)");
                     })
@@ -168,12 +184,14 @@ namespace Parsek
                         pending.VesselSnapshot = null;
                         NullChainSiblingSnapshots(chainSiblings);
                         RecordingStore.CommitPending();
+                        ClearPendingFlag();
                         ParsekLog.ScreenMessage($"Mission chain ({totalSegments} segments) merged!", 3f);
                         ParsekLog.Info("MergeDialog", $"User chose: Chain Merge to Timeline ({totalSegments} segments)");
                     }),
                     new DialogGUIButton("Discard All", () =>
                     {
                         DiscardChain(pending, chainId);
+                        ClearPendingFlag();
                         ParsekLog.ScreenMessage($"Mission chain ({totalSegments} segments) discarded", 2f);
                         ParsekLog.Info("MergeDialog", $"User chose: Chain Discard ({totalSegments} segments)");
                     })
@@ -200,6 +218,7 @@ namespace Parsek
             else
                 message += "All segments will replay as ghosts.";
 
+            PopupDialog.DismissPopup("ParsekMerge");
             PopupDialog.SpawnPopupDialog(
                 new Vector2(0.5f, 0.5f),
                 new Vector2(0.5f, 0.5f),
@@ -373,6 +392,7 @@ namespace Parsek
                     RecordingStore.CommitPendingTree();
                     ParsekScenario.ReserveSnapshotCrew();
                     ParsekScenario.SwapReservedCrewInFlight();
+                    ClearPendingFlag();
                     if (spawnCount > 0)
                         ParsekLog.ScreenMessage(
                             $"Tree merged \u2014 {spawnCount} vessel(s) will appear after ghost playback", 3f);
@@ -390,6 +410,7 @@ namespace Parsek
                             ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
                     }
                     RecordingStore.DiscardPendingTree();
+                    ClearPendingFlag();
                     ParsekLog.ScreenMessage("Recording tree discarded", 2f);
                     ParsekLog.Info("MergeDialog",
                         $"User chose: Tree Discard (tree='{tree.TreeName}', " +
@@ -397,6 +418,7 @@ namespace Parsek
                 })
             };
 
+            PopupDialog.DismissPopup("ParsekMerge");
             PopupDialog.SpawnPopupDialog(
                 new Vector2(0.5f, 0.5f),
                 new Vector2(0.5f, 0.5f),

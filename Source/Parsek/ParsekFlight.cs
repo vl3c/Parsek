@@ -1021,6 +1021,16 @@ namespace Parsek
                     // Revert: preserve snapshots for merge dialog
                     CommitTreeRevert(commitUT);
                 }
+                else if (ParsekSettings.Current?.autoMerge == false)
+                {
+                    // autoMerge OFF: safe finalization but preserve snapshots for dialog in KSC/TS.
+                    // Uses isSceneExit: true (no live vessel re-snapshots during teardown)
+                    // but skips snapshot nulling so the dialog can offer vessel spawning.
+                    FinalizeTreeRecordings(activeTree, commitUT, isSceneExit: true);
+                    RecordingStore.StashPendingTree(activeTree);
+                    ParsekLog.Info("Flight",
+                        $"CommitTreeSceneExit (autoMerge off): stashed tree '{activeTree.TreeName}' with snapshots preserved");
+                }
                 else
                 {
                     // Scene exit: null snapshots (ghost-only, no spawning outside Flight)
