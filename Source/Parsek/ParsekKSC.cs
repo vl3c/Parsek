@@ -38,9 +38,10 @@ namespace Parsek
         private const double DefaultLoopIntervalSeconds = 10.0;
         private const double MinLoopDurationSeconds = 0.001;
         private const double MinCycleDuration = 0.001;
-        // No artificial cap on overlap ghosts — natural phase expiration keeps count bounded.
-        // Pass int.MaxValue to GetActiveCycles so the cycle range is unlimited.
-        private const int MaxOverlapGhostsPerRecording = int.MaxValue;
+        // Safety cap for overlap ghosts. Natural phase expiration keeps count bounded for
+        // well-behaved recordings, but pathological cases (very short duration, very negative
+        // interval) could spawn many before expiration catches up.
+        private const int MaxOverlapGhostsPerRecording = 20;
 
         // Distance culling: skip part events and deactivate ghosts beyond this range from camera.
         // 25km matches Kerbal Konstructs' default activation range for statics.
@@ -275,23 +276,19 @@ namespace Parsek
             bool srfRel = rec.RecordingFormatVersion >= 5;
 
             // --- Primary ghost = newest cycle (lastCycle) ---
-            bool primaryCycleChanged = !primaryActive || primaryState == null
+            // primaryActive already guarantees primaryState != null && ghost != null
+            bool primaryCycleChanged = !primaryActive
                 || primaryState.loopCycleIndex != lastCycle;
 
             if (primaryCycleChanged)
             {
                 // Move old primary to overlap list (don't destroy — it keeps playing)
-                if (primaryActive && primaryState != null && primaryState.ghost != null)
+                if (primaryActive)
                 {
                     kscGhosts.Remove(recIdx);
                     overlaps.Add(primaryState);
                     ParsekLog.Verbose("KSCGhost",
                         $"Ghost #{recIdx} cycle={primaryState.loopCycleIndex} moved to overlap list");
-                }
-                else if (primaryActive)
-                {
-                    DestroyKscGhost(primaryState, recIdx);
-                    kscGhosts.Remove(recIdx);
                 }
 
                 // Spawn new primary for lastCycle
@@ -303,8 +300,7 @@ namespace Parsek
                     $"Ghost #{recIdx} \"{rec.VesselName}\" overlap spawn cycle={lastCycle}");
             }
 
-            // Position and animate primary
-            if (primaryState != null && primaryState.ghost != null)
+            // Position and animate primary (SpawnKscGhost above guarantees non-null)
             {
                 double cycleStartUT = rec.StartUT + lastCycle * cycleDuration;
                 double phase = currentUT - cycleStartUT;
@@ -397,7 +393,8 @@ namespace Parsek
         ParsekFlight.GhostPlaybackState SpawnKscGhost(RecordingStore.Recording rec, int index)
         {
             // Skip if no snapshot — no sphere fallback in KSC
-            if (GhostVisualBuilder.GetGhostSnapshot(rec) == null)
+            var snapshot = GhostVisualBuilder.GetGhostSnapshot(rec);
+            if (snapshot == null)
             {
                 ParsekLog.VerboseRateLimited("KSCGhost", $"spawn-no-snapshot-{index}",
                     $"Ghost #{index} \"{rec.VesselName}\": no snapshot, skipping");
@@ -435,8 +432,7 @@ namespace Parsek
                 // reentryFxInfo intentionally null — RebuildReentryMeshes no-ops
                 playbackIndex = 0,
                 partEventIndex = 0,
-                partTree = GhostVisualBuilder.BuildPartSubtreeMap(
-                    GhostVisualBuilder.GetGhostSnapshot(rec))
+                partTree = GhostVisualBuilder.BuildPartSubtreeMap(snapshot)
             };
 
             if (parachuteInfoList != null)
@@ -608,6 +604,8 @@ namespace Parsek
             }
 
             ghost.transform.position = interpolatedPos;
+            // Uses bodyBefore's transform for rotation (not interpolated between bodies).
+            // Negligible for KSC: both points are Kerbin, body rotation is constant.
             ghost.transform.rotation = surfaceRelativeRotation
                 ? bodyBefore.bodyTransform.rotation * interpolatedRot
                 : interpolatedRot;
@@ -648,7 +646,8 @@ namespace Parsek
         {
             if (ghost == null) return false;
             Camera cam = PlanetariumCamera.Camera;
-            if (cam == null) return true; // can't cull without a camera
+            // Null camera during scene transitions — process all ghosts rather than skip
+            if (cam == null) return true;
             float sqrDist = (ghost.transform.position - cam.transform.position).sqrMagnitude;
             if (sqrDist > GhostCullDistanceSq)
             {
@@ -727,6 +726,7 @@ namespace Parsek
             if (rec == null) return DefaultLoopIntervalSeconds;
             if (double.IsNaN(rec.LoopIntervalSeconds) || double.IsInfinity(rec.LoopIntervalSeconds))
                 return DefaultLoopIntervalSeconds;
+            // Caller guards duration <= 0 before calling (Update checks MinLoopDurationSeconds).
             double duration = rec.EndUT - rec.StartUT;
             return Math.Max(-duration + MinCycleDuration, rec.LoopIntervalSeconds);
         }
@@ -824,6 +824,7 @@ namespace Parsek
                 for (int i = 0; i < kv.Value.Count; i++)
                     DestroyKscGhost(kv.Value[i], kv.Key);
             kscOverlapGhosts.Clear();
+            loggedGhostSpawn.Clear();
 
             ParsekLog.Info("KSC", "ParsekKSC destroyed");
             ui?.Cleanup();
