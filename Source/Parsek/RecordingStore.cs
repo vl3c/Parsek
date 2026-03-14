@@ -1175,6 +1175,22 @@ namespace Parsek
                 const double rewindLeadTime = 10.0;
                 PreProcessRewindSave(tempPath, rec.VesselName, rewindLeadTime);
 
+                // Also strip EVA child recording vessels in the same chain.
+                // The rewind targets the parent vessel, but EVA children have different
+                // vessel names (the kerbal's name) and would otherwise survive the strip.
+                if (!string.IsNullOrEmpty(rec.ChainId))
+                {
+                    foreach (var committed in committedRecordings)
+                    {
+                        if (committed.ChainId == rec.ChainId &&
+                            !string.IsNullOrEmpty(committed.EvaCrewName) &&
+                            committed.VesselName != rec.VesselName)
+                        {
+                            PreProcessRewindSave(tempPath, committed.VesselName, 0);
+                        }
+                    }
+                }
+
                 Game game = GamePersistence.LoadGame(tempCopyName, HighLogic.SaveFolder, true, false);
 
                 // Delete the temp copy (file already parsed into Game object)
