@@ -107,7 +107,9 @@ Ghost re-entry heating FX appear as oversized square arrangements (6 spaced-out 
 1. **Scale/pattern:** Each flame particle system renders as a grid/square pattern instead of a smooth heating glow — many individual flame sprites arranged in a grid-like formation
 2. **Direction:** Flame direction vector is inverted relative to the velocity vector — should face into the airstream (prograde) but instead faces retrograde
 
-**Status:** Open — needs investigation of `ReentryFx` particle placement and velocity alignment in ParsekFlight.cs
+**Fix:** Completely reworked across multiple PRs: square particle sprites replaced with smooth fire streak trails (#30), then replaced again with mesh-surface fire particles matching the stock KSP `aeroFX` intensity formula from `Physics.cfg` (#32). Fire shell overlay added and reentry meshes rebuilt on decouple events. Direction and scale issues resolved.
+
+**Status:** Fixed
 
 ## 18. Engine nozzle glow persists after engine cutoff
 
@@ -139,7 +141,9 @@ In the second segment of a chain recording (e.g., Kerbin exo after atmosphere ex
 
 **Reproduction:** Record a full flight with staging (R2 default career). Watch the exo-atmospheric chain segment — after the booster separates, the remaining vessel orientation is visibly wrong.
 
-**Status:** Open — needs investigation of rotation handling around decouple events in the playback path
+**Fix:** Resolved by the v5 surface-relative rotation overhaul (`9775e8f`) and the orbital-frame rotation work (`c0a8ced`, `8c869a4`). Rotation is now stored as `srfRelRotation` (surface-relative) and reconstructed at playback via `bodyTransform.rotation * storedRot`. Old v4 recordings auto-migrated to v5 at flight-scene load. The rotation system was completely rewritten after this bug was filed — ghost rotation is correct regardless of staging/decouple events.
+
+**Status:** Fixed
 
 ## 21. Ghost build warning spam for snapshot-less recordings
 
@@ -190,7 +194,11 @@ During ghost visual builds, some parts log `Variant active-state fallback: no ac
 
 **Reproduction:** `dotnet test` (full suite) — fails ~50% of runs. `dotnet test --filter GetCommittedTechIds_MultipleMilestones` — always passes.
 
-**Status:** Open — needs investigation of shared state cleanup between tests
+**Root cause:** `ComputeStatsTests` and `SyntheticRecordingTests` called `MilestoneStore.ResetForTesting()` but were missing `[Collection("Sequential")]`. xUnit runs test classes without a collection attribute in parallel. When these classes ran in parallel with `CommittedActionTests`, they wiped the `MilestoneStore` mid-test.
+
+**Fix:** Added `[Collection("Sequential")]` to `ComputeStatsTests` and `SyntheticRecordingTests`. Verified 5 consecutive full-suite runs with 0 failures.
+
+**Status:** Fixed
 
 ## 26. EVA crew swap fails after merging from KSC
 
