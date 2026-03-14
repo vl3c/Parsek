@@ -1152,6 +1152,17 @@ namespace Parsek
                         RecordingStore.Pending.TerminalStateValue =
                             RecordingTree.DetermineTerminalState((int)sit);
                     }
+
+                    // Fallback: if the vessel was destroyed during recording,
+                    // override whatever situation-based terminal state was set.
+                    // Covers two cases:
+                    // 1. ActiveVessel null (building collision destroyed the only
+                    //    vessel, triggering scene change before
+                    //    ShowPostDestructionMergeDialog could run) — TerminalState is null.
+                    // 2. ActiveVessel switched to debris/other vessel with a
+                    //    non-Destroyed situation (e.g., LANDED) — TerminalState is
+                    //    wrong (Landed instead of Destroyed).
+                    ApplyDestroyedFallback(wasDestroyed, RecordingStore.Pending);
                 }
 
                 recorder = null;
@@ -2347,6 +2358,25 @@ namespace Parsek
         {
             if (dockingInProgress.Contains(vesselPid)) return false;
             return !vesselStillExists;
+        }
+
+        /// <summary>
+        /// Pure decision method: if the vessel was destroyed during recording, ensures
+        /// TerminalStateValue is Destroyed regardless of what situation-based inference produced.
+        /// Returns true if the terminal state was overridden.
+        /// </summary>
+        internal static bool ApplyDestroyedFallback(
+            bool wasDestroyed, RecordingStore.Recording rec)
+        {
+            if (!wasDestroyed) return false;
+            if (rec.TerminalStateValue == TerminalState.Destroyed) return false;
+
+            var prev = rec.TerminalStateValue;
+            rec.TerminalStateValue = TerminalState.Destroyed;
+            ParsekLog.Info("Flight",
+                $"Scene-exit fallback: vessel destroyed during recording — overriding TerminalState " +
+                $"from {prev?.ToString() ?? "null"} to Destroyed");
+            return true;
         }
 
         /// <summary>

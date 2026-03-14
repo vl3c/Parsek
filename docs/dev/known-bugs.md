@@ -236,9 +236,11 @@ When a vessel crashes into a KSC building (VAB, launchpad tower, etc.), the reco
 
 **Observed in:** KSP.log from KSC ghost testing (2026-03-14). Recordings with `terminal=` (null) despite vessels being destroyed by building collisions.
 
-**Investigation (2026-03-14):** Code analysis shows `onVesselWillDestroy` and `onVesselTerminated` GameEvents should fire for all vessel destruction including building collisions. The sandbox session data shows all `vesselDestroyed=True` recordings correctly have `terminalState=4` (Destroyed). Recordings with no terminal state are tree root segments that end at a branch point (revert), which is by design. No building collision was reproduced in the 2026-03-14 session — needs explicit in-game reproduction to confirm whether this bug is real.
+**Root cause (confirmed):** Race condition in `OnSceneChangeRequested`. When the vessel is destroyed and a scene change fires in the same frame (building collision destroying the only vessel), `ShowPostDestructionMergeDialog` (yields 1 frame) is killed by the scene change before it can set `TerminalState.Destroyed`. The `OnSceneChangeRequested` fallback path sets terminal state from `FlightGlobals.ActiveVessel.situation`, but `ActiveVessel` is null (destroyed). A secondary gap: if ActiveVessel switched to debris with `LANDED` situation, the terminal state would be `Landed` instead of `Destroyed`.
 
-**Status:** Needs verification — may not be a real bug
+**Fix:** Extracted `ApplyDestroyedFallback` — after the situation-based terminal state inference in `OnSceneChangeRequested`, checks `wasDestroyed` flag and overrides any non-Destroyed terminal state. Covers both null (ActiveVessel gone) and wrong-situation (ActiveVessel is debris) cases.
+
+**Status:** Fixed
 
 ## 29. Ghost parts missing or in wrong visual state during playback
 
