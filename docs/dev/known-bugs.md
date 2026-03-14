@@ -234,6 +234,8 @@ When a vessel crashes into a KSC building (VAB, launchpad tower, etc.), the reco
 
 **Root cause:** The destruction detection path that sets `TerminalStateValue = TerminalState.Destroyed` doesn't fire for building collisions. The vessel is destroyed by KSP's building collision system, but the recording commit path may not reach the code that sets the terminal state.
 
+**Observed in:** KSP.log from KSC ghost testing (2026-03-14). Recordings with `terminal=` (null) despite vessels being destroyed by building collisions.
+
 **Investigation (2026-03-14):** Code analysis shows `onVesselWillDestroy` and `onVesselTerminated` GameEvents should fire for all vessel destruction including building collisions. The sandbox session data shows all `vesselDestroyed=True` recordings correctly have `terminalState=4` (Destroyed). Recordings with no terminal state are tree root segments that end at a branch point (revert), which is by design. No building collision was reproduced in the 2026-03-14 session — needs explicit in-game reproduction to confirm whether this bug is real.
 
 **Status:** Needs verification — may not be a real bug
@@ -255,3 +257,89 @@ Some vessel parts are missing or display incorrectly during ghost playback (both
 **Observed in:** KSC ghost testing (2026-03-14). Visible on multiple vessel types.
 
 **Status:** Open
+
+## 30. All RCS thrusters fire constantly during ghost playback
+
+During ghost playback, all RCS thrusters on the vessel fire at full power continuously, even when the original vessel was only making small SAS attitude corrections. The visual result is every RCS block showing full exhaust plumes at all times, which looks unrealistic and distracting — especially on vessels with many RCS blocks (e.g., 8-10 thrusters all lit up simultaneously).
+
+**Root cause:** The recording system polls `rcs.rcs_active && rcs.rcsEnabled` every physics frame (`FlightRecorder.CheckRcsState`, line 2387). KSP's SAS system makes constant micro-corrections, briefly activating individual RCS thrusters for 1-3 frames at a time. This produces a rapid stream of `RCSActivated` → `RCSStopped` events (potentially dozens per second across all thrusters). During playback, these rapid fire/stop cycles blend together visually into what appears to be continuous full-power firing on all thrusters.
+
+Additionally, `ComputeRcsPower` normalizes thrust across all nozzles (`sum / (thrusterPower * count)`), which can report full power even when only a subset of nozzles are firing for a micro-correction. The 0.01 throttle-change deadband in `CheckRcsTransition` doesn't filter out the rapid on/off cycling.
+
+**Desired behavior:** Ghost RCS should only show visually significant thrust events — sustained translation burns or large rotation corrections that the player intentionally commanded. Brief SAS micro-corrections should be filtered out or aggregated.
+
+**Possible fixes:**
+1. **Minimum duration filter:** Only emit `RCSActivated` if the thruster stays active for N consecutive physics frames (e.g., 5+ frames ≈ 0.1s). Would eliminate SAS micro-correction noise.
+2. **Per-nozzle recording:** Record individual nozzle thrust values instead of aggregate power, so playback can show which specific nozzles fired and in which direction.
+3. **Hysteresis:** Require RCS to be inactive for N frames before emitting `RCSStopped`, preventing rapid on/off cycling.
+
+**Observed in:** Sandbox career (2026-03-14). Visible on vessels with RCS blocks: ghost #9 (rcs=8), ghost #5 (rcs=8), ghost #10 (rcs=3), ghost #12 (rcs=10). No RCS events were recorded in this session (playback-only), but the FX build chain created particle systems for all RCS modules.
+
+**Status:** Open
+
+## 31. Engine shroud/cover not rendered correctly for some engines
+
+Some engines display their protective shroud/cover incorrectly during ghost playback. The shroud may appear missing, partially rendered, or in the wrong variant configuration. This affects engines that have multiple shroud variants (different sizes for different tank diameters) or engines with complex jettison transform hierarchies.
+
+**Root cause:** `GhostVisualBuilder.AddPartVisuals` resolves jettison transforms by looking up `ModuleJettison.jettisonName` in the clone map. However, engines with part variants (e.g., Mainsail with `fairing`/`fairingSmall`, Skipper with `fairing`/`fairing2`, KE-1 "Vector" with `Shroud2x3`/`Shroud2x4`) have multiple shroud meshes on the prefab but only the active variant's mesh is included in the clone. When the jettison lookup finds the prefab transform but not the clone, it logs `"Jettison 'X' found on prefab but not in cloneMap"` and skips it.
+
+The active variant's shroud is detected and tracked correctly via the `cloneMap` hit path. The 275 "not in cloneMap" messages in the log (2026-03-14 session) are for non-active variant shrouds and are expected. However, the actual rendering issue may occur when:
+1. The GAMEOBJECT variant rules hide/show shroud transforms in a way that doesn't match what the ghost clone captured
+2. The shroud mesh scale or position differs between the prefab default and the recorded variant
+
+**Observed in:** KSC ghost testing (2026-03-14). Affected engine parts include `LiquidEngineKE-1` (72+60 variant misses), `engineLargeSkipper.v2` (25 variant misses), `LiquidEngineLV-T91`/`LiquidEngineLV-TX87` (18 variant misses).
+
+**Status:** Open — needs in-game visual verification to identify which specific engines show incorrect shrouds
+
+## 32. Launch Escape System (LES) plume effects need verification
+
+The Launch Escape System (`LaunchEscapeSystem` part) has 5 `thrustTransform` nozzles with `Squad/FX/LES_Thruster` particle effects. The ghost build chain correctly creates particle systems for all 5 nozzles, and playback events fire in the correct sequence (`Decoupled` → `EngineIgnited` → `EngineShutdown`). However, the LES uses a specialized SRB-style plume effect that may not match the stock visual appearance.
+
+**Needs verification:**
+- Are the LES plume particle systems using the correct effect group? The ghost FX builder clones from `MODEL_MULTI_PARTICLE` configs in the EFFECTS node — verify this matches the LES thruster visual.
+- The LES has a unique exhaust pattern (5 angled nozzles in a ring). Verify the particle system positions/rotations match the actual nozzle geometry on the ghost model.
+- Compare ghost LES firing visual to stock LES firing in-game — check plume color, size, and direction.
+
+**Observed in:** Log analysis (2026-03-14). Ghost build succeeds with 6 MeshRenderers and 5 thruster FX systems. Engine FX `playing=False` on initial ignition frame was observed for LES (90 occurrences) — the particle system may not visually start until the second frame after `EngineIgnited`.
+
+**Status:** Open — needs in-game visual comparison
+
+## 33. Crash sequence: vessel stays visually intact until final explosion
+
+When a vessel crashes, some recordings show the ghost vessel staying fully intact during the impact sequence until the final explosion effect fires. The ghost should show parts breaking off progressively as the vessel disintegrates, but instead the full vessel model persists and then disappears all at once with the explosion.
+
+**Root cause (from log analysis):** The crash destruction sequence records individual `Decoupled` and `Destroyed` part events as the vessel breaks apart. For ghost #9 (2026-03-14 session), the crash sequence has ~50 events across Decoupled + Destroyed types over a very short time window. One part (`SmallGearBay` pid=4174212781) received 6 separate `Decoupled` events — likely from multiple parent-child joint breaks during rapid disassembly.
+
+The issue may be that:
+1. **Event timing compression:** All crash events happen within milliseconds of each other at the same UT (same physics frame or consecutive frames). During playback at normal speed, the interpolation window may not resolve these individual events — they all fire on the same rendered frame, making the visual jump from "intact" to "exploded" with no intermediate breakup.
+2. **Decoupled event subtree hiding:** `Decoupled` events hide the entire part subtree below the decoupled part. If the root part decouples early in the sequence, it could hide the entire vessel before the child `Destroyed` events have a chance to show progressive breakup.
+3. **Terminal explosion timing:** `ShouldTriggerExplosion` fires when the ghost reaches the end of the trajectory. If the explosion fires at the same frame as the crash events, the explosion visual masks the breakup sequence.
+
+**Observed in:** Sandbox career (2026-03-14). Multiple crash recordings show this behavior. Ghost #9 crash sequence has the most detailed event chain.
+
+**Status:** Open
+
+## 34. ShouldTriggerExplosion log spam (performance)
+
+`ShouldTriggerExplosion` logs a VERBOSE message every frame for every ghost, even for ghosts that can never trigger an explosion (terminal state = Recovered, null, or already fired). In the 2026-03-14 session (21 ghosts, ~4.5 minutes), this produced 46,380 log lines — 39% of all Parsek output.
+
+**Breakdown by skip reason:**
+- "terminalState=Recovered, not Destroyed": ~21,000 lines (ghosts that ended with recovery)
+- "terminalState=null, not Destroyed": ~7,500 lines (tree root recordings without terminal state)
+- "already fired": ~5,700 lines (ghost that already exploded, checked every subsequent frame)
+
+Combined with GhostVisual VERBOSE output (62,229 lines / 53%), these two subsystems produce 92% of all Parsek log output.
+
+**Fix:** Replaced `ParsekLog.Verbose` with `ParsekLog.VerboseRateLimited` in `ShouldTriggerExplosion` skip paths (already-fired and not-Destroyed). One-time paths (ghost null, will fire) remain as plain Verbose. Rate-limit keys are per-ghost-index so each ghost logs once then suppresses.
+
+**Status:** Fixed
+
+## 35. Engine FX diagnostic shows `playing=False` on first ignition frame
+
+The engine FX diagnostic log (`SetEngineEmission` line 6140) reports `playing=False` on the first frame after `EngineIgnited` because Unity's `ParticleSystem.isPlaying` doesn't reflect the current frame's `Play()` call — it returns the previous simulation step's state.
+
+**Root cause:** `SetEngineEmission` (ParsekFlight.cs:6108) calls `ps.Play()` correctly, but the diagnostic reads `ps.isPlaying` in the same frame (line 6138), before Unity has processed the play request. The particle system starts emitting from the next frame as expected.
+
+**Visual impact:** None — this is a logging artifact. The 462 `playing=False` log entries in the 2026-03-14 session are from the rate-limited diagnostic (0.5s interval) logging once at ignition time. The particle FX visually appears correctly from the next rendered frame.
+
+**Status:** Not a bug — logging artifact only
