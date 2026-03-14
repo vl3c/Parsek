@@ -4893,7 +4893,8 @@ namespace Parsek
                     // so user can see the explosion before camera jumps
                     if (watchedRecordingIndex == recIdx && watchedOverlapCycleIndex == cycle)
                     {
-                        overlapRetargetAfterUT = Planetarium.GetUniversalTime() + 3.0;
+                        double holdSeconds = rec.TerminalStateValue == TerminalState.Destroyed ? 5.0 : 3.0;
+                        overlapRetargetAfterUT = Planetarium.GetUniversalTime() + holdSeconds;
                         watchedOverlapCycleIndex = -2; // sentinel: waiting to re-target
                         ParsekLog.Info("CameraFollow",
                             $"Overlap: watched cycle={cycle} expired, holding camera for 3s before re-target");
