@@ -4828,7 +4828,12 @@ namespace Parsek
 
                 // Spawn new primary for lastCycle
                 SpawnTimelineGhost(recIdx, rec);
-                primaryState = ghostStates[recIdx];
+                if (!ghostStates.TryGetValue(recIdx, out primaryState) || primaryState == null)
+                {
+                    ParsekLog.Warn("Flight",
+                        $"Overlap: SpawnTimelineGhost failed for #{recIdx} cycle={lastCycle} — skipping");
+                    return;
+                }
                 primaryState.loopCycleIndex = lastCycle;
                 ParsekLog.Info("Flight",
                     $"Ghost ENTERED range: #{recIdx} \"{rec.VesselName}\" cycle={lastCycle} at UT {currentUT:F1} (overlap)");
@@ -4836,7 +4841,7 @@ namespace Parsek
                 // Re-target camera only if ready for a new launch (-1 = not following anyone)
                 // -2 = holding after explosion, don't interrupt the hold
                 if (watchedRecordingIndex == recIdx && watchedOverlapCycleIndex == -1
-                    && primaryState.ghost != null)
+                    && primaryState.ghost != null && FlightCamera.fetch != null)
                 {
                     var target = primaryState.cameraPivot ?? primaryState.ghost.transform;
                     FlightCamera.fetch.SetTargetTransform(target);
@@ -4885,7 +4890,7 @@ namespace Parsek
                 if (phase > duration)
                 {
                     // Position at final point so explosion appears at crash site
-                    if (rec.Points.Count > 0)
+                    if (rec.Points.Count > 0 && ovState.ghost != null)
                         PositionGhostAt(ovState.ghost, rec.Points[rec.Points.Count - 1], srfRel);
                     TriggerExplosionIfDestroyed(ovState, rec, recIdx);
 
