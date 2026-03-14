@@ -4697,12 +4697,38 @@ namespace Parsek
                 if (rec.Points.Count > 0 && state != null && state.ghost != null)
                     PositionGhostAt(state.ghost, rec.Points[rec.Points.Count - 1],
                         rec.RecordingFormatVersion >= 5);
+
+                bool isWatching = watchedRecordingIndex == recIdx;
+                bool needsExplosion = state != null
+                    && rec.TerminalStateValue == TerminalState.Destroyed
+                    && !state.explosionFired;
+
                 TriggerExplosionIfDestroyed(state, rec, recIdx);
+
+                // If watching and explosion fired, hold camera at explosion site
+                if (isWatching && needsExplosion && !inPauseWindow)
+                {
+                    if (overlapCameraAnchor != null) Destroy(overlapCameraAnchor);
+                    overlapCameraAnchor = new GameObject("ParsekLoopCameraAnchor");
+                    if (state != null && state.ghost != null)
+                        overlapCameraAnchor.transform.position = state.ghost.transform.position;
+                    if (FlightCamera.fetch != null)
+                        FlightCamera.fetch.SetTargetTransform(overlapCameraAnchor.transform);
+                    overlapRetargetAfterUT = Planetarium.GetUniversalTime() + OverlapExplosionHoldSeconds;
+                    watchedOverlapCycleIndex = -2;
+                    ParsekLog.Info("CameraFollow",
+                        $"Loop: watched cycle={state?.loopCycleIndex} exploded, holding camera for {OverlapExplosionHoldSeconds:F0}s");
+                }
+
                 ResetReentryFx(state, recIdx);
                 DestroyTimelineGhost(recIdx);
                 ghostActive = false;
                 state = null;
             }
+
+            // During explosion hold, don't spawn new ghost — camera is parked at explosion site
+            if (watchedRecordingIndex == recIdx && watchedOverlapCycleIndex == -2)
+                return;
 
             if (!ghostActive)
             {
@@ -4714,7 +4740,8 @@ namespace Parsek
                     Log($"Ghost ENTERED range: #{recIdx} \"{rec.VesselName}\" at UT {currentUT:F1} (loop cycle={cycleIndex})");
 
                 // Ghost was rebuilt for new loop cycle — re-target camera
-                if (watchedRecordingIndex == recIdx && state.ghost != null && FlightCamera.fetch != null)
+                if (watchedRecordingIndex == recIdx && watchedOverlapCycleIndex == -1
+                    && state.ghost != null && FlightCamera.fetch != null)
                 {
                     var target = state.cameraPivot ?? state.ghost.transform;
                     FlightCamera.fetch.SetTargetTransform(target);
