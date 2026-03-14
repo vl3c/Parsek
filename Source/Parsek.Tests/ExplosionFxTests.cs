@@ -144,6 +144,67 @@ namespace Parsek.Tests
             Assert.DoesNotContain(logLines, l => l.Contains("will fire"));
         }
 
+        // --- Rate-limited logging: first call emits, repeated calls are suppressed ---
+
+        [Fact]
+        public void ShouldTriggerExplosion_AlreadyFired_FirstCallEmits_SubsequentSuppressed()
+        {
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.ResetRateLimitsForTesting();
+            double now = 5000.0;
+            ParsekLog.ClockOverrideForTesting = () => now;
+
+            // First call: should emit
+            ParsekFlight.ShouldTriggerExplosion(true, TerminalState.Destroyed, true, "V", 2);
+            Assert.Single(logLines, l => l.Contains("already fired") && l.Contains("#2"));
+
+            // Repeated calls within rate-limit window: suppressed
+            now += 0.1;
+            ParsekFlight.ShouldTriggerExplosion(true, TerminalState.Destroyed, true, "V", 2);
+            now += 0.1;
+            ParsekFlight.ShouldTriggerExplosion(true, TerminalState.Destroyed, true, "V", 2);
+
+            // Still only one log line for this key
+            Assert.Single(logLines, l => l.Contains("already fired") && l.Contains("#2"));
+        }
+
+        [Fact]
+        public void ShouldTriggerExplosion_NotDestroyed_FirstCallEmits_SubsequentSuppressed()
+        {
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.ResetRateLimitsForTesting();
+            double now = 5000.0;
+            ParsekLog.ClockOverrideForTesting = () => now;
+
+            // First call: should emit
+            ParsekFlight.ShouldTriggerExplosion(false, TerminalState.Recovered, true, "V", 4);
+            Assert.Single(logLines, l => l.Contains("not Destroyed") && l.Contains("#4"));
+
+            // Repeated calls within rate-limit window: suppressed
+            now += 0.1;
+            ParsekFlight.ShouldTriggerExplosion(false, TerminalState.Recovered, true, "V", 4);
+            now += 0.1;
+            ParsekFlight.ShouldTriggerExplosion(false, TerminalState.Recovered, true, "V", 4);
+
+            Assert.Single(logLines, l => l.Contains("not Destroyed") && l.Contains("#4"));
+        }
+
+        [Fact]
+        public void ShouldTriggerExplosion_DifferentGhostIndices_IndependentRateLimitKeys()
+        {
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.ResetRateLimitsForTesting();
+            double now = 5000.0;
+            ParsekLog.ClockOverrideForTesting = () => now;
+
+            // Two different ghost indices should each emit on first call
+            ParsekFlight.ShouldTriggerExplosion(true, TerminalState.Destroyed, true, "V", 1);
+            ParsekFlight.ShouldTriggerExplosion(true, TerminalState.Destroyed, true, "V", 2);
+
+            Assert.Single(logLines, l => l.Contains("already fired") && l.Contains("#1"));
+            Assert.Single(logLines, l => l.Contains("already fired") && l.Contains("#2"));
+        }
+
         // --- RecordingBuilder.WithTerminalState serialization ---
 
         [Fact]

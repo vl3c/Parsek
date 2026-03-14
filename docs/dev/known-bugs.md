@@ -343,3 +343,21 @@ The engine FX diagnostic log (`SetEngineEmission` line 6140) reports `playing=Fa
 **Visual impact:** None — this is a logging artifact. The 462 `playing=False` log entries in the 2026-03-14 session are from the rate-limited diagnostic (0.5s interval) logging once at ignition time. The particle FX visually appears correctly from the next rendered frame.
 
 **Status:** Not a bug — logging artifact only
+
+## 36. GhostVisual VERBOSE output dominates log (performance)
+
+`GhostVisualBuilder` VERBOSE diagnostics produced 62,229 log lines in the 2026-03-14 session — 53% of all Parsek output. This includes per-part mesh renderer enumeration, FX placement diagnostics, variant fallback messages, and jettison transform resolution. All of this is re-emitted on every loop cycle rebuild for all ghosts.
+
+Combined with the ShouldTriggerExplosion spam (bug #34, now fixed), these two subsystems were responsible for 92% of all Parsek log output.
+
+**Breakdown of high-volume GhostVisual messages:**
+- Variant fallback ("no active variant renderers and no GAMEOBJECT rules"): 1,869 lines — mostly `strutConnector` (588x), `pointyNoseConeB` (144x), `Panel0` (144x). These parts have `ModulePartVariants` with texture-only variants, no GAMEOBJECT rules. The fallback correctly includes all renderers.
+- Jettison "found on prefab but not in cloneMap": 275 lines — non-active variant shroud transforms. Expected and harmless.
+- Per-part MeshRenderer counts, FX nozzle counts, hierarchy dumps: bulk of the remaining lines.
+
+**Fix options:**
+1. Rate-limit per-part build diagnostics with a key per `(recIdx, partPid)` — log once per ghost lifecycle, not on every loop rebuild.
+2. Gate the most verbose per-part output behind an extra "trace" level or a build-diagnostics flag.
+3. Skip re-logging on loop rebuild if the ghost snapshot hasn't changed (same recording, same snapshot hash).
+
+**Status:** Open
