@@ -1,16 +1,22 @@
 # KSP Part Coverage Catalog for Parsek
 
-Last updated: 2026-03-14
+Last updated: 2026-03-15
 Generated from: KSP 1.12.5 GameData (Squad + SquadExpansion)
+
+**Generation method:** Script-based extraction from all `.cfg` files under
+`GameData/Squad/Parts/` and `GameData/SquadExpansion/`, cross-referenced with
+Parsek source code (`GhostVisualBuilder.cs`, `FlightRecorder.cs`, `ParsekFlight.cs`)
+and showcase test entries in `SyntheticRecordingTests.cs`. Generator scripts are not
+checked in; re-run the extraction from the KSP GameData directory to refresh.
 
 ## Summary
 
 - Total unique KSP parts: 483
-- Stock: 354 | Making History: 69 | Breaking Ground: 60
+- Stock: 358 | Making History: 71 | Breaking Ground: 54
 - Ghost mesh rendering: 483 supported (all parts with MeshRenderer cloning)
 - Dynamic visual support: 171 full / 73 partial / 239 N/A (no visual modules)
-- Showcase coverage: 212 / 244 parts with visual modules
-- EVA/Special parts: 22 (not editor-placeable)
+- Showcase coverage: 211 / 244 parts with visual modules (+ 1 EVA kerbal = 212 total showcased)
+- EVA kerbals: 8 | Uncategorized/deprecated (category=none): 14
 
 ## Known Visual Playback Issues
 
@@ -21,16 +27,17 @@ Generated from: KSP 1.12.5 GameData (Squad + SquadExpansion)
 | #31 | Engine shroud/cover variants | multi-variant engines |
 | #32 | LES plumes need verification | LaunchEscapeSystem |
 | #33 | Crash breakup not progressive | all parts |
+| #34 | ShouldTriggerExplosion log spam (performance, not visual) | all ghost parts |
 | #35 | Engine FX one-frame delay | all engine parts |
 
 ## Unsupported Visual Module Types
 
 | Module | Description | Affected Parts | Impact |
 |--------|-------------|----------------|--------|
-| ModuleColorChanger | Cabin lights, ablator colors | 33 parts | Low -- cosmetic interior lights |
-| FXModuleAnimateThrottle | Throttle-driven nozzle glow | 33 parts | Medium -- engine nozzle animations missing |
-| FXModuleAnimateRCS | RCS response animation | 5 parts | Low -- subtle visual only |
-| ModulePartFirework | Firework FX | 2 parts | None -- novelty item |
+| ModuleColorChanger | Cabin lights, ablator colors | 33 parts | Low — cosmetic interior lights |
+| FXModuleAnimateThrottle | Throttle-driven nozzle glow | 33 parts | Medium — engine nozzle animations missing |
+| FXModuleAnimateRCS | RCS response animation | 5 parts | Low — subtle visual only |
+| ModulePartFirework | Firework FX | 2 parts | None — novelty item |
 
 ## Parts by Category
 
@@ -67,7 +74,7 @@ Generated from: KSP 1.12.5 GameData (Squad + SquadExpansion)
 | roverBody_v2 | roverBody.v2 | Stock | — | N/A | — |  |
 | seatExternalCmd | seatExternalCmd | Stock | — | N/A | — |  |
 
-### Propulsion -- Liquid Engines
+### Propulsion — Liquid Engines
 
 | Part (cfg) | Runtime Name | Source | Visual Modules | Support | Showcase | Notes |
 |------------|-------------|--------|----------------|---------|----------|-------|
@@ -98,7 +105,7 @@ Generated from: KSP 1.12.5 GameData (Squad + SquadExpansion)
 | SSME | SSME | Stock | ModuleEnginesFX, ModuleJettison, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work); Has shroud (ModuleJettison) |
 | toroidalAerospike | toroidalAerospike | Stock | ModuleEngines, ModuleJettison, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work); Has shroud (ModuleJettison) |
 
-### Propulsion -- Solid Boosters
+### Propulsion — Solid Boosters
 
 | Part (cfg) | Runtime Name | Source | Visual Modules | Support | Showcase | Notes |
 |------------|-------------|--------|----------------|---------|----------|-------|
@@ -113,7 +120,7 @@ Generated from: KSP 1.12.5 GameData (Squad + SquadExpansion)
 | solidBooster_v2 | solidBooster.v2 | Stock | ModuleEngines, ModuleJettison, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work); Has shroud (ModuleJettison) |
 | Thoroughbred | Thoroughbred | Stock | ModuleEngines, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work) |
 
-### Propulsion -- Jet Engines
+### Propulsion — Jet Engines
 
 | Part (cfg) | Runtime Name | Source | Visual Modules | Support | Showcase | Notes |
 |------------|-------------|--------|----------------|---------|----------|-------|
@@ -585,32 +592,43 @@ Generated from: KSP 1.12.5 GameData (Squad + SquadExpansion)
 | rotoServo_03 | rotoServo.03 | Breaking Ground | ModuleRoboticRotationServo | Full | Yes |  |
 | rotoServo_04 | rotoServo.04 | Breaking Ground | ModuleRoboticRotationServo | Full | Yes |  |
 
-### Special / EVA
+### EVA Kerbals
+
+Prebuilt EVA parts, not available in the VAB/SPH editor.
 
 | Part (cfg) | Runtime Name | Source | Visual Modules | Support | Showcase | Notes |
 |------------|-------------|--------|----------------|---------|----------|-------|
-| flag | flag | Stock | — | N/A | — |  |
-| HighGainAntenna5 | HighGainAntenna5 | Stock | ModuleDeployableAntenna | Full | Yes |  |
-| kerbalEVA | kerbalEVA | Breaking Ground | — | N/A | Yes |  |
-| kerbalEVAfemale | kerbalEVAfemale | Breaking Ground | — | N/A | — |  |
+| kerbalEVA | kerbalEVA | Stock | — | N/A | Yes | BG overrides cfg but base part is stock |
+| kerbalEVAfemale | kerbalEVAfemale | Stock | — | N/A | — | BG overrides cfg but base part is stock |
 | kerbalEVAfemaleFuture | kerbalEVAfemaleFuture | Breaking Ground | KerbalEVA, ModuleEvaChute, ModuleColorChanger | Partial | — | ModuleColorChanger not tracked |
-| kerbalEVAfemaleVintage | kerbalEVAfemaleVintage | Breaking Ground | — | N/A | — |  |
+| kerbalEVAfemaleVintage | kerbalEVAfemaleVintage | Making History | — | N/A | — |  |
 | kerbalEVAFuture | kerbalEVAFuture | Breaking Ground | KerbalEVA, ModuleEvaChute, ModuleColorChanger | Partial | — | ModuleColorChanger not tracked |
-| kerbalEVASlimSuit | kerbalEVASlimSuit | Breaking Ground | — | N/A | — |  |
-| kerbalEVASlimSuitFemale | kerbalEVASlimSuitFemale | Breaking Ground | — | N/A | — |  |
-| kerbalEVAVintage | kerbalEVAVintage | Breaking Ground | — | N/A | — |  |
-| liquidEngine | liquidEngine | Stock | ModuleEngines, ModuleJettison, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work) |
-| liquidEngine2 | liquidEngine2 | Stock | ModuleEngines, ModuleJettison, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work) |
-| mk2LanderCabin | mk2LanderCabin | Stock | ModuleColorChanger | Partial | — | ModuleColorChanger not tracked |
-| PotatoComet | PotatoComet | Stock | — | N/A | — |  |
-| PotatoRoid | PotatoRoid | Stock | — | N/A | — |  |
-| probeCoreHex | probeCoreHex | Stock | — | N/A | — |  |
-| rocketNoseCone_v2 | rocketNoseCone.v2 | Stock | — | N/A | — |  |
-| roverBody | roverBody | Stock | — | N/A | — |  |
-| Size2LFB | Size2LFB | Stock | ModuleEnginesFX, FXModuleAnimateThrottle | Partial | — | Throttle animation not tracked (FX particles work) |
-| smallRadialEngine | smallRadialEngine | Stock | ModuleEnginesFX | Full | Yes |  |
-| spotLight1 | spotLight1 | Stock | ModuleLight | Full | Yes |  |
-| spotLight2 | spotLight2 | Stock | ModuleLight | Full | Yes |  |
+| kerbalEVASlimSuit | kerbalEVASlimSuit | Stock | — | N/A | — | BG overrides cfg but base part is stock |
+| kerbalEVASlimSuitFemale | kerbalEVASlimSuitFemale | Stock | — | N/A | — | BG overrides cfg but base part is stock |
+| kerbalEVAVintage | kerbalEVAVintage | Making History | — | N/A | — | BG also overrides this cfg |
+
+### Uncategorized (category=none)
+
+These parts have `category = none` in their cfg. Most are deprecated v1 parts superseded
+by v2 equivalents, plus special objects (flag, asteroids, comets). They are hidden from
+the editor part list but still exist at runtime.
+
+| Part (cfg) | Runtime Name | Source | Visual Modules | Support | Showcase | Notes |
+|------------|-------------|--------|----------------|---------|----------|-------|
+| flag | flag | Stock | — | N/A | — | Planted flag object |
+| HighGainAntenna5 | HighGainAntenna5 | Stock | ModuleDeployableAntenna | Full | Yes | Deprecated, superseded by HighGainAntenna5_v2 |
+| liquidEngine | liquidEngine | Stock | ModuleEngines, ModuleJettison, FXModuleAnimateThrottle | Partial | Yes | Deprecated v1 LV-T30 |
+| liquidEngine2 | liquidEngine2 | Stock | ModuleEngines, ModuleJettison, FXModuleAnimateThrottle | Partial | Yes | Deprecated v1 LV-T45 |
+| mk2LanderCabin | mk2LanderCabin | Stock | ModuleColorChanger | Partial | — | Deprecated v1; ModuleColorChanger not tracked |
+| PotatoComet | PotatoComet | Stock | — | N/A | — | Procedural comet object |
+| PotatoRoid | PotatoRoid | Stock | — | N/A | — | Procedural asteroid object |
+| probeCoreHex | probeCoreHex | Stock | — | N/A | — | Deprecated v1 HECS |
+| rocketNoseCone_v2 | rocketNoseCone.v2 | Stock | — | N/A | — | Deprecated (misleading _v2 name) |
+| roverBody | roverBody | Stock | — | N/A | — | Deprecated v1 rover body |
+| Size2LFB | Size2LFB | Stock | ModuleEnginesFX, FXModuleAnimateThrottle | Partial | — | Deprecated v1 Twin-Boar |
+| smallRadialEngine | smallRadialEngine | Stock | ModuleEnginesFX | Full | Yes | Deprecated v1 Spider |
+| spotLight1 | spotLight1 | Stock | ModuleLight | Full | Yes | Deprecated v1 spotlight |
+| spotLight2 | spotLight2 | Stock | ModuleLight | Full | Yes | Deprecated v1 spotlight |
 
 ## Coverage Gaps
 
@@ -639,8 +657,8 @@ These parts have dynamic visual modules that Parsek handles but have not been vi
 | dockingPortLarge | dockingPortLarge | Stock | ModuleColorChanger, ModuleDockingNode | Partial |
 | fireworksLauncherBig | fireworksLauncherBig | Stock | ModulePartFirework | Partial |
 | fireworksLauncherSmall | fireworksLauncherSmall | Stock | ModulePartFirework | Partial |
-| kerbalEVAFuture | kerbalEVAFuture | Breaking Ground | KerbalEVA, ModuleColorChanger, ModuleEvaChute | Partial |
-| kerbalEVAfemaleFuture | kerbalEVAfemaleFuture | Breaking Ground | KerbalEVA, ModuleColorChanger, ModuleEvaChute | Partial |
+| kerbalEVAFuture | kerbalEVAFuture | Breaking Ground | KerbalEVA, ModuleEvaChute, ModuleColorChanger | Partial |
+| kerbalEVAfemaleFuture | kerbalEVAfemaleFuture | Breaking Ground | KerbalEVA, ModuleEvaChute, ModuleColorChanger | Partial |
 | kv1Pod | kv1Pod | Making History | ModuleColorChanger | Partial |
 | kv2Pod | kv2Pod | Making History | ModuleColorChanger | Partial |
 | kv3Pod | kv3Pod | Making History | ModuleColorChanger | Partial |
@@ -656,7 +674,7 @@ These parts have dynamic visual modules that Parsek handles but have not been vi
 
 ### Parts with Unsupported Visual Modules (No Showcase Needed)
 
-Parts where the only visual gap is ModuleColorChanger (cabin lights), FXModuleAnimateThrottle (nozzle glow), or FXModuleAnimateRCS -- these are cosmetic and don't need showcase validation, but are listed for completeness.
+Parts where the only visual gap is ModuleColorChanger (cabin lights), FXModuleAnimateThrottle (nozzle glow), or FXModuleAnimateRCS — these are cosmetic and don't need showcase validation, but are listed for completeness.
 
 | Part (cfg) | Runtime Name | Source | Unsupported Modules |
 |------------|-------------|--------|---------------------|
@@ -710,16 +728,16 @@ Parts where the only visual gap is ModuleColorChanger (cabin lights), FXModuleAn
 
 | Module | Part Count | Description | Priority |
 |--------|-----------|-------------|----------|
-| ModuleColorChanger | 33 | Cabin interior lights, ablator color | Low -- cosmetic only |
-| FXModuleAnimateThrottle | 33 | Engine nozzle glow animation | Medium -- adds visual fidelity |
-| FXModuleAnimateRCS | 5 | RCS thruster response animation | Low -- subtle effect |
-| ModulePartFirework | 2 | Firework launch effects | None -- novelty |
-| ModuleControlSurface (continuous) | 24 | Continuous deflection angle | Priority 1 (per roadmap) |
-| ModuleAnimateHeat (continuous) | 16 | Continuous thermal intensity | Priority 2 (per roadmap) |
+| ModuleColorChanger | 33 | Cabin interior lights, ablator color | Low — cosmetic only |
+| FXModuleAnimateThrottle | 33 | Engine nozzle glow animation | Medium — adds visual fidelity |
+| FXModuleAnimateRCS | 5 | RCS thruster response animation | Low — subtle effect |
+| ModulePartFirework | 2 | Firework launch effects | None — novelty |
+| ModuleControlSurface (continuous) | 24 | Continuous deflection angle (binary deploy/retract IS supported) | Priority 1 (per roadmap) |
+| ModuleAnimateHeat (continuous) | 16 | Continuous thermal intensity (binary hot/cold IS supported) | Priority 2 (per roadmap) |
 
 ### DLC Parts Summary
 
 | DLC | Total Parts | With Visual Modules | Showcased | Coverage |
 |-----|-------------|--------------------|-----------|---------| 
-| Making History | 69 | 27 | 21 | 77% |
-| Breaking Ground | 60 | 43 | 41 | 95% |
+| Making History | 71 | 27 | 21 | 78% |
+| Breaking Ground | 54 | 43 | 41 | 95% |
