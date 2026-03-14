@@ -284,6 +284,7 @@ namespace Parsek
         string watchedRecordingId = null;     // stable across index shifts
         int watchedOverlapCycleIndex = -1;    // which overlap cycle the camera is following (-1 = ready for next, -2 = holding after explosion)
         double overlapRetargetAfterUT = -1;   // delay re-target after watched cycle explodes
+        GameObject overlapCameraAnchor;       // temp anchor so FlightCamera doesn't reference destroyed ghost
         Vessel savedCameraVessel = null;
         float savedCameraDistance = 0f;
         float savedCameraPitch = 0f;
@@ -4895,15 +4896,24 @@ namespace Parsek
                         PositionGhostAt(ovState.ghost, rec.Points[rec.Points.Count - 1], srfRel);
                     TriggerExplosionIfDestroyed(ovState, rec, recIdx);
 
-                    // If camera was following this cycle, schedule delayed re-target
-                    // so user can see the explosion before camera jumps
+                    // If camera was following this cycle, park FlightCamera on a temp anchor
+                    // at the explosion site so it doesn't reference the destroyed ghost
                     if (watchedRecordingIndex == recIdx && watchedOverlapCycleIndex == cycle)
                     {
                         double holdSeconds = rec.TerminalStateValue == TerminalState.Destroyed ? 5.0 : 3.0;
                         overlapRetargetAfterUT = Planetarium.GetUniversalTime() + holdSeconds;
                         watchedOverlapCycleIndex = -2; // sentinel: waiting to re-target
+
+                        // Create temp anchor at ghost position before ghost is destroyed
+                        if (overlapCameraAnchor != null) Destroy(overlapCameraAnchor);
+                        overlapCameraAnchor = new GameObject("ParsekOverlapCameraAnchor");
+                        if (ovState.ghost != null)
+                            overlapCameraAnchor.transform.position = ovState.ghost.transform.position;
+                        if (FlightCamera.fetch != null)
+                            FlightCamera.fetch.SetTargetTransform(overlapCameraAnchor.transform);
+
                         ParsekLog.Info("CameraFollow",
-                            $"Overlap: watched cycle={cycle} expired, holding camera for 3s before re-target");
+                            $"Overlap: watched cycle={cycle} expired, holding camera at explosion site for {holdSeconds:F0}s");
                     }
 
                     ParsekLog.Info("Flight",
@@ -6789,6 +6799,12 @@ namespace Parsek
             {
                 if (Planetarium.GetUniversalTime() >= overlapRetargetAfterUT)
                 {
+                    // Destroy temp camera anchor
+                    if (overlapCameraAnchor != null)
+                    {
+                        Destroy(overlapCameraAnchor);
+                        overlapCameraAnchor = null;
+                    }
                     // Set to -1 so the next new cycle spawn will pick up the camera
                     watchedOverlapCycleIndex = -1;
                     overlapRetargetAfterUT = -1;
@@ -7178,6 +7194,7 @@ namespace Parsek
             watchedRecordingId = null;
             watchedOverlapCycleIndex = -1;
             overlapRetargetAfterUT = -1;
+            if (overlapCameraAnchor != null) { Destroy(overlapCameraAnchor); overlapCameraAnchor = null; }
             savedCameraVessel = null;
             savedCameraDistance = 0f;
             savedCameraPitch = 0f;
