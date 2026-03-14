@@ -1322,7 +1322,7 @@ namespace Parsek
             lastPlaybackIndex = 0;
 
             // Auto-discard pad failures: destroyed within 10s AND never moved far from spawn.
-            // Real crashes (even short ones) travel 50+ meters; pad failures stay near the pad.
+            // Real crashes travel 30+ meters; pad failures stay near the pad.
             if (RecordingStore.HasPending)
             {
                 double flightDuration = RecordingStore.Pending.EndUT - RecordingStore.Pending.StartUT;
