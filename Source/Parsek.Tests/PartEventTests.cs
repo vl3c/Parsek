@@ -367,6 +367,64 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region FindDuplicateCrew (spawn-time dedup)
+
+        [Fact]
+        public void FindDuplicateCrew_DetectsDuplicate()
+        {
+            var snapshotCrew = new List<string> { "Jebediah Kerman", "Bill Kerman" };
+            var existingCrew = new HashSet<string> { "Jebediah Kerman", "Valentina Kerman" };
+
+            var dupes = VesselSpawner.FindDuplicateCrew(snapshotCrew, existingCrew);
+
+            Assert.Single(dupes);
+            Assert.Contains("Jebediah Kerman", dupes);
+        }
+
+        [Fact]
+        public void FindDuplicateCrew_NoDuplicates_ReturnsEmpty()
+        {
+            var snapshotCrew = new List<string> { "Bill Kerman" };
+            var existingCrew = new HashSet<string> { "Jebediah Kerman", "Valentina Kerman" };
+
+            var dupes = VesselSpawner.FindDuplicateCrew(snapshotCrew, existingCrew);
+
+            Assert.Empty(dupes);
+        }
+
+        [Fact]
+        public void FindDuplicateCrew_EmptyExisting_ReturnsEmpty()
+        {
+            var snapshotCrew = new List<string> { "Jebediah Kerman" };
+            var existingCrew = new HashSet<string>();
+
+            var dupes = VesselSpawner.FindDuplicateCrew(snapshotCrew, existingCrew);
+
+            Assert.Empty(dupes);
+        }
+
+        [Fact]
+        public void FindDuplicateCrew_NullInputs_ReturnsEmpty()
+        {
+            Assert.Empty(VesselSpawner.FindDuplicateCrew(null, new HashSet<string> { "Jeb" }));
+            Assert.Empty(VesselSpawner.FindDuplicateCrew(new List<string> { "Jeb" }, null));
+        }
+
+        [Fact]
+        public void FindDuplicateCrew_MultipleDuplicates()
+        {
+            var snapshotCrew = new List<string> { "Jebediah Kerman", "Bill Kerman", "Valentina Kerman" };
+            var existingCrew = new HashSet<string> { "Jebediah Kerman", "Valentina Kerman" };
+
+            var dupes = VesselSpawner.FindDuplicateCrew(snapshotCrew, existingCrew);
+
+            Assert.Equal(2, dupes.Count);
+            Assert.Contains("Jebediah Kerman", dupes);
+            Assert.Contains("Valentina Kerman", dupes);
+        }
+
+        #endregion
+
         #region StashPending with PartEvents
 
         [Fact]
