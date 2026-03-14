@@ -288,9 +288,21 @@ namespace Parsek
                 // Remove orbit segments that end before the new start
                 if (orbitSegments != null)
                     orbitSegments.RemoveAll(s => s.endUT <= trimUT);
-                // Remove part events that occur before the new start
+                // Retime part events from the trimmed window to the new start so their
+                // visual effects (shroud jettison, engine ignition, etc.) are applied
+                // at the beginning of playback rather than being lost.
                 if (partEvents != null)
-                    partEvents.RemoveAll(e => e.ut < trimUT);
+                {
+                    for (int i = 0; i < partEvents.Count; i++)
+                    {
+                        if (partEvents[i].ut < trimUT)
+                        {
+                            var e = partEvents[i];
+                            e.ut = trimUT;
+                            partEvents[i] = e;
+                        }
+                    }
+                }
             }
 
             pendingRecording = new Recording
