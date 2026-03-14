@@ -225,3 +225,33 @@ If the player has an unresolved pending recording (merge dialog not yet shown/cl
 **Fix:** Added a guard at the top of `StashPending`: if a pending recording already exists, unreserve its crew via `UnreserveCrewInSnapshot` and call `DiscardPending()` (which cleans up sidecar files) before creating the new pending. Logs a WARN with both vessel names.
 
 **Status:** Fixed
+
+## 28. Building collision does not set TerminalState.Destroyed
+
+When a vessel crashes into a KSC building (VAB, launchpad tower, etc.), the recording's `TerminalStateValue` is left as `null` instead of being set to `Destroyed`. Ghost playback shows the vessel flying into the building and disappearing without an explosion — both in flight scene and KSC view.
+
+**Reproduction:** Launch a rocket, steer it into the VAB or a launchpad structure. Commit the recording. Watch ghost playback — no explosion at the end despite the vessel being destroyed.
+
+**Root cause:** The destruction detection path that sets `TerminalStateValue = TerminalState.Destroyed` doesn't fire for building collisions. The vessel is destroyed by KSP's building collision system, but the recording commit path may not reach the code that sets the terminal state.
+
+**Observed in:** KSP.log from KSC ghost testing (2026-03-14). Recordings with `terminal=` (null) despite vessels being destroyed by building collisions.
+
+**Status:** Open
+
+## 29. Ghost parts missing or in wrong visual state during playback
+
+Some vessel parts are missing or display incorrectly during ghost playback (both flight and KSC view). Known cases:
+- Rover wheels (`roverWheel1` etc.) not visible on ghost
+- Landing gear (`SmallGearBay`) showing incorrect deploy state — may appear stowed when they should be deployed or vice versa
+- Deployable parts (solar panels, antennas) potentially showing wrong initial state
+
+**Reproduction:** Record a vessel with rover wheels or landing gear. Watch the ghost playback — wheels may be missing entirely, gear may appear in wrong position.
+
+**Root cause (suspected):** Multiple potential causes:
+1. **Missing prefab resolution:** `GhostVisualBuilder.AddPartVisuals` clones meshes from the part prefab. Some parts (rover wheels, robotic parts) may have complex model hierarchies or use SkinnedMeshRenderer with external bones that the cloning process doesn't handle correctly.
+2. **Snapshot initial state mismatch:** The ghost snapshot captures part MODULE state at recording start. If gear/wheels are in a transitional animation state when captured, the ghost starts with that intermediate visual. Part events then replay on top of the wrong initial state.
+3. **Animation sampling gaps:** `SampleDeployableStates` samples animation at t=0 (stowed) and t=1 (deployed). Parts with non-standard animation setups or parts that use multiple animation clips may not be sampled correctly.
+
+**Observed in:** KSC ghost testing (2026-03-14). Visible on multiple vessel types.
+
+**Status:** Open
