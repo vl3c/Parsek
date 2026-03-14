@@ -355,9 +355,6 @@ Combined with the ShouldTriggerExplosion spam (bug #34, now fixed), these two su
 - Jettison "found on prefab but not in cloneMap": 275 lines — non-active variant shroud transforms. Expected and harmless.
 - Per-part MeshRenderer counts, FX nozzle counts, hierarchy dumps: bulk of the remaining lines.
 
-**Fix options:**
-1. Rate-limit per-part build diagnostics with a key per `(recIdx, partPid)` — log once per ghost lifecycle, not on every loop rebuild.
-2. Gate the most verbose per-part output behind an extra "trace" level or a build-diagnostics flag.
-3. Skip re-logging on loop rebuild if the ghost snapshot hasn't changed (same recording, same snapshot hash).
+**Fix:** Rate-limited the highest-volume per-part build diagnostics using `VerboseRateLimited` with 60-second intervals and per-part-name keys. Affected messages: part summary, variant selection/fallback, per-MeshRenderer/SkinnedMeshRenderer cloning, modelRoot DIAG, jettison cloneMap misses, engine hierarchy dump, outside-model MR warnings. Each message logs once on first ghost build, then is suppressed for 60s (well beyond a typical 10-30s loop cycle).
 
-**Status:** Open
+**Status:** Fixed

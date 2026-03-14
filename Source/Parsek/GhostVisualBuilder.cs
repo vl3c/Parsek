@@ -536,10 +536,11 @@ namespace Parsek
                     collectedRoboticInfos.AddRange(partRoboticInfos);
             }
 
-            ParsekLog.Verbose("GhostVisual", $"Ghost built: {visualCount}/{partNodes.Length} parts with visuals" +
+            ParsekLog.VerboseRateLimited("GhostVisual", $"ghost_built_{rootName}",
+                $"Ghost built: {visualCount}/{partNodes.Length} parts with visuals" +
                 (skippedName > 0 ? $", {skippedName} bad name" : "") +
                 (skippedPrefab > 0 ? $", {skippedPrefab} no prefab" : "") +
-                (skippedMesh > 0 ? $", {skippedMesh} no mesh" : ""));
+                (skippedMesh > 0 ? $", {skippedMesh} no mesh" : ""), 60.0);
 
             if (!addedAnyVisual)
             {
@@ -2084,7 +2085,8 @@ namespace Parsek
             }
             string compStr = compNames.Count > 0 ? " [" + string.Join(", ", compNames) + "]" : "";
             string activeStr = t.gameObject.activeSelf ? "" : " (INACTIVE)";
-            ParsekLog.Verbose("GhostVisual", $"    HIERARCHY {partName}: {indent}{t.name}{compStr}{activeStr}");
+            ParsekLog.VerboseRateLimited("GhostVisual", $"hierarchy_{partName}_{depth}_{t.name}",
+                $"    HIERARCHY {partName}: {indent}{t.name}{compStr}{activeStr}", 60.0);
             for (int i = 0; i < t.childCount; i++)
                 DumpTransformHierarchy(t.GetChild(i), depth + 1, partName);
         }
@@ -4328,7 +4330,8 @@ namespace Parsek
             // Search from the Part root (not just modelRoot) to catch siblings of "model".
             if (prefab.FindModuleImplementing<ModuleEngines>() != null)
             {
-                ParsekLog.Verbose("GhostVisual", $"  ENGINE PART HIERARCHY DUMP for '{partName}' pid={persistentId}:");
+                ParsekLog.VerboseRateLimited("GhostVisual", $"engine_dump_{partName}",
+                    $"  ENGINE PART HIERARCHY DUMP for '{partName}' pid={persistentId}:", 60.0);
                 DumpTransformHierarchy(prefab.transform, 0, partName);
 
                 // Also log MeshRenderers found from Part root vs modelRoot
@@ -4336,9 +4339,10 @@ namespace Parsek
                 var modelMR = modelRoot.GetComponentsInChildren<MeshRenderer>(true);
                 if (allMR.Length != modelMR.Length)
                 {
-                    ParsekLog.Verbose("GhostVisual", $"  WARNING: Part root has {allMR.Length} MeshRenderers but " +
+                    ParsekLog.VerboseRateLimited("GhostVisual", $"engine_mr_warn_{partName}",
+                        $"  WARNING: Part root has {allMR.Length} MeshRenderers but " +
                         $"modelRoot '{modelRoot.name}' has only {modelMR.Length}! " +
-                        $"Missing renderers are OUTSIDE the model subtree.");
+                        $"Missing renderers are OUTSIDE the model subtree.", 60.0);
                     foreach (var mr in allMR)
                     {
                         bool isUnderModel = false;
@@ -4352,8 +4356,9 @@ namespace Parsek
                         {
                             var mf = mr.GetComponent<MeshFilter>();
                             string meshName = mf?.sharedMesh?.name ?? "(no mesh)";
-                            ParsekLog.Verbose("GhostVisual", $"    OUTSIDE-MODEL MR: '{mr.gameObject.name}' mesh={meshName} " +
-                                $"path={GetTransformPath(mr.transform, prefab.transform)}");
+                            ParsekLog.VerboseRateLimited("GhostVisual", $"outside_mr_{partName}_{mr.gameObject.name}",
+                                $"    OUTSIDE-MODEL MR: '{mr.gameObject.name}' mesh={meshName} " +
+                                $"path={GetTransformPath(mr.transform, prefab.transform)}", 60.0);
                         }
                     }
                 }
@@ -4406,19 +4411,22 @@ namespace Parsek
                 }
             }
             bool filterInactiveVariantRenderers = hasPartVariants && (activeMR > 0 || activeSMR > 0);
-            ParsekLog.Verbose("GhostVisual", $"  Part '{partName}' pid={persistentId}: modelRoot='{modelRoot.name}' " +
+            ParsekLog.VerboseRateLimited("GhostVisual", $"part_summary_{partName}",
+                $"  Part '{partName}' pid={persistentId}: modelRoot='{modelRoot.name}' " +
                 $"modelScale={modelRoot.localScale}, " +
                 $"{totalMR} MeshRenderers, {totalSMR} SkinnedMeshRenderers" +
-                (hasPartVariants ? " (has ModulePartVariants)" : ""));
+                (hasPartVariants ? " (has ModulePartVariants)" : ""), 60.0);
             if (hasPartVariants && hasVariantGameObjectRules)
             {
-                ParsekLog.Verbose("GhostVisual", $"  Variant selection: '{selectedVariantName}' with " +
-                    $"{selectedVariantGameObjects.Count} GAMEOBJECT rules");
+                ParsekLog.VerboseRateLimited("GhostVisual", $"variant_sel_{partName}",
+                    $"  Variant selection: '{selectedVariantName}' with " +
+                    $"{selectedVariantGameObjects.Count} GAMEOBJECT rules", 60.0);
             }
             if (hasPartVariants && !filterInactiveVariantRenderers && !hasVariantGameObjectRules)
             {
-                ParsekLog.Verbose("GhostVisual", $"  Variant fallback: no active variant renderers and no GAMEOBJECT rules " +
-                    $"— including all renderers (active MR={activeMR}, active SMR={activeSMR})");
+                ParsekLog.VerboseRateLimited("GhostVisual", $"variant_fb_{partName}",
+                    $"  Variant fallback: no active variant renderers and no GAMEOBJECT rules " +
+                    $"— including all renderers (active MR={activeMR}, active SMR={activeSMR})", 60.0);
             }
 
             // Name by persistentId for O(1) lookup during playback; fall back to part name
@@ -4450,7 +4458,8 @@ namespace Parsek
             modelNode.transform.localPosition = modelRoot.localPosition;
             modelNode.transform.localRotation = modelRoot.localRotation;
             modelNode.transform.localScale = modelRoot.localScale;
-            ParsekLog.Verbose("GhostVisual", $"  [DIAG] part '{partName}' modelRoot '{modelRoot.name}' localRot={modelRoot.localRotation} localPos={modelRoot.localPosition} localScale={modelRoot.localScale}");
+            ParsekLog.VerboseRateLimited("GhostVisual", $"part_diag_{partName}",
+                $"  [DIAG] part '{partName}' modelRoot '{modelRoot.name}' localRot={modelRoot.localRotation} localPos={modelRoot.localPosition} localScale={modelRoot.localScale}", 60.0);
             cloneMap[modelRoot] = modelNode.transform;
 
             // For light showcase recordings, lift only light-part visuals so probes stay
@@ -4484,14 +4493,17 @@ namespace Parsek
                 leaf.gameObject.AddComponent<MeshFilter>().sharedMesh = mf.sharedMesh;
                 leaf.gameObject.AddComponent<MeshRenderer>().sharedMaterials = mr.sharedMaterials;
                 meshCount++;
-                ParsekLog.Verbose("GhostVisual", $"    MR[{r}] '{mr.gameObject.name}' mesh={mf.sharedMesh.name} " +
-                    $"localPos={leaf.localPosition} localScale={leaf.localScale}");
+                ParsekLog.VerboseRateLimited("GhostVisual", $"mr_{partName}_{r}",
+                    $"    MR[{r}] '{mr.gameObject.name}' mesh={mf.sharedMesh.name} " +
+                    $"localPos={leaf.localPosition} localScale={leaf.localScale}", 60.0);
                 added = true;
             }
             if (variantSkipped > 0)
-                ParsekLog.Verbose("GhostVisual", $"  Skipped {variantSkipped} MeshRenderers on inactive variant objects");
+                ParsekLog.VerboseRateLimited("GhostVisual", $"variant_skip_{partName}",
+                    $"  Skipped {variantSkipped} MeshRenderers on inactive variant objects", 60.0);
             if (variantRuleSkipped > 0)
-                ParsekLog.Verbose("GhostVisual", $"  Skipped {variantRuleSkipped} MeshRenderers by selected variant GAMEOBJECT rules");
+                ParsekLog.VerboseRateLimited("GhostVisual", $"variant_ruleskip_{partName}",
+                    $"  Skipped {variantRuleSkipped} MeshRenderers by selected variant GAMEOBJECT rules", 60.0);
 
             for (int r = 0; r < skinnedRenderers.Length; r++)
             {
@@ -4570,12 +4582,14 @@ namespace Parsek
                 ghostSmr.shadowCastingMode = smr.shadowCastingMode;
                 ghostSmr.receiveShadows = smr.receiveShadows;
                 meshCount++;
-                ParsekLog.Verbose("GhostVisual", $"    SMR[{r}] '{smr.gameObject.name}' mesh={smr.sharedMesh.name} " +
+                ParsekLog.VerboseRateLimited("GhostVisual", $"smr_{partName}_{r}",
+                    $"    SMR[{r}] '{smr.gameObject.name}' mesh={smr.sharedMesh.name} " +
                     $"localPos={leaf.localPosition} localScale={leaf.localScale} " +
-                    $"bones={resolvedBones}/{(smr.bones != null ? smr.bones.Length : 0)}");
+                    $"bones={resolvedBones}/{(smr.bones != null ? smr.bones.Length : 0)}", 60.0);
                 if (usedPartRootFallbackForBones)
                 {
-                    ParsekLog.Verbose("GhostVisual", $"      SMR[{r}] '{smr.gameObject.name}': used part-root fallback for external bone transforms");
+                    ParsekLog.VerboseRateLimited("GhostVisual", $"smr_fb_{partName}_{r}",
+                        $"      SMR[{r}] '{smr.gameObject.name}': used part-root fallback for external bone transforms", 60.0);
                 }
                 added = true;
             }
@@ -4742,7 +4756,8 @@ namespace Parsek
                     Transform ghostJettison;
                     if (!cloneMap.TryGetValue(srcJettison, out ghostJettison) || ghostJettison == null)
                     {
-                        ParsekLog.Verbose("GhostVisual", $"    Jettison '{jettisonName}' found on prefab but not in cloneMap");
+                        ParsekLog.VerboseRateLimited("GhostVisual", $"jettison_miss_{partName}_{jettisonName}",
+                            $"    Jettison '{jettisonName}' found on prefab but not in cloneMap", 60.0);
                         continue;
                     }
 
