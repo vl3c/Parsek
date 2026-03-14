@@ -38,6 +38,18 @@ namespace Parsek
 
         public override void OnSave(ConfigNode node)
         {
+            // Diagnostic: detect if HighLogic.SaveFolder changed since this scenario loaded.
+            // Under normal KSP flow OnSave fires before the folder changes, but if it doesn't,
+            // file writes (SaveRecordingFiles, GameStateStore, MilestoneStore) would target
+            // the wrong save directory.
+            string currentSaveFolder = HighLogic.SaveFolder;
+            if (IsSaveFolderMismatch(scenarioSaveFolder, currentSaveFolder))
+            {
+                ParsekLog.Warn("Scenario",
+                    $"OnSave: save folder mismatch — loaded for '{scenarioSaveFolder}' " +
+                    $"but current is '{currentSaveFolder}'. Data may write to wrong save directory.");
+            }
+
             // Clear any existing recording nodes
             node.RemoveNodes("RECORDING");
 
@@ -159,12 +171,17 @@ namespace Parsek
         private static string lastSaveFolder = null;
         private static uint budgetDeductionEpoch = 0;
 
+        // Tracks which save folder this scenario instance was loaded for.
+        // Used to detect OnSave firing after HighLogic.SaveFolder has changed.
+        private string scenarioSaveFolder;
+
         public override void OnLoad(ConfigNode node)
         {
             var recordings = RecordingStore.CommittedRecordings;
 
             // Detect loading a different save game (not a revert)
             string currentSave = HighLogic.SaveFolder;
+            scenarioSaveFolder = currentSave;
             if (currentSave != lastSaveFolder)
             {
                 initialLoadDone = false;
@@ -505,6 +522,32 @@ namespace Parsek
             }
 
             initialLoadDone = true;
+
+            // Clear any pending state leaked from a previous save.
+            // Static fields survive scene changes, so pending recordings/trees
+            // from save A would otherwise be auto-committed into save B's timeline.
+            if (RecordingStore.HasPending)
+            {
+                ParsekLog.Warn("Scenario",
+                    $"OnLoad initial: discarding pending recording " +
+                    $"'{RecordingStore.Pending.VesselName}' from previous save");
+                RecordingStore.DiscardPending();
+            }
+            if (RecordingStore.HasPendingTree)
+            {
+                ParsekLog.Warn("Scenario",
+                    "OnLoad initial: discarding pending tree from previous save");
+                RecordingStore.DiscardPendingTree();
+            }
+            if (RecordingStore.IsRewinding)
+            {
+                ParsekLog.Warn("Scenario",
+                    "OnLoad initial: clearing stale rewind flags from previous save");
+                RecordingStore.IsRewinding = false;
+                RecordingStore.RewindUT = 0;
+                RecordingStore.RewindAdjustedUT = 0;
+            }
+
             recordings.Clear();
 
             ConfigNode[] recNodes = node.GetNodes("RECORDING");
@@ -615,14 +658,17 @@ namespace Parsek
             // Validate chain integrity before any playback
             RecordingStore.ValidateChains();
 
-            // Load committed recording trees
+            // Load committed recording trees.
+            // Always clear CommittedTrees — if the new save has no trees, stale trees
+            // from the previous save would otherwise persist and contaminate this save.
             ConfigNode[] treeNodes = node.GetNodes("RECORDING_TREE");
+            var committedTrees = RecordingStore.CommittedTrees;
+            committedTrees.Clear();
+            ParsekLog.Info("Scenario",
+                $"OnLoad initial: cleared CommittedTrees, loading {treeNodes.Length} tree(s)");
+
             if (treeNodes.Length > 0)
             {
-                ScenarioLog($"[Parsek Scenario] Loading {treeNodes.Length} committed tree(s)");
-                var committedTrees = RecordingStore.CommittedTrees;
-                committedTrees.Clear();
-
                 for (int t = 0; t < treeNodes.Length; t++)
                 {
                     var tree = RecordingTree.Load(treeNodes[t]);
@@ -1605,6 +1651,16 @@ namespace Parsek
             }
 
             return swapCount;
+        }
+
+        /// <summary>
+        /// Returns true if OnSave should warn about a save folder mismatch.
+        /// This detects when HighLogic.SaveFolder has changed since the scenario
+        /// was loaded, which could cause file writes to target the wrong save.
+        /// </summary>
+        internal static bool IsSaveFolderMismatch(string scenarioFolder, string currentFolder)
+        {
+            return !string.IsNullOrEmpty(scenarioFolder) && currentFolder != scenarioFolder;
         }
 
         /// <summary>
