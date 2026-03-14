@@ -4592,8 +4592,9 @@ namespace Parsek
             // Apply tree-level resource deltas (lump sum when UT passes tree EndUT)
             ApplyTreeResourceDeltas(currentUT);
 
-            // Watch mode: verify ghost still exists
-            if (watchedRecordingIndex >= 0)
+            // Watch mode: verify ghost still exists (skip during explosion hold —
+            // the ghost is intentionally destroyed while camera is parked on anchor)
+            if (watchedRecordingIndex >= 0 && watchedOverlapCycleIndex != -2)
             {
                 GhostPlaybackState ws;
                 bool ghostOk = ghostStates.TryGetValue(watchedRecordingIndex, out ws)
