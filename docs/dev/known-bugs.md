@@ -191,3 +191,13 @@ During ghost visual builds, some parts log `Variant active-state fallback: no ac
 **Reproduction:** `dotnet test` (full suite) — fails ~50% of runs. `dotnet test --filter GetCommittedTechIds_MultipleMilestones` — always passes.
 
 **Status:** Open — needs investigation of shared state cleanup between tests
+
+## 26. EVA crew swap fails after merging from KSC
+
+When `autoMerge` is off and an EVA recording is merged via the dialog in KSC (not Flight), the crew reservation (Valentina → Agasel) is created correctly, but on revert `SwapReservedCrewInFlight` finds 0 matches on the active vessel. The reserved crew member (Valentina) is not in the active vessel's part crew list after revert, causing a duplicate kerbal on spawn.
+
+**Reproduction:** Career mode → disable auto-merge → EVA Valentina from pad → walk around → go to KSC → merge dialog appears → click Merge → revert to launch → ghost shows different kerbal walking, but Valentina also spawns at the end = 2 Valentinas.
+
+**Root cause:** The rewind quicksave is captured at recording start. For EVA recordings, Valentina is already outside the vessel at that point (on EVA). On revert, the quicksave loads with Valentina on EVA (not in a pod), so `SwapReservedCrewInFlight` iterates `ActiveVessel.parts` crew and finds no match. The swap logic only checks the active vessel's part crew, not EVA kerbals.
+
+**Status:** Open — pre-existing issue in crew reservation system, not caused by the autoMerge/cross-scene dialog changes
