@@ -58,6 +58,28 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns the index of the first point where the vessel has meaningfully moved
+        /// from its initial position (altitude changed by >= altThreshold meters, or speed
+        /// exceeds speedThreshold m/s). Returns 0 if the vessel is moving from the start
+        /// or the list is too short.
+        /// </summary>
+        internal static int FindFirstMovingPoint(List<TrajectoryPoint> points,
+            double altThreshold = 1.0, float speedThreshold = 5.0f)
+        {
+            if (points == null || points.Count < 2) return 0;
+            double startAlt = points[0].altitude;
+            for (int i = 0; i < points.Count; i++)
+            {
+                if (System.Math.Abs(points[i].altitude - startAlt) >= altThreshold)
+                    return i;
+                if (points[i].velocity.magnitude >= speedThreshold)
+                    return i;
+            }
+            // Vessel never moved significantly — keep all points
+            return 0;
+        }
+
+        /// <summary>
         /// Find an orbit segment that covers the given UT. Returns null if none match.
         /// Linear scan — the list is tiny (typically 0-3 segments per recording).
         /// </summary>

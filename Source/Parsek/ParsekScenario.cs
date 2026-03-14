@@ -38,6 +38,27 @@ namespace Parsek
 
         public override void OnSave(ConfigNode node)
         {
+            // Safety net (defense-in-depth): if a pending recording still exists outside Flight
+            // and the dialog is not actively pending, auto-commit ghost-only before serialization.
+            // Under normal operation this is unreachable — Sites A/B handle all paths.
+            if (HighLogic.LoadedScene != GameScenes.FLIGHT && !mergeDialogPending)
+            {
+                if (RecordingStore.HasPending)
+                {
+                    AutoCommitGhostOnly(RecordingStore.Pending);
+                    RecordingStore.CommitPending();
+                    ParsekLog.Warn("Scenario",
+                        "Safety net: committed pending recording on save outside Flight");
+                }
+                if (RecordingStore.HasPendingTree)
+                {
+                    AutoCommitTreeGhostOnly(RecordingStore.PendingTree);
+                    RecordingStore.CommitPendingTree();
+                    ParsekLog.Warn("Scenario",
+                        "Safety net: committed pending tree on save outside Flight");
+                }
+            }
+
             // Diagnostic: detect if HighLogic.SaveFolder changed since this scenario loaded.
             // Under normal KSP flow OnSave fires before the folder changes, but if it doesn't,
             // file writes (SaveRecordingFiles, GameStateStore, MilestoneStore) would target
@@ -171,12 +192,50 @@ namespace Parsek
         private static string lastSaveFolder = null;
         private static uint budgetDeductionEpoch = 0;
 
+        // Cached autoMerge setting — ParsekSettings.Current can be null during early
+        // scene loads (OnLoad fires before GameParameters are available). This is set
+        // from ParsekSettings.Current whenever it's accessible, and used as fallback.
+        private static bool cachedAutoMerge = false;
+
+        // Deferred merge dialog: when autoMerge is off, the dialog follows the player
+        // across scenes until they address it. Reset on each OnLoad so scene changes
+        // get a fresh chance to show the dialog.
+        private static bool mergeDialogPending = false;
+        internal static bool MergeDialogPending
+        {
+            get => mergeDialogPending;
+            set => mergeDialogPending = value;
+        }
+
+        /// <summary>
+        /// Reads the autoMerge setting reliably. ParsekSettings.Current can be null
+        /// during early scene loads — falls back to the cached value in that case.
+        /// </summary>
+        internal static bool IsAutoMerge
+        {
+            get
+            {
+                var settings = ParsekSettings.Current;
+                if (settings != null)
+                {
+                    cachedAutoMerge = settings.autoMerge;
+                    return settings.autoMerge;
+                }
+                return cachedAutoMerge;
+            }
+        }
+
         // Tracks which save folder this scenario instance was loaded for.
         // Used to detect OnSave firing after HighLogic.SaveFolder has changed.
         private string scenarioSaveFolder;
 
         public override void OnLoad(ConfigNode node)
         {
+            // Reset deferred dialog flag and clear input lock (dialog may have been
+            // destroyed by scene change without the user clicking a button)
+            mergeDialogPending = false;
+            InputLockManager.RemoveControlLock("ParsekMergeDialog");
+
             var recordings = RecordingStore.CommittedRecordings;
 
             // Detect loading a different save game (not a revert)
@@ -497,22 +556,32 @@ namespace Parsek
                     ParsekLog.Verbose("Scenario", "Scene change — milestone state restored (resetUnmatched=false)");
                 }
 
-                // Auto-commit pending recordings on non-revert scene exits to non-flight scenes.
-                // This replaces the old approach of deferring pending recordings to the next
-                // OnFlightReady, which confused players with stale merge dialogs at next launch.
+                // Handle pending recordings on non-revert scene exits to non-flight scenes.
+                // Always auto-commit on main menu (game is being unloaded, dialog would be meaningless).
+                bool forceAutoMerge = HighLogic.LoadedScene == GameScenes.MAINMENU;
                 if (!isRevert && HighLogic.LoadedScene != GameScenes.FLIGHT)
                 {
-                    if (RecordingStore.HasPending)
+                    if (IsAutoMerge || forceAutoMerge)
                     {
-                        AutoCommitGhostOnly(RecordingStore.Pending);
-                        RecordingStore.CommitPending();
-                        ScreenMessages.PostScreenMessage("[Parsek] Recording committed to timeline", 5f);
+                        // autoMerge ON: auto-commit ghost-only (existing behavior)
+                        if (RecordingStore.HasPending)
+                        {
+                            AutoCommitGhostOnly(RecordingStore.Pending);
+                            RecordingStore.CommitPending();
+                            ScreenMessages.PostScreenMessage("[Parsek] Recording committed to timeline", 5f);
+                        }
+                        if (RecordingStore.HasPendingTree)
+                        {
+                            AutoCommitTreeGhostOnly(RecordingStore.PendingTree);
+                            RecordingStore.CommitPendingTree();
+                            ScreenMessages.PostScreenMessage("[Parsek] Tree recording committed to timeline", 5f);
+                        }
                     }
-                    if (RecordingStore.HasPendingTree)
+                    else if ((RecordingStore.HasPending || RecordingStore.HasPendingTree) && !mergeDialogPending)
                     {
-                        AutoCommitTreeGhostOnly(RecordingStore.PendingTree);
-                        RecordingStore.CommitPendingTree();
-                        ScreenMessages.PostScreenMessage("[Parsek] Tree recording committed to timeline", 5f);
+                        // autoMerge OFF: defer to merge dialog in the new scene
+                        mergeDialogPending = true;
+                        StartCoroutine(ShowDeferredMergeDialog());
                     }
                 }
 
@@ -747,36 +816,109 @@ namespace Parsek
                 }
             }
 
-            // If pending recording exists but we're not in Flight, auto-commit it.
-            // Merge dialog can only show in Flight (ParsekFlight is Flight-only).
-            // This handles Esc > Abort Mission → Space Center path.
-            if (RecordingStore.HasPending && HighLogic.LoadedScene != GameScenes.FLIGHT)
+            // Handle pending recordings outside Flight (Esc > Abort Mission → Space Center path).
+            // Always auto-commit on main menu (game is being unloaded).
+            if (HighLogic.LoadedScene != GameScenes.FLIGHT &&
+                (RecordingStore.HasPending || RecordingStore.HasPendingTree))
             {
-                var pending = RecordingStore.Pending;
-                if (pending.VesselSnapshot != null)
-                    UnreserveCrewInSnapshot(pending.VesselSnapshot);
-                pending.VesselSnapshot = null;
-                RecordingStore.CommitPending();
-                ScenarioLog($"[Parsek Scenario] Auto-committed pending recording outside Flight " +
-                    $"(scene: {HighLogic.LoadedScene})");
-            }
-
-            // If pending tree exists but we're not in Flight, auto-commit ghost-only.
-            if (RecordingStore.HasPendingTree && HighLogic.LoadedScene != GameScenes.FLIGHT)
-            {
-                var pt = RecordingStore.PendingTree;
-                // Null all vessel snapshots (ghost-only commit — no spawning outside Flight)
-                foreach (var rec in pt.Recordings.Values)
+                if (IsAutoMerge || HighLogic.LoadedScene == GameScenes.MAINMENU)
                 {
-                    if (rec.VesselSnapshot != null)
-                        UnreserveCrewInSnapshot(rec.VesselSnapshot);
-                    rec.VesselSnapshot = null;
+                    // autoMerge ON: auto-commit ghost-only
+                    if (RecordingStore.HasPending)
+                    {
+                        var pending = RecordingStore.Pending;
+                        if (pending.VesselSnapshot != null)
+                            UnreserveCrewInSnapshot(pending.VesselSnapshot);
+                        pending.VesselSnapshot = null;
+                        RecordingStore.CommitPending();
+                        ScenarioLog($"[Parsek Scenario] Auto-committed pending recording outside Flight " +
+                            $"(scene: {HighLogic.LoadedScene})");
+                    }
+                    if (RecordingStore.HasPendingTree)
+                    {
+                        var pt = RecordingStore.PendingTree;
+                        foreach (var rec in pt.Recordings.Values)
+                        {
+                            if (rec.VesselSnapshot != null)
+                                UnreserveCrewInSnapshot(rec.VesselSnapshot);
+                            rec.VesselSnapshot = null;
+                        }
+                        RecordingStore.CommitPendingTree();
+                        ScenarioLog($"[Parsek Scenario] Auto-committed pending tree outside Flight " +
+                            $"(scene: {HighLogic.LoadedScene})");
+                    }
                 }
-                RecordingStore.CommitPendingTree();
-                ScenarioLog($"[Parsek Scenario] Auto-committed pending tree outside Flight " +
-                    $"(scene: {HighLogic.LoadedScene})");
+                else if (!mergeDialogPending)
+                {
+                    // autoMerge OFF: defer to merge dialog
+                    mergeDialogPending = true;
+                    StartCoroutine(ShowDeferredMergeDialog());
+                }
             }
         }
+
+        #region Deferred Merge Dialog
+
+        /// <summary>
+        /// Shows the merge dialog after a short delay, allowing the scene to fully load.
+        /// Used when autoMerge is off and the player leaves Flight with a pending recording.
+        /// </summary>
+        private IEnumerator ShowDeferredMergeDialog()
+        {
+            // Wait ~60 frames for scene to fully load (UI skin, singletons, etc.)
+            int waitFrames = 60;
+            while (waitFrames-- > 0)
+                yield return null;
+
+            // Guard: pending may have been consumed during the wait
+            if (!RecordingStore.HasPending && !RecordingStore.HasPendingTree)
+            {
+                mergeDialogPending = false;
+                ParsekLog.Verbose("Scenario", "Deferred merge dialog: pending consumed during wait — aborting");
+                yield break;
+            }
+
+            // EVA child recordings with a matching parent: auto-commit silently
+            // (matches ParsekFlight.OnFlightReady behavior)
+            if (RecordingStore.HasPending && !string.IsNullOrEmpty(RecordingStore.Pending.ParentRecordingId))
+            {
+                bool parentFound = false;
+                foreach (var rec in RecordingStore.CommittedRecordings)
+                {
+                    if (rec.RecordingId == RecordingStore.Pending.ParentRecordingId)
+                    {
+                        parentFound = true;
+                        break;
+                    }
+                }
+                if (parentFound)
+                {
+                    ParsekLog.Info("Scenario",
+                        $"Deferred merge: auto-committing EVA child recording (parent={RecordingStore.Pending.ParentRecordingId})");
+                    RecordingStore.CommitPending();
+                    mergeDialogPending = false;
+                    yield break;
+                }
+            }
+
+            // Show the appropriate dialog
+            if (RecordingStore.HasPendingTree)
+            {
+                ParsekLog.Info("Scenario",
+                    $"Showing deferred tree merge dialog in {HighLogic.LoadedScene}");
+                MergeDialog.ShowTreeDialog(RecordingStore.PendingTree);
+            }
+            else if (RecordingStore.HasPending)
+            {
+                ParsekLog.Info("Scenario",
+                    $"Showing deferred merge dialog in {HighLogic.LoadedScene}");
+                MergeDialog.Show(RecordingStore.Pending);
+            }
+            // mergeDialogPending stays true until the user clicks a button
+            // (ClearPendingFlag is called from the button callbacks)
+        }
+
+        #endregion
 
         #region Budget Deduction
 
