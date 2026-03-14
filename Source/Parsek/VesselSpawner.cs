@@ -55,6 +55,9 @@ namespace Parsek
                 // Set reserved crew back to Available so KSP can assign them to this vessel
                 ParsekScenario.UnreserveCrewInSnapshot(spawnNode);
 
+                // Remove crew that already exist on a loaded vessel (prevents duplication)
+                RemoveDuplicateCrewFromSnapshot(spawnNode);
+
                 RegenerateVesselIdentity(spawnNode);
                 EnsureSpawnReadiness(spawnNode);
 
@@ -197,6 +200,9 @@ namespace Parsek
                 if (excludeCrew != null && excludeCrew.Count > 0)
                     RemoveSpecificCrewFromSnapshot(spawnNode, excludeCrew);
                 ParsekScenario.UnreserveCrewInSnapshot(spawnNode);
+
+                // Remove crew that already exist on a loaded vessel (prevents duplication)
+                RemoveDuplicateCrewFromSnapshot(spawnNode);
 
                 RegenerateVesselIdentity(spawnNode);
                 EnsureSpawnReadiness(spawnNode);
@@ -461,6 +467,105 @@ namespace Parsek
             string crewStr = allCrew.Count > 0 ? $", crew=[{string.Join(", ", allCrew)}]" : "";
             ParsekLog.Info("Spawner", $"Spawning vessel: \"{rec.VesselName}\" sit={sit}{crewStr}, " +
                 $"nearest vessel={closestDist:F0}m");
+        }
+
+        /// <summary>
+        /// Removes crew members from a spawn snapshot if they already exist on a loaded
+        /// vessel in the scene. Prevents kerbal duplication when a previously-spawned vessel
+        /// still has the same crew member aboard.
+        /// </summary>
+        public static void RemoveDuplicateCrewFromSnapshot(ConfigNode snapshot)
+        {
+            if (snapshot == null) return;
+
+            // Build set of crew names already on loaded vessels
+            var existingCrew = BuildExistingCrewSet();
+            if (existingCrew.Count == 0)
+            {
+                ParsekLog.Verbose("Spawner", "Crew dedup: no existing crew in scene — skipped");
+                return;
+            }
+
+            // Extract crew from the snapshot and find duplicates
+            var snapshotCrew = ParsekScenario.ExtractCrewFromSnapshot(snapshot);
+            var duplicates = FindDuplicateCrew(snapshotCrew, existingCrew);
+
+            if (duplicates.Count == 0)
+            {
+                ParsekLog.Verbose("Spawner",
+                    $"Crew dedup: checked {snapshotCrew.Count} crew against {existingCrew.Count} existing — no duplicates");
+                return;
+            }
+
+            // Remove duplicates from snapshot parts (same pattern as RemoveSpecificCrewFromSnapshot)
+            foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
+            {
+                var names = partNode.GetValues("crew");
+                if (names.Length == 0) continue;
+
+                var keep = new List<string>();
+                bool removedAny = false;
+                foreach (string name in names)
+                {
+                    if (duplicates.Contains(name))
+                    {
+                        removedAny = true;
+                        ParsekLog.Warn("Spawner",
+                            $"Crew dedup: '{name}' already on a vessel in the scene — removed from spawn snapshot");
+                    }
+                    else
+                    {
+                        keep.Add(name);
+                    }
+                }
+
+                if (removedAny)
+                {
+                    partNode.RemoveValues("crew");
+                    foreach (string name in keep)
+                        partNode.AddValue("crew", name);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Builds a set of all crew member names currently on loaded vessels.
+        /// Pure decision helper: extracted for testability.
+        /// </summary>
+        internal static HashSet<string> BuildExistingCrewSet()
+        {
+            var existing = new HashSet<string>();
+            if (FlightGlobals.Vessels == null) return existing;
+
+            for (int v = 0; v < FlightGlobals.Vessels.Count; v++)
+            {
+                var crew = FlightGlobals.Vessels[v].GetVesselCrew();
+                for (int c = 0; c < crew.Count; c++)
+                {
+                    if (!string.IsNullOrEmpty(crew[c].name))
+                        existing.Add(crew[c].name);
+                }
+            }
+            return existing;
+        }
+
+        /// <summary>
+        /// Pure decision: given a set of crew in a snapshot and a set of crew already
+        /// on loaded vessels, returns the names that would be duplicated.
+        /// Extracted for testability.
+        /// </summary>
+        internal static HashSet<string> FindDuplicateCrew(
+            List<string> snapshotCrew, HashSet<string> existingCrew)
+        {
+            var duplicates = new HashSet<string>();
+            if (snapshotCrew == null || existingCrew == null) return duplicates;
+
+            foreach (string name in snapshotCrew)
+            {
+                if (!string.IsNullOrEmpty(name) && existingCrew.Contains(name))
+                    duplicates.Add(name);
+            }
+            return duplicates;
         }
 
         public static void RemoveSpecificCrewFromSnapshot(ConfigNode snapshot, HashSet<string> crewNames)

@@ -198,9 +198,13 @@ When `autoMerge` is off and an EVA recording is merged via the dialog in KSC (no
 
 **Reproduction:** Career mode → disable auto-merge → EVA Valentina from pad → walk around → go to KSC → merge dialog appears → click Merge → revert to launch → ghost shows different kerbal walking, but Valentina also spawns at the end = 2 Valentinas.
 
-**Root cause:** The rewind quicksave is captured at recording start. For EVA recordings, Valentina is already outside the vessel at that point (on EVA). On revert, the quicksave loads with Valentina on EVA (not in a pod), so `SwapReservedCrewInFlight` iterates `ActiveVessel.parts` crew and finds no match. The swap logic only checks the active vessel's part crew, not EVA kerbals.
+**Root cause:** Two issues:
+1. The rewind is on the parent vessel recording, so `PreProcessRewindSave` strips the rocket's name — not the EVA kerbal's. The EVA vessel survives the strip.
+2. `SwapReservedCrewInFlight` only iterates `ActiveVessel.parts` crew. EVA kerbals are separate vessels, so the swap finds no match.
 
-**Status:** Open — pre-existing issue in crew reservation system, not caused by the autoMerge/cross-scene dialog changes
+**Status:** Fixed — two-layer fix:
+1. `PreProcessRewindSave` now also strips EVA child recording vessels from the rewind save (root cause)
+2. `SwapReservedCrewInFlight` removes reserved EVA vessels as defense-in-depth
 
 ## 27. F9 quickload can silently overwrite a pending recording
 

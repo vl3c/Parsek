@@ -1796,7 +1796,65 @@ namespace Parsek
                 ScenarioLog($"[Parsek Scenario] Crew swap: 0 succeeded, {failCount} failed");
             }
 
+            // --- EVA vessel cleanup pass ---
+            // Reserved crew on EVA are separate vessels, not in ActiveVessel.parts.
+            // Remove their EVA vessels to prevent duplicates at ghost EndUT spawn.
+            int evaRemoved = 0;
+            var allVessels = FlightGlobals.Vessels;
+            for (int v = allVessels.Count - 1; v >= 0; v--)
+            {
+                Vessel vessel = allVessels[v];
+                if (vessel == FlightGlobals.ActiveVessel) continue;
+                if (!vessel.isEVA) continue;
+
+                string evaCrewName = GetEvaCrewName(vessel);
+                if (!ShouldRemoveEvaVessel(true, evaCrewName, crewReplacements)) continue;
+
+                ScenarioLog($"[Parsek Scenario] Removing reserved EVA vessel '{evaCrewName}' (pid={vessel.persistentId})");
+
+                // 1. Remove ProtoVessel to prevent re-spawn on save/load
+                var flightState = HighLogic.CurrentGame?.flightState;
+                if (flightState != null && vessel.protoVessel != null)
+                    flightState.protoVessels.Remove(vessel.protoVessel);
+
+                // 2. Remove from active vessel list
+                allVessels.RemoveAt(v);
+
+                // 3. Unload parts/modules/physics, then destroy GameObject
+                vessel.Unload();
+                if (vessel.gameObject != null)
+                {
+                    vessel.gameObject.SetActive(false);
+                    UnityEngine.Object.Destroy(vessel.gameObject);
+                }
+                evaRemoved++;
+            }
+
+            if (evaRemoved > 0)
+                ScenarioLog($"[Parsek Scenario] Removed {evaRemoved} reserved EVA vessel(s)");
+
             return swapCount;
+        }
+
+        /// <summary>
+        /// Returns the single crew member's name from an EVA vessel, or null.
+        /// Uses GetVesselCrew() for robustness with both packed and unpacked vessels.
+        /// </summary>
+        private static string GetEvaCrewName(Vessel evaVessel)
+        {
+            var crew = evaVessel.GetVesselCrew();
+            return crew.Count > 0 ? crew[0].name : null;
+        }
+
+        /// <summary>
+        /// Pure decision: should this EVA vessel be removed during crew swap?
+        /// An EVA vessel is removed if its crew member is reserved (in the replacements dict).
+        /// Extracted for testability.
+        /// </summary>
+        internal static bool ShouldRemoveEvaVessel(
+            bool isEva, string crewName, IReadOnlyDictionary<string, string> replacements)
+        {
+            return isEva && !string.IsNullOrEmpty(crewName) && replacements.ContainsKey(crewName);
         }
 
         /// <summary>
