@@ -1310,6 +1310,19 @@ namespace Parsek
             recorder = null;
             lastPlaybackIndex = 0;
 
+            // Auto-discard pad failures: destroyed within seconds of first movement
+            if (RecordingStore.HasPending)
+            {
+                double flightDuration = RecordingStore.Pending.EndUT - RecordingStore.Pending.StartUT;
+                if (flightDuration < 5.0)
+                {
+                    Log($"Post-destruction: recording too short ({flightDuration:F1}s) — auto-discarding pad failure");
+                    ScreenMessage("Recording discarded — pad failure", 3f);
+                    RecordingStore.DiscardPending();
+                    yield break;
+                }
+            }
+
             // Show merge dialog
             if (RecordingStore.HasPending)
             {
