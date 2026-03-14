@@ -4729,10 +4729,6 @@ namespace Parsek
                 state = null;
             }
 
-            // During explosion hold, don't spawn new ghost — camera is parked at explosion site
-            if (watchedRecordingIndex == recIdx && watchedOverlapCycleIndex == -2)
-                return;
-
             if (!ghostActive)
             {
                 SpawnTimelineGhost(recIdx, rec);
