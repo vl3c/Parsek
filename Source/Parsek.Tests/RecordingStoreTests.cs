@@ -372,7 +372,7 @@ namespace Parsek.Tests
             Assert.Equal(defaultId, loaded.RecordingId);
             Assert.Equal(defaultRecVer, loaded.RecordingFormatVersion);
             Assert.False(loaded.LoopPlayback);
-            Assert.Equal(0.0, loaded.LoopIntervalSeconds);
+            Assert.Equal(10.0, loaded.LoopIntervalSeconds);
         }
 
         [Fact]
