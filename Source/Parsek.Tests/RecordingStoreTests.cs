@@ -823,6 +823,67 @@ namespace Parsek.Tests
             Assert.Single(crew);
             Assert.Equal("Jebediah Kerman", crew[0]);
         }
+
+        // --- EVA vessel removal decision logic (Bug #26) ---
+
+        [Fact]
+        public void ShouldRemoveEvaVessel_ReservedEva_ReturnsTrue()
+        {
+            var replacements = new Dictionary<string, string>
+            {
+                { "Valentina Kerman", "Agasel Kerman" }
+            };
+
+            Assert.True(ParsekScenario.ShouldRemoveEvaVessel(
+                true, "Valentina Kerman", replacements));
+        }
+
+        [Fact]
+        public void ShouldRemoveEvaVessel_NonEva_ReturnsFalse()
+        {
+            // Non-EVA vessel with reserved crew should NOT be removed
+            var replacements = new Dictionary<string, string>
+            {
+                { "Valentina Kerman", "Agasel Kerman" }
+            };
+
+            Assert.False(ParsekScenario.ShouldRemoveEvaVessel(
+                false, "Valentina Kerman", replacements));
+        }
+
+        [Fact]
+        public void ShouldRemoveEvaVessel_EvaNotReserved_ReturnsFalse()
+        {
+            // EVA vessel whose crew is NOT in replacements should NOT be removed
+            var replacements = new Dictionary<string, string>
+            {
+                { "Valentina Kerman", "Agasel Kerman" }
+            };
+
+            Assert.False(ParsekScenario.ShouldRemoveEvaVessel(
+                true, "Jebediah Kerman", replacements));
+        }
+
+        [Fact]
+        public void ShouldRemoveEvaVessel_NullCrewName_ReturnsFalse()
+        {
+            var replacements = new Dictionary<string, string>
+            {
+                { "Valentina Kerman", "Agasel Kerman" }
+            };
+
+            Assert.False(ParsekScenario.ShouldRemoveEvaVessel(
+                true, null, replacements));
+        }
+
+        [Fact]
+        public void ShouldRemoveEvaVessel_EmptyReplacements_ReturnsFalse()
+        {
+            var replacements = new Dictionary<string, string>();
+
+            Assert.False(ParsekScenario.ShouldRemoveEvaVessel(
+                true, "Valentina Kerman", replacements));
+        }
     }
 
     [Collection("Sequential")]
@@ -977,6 +1038,96 @@ namespace Parsek.Tests
             RecordingStore.SyncVersionFromPrecFile(precNode, rec);
 
             Assert.Equal(4, rec.RecordingFormatVersion);
+        }
+
+        // --- Stationary point trimming tests ---
+
+        private List<TrajectoryPoint> MakePadLaunchPoints()
+        {
+            // 5 stationary points on pad (alt=78, speed=0.3), then 5 moving points
+            var points = new List<TrajectoryPoint>();
+            for (int i = 0; i < 5; i++)
+                points.Add(new TrajectoryPoint
+                {
+                    ut = 100 + i, altitude = 78, velocity = new Vector3(0.3f, 0, 0), bodyName = "Kerbin"
+                });
+            for (int i = 0; i < 5; i++)
+                points.Add(new TrajectoryPoint
+                {
+                    ut = 105 + i, altitude = 80 + i * 5, velocity = new Vector3(10 + i * 5, 0, 0), bodyName = "Kerbin"
+                });
+            return points;
+        }
+
+        [Fact]
+        public void StashPending_TrimsLeadingStationaryPoints()
+        {
+            var points = MakePadLaunchPoints();
+            RecordingStore.StashPending(points, "TrimTest");
+
+            Assert.True(RecordingStore.HasPending);
+            // First 5 stationary points should be trimmed
+            Assert.Equal(5, RecordingStore.Pending.Points.Count);
+            Assert.Equal(105.0, RecordingStore.Pending.StartUT);
+        }
+
+        [Fact]
+        public void StashPending_RetimesPartEventsFromTrimmedWindow()
+        {
+            var points = MakePadLaunchPoints();
+            var partEvents = new List<PartEvent>
+            {
+                new PartEvent { ut = 100, eventType = PartEventType.ShroudJettisoned, partPersistentId = 1 },
+                new PartEvent { ut = 101, eventType = PartEventType.EngineIgnited, partPersistentId = 2 },
+                new PartEvent { ut = 107, eventType = PartEventType.Decoupled, partPersistentId = 3 }
+            };
+
+            RecordingStore.StashPending(points, "RetimeTest", partEvents: partEvents);
+
+            Assert.True(RecordingStore.HasPending);
+            var events = RecordingStore.Pending.PartEvents;
+            Assert.Equal(3, events.Count);
+            // First two events should be retimed to the new start (105)
+            Assert.Equal(105.0, events[0].ut);
+            Assert.Equal(105.0, events[1].ut);
+            // Third event is after trim point, unchanged
+            Assert.Equal(107.0, events[2].ut);
+        }
+
+        [Fact]
+        public void StashPending_RemovesOrbitSegmentsBeforeTrim()
+        {
+            var points = MakePadLaunchPoints();
+            var orbitSegments = new List<OrbitSegment>
+            {
+                new OrbitSegment { startUT = 100, endUT = 103, bodyName = "Kerbin" },
+                new OrbitSegment { startUT = 106, endUT = 108, bodyName = "Kerbin" }
+            };
+
+            RecordingStore.StashPending(points, "OrbitTrimTest", orbitSegments: orbitSegments);
+
+            Assert.True(RecordingStore.HasPending);
+            // First segment ends at 103 < trimUT 105, should be removed
+            Assert.Single(RecordingStore.Pending.OrbitSegments);
+            Assert.Equal(106.0, RecordingStore.Pending.OrbitSegments[0].startUT);
+        }
+
+        [Fact]
+        public void StashPending_NoTrimWhenAlreadyMoving()
+        {
+            // All points are moving from the start
+            var points = new List<TrajectoryPoint>();
+            for (int i = 0; i < 5; i++)
+                points.Add(new TrajectoryPoint
+                {
+                    ut = 100 + i, altitude = 80 + i * 10, velocity = new Vector3(20, 0, 0), bodyName = "Kerbin"
+                });
+
+            RecordingStore.StashPending(points, "NoTrimTest");
+
+            Assert.True(RecordingStore.HasPending);
+            Assert.Equal(5, RecordingStore.Pending.Points.Count);
+            Assert.Equal(100.0, RecordingStore.Pending.StartUT);
         }
     }
 }

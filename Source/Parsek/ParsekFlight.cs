@@ -292,6 +292,7 @@ namespace Parsek
         float savedCameraHeading = 0f;
         double watchEndHoldUntilUT = -1;      // non-looped end hold timer
         float savedPivotSharpness = 0.5f;
+        int watchNoTargetFrames = 0;          // consecutive frames with no valid camera target (safety net)
 
         // UI
         private Rect windowRect = new Rect(20, 100, 250, 250);
@@ -1020,6 +1021,16 @@ namespace Parsek
                     // Revert: preserve snapshots for merge dialog
                     CommitTreeRevert(commitUT);
                 }
+                else if (!ParsekScenario.IsAutoMerge)
+                {
+                    // autoMerge OFF: safe finalization but preserve snapshots for dialog in KSC/TS.
+                    // Uses isSceneExit: true (no live vessel re-snapshots during teardown)
+                    // but skips snapshot nulling so the dialog can offer vessel spawning.
+                    FinalizeTreeRecordings(activeTree, commitUT, isSceneExit: true);
+                    RecordingStore.StashPendingTree(activeTree);
+                    ParsekLog.Info("Flight",
+                        $"CommitTreeSceneExit (autoMerge off): stashed tree '{activeTree.TreeName}' with snapshots preserved");
+                }
                 else
                 {
                     // Scene exit: null snapshots (ghost-only, no spawning outside Flight)
@@ -1244,7 +1255,10 @@ namespace Parsek
         /// </summary>
         IEnumerator ShowPostDestructionMergeDialog()
         {
-            yield return new WaitForSeconds(2f);
+            // Wait one frame to let the destruction sequence complete.
+            // The Harmony patch on FlightResultsDialog.Display suppresses KSP's
+            // crash report until the merge dialog is resolved — no hardcoded delay needed.
+            yield return null;
 
             // Guard: only proceed if recorder still exists and vessel was destroyed
             if (recorder == null || !recorder.VesselDestroyedDuringRecording)
@@ -1310,11 +1324,26 @@ namespace Parsek
             recorder = null;
             lastPlaybackIndex = 0;
 
+            // Auto-discard pad failures: destroyed within 10s AND never moved far from spawn.
+            // Real crashes travel 30+ meters; pad failures stay near the pad.
+            if (RecordingStore.HasPending)
+            {
+                double flightDuration = RecordingStore.Pending.EndUT - RecordingStore.Pending.StartUT;
+                double maxDist = RecordingStore.Pending.MaxDistanceFromLaunch;
+                if (flightDuration < 10.0 && maxDist < 30.0)
+                {
+                    Log($"Post-destruction: pad failure ({flightDuration:F1}s, {maxDist:F0}m) — auto-discarding");
+                    ScreenMessage("Recording discarded — pad failure", 3f);
+                    RecordingStore.DiscardPending();
+                    yield break;
+                }
+            }
+
             // Show merge dialog
             if (RecordingStore.HasPending)
             {
-                Log("Post-destruction: showing merge dialog");
-                MergeDialog.Show(RecordingStore.Pending);
+                Log("Post-destruction: commit or dialog");
+                CommitOrShowDialog(RecordingStore.Pending);
             }
         }
 
@@ -1998,6 +2027,36 @@ namespace Parsek
                         }
                     }
                 }
+
+                // Destroyed vessels: discard pad failures, otherwise commit or defer to dialog.
+                // Dialog is deferred via coroutine so it appears AFTER KSP's crash report.
+                if (RecordingStore.Pending.VesselDestroyed)
+                {
+                    double dur = RecordingStore.Pending.EndUT - RecordingStore.Pending.StartUT;
+                    double maxDist = RecordingStore.Pending.MaxDistanceFromLaunch;
+                    if (dur < 10.0 && maxDist < 30.0)
+                    {
+                        ParsekLog.Info("Flight",
+                            $"Vessel destroyed during split — pad failure ({dur:F1}s, {maxDist:F0}m), discarding");
+                        RecordingStore.DiscardPending();
+                        return;
+                    }
+                    if (ParsekScenario.IsAutoMerge)
+                    {
+                        RecordingStore.CommitPending();
+                        ParsekLog.Info("Flight",
+                            $"Vessel destroyed during split — auto-merged ({dur:F1}s)");
+                    }
+                    else
+                    {
+                        // Defer dialog — pending stays stashed, coroutine shows it after 2s
+                        ParsekLog.Info("Flight",
+                            $"Vessel destroyed during split — deferring dialog ({dur:F1}s)");
+                        StartCoroutine(ShowDeferredSplitMergeDialog());
+                    }
+                    return;
+                }
+
                 RecordingStore.CommitPending();
                 string chainInfo = activeChainId != null
                     ? $" (chain={activeChainId}, idx={activeChainNextIndex})"
@@ -3310,7 +3369,7 @@ namespace Parsek
                 {
                     // Chain-level merge dialog (covers all segments)
                     Log($"Found pending chain recording (chain={pending.ChainId}, idx={pending.ChainIndex})");
-                    MergeDialog.Show(pending);
+                    CommitOrShowDialog(pending);
                 }
                 else if (!string.IsNullOrEmpty(pending.ParentRecordingId))
                 {
@@ -3332,14 +3391,14 @@ namespace Parsek
                     }
                     else
                     {
-                        Log($"EVA child recording has no matching parent — showing merge dialog");
-                        MergeDialog.Show(pending);
+                        Log($"EVA child recording has no matching parent — commit or dialog");
+                        CommitOrShowDialog(pending);
                     }
                 }
                 else
                 {
                     Log($"Found pending recording from {pending.VesselName} ({pending.Points.Count} points)");
-                    MergeDialog.Show(pending);
+                    CommitOrShowDialog(pending);
                 }
             }
 
@@ -4708,9 +4767,13 @@ namespace Parsek
 
                 TriggerExplosionIfDestroyed(state, rec, recIdx);
 
-                // If watching and explosion fired, hold camera at explosion site
-                if (isWatching && needsExplosion && !inPauseWindow)
+                // Determine camera transition: -2 = hold at explosion, -1 = ready for re-target
+                int newWatchCycle = ComputeWatchCycleOnLoopRebuild(
+                    watchedOverlapCycleIndex, isWatching, needsExplosion, inPauseWindow);
+
+                if (newWatchCycle == -2)
                 {
+                    // Hold camera at explosion site
                     if (overlapCameraAnchor != null) Destroy(overlapCameraAnchor);
                     overlapCameraAnchor = new GameObject("ParsekLoopCameraAnchor");
                     if (state != null && state.ghost != null)
@@ -4721,6 +4784,18 @@ namespace Parsek
                     watchedOverlapCycleIndex = -2;
                     ParsekLog.Info("CameraFollow",
                         $"Loop: watched cycle={state?.loopCycleIndex} exploded, holding camera for {OverlapExplosionHoldSeconds:F0}s");
+                }
+                else if (newWatchCycle == -1 && isWatching)
+                {
+                    // Explosion already fired (e.g. during pause window with time warp) or
+                    // non-explosion terminal state — mark ready for immediate re-target
+                    // when the new ghost spawns below.
+                    // Clean up any active hold state (anchor, timer) from a previous cycle.
+                    watchedOverlapCycleIndex = -1;
+                    overlapRetargetAfterUT = -1;
+                    if (overlapCameraAnchor != null) { Destroy(overlapCameraAnchor); overlapCameraAnchor = null; }
+                    ParsekLog.Info("CameraFollow",
+                        $"Loop: watched cycle={state?.loopCycleIndex} ended (no hold needed), ready for re-target");
                 }
 
                 ResetReentryFx(state, recIdx);
@@ -6820,6 +6895,16 @@ namespace Parsek
         {
             if (watchedRecordingIndex < 0) return;
 
+            // Safety net: orphaned -2 state with invalid timer — clear to -1 so
+            // normal logic can take over (or exit watch mode via safety net below)
+            if (watchedOverlapCycleIndex == -2 && overlapRetargetAfterUT <= 0)
+            {
+                ParsekLog.Warn("CameraFollow",
+                    $"Orphaned hold state (overlapRetargetAfterUT={overlapRetargetAfterUT:F1}) — clearing");
+                watchedOverlapCycleIndex = -1;
+                if (overlapCameraAnchor != null) { Destroy(overlapCameraAnchor); overlapCameraAnchor = null; }
+            }
+
             // Delayed re-target after watched overlap cycle exploded
             if (watchedOverlapCycleIndex == -2 && overlapRetargetAfterUT > 0)
             {
@@ -6843,21 +6928,27 @@ namespace Parsek
                         var target = primary.cameraPivot ?? primary.ghost.transform;
                         FlightCamera.fetch.SetTargetTransform(target);
                         watchedOverlapCycleIndex = primary.loopCycleIndex;
+                        watchNoTargetFrames = 0;
                         ParsekLog.Info("CameraFollow",
                             $"Overlap: hold ended, now following cycle={primary.loopCycleIndex}");
                     }
                     else
                     {
-                        // No primary available — wait for next spawn
+                        // No primary available yet — set -1, let safety net below
+                        // exit watch mode if no ghost appears within a few frames
                         watchedOverlapCycleIndex = -1;
                         ParsekLog.Info("CameraFollow",
-                            $"Overlap: hold ended, no primary ghost available — waiting for next launch");
+                            $"Overlap: hold ended, no primary ghost available — waiting for next spawn");
                     }
                 }
-                // During hold, keep camera where it is (don't update position)
-                if (FlightCamera.fetch != null)
-                    FlightCamera.fetch.pivotTranslateSharpness = 0f;
-                return;
+                else
+                {
+                    // During hold, keep camera where it is (don't update position)
+                    if (FlightCamera.fetch != null)
+                        FlightCamera.fetch.pivotTranslateSharpness = 0f;
+                    watchNoTargetFrames = 0;
+                    return;
+                }
             }
 
             // Find the ghost we're actually following — may be an overlap ghost, not the primary
@@ -6885,17 +6976,48 @@ namespace Parsek
                         && primary != null && primary.loopCycleIndex == watchedOverlapCycleIndex)
                         state = primary;
                 }
+
+                // Fallback: tracked cycle not found — switch to primary if available
+                if (state == null)
+                {
+                    GhostPlaybackState primary;
+                    if (ghostStates.TryGetValue(watchedRecordingIndex, out primary)
+                        && primary != null && primary.ghost != null
+                        && primary.cameraPivot != null)
+                    {
+                        state = primary;
+                        watchedOverlapCycleIndex = primary.loopCycleIndex;
+                        if (FlightCamera.fetch != null)
+                            FlightCamera.fetch.SetTargetTransform(primary.cameraPivot);
+                        ParsekLog.Info("CameraFollow",
+                            $"Watched cycle lost — falling back to primary cycle={primary.loopCycleIndex}");
+                    }
+                }
             }
             else
             {
                 ghostStates.TryGetValue(watchedRecordingIndex, out state);
             }
 
-            if (state == null || state.cameraPivot == null)
-                return;
             if (FlightCamera.fetch == null || FlightCamera.fetch.transform == null
                 || FlightCamera.fetch.transform.parent == null)
                 return;
+
+            if (state == null || state.cameraPivot == null)
+            {
+                // No valid target — count frames and exit if persistent
+                watchNoTargetFrames++;
+                if (watchNoTargetFrames >= 3)
+                {
+                    ParsekLog.Warn("CameraFollow",
+                        $"No valid camera target for {watchNoTargetFrames} frames — exiting watch mode");
+                    ExitWatchMode();
+                }
+                return;
+            }
+
+            // Valid target found — reset safety counter
+            watchNoTargetFrames = 0;
 
             // Keep sharpness zeroed — KSP resets it on various events
             FlightCamera.fetch.pivotTranslateSharpness = 0f;
@@ -6973,6 +7095,23 @@ namespace Parsek
 
             loopUT = startUT + phase;
             return true;
+        }
+
+        /// <summary>
+        /// Determines the new watchedOverlapCycleIndex when a watched loop cycle
+        /// ends and the ghost is about to be rebuilt. Returns -2 (explosion hold),
+        /// -1 (ready for immediate re-target), or unchanged if not watching.
+        /// </summary>
+        internal static int ComputeWatchCycleOnLoopRebuild(
+            int currentWatchCycle, bool isWatching, bool needsExplosion, bool inPauseWindow)
+        {
+            if (!isWatching) return currentWatchCycle;
+            // Already in a hold — don't start another one, let the current hold
+            // expire naturally. Otherwise the timer keeps resetting during time warp
+            // and the camera never re-targets.
+            if (currentWatchCycle == -2) return currentWatchCycle;
+            if (needsExplosion && !inPauseWindow) return -2; // hold at explosion site
+            return -1; // ready for immediate re-target
         }
 
         /// <summary>
@@ -7178,8 +7317,9 @@ namespace Parsek
             InputLockManager.SetControlLock(WatchModeLockMask, WatchModeLockId);
             ParsekLog.Verbose("CameraFollow", $"InputLockManager control lock \"{WatchModeLockId}\" set: {WatchModeLockMask}");
 
-            // Clear hold timer
+            // Clear hold timer and safety counter
             watchEndHoldUntilUT = -1;
+            watchNoTargetFrames = 0;
 
             string body = gs.lastInterpolatedBodyName ?? "?";
             string altStr = gs.lastInterpolatedAltitude.ToString("F0", CultureInfo.InvariantCulture);
@@ -7243,6 +7383,7 @@ namespace Parsek
             savedCameraPitch = 0f;
             savedCameraHeading = 0f;
             watchEndHoldUntilUT = -1;
+            watchNoTargetFrames = 0;
         }
 
         /// <summary>
@@ -7848,6 +7989,42 @@ namespace Parsek
             if (FlightGlobals.ActiveVessel == null)
                 return "no active vessel";
             return "unknown guard in FlightRecorder.StartRecording";
+        }
+
+        /// <summary>
+        /// Commits or shows merge dialog for the pending recording, depending on the autoMerge setting.
+        /// </summary>
+        void CommitOrShowDialog(RecordingStore.Recording pending)
+        {
+            if (ParsekScenario.IsAutoMerge)
+            {
+                RecordingStore.CommitPending();
+                Log($"Auto-merged recording from {pending.VesselName} ({pending.Points.Count} points)");
+            }
+            else
+            {
+                Log($"Showing merge dialog for {pending.VesselName} ({pending.Points.Count} points)");
+                MergeDialog.Show(pending);
+            }
+        }
+
+        /// <summary>
+        /// Deferred merge dialog for destroyed vessels in the split path.
+        /// Waits one frame to let the destruction sequence complete. The Harmony
+        /// patch on FlightResultsDialog.Display handles ordering with KSP's report.
+        /// </summary>
+        IEnumerator ShowDeferredSplitMergeDialog()
+        {
+            yield return null;
+
+            if (!RecordingStore.HasPending)
+            {
+                Log("Deferred split merge dialog: pending consumed during wait — aborting");
+                yield break;
+            }
+
+            Log($"Showing deferred split merge dialog for {RecordingStore.Pending.VesselName}");
+            MergeDialog.Show(RecordingStore.Pending);
         }
 
         void Log(string message) => ParsekLog.Verbose("Flight", message);

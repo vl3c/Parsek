@@ -270,6 +270,41 @@ namespace Parsek
                 return;
             }
 
+            // Trim leading stationary points (vessel sitting on pad/runway before launch).
+            // This prevents the ghost from overlapping the real vessel at the start position.
+            // Also trims any orbit segments and part events that fall before the new start.
+            int firstMoving = TrajectoryMath.FindFirstMovingPoint(points);
+            if (firstMoving > 0)
+            {
+                double trimUT = points[firstMoving].ut;
+                Log($"[Parsek] Trimmed {firstMoving} leading stationary points for '{vesselName}' " +
+                    $"(alt delta < 1m, speed < 5 m/s, new startUT={trimUT:F1})");
+                points = points.GetRange(firstMoving, points.Count - firstMoving);
+                if (points.Count < 2)
+                {
+                    Log($"[Parsek] Recording too short after trimming for '{vesselName}' ({points.Count} points) — discarded");
+                    return;
+                }
+                // Remove orbit segments that end before the new start
+                if (orbitSegments != null)
+                    orbitSegments.RemoveAll(s => s.endUT <= trimUT);
+                // Retime part events from the trimmed window to the new start so their
+                // visual effects (shroud jettison, engine ignition, etc.) are applied
+                // at the beginning of playback rather than being lost.
+                if (partEvents != null)
+                {
+                    for (int i = 0; i < partEvents.Count; i++)
+                    {
+                        if (partEvents[i].ut < trimUT)
+                        {
+                            var e = partEvents[i];
+                            e.ut = trimUT;
+                            partEvents[i] = e;
+                        }
+                    }
+                }
+            }
+
             pendingRecording = new Recording
             {
                 RecordingId = string.IsNullOrEmpty(recordingId) ? Guid.NewGuid().ToString("N") : recordingId,
@@ -1135,10 +1170,30 @@ namespace Parsek
                 File.Copy(sourcePath, tempPath, true);
 
                 // Pre-process the save file before KSP parses it:
-                // 1. Remove only the recorded vessel (other vessels stay intact)
+                // 1. Remove recorded vessel + any EVA child vessels (other vessels stay intact)
                 // 2. Wind back UT by 10 seconds so the player can reach the pad before launch
                 const double rewindLeadTime = 10.0;
-                PreProcessRewindSave(tempPath, rec.VesselName, rewindLeadTime);
+
+                // Collect all vessel names to strip in a single file I/O pass
+                var stripNames = new HashSet<string> { rec.VesselName };
+                if (!string.IsNullOrEmpty(rec.ChainId))
+                {
+                    // EVA child recordings have different vessel names (the kerbal's name)
+                    // and would otherwise survive the strip
+                    foreach (var committed in committedRecordings)
+                    {
+                        if (committed.ChainId == rec.ChainId &&
+                            !string.IsNullOrEmpty(committed.EvaCrewName) &&
+                            committed.VesselName != rec.VesselName)
+                        {
+                            stripNames.Add(committed.VesselName);
+                        }
+                    }
+                    if (stripNames.Count > 1 && !SuppressLogging)
+                        ParsekLog.Info("Rewind",
+                            $"Rewind strip includes {stripNames.Count - 1} EVA child vessel name(s) from chain '{rec.ChainId}'");
+                }
+                PreProcessRewindSave(tempPath, stripNames, rewindLeadTime);
 
                 Game game = GamePersistence.LoadGame(tempCopyName, HighLogic.SaveFolder, true, false);
 
@@ -1217,6 +1272,11 @@ namespace Parsek
         /// </summary>
         internal static void PreProcessRewindSave(string sfsPath, string vesselName, double leadTime)
         {
+            PreProcessRewindSave(sfsPath, new HashSet<string> { vesselName }, leadTime);
+        }
+
+        internal static void PreProcessRewindSave(string sfsPath, HashSet<string> vesselNames, double leadTime)
+        {
             ConfigNode root = ConfigNode.Load(sfsPath);
             if (root == null)
                 return;
@@ -1253,21 +1313,24 @@ namespace Parsek
                             $"PreProcessRewindSave: missing or invalid UT value '{utStr ?? "(null)"}' in FLIGHTSTATE");
                 }
 
-                // Remove only the recorded vessel — all other vessels stay intact
+                // Remove vessels matching any of the target names
                 int removed = 0;
                 var vesselNodes = flightState.GetNodes("VESSEL");
                 for (int i = vesselNodes.Length - 1; i >= 0; i--)
                 {
                     string name = vesselNodes[i].GetValue("name");
-                    if (name == vesselName)
+                    if (vesselNames.Contains(name))
                     {
                         flightState.RemoveNode(vesselNodes[i]);
                         removed++;
                     }
                 }
                 if (!SuppressLogging)
+                {
+                    string namesStr = string.Join(", ", vesselNames);
                     ParsekLog.Info("Rewind",
-                        $"Stripped {removed} vessel(s) named '{vesselName}' from save");
+                        $"Stripped {removed} vessel(s) matching [{namesStr}] from save");
+                }
             }
 
             root.Save(sfsPath);
