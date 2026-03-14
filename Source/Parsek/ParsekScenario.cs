@@ -555,9 +555,11 @@ namespace Parsek
                 }
 
                 // Handle pending recordings on non-revert scene exits to non-flight scenes.
+                // Always auto-commit on main menu (game is being unloaded, dialog would be meaningless).
+                bool forceAutoMerge = HighLogic.LoadedScene == GameScenes.MAINMENU;
                 if (!isRevert && HighLogic.LoadedScene != GameScenes.FLIGHT)
                 {
-                    if (IsAutoMerge)
+                    if (IsAutoMerge || forceAutoMerge)
                     {
                         // autoMerge ON: auto-commit ghost-only (existing behavior)
                         if (RecordingStore.HasPending)
@@ -813,10 +815,11 @@ namespace Parsek
             }
 
             // Handle pending recordings outside Flight (Esc > Abort Mission → Space Center path).
+            // Always auto-commit on main menu (game is being unloaded).
             if (HighLogic.LoadedScene != GameScenes.FLIGHT &&
                 (RecordingStore.HasPending || RecordingStore.HasPendingTree))
             {
-                if (IsAutoMerge)
+                if (IsAutoMerge || HighLogic.LoadedScene == GameScenes.MAINMENU)
                 {
                     // autoMerge ON: auto-commit ghost-only
                     if (RecordingStore.HasPending)
