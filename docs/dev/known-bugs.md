@@ -234,9 +234,9 @@ When a vessel crashes into a KSC building (VAB, launchpad tower, etc.), the reco
 
 **Root cause:** The destruction detection path that sets `TerminalStateValue = TerminalState.Destroyed` doesn't fire for building collisions. The vessel is destroyed by KSP's building collision system, but the recording commit path may not reach the code that sets the terminal state.
 
-**Observed in:** KSP.log from KSC ghost testing (2026-03-14). Recordings with `terminal=` (null) despite vessels being destroyed by building collisions.
+**Investigation (2026-03-14):** Code analysis shows `onVesselWillDestroy` and `onVesselTerminated` GameEvents should fire for all vessel destruction including building collisions. The sandbox session data shows all `vesselDestroyed=True` recordings correctly have `terminalState=4` (Destroyed). Recordings with no terminal state are tree root segments that end at a branch point (revert), which is by design. No building collision was reproduced in the 2026-03-14 session — needs explicit in-game reproduction to confirm whether this bug is real.
 
-**Status:** Open
+**Status:** Needs verification — may not be a real bug
 
 ## 29. Ghost parts missing or in wrong visual state during playback
 
