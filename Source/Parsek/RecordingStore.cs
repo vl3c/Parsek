@@ -305,6 +305,15 @@ namespace Parsek
                 }
             }
 
+            if (pendingRecording != null)
+            {
+                ParsekLog.Warn("RecordingStore",
+                    $"StashPending: overwriting unresolved pending from '{pendingRecording.VesselName}' " +
+                    $"with new pending from '{vesselName}' — discarding old pending");
+                ParsekScenario.UnreserveCrewInSnapshot(pendingRecording.VesselSnapshot);
+                DiscardPending();
+            }
+
             pendingRecording = new Recording
             {
                 RecordingId = string.IsNullOrEmpty(recordingId) ? Guid.NewGuid().ToString("N") : recordingId,
