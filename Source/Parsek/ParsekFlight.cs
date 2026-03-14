@@ -4679,6 +4679,8 @@ namespace Parsek
             }
 
             // --- Positive/zero interval: single ghost path (no overlap) ---
+            // Clean up any leftover overlap ghosts from a previous negative interval
+            DestroyAllOverlapGhosts(recIdx);
             double loopUT;
             int cycleIndex;
             bool inPauseWindow;
