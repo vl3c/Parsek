@@ -20,6 +20,16 @@ namespace Parsek
             ParsekScenario.MergeDialogPending = false;
         }
 
+        /// <summary>
+        /// Called from button callbacks to replay KSP's flight results dialog
+        /// that was intercepted by the Harmony patch. Only replays if there's
+        /// a pending message (i.e., we intercepted a Display call).
+        /// </summary>
+        internal static void ReplayFlightResultsIfPending()
+        {
+            Patches.FlightResultsPatch.ReplayFlightResults();
+        }
+
         public static void Show(RecordingStore.Recording pending)
         {
             if (pending == null)
@@ -76,6 +86,9 @@ namespace Parsek
                             pending.VesselSnapshot = null;
                             RecordingStore.CommitPending();
                             ClearPendingFlag();
+                    ReplayFlightResultsIfPending();
+                        ReplayFlightResultsIfPending();
+                            ReplayFlightResultsIfPending();
                             ParsekLog.ScreenMessage("Recording merged to timeline!", 3f);
                             ParsekLog.Info("MergeDialog", "User chose: Merge to Timeline (vessel destroyed)");
                         }),
@@ -84,6 +97,9 @@ namespace Parsek
                             ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
                             RecordingStore.DiscardPending();
                             ClearPendingFlag();
+                    ReplayFlightResultsIfPending();
+                        ReplayFlightResultsIfPending();
+                            ReplayFlightResultsIfPending();
                             ParsekLog.ScreenMessage("Recording discarded", 2f);
                             ParsekLog.Info("MergeDialog", "User chose: Discard");
                         })
@@ -101,6 +117,9 @@ namespace Parsek
                             ParsekScenario.ReserveSnapshotCrew();
                             ParsekScenario.SwapReservedCrewInFlight();
                             ClearPendingFlag();
+                    ReplayFlightResultsIfPending();
+                        ReplayFlightResultsIfPending();
+                            ReplayFlightResultsIfPending();
                             ParsekLog.ScreenMessage("Recording merged — vessel will appear after ghost playback", 3f);
                             ParsekLog.Info("MergeDialog", "User chose: Merge to Timeline (deferred spawn)");
                         }),
@@ -109,6 +128,9 @@ namespace Parsek
                             ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
                             RecordingStore.DiscardPending();
                             ClearPendingFlag();
+                    ReplayFlightResultsIfPending();
+                        ReplayFlightResultsIfPending();
+                            ReplayFlightResultsIfPending();
                             ParsekLog.ScreenMessage("Recording discarded", 2f);
                             ParsekLog.Info("MergeDialog", "User chose: Discard");
                         })
@@ -160,6 +182,8 @@ namespace Parsek
                         ParsekScenario.ReserveSnapshotCrew();
                         ParsekScenario.SwapReservedCrewInFlight();
                         ClearPendingFlag();
+                    ReplayFlightResultsIfPending();
+                        ReplayFlightResultsIfPending();
                         ParsekLog.ScreenMessage($"Mission chain ({totalSegments} segments) merged — vessel will appear!", 3f);
                         ParsekLog.Info("MergeDialog", $"User chose: Chain Merge to Timeline ({totalSegments} segments)");
                     }),
@@ -167,6 +191,8 @@ namespace Parsek
                     {
                         DiscardChain(pending, chainId);
                         ClearPendingFlag();
+                    ReplayFlightResultsIfPending();
+                        ReplayFlightResultsIfPending();
                         ParsekLog.ScreenMessage($"Mission chain ({totalSegments} segments) discarded", 2f);
                         ParsekLog.Info("MergeDialog", $"User chose: Chain Discard ({totalSegments} segments)");
                     })
@@ -185,6 +211,8 @@ namespace Parsek
                         NullChainSiblingSnapshots(chainSiblings);
                         RecordingStore.CommitPending();
                         ClearPendingFlag();
+                    ReplayFlightResultsIfPending();
+                        ReplayFlightResultsIfPending();
                         ParsekLog.ScreenMessage($"Mission chain ({totalSegments} segments) merged!", 3f);
                         ParsekLog.Info("MergeDialog", $"User chose: Chain Merge to Timeline ({totalSegments} segments)");
                     }),
@@ -192,6 +220,8 @@ namespace Parsek
                     {
                         DiscardChain(pending, chainId);
                         ClearPendingFlag();
+                    ReplayFlightResultsIfPending();
+                        ReplayFlightResultsIfPending();
                         ParsekLog.ScreenMessage($"Mission chain ({totalSegments} segments) discarded", 2f);
                         ParsekLog.Info("MergeDialog", $"User chose: Chain Discard ({totalSegments} segments)");
                     })
@@ -393,6 +423,7 @@ namespace Parsek
                     ParsekScenario.ReserveSnapshotCrew();
                     ParsekScenario.SwapReservedCrewInFlight();
                     ClearPendingFlag();
+                    ReplayFlightResultsIfPending();
                     if (spawnCount > 0)
                         ParsekLog.ScreenMessage(
                             $"Tree merged \u2014 {spawnCount} vessel(s) will appear after ghost playback", 3f);
@@ -411,6 +442,7 @@ namespace Parsek
                     }
                     RecordingStore.DiscardPendingTree();
                     ClearPendingFlag();
+                    ReplayFlightResultsIfPending();
                     ParsekLog.ScreenMessage("Recording tree discarded", 2f);
                     ParsekLog.Info("MergeDialog",
                         $"User chose: Tree Discard (tree='{tree.TreeName}', " +

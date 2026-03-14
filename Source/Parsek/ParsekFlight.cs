@@ -1255,7 +1255,10 @@ namespace Parsek
         /// </summary>
         IEnumerator ShowPostDestructionMergeDialog()
         {
-            yield return new WaitForSeconds(2f);
+            // Wait one frame to let the destruction sequence complete.
+            // The Harmony patch on FlightResultsDialog.Display suppresses KSP's
+            // crash report until the merge dialog is resolved — no hardcoded delay needed.
+            yield return null;
 
             // Guard: only proceed if recorder still exists and vessel was destroyed
             if (recorder == null || !recorder.VesselDestroyedDuringRecording)
@@ -8007,11 +8010,12 @@ namespace Parsek
 
         /// <summary>
         /// Deferred merge dialog for destroyed vessels in the split path.
-        /// Waits 2 seconds so the dialog appears after KSP's crash report.
+        /// Waits one frame to let the destruction sequence complete. The Harmony
+        /// patch on FlightResultsDialog.Display handles ordering with KSP's report.
         /// </summary>
         IEnumerator ShowDeferredSplitMergeDialog()
         {
-            yield return new WaitForSeconds(2f);
+            yield return null;
 
             if (!RecordingStore.HasPending)
                 yield break;
