@@ -5371,7 +5371,20 @@ namespace Parsek
             var explosion = GhostVisualBuilder.SpawnExplosionFx(worldPos, vesselLength);
             if (explosion != null)
             {
+                // Auto-destroy after 6 seconds to prevent accumulation during looping
+                Destroy(explosion, 6f);
                 activeExplosions.Add(explosion);
+
+                // Prune already-destroyed entries to keep list bounded
+                if (activeExplosions.Count > 20)
+                {
+                    for (int e = activeExplosions.Count - 1; e >= 0; e--)
+                    {
+                        if (activeExplosions[e] == null)
+                            activeExplosions.RemoveAt(e);
+                    }
+                }
+
                 ParsekLog.Verbose("ExplosionFx",
                     $"Explosion GO created for ghost #{recIdx}, activeExplosions.Count={activeExplosions.Count}");
             }
