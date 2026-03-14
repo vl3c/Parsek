@@ -33,7 +33,7 @@ namespace Parsek.Patches
             }
 
             // Only intercept when autoMerge is off
-            if (ParsekSettings.Current?.autoMerge != false)
+            if (ParsekScenario.IsAutoMerge)
                 return true;
 
             // Only intercept when there's a pending recording or the recorder has pending data
