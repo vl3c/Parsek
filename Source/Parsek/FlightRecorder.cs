@@ -163,6 +163,11 @@ namespace Parsek
         public bool SoiChangePending { get; private set; }
         public string SoiChangeFromBody { get; private set; }
 
+        // Deferred first sample: skip recording while the vessel is still stationary on
+        // the pad/runway so the ghost doesn't overlap the real vessel at the start.
+        private bool waitingForMovement;
+        private const float movementSpeedThreshold = 0.5f; // m/s
+
         #region Part Event Subscription
 
         private void SubscribePartEvents()
@@ -3224,6 +3229,13 @@ namespace Parsek
             lastRecordedUT = -1;
             lastRecordedVelocity = Vector3.zero;
 
+            // Defer first sample until the vessel is actually moving, so the ghost
+            // doesn't overlap the real vessel sitting on the pad/runway at playback start.
+            // Only for fresh launches — chain continuations and promotions start immediately.
+            waitingForMovement = !isPromotion && BoundaryAnchor == null
+                && (v.situation == Vessel.Situations.PRELAUNCH
+                    || v.situation == Vessel.Situations.LANDED);
+
             hasPersistentRotation = AssemblyLoader.loadedAssemblies.Any(
                 a => a.name == "PersistentRotation");
             ParsekLog.Info("Recorder", $"PersistentRotation mod detected: {hasPersistentRotation}");
@@ -3686,6 +3698,21 @@ namespace Parsek
 
             // Krakensbane-corrected true velocity
             Vector3 currentVelocity = (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity());
+
+            // Defer recording until the vessel has meaningful movement (avoids ghost
+            // overlapping the real vessel on the pad/runway at playback start)
+            if (waitingForMovement)
+            {
+                if (currentVelocity.magnitude < movementSpeedThreshold)
+                {
+                    ParsekLog.VerboseRateLimited("Recorder", "waiting-for-movement",
+                        $"Waiting for movement (speed={currentVelocity.magnitude:F2} m/s, threshold={movementSpeedThreshold} m/s)");
+                    return;
+                }
+                waitingForMovement = false;
+                ParsekLog.Info("Recorder",
+                    $"Vessel moving — recording first point (speed={currentVelocity.magnitude:F2} m/s)");
+            }
 
             if (!TrajectoryMath.ShouldRecordPoint(currentVelocity, lastRecordedVelocity,
                 Planetarium.GetUniversalTime(), lastRecordedUT,
