@@ -4692,7 +4692,7 @@ namespace Parsek
             if (cycleChanged && ghostActive)
             {
                 // Position at final point so explosion appears at crash site, not mid-air
-                if (rec.Points.Count > 0)
+                if (rec.Points.Count > 0 && state != null && state.ghost != null)
                     PositionGhostAt(state.ghost, rec.Points[rec.Points.Count - 1],
                         rec.RecordingFormatVersion >= 5);
                 TriggerExplosionIfDestroyed(state, rec, recIdx);
@@ -4705,13 +4705,14 @@ namespace Parsek
             if (!ghostActive)
             {
                 SpawnTimelineGhost(recIdx, rec);
-                state = ghostStates[recIdx];
+                if (!ghostStates.TryGetValue(recIdx, out state) || state == null)
+                    return;
                 state.loopCycleIndex = cycleIndex;
                 if (loggedGhostEnter.Add(recIdx))
                     Log($"Ghost ENTERED range: #{recIdx} \"{rec.VesselName}\" at UT {currentUT:F1} (loop cycle={cycleIndex})");
 
                 // Ghost was rebuilt for new loop cycle — re-target camera
-                if (watchedRecordingIndex == recIdx && state.ghost != null)
+                if (watchedRecordingIndex == recIdx && state.ghost != null && FlightCamera.fetch != null)
                 {
                     var target = state.cameraPivot ?? state.ghost.transform;
                     FlightCamera.fetch.SetTargetTransform(target);
@@ -4908,6 +4909,12 @@ namespace Parsek
                     ParsekLog.Info("Flight",
                         $"Ghost EXITED range: #{recIdx} \"{rec.VesselName}\" cycle={cycle} (overlap expired)");
                     DestroyOverlapGhostState(ovState);
+                    overlaps.RemoveAt(i);
+                    continue;
+                }
+
+                if (ovState.ghost == null)
+                {
                     overlaps.RemoveAt(i);
                     continue;
                 }
