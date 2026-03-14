@@ -1761,6 +1761,13 @@ namespace Parsek
                 ParsekLog.Info("UI", $"Setting changed: autoRecordOnEva={s.autoRecordOnEva}");
             }
 
+            bool autoMerge = GUILayout.Toggle(s.autoMerge, "Auto-merge recordings");
+            if (autoMerge != s.autoMerge)
+            {
+                s.autoMerge = autoMerge;
+                ParsekLog.Info("UI", $"Setting changed: autoMerge={s.autoMerge}");
+            }
+
             bool autoWarpStop = GUILayout.Toggle(s.autoWarpStop, "Auto-stop time warp");
             if (autoWarpStop != s.autoWarpStop)
             {
@@ -1862,6 +1869,7 @@ namespace Parsek
                 ParsekLog.Verbose("UI", "Settings Defaults button clicked");
                 s.autoRecordOnLaunch = true;
                 s.autoRecordOnEva = true;
+                s.autoMerge = true;
                 s.autoWarpStop = true;
                 s.autoSplitAtAtmosphere = true;
                 s.autoSplitAtSoi = true;

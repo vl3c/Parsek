@@ -1328,8 +1328,8 @@ namespace Parsek
             // Show merge dialog
             if (RecordingStore.HasPending)
             {
-                Log("Post-destruction: showing merge dialog");
-                MergeDialog.Show(RecordingStore.Pending);
+                Log("Post-destruction: commit or dialog");
+                CommitOrShowDialog(RecordingStore.Pending);
             }
         }
 
@@ -2014,7 +2014,7 @@ namespace Parsek
                     }
                 }
 
-                // Auto-discard short destroyed recordings (pad failures, immediate explosions)
+                // Destroyed vessels: discard if too short, otherwise show merge dialog
                 if (RecordingStore.Pending.VesselDestroyed)
                 {
                     double dur = RecordingStore.Pending.EndUT - RecordingStore.Pending.StartUT;
@@ -2025,6 +2025,10 @@ namespace Parsek
                         RecordingStore.DiscardPending();
                         return;
                     }
+                    ParsekLog.Info("Flight",
+                        $"Vessel destroyed during split — commit or dialog ({dur:F1}s)");
+                    CommitOrShowDialog(RecordingStore.Pending);
+                    return;
                 }
 
                 RecordingStore.CommitPending();
@@ -3339,7 +3343,7 @@ namespace Parsek
                 {
                     // Chain-level merge dialog (covers all segments)
                     Log($"Found pending chain recording (chain={pending.ChainId}, idx={pending.ChainIndex})");
-                    MergeDialog.Show(pending);
+                    CommitOrShowDialog(pending);
                 }
                 else if (!string.IsNullOrEmpty(pending.ParentRecordingId))
                 {
@@ -3361,14 +3365,14 @@ namespace Parsek
                     }
                     else
                     {
-                        Log($"EVA child recording has no matching parent — showing merge dialog");
-                        MergeDialog.Show(pending);
+                        Log($"EVA child recording has no matching parent — commit or dialog");
+                        CommitOrShowDialog(pending);
                     }
                 }
                 else
                 {
                     Log($"Found pending recording from {pending.VesselName} ({pending.Points.Count} points)");
-                    MergeDialog.Show(pending);
+                    CommitOrShowDialog(pending);
                 }
             }
 
@@ -7959,6 +7963,23 @@ namespace Parsek
             if (FlightGlobals.ActiveVessel == null)
                 return "no active vessel";
             return "unknown guard in FlightRecorder.StartRecording";
+        }
+
+        /// <summary>
+        /// Commits or shows merge dialog for the pending recording, depending on the autoMerge setting.
+        /// </summary>
+        void CommitOrShowDialog(RecordingStore.Recording pending)
+        {
+            if (ParsekSettings.Current?.autoMerge != false)
+            {
+                RecordingStore.CommitPending();
+                Log($"Auto-merged recording from {pending.VesselName} ({pending.Points.Count} points)");
+            }
+            else
+            {
+                Log($"Showing merge dialog for {pending.VesselName} ({pending.Points.Count} points)");
+                MergeDialog.Show(pending);
+            }
         }
 
         void Log(string message) => ParsekLog.Verbose("Flight", message);
