@@ -203,7 +203,7 @@ namespace Parsek
             // Existing recording metadata
             recNode.AddValue("recordingFormatVersion", rec.RecordingFormatVersion);
             recNode.AddValue("loopPlayback", rec.LoopPlayback);
-            recNode.AddValue("loopPauseSeconds", rec.LoopPauseSeconds.ToString("R", ic));
+            recNode.AddValue("loopIntervalSeconds", rec.LoopIntervalSeconds.ToString("R", ic));
             if (!rec.PlaybackEnabled)
                 recNode.AddValue("playbackEnabled", rec.PlaybackEnabled.ToString());
 
@@ -347,12 +347,13 @@ namespace Parsek
                     rec.LoopPlayback = loopPlayback;
             }
 
-            string loopPauseStr = recNode.GetValue("loopPauseSeconds");
-            if (loopPauseStr != null)
+            string loopIntervalStr = recNode.GetValue("loopIntervalSeconds")
+                                   ?? recNode.GetValue("loopPauseSeconds"); // migration fallback
+            if (loopIntervalStr != null)
             {
-                double loopPauseSeconds;
-                if (double.TryParse(loopPauseStr, inv, ic, out loopPauseSeconds))
-                    rec.LoopPauseSeconds = loopPauseSeconds;
+                double loopIntervalSeconds;
+                if (double.TryParse(loopIntervalStr, inv, ic, out loopIntervalSeconds))
+                    rec.LoopIntervalSeconds = loopIntervalSeconds;
             }
 
             string playbackEnabledStr = recNode.GetValue("playbackEnabled");

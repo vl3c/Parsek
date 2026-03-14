@@ -337,7 +337,7 @@ namespace Parsek.Tests
                 RecordingId = "meta123",
                 RecordingFormatVersion = 12,
                 LoopPlayback = true,
-                LoopPauseSeconds = 2.5,
+                LoopIntervalSeconds = 2.5,
             };
 
             var node = new ConfigNode("RECORDING");
@@ -349,7 +349,7 @@ namespace Parsek.Tests
             Assert.Equal("meta123", loaded.RecordingId);
             Assert.Equal(12, loaded.RecordingFormatVersion);
             Assert.True(loaded.LoopPlayback);
-            Assert.Equal(2.5, loaded.LoopPauseSeconds);
+            Assert.Equal(2.5, loaded.LoopIntervalSeconds);
 
             // Ghost geometry fields are no longer serialized on save
             Assert.Null(node.GetValue("ghostGeometryVersion"));
@@ -372,7 +372,7 @@ namespace Parsek.Tests
             Assert.Equal(defaultId, loaded.RecordingId);
             Assert.Equal(defaultRecVer, loaded.RecordingFormatVersion);
             Assert.False(loaded.LoopPlayback);
-            Assert.Equal(10.0, loaded.LoopPauseSeconds);
+            Assert.Equal(10.0, loaded.LoopIntervalSeconds);
         }
 
         [Fact]

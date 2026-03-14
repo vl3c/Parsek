@@ -868,7 +868,7 @@ namespace Parsek.Tests
 
             var b = new RecordingBuilder(vesselName)
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
-                .WithLoopPlayback(loop: true, pauseSeconds: 0.0)
+                .WithLoopPlayback(loop: true, intervalSeconds: 0.0)
                 .WithRecordingGroup("Part Showcases");
 
             // Static trajectory (24s) so the visual focus is part event playback.
@@ -936,7 +936,7 @@ namespace Parsek.Tests
 
             var b = new RecordingBuilder(vesselName)
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
-                .WithLoopPlayback(loop: true, pauseSeconds: 0.0)
+                .WithLoopPlayback(loop: true, intervalSeconds: 0.0)
                 .WithRecordingGroup("Part Showcases");
 
             for (int i = 0; i <= 8; i++)
@@ -1322,7 +1322,7 @@ namespace Parsek.Tests
 
             var b = new RecordingBuilder(vesselName)
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
-                .WithLoopPlayback(loop: true, pauseSeconds: 0.0)
+                .WithLoopPlayback(loop: true, intervalSeconds: 0.0)
                 .WithRecordingGroup("Part Showcases");
 
             // Static trajectory (24s).
@@ -1368,7 +1368,7 @@ namespace Parsek.Tests
 
             var b = new RecordingBuilder(vesselName)
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
-                .WithLoopPlayback(loop: true, pauseSeconds: 0.0)
+                .WithLoopPlayback(loop: true, intervalSeconds: 0.0)
                 .WithRecordingGroup("Part Showcases");
 
             for (int i = 0; i <= 8; i++)
@@ -1778,7 +1778,7 @@ namespace Parsek.Tests
 
             var b = new RecordingBuilder(vesselName)
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
-                .WithLoopPlayback(loop: true, pauseSeconds: 0.0)
+                .WithLoopPlayback(loop: true, intervalSeconds: 0.0)
                 .WithRecordingGroup("Part Showcases");
 
             // Static trajectory (24s)
@@ -2144,7 +2144,7 @@ namespace Parsek.Tests
             alt += ShowcaseAltitudeOffset(partName);
             var b = new RecordingBuilder("Part Showcase - Inventory Placement")
                 .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
-                .WithLoopPlayback(loop: true, pauseSeconds: 0.0)
+                .WithLoopPlayback(loop: true, intervalSeconds: 0.0)
                 .WithRecordingGroup("Part Showcases");
 
             for (int i = 0; i <= 8; i++)
@@ -2749,13 +2749,13 @@ namespace Parsek.Tests
         {
             var node = new RecordingBuilder("Loop Test")
                 .WithRecordingId("loop123")
-                .WithLoopPlayback(loop: true, pauseSeconds: 0.0)
+                .WithLoopPlayback(loop: true, intervalSeconds: 0.0)
                 .AddPoint(100, 0, 0, 0)
                 .AddPoint(103, 0, 0, 0)
                 .BuildV3Metadata();
 
             Assert.Equal("True", node.GetValue("loopPlayback"));
-            Assert.Equal("0", node.GetValue("loopPauseSeconds"));
+            Assert.Equal("0", node.GetValue("loopIntervalSeconds"));
         }
 
         [Fact]
@@ -2820,7 +2820,7 @@ namespace Parsek.Tests
             Assert.Equal("Part Showcase - Lights v1", first.GetValue("vesselName"));
             Assert.Equal("9", first.GetValue("pointCount"));
             Assert.Equal("True", first.GetValue("loopPlayback"));
-            Assert.Equal("0", first.GetValue("loopPauseSeconds"));
+            Assert.Equal("0", first.GetValue("loopIntervalSeconds"));
             Assert.Equal(7, first.GetNodes("PART_EVENT").Length);
 
             var ghost = first.GetNode("GHOST_VISUAL_SNAPSHOT");
