@@ -1747,42 +1747,48 @@ namespace Parsek
             }
 
             GUILayout.Label("Recording", GUI.skin.box);
-            bool autoRecordOnLaunch = GUILayout.Toggle(s.autoRecordOnLaunch, "Auto-record on launch");
+            bool autoRecordOnLaunch = GUILayout.Toggle(s.autoRecordOnLaunch,
+                new GUIContent("Auto-record on launch", "Start recording when a vessel leaves the pad or runway"));
             if (autoRecordOnLaunch != s.autoRecordOnLaunch)
             {
                 s.autoRecordOnLaunch = autoRecordOnLaunch;
                 ParsekLog.Info("UI", $"Setting changed: autoRecordOnLaunch={s.autoRecordOnLaunch}");
             }
 
-            bool autoRecordOnEva = GUILayout.Toggle(s.autoRecordOnEva, "Auto-record on EVA");
+            bool autoRecordOnEva = GUILayout.Toggle(s.autoRecordOnEva,
+                new GUIContent("Auto-record on EVA", "Start recording when a kerbal goes EVA from the pad"));
             if (autoRecordOnEva != s.autoRecordOnEva)
             {
                 s.autoRecordOnEva = autoRecordOnEva;
                 ParsekLog.Info("UI", $"Setting changed: autoRecordOnEva={s.autoRecordOnEva}");
             }
 
-            bool autoMerge = GUILayout.Toggle(s.autoMerge, "Auto-merge recordings");
+            bool autoMerge = GUILayout.Toggle(s.autoMerge,
+                new GUIContent("Auto-merge recordings", "When off, a confirmation dialog appears after each recording"));
             if (autoMerge != s.autoMerge)
             {
                 s.autoMerge = autoMerge;
                 ParsekLog.Info("UI", $"Setting changed: autoMerge={s.autoMerge}");
             }
 
-            bool autoWarpStop = GUILayout.Toggle(s.autoWarpStop, "Stop time warp for ghost playback");
+            bool autoWarpStop = GUILayout.Toggle(s.autoWarpStop,
+                new GUIContent("Stop time warp for ghost playback", "Exit time warp when a ghost recording is about to start playing"));
             if (autoWarpStop != s.autoWarpStop)
             {
                 s.autoWarpStop = autoWarpStop;
                 ParsekLog.Info("UI", $"Setting changed: autoWarpStop={s.autoWarpStop}");
             }
 
-            bool autoSplitAtAtmosphere = GUILayout.Toggle(s.autoSplitAtAtmosphere, "Auto-split at atmosphere boundary");
+            bool autoSplitAtAtmosphere = GUILayout.Toggle(s.autoSplitAtAtmosphere,
+                new GUIContent("Auto-split at atmosphere boundary", "Split recordings when crossing the atmosphere boundary"));
             if (autoSplitAtAtmosphere != s.autoSplitAtAtmosphere)
             {
                 s.autoSplitAtAtmosphere = autoSplitAtAtmosphere;
                 ParsekLog.Info("UI", $"Setting changed: autoSplitAtAtmosphere={s.autoSplitAtAtmosphere}");
             }
 
-            bool autoSplitAtSoi = GUILayout.Toggle(s.autoSplitAtSoi, "Auto-split at SOI change");
+            bool autoSplitAtSoi = GUILayout.Toggle(s.autoSplitAtSoi,
+                new GUIContent("Auto-split at SOI change", "Split recordings when entering a new sphere of influence"));
             if (autoSplitAtSoi != s.autoSplitAtSoi)
             {
                 s.autoSplitAtSoi = autoSplitAtSoi;
@@ -1885,6 +1891,13 @@ namespace Parsek
                 ParsekLog.Verbose("UI", "Settings window closed via button");
             }
             GUILayout.EndHorizontal();
+
+            // Render tooltip at bottom of window when hovering a control with GUIContent tooltip
+            if (!string.IsNullOrEmpty(GUI.tooltip))
+            {
+                GUILayout.Space(SpacingSmall);
+                GUILayout.Label(GUI.tooltip, GUI.skin.box);
+            }
 
             GUI.DragWindow();
         }
