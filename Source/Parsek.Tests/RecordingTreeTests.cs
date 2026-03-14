@@ -1140,7 +1140,7 @@ namespace Parsek.Tests
             recNode.AddValue("recordingFormatVersion", "4");
             recNode.AddValue("ghostGeometryVersion", "1");
             recNode.AddValue("loopPlayback", "False");
-            recNode.AddValue("loopPauseSeconds", "10");
+            recNode.AddValue("loopIntervalSeconds", "10");
             recNode.AddValue("ghostGeometryStrategy", "stub_v1");
             recNode.AddValue("ghostGeometryProbeStatus", "unknown");
             recNode.AddValue("ghostGeometryAvailable", "False");
