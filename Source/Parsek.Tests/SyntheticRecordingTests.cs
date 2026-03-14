@@ -9,6 +9,7 @@ using Xunit;
 
 namespace Parsek.Tests
 {
+    [Collection("Sequential")]
     public class SyntheticRecordingTests
     {
         private static string ProjectRoot => ResolveProjectRoot();
