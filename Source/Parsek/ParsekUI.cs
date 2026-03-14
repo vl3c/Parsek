@@ -1875,7 +1875,7 @@ namespace Parsek
                 ParsekLog.Verbose("UI", "Settings Defaults button clicked");
                 s.autoRecordOnLaunch = true;
                 s.autoRecordOnEva = true;
-                s.autoMerge = true;
+                s.autoMerge = false;
                 s.autoWarpStop = true;
                 s.autoSplitAtAtmosphere = true;
                 s.autoSplitAtSoi = true;
