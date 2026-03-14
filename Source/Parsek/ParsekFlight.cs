@@ -8018,7 +8018,10 @@ namespace Parsek
             yield return null;
 
             if (!RecordingStore.HasPending)
+            {
+                Log("Deferred split merge dialog: pending consumed during wait — aborting");
                 yield break;
+            }
 
             Log($"Showing deferred split merge dialog for {RecordingStore.Pending.VesselName}");
             MergeDialog.Show(RecordingStore.Pending);
