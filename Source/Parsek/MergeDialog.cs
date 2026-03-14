@@ -11,13 +11,26 @@ namespace Parsek
     /// </summary>
     public static class MergeDialog
     {
+        private const string MergeLockId = "ParsekMergeDialog";
+
         /// <summary>
-        /// Clears the deferred merge dialog flag in ParsekScenario.
-        /// Called from every button callback so the flag doesn't block re-showing.
+        /// Clears the deferred merge dialog flag and removes the input lock.
+        /// Called from every button callback.
         /// </summary>
         internal static void ClearPendingFlag()
         {
             ParsekScenario.MergeDialogPending = false;
+            InputLockManager.RemoveControlLock(MergeLockId);
+        }
+
+        /// <summary>
+        /// Blocks all player interaction while the merge dialog is shown.
+        /// Prevents entering KSC buildings or other actions during the dialog.
+        /// </summary>
+        internal static void LockInput()
+        {
+            InputLockManager.SetControlLock(ControlTypes.All, MergeLockId);
+            ParsekLog.Verbose("MergeDialog", "Input lock set");
         }
 
         /// <summary>
@@ -145,6 +158,7 @@ namespace Parsek
 
             string message = BuildMergeMessage(pending, duration, recommended);
 
+            LockInput();
             PopupDialog.DismissPopup("ParsekMerge");
             PopupDialog.SpawnPopupDialog(
                 new Vector2(0.5f, 0.5f),
@@ -248,6 +262,7 @@ namespace Parsek
             else
                 message += "All segments will replay as ghosts.";
 
+            LockInput();
             PopupDialog.DismissPopup("ParsekMerge");
             PopupDialog.SpawnPopupDialog(
                 new Vector2(0.5f, 0.5f),
@@ -450,6 +465,7 @@ namespace Parsek
                 })
             };
 
+            LockInput();
             PopupDialog.DismissPopup("ParsekMerge");
             PopupDialog.SpawnPopupDialog(
                 new Vector2(0.5f, 0.5f),

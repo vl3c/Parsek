@@ -231,8 +231,10 @@ namespace Parsek
 
         public override void OnLoad(ConfigNode node)
         {
-            // Reset deferred dialog flag so each scene gets a fresh chance
+            // Reset deferred dialog flag and clear input lock (dialog may have been
+            // destroyed by scene change without the user clicking a button)
             mergeDialogPending = false;
+            InputLockManager.RemoveControlLock("ParsekMergeDialog");
 
             var recordings = RecordingStore.CommittedRecordings;
 
