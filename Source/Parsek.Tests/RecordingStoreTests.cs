@@ -823,6 +823,67 @@ namespace Parsek.Tests
             Assert.Single(crew);
             Assert.Equal("Jebediah Kerman", crew[0]);
         }
+
+        // --- EVA vessel removal decision logic (Bug #26) ---
+
+        [Fact]
+        public void ShouldRemoveEvaVessel_ReservedEva_ReturnsTrue()
+        {
+            var replacements = new Dictionary<string, string>
+            {
+                { "Valentina Kerman", "Agasel Kerman" }
+            };
+
+            Assert.True(ParsekScenario.ShouldRemoveEvaVessel(
+                true, "Valentina Kerman", replacements));
+        }
+
+        [Fact]
+        public void ShouldRemoveEvaVessel_NonEva_ReturnsFalse()
+        {
+            // Non-EVA vessel with reserved crew should NOT be removed
+            var replacements = new Dictionary<string, string>
+            {
+                { "Valentina Kerman", "Agasel Kerman" }
+            };
+
+            Assert.False(ParsekScenario.ShouldRemoveEvaVessel(
+                false, "Valentina Kerman", replacements));
+        }
+
+        [Fact]
+        public void ShouldRemoveEvaVessel_EvaNotReserved_ReturnsFalse()
+        {
+            // EVA vessel whose crew is NOT in replacements should NOT be removed
+            var replacements = new Dictionary<string, string>
+            {
+                { "Valentina Kerman", "Agasel Kerman" }
+            };
+
+            Assert.False(ParsekScenario.ShouldRemoveEvaVessel(
+                true, "Jebediah Kerman", replacements));
+        }
+
+        [Fact]
+        public void ShouldRemoveEvaVessel_NullCrewName_ReturnsFalse()
+        {
+            var replacements = new Dictionary<string, string>
+            {
+                { "Valentina Kerman", "Agasel Kerman" }
+            };
+
+            Assert.False(ParsekScenario.ShouldRemoveEvaVessel(
+                true, null, replacements));
+        }
+
+        [Fact]
+        public void ShouldRemoveEvaVessel_EmptyReplacements_ReturnsFalse()
+        {
+            var replacements = new Dictionary<string, string>();
+
+            Assert.False(ParsekScenario.ShouldRemoveEvaVessel(
+                true, "Valentina Kerman", replacements));
+        }
     }
 
     [Collection("Sequential")]
