@@ -249,8 +249,6 @@ namespace Parsek
                 recNode.AddValue("spawnedPid", rec.SpawnedVesselPersistentId);
             if (rec.VesselDestroyed)
                 recNode.AddValue("vesselDestroyed", rec.VesselDestroyed.ToString());
-            if (rec.TakenControl)
-                recNode.AddValue("takenControl", rec.TakenControl.ToString());
             recNode.AddValue("lastResIdx", rec.LastAppliedResourceIndex);
             recNode.AddValue("pointCount", rec.Points != null ? rec.Points.Count : 0);
         }
@@ -467,13 +465,6 @@ namespace Parsek
                 bool destroyed;
                 if (bool.TryParse(destroyedStr, out destroyed))
                     rec.VesselDestroyed = destroyed;
-            }
-            string takenStr = recNode.GetValue("takenControl");
-            if (takenStr != null)
-            {
-                bool taken;
-                if (bool.TryParse(takenStr, out taken))
-                    rec.TakenControl = taken;
             }
             string resIdxStr = recNode.GetValue("lastResIdx");
             if (resIdxStr != null)
