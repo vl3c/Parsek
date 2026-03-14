@@ -129,7 +129,7 @@ cd Source/Parsek.Tests
 dotnet test
 ```
 
-1263 tests total.
+1342 tests total.
 
 ### Live KSP Log Validation
 
