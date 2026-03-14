@@ -31,7 +31,7 @@ namespace Parsek
 
         [GameParameters.CustomParameterUI("Auto-merge recordings",
             toolTip = "When enabled, recordings are committed to the timeline automatically. When disabled, a confirmation dialog appears after each recording.")]
-        public bool autoMerge = true;
+        public bool autoMerge = false;
 
         [GameParameters.CustomParameterUI("Verbose logging",
             toolTip = "When enabled, write detailed diagnostics to KSP.log (default for development)")]
