@@ -831,7 +831,7 @@ Record entire multi-vessel missions as a single unit. Builds on top of the exist
 
 **Key design principle:** the tree is additive. Existing chains, per-segment loop control, per-recording resources, atmospheric/SOI phase splits, merge dialogs - all preserved. Nothing removed.
 
-**13 tasks completed.** 1076 tests pass. See `docs/dev/done/design-mission-tree.md` for full design, task breakdown, and progress tracker.
+**13 tasks completed.** 1342 tests pass. See `docs/dev/done/design-mission-tree.md` for full design, task breakdown, and progress tracker.
 
 ---
 
