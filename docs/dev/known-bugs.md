@@ -200,7 +200,7 @@ When `autoMerge` is off and an EVA recording is merged via the dialog in KSC (no
 
 **Root cause:** The rewind quicksave is captured at recording start. For EVA recordings, Valentina is already outside the vessel at that point (on EVA). On revert, the quicksave loads with Valentina on EVA (not in a pod), so `SwapReservedCrewInFlight` iterates `ActiveVessel.parts` crew and finds no match. The swap logic only checks the active vessel's part crew, not EVA kerbals.
 
-**Status:** Open — pre-existing issue in crew reservation system, not caused by the autoMerge/cross-scene dialog changes
+**Status:** In Progress — fixing in `SwapReservedCrewInFlight` + `PreProcessRewindSave`
 
 ## 27. F9 quickload can silently overwrite a pending recording
 
