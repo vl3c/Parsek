@@ -1169,7 +1169,7 @@ namespace Parsek
                 bool hasGhost = flight.HasActiveGhost(ri);
                 bool sameBody = flight.IsGhostOnSameBody(ri);
                 bool isWatching = flight.WatchedRecordingIndex == ri;
-                bool canWatch = hasGhost && sameBody && !committed[ri].TakenControl;
+                bool canWatch = hasGhost && sameBody;
 
                 GUI.enabled = canWatch;
                 string watchLabel = isWatching ? "W*" : "W";

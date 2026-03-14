@@ -73,7 +73,7 @@ namespace Parsek.Tests
                 SpawnAttempts = 3,
                 SpawnedVesselPersistentId = 42,
                 LastAppliedResourceIndex = 5,
-                TakenControl = true,
+
                 SceneExitSituation = 4
             };
             rec.Points.Add(new TrajectoryPoint { ut = 100 });
@@ -88,7 +88,7 @@ namespace Parsek.Tests
             Assert.Equal(0, rec.SpawnAttempts);
             Assert.Equal(0u, rec.SpawnedVesselPersistentId);
             Assert.Equal(-1, rec.LastAppliedResourceIndex);
-            Assert.False(rec.TakenControl);
+
             Assert.Equal(-1, rec.SceneExitSituation);
         }
 

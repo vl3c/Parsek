@@ -409,7 +409,6 @@ namespace Parsek.Tests
             var rec = MakeRecording("r1", "t1");
             rec.SpawnedVesselPersistentId = 42;
             rec.VesselDestroyed = true;
-            rec.TakenControl = true;
             rec.LastAppliedResourceIndex = 7;
             rec.Points.Add(new TrajectoryPoint
             {
@@ -427,7 +426,7 @@ namespace Parsek.Tests
 
             Assert.Equal("42", node.GetValue("spawnedPid"));
             Assert.Equal("True", node.GetValue("vesselDestroyed"));
-            Assert.Equal("True", node.GetValue("takenControl"));
+
             Assert.Equal("7", node.GetValue("lastResIdx"));
             Assert.Equal("2", node.GetValue("pointCount"));
         }
@@ -441,7 +440,7 @@ namespace Parsek.Tests
             node.AddValue("vesselPersistentId", "100");
             node.AddValue("spawnedPid", "42");
             node.AddValue("vesselDestroyed", "True");
-            node.AddValue("takenControl", "True");
+
             node.AddValue("lastResIdx", "7");
             node.AddValue("pointCount", "10");
             node.AddValue("recordingFormatVersion", "4");
@@ -457,7 +456,6 @@ namespace Parsek.Tests
 
             Assert.Equal(42u, rec.SpawnedVesselPersistentId);
             Assert.True(rec.VesselDestroyed);
-            Assert.True(rec.TakenControl);
             Assert.Equal(7, rec.LastAppliedResourceIndex);
         }
 
@@ -468,7 +466,7 @@ namespace Parsek.Tests
             tree.Recordings["child1"].TerminalStateValue = TerminalState.Orbiting;
             tree.Recordings["child1"].SpawnedVesselPersistentId = 55555;
             tree.Recordings["child1"].VesselDestroyed = false;
-            tree.Recordings["child1"].TakenControl = true;
+
             tree.Recordings["child1"].LastAppliedResourceIndex = 12;
             tree.Recordings["child2"].TerminalStateValue = TerminalState.Landed;
             tree.Recordings["child2"].SpawnedVesselPersistentId = 66666;
@@ -483,11 +481,11 @@ namespace Parsek.Tests
 
             // Verify mutable state round-tripped
             Assert.Equal(55555u, restored.Recordings["child1"].SpawnedVesselPersistentId);
-            Assert.True(restored.Recordings["child1"].TakenControl);
+
             Assert.Equal(12, restored.Recordings["child1"].LastAppliedResourceIndex);
 
             Assert.Equal(66666u, restored.Recordings["child2"].SpawnedVesselPersistentId);
-            Assert.False(restored.Recordings["child2"].TakenControl);
+
             Assert.Equal(5, restored.Recordings["child2"].LastAppliedResourceIndex);
         }
 

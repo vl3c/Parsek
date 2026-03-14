@@ -116,9 +116,6 @@ namespace Parsek
                 if (rec.VesselDestroyed)
                     recNode.AddValue("vesselDestroyed", rec.VesselDestroyed.ToString());
 
-                if (rec.TakenControl)
-                    recNode.AddValue("takenControl", rec.TakenControl.ToString());
-
                 // Persist terminal state + vessel PID for standalone recordings
                 if (rec.TerminalStateValue.HasValue)
                     recNode.AddValue("terminalState", ((int)rec.TerminalStateValue.Value).ToString(CultureInfo.InvariantCulture));
@@ -414,7 +411,7 @@ namespace Parsek
                     $"memoryRecordings={recordings.Count}, isRevert={isRevert}");
 
                 // Restore mutable state from save. On revert the launch quicksave has
-                // no spawnedPid / takenControl / lastResIdx, so they naturally reset.
+                // no spawnedPid / lastResIdx, so they naturally reset.
                 // On non-revert scene changes (e.g. tracking station → flight) the
                 // save preserves these, preventing duplicate spawns and ghost replays.
                 // NOTE: This loop only covers standalone recordings (not tree recordings).
@@ -438,7 +435,6 @@ namespace Parsek
                     recordings[i].SpawnAttempts = 0;
 
                     uint savedPid = 0;
-                    bool savedTaken = false;
                     int resIdx = -1;
                     ConfigNode savedNode;
                     if (recordings[i].RecordingId != null && savedRecById.TryGetValue(recordings[i].RecordingId, out savedNode))
@@ -446,10 +442,6 @@ namespace Parsek
                         string pidStr = savedNode.GetValue("spawnedPid");
                         if (pidStr != null && !uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out savedPid))
                             ParsekLog.Warn("Scenario", $"Failed to parse spawnedPid '{pidStr}' for recording #{i}");
-
-                        string takenStr = savedNode.GetValue("takenControl");
-                        if (takenStr != null && !bool.TryParse(takenStr, out savedTaken))
-                            ParsekLog.Warn("Scenario", $"Failed to parse takenControl '{takenStr}' for recording #{i}");
 
                         string resIdxStr = savedNode.GetValue("lastResIdx");
                         if (resIdxStr != null && !int.TryParse(resIdxStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out resIdx))
@@ -472,7 +464,6 @@ namespace Parsek
                             $"(id={recordings[i].RecordingId ?? "null"}) — using defaults");
                     }
                     recordings[i].SpawnedVesselPersistentId = savedPid;
-                    recordings[i].TakenControl = savedTaken;
                     recordings[i].LastAppliedResourceIndex = resIdx;
                 }
 
@@ -488,7 +479,7 @@ namespace Parsek
                     recordings[i].VesselSpawned = false;
                     recordings[i].SpawnAttempts = 0;
                     recordings[i].SpawnedVesselPersistentId = 0;
-                    recordings[i].TakenControl = false;
+
                     recordings[i].LastAppliedResourceIndex = -1;
                 }
 
@@ -515,12 +506,6 @@ namespace Parsek
                                     if (pidStr != null)
                                         uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out savedPid);
                                     recordings[i].SpawnedVesselPersistentId = savedPid;
-
-                                    string takenStr = savedTreeRecNode.GetValue("takenControl");
-                                    bool savedTaken = false;
-                                    if (takenStr != null)
-                                        bool.TryParse(takenStr, out savedTaken);
-                                    recordings[i].TakenControl = savedTaken;
 
                                     string resIdxStr = savedTreeRecNode.GetValue("lastResIdx");
                                     int resIdx = -1;
@@ -675,15 +660,6 @@ namespace Parsek
                     bool destroyed;
                     if (bool.TryParse(destroyedStr, out destroyed))
                         rec.VesselDestroyed = destroyed;
-                }
-
-                // Restore taken control flag
-                string takenStr = recNode.GetValue("takenControl");
-                if (takenStr != null)
-                {
-                    bool taken;
-                    if (bool.TryParse(takenStr, out taken))
-                        rec.TakenControl = taken;
                 }
 
                 // Restore terminal state + vessel PID for standalone recordings
