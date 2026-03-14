@@ -5,6 +5,7 @@ using Xunit;
 
 namespace Parsek.Tests
 {
+    [Collection("Sequential")]
     public class ComputeStatsTests
     {
         [Fact]
