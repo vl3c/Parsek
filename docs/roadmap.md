@@ -122,7 +122,7 @@ After rewind resource adjustment, `ActionReplay.ReplayCommittedActions` programm
 
 **Design:** `docs/dev/done/design-restore-points.md`, `docs/dev/done/design-going-back-in-time.md`
 
-**Test coverage:** 1263 tests.
+**Test coverage:** 1342 tests.
 
 ---
 
@@ -154,7 +154,7 @@ The recording tree builds on top of the existing chain system. Each node in the 
 | 12. Tree verbose logging | 11 logging gaps filled across RecordingTree, ParsekFlight, ResourceBudget. |
 | 13. Tree test coverage | 18 non-vacuous tests + 3 synthetic tree recordings for in-game validation. |
 
-**Test coverage:** 1263 tests.
+**Test coverage:** 1342 tests.
 
 ---
 

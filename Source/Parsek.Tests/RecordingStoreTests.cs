@@ -1129,5 +1129,41 @@ namespace Parsek.Tests
             Assert.Equal(5, RecordingStore.Pending.Points.Count);
             Assert.Equal(100.0, RecordingStore.Pending.StartUT);
         }
+
+        [Fact]
+        public void StashPending_OverwritesExistingPending_DiscardsOld()
+        {
+            RecordingStore.StashPending(MakePoints(3, 100), "RocketA");
+            Assert.True(RecordingStore.HasPending);
+            Assert.Equal("RocketA", RecordingStore.Pending.VesselName);
+
+            RecordingStore.StashPending(MakePoints(4, 200), "RocketB");
+            Assert.True(RecordingStore.HasPending);
+            Assert.Equal("RocketB", RecordingStore.Pending.VesselName);
+            Assert.Equal(4, RecordingStore.Pending.Points.Count);
+        }
+
+        [Fact]
+        public void StashPending_OverwriteLogsWarning()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                RecordingStore.StashPending(MakePoints(3, 100), "RocketA");
+                RecordingStore.StashPending(MakePoints(3, 200), "RocketB");
+
+                Assert.Contains(logLines, l =>
+                    l.Contains("overwriting unresolved pending") &&
+                    l.Contains("RocketA") &&
+                    l.Contains("RocketB"));
+            }
+            finally
+            {
+                ParsekLog.SuppressLogging = true;
+                ParsekLog.ResetTestOverrides();
+            }
+        }
     }
 }

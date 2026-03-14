@@ -131,11 +131,11 @@ Three builder classes in `Source/Parsek.Tests/Generators/`:
 
 ### RecordingBuilder
 
-Fluent API that produces a `ConfigNode("RECORDING")` matching `ParsekScenario.OnSave()` format exactly. Supports both v2 (inline) and external sidecar-file format (current `recordingFormatVersion = 4`) outputs.
+Fluent API that produces a `ConfigNode("RECORDING")` matching `ParsekScenario.OnSave()` format exactly. Supports both v2 (inline) and external sidecar-file format (current `recordingFormatVersion = 5`) outputs.
 
 ```csharp
 var rec = new RecordingBuilder("My Recording")
-    .WithDefaultRotation(0.33f, -0.63f, -0.63f, -0.33f)  // upright at KSC
+    .WithDefaultRotation(-0.7009714f, -0.09230039f, -0.09728389f, 0.7004681f)  // upright at KSC (v5, surface-relative)
     .AddPoint(127000, -0.0972, -74.5575, 77)
     .AddPoint(127010, -0.0972, -74.5575, 500)
     .AddOrbitSegment(129500, 132000, sma: 700000, ecc: 0.001, inc: 28.5)
@@ -153,7 +153,7 @@ rec.GetVesselSnapshot();     // vessel snapshot ConfigNode
 rec.GetGhostVisualSnapshot(); // ghost snapshot ConfigNode
 ```
 
-**WithDefaultRotation(x, y, z, w)** - sets a default rotation quaternion applied to all subsequent `AddPoint` calls that don't specify an explicit rotation. Use this for surface-aligned recordings (e.g. KSC upright ≈ 0.33, -0.63, -0.63, -0.33). Points with explicit non-identity rotation are unaffected.
+**WithDefaultRotation(x, y, z, w)** - sets a default rotation quaternion applied to all subsequent `AddPoint` calls that don't specify an explicit rotation. Use this for surface-aligned recordings (e.g. KSC upright v5 ≈ -0.7010, -0.0923, -0.0973, 0.7005). Points with explicit non-identity rotation are unaffected.
 
 **AddPoint** parameters: `(ut, lat, lon, alt, body, rotX/Y/Z/W, funds, science, rep)` - all optional after alt, defaults to Kerbin with identity rotation (or default rotation if set) and zero resources.
 
