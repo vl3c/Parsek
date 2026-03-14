@@ -270,6 +270,29 @@ namespace Parsek
                 return;
             }
 
+            // Trim leading stationary points (vessel sitting on pad/runway before launch).
+            // This prevents the ghost from overlapping the real vessel at the start position.
+            // Also trims any orbit segments and part events that fall before the new start.
+            int firstMoving = TrajectoryMath.FindFirstMovingPoint(points);
+            if (firstMoving > 0)
+            {
+                double trimUT = points[firstMoving].ut;
+                Log($"[Parsek] Trimmed {firstMoving} leading stationary points for '{vesselName}' " +
+                    $"(alt delta < 1m, speed < 5 m/s, new startUT={trimUT:F1})");
+                points = points.GetRange(firstMoving, points.Count - firstMoving);
+                if (points.Count < 2)
+                {
+                    Log($"[Parsek] Recording too short after trimming for '{vesselName}' ({points.Count} points) — discarded");
+                    return;
+                }
+                // Remove orbit segments that end before the new start
+                if (orbitSegments != null)
+                    orbitSegments.RemoveAll(s => s.endUT <= trimUT);
+                // Remove part events that occur before the new start
+                if (partEvents != null)
+                    partEvents.RemoveAll(e => e.ut < trimUT);
+            }
+
             pendingRecording = new Recording
             {
                 RecordingId = string.IsNullOrEmpty(recordingId) ? Guid.NewGuid().ToString("N") : recordingId,
