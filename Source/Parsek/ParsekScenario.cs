@@ -1833,7 +1833,7 @@ namespace Parsek
             if (evaRemoved > 0)
                 ScenarioLog($"[Parsek Scenario] Removed {evaRemoved} reserved EVA vessel(s)");
 
-            return swapCount + evaRemoved;
+            return swapCount;
         }
 
         /// <summary>
