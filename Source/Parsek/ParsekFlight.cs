@@ -273,6 +273,7 @@ namespace Parsek
         private const double DefaultLoopIntervalSeconds = 10.0;
         private const double MinLoopDurationSeconds = 0.001;
         private const double MinCycleDuration = 0.001;
+        private const double OverlapExplosionHoldSeconds = 3.0;
 
         // Camera follow (watch mode) — transient, never serialized
         private const string WatchModeLockId = "ParsekWatch";
@@ -4900,7 +4901,7 @@ namespace Parsek
                     // at the explosion site so it doesn't reference the destroyed ghost
                     if (watchedRecordingIndex == recIdx && watchedOverlapCycleIndex == cycle)
                     {
-                        overlapRetargetAfterUT = Planetarium.GetUniversalTime() + 3.0;
+                        overlapRetargetAfterUT = Planetarium.GetUniversalTime() + OverlapExplosionHoldSeconds;
                         watchedOverlapCycleIndex = -2; // sentinel: waiting to re-target
 
                         // Create temp anchor at ghost position before ghost is destroyed
@@ -4912,7 +4913,7 @@ namespace Parsek
                             FlightCamera.fetch.SetTargetTransform(overlapCameraAnchor.transform);
 
                         ParsekLog.Info("CameraFollow",
-                            $"Overlap: watched cycle={cycle} expired, holding camera at explosion site for 3s");
+                            $"Overlap: watched cycle={cycle} expired, holding camera at explosion site for {OverlapExplosionHoldSeconds:F0}s");
                     }
 
                     ParsekLog.Info("Flight",
