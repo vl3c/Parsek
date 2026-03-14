@@ -195,7 +195,7 @@ namespace Parsek
         // Cached autoMerge setting — ParsekSettings.Current can be null during early
         // scene loads (OnLoad fires before GameParameters are available). This is set
         // from ParsekSettings.Current whenever it's accessible, and used as fallback.
-        private static bool cachedAutoMerge = true;
+        private static bool cachedAutoMerge = false;
 
         // Deferred merge dialog: when autoMerge is off, the dialog follows the player
         // across scenes until they address it. Reset on each OnLoad so scene changes
