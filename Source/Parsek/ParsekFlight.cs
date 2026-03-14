@@ -5507,12 +5507,13 @@ namespace Parsek
         {
             if (explosionAlreadyFired)
             {
-                ParsekLog.Verbose("ExplosionFx", $"ShouldTriggerExplosion: ghost #{recIdx} — skipped (already fired)");
+                ParsekLog.VerboseRateLimited("ExplosionFx", $"explosion_fired_{recIdx}",
+                    $"ShouldTriggerExplosion: ghost #{recIdx} — skipped (already fired)");
                 return false;
             }
             if (terminalState != TerminalState.Destroyed)
             {
-                ParsekLog.Verbose("ExplosionFx",
+                ParsekLog.VerboseRateLimited("ExplosionFx", $"not_destroyed_{recIdx}",
                     $"ShouldTriggerExplosion: ghost #{recIdx} — skipped (terminalState={terminalState?.ToString() ?? "null"}, not Destroyed)");
                 return false;
             }
