@@ -29,6 +29,10 @@ namespace Parsek
             toolTip = "Automatically split recordings when entering a new sphere of influence")]
         public bool autoSplitAtSoi = true;
 
+        [GameParameters.CustomParameterUI("Auto-merge recordings",
+            toolTip = "When enabled, recordings are committed to the timeline automatically. When disabled, a confirmation dialog appears after each recording.")]
+        public bool autoMerge = true;
+
         [GameParameters.CustomParameterUI("Verbose logging",
             toolTip = "When enabled, write detailed diagnostics to KSP.log (default for development)")]
         public bool verboseLogging = true;
