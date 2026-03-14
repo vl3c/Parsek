@@ -192,6 +192,11 @@ namespace Parsek
         private static string lastSaveFolder = null;
         private static uint budgetDeductionEpoch = 0;
 
+        // Cached autoMerge setting — ParsekSettings.Current can be null during early
+        // scene loads (OnLoad fires before GameParameters are available). This is set
+        // from ParsekSettings.Current whenever it's accessible, and used as fallback.
+        private static bool cachedAutoMerge = true;
+
         // Deferred merge dialog: when autoMerge is off, the dialog follows the player
         // across scenes until they address it. Reset on each OnLoad so scene changes
         // get a fresh chance to show the dialog.
@@ -200,6 +205,24 @@ namespace Parsek
         {
             get => mergeDialogPending;
             set => mergeDialogPending = value;
+        }
+
+        /// <summary>
+        /// Reads the autoMerge setting reliably. ParsekSettings.Current can be null
+        /// during early scene loads — falls back to the cached value in that case.
+        /// </summary>
+        internal static bool IsAutoMerge
+        {
+            get
+            {
+                var settings = ParsekSettings.Current;
+                if (settings != null)
+                {
+                    cachedAutoMerge = settings.autoMerge;
+                    return settings.autoMerge;
+                }
+                return cachedAutoMerge;
+            }
         }
 
         // Tracks which save folder this scenario instance was loaded for.
@@ -534,7 +557,7 @@ namespace Parsek
                 // Handle pending recordings on non-revert scene exits to non-flight scenes.
                 if (!isRevert && HighLogic.LoadedScene != GameScenes.FLIGHT)
                 {
-                    if (ParsekSettings.Current?.autoMerge != false)
+                    if (IsAutoMerge)
                     {
                         // autoMerge ON: auto-commit ghost-only (existing behavior)
                         if (RecordingStore.HasPending)
@@ -793,7 +816,7 @@ namespace Parsek
             if (HighLogic.LoadedScene != GameScenes.FLIGHT &&
                 (RecordingStore.HasPending || RecordingStore.HasPendingTree))
             {
-                if (ParsekSettings.Current?.autoMerge != false)
+                if (IsAutoMerge)
                 {
                     // autoMerge ON: auto-commit ghost-only
                     if (RecordingStore.HasPending)

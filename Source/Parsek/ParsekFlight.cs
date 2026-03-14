@@ -1021,7 +1021,7 @@ namespace Parsek
                     // Revert: preserve snapshots for merge dialog
                     CommitTreeRevert(commitUT);
                 }
-                else if (ParsekSettings.Current?.autoMerge == false)
+                else if (!ParsekScenario.IsAutoMerge)
                 {
                     // autoMerge OFF: safe finalization but preserve snapshots for dialog in KSC/TS.
                     // Uses isSceneExit: true (no live vessel re-snapshots during teardown)
@@ -2041,7 +2041,7 @@ namespace Parsek
                         RecordingStore.DiscardPending();
                         return;
                     }
-                    if (ParsekSettings.Current?.autoMerge != false)
+                    if (ParsekScenario.IsAutoMerge)
                     {
                         RecordingStore.CommitPending();
                         ParsekLog.Info("Flight",
@@ -7996,7 +7996,7 @@ namespace Parsek
         /// </summary>
         void CommitOrShowDialog(RecordingStore.Recording pending)
         {
-            if (ParsekSettings.Current?.autoMerge != false)
+            if (ParsekScenario.IsAutoMerge)
             {
                 RecordingStore.CommitPending();
                 Log($"Auto-merged recording from {pending.VesselName} ({pending.Points.Count} points)");
