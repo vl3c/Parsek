@@ -292,6 +292,7 @@ namespace Parsek
         float savedCameraHeading = 0f;
         double watchEndHoldUntilUT = -1;      // non-looped end hold timer
         float savedPivotSharpness = 0.5f;
+        int watchNoTargetFrames = 0;          // consecutive frames with no valid camera target (safety net)
 
         // UI
         private Rect windowRect = new Rect(20, 100, 250, 250);
@@ -4708,9 +4709,13 @@ namespace Parsek
 
                 TriggerExplosionIfDestroyed(state, rec, recIdx);
 
-                // If watching and explosion fired, hold camera at explosion site
-                if (isWatching && needsExplosion && !inPauseWindow)
+                // Determine camera transition: -2 = hold at explosion, -1 = ready for re-target
+                int newWatchCycle = ComputeWatchCycleOnLoopRebuild(
+                    watchedOverlapCycleIndex, isWatching, needsExplosion, inPauseWindow);
+
+                if (newWatchCycle == -2)
                 {
+                    // Hold camera at explosion site
                     if (overlapCameraAnchor != null) Destroy(overlapCameraAnchor);
                     overlapCameraAnchor = new GameObject("ParsekLoopCameraAnchor");
                     if (state != null && state.ghost != null)
@@ -4721,6 +4726,18 @@ namespace Parsek
                     watchedOverlapCycleIndex = -2;
                     ParsekLog.Info("CameraFollow",
                         $"Loop: watched cycle={state?.loopCycleIndex} exploded, holding camera for {OverlapExplosionHoldSeconds:F0}s");
+                }
+                else if (newWatchCycle == -1)
+                {
+                    // Explosion already fired (e.g. during pause window with time warp) or
+                    // non-explosion terminal state — mark ready for immediate re-target
+                    // when the new ghost spawns below.
+                    // Clean up any active hold state (anchor, timer) from a previous cycle.
+                    watchedOverlapCycleIndex = -1;
+                    overlapRetargetAfterUT = -1;
+                    if (overlapCameraAnchor != null) { Destroy(overlapCameraAnchor); overlapCameraAnchor = null; }
+                    ParsekLog.Info("CameraFollow",
+                        $"Loop: watched cycle={state?.loopCycleIndex} ended (no hold needed), ready for re-target");
                 }
 
                 ResetReentryFx(state, recIdx);
@@ -6820,6 +6837,16 @@ namespace Parsek
         {
             if (watchedRecordingIndex < 0) return;
 
+            // Safety net: orphaned -2 state with invalid timer — clear to -1 so
+            // normal logic can take over (or exit watch mode via safety net below)
+            if (watchedOverlapCycleIndex == -2 && overlapRetargetAfterUT <= 0)
+            {
+                ParsekLog.Warn("CameraFollow",
+                    $"Orphaned hold state (overlapRetargetAfterUT={overlapRetargetAfterUT:F1}) — clearing");
+                watchedOverlapCycleIndex = -1;
+                if (overlapCameraAnchor != null) { Destroy(overlapCameraAnchor); overlapCameraAnchor = null; }
+            }
+
             // Delayed re-target after watched overlap cycle exploded
             if (watchedOverlapCycleIndex == -2 && overlapRetargetAfterUT > 0)
             {
@@ -6843,21 +6870,27 @@ namespace Parsek
                         var target = primary.cameraPivot ?? primary.ghost.transform;
                         FlightCamera.fetch.SetTargetTransform(target);
                         watchedOverlapCycleIndex = primary.loopCycleIndex;
+                        watchNoTargetFrames = 0;
                         ParsekLog.Info("CameraFollow",
                             $"Overlap: hold ended, now following cycle={primary.loopCycleIndex}");
                     }
                     else
                     {
-                        // No primary available — wait for next spawn
+                        // No primary available yet — set -1, let safety net below
+                        // exit watch mode if no ghost appears within a few frames
                         watchedOverlapCycleIndex = -1;
                         ParsekLog.Info("CameraFollow",
-                            $"Overlap: hold ended, no primary ghost available — waiting for next launch");
+                            $"Overlap: hold ended, no primary ghost available — waiting for next spawn");
                     }
                 }
-                // During hold, keep camera where it is (don't update position)
-                if (FlightCamera.fetch != null)
-                    FlightCamera.fetch.pivotTranslateSharpness = 0f;
-                return;
+                else
+                {
+                    // During hold, keep camera where it is (don't update position)
+                    if (FlightCamera.fetch != null)
+                        FlightCamera.fetch.pivotTranslateSharpness = 0f;
+                    watchNoTargetFrames = 0;
+                    return;
+                }
             }
 
             // Find the ghost we're actually following — may be an overlap ghost, not the primary
@@ -6885,17 +6918,48 @@ namespace Parsek
                         && primary != null && primary.loopCycleIndex == watchedOverlapCycleIndex)
                         state = primary;
                 }
+
+                // Fallback: tracked cycle not found — switch to primary if available
+                if (state == null)
+                {
+                    GhostPlaybackState primary;
+                    if (ghostStates.TryGetValue(watchedRecordingIndex, out primary)
+                        && primary != null && primary.ghost != null
+                        && primary.cameraPivot != null)
+                    {
+                        state = primary;
+                        watchedOverlapCycleIndex = primary.loopCycleIndex;
+                        if (FlightCamera.fetch != null)
+                            FlightCamera.fetch.SetTargetTransform(primary.cameraPivot);
+                        ParsekLog.Info("CameraFollow",
+                            $"Watched cycle lost — falling back to primary cycle={primary.loopCycleIndex}");
+                    }
+                }
             }
             else
             {
                 ghostStates.TryGetValue(watchedRecordingIndex, out state);
             }
 
-            if (state == null || state.cameraPivot == null)
-                return;
             if (FlightCamera.fetch == null || FlightCamera.fetch.transform == null
                 || FlightCamera.fetch.transform.parent == null)
                 return;
+
+            if (state == null || state.cameraPivot == null)
+            {
+                // No valid target — count frames and exit if persistent
+                watchNoTargetFrames++;
+                if (watchNoTargetFrames >= 3)
+                {
+                    ParsekLog.Warn("CameraFollow",
+                        $"No valid camera target for {watchNoTargetFrames} frames — exiting watch mode");
+                    ExitWatchMode();
+                }
+                return;
+            }
+
+            // Valid target found — reset safety counter
+            watchNoTargetFrames = 0;
 
             // Keep sharpness zeroed — KSP resets it on various events
             FlightCamera.fetch.pivotTranslateSharpness = 0f;
@@ -6973,6 +7037,19 @@ namespace Parsek
 
             loopUT = startUT + phase;
             return true;
+        }
+
+        /// <summary>
+        /// Determines the new watchedOverlapCycleIndex when a watched loop cycle
+        /// ends and the ghost is about to be rebuilt. Returns -2 (explosion hold),
+        /// -1 (ready for immediate re-target), or unchanged if not watching.
+        /// </summary>
+        internal static int ComputeWatchCycleOnLoopRebuild(
+            int currentWatchCycle, bool isWatching, bool needsExplosion, bool inPauseWindow)
+        {
+            if (!isWatching) return currentWatchCycle;
+            if (needsExplosion && !inPauseWindow) return -2; // hold at explosion site
+            return -1; // ready for immediate re-target
         }
 
         /// <summary>
@@ -7178,8 +7255,9 @@ namespace Parsek
             InputLockManager.SetControlLock(WatchModeLockMask, WatchModeLockId);
             ParsekLog.Verbose("CameraFollow", $"InputLockManager control lock \"{WatchModeLockId}\" set: {WatchModeLockMask}");
 
-            // Clear hold timer
+            // Clear hold timer and safety counter
             watchEndHoldUntilUT = -1;
+            watchNoTargetFrames = 0;
 
             string body = gs.lastInterpolatedBodyName ?? "?";
             string altStr = gs.lastInterpolatedAltitude.ToString("F0", CultureInfo.InvariantCulture);
@@ -7243,6 +7321,7 @@ namespace Parsek
             savedCameraPitch = 0f;
             savedCameraHeading = 0f;
             watchEndHoldUntilUT = -1;
+            watchNoTargetFrames = 0;
         }
 
         /// <summary>
