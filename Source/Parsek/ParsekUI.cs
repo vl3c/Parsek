@@ -10,6 +10,10 @@ namespace Parsek
     /// </summary>
     public class ParsekUI
     {
+        public enum UIMode { Flight, KSC }
+        private readonly UIMode mode;
+        private bool InFlight => mode == UIMode.Flight;
+
         private readonly ParsekFlight flight;
 
         // Map view markers
@@ -58,7 +62,7 @@ namespace Parsek
         private const float ColW_Launch = 110f;
         private const float ColW_Dur = 55f;
         private const float ColW_Status = 45f;
-        private const float ColW_Loop = 45f;
+        private const float ColW_Loop = 55f;
         private const float ColW_Watch = 50f;
         private const float ColW_Rewind = 55f;
         private const float ColW_Delete = 50f;
@@ -111,6 +115,13 @@ namespace Parsek
         public ParsekUI(ParsekFlight flight)
         {
             this.flight = flight;
+            this.mode = UIMode.Flight;
+        }
+
+        public ParsekUI(UIMode mode)
+        {
+            this.flight = null;
+            this.mode = mode;
         }
 
         private const float SpacingSmall = 3f;
@@ -120,16 +131,9 @@ namespace Parsek
         {
             GUILayout.BeginVertical();
 
-            // --- Status ---
-            GUILayout.Label("Status", GUI.skin.box);
-            GUILayout.Label($"State: {GetStatusText()}");
-            GUILayout.Label($"Recorded Points: {flight.recording.Count}");
-            if (flight.recording.Count > 0)
-            {
-                double duration = flight.recording[flight.recording.Count - 1].ut - flight.recording[0].ut;
-                GUILayout.Label($"Duration: {duration:F1}s");
-            }
-            GUILayout.Label($"Active Ghosts: {flight.TimelineGhostCount}");
+            if (InFlight)
+                DrawFlightStatus();
+
             DrawCompactBudgetLine();
 
             // --- Timeline buttons ---
@@ -151,7 +155,38 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Actions window toggled: {(showActionsWindow ? "open" : "closed")}");
             }
 
-            // --- Recording controls ---
+            if (InFlight)
+                DrawFlightRecordingControls();
+
+            // --- Settings button ---
+            GUILayout.Space(SpacingLarge);
+            if (GUILayout.Button("Settings"))
+            {
+                showSettingsWindow = !showSettingsWindow;
+                ParsekLog.Verbose("UI", $"Settings window toggled: {(showSettingsWindow ? "open" : "closed")}");
+            }
+
+            GUILayout.EndVertical();
+
+            // Make window draggable
+            GUI.DragWindow();
+        }
+
+        private void DrawFlightStatus()
+        {
+            GUILayout.Label("Status", GUI.skin.box);
+            GUILayout.Label($"State: {GetStatusText()}");
+            GUILayout.Label($"Recorded Points: {flight.recording.Count}");
+            if (flight.recording.Count > 0)
+            {
+                double duration = flight.recording[flight.recording.Count - 1].ut - flight.recording[0].ut;
+                GUILayout.Label($"Duration: {duration:F1}s");
+            }
+            GUILayout.Label($"Active Ghosts: {flight.TimelineGhostCount}");
+        }
+
+        private void DrawFlightRecordingControls()
+        {
             GUILayout.Space(SpacingLarge);
 
             if (!flight.IsRecording)
@@ -214,19 +249,6 @@ namespace Parsek
                     flight.CommitFlight();
             }
             GUI.enabled = true;
-
-            // --- Settings button ---
-            GUILayout.Space(SpacingLarge);
-            if (GUILayout.Button("Settings"))
-            {
-                showSettingsWindow = !showSettingsWindow;
-                ParsekLog.Verbose("UI", $"Settings window toggled: {(showSettingsWindow ? "open" : "closed")}");
-            }
-
-            GUILayout.EndVertical();
-
-            // Make window draggable
-            GUI.DragWindow();
         }
 
         /// <summary>
@@ -338,12 +360,9 @@ namespace Parsek
 
             if (parts.Count > 0)
             {
-                string line = "Reserved: " + string.Join("  ", parts);
-                if (GUILayout.Button(line, GUI.skin.label))
-                {
-                    showActionsWindow = !showActionsWindow;
-                    ParsekLog.Verbose("UI", $"Budget line clicked — Actions window toggled: {(showActionsWindow ? "open" : "closed")}");
-                }
+                GUILayout.Label("Reserved:");
+                for (int i = 0; i < parts.Count; i++)
+                    GUILayout.Label("  \u2022 " + parts[i]);
             }
         }
 
@@ -680,10 +699,11 @@ namespace Parsek
             // Position to the right of main window on first open
             if (recordingsWindowRect.width < 1f)
             {
+                float recHeight = InFlight ? mainWindowRect.height : mainWindowRect.height * 2;
                 recordingsWindowRect = new Rect(
                     mainWindowRect.x + mainWindowRect.width + 10,
                     mainWindowRect.y,
-                    790, mainWindowRect.height);
+                    790, recHeight);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI", $"Recordings window initial position: x={recordingsWindowRect.x.ToString("F0", ic)} y={recordingsWindowRect.y.ToString("F0", ic)}");
             }
@@ -822,9 +842,15 @@ namespace Parsek
                     ParsekLog.Info("UI", $"Set loop playback for all recordings: enabled={newAllLoop}");
                 }
 
-                GUILayout.Label("Period", GUILayout.Width(ColW_Period));
+                GUILayout.BeginHorizontal(GUILayout.Width(ColW_Period));
+                GUILayout.FlexibleSpace();
+                GUILayout.Label(new GUIContent("Every",
+                    "Loop interval (seconds):\n  Positive: wait N seconds after end\n  Zero: restart immediately\n  Negative: overlap by N seconds"));
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
 
-                GUILayout.Label("Watch", GUILayout.Width(ColW_Watch));
+                if (InFlight)
+                    GUILayout.Label("Watch", GUILayout.Width(ColW_Watch));
                 GUILayout.Label("Rewind", GUILayout.Width(ColW_Rewind));
                 GUILayout.Label("Delete", GUILayout.Width(ColW_Delete));
                 GUILayout.Space(ScrollbarWidth);
@@ -1137,7 +1163,8 @@ namespace Parsek
             // Period
             DrawLoopPeriodCell(rec, ri, dur);
 
-            // Watch button
+            // Watch button (flight only)
+            if (InFlight)
             {
                 bool hasGhost = flight.HasActiveGhost(ri);
                 bool sameBody = flight.IsGhostOnSameBody(ri);
@@ -1164,7 +1191,8 @@ namespace Parsek
                 if (hasRewindSave)
                 {
                     string rewindReason;
-                    bool canRewind = RecordingStore.CanRewind(rec, out rewindReason, isRecording: flight.IsRecording);
+                    bool isRecording = InFlight && flight.IsRecording;
+                    bool canRewind = RecordingStore.CanRewind(rec, out rewindReason, isRecording: isRecording);
                     GUI.enabled = canRewind;
                     string tooltip = canRewind ? "Rewind to this launch" : rewindReason;
                     if (GUILayout.Button(new GUIContent("R", tooltip), GUILayout.Width(ColW_Rewind)))
@@ -1177,25 +1205,17 @@ namespace Parsek
                 }
             }
 
-            // Delete button (X → ? confirm → delete, right-click ? to cancel)
-            GUI.enabled = flight.CanDeleteRecording;
+            // Delete button (X → ? → PopupDialog confirm → delete)
+            GUI.enabled = InFlight ? flight.CanDeleteRecording : true;
             if (deleteConfirmIndex == ri)
             {
                 if (GUILayout.Button("?", GUILayout.Width(ColW_Delete)))
                 {
                     deleteConfirmIndex = -1;
-                    if (editingLoopPeriodIdx == ri)
-                        editingLoopPeriodIdx = -1;
-                    else if (editingLoopPeriodIdx > ri)
-                        editingLoopPeriodIdx--;
-                    ParsekLog.Info("UI", $"Delete confirmed for recording index={ri} name='{rec.VesselName}'");
-                    flight.DeleteRecording(ri);
-                    InvalidateSort();
-                    GUI.enabled = true;
-                    GUILayout.EndHorizontal();
-                    return true; // list changed
+                    ParsekLog.Verbose("UI", $"Delete confirm clicked for recording index={ri} name='{rec.VesselName}'");
+                    ShowDeleteRecordingConfirmation(ri, rec.VesselName);
                 }
-                // Right-click cancels the delete confirmation
+                // Right-click cancels
                 if (Event.current.type == EventType.MouseDown && Event.current.button == 1 &&
                     GUILayoutUtility.GetLastRect().Contains(Event.current.mousePosition))
                 {
@@ -1224,6 +1244,39 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        private void ShowDeleteRecordingConfirmation(int index, string vesselName)
+        {
+            int capturedIndex = index;
+            string capturedName = vesselName;
+            PopupDialog.SpawnPopupDialog(
+                new Vector2(0.5f, 0.5f),
+                new Vector2(0.5f, 0.5f),
+                new MultiOptionDialog(
+                    "ParsekDeleteRecordingConfirm",
+                    $"Delete recording \"{capturedName}\" and its files?\n\nThis cannot be undone.",
+                    "Confirm Delete Recording",
+                    HighLogic.UISkin,
+                    new DialogGUIButton("Delete", () =>
+                    {
+                        ParsekLog.Info("UI", $"Delete confirmed for recording index={capturedIndex} name='{capturedName}'");
+                        if (editingLoopPeriodIdx == capturedIndex)
+                            editingLoopPeriodIdx = -1;
+                        else if (editingLoopPeriodIdx > capturedIndex)
+                            editingLoopPeriodIdx--;
+                        if (InFlight)
+                            flight.DeleteRecording(capturedIndex);
+                        else
+                            RecordingStore.DeleteRecordingFull(capturedIndex);
+                        InvalidateSort();
+                    }),
+                    new DialogGUIButton("Cancel", () =>
+                    {
+                        ParsekLog.Verbose("UI", $"Delete cancelled for recording '{capturedName}'");
+                    })
+                ),
+                false, HighLogic.UISkin);
         }
 
         private void ShowRewindConfirmation(RecordingStore.Recording rec)
@@ -1300,7 +1353,7 @@ namespace Parsek
                         foreach (var rec in RecordingStore.CommittedRecordings)
                             ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
                         ParsekScenario.ClearReplacements();
-                        flight.DestroyAllTimelineGhosts();
+                        if (InFlight) flight.DestroyAllTimelineGhosts();
                         RecordingStore.ClearCommitted();
                         GameStateStore.ClearScienceSubjects();
                         ParsekLog.Info("UI", "All recordings wiped");
@@ -1536,6 +1589,15 @@ namespace Parsek
                 content, tooltipLabelStyle);
         }
 
+        private static readonly GUIContent intervalTooltip = new GUIContent("",
+            "Loop interval (seconds):\n  Positive: wait N seconds after end\n  Zero: restart immediately\n  Negative: overlap by N seconds");
+
+        private string FormatInterval(double interval)
+        {
+            string sign = interval < 0 ? "-" : "";
+            return sign + FormatDuration(System.Math.Abs(interval));
+        }
+
         private void DrawLoopPeriodCell(RecordingStore.Recording rec, int ri, double dur)
         {
             if (!rec.LoopPlayback)
@@ -1556,14 +1618,14 @@ namespace Parsek
                     Event.current.keyCode == KeyCode.Return &&
                     GUI.GetNameOfFocusedControl() == "PeriodEdit")
                 {
-                    ApplyLoopPeriodEdit(rec, dur);
+                    ApplyLoopIntervalEdit(rec, dur);
                     editingLoopPeriodIdx = -1;
                 }
             }
             else
             {
-                double period = dur + rec.LoopPauseSeconds;
-                if (GUILayout.Button(FormatDuration(period), GUILayout.Width(ColW_Period)))
+                var content = new GUIContent(FormatInterval(rec.LoopIntervalSeconds), intervalTooltip.tooltip);
+                if (GUILayout.Button(content, GUILayout.Width(ColW_Period)))
                 {
                     // Save any in-progress edit on another recording
                     if (editingLoopPeriodIdx >= 0)
@@ -1573,31 +1635,32 @@ namespace Parsek
                         {
                             var editRec = committed[editingLoopPeriodIdx];
                             double editDur = editRec.EndUT - editRec.StartUT;
-                            ApplyLoopPeriodEdit(editRec, editDur);
+                            ApplyLoopIntervalEdit(editRec, editDur);
                         }
                     }
 
                     editingLoopPeriodIdx = ri;
-                    editingLoopPeriodText = ((int)(dur + rec.LoopPauseSeconds)).ToString();
+                    editingLoopPeriodText = ((int)rec.LoopIntervalSeconds).ToString();
                 }
             }
         }
 
-        private void ApplyLoopPeriodEdit(RecordingStore.Recording rec, double dur)
+        private void ApplyLoopIntervalEdit(RecordingStore.Recording rec, double dur)
         {
-            double newPeriod;
-            if (double.TryParse(editingLoopPeriodText, out newPeriod) && newPeriod > 0)
+            double newInterval;
+            if (double.TryParse(editingLoopPeriodText, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out newInterval)
+                && newInterval > -(dur - 0.001))
             {
-                double pause = newPeriod - dur;
-                if (pause < 0) pause = 0;
-                rec.LoopPauseSeconds = pause;
+                rec.LoopIntervalSeconds = newInterval;
                 ParsekLog.Info("UI",
-                    $"Recording '{rec.VesselName}' loop period updated to {(dur + rec.LoopPauseSeconds):F1}s (pause={pause:F1}s)");
+                    $"Recording '{rec.VesselName}' loop interval updated to " +
+                    rec.LoopIntervalSeconds.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + "s");
             }
             else
             {
                 ParsekLog.Warn("UI",
-                    $"Rejected loop period edit '{editingLoopPeriodText}' for recording '{rec.VesselName}'");
+                    $"Rejected loop interval edit '{editingLoopPeriodText}' for recording '{rec.VesselName}'");
             }
         }
 
@@ -1780,14 +1843,17 @@ namespace Parsek
                 ShowWipeActionsConfirmation(milestoneCount);
             GUI.enabled = true;
 
-            int activeGhosts = flight.TimelineGhostCount;
-            GUI.enabled = activeGhosts > 0;
-            if (GUILayout.Button($"Despawn Ghosts ({activeGhosts})"))
+            if (InFlight)
             {
-                flight.DestroyAllTimelineGhosts();
-                ParsekLog.Info("UI", "Ghosts despawned from settings");
+                int activeGhosts = flight.TimelineGhostCount;
+                GUI.enabled = activeGhosts > 0;
+                if (GUILayout.Button($"Despawn Ghosts ({activeGhosts})"))
+                {
+                    flight.DestroyAllTimelineGhosts();
+                    ParsekLog.Info("UI", "Ghosts despawned from settings");
+                }
+                GUI.enabled = true;
             }
-            GUI.enabled = true;
 
             GUILayout.Space(SpacingLarge);
             GUILayout.BeginHorizontal();

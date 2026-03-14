@@ -72,7 +72,7 @@ namespace Parsek
             public List<OrbitSegment> OrbitSegments = new List<OrbitSegment>();
             public List<PartEvent> PartEvents = new List<PartEvent>();
             public bool LoopPlayback;
-            public double LoopPauseSeconds = 10.0;
+            public double LoopIntervalSeconds = 10.0;
 
             // UI grouping tag (e.g. "Synthetic", "Part Showcase")
             public string RecordingGroup;
@@ -198,7 +198,7 @@ namespace Parsek
                 ChainIndex = source.ChainIndex;
                 ChainBranch = source.ChainBranch;
                 LoopPlayback = source.LoopPlayback;
-                LoopPauseSeconds = source.LoopPauseSeconds;
+                LoopIntervalSeconds = source.LoopIntervalSeconds;
                 PreLaunchFunds = source.PreLaunchFunds;
                 PreLaunchScience = source.PreLaunchScience;
                 PreLaunchReputation = source.PreLaunchReputation;
@@ -676,6 +676,24 @@ namespace Parsek
             DeleteRecordingFiles(rec);
             committedRecordings.RemoveAt(index);
             Log($"[Parsek] Removed recording '{rec.VesselName}' (id={rec.RecordingId}) at index {index}");
+        }
+
+        /// <summary>
+        /// Deletes a recording from the committed list, cleans up sidecar files, and
+        /// unreserves crew. Use when there are no active ghosts (e.g. KSC scene).
+        /// In flight scene, use ParsekFlight.DeleteRecording instead (handles ghost cleanup).
+        /// </summary>
+        public static void DeleteRecordingFull(int index)
+        {
+            if (index < 0 || index >= committedRecordings.Count)
+            {
+                ParsekLog.Warn("RecordingStore", $"DeleteRecordingFull: invalid index={index} (count={committedRecordings.Count})");
+                return;
+            }
+            var rec = committedRecordings[index];
+            ParsekLog.Info("RecordingStore", $"DeleteRecordingFull: deleting '{rec.VesselName}' at index {index}");
+            ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
+            RemoveRecordingAt(index);
         }
 
         /// <summary>

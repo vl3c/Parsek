@@ -20,7 +20,7 @@ namespace Parsek.Tests.Generators
         private int chainIndex = -1;
         private int chainBranch = -1;
         private bool loopPlayback;
-        private double loopPauseSeconds = 10.0;
+        private double loopIntervalSeconds = 0.0;
         private string segmentPhase;
         private string segmentBodyName;
         private bool playbackEnabled = true;
@@ -206,10 +206,10 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
-        public RecordingBuilder WithLoopPlayback(bool loop = true, double pauseSeconds = 10.0)
+        public RecordingBuilder WithLoopPlayback(bool loop = true, double intervalSeconds = 0.0)
         {
             loopPlayback = loop;
-            loopPauseSeconds = pauseSeconds;
+            loopIntervalSeconds = intervalSeconds;
             return this;
         }
 
@@ -305,7 +305,7 @@ namespace Parsek.Tests.Generators
             node.AddValue("recordingId", GetRecordingId());
             node.AddValue("recordingFormatVersion", formatVersion.ToString());
             node.AddValue("loopPlayback", loopPlayback.ToString());
-            node.AddValue("loopPauseSeconds", loopPauseSeconds.ToString("R", CultureInfo.InvariantCulture));
+            node.AddValue("loopIntervalSeconds", loopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture));
 
             if (!string.IsNullOrEmpty(parentRecordingId))
                 node.AddValue("parentRecordingId", parentRecordingId);
@@ -399,7 +399,7 @@ namespace Parsek.Tests.Generators
                 node.AddValue("chainBranch", chainBranch);
 
             node.AddValue("loopPlayback", loopPlayback.ToString());
-            node.AddValue("loopPauseSeconds", loopPauseSeconds.ToString("R", CultureInfo.InvariantCulture));
+            node.AddValue("loopIntervalSeconds", loopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture));
 
             if (vesselSnapshot != null)
                 node.AddNode("VESSEL_SNAPSHOT", vesselSnapshot);

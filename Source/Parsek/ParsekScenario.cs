@@ -1148,7 +1148,7 @@ namespace Parsek
             recNode.AddValue("recordingId", rec.RecordingId ?? "");
             recNode.AddValue("recordingFormatVersion", rec.RecordingFormatVersion);
             recNode.AddValue("loopPlayback", rec.LoopPlayback);
-            recNode.AddValue("loopPauseSeconds", rec.LoopPauseSeconds.ToString("R", CultureInfo.InvariantCulture));
+            recNode.AddValue("loopIntervalSeconds", rec.LoopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture));
             if (rec.PreLaunchFunds != 0)
                 recNode.AddValue("preLaunchFunds", rec.PreLaunchFunds.ToString("R", CultureInfo.InvariantCulture));
             if (rec.PreLaunchScience != 0)
@@ -1218,12 +1218,13 @@ namespace Parsek
                     rec.LoopPlayback = loopPlayback;
             }
 
-            string loopPauseStr = recNode.GetValue("loopPauseSeconds");
-            if (loopPauseStr != null)
+            string loopIntervalStr = recNode.GetValue("loopIntervalSeconds")
+                                  ?? recNode.GetValue("loopPauseSeconds"); // migration fallback
+            if (loopIntervalStr != null)
             {
-                double loopPauseSeconds;
-                if (double.TryParse(loopPauseStr, NumberStyles.Float, CultureInfo.InvariantCulture, out loopPauseSeconds))
-                    rec.LoopPauseSeconds = loopPauseSeconds;
+                double loopIntervalSeconds;
+                if (double.TryParse(loopIntervalStr, NumberStyles.Float, CultureInfo.InvariantCulture, out loopIntervalSeconds))
+                    rec.LoopIntervalSeconds = loopIntervalSeconds;
             }
 
             rec.GhostGeometryRelativePath = recNode.GetValue("ghostGeometryPath");
