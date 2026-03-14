@@ -7110,7 +7110,8 @@ namespace Parsek
         internal void ExitWatchMode(bool skipCameraRestore = false)
         {
             if (watchedRecordingIndex < 0) return;
-            FlightCamera.fetch.pivotTranslateSharpness = savedPivotSharpness;
+            if (FlightCamera.fetch != null)
+                FlightCamera.fetch.pivotTranslateSharpness = savedPivotSharpness;
 
             // Restore camera to the active vessel (unless switching between ghosts)
             if (!skipCameraRestore)
@@ -7124,20 +7125,23 @@ namespace Parsek
                 ParsekLog.Info("CameraFollow",
                     $"Exiting watch mode for recording #{watchedRecordingIndex} \"{recVesselName}\" \u2014 returning to {targetName}");
 
-                if (savedCameraVessel != null && savedCameraVessel.gameObject != null)
+                if (FlightCamera.fetch != null)
                 {
-                    FlightCamera.fetch.SetTargetVessel(savedCameraVessel);
-                    FlightCamera.fetch.SetDistance(savedCameraDistance);
-                    FlightCamera.fetch.camPitch = savedCameraPitch;
-                    FlightCamera.fetch.camHdg = savedCameraHeading;
-                    ParsekLog.Verbose("CameraFollow",
-                        $"FlightCamera.SetTargetVessel restored to {savedCameraVessel.vesselName}, distance={savedCameraDistance.ToString("F1", CultureInfo.InvariantCulture)}");
-                }
-                else
-                {
-                    FlightCamera.fetch.SetTargetVessel(FlightGlobals.ActiveVessel);
-                    ParsekLog.Verbose("CameraFollow",
-                        $"FlightCamera.SetTargetVessel restored to {FlightGlobals.ActiveVessel?.vesselName ?? "unknown"}, distance={savedCameraDistance.ToString("F1", CultureInfo.InvariantCulture)}");
+                    if (savedCameraVessel != null && savedCameraVessel.gameObject != null)
+                    {
+                        FlightCamera.fetch.SetTargetVessel(savedCameraVessel);
+                        FlightCamera.fetch.SetDistance(savedCameraDistance);
+                        FlightCamera.fetch.camPitch = savedCameraPitch;
+                        FlightCamera.fetch.camHdg = savedCameraHeading;
+                        ParsekLog.Verbose("CameraFollow",
+                            $"FlightCamera.SetTargetVessel restored to {savedCameraVessel.vesselName}, distance={savedCameraDistance.ToString("F1", CultureInfo.InvariantCulture)}");
+                    }
+                    else if (FlightGlobals.ActiveVessel != null)
+                    {
+                        FlightCamera.fetch.SetTargetVessel(FlightGlobals.ActiveVessel);
+                        ParsekLog.Verbose("CameraFollow",
+                            $"FlightCamera.SetTargetVessel restored to {FlightGlobals.ActiveVessel.vesselName}, distance={savedCameraDistance.ToString("F1", CultureInfo.InvariantCulture)}");
+                    }
                 }
             }
 
