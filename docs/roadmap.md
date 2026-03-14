@@ -168,6 +168,9 @@ Current status: experimental button exists in UI, not recommended for normal pla
 ### Planetarium.right drift compensation for long orbital segments
 KSP's inertial reference frame (`Planetarium.right`) may drift over very long time warp durations. This could cause ghost orientation mismatch for interplanetary transfer segments. Needs empirical measurement first — if drift is sub-degree for typical segment lengths, no fix needed. If significant, store `Planetarium.right` snapshot at recording time and apply correction at playback (~10 lines + 3 ConfigNode keys). See `docs/dev/done/design-orbital-rotation.md` Phase 6.
 
+### Crash-safe pending recording recovery
+If the game crashes or the player alt-F4s while a merge dialog is pending, the recording data is lost from memory. The sidecar files (`.prec`, `_vessel.craft`, `_ghost.craft`) already exist on disk, but the metadata entry in `.sfs` referencing them is missing. Solution: write a `pending_manifest.cfg` file to `Parsek/Recordings/` when a recording is stashed. On next game load, if the manifest exists but the recording ID isn't in committed recordings, auto-recover it. Delete the manifest on commit or discard.
+
 ### Additional part event coverage
 - Control surface deflection (continuous float - thousands of events per flight, unclear visual value)
 - Robotics / Breaking Ground DLC (continuous servo motion, DLC-dependent)
