@@ -735,12 +735,95 @@ Parts where the only visual gap is ModuleColorChanger (cabin lights), FXModuleAn
 | FXModuleAnimateThrottle | 33 | Engine nozzle glow animation | Medium — adds visual fidelity |
 | FXModuleAnimateRCS | 5 | RCS thruster response animation | Low — subtle effect |
 | ModulePartFirework | 2 | Firework launch effects | None — novelty |
-| ModuleControlSurface (continuous) | 24 | Continuous deflection angle (binary deploy/retract IS supported) | Priority 1 (per roadmap) |
-| ModuleAnimateHeat (continuous) | 16 | Continuous thermal intensity (binary hot/cold IS supported) | Priority 2 (per roadmap) |
+| ModuleControlSurface (continuous) | 24 | Continuous deflection angle (binary deploy/retract IS supported) | Priority 1 |
+| ModuleAnimateHeat (continuous) | 16 | Continuous thermal intensity (binary hot/cold IS supported) | Priority 2 |
+| ModulePartVariants (TEXTURE/MATERIAL) | many | Variant texture/color not applied to ghost (bug #37) | Medium |
 
 ### DLC Parts Summary
 
 | DLC | Total Parts | With Visual Modules | Showcased | Coverage |
-|-----|-------------|--------------------|-----------|---------| 
+|-----|-------------|--------------------|-----------|---------|
 | Making History | 71 | 27 | 21 | 78% |
 | Breaking Ground | 54 | 43 | 41 | 95% |
+
+## Roadmap
+
+Consolidated from `next-parts-event-support-priority.md` (2026-02-22, now obsolete).
+
+### Supported Module Baseline (as of 2026-03-15)
+
+Recording/playback handles 17 per-physics-frame polling checks plus 4 event-driven sources.
+212 parts have been visually validated via showcase recordings. Full list of supported modules:
+parachute, jettison/fairing, deployable (solar/antenna/radiator), ladder, animation-group,
+standalone animate-generic, lights/blink, gear deployment, wheel/leg dynamics
+(suspension/steering/motor), engine + RCS particle FX, robotics motion, aero surface
+deploy/retract, control surface deploy/retract (binary), robot arm scanner, animate-heat
+(binary hot/cold), inventory placement/removal, docking chain boundaries.
+
+### Priority 1: ModuleControlSurface continuous deflection
+
+Binary deploy/retract endpoints are supported and showcased for all 24 control surface parts.
+The gap is continuous deflection angle during flight — elevons, rudders, canards, and
+propeller blades hold a fixed deployed angle on the ghost instead of moving with the airflow.
+
+**Scope:** 24 parts (AdvancedCanard, airlinerCtrlSrf, airlinerTailFin, CanardController,
+elevon2, elevon3, elevon5, largeFanBlade, largeHeliBlade, largePropeller, mediumFanBlade,
+mediumHeliBlade, mediumPropeller, R8winglet, smallCtrlSrf, smallFanBlade, smallHeliBlade,
+smallPropeller, StandardCtrlSrf, tailfin, winglet3, wingShuttleElevon1, wingShuttleElevon2,
+wingShuttleRudder)
+
+**Work required:** Low-frequency continuous sampling model for deflection values, new
+PartEventType or value field on existing events, playback interpolation of deflection angle.
+Validate on subset (elevon2, wingShuttleRudder, smallPropeller) before broad rollout.
+
+### Priority 2: ModuleAnimateHeat continuous intensity
+
+Binary hot/cold endpoint transitions are supported and showcased for all 16 thermal-animation
+parts. The gap is continuous heat scalar — the ghost jumps between cold and hot states instead
+of smoothly ramping.
+
+**Work required:** Continuous heat-scalar sampling/playback, material emission lerp at
+playback time.
+
+### Priority 3: FXModuleAnimateThrottle (engine nozzle glow)
+
+33 engine parts have throttle-driven nozzle glow animations that are not replayed on the
+ghost. The engine particle FX (exhaust plume) works, but the nozzle mesh itself doesn't
+glow or animate with throttle level.
+
+**Work required:** Read `FXModuleAnimateThrottle` animation name from part config, sample
+animation at throttle-driven position during recording, apply during playback. May be able
+to reuse the existing `ModuleAnimateHeat` infrastructure.
+
+### Priority 4: ModulePartVariants TEXTURE/MATERIAL rules (bug #37)
+
+Ghost parts with non-default texture variants show the prefab's default texture. Only
+GAMEOBJECTS geometry rules are currently applied.
+
+**Work required:** Read TEXTURE sub-nodes from selected VARIANT config, apply
+`renderer.material.SetTexture` overrides during ghost build. Similarly for MATERIAL rules.
+
+### Lower Priority
+
+- **ModuleColorChanger** (33 parts) — cabin interior lights. Low visual impact since these
+  are mostly visible through small windows. Would need color animation sampling.
+- **FXModuleAnimateRCS** (5 parts) — subtle thruster housing animation on RCS fire. Very
+  low visual impact.
+- **ModulePartFirework** (2 parts) — novelty firework launchers. Not worth implementing.
+
+### Showcase Gaps (parts needing validation)
+
+6 non-cosmetic parts with supported visual modules that lack showcase entries:
+
+| Part | Module | Notes |
+|------|--------|-------|
+| LaunchEscapeSystem | ModuleEnginesFX | Bug #32 — plume FX needs in-game verification |
+| ISRU | ModuleAnimationGroup | Intentionally excluded — no visible deploy change |
+| OrbitalScanner | ModuleAnimationGroup | Intentionally excluded — no visible deploy change |
+| Size1p5_Tank_05 | ModuleEngines | MH engine-tank hybrid, needs showcase |
+| Size2LFB | ModuleEnginesFX | Deprecated v1 Twin-Boar, low priority |
+| dockingPort3 | ModuleDockingNode | Chain boundary only, no visual event |
+
+The remaining 27 parts without showcase entries are command pods/crew cabins whose only
+visual gap is ModuleColorChanger (cabin lights) — these don't need showcase validation
+until ModuleColorChanger support is implemented.
