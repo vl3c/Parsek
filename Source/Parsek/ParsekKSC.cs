@@ -36,8 +36,8 @@ namespace Parsek
         private HashSet<int> loggedGhostSpawn = new HashSet<int>();
 
         private const double DefaultLoopIntervalSeconds = 10.0;
-        private const double MinLoopDurationSeconds = 0.001;
-        private const double MinCycleDuration = 0.001;
+        private const double MinLoopDurationSeconds = 1.0;
+        private const double MinCycleDuration = 1.0;
         // Safety cap for overlap ghosts. Natural phase expiration keeps count bounded for
         // well-behaved recordings, but pathological cases (very short duration, very negative
         // interval) could spawn many before expiration catches up.
@@ -737,12 +737,10 @@ namespace Parsek
         /// </summary>
         internal static double GetLoopIntervalSeconds(RecordingStore.Recording rec)
         {
-            if (rec == null) return DefaultLoopIntervalSeconds;
-            if (double.IsNaN(rec.LoopIntervalSeconds) || double.IsInfinity(rec.LoopIntervalSeconds))
-                return DefaultLoopIntervalSeconds;
-            // Caller guards duration <= 0 before calling (Update checks MinLoopDurationSeconds).
-            double duration = rec.EndUT - rec.StartUT;
-            return Math.Max(-duration + MinCycleDuration, rec.LoopIntervalSeconds);
+            double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
+                                    ?? DefaultLoopIntervalSeconds;
+            return ParsekFlight.ResolveLoopInterval(
+                rec, globalInterval, DefaultLoopIntervalSeconds, MinCycleDuration);
         }
 
         /// <summary>
