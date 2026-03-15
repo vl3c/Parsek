@@ -328,6 +328,9 @@ namespace Parsek
         {
             var result = new BudgetSummary();
 
+            ParsekLog.Verbose("ResourceBudget",
+                $"ComputeTotalFullCost: {recordings?.Count ?? 0} recordings, {milestones?.Count ?? 0} milestones, {trees?.Count ?? 0} trees");
+
             if (recordings != null)
             {
                 for (int i = 0; i < recordings.Count; i++)
@@ -359,6 +362,10 @@ namespace Parsek
                     result.reservedReputation += (double)FullMilestoneCommittedReputation(milestones[i]);
                 }
             }
+
+            ParsekLog.Verbose("ResourceBudget",
+                $"ComputeTotalFullCost result: funds={result.reservedFunds:F0}, " +
+                $"science={result.reservedScience:F1}, reputation={result.reservedReputation:F1}");
 
             return result;
         }
