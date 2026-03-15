@@ -5230,11 +5230,12 @@ namespace Parsek.Tests
                 {
                     writer.InjectIntoSaveFile(savePath, tempPath);
 
-                    // Copy real recording sidecar files from default career
+                    // Copy real recording sidecar files from frozen fixture
                     if (realRecordingNodes.Length > 0)
                     {
-                        string defaultCareerDir = Path.Combine(kspRoot, "saves", "default");
-                        CopyRealRecordingFiles(defaultCareerDir, saveDir, realRecordingNodes);
+                        string fixtureDir = ResolveDefaultCareerFixtureDir()
+                            ?? Path.Combine(kspRoot, "saves", "default");
+                        CopyRealRecordingFiles(fixtureDir, saveDir, realRecordingNodes);
                     }
 
                     string content = File.ReadAllText(tempPath);
@@ -5670,9 +5671,32 @@ namespace Parsek.Tests
         /// to the writer. Returns the array of RECORDING ConfigNodes that were added
         /// (empty array if the default career is absent).
         /// </summary>
+        /// <summary>
+        /// Returns the path to the frozen default career fixture directory
+        /// (Source/Parsek.Tests/Fixtures/DefaultCareer).
+        /// </summary>
+        private static string ResolveDefaultCareerFixtureDir()
+        {
+            // Test working dir is bin/Debug/net472/ — walk up to project root
+            string dir = Directory.GetCurrentDirectory();
+            for (int i = 0; i < 6; i++)
+            {
+                string candidate = Path.Combine(dir, "Source", "Parsek.Tests", "Fixtures", "DefaultCareer");
+                if (Directory.Exists(candidate))
+                    return candidate;
+                dir = Path.GetDirectoryName(dir);
+                if (dir == null) break;
+            }
+            return null;
+        }
+
         private static ConfigNode[] AddRealCareerRecordings(ScenarioWriter writer, string kspRoot)
         {
-            string defaultPersistent = Path.Combine(kspRoot, "saves", "default", "persistent.sfs");
+            // Use frozen fixture copy instead of live default career
+            string fixtureDir = ResolveDefaultCareerFixtureDir();
+            string defaultPersistent = fixtureDir != null
+                ? Path.Combine(fixtureDir, "persistent.sfs")
+                : Path.Combine(kspRoot, "saves", "default", "persistent.sfs");
             if (!File.Exists(defaultPersistent))
                 return new ConfigNode[0];
 
