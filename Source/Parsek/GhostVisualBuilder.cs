@@ -85,6 +85,21 @@ namespace Parsek
         public List<Light> lights;
     }
 
+    internal struct ColorChangerMaterialState
+    {
+        public Material material;
+        public Color offColor;
+        public Color onColor;
+    }
+
+    internal class ColorChangerGhostInfo
+    {
+        public uint partPersistentId;
+        public string shaderProperty;      // "_EmissiveColor" or "_BurnColor"
+        public bool isCabinLight;          // true = Pattern A (toggle), false = Pattern B (reentry)
+        public List<ColorChangerMaterialState> materials;
+    }
+
     internal class RcsGhostInfo
     {
         public uint partPersistentId;
@@ -430,7 +445,8 @@ namespace Parsek
             out List<LightGhostInfo> lightInfos,
             out List<FairingGhostInfo> fairingInfos,
             out List<RcsGhostInfo> rcsInfos,
-            out List<RoboticGhostInfo> roboticInfos)
+            out List<RoboticGhostInfo> roboticInfos,
+            out List<ColorChangerGhostInfo> colorChangerInfos)
         {
             parachuteInfos = null;
             jettisonInfos = null;
@@ -441,6 +457,7 @@ namespace Parsek
             fairingInfos = null;
             rcsInfos = null;
             roboticInfos = null;
+            colorChangerInfos = null;
             ConfigNode snapshotNode = GetGhostSnapshot(rec);
             if (snapshotNode == null)
             {
@@ -472,6 +489,7 @@ namespace Parsek
             var collectedFairingInfos = new List<FairingGhostInfo>();
             var collectedRcsInfos = new List<RcsGhostInfo>();
             var collectedRoboticInfos = new List<RoboticGhostInfo>();
+            var collectedColorChangerInfos = new List<ColorChangerGhostInfo>();
 
             for (int i = 0; i < partNodes.Length; i++)
             {
@@ -517,6 +535,7 @@ namespace Parsek
                 FairingGhostInfo fairingInfo;
                 List<RcsGhostInfo> partRcsInfos;
                 List<RoboticGhostInfo> partRoboticInfos;
+                List<ColorChangerGhostInfo> partColorChangerInfos;
                 bool raiseLightVisualOnly =
                     !string.IsNullOrEmpty(rec.VesselName) &&
                     rec.VesselName.StartsWith(LightsShowcaseRecordingPrefix, System.StringComparison.Ordinal);
@@ -526,7 +545,8 @@ namespace Parsek
                 bool partVisualAdded = AddPartVisuals(root.transform, partNode, ap.partPrefab,
                     persistentId, partName, out meshCount, out parachuteInfo, out jettisonInfo,
                     out partEngineInfos, out deployableInfo, out heatInfo, out lightInfo, out fairingInfo,
-                    out partRcsInfos, out partRoboticInfos, raiseLightVisualOnly, raiseRcsVisualOnly);
+                    out partRcsInfos, out partRoboticInfos, out partColorChangerInfos,
+                    raiseLightVisualOnly, raiseRcsVisualOnly);
                 if (partVisualAdded)
                     visualCount++;
                 else
@@ -554,6 +574,8 @@ namespace Parsek
                     collectedRcsInfos.AddRange(partRcsInfos);
                 if (partRoboticInfos != null)
                     collectedRoboticInfos.AddRange(partRoboticInfos);
+                if (partColorChangerInfos != null)
+                    collectedColorChangerInfos.AddRange(partColorChangerInfos);
             }
 
             ParsekLog.VerboseRateLimited("GhostVisual", $"ghost_built_{rootName}",
@@ -579,6 +601,7 @@ namespace Parsek
             fairingInfos = collectedFairingInfos.Count > 0 ? collectedFairingInfos : null;
             rcsInfos = collectedRcsInfos.Count > 0 ? collectedRcsInfos : null;
             roboticInfos = collectedRoboticInfos.Count > 0 ? collectedRoboticInfos : null;
+            colorChangerInfos = collectedColorChangerInfos.Count > 0 ? collectedColorChangerInfos : null;
             return root;
         }
 
@@ -594,7 +617,7 @@ namespace Parsek
         {
             return BuildTimelineGhostFromSnapshot(rec, rootName,
                 out parachuteInfos, out jettisonInfos, out engineInfos, out deployableInfos, out _,
-                out lightInfos, out fairingInfos, out _, out _);
+                out lightInfos, out fairingInfos, out _, out _, out _);
         }
 
         // Backward-compat overload without fairing/rcs infos
@@ -608,7 +631,7 @@ namespace Parsek
         {
             return BuildTimelineGhostFromSnapshot(rec, rootName,
                 out parachuteInfos, out jettisonInfos, out engineInfos, out deployableInfos, out _,
-                out lightInfos, out _, out _, out _);
+                out lightInfos, out _, out _, out _, out _);
         }
 
         // Backward-compat overload without light/fairing/rcs infos
@@ -620,7 +643,7 @@ namespace Parsek
             out List<DeployableGhostInfo> deployableInfos)
         {
             return BuildTimelineGhostFromSnapshot(rec, rootName,
-                out parachuteInfos, out jettisonInfos, out engineInfos, out deployableInfos, out _, out _, out _, out _, out _);
+                out parachuteInfos, out jettisonInfos, out engineInfos, out deployableInfos, out _, out _, out _, out _, out _, out _);
         }
 
         // Backward-compat overload without deployable/light/fairing/rcs infos
@@ -631,13 +654,13 @@ namespace Parsek
             out List<EngineGhostInfo> engineInfos)
         {
             return BuildTimelineGhostFromSnapshot(rec, rootName,
-                out parachuteInfos, out jettisonInfos, out engineInfos, out _, out _, out _, out _, out _, out _);
+                out parachuteInfos, out jettisonInfos, out engineInfos, out _, out _, out _, out _, out _, out _, out _);
         }
 
         // Overload without info outputs for callers that don't need them (preview ghost)
         internal static GameObject BuildTimelineGhostFromSnapshot(RecordingStore.Recording rec, string rootName)
         {
-            return BuildTimelineGhostFromSnapshot(rec, rootName, out _, out _, out _, out _, out _, out _, out _, out _, out _);
+            return BuildTimelineGhostFromSnapshot(rec, rootName, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _);
         }
 
         // Overload with parachute + jettison info (backward compat)
@@ -646,7 +669,7 @@ namespace Parsek
             out List<ParachuteGhostInfo> parachuteInfos,
             out List<JettisonGhostInfo> jettisonInfos)
         {
-            return BuildTimelineGhostFromSnapshot(rec, rootName, out parachuteInfos, out jettisonInfos, out _, out _, out _, out _, out _, out _, out _);
+            return BuildTimelineGhostFromSnapshot(rec, rootName, out parachuteInfos, out jettisonInfos, out _, out _, out _, out _, out _, out _, out _, out _);
         }
 
         // Overload with only parachute info for backward compat
@@ -654,7 +677,7 @@ namespace Parsek
             RecordingStore.Recording rec, string rootName,
             out List<ParachuteGhostInfo> parachuteInfos)
         {
-            return BuildTimelineGhostFromSnapshot(rec, rootName, out parachuteInfos, out _, out _, out _, out _, out _, out _, out _, out _);
+            return BuildTimelineGhostFromSnapshot(rec, rootName, out parachuteInfos, out _, out _, out _, out _, out _, out _, out _, out _, out _);
         }
 
         internal static ConfigNode GetGhostSnapshot(RecordingStore.Recording rec)
@@ -4872,6 +4895,7 @@ namespace Parsek
             out HeatGhostInfo heatInfo,
             out LightGhostInfo lightInfo, out FairingGhostInfo fairingInfo,
             out List<RcsGhostInfo> rcsInfos, out List<RoboticGhostInfo> roboticInfos,
+            out List<ColorChangerGhostInfo> colorChangerInfos,
             bool raiseLightVisualOnly, bool raiseRcsVisualOnly)
         {
             meshCount = 0;
@@ -4884,6 +4908,7 @@ namespace Parsek
             fairingInfo = null;
             rcsInfos = null;
             roboticInfos = null;
+            colorChangerInfos = null;
             Transform modelRoot = FindModelRoot(prefab);
 
             // Dump full hierarchy for engine parts to diagnose missing nozzle meshes.
@@ -6103,6 +6128,9 @@ namespace Parsek
                 }
             }
 
+            // Detect ModuleColorChanger: cabin lights (Pattern A) and heat shield char (Pattern B)
+            colorChangerInfos = BuildColorChangerInfos(partNode, modelNode.transform, persistentId, partName);
+
             // Detect procedural fairings and generate simplified cone mesh
             fairingInfo = BuildFairingVisual(partNode, prefab, modelNode.transform, persistentId, partName);
             if (fairingInfo != null)
@@ -6115,6 +6143,224 @@ namespace Parsek
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Scans part config for ModuleColorChanger instances and builds ColorChangerGhostInfo
+        /// for each. Pattern A (toggleInFlight=True, _EmissiveColor) handles cabin lights.
+        /// Pattern B (toggleInFlight=False, _BurnColor) handles heat shield ablation char.
+        /// Returns null if no ColorChanger modules are detected.
+        /// </summary>
+        internal static List<ColorChangerGhostInfo> BuildColorChangerInfos(
+            ConfigNode partNode, Transform ghostModelNode, uint persistentId, string partName)
+        {
+            if (partNode == null || ghostModelNode == null)
+                return null;
+
+            var moduleNodes = partNode.GetNodes("MODULE");
+            if (moduleNodes == null || moduleNodes.Length == 0)
+                return null;
+
+            List<ColorChangerGhostInfo> results = null;
+
+            for (int m = 0; m < moduleNodes.Length; m++)
+            {
+                string moduleName = moduleNodes[m].GetValue("name");
+                if (moduleName != "ModuleColorChanger")
+                    continue;
+
+                string shaderProperty = moduleNodes[m].GetValue("shaderProperty");
+                if (string.IsNullOrEmpty(shaderProperty))
+                {
+                    ParsekLog.Verbose("GhostVisual",
+                        $"    ColorChanger '{partName}' pid={persistentId}: skipped (no shaderProperty)");
+                    continue;
+                }
+
+                string toggleStr = moduleNodes[m].GetValue("toggleInFlight");
+                bool toggleInFlight = false;
+                if (!string.IsNullOrEmpty(toggleStr))
+                    bool.TryParse(toggleStr, out toggleInFlight);
+
+                bool isCabinLight = toggleInFlight && shaderProperty == "_EmissiveColor";
+                bool isAblationChar = !toggleInFlight && shaderProperty == "_BurnColor";
+
+                if (!isCabinLight && !isAblationChar)
+                {
+                    ParsekLog.Verbose("GhostVisual",
+                        $"    ColorChanger '{partName}' pid={persistentId}: skipped " +
+                        $"(toggle={toggleInFlight}, property={shaderProperty})");
+                    continue;
+                }
+
+                // Evaluate color curves from config to get off/on colors
+                // Pattern A: off = curves at t=0 (black), on = curves at t=1 (warm glow)
+                // Pattern B: off = curves at t=0 (unburnt), on = curves at t=1 (fully charred)
+                Color offColor = EvaluateColorCurves(moduleNodes[m], 0f);
+                Color onColor = EvaluateColorCurves(moduleNodes[m], 1f);
+
+                // Find renderers on the ghost model that have this shader property
+                var renderers = ghostModelNode.GetComponentsInChildren<Renderer>(true);
+                if (renderers == null || renderers.Length == 0)
+                {
+                    ParsekLog.Verbose("GhostVisual",
+                        $"    ColorChanger '{partName}' pid={persistentId}: no renderers on ghost model");
+                    continue;
+                }
+
+                var materialStates = new List<ColorChangerMaterialState>();
+
+                for (int r = 0; r < renderers.Length; r++)
+                {
+                    Renderer renderer = renderers[r];
+                    if (renderer == null) continue;
+
+                    // Skip particle and trail renderers
+                    if (renderer is ParticleSystemRenderer || renderer is TrailRenderer)
+                        continue;
+
+                    Material[] sourceMaterials = renderer.sharedMaterials;
+                    if (sourceMaterials == null || sourceMaterials.Length == 0)
+                        continue;
+
+                    bool clonedAny = false;
+                    var cloned = new Material[sourceMaterials.Length];
+                    for (int mi = 0; mi < sourceMaterials.Length; mi++)
+                    {
+                        Material source = sourceMaterials[mi];
+                        if (source == null)
+                        {
+                            cloned[mi] = null;
+                            continue;
+                        }
+
+                        if (!source.HasProperty(shaderProperty))
+                        {
+                            cloned[mi] = source;
+                            continue;
+                        }
+
+                        Material materialClone = new Material(source);
+                        cloned[mi] = materialClone;
+                        clonedAny = true;
+
+                        materialStates.Add(new ColorChangerMaterialState
+                        {
+                            material = materialClone,
+                            offColor = offColor,
+                            onColor = onColor
+                        });
+                    }
+
+                    if (clonedAny)
+                        renderer.materials = cloned;
+                }
+
+                if (materialStates.Count > 0)
+                {
+                    if (results == null)
+                        results = new List<ColorChangerGhostInfo>();
+
+                    var info = new ColorChangerGhostInfo
+                    {
+                        partPersistentId = persistentId,
+                        shaderProperty = shaderProperty,
+                        isCabinLight = isCabinLight,
+                        materials = materialStates
+                    };
+                    results.Add(info);
+
+                    // Initialize to off state
+                    for (int i = 0; i < materialStates.Count; i++)
+                    {
+                        if (materialStates[i].material != null)
+                            materialStates[i].material.SetColor(shaderProperty, offColor);
+                    }
+
+                    string patternType = isCabinLight ? "cabin" : "char";
+                    ParsekLog.Verbose("GhostVisual",
+                        $"    Part '{partName}' pid={persistentId}: built ColorChanger ghost info " +
+                        $"({materialStates.Count} materials, property={shaderProperty}, type={patternType})");
+                }
+                else
+                {
+                    ParsekLog.Verbose("GhostVisual",
+                        $"    ColorChanger '{partName}' pid={persistentId}: no materials with property '{shaderProperty}'");
+                }
+            }
+
+            return results;
+        }
+
+        /// <summary>
+        /// Evaluates redCurve/greenCurve/blueCurve/alphaCurve from a ModuleColorChanger config
+        /// at a given time t. Returns a Color with the evaluated RGBA values.
+        /// </summary>
+        internal static Color EvaluateColorCurves(ConfigNode moduleNode, float t)
+        {
+            float r = EvaluateSingleCurve(moduleNode.GetNode("redCurve"), t);
+            float g = EvaluateSingleCurve(moduleNode.GetNode("greenCurve"), t);
+            float b = EvaluateSingleCurve(moduleNode.GetNode("blueCurve"), t);
+            float a = EvaluateSingleCurve(moduleNode.GetNode("alphaCurve"), t, defaultValue: 1f);
+            return new Color(r, g, b, a);
+        }
+
+        /// <summary>
+        /// Evaluates a single FloatCurve-style ConfigNode at time t.
+        /// Each key line is "time value [inTangent outTangent]".
+        /// Uses simple linear interpolation between keys.
+        /// </summary>
+        internal static float EvaluateSingleCurve(ConfigNode curveNode, float t, float defaultValue = 0f)
+        {
+            if (curveNode == null)
+                return defaultValue;
+
+            string[] keys = curveNode.GetValues("key");
+            if (keys == null || keys.Length == 0)
+                return defaultValue;
+
+            // Parse key entries: "time value [inTangent outTangent]"
+            var parsed = new List<(float time, float value)>();
+            for (int i = 0; i < keys.Length; i++)
+            {
+                string[] parts = keys[i].Split(new[] { ' ', '\t' },
+                    System.StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length < 2) continue;
+
+                float keyTime, keyValue;
+                if (float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out keyTime) &&
+                    float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out keyValue))
+                {
+                    parsed.Add((keyTime, keyValue));
+                }
+            }
+
+            if (parsed.Count == 0)
+                return defaultValue;
+
+            // Sort by time
+            parsed.Sort((a, b) => a.time.CompareTo(b.time));
+
+            // Clamp to range
+            if (t <= parsed[0].time)
+                return parsed[0].value;
+            if (t >= parsed[parsed.Count - 1].time)
+                return parsed[parsed.Count - 1].value;
+
+            // Linear interpolation between adjacent keys
+            for (int i = 0; i < parsed.Count - 1; i++)
+            {
+                if (t >= parsed[i].time && t <= parsed[i + 1].time)
+                {
+                    float span = parsed[i + 1].time - parsed[i].time;
+                    if (span <= 0f)
+                        return parsed[i].value;
+                    float fraction = (t - parsed[i].time) / span;
+                    return Mathf.Lerp(parsed[i].value, parsed[i + 1].value, fraction);
+                }
+            }
+
+            return parsed[parsed.Count - 1].value;
         }
 
         /// <summary>

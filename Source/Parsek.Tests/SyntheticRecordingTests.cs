@@ -990,9 +990,10 @@ namespace Parsek.Tests
         private const uint WheelDynamicsShowcasePidBase = 99000000;
         private const uint AnimateHeatShowcasePidBase = 99100000;
         private const uint EngineShowcasePidBase = 99200000;
+        private const uint ColorChangerShowcasePidBase = 99300000;
         // Optional companion part (e.g., kerbal actor) receives the second slot.
         // Total visible showcase row entries (indices 0-235, including inventory placement).
-        private const int ShowcaseRowCount = 237;
+        private const int ShowcaseRowCount = 243;
         // Split showcase into two parallel lines to avoid runway clipping.
         private static readonly int ShowcaseEntriesPerLine = (ShowcaseRowCount + 1) / 2;
         private const double ShowcaseLineSpacingMeters = 20.0;
@@ -1196,6 +1197,14 @@ namespace Parsek.Tests
             { "roverWheel2", 0.0 },
             { "roverWheel3", 0.0 },
             { "wheelMed", 0.0 },
+
+            // ── ColorChanger cabin lights (command pods) ──
+            { "mk1pod.v2", 0.6424 },
+            { "mk1-3pod", 1.2894 },
+            { "cupola", 0.8518 },
+            { "mk2LanderCabin.v2", 0.9019 },
+            { "Mark1Cockpit", 0.6424 },
+            { "mk2Cockpit.Standard", 0.5 },
 
             // ── AnimateHeat parts ──
             { "airplaneTail", 0.0 },
@@ -1437,16 +1446,18 @@ namespace Parsek.Tests
             };
         }
 
-        // Two parallel lines (rows 0-118 at 200m, rows 119-236 at 220m from pad):
+        // Two parallel lines (rows 0-121 at 200m, rows 122-242 at 220m from pad):
         // Back line — Lights: 0-5, Deployables: 6-23, Airplane Gear: 24-27, Landing Legs: 28-30,
         //   Cargo: 31-41, Engines (old unused): 42-44, Ladders: 45-46, RCS: 47-49, Fairings: 50-54,
         //   Extra Radiators: 55-56, Drills: 57-58, Deployed Science: 59-66,
         //   Animation Group: 67-68, Parachutes: 69-73, Special Deploy Animations: 74-85,
-        //   Jettison (non-engine): 86-94, Robotics: 117-118 (partial)
+        //   Jettison (non-engine): 86-94, ColorChanger Cabin Lights: 95-100,
+        //   Robotics: 117-118 (partial)
         // Front line — Robotics: 119-137, AeroSurface: 138, Robot Arm Scanners: 139-141,
         //   Control Surfaces: 142-165, Wheel Dynamics: 166-171, AnimateHeat: 172-184,
         //   Lights (extra): 185-188, RCS (extra): 189-190,
-        //   Engines (all 45): 191-235, Inventory Placement: 236.
+        //   Engines (all 45): 191-235, Inventory Placement: 236,
+        //   ColorChanger Heat Shields: 237-242.
 
         internal static RecordingBuilder[] DeployableShowcaseRecordings(double baseUT = 0)
         {
@@ -2119,6 +2130,32 @@ namespace Parsek.Tests
             b.WithGhostVisualSnapshot(snap);
 
             return b;
+        }
+
+        /// <summary>
+        /// Showcase recordings for parts with ModuleColorChanger cabin lights (Pattern A:
+        /// toggleInFlight=true, _EmissiveColor). These toggle LightOn/LightOff events to
+        /// exercise the emissive color change on command pods that use ModuleColorChanger
+        /// instead of ModuleLight.
+        /// </summary>
+        internal static RecordingBuilder[] ColorChangerShowcaseRecordings(double baseUT = 0)
+        {
+            return new[]
+            {
+                // Pattern A: Cabin lights (command pods, rows 95-100)
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Mk1 Pod", "mk1pod.v2", 95,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Mk1-3 Pod", "mk1-3pod", 96,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Cupola", "cupola", 97,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Mk2 Lander", "mk2LanderCabin.v2", 98,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Mk1 Cockpit", "Mark1Cockpit", 99,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Mk2 Cockpit", "mk2Cockpit.Standard", 100,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid)
+            };
         }
 
         internal static RecordingBuilder[] JettisonShowcaseRecordings(double baseUT = 0)
@@ -3692,6 +3729,7 @@ namespace Parsek.Tests
                 ControlSurfaceShowcaseRecordings(17000),
                 WheelDynamicsShowcaseRecordings(17000),
                 AnimateHeatShowcaseRecordings(17000),
+                ColorChangerShowcaseRecordings(17000),
                 new[] { InventoryPlacementShowcaseRecording(17000) }
             };
 
@@ -4292,7 +4330,8 @@ namespace Parsek.Tests
                 RobotArmScannerShowcaseRecordings(17000),
                 ControlSurfaceShowcaseRecordings(17000),
                 WheelDynamicsShowcaseRecordings(17000),
-                AnimateHeatShowcaseRecordings(17000)
+                AnimateHeatShowcaseRecordings(17000),
+                ColorChangerShowcaseRecordings(17000)
             };
 
             foreach (var category in allShowcases)
@@ -4343,6 +4382,7 @@ namespace Parsek.Tests
                 ControlSurfaceShowcaseRecordings(17000),
                 WheelDynamicsShowcaseRecordings(17000),
                 AnimateHeatShowcaseRecordings(17000),
+                ColorChangerShowcaseRecordings(17000),
                 new[] { InventoryPlacementShowcaseRecording(17000) }
             };
 
@@ -5068,6 +5108,9 @@ namespace Parsek.Tests
             var animateHeatShowcases = AnimateHeatShowcaseRecordings(baseUT);
             for (int i = 0; i < animateHeatShowcases.Length; i++)
                 writer.AddRecording(animateHeatShowcases[i]);
+            var colorChangerShowcases = ColorChangerShowcaseRecordings(baseUT);
+            for (int i = 0; i < colorChangerShowcases.Length; i++)
+                writer.AddRecording(colorChangerShowcases[i]);
             writer.AddRecording(InventoryPlacementShowcaseRecording(baseUT));
 
             var chainSegments = EvaBoardChain(baseUT);

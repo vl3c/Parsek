@@ -750,26 +750,60 @@ namespace Parsek
                 Part p = v.parts[i];
                 if (p == null) continue;
 
+                bool hasModuleLight = false;
                 var light = p.FindModuleImplementing<ModuleLight>();
-                if (light == null) continue;
-
-                var evt = CheckLightTransition(
-                    p.persistentId, p.partInfo?.name ?? "unknown", light.isOn, lightsOn, ut);
-                if (evt.HasValue)
+                if (light != null)
                 {
-                    PartEvents.Add(evt.Value);
-                    ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
+                    hasModuleLight = true;
+                    var evt = CheckLightTransition(
+                        p.persistentId, p.partInfo?.name ?? "unknown", light.isOn, lightsOn, ut);
+                    if (evt.HasValue)
+                    {
+                        PartEvents.Add(evt.Value);
+                        ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
+                    }
+
+                    var blinkEvents = CheckLightBlinkTransition(
+                        p.persistentId, p.partInfo?.name ?? "unknown",
+                        light.isBlinking, light.blinkRate,
+                        blinkingLights, lightBlinkRates, ut);
+                    for (int e = 0; e < blinkEvents.Count; e++)
+                    {
+                        PartEvents.Add(blinkEvents[e]);
+                        ParsekLog.Verbose("Recorder", $"Part event: {blinkEvents[e].eventType} '{blinkEvents[e].partName}' " +
+                            $"pid={blinkEvents[e].partPersistentId} val={blinkEvents[e].value:F2}");
+                    }
                 }
 
-                var blinkEvents = CheckLightBlinkTransition(
-                    p.persistentId, p.partInfo?.name ?? "unknown",
-                    light.isBlinking, light.blinkRate,
-                    blinkingLights, lightBlinkRates, ut);
-                for (int e = 0; e < blinkEvents.Count; e++)
+                // Also check ModuleColorChanger with toggleInFlight=true (cabin lights).
+                // Parts with both ModuleLight and ModuleColorChanger toggle together via the
+                // Light action group, so the lightsOn HashSet deduplicates via partPersistentId.
+                // For parts with ONLY ModuleColorChanger, this produces the LightOn/LightOff events.
+                if (!hasModuleLight)
                 {
-                    PartEvents.Add(blinkEvents[e]);
-                    ParsekLog.Verbose("Recorder", $"Part event: {blinkEvents[e].eventType} '{blinkEvents[e].partName}' " +
-                        $"pid={blinkEvents[e].partPersistentId} val={blinkEvents[e].value:F2}");
+                    bool foundToggleableColorChanger = false;
+                    var modules = p.Modules;
+                    for (int mi = 0; mi < modules.Count; mi++)
+                    {
+                        var cc = modules[mi] as ModuleColorChanger;
+                        if (cc == null) continue;
+                        if (!cc.toggleInFlight) continue;
+
+                        foundToggleableColorChanger = true;
+                        var ccEvt = CheckLightTransition(
+                            p.persistentId, p.partInfo?.name ?? "unknown", cc.animState, lightsOn, ut);
+                        if (ccEvt.HasValue)
+                        {
+                            PartEvents.Add(ccEvt.Value);
+                            ParsekLog.Verbose("Recorder",
+                                $"ColorChanger state change: pid={p.persistentId} animState={cc.animState} " +
+                                $"event={ccEvt.Value.eventType} '{ccEvt.Value.partName}'");
+                        }
+                        break; // Only one toggleable ColorChanger per part matters
+                    }
+
+                    if (!foundToggleableColorChanger)
+                        continue;
                 }
             }
         }
