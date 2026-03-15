@@ -29,6 +29,9 @@ namespace Parsek
         // Maps reserved kerbal name → replacement kerbal name
         private static Dictionary<string, string> crewReplacements = new Dictionary<string, string>();
 
+        // Group hierarchy: child group name → parent group name
+        internal static Dictionary<string, string> groupParents = new Dictionary<string, string>();
+
         /// <summary>
         /// Read-only access to current replacement mappings. For testing/diagnostics.
         /// </summary>
@@ -158,6 +161,19 @@ namespace Parsek
                 ScenarioLog($"[Parsek Scenario] Saved {crewReplacements.Count} crew replacement(s)");
             }
 
+            // Persist group hierarchy
+            if (groupParents.Count > 0)
+            {
+                ConfigNode hierarchyNode = node.AddNode("GROUP_HIERARCHY");
+                foreach (var kvp in groupParents)
+                {
+                    ConfigNode entry = hierarchyNode.AddNode("ENTRY");
+                    entry.AddValue("child", kvp.Key);
+                    entry.AddValue("parent", kvp.Value);
+                }
+                ScenarioLog($"[Parsek Scenario] Saved group hierarchy: {groupParents.Count} entries");
+            }
+
             // Save game state events to external file
             GameStateStore.SaveEventFile();
             node.AddValue("gameStateEventCount", GameStateStore.EventCount);
@@ -249,7 +265,10 @@ namespace Parsek
             // Skip during go-back: in-memory crewReplacements is the source of truth
             // (it has replacements for recordings committed after this quicksave).
             if (!RecordingStore.IsRewinding)
+            {
                 LoadCrewReplacements(node);
+                LoadGroupHierarchy(node);
+            }
 
             // Game state recorder lifecycle — re-subscribe on every OnLoad (handles reverts)
             stateRecorder?.Unsubscribe();
@@ -1333,9 +1352,10 @@ namespace Parsek
                 recNode.AddValue("rewindResRep", rec.RewindReservedRep.ToString("R", CultureInfo.InvariantCulture));
             }
 
-            // UI grouping tag
-            if (!string.IsNullOrEmpty(rec.RecordingGroup))
-                recNode.AddValue("recordingGroup", rec.RecordingGroup);
+            // UI grouping tags (multi-group membership)
+            if (rec.RecordingGroups != null)
+                for (int g = 0; g < rec.RecordingGroups.Count; g++)
+                    recNode.AddValue("recordingGroup", rec.RecordingGroups[g]);
 
             // Atmosphere segment metadata (only if set, saves space)
             if (!string.IsNullOrEmpty(rec.SegmentPhase))
@@ -1457,8 +1477,10 @@ namespace Parsek
                     rec.RewindReservedRep = rewindRep;
             }
 
-            // UI grouping tag
-            rec.RecordingGroup = recNode.GetValue("recordingGroup");
+            // UI grouping tags (multi-group membership, backward compat with single value)
+            string[] groups = recNode.GetValues("recordingGroup");
+            if (groups != null && groups.Length > 0)
+                rec.RecordingGroups = new List<string>(groups);
 
             // Atmosphere segment metadata
             rec.SegmentPhase = recNode.GetValue("segmentPhase");
@@ -1702,6 +1724,56 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Load group hierarchy from a ConfigNode.
+        /// </summary>
+        private static void LoadGroupHierarchy(ConfigNode node)
+        {
+            groupParents.Clear();
+
+            ConfigNode hierarchyNode = node.GetNode("GROUP_HIERARCHY");
+            if (hierarchyNode == null)
+            {
+                ScenarioLog("[Parsek Scenario] Loaded 0 group hierarchy entries (no GROUP_HIERARCHY node)");
+                return;
+            }
+
+            ConfigNode[] entries = hierarchyNode.GetNodes("ENTRY");
+            for (int i = 0; i < entries.Length; i++)
+            {
+                string child = entries[i].GetValue("child");
+                string parent = entries[i].GetValue("parent");
+                if (!string.IsNullOrEmpty(child) && !string.IsNullOrEmpty(parent))
+                {
+                    groupParents[child] = parent;
+                }
+            }
+
+            // Post-load validation: detect and break corrupted cycles
+            var visited = new HashSet<string>();
+            var toRemove = new List<string>();
+            foreach (var kvp in groupParents)
+            {
+                visited.Clear();
+                string current = kvp.Key;
+                bool hasCycle = false;
+                while (groupParents.TryGetValue(current, out string p))
+                {
+                    if (!visited.Add(current)) { hasCycle = true; break; }
+                    current = p;
+                }
+                if (hasCycle && !toRemove.Contains(kvp.Key))
+                    toRemove.Add(kvp.Key);
+            }
+            for (int i = 0; i < toRemove.Count; i++)
+            {
+                groupParents.Remove(toRemove[i]);
+                ParsekLog.Warn("Scenario", $"LoadGroupHierarchy: broke cycle involving group '{toRemove[i]}'");
+            }
+
+            ScenarioLog($"[Parsek Scenario] Loaded {groupParents.Count} group hierarchy entries");
+        }
+
+        /// <summary>
         /// Swap reserved crew out of the active flight vessel, replacing them
         /// with their hired replacements. Prevents the player from recording
         /// with a reserved kerbal again after revert.
@@ -1879,6 +1951,159 @@ namespace Parsek
         internal static void ResetReplacementsForTesting()
         {
             crewReplacements.Clear();
+        }
+
+        // ─── Group hierarchy management ──────────────────────────────────────
+
+        /// <summary>
+        /// Walks the parent chain from 'startGroup' upward, returns true if 'targetAncestor'
+        /// is found (or equals 'startGroup' itself). Used for cycle detection.
+        /// Max depth guard protects against corrupted cycles.
+        /// </summary>
+        internal static bool IsInAncestorChain(string startGroup, string targetAncestor)
+        {
+            if (string.IsNullOrEmpty(startGroup) || string.IsNullOrEmpty(targetAncestor))
+                return false;
+            string current = startGroup;
+            for (int depth = 0; depth < 100; depth++)
+            {
+                if (current == targetAncestor) return true;
+                if (!groupParents.TryGetValue(current, out string parent))
+                    return false;
+                current = parent;
+            }
+            ParsekLog.Warn("Scenario", $"IsInAncestorChain: max depth reached for group '{startGroup}' — possible cycle");
+            return true; // Assume cycle, block the assignment
+        }
+
+        /// <summary>
+        /// Sets the parent of a child group. Pass null parentGroup to make root-level.
+        /// Returns false if assignment would create a cycle.
+        /// </summary>
+        public static bool SetGroupParent(string childGroup, string parentGroup)
+        {
+            if (string.IsNullOrEmpty(childGroup)) return false;
+
+            if (parentGroup == null)
+            {
+                if (groupParents.Remove(childGroup))
+                    ParsekLog.Info("Scenario", $"Group '{childGroup}' moved to root level");
+                return true;
+            }
+
+            if (IsInAncestorChain(parentGroup, childGroup))
+            {
+                ParsekLog.Warn("Scenario", $"SetGroupParent: cannot assign '{childGroup}' to parent '{parentGroup}' — would create cycle");
+                return false;
+            }
+
+            groupParents[childGroup] = parentGroup;
+            ParsekLog.Info("Scenario", $"Group '{childGroup}' assigned to parent group '{parentGroup}'");
+            return true;
+        }
+
+        /// <summary>
+        /// Removes a group from the hierarchy. Promotes its children to root-level.
+        /// </summary>
+        public static void RemoveGroupFromHierarchy(string groupName)
+        {
+            if (string.IsNullOrEmpty(groupName)) return;
+
+            // Find grandparent (null if this group was root-level)
+            string grandparent;
+            groupParents.TryGetValue(groupName, out grandparent);
+
+            // Remove as child
+            groupParents.Remove(groupName);
+
+            // Reparent children to grandparent (or root if no grandparent)
+            var toReparent = new List<string>();
+            foreach (var kvp in groupParents)
+            {
+                if (kvp.Value == groupName)
+                    toReparent.Add(kvp.Key);
+            }
+            for (int i = 0; i < toReparent.Count; i++)
+            {
+                if (grandparent != null)
+                    groupParents[toReparent[i]] = grandparent;
+                else
+                    groupParents.Remove(toReparent[i]);
+            }
+
+            string destLabel = grandparent != null ? $"reparented under '{grandparent}'" : "promoted to root";
+            ParsekLog.Info("Scenario", $"Group '{groupName}' removed from hierarchy ({toReparent.Count} sub-groups {destLabel})");
+        }
+
+        /// <summary>
+        /// Returns all descendant group names (recursive).
+        /// </summary>
+        public static List<string> GetDescendantGroups(string groupName)
+        {
+            var descendants = new List<string>();
+            if (string.IsNullOrEmpty(groupName)) return descendants;
+            CollectDescendants(groupName, descendants, 0);
+            return descendants;
+        }
+
+        private static void CollectDescendants(string groupName, List<string> result, int depth)
+        {
+            if (depth > 100)
+            {
+                ParsekLog.Warn("Scenario", $"CollectDescendants: max depth reached for group '{groupName}' — possible cycle, result truncated");
+                return;
+            }
+            foreach (var kvp in groupParents)
+            {
+                if (kvp.Value == groupName)
+                {
+                    result.Add(kvp.Key);
+                    CollectDescendants(kvp.Key, result, depth + 1);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Renames a group in the hierarchy (updates both keys and values).
+        /// </summary>
+        public static void RenameGroupInHierarchy(string oldName, string newName)
+        {
+            if (string.IsNullOrEmpty(oldName) || string.IsNullOrEmpty(newName) || oldName == newName)
+                return;
+
+            int updated = 0;
+
+            // Update as child (key)
+            if (groupParents.TryGetValue(oldName, out string parent))
+            {
+                groupParents.Remove(oldName);
+                groupParents[newName] = parent;
+                updated++;
+            }
+
+            // Update as parent (values)
+            var toUpdate = new List<string>();
+            foreach (var kvp in groupParents)
+            {
+                if (kvp.Value == oldName)
+                    toUpdate.Add(kvp.Key);
+            }
+            for (int i = 0; i < toUpdate.Count; i++)
+            {
+                groupParents[toUpdate[i]] = newName;
+                updated++;
+            }
+
+            if (updated > 0)
+                ParsekLog.Info("Scenario", $"RenameGroupInHierarchy: '{oldName}' → '{newName}' ({updated} hierarchy entries updated)");
+        }
+
+        /// <summary>
+        /// Resets group hierarchy for testing.
+        /// </summary>
+        public static void ResetGroupsForTesting()
+        {
+            groupParents.Clear();
         }
 
         #region Vessel Lifecycle Events
