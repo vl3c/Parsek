@@ -3583,6 +3583,50 @@ namespace Parsek
             return null;
         }
 
+        /// <summary>
+        /// Extracts damagedTransformName values from all ModuleWheelDamage MODULE nodes
+        /// in the given part config. Returns an empty set if no damage modules exist or
+        /// if none specify a damagedTransformName.
+        /// </summary>
+        internal static HashSet<string> GetDamagedWheelTransformNames(ConfigNode partConfig)
+        {
+            var names = new HashSet<string>();
+            if (partConfig == null) return names;
+
+            var modules = partConfig.GetNodes("MODULE");
+            if (modules == null) return names;
+
+            for (int i = 0; i < modules.Length; i++)
+            {
+                if (modules[i].GetValue("name") != "ModuleWheelDamage")
+                    continue;
+                string damagedName = modules[i].GetValue("damagedTransformName");
+                if (!string.IsNullOrEmpty(damagedName))
+                    names.Add(damagedName);
+            }
+            return names;
+        }
+
+        /// <summary>
+        /// Checks whether a renderer's transform (or any of its ancestors up to but not
+        /// including the hierarchy root) has a name matching one of the damaged wheel
+        /// transform names. The damaged mesh may be a child of the named transform.
+        /// </summary>
+        internal static bool IsRendererOnDamagedTransform(Transform rendererTransform, HashSet<string> damagedNames)
+        {
+            if (rendererTransform == null || damagedNames == null || damagedNames.Count == 0)
+                return false;
+
+            Transform cur = rendererTransform;
+            while (cur != null)
+            {
+                if (damagedNames.Contains(cur.name))
+                    return true;
+                cur = cur.parent;
+            }
+            return false;
+        }
+
         private static string FirstNonEmptyConfigValue(ConfigNode node, params string[] keys)
         {
             if (node == null || keys == null || keys.Length == 0)
@@ -5053,8 +5097,24 @@ namespace Parsek
             if (raiseLightVisualOnly && prefab.FindModuleImplementing<ModuleLight>() != null)
                 modelNode.transform.localPosition += new Vector3(0f, LightsShowcaseVisualYOffset, 0f);
 
+            // Collect damaged wheel transform names from part config (ModuleWheelDamage).
+            // Damaged meshes are initially inactive in the prefab but GetComponentsInChildren(true)
+            // collects them. Filter them out to prevent the ghost rendering both intact and damaged
+            // wheel meshes simultaneously.
+            ConfigNode partConfig = prefab.partInfo?.partConfig;
+            HashSet<string> damagedWheelNames = GetDamagedWheelTransformNames(partConfig);
+            if (damagedWheelNames.Count > 0)
+            {
+                ParsekLog.VerboseRateLimited("GhostVisual", $"wheel_damage_{partName}",
+                    $"  Part '{partName}' pid={persistentId}: found {damagedWheelNames.Count} " +
+                    $"ModuleWheelDamage damagedTransformName(s): [{string.Join(", ", damagedWheelNames)}]", 60.0);
+            }
+
             int variantSkipped = 0;
             int variantRuleSkipped = 0;
+            int damagedSkipped = 0;
+            int skinnedCloned = 0;
+            int nullMeshSkipped = 0;
             for (int r = 0; r < meshRenderers.Length; r++)
             {
                 var mr = meshRenderers[r];
@@ -5070,6 +5130,14 @@ namespace Parsek
                         out string _, out bool _))
                 {
                     variantRuleSkipped++;
+                    continue;
+                }
+                if (IsRendererOnDamagedTransform(mr.transform, damagedWheelNames))
+                {
+                    damagedSkipped++;
+                    ParsekLog.VerboseRateLimited("GhostVisual", $"dmg_mr_{partName}_{r}",
+                        $"    Part '{partName}' pid={persistentId}: skipping damaged wheel " +
+                        $"MeshRenderer '{mr.gameObject.name}' (ModuleWheelDamage.damagedTransformName match)", 60.0);
                     continue;
                 }
                 var mf = mr.GetComponent<MeshFilter>();
@@ -5094,13 +5162,29 @@ namespace Parsek
             for (int r = 0; r < skinnedRenderers.Length; r++)
             {
                 var smr = skinnedRenderers[r];
-                if (smr == null || smr.sharedMesh == null) continue;
+                if (smr == null) continue;
+                if (smr.sharedMesh == null)
+                {
+                    nullMeshSkipped++;
+                    ParsekLog.Warn("GhostVisual", $"Part '{partName}' pid={persistentId}: " +
+                        $"SkinnedMeshRenderer '{smr.name}' has null sharedMesh — tire mesh " +
+                        $"may be procedurally generated at runtime. Ghost will be missing this mesh.");
+                    continue;
+                }
                 if (filterInactiveVariantRenderers && !smr.gameObject.activeInHierarchy) continue;
                 if (hasVariantGameObjectRules &&
                     !IsRendererEnabledByVariantRule(
                         smr.transform, modelRoot, selectedVariantGameObjects,
                         out string _, out bool _))
                     continue;
+                if (IsRendererOnDamagedTransform(smr.transform, damagedWheelNames))
+                {
+                    damagedSkipped++;
+                    ParsekLog.VerboseRateLimited("GhostVisual", $"dmg_smr_{partName}_{r}",
+                        $"    Part '{partName}' pid={persistentId}: skipping damaged wheel " +
+                        $"SkinnedMeshRenderer '{smr.name}' (ModuleWheelDamage.damagedTransformName match)", 60.0);
+                    continue;
+                }
 
                 Transform leaf = MirrorTransformChain(smr.transform, modelRoot, modelNode.transform, cloneMap);
 
@@ -5168,6 +5252,7 @@ namespace Parsek
                 ghostSmr.shadowCastingMode = smr.shadowCastingMode;
                 ghostSmr.receiveShadows = smr.receiveShadows;
                 meshCount++;
+                skinnedCloned++;
                 ParsekLog.VerboseRateLimited("GhostVisual", $"smr_{partName}_{r}",
                     $"    SMR[{r}] '{smr.gameObject.name}' mesh={smr.sharedMesh.name} " +
                     $"localPos={leaf.localPosition} localScale={leaf.localScale} " +
@@ -5179,6 +5264,13 @@ namespace Parsek
                 }
                 added = true;
             }
+
+            // Summary log for renderer cloning results — helps diagnose missing ghost parts
+            int meshCloned = meshCount - skinnedCloned;
+            ParsekLog.VerboseRateLimited("GhostVisual", $"clone_summary_{partName}",
+                $"  Part '{partName}' pid={persistentId}: cloned {meshCloned} MeshRenderers, " +
+                $"{skinnedCloned} SkinnedMeshRenderers, skipped {nullMeshSkipped} null-mesh SMRs, " +
+                $"skipped {damagedSkipped} damaged-wheel renderers", 60.0);
 
             if (hasPartVariants)
             {

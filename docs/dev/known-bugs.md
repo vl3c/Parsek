@@ -251,14 +251,28 @@ Some vessel parts are missing or display incorrectly during ghost playback (both
 
 **Reproduction:** Record a vessel with rover wheels or landing gear. Watch the ghost playback — wheels may be missing entirely, gear may appear in wrong position.
 
-**Root cause (suspected):** Multiple potential causes:
-1. **Missing prefab resolution:** `GhostVisualBuilder.AddPartVisuals` clones meshes from the part prefab. Some parts (rover wheels, robotic parts) may have complex model hierarchies or use SkinnedMeshRenderer with external bones that the cloning process doesn't handle correctly.
-2. **Snapshot initial state mismatch:** The ghost snapshot captures part MODULE state at recording start. If gear/wheels are in a transitional animation state when captured, the ghost starts with that intermediate visual. Part events then replay on top of the wrong initial state.
-3. **Animation sampling gaps:** `SampleDeployableStates` samples animation at t=0 (stowed) and t=1 (deployed). Parts with non-standard animation setups or parts that use multiple animation clips may not be sampled correctly.
+**Root cause (investigation 2026-03-15):** Two confirmed issues with rover wheel ghost rendering:
 
-**Observed in:** KSC ghost testing (2026-03-14). Visible on multiple vessel types.
+1. **Damaged wheel transforms rendered alongside intact meshes:** Rover wheels with `ModuleWheelDamage` have `damagedTransformName` entries (e.g., `bustedwheel`, `wheelDamaged`) pointing to transforms that contain damaged/broken wheel meshes. These transforms are normally inactive in-game but `GetComponentsInChildren<MeshRenderer>(true)` collects them because it includes inactive objects. The ghost rendered both intact and damaged meshes simultaneously, producing visual artifacts.
 
-**Status:** Open
+   Part config survey:
+   - `roverWheelS2`: `damagedTransformName = bustedwheel`
+   - `roverWheelM1`: `damagedTransformName = wheelDamaged`
+   - `roverWheelTR-2L`: `damagedTransformName = bustedwheel`
+   - `roverWheelXL3`: `damagedTransformName = bustedwheel`
+   - Landing gear (GearSmall, GearMedium, GearLarge, GearFixed, GearFree, GearExtraLarge) have `ModuleWheelDamage` but no `damagedTransformName` — no damaged mesh to filter.
+
+2. **Possible null sharedMesh on SkinnedMeshRenderers:** Rover wheel tire meshes may be procedurally generated at runtime by KSP's wheel system. If the prefab's `SkinnedMeshRenderer.sharedMesh` is null, the ghost silently skips it with no diagnostic. Added WARN-level logging to identify this in-game.
+
+**Fix (partial):**
+- Added `GetDamagedWheelTransformNames(ConfigNode partConfig)` to extract `damagedTransformName` values from all `ModuleWheelDamage` MODULE nodes in the part config
+- Added `IsRendererOnDamagedTransform(Transform, HashSet<string>)` to check if a renderer's transform (or any ancestor) matches a damaged transform name
+- Both MeshRenderer and SkinnedMeshRenderer loops now skip renderers on damaged transforms with diagnostic logging
+- Added WARN-level log for null `sharedMesh` on SkinnedMeshRenderers: identifies whether tire meshes are procedurally generated
+- Added summary log per part: counts cloned MeshRenderers, cloned SkinnedMeshRenderers, null-mesh SMR skips, and damaged-wheel renderer skips
+- Diagnostic approach: the WARN log for null sharedMesh will appear in KSP.log when tested in-game, confirming whether missing wheel meshes are due to runtime procedural generation (requires separate fix) vs. the damaged transform overlap (now fixed)
+
+**Status:** Partially fixed — damaged transform filtering implemented. Null sharedMesh diagnostic pending in-game verification
 
 ## 30. All RCS thrusters fire constantly during ghost playback
 
