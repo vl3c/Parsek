@@ -3580,7 +3580,7 @@ namespace Parsek
                 SamplePosition(v);
                 RefreshBackupSnapshot(v, "eva_switch", force: true);
                 ParsekLog.Verbose("Recorder", $"Recording switched to EVA vessel (pid={v.persistentId})");
-                return false; // continue recording on new EVA vessel
+                return true; // skip remaining OnPhysicsFrame polling for this frame
             }
 
             // 3. Tree decisions — early return BEFORE CaptureAtStop
