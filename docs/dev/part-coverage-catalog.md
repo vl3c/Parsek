@@ -737,7 +737,7 @@ Parts where the only visual gap is ModuleColorChanger (cabin lights), FXModuleAn
 | FXModuleAnimateRCS | 5 | RCS thruster response animation | Low — subtle effect |
 | ModulePartFirework | 2 | Firework launch effects | None — novelty |
 | ModuleControlSurface (continuous) | 24 | Continuous deflection angle — won't implement (binary deploy/retract is sufficient) | Closed |
-| ModuleAnimateHeat (continuous) | 16 | Continuous thermal intensity (binary hot/cold IS supported) | Priority 2 |
+| ~~ModuleAnimateHeat (continuous)~~ | ~~16~~ | ~~3-state cold/medium/hot replaces binary~~ | ~~Fixed (3-state)~~ |
 | ModulePartVariants (TEXTURE/MATERIAL) | many | Variant texture/color not applied to ghost (bug #37) | Medium |
 
 ### DLC Parts Summary
@@ -781,14 +781,12 @@ flap position change on deploy/retract.
 **Status:** Already implemented — binary deploy/retract works today. No further work needed.
 This item is effectively complete.
 
-### Priority 2: ModuleAnimateHeat continuous intensity
+### ~~Priority 2: ModuleAnimateHeat 3-state intensity~~ DONE
 
-Binary hot/cold endpoint transitions are supported and showcased for all 16 thermal-animation
-parts. The gap is continuous heat scalar — the ghost jumps between cold and hot states instead
-of smoothly ramping.
-
-**Work required:** Continuous heat-scalar sampling/playback, material emission lerp at
-playback time.
+Upgraded from binary hot/cold to 3-state cold/medium/hot. Ghost now shows intermediate
+glow stage. Recording uses three thresholds (0.10/0.33/0.66) with hysteresis gaps at
+both boundaries. Animation sampled at t=0/0.5/1.0. New ThermalAnimationMedium event type.
+Showcase recordings updated to demonstrate all 3 states.
 
 ### ~~Priority 3: FXModuleAnimateThrottle (engine nozzle glow) — bug #38~~ DONE
 
