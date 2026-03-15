@@ -231,6 +231,9 @@ namespace Parsek
         // Docking race condition guard (Task 5 sets, Task 6 checks)
         internal HashSet<uint> dockingInProgress = new HashSet<uint>();
 
+        // Tree destruction merge dialog guard (prevents duplicate coroutines)
+        private bool treeDestructionDialogPending;
+
         /// <summary>
         /// Holds captured vessel state between Phase 1 (synchronous, inside OnVesselWillDestroy)
         /// and Phase 3 (deferred, after yield return null). Captured by the coroutine state machine
@@ -950,6 +953,9 @@ namespace Parsek
                 backgroundRecorder = null;
             }
 
+            // Clear tree destruction dialog guard
+            treeDestructionDialogPending = false;
+
             // Clean up recording if active
             if (IsRecording)
             {
@@ -1001,6 +1007,14 @@ namespace Parsek
             pendingDockAbsorbedPid = 0;
             pendingBoardingTargetInTree = false;
             dockingInProgress.Clear();
+            treeDestructionDialogPending = false;
+
+            // Clear any suppressed flight results — don't carry stale crash reports across scenes
+            if (Patches.FlightResultsPatch.HasPendingResults())
+            {
+                ParsekLog.Info("Flight", "Clearing suppressed FlightResults on scene change");
+                Patches.FlightResultsPatch.ClearPending();
+            }
 
             // Clear split event detection state
             lastBranchUT = -1;
@@ -1152,6 +1166,17 @@ namespace Parsek
                         RecordingStore.Pending.TerminalStateValue =
                             RecordingTree.DetermineTerminalState((int)sit);
                     }
+
+                    // Fallback: if the vessel was destroyed during recording,
+                    // override whatever situation-based terminal state was set.
+                    // Covers two cases:
+                    // 1. ActiveVessel null (building collision destroyed the only
+                    //    vessel, triggering scene change before
+                    //    ShowPostDestructionMergeDialog could run) — TerminalState is null.
+                    // 2. ActiveVessel switched to debris/other vessel with a
+                    //    non-Destroyed situation (e.g., LANDED) — TerminalState is
+                    //    wrong (Landed instead of Destroyed).
+                    ApplyDestroyedFallback(wasDestroyed, RecordingStore.Pending);
                 }
 
                 recorder = null;
@@ -1219,6 +1244,16 @@ namespace Parsek
                 && recorder.VesselDestroyedDuringRecording && v == FlightGlobals.ActiveVessel)
             {
                 StartCoroutine(ShowPostDestructionMergeDialog());
+            }
+
+            // Tree mode: if the active vessel is destroyed, check if all tree vessels are now dead
+            if (activeTree != null && recorder != null
+                && recorder.VesselDestroyedDuringRecording && v == FlightGlobals.ActiveVessel
+                && !treeDestructionDialogPending)
+            {
+                treeDestructionDialogPending = true;
+                ParsekLog.Info("Flight", "Active vessel destroyed in tree mode — scheduling tree destruction check");
+                StartCoroutine(ShowPostDestructionTreeMergeDialog());
             }
 
             // If the continuation vessel is destroyed, mark the recording and stop tracking
@@ -1344,6 +1379,88 @@ namespace Parsek
             {
                 Log("Post-destruction: commit or dialog");
                 CommitOrShowDialog(RecordingStore.Pending);
+            }
+        }
+
+        /// <summary>
+        /// Coroutine that checks whether all tree leaves are terminal after the active vessel
+        /// is destroyed. If so, finalizes the tree and shows the tree merge dialog.
+        /// </summary>
+        IEnumerator ShowPostDestructionTreeMergeDialog()
+        {
+            // Wait one frame for destruction events to settle
+            yield return null;
+
+            // Guard: tree cleaned up during wait (scene change, etc.)
+            if (activeTree == null)
+            {
+                ParsekLog.Verbose("Flight", "ShowPostDestructionTreeMergeDialog: activeTree is null — aborting");
+                treeDestructionDialogPending = false;
+                yield break;
+            }
+
+            // Guard: someone else handled it
+            if (!treeDestructionDialogPending)
+            {
+                ParsekLog.Verbose("Flight", "ShowPostDestructionTreeMergeDialog: flag already cleared — aborting");
+                yield break;
+            }
+
+            // Guard: active vessel still alive
+            if (recorder != null && recorder.IsRecording && !recorder.VesselDestroyedDuringRecording)
+            {
+                ParsekLog.Verbose("Flight", "ShowPostDestructionTreeMergeDialog: active vessel still alive — aborting");
+                treeDestructionDialogPending = false;
+                yield break;
+            }
+
+            bool activeDestroyed = recorder == null || !recorder.IsRecording
+                || recorder.VesselDestroyedDuringRecording;
+            if (!RecordingTree.AreAllLeavesTerminal(activeTree.Recordings,
+                activeTree.ActiveRecordingId, activeDestroyed))
+            {
+                ParsekLog.Info("Flight",
+                    "ShowPostDestructionTreeMergeDialog: not all leaves terminal — other vessels still alive");
+                treeDestructionDialogPending = false;
+                yield break;
+            }
+
+            // All leaves are terminal — finalize and show dialog
+            ParsekLog.Info("Flight", "ShowPostDestructionTreeMergeDialog: all leaves terminal — finalizing tree");
+
+            double commitUT = Planetarium.GetUniversalTime();
+
+            // FinalizeTreeRecordings handles ForceStop + FlushRecorderToTreeRecording
+            FinalizeTreeRecordings(activeTree, commitUT, isSceneExit: false);
+            ParsekLog.Info("Flight",
+                $"ShowPostDestructionTreeMergeDialog: finalized tree '{activeTree.TreeName}'");
+
+            RecordingStore.StashPendingTree(activeTree);
+            ParsekLog.Info("Flight",
+                $"ShowPostDestructionTreeMergeDialog: stashed pending tree '{activeTree.TreeName}'");
+
+            // Clean up flight state
+            recorder = null;
+            if (backgroundRecorder != null)
+            {
+                backgroundRecorder.Shutdown();
+                Patches.PhysicsFramePatch.BackgroundRecorderInstance = null;
+                backgroundRecorder = null;
+            }
+            activeTree = null;
+            treeDestructionDialogPending = false;
+
+            // Show dialog or auto-merge
+            if (ParsekScenario.IsAutoMerge)
+            {
+                ParsekLog.Info("Flight", "ShowPostDestructionTreeMergeDialog: auto-merge enabled — committing tree");
+                RecordingStore.CommitPendingTree();
+                MergeDialog.ReplayFlightResultsIfPending();
+            }
+            else
+            {
+                ParsekLog.Info("Flight", "ShowPostDestructionTreeMergeDialog: showing tree merge dialog");
+                MergeDialog.ShowTreeDialog(RecordingStore.PendingTree);
             }
         }
 
@@ -2350,6 +2467,25 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure decision method: if the vessel was destroyed during recording, ensures
+        /// TerminalStateValue is Destroyed regardless of what situation-based inference produced.
+        /// Returns true if the terminal state was overridden.
+        /// </summary>
+        internal static bool ApplyDestroyedFallback(
+            bool wasDestroyed, RecordingStore.Recording rec)
+        {
+            if (!wasDestroyed) return false;
+            if (rec.TerminalStateValue == TerminalState.Destroyed) return false;
+
+            var prev = rec.TerminalStateValue;
+            rec.TerminalStateValue = TerminalState.Destroyed;
+            ParsekLog.Info("Flight",
+                $"Scene-exit fallback: vessel destroyed during recording — overriding TerminalState " +
+                $"from {prev?.ToString() ?? "null"} to Destroyed");
+            return true;
+        }
+
+        /// <summary>
         /// Pure static method: applies terminal destruction state to a recording.
         /// Sets TerminalStateValue = Destroyed, ExplicitEndUT, and copies orbital/surface data.
         /// </summary>
@@ -2486,6 +2622,21 @@ namespace Parsek
                 ParsekLog.Info("Flight", $"Background EVA vessel ended: pid={pending.vesselPid} recId={pending.recordingId}");
             else
                 ParsekLog.Warn("Flight", $"Background vessel destroyed: pid={pending.vesselPid} recId={pending.recordingId}");
+
+            // Check if all tree vessels are now destroyed — trigger merge dialog
+            if (!treeDestructionDialogPending)
+            {
+                bool activeDestroyed = recorder == null || !recorder.IsRecording
+                    || recorder.VesselDestroyedDuringRecording;
+                if (RecordingTree.AreAllLeavesTerminal(activeTree.Recordings,
+                    activeTree.ActiveRecordingId, activeDestroyed))
+                {
+                    treeDestructionDialogPending = true;
+                    ParsekLog.Info("Flight",
+                        "All tree leaves now terminal after background destruction — triggering tree merge");
+                    StartCoroutine(ShowPostDestructionTreeMergeDialog());
+                }
+            }
         }
 
         #endregion
@@ -3287,6 +3438,14 @@ namespace Parsek
         {
             Log("Flight ready. Checking for pending recordings...");
 
+            // Safety net: if FlightResultsPatch has a pending message that was never replayed
+            // (e.g., tree destruction path didn't fire), replay it now
+            if (Patches.FlightResultsPatch.HasPendingResults())
+            {
+                ParsekLog.Warn("Flight", "FlightResults safety net: replaying suppressed results on OnFlightReady");
+                Patches.FlightResultsPatch.ReplayFlightResults();
+            }
+
             // Auto-migrate v4 recordings to v5 (world-space → surface-relative rotation)
             if (FlightGlobals.Bodies != null && FlightGlobals.Bodies.Count > 0)
             {
@@ -3343,6 +3502,7 @@ namespace Parsek
             pendingDockAbsorbedPid = 0;
             pendingBoardingTargetInTree = false;
             dockingInProgress.Clear();
+            treeDestructionDialogPending = false;
 
             // Handle pending tree: show tree merge dialog.
             // On non-revert scene changes, pending trees are auto-committed by ParsekScenario.
@@ -4449,7 +4609,8 @@ namespace Parsek
                         ParsekLog.Verbose("Flight", $"Spawn suppressed for #{i} ({rec.VesselName}): non-leaf tree recording");
                 }
 
-                // Terminal tree recordings (destroyed/recovered/docked/boarded) should not spawn
+                // Terminal tree recordings (destroyed/recovered/docked/boarded) should not spawn.
+                // This is the guard for bug #38: prevents spawning vessels from all-destroyed trees.
                 if (needsSpawn && rec.TerminalStateValue.HasValue)
                 {
                     var ts = rec.TerminalStateValue.Value;
@@ -5507,12 +5668,13 @@ namespace Parsek
         {
             if (explosionAlreadyFired)
             {
-                ParsekLog.Verbose("ExplosionFx", $"ShouldTriggerExplosion: ghost #{recIdx} — skipped (already fired)");
+                ParsekLog.VerboseRateLimited("ExplosionFx", $"explosion_fired_{recIdx}",
+                    $"ShouldTriggerExplosion: ghost #{recIdx} — skipped (already fired)");
                 return false;
             }
             if (terminalState != TerminalState.Destroyed)
             {
-                ParsekLog.Verbose("ExplosionFx",
+                ParsekLog.VerboseRateLimited("ExplosionFx", $"not_destroyed_{recIdx}",
                     $"ShouldTriggerExplosion: ghost #{recIdx} — skipped (terminalState={terminalState?.ToString() ?? "null"}, not Destroyed)");
                 return false;
             }
@@ -5739,6 +5901,7 @@ namespace Parsek
                         StopEngineFxForPart(state, evt.partPersistentId);
                         StopRcsFxForPart(state, evt.partPersistentId);
                         ApplyHeatState(state, evt, heated: false);
+                        SpawnPartPuffAtPart(ghost, evt.partPersistentId);
                         if (tree != null)
                             HidePartSubtree(ghost, evt.partPersistentId, tree);
                         else
@@ -5751,6 +5914,7 @@ namespace Parsek
                         StopEngineFxForPart(state, evt.partPersistentId);
                         StopRcsFxForPart(state, evt.partPersistentId);
                         ApplyHeatState(state, evt, heated: false);
+                        SpawnPartPuffAtPart(ghost, evt.partPersistentId);
                         HideGhostPart(ghost, evt.partPersistentId);
                         ParsekLog.Verbose("Flight", $"Part event applied: Destroyed '{evt.partName}' pid={evt.partPersistentId}");
                         GhostVisualBuilder.RebuildReentryMeshes(ghost, state.reentryFxInfo);
@@ -5958,6 +6122,37 @@ namespace Parsek
                 RecalculateCameraPivot(state);
             UpdateBlinkingLights(state, currentUT);
             UpdateActiveRobotics(state, currentUT);
+        }
+
+        /// <summary>
+        /// Spawns a small smoke puff + spark FX at a ghost part's world position.
+        /// Called before hiding the part on Decoupled/Destroyed events.
+        /// </summary>
+        internal static void SpawnPartPuffAtPart(GameObject ghost, uint persistentId)
+        {
+            if (ghost == null) return;
+            var t = ghost.transform.Find($"ghost_part_{persistentId}");
+            if (t == null)
+            {
+                ParsekLog.Verbose("PartPuffFx", $"Skipped puff for pid={persistentId} — part transform not found");
+                return;
+            }
+            if (!t.gameObject.activeSelf)
+            {
+                ParsekLog.Verbose("PartPuffFx", $"Skipped puff for pid={persistentId} — part already inactive");
+                return;
+            }
+
+            // Estimate part scale from its renderer bounds
+            float partScale = 1f;
+            var renderer = t.GetComponentInChildren<Renderer>();
+            if (renderer != null)
+                partScale = renderer.bounds.size.magnitude * 0.5f;
+
+            var pos = t.position;
+            GhostVisualBuilder.SpawnPartPuffFx(pos, partScale);
+            ParsekLog.Verbose("PartPuffFx",
+                $"Spawned puff for pid={persistentId} at ({pos.x:F1},{pos.y:F1},{pos.z:F1}) scale={partScale:F2}");
         }
 
         internal static void HideGhostPart(GameObject ghost, uint persistentId)
