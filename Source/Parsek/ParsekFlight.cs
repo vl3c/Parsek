@@ -4650,7 +4650,7 @@ namespace Parsek
                         {
                             state.ghost.SetActive(false);
                             ParsekLog.Info("Flight",
-                                $"Ghost #{i} \"{rec.VesselName}\" hidden: warp {warpRate:F0}x > 50x");
+                                $"Ghost #{i} \"{rec.VesselName}\" hidden: warp {warpRate.ToString("F1", CultureInfo.InvariantCulture)}x > {GhostHideWarpThreshold}x");
                             if (watchedRecordingIndex == i)
                                 ExitWatchMode();
                         }
@@ -4975,7 +4975,7 @@ namespace Parsek
                 {
                     state.ghost.SetActive(false);
                     ParsekLog.Info("Flight",
-                        $"Ghost #{recIdx} \"{rec.VesselName}\" (loop) hidden: warp > 50x");
+                        $"Ghost #{recIdx} \"{rec.VesselName}\" (loop) hidden: warp > {GhostHideWarpThreshold}x");
                     if (watchedRecordingIndex == recIdx)
                         ExitWatchMode();
                 }
@@ -5745,9 +5745,9 @@ namespace Parsek
             {
                 state.explosionFired = true;
                 HideAllGhostParts(state);
-                ParsekLog.Verbose("ExplosionFx",
+                ParsekLog.VerboseRateLimited("ExplosionFx", $"explosion-suppress-{recIdx}",
                     $"Explosion suppressed for ghost #{recIdx} \"{rec.VesselName}\": " +
-                    $"warp rate {TimeWarp.CurrentRate:F0}x > 10x");
+                    $"warp rate {TimeWarp.CurrentRate.ToString("F1", CultureInfo.InvariantCulture)}x > {FxSuppressWarpThreshold}x");
                 return;
             }
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using ClickThroughFix;
 using KSP.UI.Screens;
 using ToolbarControl_NS;
@@ -133,7 +134,7 @@ namespace Parsek
                     {
                         kvp.Value.ghost.SetActive(false);
                         ParsekLog.Info("KSCGhost",
-                            $"Ghost #{kvp.Key} hidden: warp {warpRate:F0}x > 50x");
+                            $"Ghost #{kvp.Key} hidden: warp {warpRate.ToString("F1", CultureInfo.InvariantCulture)}x > {ParsekFlight.GhostHideWarpThreshold}x");
                     }
                 foreach (int key in new List<int>(kscOverlapGhosts.Keys))
                     DestroyAllKscOverlapGhosts(key);
@@ -797,8 +798,8 @@ namespace Parsek
             {
                 state.explosionFired = true;
                 ParsekFlight.HideAllGhostParts(state);
-                ParsekLog.Verbose("KSCGhost",
-                    $"Explosion suppressed for ghost #{recIdx} \"{rec.VesselName}\": warp > 10x");
+                ParsekLog.VerboseRateLimited("KSCGhost", $"explosion-suppress-{recIdx}",
+                    $"Explosion suppressed for ghost #{recIdx} \"{rec.VesselName}\": warp > {ParsekFlight.FxSuppressWarpThreshold}x");
                 return;
             }
 
