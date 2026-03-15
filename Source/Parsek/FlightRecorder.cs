@@ -31,6 +31,7 @@ namespace Parsek
         public List<PartEvent> PartEvents { get; } = new List<PartEvent>();
 
         // Part event tracking
+        private HashSet<uint> decoupledPartIds = new HashSet<uint>();
         private Dictionary<uint, int> parachuteStates = new Dictionary<uint, int>(); // 0=stowed, 1=semi, 2=deployed
         private HashSet<uint> jettisonedShrouds = new HashSet<uint>();
         private Dictionary<ulong, string> jettisonNameRawCache = new Dictionary<ulong, string>();
@@ -235,6 +236,25 @@ namespace Parsek
             }
             if (joint.Child.vessel.persistentId != RecordingVesselId) return;
 
+            // Skip non-structural joint breaks (e.g., wheel suspension stress)
+            // Part.attachJoint is the structural connection to parent — only that indicates real separation
+            var childAttachJoint = joint.Child.attachJoint;
+            if (!IsStructuralJointBreak(joint == childAttachJoint, childAttachJoint != null))
+            {
+                ParsekLog.VerboseRateLimited("Recorder", $"joint-break-nonstructural-{joint.Child.persistentId}",
+                    $"OnPartJointBreak: non-structural joint break on '{joint.Child.partInfo?.name}' pid={joint.Child.persistentId} (breakForce={breakForce:F1}), skipping");
+                return;
+            }
+
+            // Skip duplicate decoupled events for the same part
+            if (decoupledPartIds.Contains(joint.Child.persistentId))
+            {
+                ParsekLog.VerboseRateLimited("Recorder", $"joint-break-dup-{joint.Child.persistentId}",
+                    $"OnPartJointBreak: duplicate for already-decoupled '{joint.Child.partInfo?.name}' pid={joint.Child.persistentId}, skipping");
+                return;
+            }
+            decoupledPartIds.Add(joint.Child.persistentId);
+
             PartEvents.Add(new PartEvent
             {
                 ut = Planetarium.GetUniversalTime(),
@@ -246,6 +266,20 @@ namespace Parsek
 
             // Signal potential vessel split for deferred check by ParsekFlight
             HasPendingJointBreakCheck = true;
+        }
+
+        /// <summary>
+        /// Determines whether a joint break is structural (real separation) or non-structural
+        /// (e.g., wheel suspension stress). Only the structural attachJoint indicates real decoupling.
+        /// </summary>
+        /// <param name="brokenJointIsAttachJoint">True if the broken joint is the child's attachJoint.</param>
+        /// <param name="hasAttachJoint">True if the child part has a non-null attachJoint (false for root parts).</param>
+        internal static bool IsStructuralJointBreak(bool brokenJointIsAttachJoint, bool hasAttachJoint)
+        {
+            // If the child has no attach joint (root part), any break is structural
+            if (!hasAttachJoint) return true;
+            // Only the structural attach joint indicates real separation
+            return brokenJointIsAttachJoint;
         }
 
         /// <summary>
@@ -3449,6 +3483,7 @@ namespace Parsek
         /// </summary>
         private void ResetPartEventTrackingState(Vessel v)
         {
+            decoupledPartIds.Clear();
             parachuteStates.Clear();
             jettisonedShrouds.Clear();
             jettisonNameRawCache.Clear();
@@ -3941,6 +3976,7 @@ namespace Parsek
             }
 
             rcsActiveFrameCount.Clear();
+            decoupledPartIds.Clear();
 
             isOnRails = true;
             ParsekLog.Verbose("Recorder",

@@ -456,12 +456,9 @@ When a rover flips or crashes, KSP fires `onPartJointBreak` for wheel parts even
 
 **Root cause:** `onPartJointBreak` fires for joints under impact stress, not just for permanent separations. KSP wheel joints can break and re-form during collisions — the part never actually leaves the vessel. The recording code treats every `onPartJointBreak` as a permanent `Decoupled` event without verifying that the part actually separated.
 
-**Possible fixes:**
-1. **Post-break verification:** After `onPartJointBreak`, wait 1-2 physics frames, then check if the part is still in the same vessel. If so, discard the Decoupled event.
-2. **Wheel-specific filter:** Skip `onPartJointBreak` for parts with `ModuleWheelBase` or `ModuleWheelDamage` — wheel joint breaks are rarely actual decoupling.
-3. **Duplicate Decoupled filter:** Track which parts have already received a Decoupled event and skip subsequent events for the same PID.
+**Fix:** Two guards in `OnPartJointBreak`: (1) structural joint filter — compares `joint` against `joint.Child.attachJoint` to skip non-structural breaks (wheel suspension, steering joints under stress); (2) PID deduplication — `decoupledPartIds` HashSet prevents duplicate Decoupled events for the same part. Pure logic extracted to `IsStructuralJointBreak(bool, bool)` for testability.
 
-**Status:** Open
+**Status:** Fixed
 
 ## 42. Engine shroud missing at recording start (initial state seeding)
 
