@@ -380,3 +380,34 @@ Parts with geometry-only variants (GAMEOBJECTS rules) are handled correctly — 
 **Identified by:** Part coverage audit (2026-03-15)
 
 **Status:** Open
+
+## 38. SRB nozzle glow persists after burnout
+
+SRB nozzles on ghost vessels remain glowing indefinitely after the SRB runs out of fuel. The exhaust particle FX stops correctly on `EngineShutdown`, but the nozzle mesh stays emissive/hot-looking. Looks wrong after ~5 seconds — no heat source, but nozzle still glows.
+
+**Root cause:** SRB nozzle glow is driven by `FXModuleAnimateThrottle`, not `ModuleAnimateHeat`. Parsek only handles `ModuleAnimateHeat` for heat ghost visuals. The chain of failure:
+
+1. **Ghost build:** `TryGetAnimateHeatAnimation` searches for `ModuleAnimateHeat` only. SRBs have `FXModuleAnimateThrottle` instead → no `HeatGhostInfo` is created.
+2. **Prefab clone:** The ghost mesh is cloned from the prefab with the `FXModuleAnimateThrottle` animation at whatever emissive state the prefab model had (often partially or fully glowing).
+3. **Recording:** `EngineShutdown` event is recorded correctly when SRB burns out (`isOperational` becomes false on fuel depletion).
+4. **Playback:** `EngineShutdown` handler calls `ApplyHeatState(heated: false)`, which looks up `state.heatInfos[pid]` — but no entry exists for this part (step 1), so the call returns false and does nothing.
+5. **Result:** Particle exhaust stops, but emissive nozzle glow is permanently frozen.
+
+**Affected parts:** 7 of 9 stock SRBs (all with `FXModuleAnimateThrottle`):
+- `solidBooster_v2` (RT-10 "Hammer") — animation: `heatAnimation`
+- `solidBooster1-1` (BACC "Thumper") — animation: `thumperEmissive`
+- `MassiveBooster` (S1 SRB-KD25k "Kickback") — animation: `HeatAnimationSRB`
+- `Mite` (FM1 "Mite") — animation: `FM1Emissive`
+- `Shrimp` (F3S0 "Shrimp") — animation: `F3S0Emissive`
+- `Thoroughbred` — animation: `S2-17Emissive`
+- `Clydesdale` — animation: `S2-33Emissive`
+
+Not affected: `solidBooster_sm_v2` (Flea) and `sepMotor1` (Sepratron) — no `FXModuleAnimateThrottle`.
+
+Also affects non-SRB engines with `FXModuleAnimateThrottle` (33 parts total: jets, ion engine, RAPIER, etc.), but SRBs are the most visible case because they always burn out mid-flight.
+
+**Fix:** Extend `GhostVisualBuilder` to detect `FXModuleAnimateThrottle` alongside `ModuleAnimateHeat` when building `HeatGhostInfo`. Both modules drive emissive animations — the only difference is the animation name field. Once `HeatGhostInfo` exists for the part, the existing `EngineShutdown` → `ApplyHeatState(heated: false)` path will work. `EngineIgnited` should also call `ApplyHeatState(heated: true)`.
+
+**Relationship to roadmap:** This is the same underlying gap as "FXModuleAnimateThrottle support" (Priority 3 in the part coverage catalog). Fixing this bug fixes the roadmap item.
+
+**Status:** Open

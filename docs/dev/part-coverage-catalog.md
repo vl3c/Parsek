@@ -31,7 +31,8 @@ checked in; re-run the extraction from the KSP GameData directory to refresh.
 | #34 | ShouldTriggerExplosion log spam | Fixed | all ghost parts |
 | #35 | Engine FX playing=False first frame | Not a bug | all engine parts |
 | #36 | GhostVisual VERBOSE log spam | Fixed | all ghost parts |
-| #37 | Ghost shows wrong texture variant | Open | parts with TEXTURE variant rules |
+| #37 | Ghost shows wrong texture variant | Fixed | parts with TEXTURE variant rules |
+| #38 | SRB nozzle glow persists after burnout | Open | 33 FXModuleAnimateThrottle parts (7 SRBs most visible) |
 
 ## Unsupported Visual Module Types
 
@@ -789,15 +790,20 @@ of smoothly ramping.
 **Work required:** Continuous heat-scalar sampling/playback, material emission lerp at
 playback time.
 
-### Priority 3: FXModuleAnimateThrottle (engine nozzle glow)
+### Priority 3: FXModuleAnimateThrottle (engine nozzle glow) — bug #38
 
 33 engine parts have throttle-driven nozzle glow animations that are not replayed on the
 ghost. The engine particle FX (exhaust plume) works, but the nozzle mesh itself doesn't
-glow or animate with throttle level.
+glow or animate with throttle level. Most visible on SRBs where nozzle glow persists
+permanently after burnout.
 
-**Work required:** Read `FXModuleAnimateThrottle` animation name from part config, sample
-animation at throttle-driven position during recording, apply during playback. May be able
-to reuse the existing `ModuleAnimateHeat` infrastructure.
+**Work required:** Extend `GhostVisualBuilder.TryGetAnimateHeatAnimation` to also detect
+`FXModuleAnimateThrottle` modules and build `HeatGhostInfo` from their animation. Both
+modules drive emissive animations — same sampling approach (time=0 cold, time=1 hot),
+just different animation name fields. Once `HeatGhostInfo` exists, the existing
+`EngineShutdown` → `ApplyHeatState(heated: false)` path works. Also wire `EngineIgnited`
+to call `ApplyHeatState(heated: true)`. No recording changes needed — engine events already
+capture the state transitions.
 
 ### Priority 4: ModulePartVariants TEXTURE/MATERIAL rules (bug #37)
 
