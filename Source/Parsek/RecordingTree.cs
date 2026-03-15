@@ -602,5 +602,80 @@ namespace Parsek
                     return TerminalState.SubOrbital;
             }
         }
+
+        /// <summary>
+        /// Pure decision method: checks whether all leaf recordings in a tree have
+        /// non-spawnable terminal states (Destroyed, Recovered, Docked, Boarded).
+        /// A recording is a leaf if it has no ChildBranchPointId.
+        /// Leaves with null TerminalStateValue are considered NOT terminal (still active).
+        /// If activeRecordingId is non-null, the active recording is treated as alive
+        /// unless activeVesselDestroyed is true.
+        /// </summary>
+        internal static bool AreAllLeavesTerminal(
+            Dictionary<string, RecordingStore.Recording> recordings,
+            string activeRecordingId,
+            bool activeVesselDestroyed)
+        {
+            if (recordings.Count == 0)
+            {
+                ParsekLog.Verbose("TreeDestruction", "AreAllLeavesTerminal: empty recordings dict — returning true");
+                return true;
+            }
+
+            foreach (var kvp in recordings)
+            {
+                var rec = kvp.Value;
+
+                // Skip non-leaf recordings (they branched into children)
+                if (rec.ChildBranchPointId != null)
+                    continue;
+
+                bool isActiveRecording = activeRecordingId != null && rec.RecordingId == activeRecordingId;
+
+                // Leaf: active recording still alive — tree is not fully terminal
+                if (isActiveRecording && !activeVesselDestroyed)
+                {
+                    ParsekLog.Verbose("TreeDestruction",
+                        $"AreAllLeavesTerminal: leaf '{rec.RecordingId}' ({rec.VesselName}) is active and alive — NOT terminal");
+                    return false;
+                }
+
+                // Active recording with destroyed vessel: treat as terminal even if
+                // TerminalStateValue hasn't been set yet (recorder knows it's dead,
+                // but FinalizeTreeRecordings hasn't run to set the terminal state)
+                if (isActiveRecording && activeVesselDestroyed)
+                {
+                    ParsekLog.Verbose("TreeDestruction",
+                        $"AreAllLeavesTerminal: leaf '{rec.RecordingId}' ({rec.VesselName}) is active but vessel destroyed — terminal");
+                    continue;
+                }
+
+                // Leaf: no terminal state means still recording / not finalized
+                if (!rec.TerminalStateValue.HasValue)
+                {
+                    ParsekLog.Verbose("TreeDestruction",
+                        $"AreAllLeavesTerminal: leaf '{rec.RecordingId}' ({rec.VesselName}) has no terminal state — NOT terminal");
+                    return false;
+                }
+
+                var ts = rec.TerminalStateValue.Value;
+                if (ts == TerminalState.Destroyed || ts == TerminalState.Recovered
+                    || ts == TerminalState.Docked || ts == TerminalState.Boarded)
+                {
+                    // Non-spawnable terminal state — this leaf is done
+                    ParsekLog.Verbose("TreeDestruction",
+                        $"AreAllLeavesTerminal: leaf '{rec.RecordingId}' ({rec.VesselName}) terminal={ts} — dead");
+                    continue;
+                }
+
+                // Spawnable terminal state (Orbiting, Landed, SubOrbital, Splashed) — vessel could be spawned
+                ParsekLog.Verbose("TreeDestruction",
+                    $"AreAllLeavesTerminal: leaf '{rec.RecordingId}' ({rec.VesselName}) terminal={ts} — spawnable, NOT terminal");
+                return false;
+            }
+
+            ParsekLog.Verbose("TreeDestruction", "AreAllLeavesTerminal: all leaves are terminal — returning true");
+            return true;
+        }
     }
 }
