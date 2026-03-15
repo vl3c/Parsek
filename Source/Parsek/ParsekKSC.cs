@@ -122,7 +122,20 @@ namespace Parsek
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
-                if (!ShouldShowInKSC(rec)) continue;
+                if (!ShouldShowInKSC(rec))
+                {
+                    // Recording no longer eligible (disabled, wrong body, etc.)
+                    // — clean up any active ghosts so they don't linger in the scene.
+                    if (kscGhosts.ContainsKey(i))
+                    {
+                        ParsekLog.Info("KSCGhost",
+                            $"Ghost #{i} \"{rec.VesselName}\" no longer eligible — destroying");
+                        DestroyKscGhost(kscGhosts[i], i);
+                        kscGhosts.Remove(i);
+                    }
+                    DestroyAllKscOverlapGhosts(i);
+                    continue;
+                }
 
                 // Branch: looping recordings check interval sign for overlap support
                 if (rec.LoopPlayback)

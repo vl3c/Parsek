@@ -355,3 +355,13 @@ Combined with the ShouldTriggerExplosion spam (bug #34, now fixed), these two su
 **Fix:** Rate-limited the highest-volume per-part build diagnostics using `VerboseRateLimited` with 60-second intervals and per-part-name keys. Affected messages: part summary, variant selection/fallback, per-MeshRenderer/SkinnedMeshRenderer cloning, modelRoot DIAG, jettison cloneMap misses, engine hierarchy dump, outside-model MR warnings. Each message logs once on first ghost build, then is suppressed for 60s (well beyond a typical 10-30s loop cycle).
 
 **Status:** Fixed
+
+## 37. KSC ghosts not destroyed when recording is disabled
+
+When the user disables a recording's playback in the KSC scene (unchecks the enable checkbox), the ghost GameObject stays visible in the scene. It is never cleaned up until the player leaves KSC.
+
+**Root cause:** `ParsekKSC.Update()` (line 125) checks `ShouldShowInKSC(rec)` and `continue`s if false — skipping the recording entirely without destroying any existing ghost. In contrast, `ParsekFlight.Update()` explicitly destroys active ghosts when `PlaybackEnabled` is false before continuing.
+
+**Fix:** Before the `continue`, check `kscGhosts` and `kscOverlapGhosts` for the recording index and destroy any active ghosts. Mirrors the pattern from `ParsekFlight`.
+
+**Status:** Fixed
