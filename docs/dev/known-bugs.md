@@ -497,3 +497,15 @@ When applying variant TEXTURE rules to ghost parts, `Shader.Find("KSP/Emissive S
 **Possible fix:** Cache a reference to known KSP shaders at mod initialization by finding them on existing materials rather than by name. Or accept the fallback as "good enough."
 
 **Status:** Open — low priority cosmetic
+
+## 44. Code cleanup: duplicated seeding logic and growing out-parameter list
+
+Technical debt from the part-audit PR (#46). Three `// TODO:` items in source code:
+
+1. **Seeding duplication (~340 lines):** `FlightRecorder.SeedExistingPartStates` and `BackgroundRecorder.SeedBackgroundPartStates` are near-identical. Both iterate all parts, check the same modules, seed the same tracking set types. If a new module type is added, both methods need updating. Extract shared static helpers that take tracking set collections as parameters.
+
+2. **BuildTimelineGhostFromSnapshot out-parameters (10 info lists):** The backward-compat overloads are unwieldy. Bundle into a `GhostBuildResult` class/struct.
+
+Locations: `FlightRecorder.cs:3552`, `BackgroundRecorder.cs:637`, `GhostVisualBuilder.cs:465`. Search `// TODO:` in source.
+
+**Status:** Open — tech debt, not a visual bug
