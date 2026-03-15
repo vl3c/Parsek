@@ -63,6 +63,8 @@ namespace Parsek
             Persist      // Vessel intact with snapshot — respawn where it ended up
         }
 
+        public enum LoopTimeUnit { Sec, Min, Hour, Auto }
+
         public class Recording
         {
             public string RecordingId = Guid.NewGuid().ToString("N");
@@ -73,6 +75,7 @@ namespace Parsek
             public List<PartEvent> PartEvents = new List<PartEvent>();
             public bool LoopPlayback;
             public double LoopIntervalSeconds = 10.0;
+            public LoopTimeUnit LoopTimeUnit = LoopTimeUnit.Sec;
 
             // UI grouping tags (e.g. "Synthetic", "Part Showcase") — multi-group membership
             public List<string> RecordingGroups;
@@ -199,6 +202,7 @@ namespace Parsek
                 ChainBranch = source.ChainBranch;
                 LoopPlayback = source.LoopPlayback;
                 LoopIntervalSeconds = source.LoopIntervalSeconds;
+                LoopTimeUnit = source.LoopTimeUnit;
                 PreLaunchFunds = source.PreLaunchFunds;
                 PreLaunchScience = source.PreLaunchScience;
                 PreLaunchReputation = source.PreLaunchReputation;
