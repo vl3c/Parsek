@@ -3701,6 +3701,8 @@ namespace Parsek
                 if (stripped.Length == 0)
                     return "_MainTex";
 
+                // KSP shader properties use abbreviated "Tex" suffix (e.g., _MainTex, _BackTex)
+                // so strip "ture" (4 chars) from "Texture" to keep "Tex"
                 if (stripped.EndsWith("Texture", System.StringComparison.Ordinal))
                     stripped = stripped.Substring(0, stripped.Length - 4);
 
@@ -3732,6 +3734,7 @@ namespace Parsek
                 if (mats == null || mats.Length == 0) continue;
 
                 string rendererTransformName = renderer.transform.name;
+                bool anySlotChanged = false;
 
                 for (int mi = 0; mi < mats.Length; mi++)
                 {
@@ -3750,6 +3753,7 @@ namespace Parsek
                         Material cloned = new Material(mat);
                         mats[mi] = cloned;
                         mat = cloned;
+                        anySlotChanged = true;
                         ParsekLog.Verbose("GhostVisual", $"Part '{partName}' pid={persistentId}: " +
                             $"cloned material '{matName}' for variant texture");
 
@@ -3786,6 +3790,7 @@ namespace Parsek
                                         if (tex != null)
                                         {
                                             cloned.SetTexture(shaderProp, tex);
+                                            totalApplied++;
                                             ParsekLog.Verbose("GhostVisual", $"Part '{partName}' pid={persistentId}: " +
                                                 $"applied {prop.key}={prop.value} (type=Texture, prop={shaderProp})");
                                         }
@@ -3794,7 +3799,6 @@ namespace Parsek
                                             ParsekLog.Warn("GhostVisual", $"Part '{partName}' pid={persistentId}: " +
                                                 $"texture not found: '{prop.value}'");
                                         }
-                                        totalApplied++;
                                         break;
                                     }
                                     case VariantPropertyType.Color:
@@ -3803,10 +3807,15 @@ namespace Parsek
                                         if (TryParseKspColor(prop.value, out Color color))
                                         {
                                             cloned.SetColor(colorProp, color);
+                                            totalApplied++;
                                             ParsekLog.Verbose("GhostVisual", $"Part '{partName}' pid={persistentId}: " +
                                                 $"applied {prop.key}={prop.value} (type=Color)");
                                         }
-                                        totalApplied++;
+                                        else
+                                        {
+                                            ParsekLog.Warn("GhostVisual", $"Part '{partName}' pid={persistentId}: " +
+                                                $"failed to parse color: {prop.key}={prop.value}");
+                                        }
                                         break;
                                     }
                                     case VariantPropertyType.Float:
@@ -3815,10 +3824,15 @@ namespace Parsek
                                             CultureInfo.InvariantCulture, out float floatVal))
                                         {
                                             cloned.SetFloat(prop.key, floatVal);
+                                            totalApplied++;
                                             ParsekLog.Verbose("GhostVisual", $"Part '{partName}' pid={persistentId}: " +
                                                 $"applied {prop.key}={prop.value} (type=Float)");
                                         }
-                                        totalApplied++;
+                                        else
+                                        {
+                                            ParsekLog.Warn("GhostVisual", $"Part '{partName}' pid={persistentId}: " +
+                                                $"failed to parse float: {prop.key}={prop.value}");
+                                        }
                                         break;
                                     }
                                     case VariantPropertyType.Skip:
@@ -3831,7 +3845,8 @@ namespace Parsek
                     }
                 }
 
-                renderer.sharedMaterials = mats;
+                if (anySlotChanged)
+                    renderer.sharedMaterials = mats;
             }
 
             return totalApplied;
