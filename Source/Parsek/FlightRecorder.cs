@@ -48,7 +48,7 @@ namespace Parsek
         private HashSet<ulong> deployedAeroSurfaceModules = new HashSet<ulong>();
         private HashSet<ulong> deployedControlSurfaceModules = new HashSet<ulong>();
         private HashSet<ulong> deployedRobotArmScannerModules = new HashSet<ulong>();
-        private HashSet<ulong> hotAnimateHeatModules = new HashSet<ulong>();
+        private Dictionary<ulong, HeatLevel> animateHeatLevels = new Dictionary<ulong, HeatLevel>();
 
         // Engine state tracking (key = EncodeEngineKey(pid, moduleIndex))
         private List<(Part part, ModuleEngines engine, int moduleIndex)> cachedEngines;
@@ -135,7 +135,9 @@ namespace Parsek
         private const double roboticSampleIntervalSeconds = 0.25; // 4 Hz
         private const float roboticAngularDeadbandDegrees = 0.5f;
         private const float roboticLinearDeadbandMeters = 0.01f;
-        private const float animateHeatHotThreshold = 0.75f;
+        private const float animateHeatHotThreshold = 0.66f;
+        private const float animateHeatHotFallbackThreshold = 0.60f; // hysteresis: fall from Hot at 0.60, rise at 0.66
+        private const float animateHeatMediumThreshold = 0.33f;
         private const float animateHeatColdThreshold = 0.10f;
         private double lastRecordedUT = -1;
         private Vector3 lastRecordedVelocity;
@@ -675,40 +677,64 @@ namespace Parsek
 
         internal static PartEvent? CheckAnimateHeatTransition(
             ulong key, uint partPersistentId, string partName,
-            bool isHot, bool isCold, float normalizedHeat,
-            HashSet<ulong> hotSet, double ut, int moduleIndex)
+            float normalizedHeat,
+            Dictionary<ulong, HeatLevel> levelMap, double ut, int moduleIndex)
         {
-            bool wasHot = hotSet.Contains(key);
+            HeatLevel current;
+            if (!levelMap.TryGetValue(key, out current))
+                current = HeatLevel.Cold;
 
-            if (isHot && !wasHot)
+            // Determine target level with hysteresis gaps:
+            // Cold-Medium: rise at 0.33, fall at 0.10 (gap [0.10, 0.33) preserves current)
+            // Medium-Hot:  rise at 0.66, fall at 0.60 (gap [0.60, 0.66) preserves current)
+            HeatLevel target;
+            if (normalizedHeat >= animateHeatHotThreshold)
+                target = HeatLevel.Hot;
+            else if (normalizedHeat >= animateHeatMediumThreshold)
             {
-                hotSet.Add(key);
-                return new PartEvent
-                {
-                    ut = ut,
-                    partPersistentId = partPersistentId,
-                    eventType = PartEventType.ThermalAnimationHot,
-                    partName = partName,
-                    value = normalizedHeat,
-                    moduleIndex = moduleIndex
-                };
+                // In the Medium zone — but check if falling from Hot with hysteresis
+                if (current == HeatLevel.Hot && normalizedHeat >= animateHeatHotFallbackThreshold)
+                    target = HeatLevel.Hot; // stay Hot in [0.60, 0.66) gap
+                else
+                    target = HeatLevel.Medium;
+            }
+            else if (normalizedHeat < animateHeatColdThreshold)
+                target = HeatLevel.Cold;
+            else
+                target = current; // hysteresis gap [0.10, 0.33) — keep current level
+
+            if (target == current)
+                return null;
+
+            levelMap[key] = target;
+
+            PartEventType eventType;
+            switch (target)
+            {
+                case HeatLevel.Hot:
+                    eventType = PartEventType.ThermalAnimationHot;
+                    break;
+                case HeatLevel.Medium:
+                    eventType = PartEventType.ThermalAnimationMedium;
+                    break;
+                default:
+                    eventType = PartEventType.ThermalAnimationCold;
+                    break;
             }
 
-            if (isCold && wasHot)
-            {
-                hotSet.Remove(key);
-                return new PartEvent
-                {
-                    ut = ut,
-                    partPersistentId = partPersistentId,
-                    eventType = PartEventType.ThermalAnimationCold,
-                    partName = partName,
-                    value = normalizedHeat,
-                    moduleIndex = moduleIndex
-                };
-            }
+            ParsekLog.Verbose("Recorder",
+                $"[Recording][AnimateHeat] Part '{partName}' pid={partPersistentId}: " +
+                $"heat level {current} -> {target} (normalizedHeat={normalizedHeat:F3})");
 
-            return null;
+            return new PartEvent
+            {
+                ut = ut,
+                partPersistentId = partPersistentId,
+                eventType = eventType,
+                partName = partName,
+                value = normalizedHeat,
+                moduleIndex = moduleIndex
+            };
         }
 
         private void CheckLightState(Vessel v)
@@ -1221,11 +1247,8 @@ namespace Parsek
         }
 
         internal static bool TryClassifyAnimateHeatState(
-            PartModule animateHeatModule, out bool isHot, out bool isCold,
-            out float normalizedHeat, out string sourceField)
+            PartModule animateHeatModule, out float normalizedHeat, out string sourceField)
         {
-            isHot = false;
-            isCold = false;
             normalizedHeat = 0f;
             sourceField = null;
             if (animateHeatModule == null) return false;
@@ -1251,8 +1274,6 @@ namespace Parsek
 
                 normalizedHeat = NormalizeAnimateHeatScalar(raw);
                 sourceField = candidateFields[i];
-                isHot = normalizedHeat >= animateHeatHotThreshold;
-                isCold = normalizedHeat <= animateHeatColdThreshold;
                 return true;
             }
 
@@ -1821,8 +1842,7 @@ namespace Parsek
                         continue;
 
                     if (!TryClassifyAnimateHeatState(
-                        module, out bool isHot, out bool isCold,
-                        out float normalizedHeat, out string sourceField))
+                        module, out float normalizedHeat, out string sourceField))
                     {
                         ulong diagnosticKey = EncodeEngineKey(p.persistentId, m);
                         if (loggedAnimateHeatClassificationMisses.Add(diagnosticKey))
@@ -1836,7 +1856,7 @@ namespace Parsek
                     ulong key = EncodeEngineKey(p.persistentId, m);
                     var evt = CheckAnimateHeatTransition(
                         key, p.persistentId, p.partInfo?.name ?? "unknown",
-                        isHot, isCold, normalizedHeat, hotAnimateHeatModules, ut, m);
+                        normalizedHeat, animateHeatLevels, ut, m);
                     if (evt.HasValue)
                     {
                         PartEvents.Add(evt.Value);
@@ -3330,7 +3350,7 @@ namespace Parsek
             deployedAeroSurfaceModules.Clear();
             deployedControlSurfaceModules.Clear();
             deployedRobotArmScannerModules.Clear();
-            hotAnimateHeatModules.Clear();
+            animateHeatLevels.Clear();
             loggedLadderClassificationMisses.Clear();
             loggedAnimationGroupClassificationMisses.Clear();
             loggedAnimateGenericClassificationMisses.Clear();
