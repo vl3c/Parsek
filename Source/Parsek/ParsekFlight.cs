@@ -262,20 +262,18 @@ namespace Parsek
             public SurfacePosition surfacePosition;
         }
 
-        // Timeline warp protection — tracks previous frame's UT
-        private double lastTimelineUT = -1;
-
         // Diagnostic logging guards (log once per state transition, not per frame)
         private HashSet<int> loggedGhostEnter = new HashSet<int>();
         private HashSet<int> loggedOrbitSegments = new HashSet<int>();
         private HashSet<int> loggedOrbitRotationSegments = new HashSet<int>();
 
-        // Warp-stop guard: only stop time warp once per recording
-        private HashSet<int> warpStoppedForRecording = new HashSet<int>();
+        // Deferred spawn queue: recording IDs queued during warp, flushed when warp ends
+        private HashSet<string> pendingSpawnRecordingIds = new HashSet<string>();
+        private string pendingWatchRecordingId = null;  // recording ID that was in watch mode when deferred
         private bool timelineResourceReplayPausedLogged = false;
         private const double DefaultLoopIntervalSeconds = 10.0;
-        private const double MinLoopDurationSeconds = 0.001;
-        private const double MinCycleDuration = 0.001;
+        private const double MinLoopDurationSeconds = 1.0;
+        private const double MinCycleDuration = 1.0;
         private const double OverlapExplosionHoldSeconds = 3.0;
 
         // Camera follow (watch mode) — transient, never serialized
@@ -625,8 +623,7 @@ namespace Parsek
             }
 
             // Atmosphere boundary: auto-split when crossing atmosphere edge
-            if (recorder != null && recorder.IsRecording && recorder.AtmosphereBoundaryCrossed &&
-                ParsekSettings.Current?.autoSplitAtAtmosphere != false)
+            if (recorder != null && recorder.IsRecording && recorder.AtmosphereBoundaryCrossed)
             {
                 string phase = recorder.EnteredAtmosphere ? "exo" : "atmo";
                 string newPhase = recorder.EnteredAtmosphere ? "atmo" : "exo";
@@ -647,8 +644,7 @@ namespace Parsek
             }
 
             // SOI change: auto-split when transitioning between celestial bodies
-            if (recorder != null && recorder.IsRecording && recorder.SoiChangePending &&
-                ParsekSettings.Current?.autoSplitAtSoi != false)
+            if (recorder != null && recorder.IsRecording && recorder.SoiChangePending)
             {
                 string fromBody = recorder.SoiChangeFromBody ?? "Unknown";
                 string toBody = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
@@ -4500,44 +4496,35 @@ namespace Parsek
             var committed = RecordingStore.CommittedRecordings;
             double currentUT = Planetarium.GetUniversalTime();
 
-            // Prevent time warp from skipping ghost playback for vessel spawns
-            if (committed.Count > 0 && IsAnyWarpActive() && lastTimelineUT >= 0
-                && ParsekSettings.Current?.autoWarpStop != false)
+            // Flush deferred spawns when warp ends
+            if (ShouldFlushDeferredSpawns(pendingSpawnRecordingIds.Count, IsAnyWarpActive()))
             {
-                double timelineStep = System.Math.Max(0, currentUT - lastTimelineUT);
+                int spawnedCount = 0;
                 for (int i = 0; i < committed.Count; i++)
                 {
                     var rec = committed[i];
-                    if (rec.Points.Count < 2 && rec.OrbitSegments.Count == 0 && !rec.SurfacePos.HasValue) continue;
-                    if (ShouldLoopPlayback(rec)) continue;
-                    if (!rec.PlaybackEnabled) continue;
-                    if (rec.VesselSnapshot == null || rec.VesselSpawned || rec.VesselDestroyed ||
-                        RecordingStore.IsChainMidSegment(rec)) continue;
-                    if (rec.ChildBranchPointId != null) continue;  // non-leaf, never spawns
-                    if (rec.TerminalStateValue.HasValue)
+                    if (!pendingSpawnRecordingIds.Contains(rec.RecordingId)) continue;
+                    if (ShouldSkipDeferredSpawn(rec.VesselSpawned, rec.VesselSnapshot != null))
                     {
-                        var ts = rec.TerminalStateValue.Value;
-                        if (ts == TerminalState.Destroyed || ts == TerminalState.Recovered
-                            || ts == TerminalState.Docked || ts == TerminalState.Boarded)
-                            continue;
+                        ParsekLog.Verbose("Flight", $"Deferred spawn skipped — #{i} \"{rec.VesselName}\" already spawned or no snapshot");
+                        continue;
                     }
+                    ParsekLog.Info("Flight", $"Deferred spawn executing: #{i} \"{rec.VesselName}\" id={rec.RecordingId}");
+                    VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
+                    spawnedCount++;
 
-                    bool crossedInto = lastTimelineUT < rec.StartUT && currentUT >= rec.StartUT;
-                    bool approaching = currentUT < rec.StartUT &&
-                                       rec.StartUT - currentUT <= System.Math.Max(1.0, timelineStep);
-                    if (crossedInto || approaching)
+                    // Restore camera follow if this recording was being watched when deferred
+                    if (ShouldRestoreWatchMode(pendingWatchRecordingId, rec.RecordingId, rec.SpawnedVesselPersistentId))
                     {
-                        if (warpStoppedForRecording.Add(i))
-                        {
-                            ExitAllWarpForPlaybackStart(rec.VesselName);
-                            Log($"Stopped warp for recording #{i} ({rec.VesselName}) ghost playback");
-                            ScreenMessage($"Time warp stopped — '{rec.VesselName}' playback", 3f);
-                        }
-                        break;
+                        ParsekLog.Info("CameraFollow",
+                            $"Deferred watch: switching to spawned vessel pid={rec.SpawnedVesselPersistentId}");
+                        StartCoroutine(DeferredActivateVessel(rec.SpawnedVesselPersistentId));
                     }
                 }
+                ParsekLog.Info("Flight", $"Warp ended — flushed {spawnedCount}/{pendingSpawnRecordingIds.Count} deferred spawn(s)");
+                pendingSpawnRecordingIds.Clear();
+                pendingWatchRecordingId = null;
             }
-            lastTimelineUT = currentUT;
 
             if (committed.Count == 0) return;
 
@@ -4751,33 +4738,58 @@ namespace Parsek
                     if (rec.Points.Count > 0)
                         PositionGhostAt(state.ghost, rec.Points[rec.Points.Count - 1], rec.RecordingFormatVersion >= 5);
 
-                    // Watch mode: exit and switch player to spawned vessel
-                    if (watchedRecordingIndex == i)
+                    if (IsAnyWarpActive())
                     {
-                        ExitWatchMode();
-                        VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
-                        DestroyTimelineGhost(i);
-                        if (rec.SpawnedVesselPersistentId != 0)
+                        // Defer spawn until warp ends — ProtoVessel.Load unsafe during warp
+                        if (watchedRecordingIndex == i)
                         {
-                            ParsekLog.Info("CameraFollow",
-                                $"Recording #{i} spawned vessel pid={rec.SpawnedVesselPersistentId} \u2014 switching active vessel");
-                            StartCoroutine(DeferredActivateVessel(rec.SpawnedVesselPersistentId));
+                            pendingWatchRecordingId = rec.RecordingId;
+                            ParsekLog.Info("Flight", $"Watch mode deferred for spawn: #{i} \"{rec.VesselName}\"");
+                            ExitWatchMode();
                         }
+                        if (pendingSpawnRecordingIds.Add(rec.RecordingId))
+                            ParsekLog.Info("Flight", $"Deferred spawn queued (ghost exit during warp): #{i} \"{rec.VesselName}\"");
+                        DestroyTimelineGhost(i);
                     }
                     else
                     {
-                        VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
-                        DestroyTimelineGhost(i);
+                        // Watch mode: exit and switch player to spawned vessel
+                        if (watchedRecordingIndex == i)
+                        {
+                            ExitWatchMode();
+                            VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
+                            DestroyTimelineGhost(i);
+                            if (rec.SpawnedVesselPersistentId != 0)
+                            {
+                                ParsekLog.Info("CameraFollow",
+                                    $"Recording #{i} spawned vessel pid={rec.SpawnedVesselPersistentId} \u2014 switching active vessel");
+                                StartCoroutine(DeferredActivateVessel(rec.SpawnedVesselPersistentId));
+                            }
+                        }
+                        else
+                        {
+                            VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
+                            DestroyTimelineGhost(i);
+                        }
                     }
                     if (rec.TreeId == null)
                         ApplyResourceDeltas(rec, currentUT);
                 }
                 else if (pastChainEnd && needsSpawn && !ghostActive)
                 {
-                    // UT already past chain EndUT on scene load — spawn immediately, no ghost
-                    Log($"Ghost SKIPPED (UT already past EndUT): #{i} \"{rec.VesselName}\" at UT {currentUT:F1} " +
-                        $"(EndUT={rec.EndUT:F1}) — spawning vessel immediately");
-                    VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
+                    if (IsAnyWarpActive())
+                    {
+                        // Defer spawn until warp ends — ProtoVessel.Load unsafe during warp
+                        if (pendingSpawnRecordingIds.Add(rec.RecordingId))
+                            ParsekLog.Info("Flight", $"Deferred spawn queued (past EndUT during warp): #{i} \"{rec.VesselName}\"");
+                    }
+                    else
+                    {
+                        // UT already past chain EndUT on scene load — spawn immediately, no ghost
+                        Log($"Ghost SKIPPED (UT already past EndUT): #{i} \"{rec.VesselName}\" at UT {currentUT:F1} " +
+                            $"(EndUT={rec.EndUT:F1}) — spawning vessel immediately");
+                        VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
+                    }
                     if (rec.TreeId == null)
                         ApplyResourceDeltas(rec, currentUT);
                 }
@@ -4880,12 +4892,31 @@ namespace Parsek
 
         private double GetLoopIntervalSeconds(RecordingStore.Recording rec)
         {
-            if (rec == null) return DefaultLoopIntervalSeconds;
-            if (double.IsNaN(rec.LoopIntervalSeconds) || double.IsInfinity(rec.LoopIntervalSeconds))
-                return DefaultLoopIntervalSeconds;
+            double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
+                                    ?? DefaultLoopIntervalSeconds;
+            return ResolveLoopInterval(rec, globalInterval, DefaultLoopIntervalSeconds, MinCycleDuration);
+        }
+
+        internal static double ResolveLoopInterval(
+            RecordingStore.Recording rec, double globalAutoInterval,
+            double defaultInterval, double minCycleDuration)
+        {
+            if (rec == null) return defaultInterval;
+
+            double interval;
+            if (rec.LoopTimeUnit == RecordingStore.LoopTimeUnit.Auto)
+            {
+                interval = double.IsNaN(globalAutoInterval) || double.IsInfinity(globalAutoInterval)
+                    ? defaultInterval : Math.Max(0, globalAutoInterval);
+            }
+            else
+            {
+                interval = double.IsNaN(rec.LoopIntervalSeconds) || double.IsInfinity(rec.LoopIntervalSeconds)
+                    ? defaultInterval : rec.LoopIntervalSeconds;
+            }
+
             double duration = rec.EndUT - rec.StartUT;
-            // Clamp so cycleDuration is always >= MinCycleDuration
-            return Math.Max(-duration + MinCycleDuration, rec.LoopIntervalSeconds);
+            return Math.Max(-duration + minCycleDuration, interval);
         }
 
         private bool TryComputeLoopPlaybackUT(
@@ -5689,7 +5720,8 @@ namespace Parsek
             loggedGhostEnter.Clear();
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
-            warpStoppedForRecording.Clear();
+            pendingSpawnRecordingIds.Clear();
+            pendingWatchRecordingId = null;
             CleanupActiveExplosions();
         }
 
@@ -5969,7 +6001,7 @@ namespace Parsek
             loggedGhostEnter.Clear();
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
-            warpStoppedForRecording.Clear();
+            pendingSpawnRecordingIds.Remove(rec.RecordingId);
 
             ParsekLog.ScreenMessage($"Recording '{rec.VesselName}' deleted", 2f);
         }
@@ -7353,6 +7385,21 @@ namespace Parsek
                         if (em.enabled) em.enabled = false;
                     }
                 }
+        }
+
+        internal static bool ShouldFlushDeferredSpawns(int pendingCount, bool isWarpActive)
+        {
+            return pendingCount > 0 && !isWarpActive;
+        }
+
+        internal static bool ShouldSkipDeferredSpawn(bool vesselSpawned, bool hasSnapshot)
+        {
+            return vesselSpawned || !hasSnapshot;
+        }
+
+        internal static bool ShouldRestoreWatchMode(string pendingWatchId, string recordingId, uint spawnedPid)
+        {
+            return pendingWatchId != null && pendingWatchId == recordingId && spawnedPid != 0;
         }
 
         internal static bool ShouldPauseTimelineResourceReplay(bool isRecording)
