@@ -41,8 +41,8 @@ checked in; re-run the extraction from the KSP GameData directory to refresh.
 | Module | Description | Affected Parts | Impact |
 |--------|-------------|----------------|--------|
 | ModuleColorChanger | Cabin lights, ablator colors | 33 parts | Low — cosmetic interior lights |
-| FXModuleAnimateThrottle | Throttle-driven nozzle glow | 33 parts | Medium — engine nozzle animations missing |
-| FXModuleAnimateRCS | RCS response animation | 5 parts | Low — subtle visual only |
+| ~~FXModuleAnimateThrottle~~ | ~~Throttle-driven nozzle glow~~ | ~~33 parts~~ | ~~Fixed (bug #40)~~ |
+| ~~FXModuleAnimateRCS~~ | ~~RCS response animation~~ | ~~5 parts~~ | ~~Fixed — uses heat animation system~~ |
 | ModulePartFirework | Firework FX | 2 parts | None — novelty item |
 
 ## Parts by Category
@@ -539,12 +539,12 @@ checked in; re-run the extraction from the KSP GameData directory to refresh.
 | advSasModule | advSasModule | Stock | — | N/A | — |  |
 | asasmodule1-2 | asasmodule1-2 | Stock | — | N/A | — |  |
 | avionicsNoseCone | avionicsNoseCone | Stock | ModuleAnimateHeat | Full | Yes |  |
-| linearRcs | linearRcs | Stock | ModuleRCSFX, FXModuleAnimateRCS | Partial | Yes | Bug #30: fires constantly; FXModuleAnimateRCS not tracked |
-| RCSblock_01_small | RCSblock.01.small | Stock | ModuleRCSFX, FXModuleAnimateRCS | Partial | Yes | Bug #30: fires constantly; FXModuleAnimateRCS not tracked |
-| RCSBlock_v2 | RCSBlock.v2 | Stock | ModuleRCSFX, FXModuleAnimateRCS | Partial | Yes | Bug #30: fires constantly; FXModuleAnimateRCS not tracked |
-| RCSLinearSmall | RCSLinearSmall | Stock | ModuleRCSFX, FXModuleAnimateRCS | Partial | Yes | Bug #30: fires constantly; FXModuleAnimateRCS not tracked |
+| linearRcs | linearRcs | Stock | ModuleRCSFX, FXModuleAnimateRCS | Full | Yes | FXModuleAnimateRCS supported |
+| RCSblock_01_small | RCSblock.01.small | Stock | ModuleRCSFX, FXModuleAnimateRCS | Full | Yes | FXModuleAnimateRCS supported |
+| RCSBlock_v2 | RCSBlock.v2 | Stock | ModuleRCSFX, FXModuleAnimateRCS | Full | Yes | FXModuleAnimateRCS supported |
+| RCSLinearSmall | RCSLinearSmall | Stock | ModuleRCSFX, FXModuleAnimateRCS | Full | Yes | FXModuleAnimateRCS supported |
 | sasModule | sasModule | Stock | — | N/A | — |  |
-| vernierEngine | vernierEngine | Stock | ModuleRCSFX, FXModuleAnimateRCS | Partial | Yes | Bug #30: fires constantly; FXModuleAnimateRCS not tracked |
+| vernierEngine | vernierEngine | Stock | ModuleRCSFX, FXModuleAnimateRCS | Full | Yes | FXModuleAnimateRCS supported |
 
 ### Cargo
 
@@ -680,7 +680,7 @@ These parts have dynamic visual modules that Parsek handles but have not been vi
 
 ### Parts with Unsupported Visual Modules (No Showcase Needed)
 
-Parts where the only visual gap is ModuleColorChanger (cabin lights), FXModuleAnimateThrottle (nozzle glow), or FXModuleAnimateRCS — these are cosmetic and don't need showcase validation, but are listed for completeness.
+Parts where the only visual gap is ModuleColorChanger (cabin lights) — these are cosmetic and don't need showcase validation, but are listed for completeness.
 
 | Part (cfg) | Runtime Name | Source | Unsupported Modules |
 |------------|-------------|--------|---------------------|
@@ -693,9 +693,6 @@ Parts where the only visual gap is ModuleColorChanger (cabin lights), FXModuleAn
 | Mite | Mite | Stock | FXModuleAnimateThrottle |
 | Pollux | Pollux | Making History | FXModuleAnimateThrottle |
 | RAPIER | RAPIER | Stock | FXModuleAnimateThrottle |
-| RCSBlock_v2 | RCSBlock.v2 | Stock | FXModuleAnimateRCS |
-| RCSLinearSmall | RCSLinearSmall | Stock | FXModuleAnimateRCS |
-| RCSblock_01_small | RCSblock.01.small | Stock | FXModuleAnimateRCS |
 | SSME | SSME | Stock | FXModuleAnimateThrottle |
 | Shrimp | Shrimp | Stock | FXModuleAnimateThrottle |
 | Size2LFB_v2 | Size2LFB.v2 | Stock | FXModuleAnimateThrottle |
@@ -706,7 +703,6 @@ Parts where the only visual gap is ModuleColorChanger (cabin lights), FXModuleAn
 | dockingPortLateral | dockingPortLateral | Stock | ModuleColorChanger |
 | engineLargeSkipper_v2 | engineLargeSkipper.v2 | Stock | FXModuleAnimateThrottle |
 | ionEngine | ionEngine | Stock | FXModuleAnimateThrottle |
-| linearRcs | linearRcs | Stock | FXModuleAnimateRCS |
 | liquidEngine | liquidEngine | Stock | FXModuleAnimateThrottle |
 | liquidEngine2 | liquidEngine2 | Stock | FXModuleAnimateThrottle |
 | liquidEngine2-2_v2 | liquidEngine2-2.v2 | Stock | FXModuleAnimateThrottle |
@@ -728,7 +724,6 @@ Parts where the only visual gap is ModuleColorChanger (cabin lights), FXModuleAn
 | turboFanEngine | turboFanEngine | Stock | FXModuleAnimateThrottle |
 | turboFanSize2 | turboFanSize2 | Stock | FXModuleAnimateThrottle |
 | turboJet | turboJet | Stock | FXModuleAnimateThrottle |
-| vernierEngine | vernierEngine | Stock | FXModuleAnimateRCS |
 
 ### Module Types Not Yet Supported
 
@@ -736,7 +731,7 @@ Parts where the only visual gap is ModuleColorChanger (cabin lights), FXModuleAn
 |--------|-----------|-------------|----------|
 | ModuleColorChanger | 33 | Cabin interior lights, ablator color | Low — cosmetic only |
 | ~~FXModuleAnimateThrottle~~ | ~~33~~ | ~~Engine nozzle glow animation~~ | ~~Fixed (bug #40)~~ |
-| FXModuleAnimateRCS | 5 | RCS thruster response animation | Low — subtle effect |
+| ~~FXModuleAnimateRCS~~ | ~~5~~ | ~~RCS thruster response animation~~ | ~~Fixed — uses heat animation system~~ |
 | ModulePartFirework | 2 | Firework launch effects | None — novelty |
 | ModuleControlSurface (continuous) | 24 | Continuous deflection angle — won't implement (binary deploy/retract is sufficient) | Closed |
 | ~~ModuleAnimateHeat (continuous)~~ | ~~16~~ | ~~3-state cold/medium/hot replaces binary~~ | ~~Fixed (3-state)~~ |
@@ -809,8 +804,7 @@ GAMEOBJECTS geometry rules are currently applied.
 
 - **ModuleColorChanger** (33 parts) — cabin interior lights. Low visual impact since these
   are mostly visible through small windows. Would need color animation sampling.
-- **FXModuleAnimateRCS** (5 parts) — subtle thruster housing animation on RCS fire. Very
-  low visual impact.
+- ~~**FXModuleAnimateRCS** (5 parts)~~ — Fixed. Uses existing heat animation system, driven by RCS events.
 - **ModulePartFirework** (2 parts) — novelty firework launchers. Not worth implementing.
 
 ### Showcase Gaps (parts needing validation)

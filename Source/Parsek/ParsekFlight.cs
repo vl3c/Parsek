@@ -6118,14 +6118,17 @@ namespace Parsek
                         break;
                     case PartEventType.RCSActivated:
                         SetRcsEmission(state, evt, evt.value);
+                        ApplyHeatState(state, evt, HeatLevel.Hot);
                         ParsekLog.Verbose("Flight", $"Part event applied: RCSActivated '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} power={evt.value:F2}");
                         break;
                     case PartEventType.RCSStopped:
                         SetRcsEmission(state, evt, 0f);
+                        ApplyHeatState(state, evt, HeatLevel.Cold);
                         ParsekLog.Verbose("Flight", $"Part event applied: RCSStopped '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex}");
                         break;
                     case PartEventType.RCSThrottle:
                         SetRcsEmission(state, evt, evt.value);
+                        ApplyHeatState(state, evt, HeatLevel.Hot);
                         break;
                     case PartEventType.RoboticMotionStarted:
                     case PartEventType.RoboticPositionSample:

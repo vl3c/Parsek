@@ -2173,6 +2173,16 @@ namespace Parsek.Tests
             Assert.Null(animName);
         }
 
+        [Fact]
+        public void TryGetAnimateRcsAnimation_NullPrefab_ReturnsFalse()
+        {
+            string animName;
+            bool result = GhostVisualBuilder.TryGetAnimateRcsAnimation(null, out animName);
+
+            Assert.False(result);
+            Assert.Null(animName);
+        }
+
         #endregion
 
         #region Helpers
