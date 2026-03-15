@@ -7166,7 +7166,11 @@ namespace Parsek
                     var ccInfo = infos[c];
                     if (ccInfo.isCabinLight) continue; // Only Pattern B responds to reentry
 
+                    // Char is permanent — only increase, never fade back
                     float fraction = Mathf.Clamp01(intensity);
+                    if (fraction <= ccInfo.peakCharIntensity) continue;
+                    ccInfo.peakCharIntensity = fraction;
+
                     for (int i = 0; i < ccInfo.materials.Count; i++)
                     {
                         if (ccInfo.materials[i].material != null)

@@ -97,6 +97,7 @@ namespace Parsek
         public uint partPersistentId;
         public string shaderProperty;      // "_EmissiveColor" or "_BurnColor"
         public bool isCabinLight;          // true = Pattern A (toggle), false = Pattern B (reentry)
+        public float peakCharIntensity;    // Pattern B: highest char fraction reached (permanent, never decreases)
         public List<ColorChangerMaterialState> materials;
     }
 
