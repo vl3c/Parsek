@@ -132,6 +132,7 @@ namespace Parsek
                             $"Ghost #{i} \"{rec.VesselName}\" no longer eligible — destroying");
                         DestroyKscGhost(kscGhosts[i], i);
                         kscGhosts.Remove(i);
+                        loggedGhostSpawn.Remove(i);
                     }
                     DestroyAllKscOverlapGhosts(i);
                     continue;
