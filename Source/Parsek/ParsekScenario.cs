@@ -980,7 +980,11 @@ namespace Parsek
                 return;
 
             if (resourceTickingSuspended)
+            {
+                ParsekLog.VerboseRateLimited("Scenario", "UpdateSuspended",
+                    "Update: resource ticking suspended (waiting for coroutine)");
                 return;
+            }
 
             if (Funding.Instance == null && ResearchAndDevelopment.Instance == null
                 && Reputation.Instance == null)
