@@ -33,70 +33,70 @@ namespace Parsek.Tests
             ParsekScenario.ResetReplacementsForTesting();
         }
 
-        // ─── IsAncestorOrSelf ──────────────────────────────────────────────
+        // ─── IsInAncestorChain ──────────────────────────────────────────────
 
         [Fact]
-        public void IsAncestorOrSelf_DirectParent_ReturnsTrue()
+        public void IsInAncestorChain_DirectParent_ReturnsTrue()
         {
             ParsekScenario.groupParents["Child"] = "Parent";
 
-            Assert.True(ParsekScenario.IsAncestorOrSelf("Child", "Parent"));
+            Assert.True(ParsekScenario.IsInAncestorChain("Child", "Parent"));
         }
 
         [Fact]
-        public void IsAncestorOrSelf_Grandparent_ReturnsTrue()
+        public void IsInAncestorChain_Grandparent_ReturnsTrue()
         {
             ParsekScenario.groupParents["C"] = "B";
             ParsekScenario.groupParents["B"] = "A";
 
-            Assert.True(ParsekScenario.IsAncestorOrSelf("C", "A"));
+            Assert.True(ParsekScenario.IsInAncestorChain("C", "A"));
         }
 
         [Fact]
-        public void IsAncestorOrSelf_Self_ReturnsTrue()
+        public void IsInAncestorChain_Self_ReturnsTrue()
         {
-            Assert.True(ParsekScenario.IsAncestorOrSelf("X", "X"));
+            Assert.True(ParsekScenario.IsInAncestorChain("X", "X"));
         }
 
         [Fact]
-        public void IsAncestorOrSelf_Unrelated_ReturnsFalse()
+        public void IsInAncestorChain_Unrelated_ReturnsFalse()
         {
             ParsekScenario.groupParents["A"] = "Root";
             ParsekScenario.groupParents["B"] = "Root";
 
-            Assert.False(ParsekScenario.IsAncestorOrSelf("A", "B"));
+            Assert.False(ParsekScenario.IsInAncestorChain("A", "B"));
         }
 
         [Fact]
-        public void IsAncestorOrSelf_EmptyGroupParents_ReturnsFalse()
+        public void IsInAncestorChain_EmptyGroupParents_ReturnsFalse()
         {
             // groupParents is empty after ResetGroupsForTesting
-            Assert.False(ParsekScenario.IsAncestorOrSelf("Alpha", "Beta"));
+            Assert.False(ParsekScenario.IsInAncestorChain("Alpha", "Beta"));
         }
 
         [Fact]
-        public void IsAncestorOrSelf_MaxDepthGuard_DoesNotHang()
+        public void IsInAncestorChain_MaxDepthGuard_DoesNotHang()
         {
             // Build a chain of 150 groups — exceeds the 100-depth guard
             for (int i = 0; i < 150; i++)
                 ParsekScenario.groupParents[$"G{i + 1}"] = $"G{i}";
 
             // Should hit max depth and return true (assumes cycle)
-            bool result = ParsekScenario.IsAncestorOrSelf("G150", "G0");
+            bool result = ParsekScenario.IsInAncestorChain("G150", "G0");
             Assert.True(result);
             Assert.Contains(logLines, l => l.Contains("max depth reached"));
         }
 
         [Fact]
-        public void IsAncestorOrSelf_NullGroup_ReturnsFalse()
+        public void IsInAncestorChain_NullGroup_ReturnsFalse()
         {
-            Assert.False(ParsekScenario.IsAncestorOrSelf(null, "A"));
+            Assert.False(ParsekScenario.IsInAncestorChain(null, "A"));
         }
 
         [Fact]
-        public void IsAncestorOrSelf_NullCandidate_ReturnsFalse()
+        public void IsInAncestorChain_NullCandidate_ReturnsFalse()
         {
-            Assert.False(ParsekScenario.IsAncestorOrSelf("A", null));
+            Assert.False(ParsekScenario.IsInAncestorChain("A", null));
         }
 
         // ─── SetGroupParent ────────────────────────────────────────────────
@@ -153,7 +153,7 @@ namespace Parsek.Tests
         // ─── RemoveGroupFromHierarchy ──────────────────────────────────────
 
         [Fact]
-        public void RemoveGroupFromHierarchy_RemovesGroup_PromotesChildren()
+        public void RemoveGroupFromHierarchy_ReparentsChildrenToGrandparent()
         {
             ParsekScenario.groupParents["Child1"] = "Middle";
             ParsekScenario.groupParents["Child2"] = "Middle";
@@ -161,14 +161,15 @@ namespace Parsek.Tests
 
             ParsekScenario.RemoveGroupFromHierarchy("Middle");
 
-            // Middle should be gone as child and as parent
+            // Middle should be gone
             Assert.False(ParsekScenario.groupParents.ContainsKey("Middle"));
-            Assert.False(ParsekScenario.groupParents.ContainsKey("Child1"));
-            Assert.False(ParsekScenario.groupParents.ContainsKey("Child2"));
+            // Children reparented to grandparent "Root"
+            Assert.Equal("Root", ParsekScenario.groupParents["Child1"]);
+            Assert.Equal("Root", ParsekScenario.groupParents["Child2"]);
         }
 
         [Fact]
-        public void RemoveGroupFromHierarchy_LogsPromotedCount()
+        public void RemoveGroupFromHierarchy_RootGroup_PromotesChildrenToRoot()
         {
             ParsekScenario.groupParents["Sub1"] = "Parent";
             ParsekScenario.groupParents["Sub2"] = "Parent";
@@ -176,19 +177,23 @@ namespace Parsek.Tests
 
             ParsekScenario.RemoveGroupFromHierarchy("Parent");
 
+            // Parent was root-level (no grandparent), so children become root
+            Assert.False(ParsekScenario.groupParents.ContainsKey("Sub1"));
+            Assert.False(ParsekScenario.groupParents.ContainsKey("Sub2"));
+            Assert.False(ParsekScenario.groupParents.ContainsKey("Sub3"));
             Assert.Contains(logLines, l =>
                 l.Contains("removed from hierarchy") && l.Contains("3 sub-groups promoted to root"));
         }
 
         [Fact]
-        public void RemoveGroupFromHierarchy_NoChildren_LogsZeroPromoted()
+        public void RemoveGroupFromHierarchy_NoChildren_LogsZero()
         {
             ParsekScenario.groupParents["Leaf"] = "Root";
 
             ParsekScenario.RemoveGroupFromHierarchy("Leaf");
 
             Assert.Contains(logLines, l =>
-                l.Contains("removed from hierarchy") && l.Contains("0 sub-groups promoted to root"));
+                l.Contains("removed from hierarchy") && l.Contains("0 sub-groups"));
         }
 
         // ─── GetDescendantGroups ───────────────────────────────────────────

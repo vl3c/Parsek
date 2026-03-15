@@ -792,6 +792,16 @@ namespace Parsek
         // ─── Group management helpers ────────────────────────────────────────
 
         /// <summary>
+        /// Returns true if the group name contains characters that would break ConfigNode serialization.
+        /// </summary>
+        internal static bool IsInvalidGroupName(string name)
+        {
+            return string.IsNullOrEmpty(name) ||
+                   name.Contains("=") || name.Contains("{") || name.Contains("}") ||
+                   name.Contains("\n") || name.Contains("\r");
+        }
+
+        /// <summary>
         /// Returns distinct group names across all committed recordings.
         /// </summary>
         public static List<string> GetGroupNames()
@@ -814,7 +824,7 @@ namespace Parsek
         /// </summary>
         public static void AddRecordingToGroup(int index, string groupName)
         {
-            if (index < 0 || index >= committedRecordings.Count || string.IsNullOrEmpty(groupName)) return;
+            if (index < 0 || index >= committedRecordings.Count || IsInvalidGroupName(groupName)) return;
             var rec = committedRecordings[index];
             if (rec.RecordingGroups == null)
                 rec.RecordingGroups = new List<string>();
@@ -841,24 +851,35 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns indices of all recordings in a given chain. Single scan, reusable for batch ops.
+        /// </summary>
+        public static List<int> GetChainMemberIndices(string chainId)
+        {
+            var indices = new List<int>();
+            if (string.IsNullOrEmpty(chainId)) return indices;
+            for (int i = 0; i < committedRecordings.Count; i++)
+                if (committedRecordings[i].ChainId == chainId)
+                    indices.Add(i);
+            return indices;
+        }
+
+        /// <summary>
         /// Adds all chain members to a group.
         /// </summary>
         public static void AddChainToGroup(string chainId, string groupName)
         {
-            if (string.IsNullOrEmpty(chainId) || string.IsNullOrEmpty(groupName)) return;
+            if (string.IsNullOrEmpty(chainId) || IsInvalidGroupName(groupName)) return;
+            var members = GetChainMemberIndices(chainId);
             int count = 0;
-            for (int i = 0; i < committedRecordings.Count; i++)
+            for (int i = 0; i < members.Count; i++)
             {
-                var rec = committedRecordings[i];
-                if (rec.ChainId == chainId)
+                var rec = committedRecordings[members[i]];
+                if (rec.RecordingGroups == null)
+                    rec.RecordingGroups = new List<string>();
+                if (!rec.RecordingGroups.Contains(groupName))
                 {
-                    if (rec.RecordingGroups == null)
-                        rec.RecordingGroups = new List<string>();
-                    if (!rec.RecordingGroups.Contains(groupName))
-                    {
-                        rec.RecordingGroups.Add(groupName);
-                        count++;
-                    }
+                    rec.RecordingGroups.Add(groupName);
+                    count++;
                 }
             }
             if (count > 0)
@@ -871,11 +892,12 @@ namespace Parsek
         public static void RemoveChainFromGroup(string chainId, string groupName)
         {
             if (string.IsNullOrEmpty(chainId) || string.IsNullOrEmpty(groupName)) return;
+            var members = GetChainMemberIndices(chainId);
             int count = 0;
-            for (int i = 0; i < committedRecordings.Count; i++)
+            for (int i = 0; i < members.Count; i++)
             {
-                var rec = committedRecordings[i];
-                if (rec.ChainId == chainId && rec.RecordingGroups != null && rec.RecordingGroups.Remove(groupName))
+                var rec = committedRecordings[members[i]];
+                if (rec.RecordingGroups != null && rec.RecordingGroups.Remove(groupName))
                 {
                     if (rec.RecordingGroups.Count == 0)
                         rec.RecordingGroups = null;
