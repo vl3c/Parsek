@@ -68,6 +68,12 @@ Methods with `IEnumerator` return type are **off-limits for method extraction** 
 
 Follow existing codebase conventions — verb-prefixed descriptive names (e.g., `CheckParachuteTransition`, `ClassifyGearState`, `TryComputeLoopPlaybackUT`). The extracted method name should describe **what** the block does, not **where** it came from.
 
+### CONFLICT RESOLUTION PRINCIPLE
+
+**Preservation rules ALWAYS override improvement rules.** If making an extracted method `internal static` (for testability) would require changing a pre-existing type's access modifier, the correct resolution is to make the method `private static` (untestable but rule-compliant). Never "fix" a compilation error by modifying pre-existing code that the rules say not to touch.
+
+More generally: if you hit any obstacle during extraction, the answer is to scale back the extraction, not to bend the rules to make it work. A `private` method that can't be unit-tested is always better than an `internal` method achieved by violating the no-access-modifier-change rule.
+
 ### METHOD SIZE GUIDANCE
 
 Extract when a method exceeds ~30 lines AND contains multiple logical steps that each have a clear single-purpose name. Do not extract purely for line count — a 50-line method that does one coherent thing is fine.
