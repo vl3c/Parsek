@@ -912,6 +912,7 @@ namespace Parsek
                     windowRect,
                     ui.DrawWindow,
                     "Parsek",
+                    ui.GetOpaqueWindowStyle(),
                     GUILayout.Width(250)
                 );
                 ui.LogMainWindowPosition(windowRect);
@@ -2729,7 +2730,10 @@ namespace Parsek
             {
                 activeChainId = System.Guid.NewGuid().ToString("N");
                 activeChainNextIndex = 0;
-                Log($"Chain: started new chain (id={activeChainId})");
+                // Auto-group chain under a group named after the starting vessel
+                string chainGroupName = RecordingStore.Pending.VesselName ?? "Chain";
+                RecordingStore.Pending.RecordingGroups = new System.Collections.Generic.List<string> { chainGroupName };
+                Log($"Chain: started new chain (id={activeChainId}, group='{chainGroupName}')");
             }
 
             // Tag segment with chain metadata
@@ -3176,7 +3180,9 @@ namespace Parsek
             {
                 activeChainId = System.Guid.NewGuid().ToString("N");
                 activeChainNextIndex = 0;
-                Log($"Dock/Undock chain: started new chain (id={activeChainId})");
+                string chainGroupName = RecordingStore.Pending.VesselName ?? "Chain";
+                RecordingStore.Pending.RecordingGroups = new System.Collections.Generic.List<string> { chainGroupName };
+                Log($"Dock/Undock chain: started new chain (id={activeChainId}, group='{chainGroupName}')");
             }
 
             // Tag segment with chain metadata
@@ -3241,7 +3247,9 @@ namespace Parsek
             {
                 activeChainId = System.Guid.NewGuid().ToString("N");
                 activeChainNextIndex = 0;
-                ParsekLog.Info("Flight", $"Boundary split: started new chain (id={activeChainId})");
+                string chainGroupName = RecordingStore.Pending.VesselName ?? "Chain";
+                RecordingStore.Pending.RecordingGroups = new System.Collections.Generic.List<string> { chainGroupName };
+                ParsekLog.Info("Flight", $"Boundary split: started new chain (id={activeChainId}, group='{chainGroupName}')");
             }
 
             // Tag segment with chain metadata
@@ -6870,7 +6878,6 @@ namespace Parsek
             if (info == null) return;
 
             info.lastIntensity = 0f;
-
 
             if (info.fireParticles != null)
             {

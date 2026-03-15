@@ -251,6 +251,11 @@ namespace Parsek
                 recNode.AddValue("vesselDestroyed", rec.VesselDestroyed.ToString());
             recNode.AddValue("lastResIdx", rec.LastAppliedResourceIndex);
             recNode.AddValue("pointCount", rec.Points != null ? rec.Points.Count : 0);
+
+            // UI grouping tags (multi-group membership)
+            if (rec.RecordingGroups != null)
+                for (int g = 0; g < rec.RecordingGroups.Count; g++)
+                    recNode.AddValue("recordingGroup", rec.RecordingGroups[g]);
         }
 
         internal static void LoadRecordingFrom(ConfigNode recNode, RecordingStore.Recording rec)
@@ -474,6 +479,11 @@ namespace Parsek
                     rec.LastAppliedResourceIndex = resIdx;
             }
             // pointCount is informational — Points list is loaded from sidecar file
+
+            // UI grouping tags (multi-group membership, backward compat with single value)
+            string[] recGroups = recNode.GetValues("recordingGroup");
+            if (recGroups != null && recGroups.Length > 0)
+                rec.RecordingGroups = new List<string>(recGroups);
         }
 
         // --- BranchPoint serialization helpers ---
