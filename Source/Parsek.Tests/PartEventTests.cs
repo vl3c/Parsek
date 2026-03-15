@@ -1863,6 +1863,39 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region IsHeatAnimationName heuristic
+
+        [Theory]
+        [InlineData("heatAnimation", true)]
+        [InlineData("thumperEmissive", true)]
+        [InlineData("HeatAnimationSRB", true)]
+        [InlineData("TurboJetHeat", true)]
+        [InlineData("TRJ_Heat", true)]
+        [InlineData("FM1Emissive", true)]
+        [InlineData("colorAnimation", true)]
+        [InlineData("nozzleGlow", true)]
+        [InlineData("TurboJetNozzleDry", false)]
+        [InlineData("TF2FanSpin", false)]
+        [InlineData("deployAnimation", false)]
+        [InlineData("", false)]
+        [InlineData(null, false)]
+        public void IsHeatAnimationName_MatchesExpected(string name, bool expected)
+        {
+            Assert.Equal(expected, GhostVisualBuilder.IsHeatAnimationName(name));
+        }
+
+        [Fact]
+        public void TryGetAnimateThrottleAnimation_NullPrefab_ReturnsFalse()
+        {
+            string animName;
+            bool result = GhostVisualBuilder.TryGetAnimateThrottleAnimation(null, out animName);
+
+            Assert.False(result);
+            Assert.Null(animName);
+        }
+
+        #endregion
+
         #region Helpers
 
         private static void AddTestPart(ConfigNode vessel, string name, uint persistentId, int parentIndex)

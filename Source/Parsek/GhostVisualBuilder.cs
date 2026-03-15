@@ -1600,6 +1600,95 @@ namespace Parsek
             return !string.IsNullOrEmpty(animationName);
         }
 
+        /// <summary>
+        /// Check if an animation name looks like a heat/emissive animation (vs. mechanical nozzle movement).
+        /// Used to disambiguate when a part has multiple FXModuleAnimateThrottle instances.
+        /// </summary>
+        internal static bool IsHeatAnimationName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            string lower = name.ToLowerInvariant();
+            return lower.Contains("heat") || lower.Contains("emissive") ||
+                   lower.Contains("glow") || lower.Contains("color");
+        }
+
+        /// <summary>
+        /// Search part config for FXModuleAnimateThrottle MODULE nodes and return the heat/emissive
+        /// animation name. When multiple instances exist (e.g. Panther has 3), uses a name-based
+        /// heuristic to pick the heat animation, falling back to lowest responseSpeed.
+        /// </summary>
+        internal static bool TryGetAnimateThrottleAnimation(
+            Part prefab, out string animationName)
+        {
+            animationName = null;
+            if (prefab == null) return false;
+
+            ConfigNode partConfig = prefab.partInfo?.partConfig;
+            if (partConfig == null) return false;
+
+            var modules = partConfig.GetNodes("MODULE");
+            if (modules == null) return false;
+
+            // Collect all FXModuleAnimateThrottle instances
+            var candidates = new List<(string animName, float responseSpeed)>();
+            for (int i = 0; i < modules.Length; i++)
+            {
+                if (modules[i].GetValue("name") != "FXModuleAnimateThrottle")
+                    continue;
+
+                string animName = FirstNonEmptyConfigValue(modules[i], "animationName");
+                if (string.IsNullOrEmpty(animName)) continue;
+
+                float responseSpeed = 1f;
+                string rsStr = modules[i].GetValue("responseSpeed");
+                if (!string.IsNullOrEmpty(rsStr))
+                    float.TryParse(rsStr, NumberStyles.Float, CultureInfo.InvariantCulture, out responseSpeed);
+
+                candidates.Add((animName, responseSpeed));
+            }
+
+            if (candidates.Count == 0) return false;
+
+            string partName = prefab.partInfo?.name ?? prefab.name;
+
+            if (candidates.Count == 1)
+            {
+                animationName = candidates[0].animName;
+                ParsekLog.Verbose("GhostVisual",
+                    $"Part '{partName}': using FXModuleAnimateThrottle animation '{animationName}' for heat ghost");
+                return true;
+            }
+
+            // Multiple instances — try name heuristic first
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                if (IsHeatAnimationName(candidates[i].animName))
+                {
+                    animationName = candidates[i].animName;
+                    ParsekLog.Verbose("GhostVisual",
+                        $"Part '{partName}': {candidates.Count} FXModuleAnimateThrottle instances, selected '{animationName}' (heat animation heuristic)");
+                    return true;
+                }
+            }
+
+            // No name matched — fall back to lowest responseSpeed (heat anims typically 0.001-0.002)
+            float lowestSpeed = float.MaxValue;
+            string lowestName = null;
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                if (candidates[i].responseSpeed < lowestSpeed)
+                {
+                    lowestSpeed = candidates[i].responseSpeed;
+                    lowestName = candidates[i].animName;
+                }
+            }
+
+            animationName = lowestName;
+            ParsekLog.Verbose("GhostVisual",
+                $"Part '{partName}': {candidates.Count} FXModuleAnimateThrottle instances, none match heat heuristic, using lowest responseSpeed '{animationName}'");
+            return !string.IsNullOrEmpty(animationName);
+        }
+
         private static List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
             Vector3 dPos, Quaternion dRot, Vector3 dScale)> SampleAnimateHeatStates(
             Part prefab, string animationName)
@@ -5108,6 +5197,14 @@ namespace Parsek
             string animateHeatAnimName;
             bool hasAnimateHeat = TryGetAnimateHeatAnimation(
                 prefab, out animateHeatAnimName);
+            string animateThrottleAnimName = null;
+            bool hasAnimateThrottle = false;
+            if (!hasAnimateHeat)
+            {
+                hasAnimateThrottle = TryGetAnimateThrottleAnimation(prefab, out animateThrottleAnimName);
+            }
+            bool hasAnyHeatAnim = hasAnimateHeat || hasAnimateThrottle;
+            string heatAnimName = hasAnimateHeat ? animateHeatAnimName : animateThrottleAnimName;
             string aeroSurfaceTransformName;
             float aeroSurfaceDeployAngle;
             bool hasAeroSurfaceDeploy = TryGetAeroSurfaceDeployInfo(
@@ -5133,7 +5230,7 @@ namespace Parsek
                 hasRetractableLadder ||
                 hasAnimationGroupDeploy ||
                 hasStandaloneAnimateGenericDeploy ||
-                hasAnimateHeat ||
+                hasAnyHeatAnim ||
                 hasAeroSurfaceDeploy ||
                 hasControlSurfaceDeploy ||
                 hasRobotArmScannerDeploy ||
@@ -5672,11 +5769,12 @@ namespace Parsek
                 }
             }
 
-            // Detect ModuleAnimateHeat visual states (thermal glow / heat-driven animation).
-            if (hasAnimateHeat)
+            // Detect ModuleAnimateHeat / FXModuleAnimateThrottle visual states (thermal glow / heat-driven animation).
+            if (hasAnyHeatAnim)
             {
+                string heatSource = hasAnimateHeat ? "ModuleAnimateHeat" : "FXModuleAnimateThrottle";
                 List<DeployableTransformState> resolvedHeatTransforms = null;
-                var sampledHeatStates = SampleAnimateHeatStates(prefab, animateHeatAnimName);
+                var sampledHeatStates = SampleAnimateHeatStates(prefab, heatAnimName);
                 if (sampledHeatStates != null && sampledHeatStates.Count > 0)
                 {
                     resolvedHeatTransforms = new List<DeployableTransformState>();
@@ -5702,7 +5800,7 @@ namespace Parsek
                         {
                             unresolved++;
                             if (unresolved <= 5)
-                                ParsekLog.Verbose("GhostVisual", $"    [DIAG] AnimateHeat '{partName}': unresolved path '{path}'");
+                                ParsekLog.Verbose("GhostVisual", $"    [DIAG] {heatSource} '{partName}': unresolved path '{path}'");
                         }
                     }
                 }
@@ -5734,13 +5832,13 @@ namespace Parsek
                         }
                     }
 
-                    ParsekLog.Verbose("GhostVisual", $"    AnimateHeat detected: '{partName}' pid={persistentId}, anim='{animateHeatAnimName}' " +
+                    ParsekLog.Verbose("GhostVisual", $"    {heatSource} detected: '{partName}' pid={persistentId}, anim='{heatAnimName}' " +
                         $"transforms={(resolvedHeatTransforms != null ? resolvedHeatTransforms.Count : 0)} " +
                         $"materials={(heatMaterialStates != null ? heatMaterialStates.Count : 0)}");
                 }
                 else
                 {
-                    ParsekLog.Verbose("GhostVisual", $"    AnimateHeat '{partName}' pid={persistentId}: no transform/material deltas");
+                    ParsekLog.Verbose("GhostVisual", $"    {heatSource} '{partName}' pid={persistentId}: no transform/material deltas");
                 }
             }
 
