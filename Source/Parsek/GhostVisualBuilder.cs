@@ -1702,6 +1702,40 @@ namespace Parsek
             return !string.IsNullOrEmpty(animationName);
         }
 
+        /// <summary>
+        /// Search part config for FXModuleAnimateRCS MODULE node and return the animation name.
+        /// RCS parts have at most one FXModuleAnimateRCS instance, so no multi-instance heuristic needed.
+        /// </summary>
+        internal static bool TryGetAnimateRcsAnimation(
+            Part prefab, out string animationName)
+        {
+            animationName = null;
+            if (prefab == null) return false;
+
+            ConfigNode partConfig = prefab.partInfo?.partConfig;
+            if (partConfig == null) return false;
+
+            var modules = partConfig.GetNodes("MODULE");
+            if (modules == null) return false;
+
+            for (int i = 0; i < modules.Length; i++)
+            {
+                if (modules[i].GetValue("name") != "FXModuleAnimateRCS")
+                    continue;
+
+                string animName = FirstNonEmptyConfigValue(modules[i], "animationName");
+                if (string.IsNullOrEmpty(animName)) continue;
+
+                animationName = animName;
+                string partName = prefab.partInfo?.name ?? prefab.name;
+                ParsekLog.Verbose("GhostVisual",
+                    $"Part '{partName}': using FXModuleAnimateRCS animation '{animationName}' for heat ghost");
+                return true;
+            }
+
+            return false;
+        }
+
         private static List<(string path,
             Vector3 coldPos, Quaternion coldRot, Vector3 coldScale,
             Vector3 medPos, Quaternion medRot, Vector3 medScale,
@@ -5344,8 +5378,16 @@ namespace Parsek
             {
                 hasAnimateThrottle = TryGetAnimateThrottleAnimation(prefab, out animateThrottleAnimName);
             }
-            bool hasAnyHeatAnim = hasAnimateHeat || hasAnimateThrottle;
-            string heatAnimName = hasAnimateHeat ? animateHeatAnimName : animateThrottleAnimName;
+            string animateRcsAnimName = null;
+            bool hasAnimateRcs = false;
+            if (!hasAnimateHeat && !hasAnimateThrottle)
+            {
+                hasAnimateRcs = TryGetAnimateRcsAnimation(prefab, out animateRcsAnimName);
+            }
+            bool hasAnyHeatAnim = hasAnimateHeat || hasAnimateThrottle || hasAnimateRcs;
+            string heatAnimName = hasAnimateHeat ? animateHeatAnimName
+                : hasAnimateThrottle ? animateThrottleAnimName
+                : animateRcsAnimName;
             string aeroSurfaceTransformName;
             float aeroSurfaceDeployAngle;
             bool hasAeroSurfaceDeploy = TryGetAeroSurfaceDeployInfo(
@@ -5913,7 +5955,9 @@ namespace Parsek
             // Detect ModuleAnimateHeat / FXModuleAnimateThrottle visual states (thermal glow / heat-driven animation).
             if (hasAnyHeatAnim)
             {
-                string heatSource = hasAnimateHeat ? "ModuleAnimateHeat" : "FXModuleAnimateThrottle";
+                string heatSource = hasAnimateHeat ? "ModuleAnimateHeat"
+                    : hasAnimateThrottle ? "FXModuleAnimateThrottle"
+                    : "FXModuleAnimateRCS";
                 List<HeatTransformState> resolvedHeatTransforms = null;
                 var sampledHeatStates = SampleAnimateHeatStates(prefab, heatAnimName);
                 if (sampledHeatStates != null && sampledHeatStates.Count > 0)
