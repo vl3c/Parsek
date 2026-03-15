@@ -365,3 +365,17 @@ When the user disables a recording's playback in the KSC scene (unchecks the ena
 **Fix:** Before the `continue`, check `kscGhosts` and `kscOverlapGhosts` for the recording index and destroy any active ghosts. Mirrors the pattern from `ParsekFlight`.
 
 **Status:** Fixed
+
+## 38. Merge dialog not shown after vessel destruction in tree mode
+
+When a vessel explodes and the joint break creates a recording tree (`activeTree != null`), the post-destruction merge dialog is never shown. The user must manually revert the flight to trigger the dialog (fallback path via `OnFlightReady`).
+
+**Root cause:** `OnVesselWillDestroy` (ParsekFlight.cs line 1218) guards `ShowPostDestructionMergeDialog` with `activeTree == null` — it only fires in standalone mode. The comment claims "In tree mode, the deferred destruction check handles this already" but `DeferredDestructionCheck` only applies terminal state to background recordings; it never shows a dialog.
+
+The crash sequence: (1) vessel explodes → joint break → `DeferredJointBreakCheck` creates a tree, (2) continuation recording starts on debris/fragments, (3) fragments also destroyed, (4) no dialog fires because `activeTree != null`, (5) `FlightResultsPatch` suppresses KSP's "Catastrophic Failure" dialog expecting Parsek's dialog first — but it never comes.
+
+**Compounding issue:** `FlightResultsPatch` intercepts `FlightResultsDialog.Display` and defers it until the merge dialog completes. When no merge dialog fires, KSP's flight results are permanently suppressed too — the user sees nothing at all.
+
+**Observed in:** KSP.log (2026-03-15). Dynawing flights 2 and 3 — vessel destroyed, tree created by joint break, no dialog until manual revert. Flight 1 worked correctly (standalone mode, no tree).
+
+**Status:** Open
