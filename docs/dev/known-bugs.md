@@ -378,4 +378,6 @@ The crash sequence: (1) vessel explodes → joint break → `DeferredJointBreakC
 
 **Observed in:** KSP.log (2026-03-15). Dynawing flights 2 and 3 — vessel destroyed, tree created by joint break, no dialog until manual revert. Flight 1 worked correctly (standalone mode, no tree).
 
+**Additional symptom:** When watching a non-looped destroyed recording via Watch mode, the camera auto-follows to a tree child recording that has a `VesselSnapshot`. When that child ends, it spawns the vessel (e.g., Dynawing Probe, FLYING) and KSP switches to it as the active vessel. The user is now controlling a spawned vessel in mid-air instead of returning to their pad vessel. The game enters a weird "in flight" state, showing collision warnings when trying to exit to KSC.
+
 **Status:** Open
