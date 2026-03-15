@@ -81,6 +81,32 @@ namespace Parsek.Tests
         }
 
         [Theory]
+        [InlineData(1f, false)]
+        [InlineData(5f, false)]
+        [InlineData(10f, false)]
+        [InlineData(10.001f, true)]
+        [InlineData(50f, true)]
+        [InlineData(100f, true)]
+        [InlineData(1000f, true)]
+        public void ShouldSuppressExplosionFx_ThresholdAt10x(float warpRate, bool expected)
+        {
+            Assert.Equal(expected, ParsekFlight.ShouldSuppressExplosionFx(warpRate));
+        }
+
+        [Theory]
+        [InlineData(1f, false)]
+        [InlineData(10f, false)]
+        [InlineData(50f, false)]
+        [InlineData(50.001f, true)]
+        [InlineData(100f, true)]
+        [InlineData(1000f, true)]
+        [InlineData(100000f, true)]
+        public void ShouldSuppressGhosts_ThresholdAt50x(float warpRate, bool expected)
+        {
+            Assert.Equal(expected, ParsekFlight.ShouldSuppressGhosts(warpRate));
+        }
+
+        [Theory]
         [InlineData(true, true)]
         [InlineData(false, false)]
         public void ShouldPauseTimelineResourceReplay_ReflectsRecordingState(bool isRecording, bool expected)
