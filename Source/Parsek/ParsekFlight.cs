@@ -6520,7 +6520,7 @@ namespace Parsek
                         diagMain.startSpeedMultiplier,
                         ps.isPlaying);
                     string diagKey = $"engine-fx-{evt.partPersistentId}-{evt.moduleIndex}-{ps.GetInstanceID()}";
-                    ParsekLog.VerboseRateLimited("Flight", diagKey, diagLine, 0.5);
+                    ParsekLog.VerboseRateLimited("Flight", diagKey, diagLine, 60.0);
                 }
             }
         }
