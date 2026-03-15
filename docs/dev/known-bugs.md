@@ -334,7 +334,9 @@ The Launch Escape System (`LaunchEscapeSystem` part) has 5 `thrustTransform` noz
 
 **Observed in:** Log analysis (2026-03-14). Ghost build succeeds with 6 MeshRenderers and 5 thruster FX systems. Engine FX `playing=False` on initial ignition frame was observed for LES (90 occurrences) — the particle system may not visually start until the second frame after `EngineIgnited`.
 
-**Status:** Open — needs in-game visual comparison
+**Root cause (confirmed):** `GameDatabase.GetModelPrefab` returns inactive root GameObjects. The cloned FX instance inherited the inactive state, causing `ParticleSystem.Play()` to silently fail. Fix: added `SetActive(true)` after instantiation in the engine MODEL_MULTI_PARTICLE path (matching the existing RCS FX path). Fixes LES plume and silently broken MODEL_MULTI_PARTICLE on other engines.
+
+**Status:** Fixed
 
 ## 33. Crash sequence: vessel stays visually intact until final explosion
 
@@ -369,7 +371,9 @@ The engine FX diagnostic log (`SetEngineEmission` line 6140) reports `playing=Fa
 
 **Visual impact:** None — this is a logging artifact. The 462 `playing=False` log entries in the 2026-03-14 session are from the rate-limited diagnostic (0.5s interval) logging once at ignition time. The particle FX visually appears correctly from the next rendered frame.
 
-**Status:** Not a bug — logging artifact only
+**Update (2026-03-15):** The `playing=False` diagnostic was accurate — the particle systems genuinely were not playing due to the inactive-FX-instance bug (fixed in bug #32). The diagnostic correctly identified the symptom; the underlying cause was the missing `SetActive(true)` call, not a Unity timing quirk.
+
+**Status:** Fixed (root cause was bug #32)
 
 ## 36. GhostVisual VERBOSE output dominates log (performance)
 
