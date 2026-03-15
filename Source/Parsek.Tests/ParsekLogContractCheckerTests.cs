@@ -199,10 +199,6 @@ namespace Parsek.Tests
                 (e.Message ?? "").Contains("All chains validated OK"));
             Assert.Contains(session, e => e.Subsystem == "Flight" &&
                 (e.Message ?? "").Contains("Ghost #0 destroyed") && (e.Message ?? "").Contains("segment disabled"));
-            Assert.Contains(session, e => e.Subsystem == "UI" &&
-                (e.Message ?? "").Contains("autoSplitAtAtmosphere"));
-            Assert.Contains(session, e => e.Subsystem == "UI" &&
-                (e.Message ?? "").Contains("autoSplitAtSoi"));
         }
 
         [Fact]

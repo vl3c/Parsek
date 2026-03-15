@@ -360,5 +360,40 @@ namespace Parsek.Tests
             Assert.NotNull(val);
             Assert.Equal("4", val);
         }
+
+        // --- Warp suppression tests ---
+
+        [Theory]
+        [InlineData(50f, true)]
+        [InlineData(100f, true)]
+        [InlineData(1000f, true)]
+        public void ShouldTriggerExplosion_PassesButWarpSuppresses_LogsSuppression(float warpRate, bool expectedSuppressed)
+        {
+            // ShouldTriggerExplosion returns true (all guards pass)
+            bool wouldFire = ParsekFlight.ShouldTriggerExplosion(
+                explosionAlreadyFired: false,
+                terminalState: TerminalState.Destroyed,
+                ghostExists: true,
+                vesselName: "WarpTestVessel",
+                recIdx: 7);
+
+            Assert.True(wouldFire);
+
+            // But ShouldSuppressVisualFx prevents the actual FX
+            bool suppressed = ParsekFlight.ShouldSuppressVisualFx(warpRate);
+            Assert.Equal(expectedSuppressed, suppressed);
+        }
+
+        [Fact]
+        public void ShouldSuppressVisualFx_At10x_DoesNotSuppress()
+        {
+            Assert.False(ParsekFlight.ShouldSuppressVisualFx(10f));
+        }
+
+        [Fact]
+        public void ShouldSuppressVisualFx_Above10x_Suppresses()
+        {
+            Assert.True(ParsekFlight.ShouldSuppressVisualFx(50f));
+        }
     }
 }

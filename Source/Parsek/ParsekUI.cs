@@ -63,8 +63,8 @@ namespace Parsek
         private const float ColW_Phase = 70f;
         private const float ColW_Index = 30f;
         private const float ColW_Launch = 110f;
-        private const float ColW_Dur = 55f;
-        private const float ColW_Status = 45f;
+        private const float ColW_Dur = 65f;
+        private const float ColW_Status = 55f;
         private const float ColW_Loop = 55f;
         private const float ColW_Watch = 50f;
         private const float ColW_Rewind = 55f;
@@ -139,10 +139,16 @@ namespace Parsek
         private const float ColW_Dist = 65f;
         private const float ColW_Pts = 35f;
 
-        // Loop period editing
-        private int editingLoopPeriodIdx = -1;
-        private string editingLoopPeriodText = "";
-        private const float ColW_Period = 55f;
+        // Loop period editing — buffer used while text field is focused
+        private int loopPeriodFocusedRi = -1;
+        private string loopPeriodEditText = "";
+        private Rect loopPeriodEditRect;
+
+        // Settings auto-loop editing
+        private string settingsAutoLoopText = "";
+        private bool settingsAutoLoopEditing;
+        private Rect settingsAutoLoopEditRect;
+        private const float ColW_Period = 80f;
 
         // Cached styles for status labels
         private GUIStyle statusStyleFuture;
@@ -748,7 +754,7 @@ namespace Parsek
                 recordingsWindowRect = new Rect(
                     mainWindowRect.x + mainWindowRect.width + 10,
                     mainWindowRect.y,
-                    790, recHeight);
+                    883, recHeight);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI", $"Recordings window initial position: x={recordingsWindowRect.x.ToString("F0", ic)} y={recordingsWindowRect.y.ToString("F0", ic)}");
             }
@@ -900,6 +906,15 @@ namespace Parsek
                 }
             }
 
+            // Click outside active loop period field → commit and defocus
+            if (Event.current.type == EventType.MouseDown && loopPeriodFocusedRi >= 0)
+            {
+                if (loopPeriodEditRect.width > 0 && !loopPeriodEditRect.Contains(Event.current.mousePosition))
+                {
+                    CommitLoopPeriodEdit(committed);
+                }
+            }
+
             EnsureStatusStyles();
             EnsurePhaseStyles();
             RebuildSortedIndices(committed, now);
@@ -971,7 +986,7 @@ namespace Parsek
                 GUILayout.BeginHorizontal(GUILayout.Width(ColW_Period));
                 GUILayout.FlexibleSpace();
                 GUILayout.Label(new GUIContent("Every",
-                    "Loop interval (seconds):\n  Positive: wait N seconds after end\n  Zero: restart immediately\n  Negative: overlap by N seconds"));
+                    "Loop interval between cycles.\nClick unit to cycle: sec \u2192 min \u2192 hr \u2192 auto.\n\"auto\" inherits from Settings > Looping."));
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
 
@@ -1115,8 +1130,6 @@ namespace Parsek
             // Reset out-of-range state
             if (deleteConfirmIndex >= committed.Count)
                 deleteConfirmIndex = -1;
-            if (editingLoopPeriodIdx >= committed.Count)
-                editingLoopPeriodIdx = -1;
 
             // Bottom button bar
             GUILayout.Space(5);
@@ -1132,7 +1145,7 @@ namespace Parsek
                     if (showExpandedStats && recordingsWindowRect.width < 1150f)
                         recordingsWindowRect.width = 1150f;
                     else if (!showExpandedStats)
-                        recordingsWindowRect.width = 790f;
+                        recordingsWindowRect.width = 883f;
                 }
             }
 
@@ -1323,9 +1336,9 @@ namespace Parsek
             if (loop != rec.LoopPlayback)
             {
                 rec.LoopPlayback = loop;
+                if (!loop && loopPeriodFocusedRi == ri)
+                    loopPeriodFocusedRi = -1;
                 ParsekLog.Info("UI", $"Recording '{rec.VesselName}' loop playback set to {loop}");
-                if (!loop && editingLoopPeriodIdx == ri)
-                    editingLoopPeriodIdx = -1;
             }
 
             // Period
@@ -1422,8 +1435,8 @@ namespace Parsek
                     {
                         ParsekLog.Info("UI", $"Delete confirmed for recording index={capturedIndex} name='{capturedName}'");
                         // Adjust index-based state fields
-                        AdjustIndexOnDelete(ref editingLoopPeriodIdx, capturedIndex);
                         AdjustIndexOnDelete(ref renamingRecordingIdx, capturedIndex);
+                        AdjustIndexOnDelete(ref loopPeriodFocusedRi, capturedIndex);
                         if (groupPopupRecIdx == capturedIndex) groupPopupOpen = false;
                         else if (groupPopupRecIdx > capturedIndex) groupPopupRecIdx--;
                         if (InFlight)
@@ -2513,79 +2526,191 @@ namespace Parsek
                 content, tooltipLabelStyle);
         }
 
-        private static readonly GUIContent intervalTooltip = new GUIContent("",
-            "Loop interval (seconds):\n  Positive: wait N seconds after end\n  Zero: restart immediately\n  Negative: overlap by N seconds");
+        // --- Loop time unit helpers (internal static for testability) ---
 
-        private string FormatInterval(double interval)
+        internal static string UnitLabel(RecordingStore.LoopTimeUnit unit)
+            => unit == RecordingStore.LoopTimeUnit.Min ? "min"
+             : unit == RecordingStore.LoopTimeUnit.Hour ? "hr"
+             : unit == RecordingStore.LoopTimeUnit.Auto ? "auto"
+             : "sec";
+
+        internal static RecordingStore.LoopTimeUnit CycleRecordingUnit(RecordingStore.LoopTimeUnit u)
+            => u == RecordingStore.LoopTimeUnit.Sec ? RecordingStore.LoopTimeUnit.Min
+             : u == RecordingStore.LoopTimeUnit.Min ? RecordingStore.LoopTimeUnit.Hour
+             : u == RecordingStore.LoopTimeUnit.Hour ? RecordingStore.LoopTimeUnit.Auto
+             : RecordingStore.LoopTimeUnit.Sec;
+
+        internal static RecordingStore.LoopTimeUnit CycleDisplayUnit(RecordingStore.LoopTimeUnit u)
+            => u == RecordingStore.LoopTimeUnit.Sec ? RecordingStore.LoopTimeUnit.Min
+             : u == RecordingStore.LoopTimeUnit.Min ? RecordingStore.LoopTimeUnit.Hour
+             : RecordingStore.LoopTimeUnit.Sec;
+
+        // Auto is resolved separately by callers; falls through to seconds if called directly.
+        internal static double ConvertFromSeconds(double seconds, RecordingStore.LoopTimeUnit unit)
+            => unit == RecordingStore.LoopTimeUnit.Min ? seconds / 60.0
+             : unit == RecordingStore.LoopTimeUnit.Hour ? seconds / 3600.0
+             : seconds;
+
+        // Auto is resolved separately by callers; falls through to seconds if called directly.
+        internal static double ConvertToSeconds(double value, RecordingStore.LoopTimeUnit unit)
+            => unit == RecordingStore.LoopTimeUnit.Min ? value * 60.0
+             : unit == RecordingStore.LoopTimeUnit.Hour ? value * 3600.0
+             : value;
+
+        internal static string FormatLoopValue(double value, RecordingStore.LoopTimeUnit unit)
         {
-            string sign = interval < 0 ? "-" : "";
-            return sign + FormatDuration(System.Math.Abs(interval));
+            if (unit == RecordingStore.LoopTimeUnit.Min || unit == RecordingStore.LoopTimeUnit.Hour)
+                return value.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+            return ((long)System.Math.Truncate(value)).ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
+
+        internal static bool TryParseLoopInput(string text, RecordingStore.LoopTimeUnit unit, out double value)
+        {
+            if (unit == RecordingStore.LoopTimeUnit.Min || unit == RecordingStore.LoopTimeUnit.Hour)
+                return double.TryParse(text, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out value);
+            int intVal;
+            bool ok = int.TryParse(text, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out intVal);
+            value = intVal;
+            return ok;
+        }
+
+        // --- Loop period cell ---
 
         private void DrawLoopPeriodCell(RecordingStore.Recording rec, int ri, double dur)
         {
+            // All states use same [value area][unit button] layout to keep column alignment consistent.
+            const float unitBtnW = 40f;
+            float valueBtnW = ColW_Period - unitBtnW - 2f;
+
             if (!rec.LoopPlayback)
             {
+                // Disabled: gray out the same two-control layout
                 GUI.enabled = false;
-                GUILayout.Label("-", GUILayout.Width(ColW_Period));
+                string disabledText;
+                if (rec.LoopTimeUnit == RecordingStore.LoopTimeUnit.Auto)
+                {
+                    var settings = ParsekSettings.Current;
+                    double gv = settings != null
+                        ? ConvertFromSeconds(settings.autoLoopIntervalSeconds, settings.AutoLoopDisplayUnit) : 10;
+                    var gu = settings != null ? settings.AutoLoopDisplayUnit : RecordingStore.LoopTimeUnit.Sec;
+                    disabledText = FormatLoopValue(gv, gu);
+                }
+                else
+                {
+                    disabledText = FormatLoopValue(ConvertFromSeconds(rec.LoopIntervalSeconds, rec.LoopTimeUnit), rec.LoopTimeUnit);
+                }
+                GUILayout.TextField(disabledText, GUILayout.Width(valueBtnW));
+                GUILayout.Button(UnitLabel(rec.LoopTimeUnit), GUILayout.Width(unitBtnW));
                 GUI.enabled = true;
                 return;
             }
 
-            if (editingLoopPeriodIdx == ri)
+            if (rec.LoopTimeUnit == RecordingStore.LoopTimeUnit.Auto)
             {
-                GUI.SetNextControlName("PeriodEdit");
-                editingLoopPeriodText = GUILayout.TextField(
-                    editingLoopPeriodText, GUILayout.Width(ColW_Period));
-
-                if (Event.current.type == EventType.KeyUp &&
-                    Event.current.keyCode == KeyCode.Return &&
-                    GUI.GetNameOfFocusedControl() == "PeriodEdit")
-                {
-                    ApplyLoopIntervalEdit(rec, dur);
-                    editingLoopPeriodIdx = -1;
-                }
+                // Auto mode: disabled text field showing global value + "auto" unit button
+                var settings = ParsekSettings.Current;
+                double globalVal = settings != null
+                    ? ConvertFromSeconds(settings.autoLoopIntervalSeconds, settings.AutoLoopDisplayUnit)
+                    : 10;
+                GUI.enabled = false;
+                var globalDisplayUnit = settings != null ? settings.AutoLoopDisplayUnit : RecordingStore.LoopTimeUnit.Sec;
+                GUILayout.TextField(FormatLoopValue(globalVal, globalDisplayUnit), GUILayout.Width(valueBtnW));
+                GUI.enabled = true;
             }
             else
             {
-                var content = new GUIContent(FormatInterval(rec.LoopIntervalSeconds), intervalTooltip.tooltip);
-                if (GUILayout.Button(content, GUILayout.Width(ColW_Period)))
+                // Manual mode: editable text field with edit buffer.
+                // When not actively editing, show formatted value from model.
+                // When editing (loopPeriodFocusedRi == ri), use buffer.
+                // Commit happens via click-outside (MouseDown check at top)
+                // or Enter key.
+                if (loopPeriodFocusedRi != ri)
                 {
-                    // Save any in-progress edit on another recording
-                    if (editingLoopPeriodIdx >= 0)
+                    // Not editing: show model value, click to start editing
+                    double displayValue = ConvertFromSeconds(rec.LoopIntervalSeconds, rec.LoopTimeUnit);
+                    string displayText = FormatLoopValue(displayValue, rec.LoopTimeUnit);
+                    string controlName = "LoopPeriod_" + ri;
+                    GUI.SetNextControlName(controlName);
+                    string newText = GUILayout.TextField(displayText, GUILayout.Width(valueBtnW));
+                    if (GUI.GetNameOfFocusedControl() == controlName)
                     {
-                        var committed = RecordingStore.CommittedRecordings;
-                        if (editingLoopPeriodIdx < committed.Count)
-                        {
-                            var editRec = committed[editingLoopPeriodIdx];
-                            double editDur = editRec.EndUT - editRec.StartUT;
-                            ApplyLoopIntervalEdit(editRec, editDur);
-                        }
+                        loopPeriodEditText = newText;
+                        loopPeriodFocusedRi = ri;
+                        loopPeriodEditRect = GUILayoutUtility.GetLastRect();
+                        ParsekLog.Verbose("UI",
+                            $"Recording '{rec.VesselName}' loop period edit started: " +
+                            $"value='{newText}' unit={UnitLabel(rec.LoopTimeUnit)}");
                     }
-
-                    editingLoopPeriodIdx = ri;
-                    editingLoopPeriodText = ((int)rec.LoopIntervalSeconds).ToString();
                 }
+                else
+                {
+                    // Enter key → commit (check before TextField, which consumes KeyDown)
+                    bool submitPeriod = Event.current.type == EventType.KeyDown &&
+                        (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter);
+
+                    // Editing: use buffer, track rect for click-outside
+                    GUI.SetNextControlName("LoopPeriod_" + ri);
+                    string newText = GUILayout.TextField(loopPeriodEditText, GUILayout.Width(valueBtnW));
+                    loopPeriodEditRect = GUILayoutUtility.GetLastRect();
+                    if (newText != loopPeriodEditText)
+                        loopPeriodEditText = newText;
+
+                    if (submitPeriod)
+                    {
+                        CommitLoopPeriodEdit(RecordingStore.CommittedRecordings);
+                        Event.current.Use();
+                    }
+                }
+            }
+
+            // Unit cycling button (shared by both auto and manual modes)
+            if (GUILayout.Button(UnitLabel(rec.LoopTimeUnit), GUILayout.Width(unitBtnW)))
+            {
+                var newUnit = CycleRecordingUnit(rec.LoopTimeUnit);
+                rec.LoopTimeUnit = newUnit;
+                GUIUtility.keyboardControl = 0;
+                loopPeriodFocusedRi = -1;
+                ParsekLog.Info("UI",
+                    $"Recording '{rec.VesselName}' loop unit changed to {newUnit}");
             }
         }
 
-        private void ApplyLoopIntervalEdit(RecordingStore.Recording rec, double dur)
+        private void CommitLoopPeriodEdit(System.Collections.Generic.List<RecordingStore.Recording> committed)
         {
-            double newInterval;
-            if (double.TryParse(editingLoopPeriodText, System.Globalization.NumberStyles.Float,
-                    System.Globalization.CultureInfo.InvariantCulture, out newInterval)
-                && newInterval > -(dur - 0.001))
+            if (loopPeriodFocusedRi < 0 || loopPeriodFocusedRi >= committed.Count) { loopPeriodFocusedRi = -1; return; }
+            var rec = committed[loopPeriodFocusedRi];
+            double dur = rec.EndUT - rec.StartUT;
+            double parsed;
+            if (TryParseLoopInput(loopPeriodEditText, rec.LoopTimeUnit, out parsed))
             {
-                rec.LoopIntervalSeconds = newInterval;
+                double newSeconds = ConvertToSeconds(parsed, rec.LoopTimeUnit);
+                double minSeconds = -(dur - 1.0); // cap: -totalDuration + 1s
+                if (newSeconds < minSeconds)
+                {
+                    newSeconds = minSeconds;
+                    ParsekLog.Info("UI",
+                        $"Recording '{rec.VesselName}' loop interval clamped to " +
+                        $"{newSeconds.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}s " +
+                        $"(minimum for duration {dur.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}s)");
+                }
+                rec.LoopIntervalSeconds = newSeconds;
                 ParsekLog.Info("UI",
                     $"Recording '{rec.VesselName}' loop interval updated to " +
-                    rec.LoopIntervalSeconds.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + "s");
+                    rec.LoopIntervalSeconds.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) +
+                    $"s (display: {FormatLoopValue(ConvertFromSeconds(newSeconds, rec.LoopTimeUnit), rec.LoopTimeUnit)} " +
+                    $"{UnitLabel(rec.LoopTimeUnit)})");
             }
             else
             {
                 ParsekLog.Warn("UI",
-                    $"Rejected loop interval edit '{editingLoopPeriodText}' for recording '{rec.VesselName}'");
+                    $"Recording '{rec.VesselName}' loop interval edit rejected: " +
+                    $"invalid input '{loopPeriodEditText}' for unit {rec.LoopTimeUnit}");
             }
+            loopPeriodFocusedRi = -1;
+            loopPeriodEditRect = default;
+            GUIUtility.keyboardControl = 0;
         }
 
         private void EnsureTooltipStyle()
@@ -2660,6 +2785,27 @@ namespace Parsek
             settingsWindowHasInputLock = false;
         }
 
+        private void CommitSettingsAutoLoopEdit(ParsekSettings s)
+        {
+            double parsed;
+            if (TryParseLoopInput(settingsAutoLoopText, s.AutoLoopDisplayUnit, out parsed) && parsed >= 0)
+            {
+                // float cast: KSP GameParameters requires float; loses precision beyond ~7 digits (fine for practical intervals)
+                s.autoLoopIntervalSeconds = (float)ConvertToSeconds(parsed, s.AutoLoopDisplayUnit);
+                ParsekLog.Info("UI",
+                    $"Setting changed: autoLoopIntervalSeconds={s.autoLoopIntervalSeconds.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}s");
+            }
+            else
+            {
+                ParsekLog.Warn("UI",
+                    $"Auto-loop settings edit rejected: invalid or negative input '{settingsAutoLoopText}' " +
+                    $"for unit {UnitLabel(s.AutoLoopDisplayUnit)}");
+            }
+            settingsAutoLoopEditing = false;
+            settingsAutoLoopEditRect = default;
+            GUIUtility.keyboardControl = 0;
+        }
+
         private void DrawSettingsWindow(int windowID)
         {
             var s = ParsekSettings.Current;
@@ -2670,6 +2816,13 @@ namespace Parsek
                     showSettingsWindow = false;
                 GUI.DragWindow();
                 return;
+            }
+
+            // Click outside active settings edit field → commit
+            if (Event.current.type == EventType.MouseDown && settingsAutoLoopEditing)
+            {
+                if (settingsAutoLoopEditRect.width > 0 && !settingsAutoLoopEditRect.Contains(Event.current.mousePosition))
+                    CommitSettingsAutoLoopEdit(s);
             }
 
             GUILayout.Label("Recording", GUI.skin.box);
@@ -2697,29 +2850,57 @@ namespace Parsek
                 ParsekLog.Info("UI", $"Setting changed: autoMerge={s.autoMerge}");
             }
 
-            bool autoWarpStop = GUILayout.Toggle(s.autoWarpStop,
-                new GUIContent("Stop time warp for ghost playback", "Exit time warp when a ghost recording is about to start playing"));
-            if (autoWarpStop != s.autoWarpStop)
+            GUILayout.Space(SpacingSmall);
+            GUILayout.Label("Looping", GUI.skin.box);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(new GUIContent("Auto-loop every",
+                "Default loop interval for recordings set to 'auto' unit"), GUILayout.Width(100));
             {
-                s.autoWarpStop = autoWarpStop;
-                ParsekLog.Info("UI", $"Setting changed: autoWarpStop={s.autoWarpStop}");
-            }
+                if (!settingsAutoLoopEditing)
+                {
+                    // Not editing: show formatted value from model
+                    double displayVal = ConvertFromSeconds(s.autoLoopIntervalSeconds, s.AutoLoopDisplayUnit);
+                    string displayText = FormatLoopValue(displayVal, s.AutoLoopDisplayUnit);
+                    GUI.SetNextControlName("AutoLoopEdit");
+                    string newText = GUILayout.TextField(displayText, GUILayout.Width(45));
+                    if (GUI.GetNameOfFocusedControl() == "AutoLoopEdit")
+                    {
+                        settingsAutoLoopText = newText;
+                        settingsAutoLoopEditing = true;
+                        settingsAutoLoopEditRect = GUILayoutUtility.GetLastRect();
+                        ParsekLog.Verbose("UI",
+                            $"Auto-loop settings edit started: value='{newText}' unit={UnitLabel(s.AutoLoopDisplayUnit)}");
+                    }
+                }
+                else
+                {
+                    // Enter key → commit (check before TextField, which consumes KeyDown)
+                    bool submitAutoLoop = Event.current.type == EventType.KeyDown &&
+                        (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter);
 
-            bool autoSplitAtAtmosphere = GUILayout.Toggle(s.autoSplitAtAtmosphere,
-                new GUIContent("Auto-split at atmosphere boundary", "Split recordings when crossing the atmosphere boundary"));
-            if (autoSplitAtAtmosphere != s.autoSplitAtAtmosphere)
-            {
-                s.autoSplitAtAtmosphere = autoSplitAtAtmosphere;
-                ParsekLog.Info("UI", $"Setting changed: autoSplitAtAtmosphere={s.autoSplitAtAtmosphere}");
-            }
+                    // Editing: use buffer, track rect for click-outside
+                    GUI.SetNextControlName("AutoLoopEdit");
+                    string newText = GUILayout.TextField(settingsAutoLoopText, GUILayout.Width(45));
+                    settingsAutoLoopEditRect = GUILayoutUtility.GetLastRect();
+                    if (newText != settingsAutoLoopText)
+                        settingsAutoLoopText = newText;
 
-            bool autoSplitAtSoi = GUILayout.Toggle(s.autoSplitAtSoi,
-                new GUIContent("Auto-split at SOI change", "Split recordings when entering a new sphere of influence"));
-            if (autoSplitAtSoi != s.autoSplitAtSoi)
-            {
-                s.autoSplitAtSoi = autoSplitAtSoi;
-                ParsekLog.Info("UI", $"Setting changed: autoSplitAtSoi={s.autoSplitAtSoi}");
+                    if (submitAutoLoop)
+                    {
+                        CommitSettingsAutoLoopEdit(s);
+                        Event.current.Use();
+                    }
+                }
+
+                if (GUILayout.Button(UnitLabel(s.AutoLoopDisplayUnit), GUILayout.Width(40)))
+                {
+                    if (settingsAutoLoopEditing)
+                        CommitSettingsAutoLoopEdit(s);
+                    s.AutoLoopDisplayUnit = CycleDisplayUnit(s.AutoLoopDisplayUnit);
+                    ParsekLog.Info("UI", $"Setting changed: autoLoopDisplayUnit={s.AutoLoopDisplayUnit}");
+                }
             }
+            GUILayout.EndHorizontal();
 
             GUILayout.Space(SpacingSmall);
             GUILayout.Label("Diagnostics", GUI.skin.box);
@@ -2802,13 +2983,13 @@ namespace Parsek
                 s.autoRecordOnLaunch = true;
                 s.autoRecordOnEva = true;
                 s.autoMerge = false;
-                s.autoWarpStop = true;
-                s.autoSplitAtAtmosphere = true;
-                s.autoSplitAtSoi = true;
                 s.verboseLogging = true;
                 s.maxSampleInterval = 3.0f;
                 s.velocityDirThreshold = 2.0f;
                 s.speedChangeThreshold = 5.0f;
+                s.autoLoopIntervalSeconds = 10.0f;
+                s.autoLoopTimeUnit = 0;
+                settingsAutoLoopEditing = false;
                 ParsekLog.Info("UI", "Settings reset to defaults");
             }
             if (GUILayout.Button("Close"))

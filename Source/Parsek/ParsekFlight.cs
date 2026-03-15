@@ -70,6 +70,7 @@ namespace Parsek
             public MaterialPropertyBlock reentryMpb; // per-ghost to avoid shared-state bugs with overlapping ghosts
             public bool explosionFired;
             public bool pauseHidden;
+            public bool rcsSuppressed;
             public Transform cameraPivot; // child of ghost; centroid of active parts — camera targets this
             public Vector3 lastInterpolatedVelocity;
             public string lastInterpolatedBodyName;
@@ -263,20 +264,18 @@ namespace Parsek
             public SurfacePosition surfacePosition;
         }
 
-        // Timeline warp protection — tracks previous frame's UT
-        private double lastTimelineUT = -1;
-
         // Diagnostic logging guards (log once per state transition, not per frame)
         private HashSet<int> loggedGhostEnter = new HashSet<int>();
         private HashSet<int> loggedOrbitSegments = new HashSet<int>();
         private HashSet<int> loggedOrbitRotationSegments = new HashSet<int>();
 
-        // Warp-stop guard: only stop time warp once per recording
-        private HashSet<int> warpStoppedForRecording = new HashSet<int>();
+        // Deferred spawn queue: recording IDs queued during warp, flushed when warp ends
+        private HashSet<string> pendingSpawnRecordingIds = new HashSet<string>();
+        private string pendingWatchRecordingId = null;  // recording ID that was in watch mode when deferred
         private bool timelineResourceReplayPausedLogged = false;
         private const double DefaultLoopIntervalSeconds = 10.0;
-        private const double MinLoopDurationSeconds = 0.001;
-        private const double MinCycleDuration = 0.001;
+        private const double MinLoopDurationSeconds = 1.0;
+        private const double MinCycleDuration = 1.0;
         private const double OverlapExplosionHoldSeconds = 3.0;
 
         // Camera follow (watch mode) — transient, never serialized
@@ -626,8 +625,7 @@ namespace Parsek
             }
 
             // Atmosphere boundary: auto-split when crossing atmosphere edge
-            if (recorder != null && recorder.IsRecording && recorder.AtmosphereBoundaryCrossed &&
-                ParsekSettings.Current?.autoSplitAtAtmosphere != false)
+            if (recorder != null && recorder.IsRecording && recorder.AtmosphereBoundaryCrossed)
             {
                 string phase = recorder.EnteredAtmosphere ? "exo" : "atmo";
                 string newPhase = recorder.EnteredAtmosphere ? "atmo" : "exo";
@@ -648,8 +646,7 @@ namespace Parsek
             }
 
             // SOI change: auto-split when transitioning between celestial bodies
-            if (recorder != null && recorder.IsRecording && recorder.SoiChangePending &&
-                ParsekSettings.Current?.autoSplitAtSoi != false)
+            if (recorder != null && recorder.IsRecording && recorder.SoiChangePending)
             {
                 string fromBody = recorder.SoiChangeFromBody ?? "Unknown";
                 string toBody = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
@@ -4474,6 +4471,7 @@ namespace Parsek
                 Log("Manual playback complete — reached end of recording");
                 // explosionAlreadyFired=false is safe: preview is one-shot (StopPlayback called immediately after)
                 if (previewRecording != null && ghostObject != null
+                    && !ShouldSuppressVisualFx(TimeWarp.CurrentRate)
                     && ShouldTriggerExplosion(false, previewRecording.TerminalStateValue,
                            true, previewRecording.VesselName, -1))
                 {
@@ -4523,46 +4521,41 @@ namespace Parsek
             var committed = RecordingStore.CommittedRecordings;
             double currentUT = Planetarium.GetUniversalTime();
 
-            // Prevent time warp from skipping ghost playback for vessel spawns
-            if (committed.Count > 0 && IsAnyWarpActive() && lastTimelineUT >= 0
-                && ParsekSettings.Current?.autoWarpStop != false)
+            // Flush deferred spawns when warp ends
+            if (ShouldFlushDeferredSpawns(pendingSpawnRecordingIds.Count, IsAnyWarpActive()))
             {
-                double timelineStep = System.Math.Max(0, currentUT - lastTimelineUT);
+                int spawnedCount = 0;
                 for (int i = 0; i < committed.Count; i++)
                 {
                     var rec = committed[i];
-                    if (rec.Points.Count < 2 && rec.OrbitSegments.Count == 0 && !rec.SurfacePos.HasValue) continue;
-                    if (ShouldLoopPlayback(rec)) continue;
-                    if (!rec.PlaybackEnabled) continue;
-                    if (rec.VesselSnapshot == null || rec.VesselSpawned || rec.VesselDestroyed ||
-                        RecordingStore.IsChainMidSegment(rec)) continue;
-                    if (rec.ChildBranchPointId != null) continue;  // non-leaf, never spawns
-                    if (rec.TerminalStateValue.HasValue)
+                    if (!pendingSpawnRecordingIds.Contains(rec.RecordingId)) continue;
+                    if (ShouldSkipDeferredSpawn(rec.VesselSpawned, rec.VesselSnapshot != null))
                     {
-                        var ts = rec.TerminalStateValue.Value;
-                        if (ts == TerminalState.Destroyed || ts == TerminalState.Recovered
-                            || ts == TerminalState.Docked || ts == TerminalState.Boarded)
-                            continue;
+                        ParsekLog.Verbose("Flight", $"Deferred spawn skipped — #{i} \"{rec.VesselName}\" already spawned or no snapshot");
+                        continue;
                     }
+                    ParsekLog.Info("Flight", $"Deferred spawn executing: #{i} \"{rec.VesselName}\" id={rec.RecordingId}");
+                    VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
+                    spawnedCount++;
 
-                    bool crossedInto = lastTimelineUT < rec.StartUT && currentUT >= rec.StartUT;
-                    bool approaching = currentUT < rec.StartUT &&
-                                       rec.StartUT - currentUT <= System.Math.Max(1.0, timelineStep);
-                    if (crossedInto || approaching)
+                    // Restore camera follow if this recording was being watched when deferred
+                    if (ShouldRestoreWatchMode(pendingWatchRecordingId, rec.RecordingId, rec.SpawnedVesselPersistentId))
                     {
-                        if (warpStoppedForRecording.Add(i))
-                        {
-                            ExitAllWarpForPlaybackStart(rec.VesselName);
-                            Log($"Stopped warp for recording #{i} ({rec.VesselName}) ghost playback");
-                            ScreenMessage($"Time warp stopped — '{rec.VesselName}' playback", 3f);
-                        }
-                        break;
+                        ParsekLog.Info("CameraFollow",
+                            $"Deferred watch: switching to spawned vessel pid={rec.SpawnedVesselPersistentId}");
+                        StartCoroutine(DeferredActivateVessel(rec.SpawnedVesselPersistentId));
                     }
                 }
+                ParsekLog.Info("Flight", $"Warp ended — flushed {spawnedCount}/{pendingSpawnRecordingIds.Count} deferred spawn(s)");
+                pendingSpawnRecordingIds.Clear();
+                pendingWatchRecordingId = null;
             }
-            lastTimelineUT = currentUT;
 
             if (committed.Count == 0) return;
+
+            float warpRate = TimeWarp.CurrentRate;
+            bool suppressGhosts = ShouldSuppressGhosts(warpRate);
+            bool suppressVisualFx = ShouldSuppressVisualFx(warpRate);
 
             for (int i = 0; i < committed.Count; i++)
             {
@@ -4595,7 +4588,8 @@ namespace Parsek
 
                 if (ShouldLoopPlayback(rec))
                 {
-                    UpdateLoopingTimelinePlayback(i, rec, currentUT, state, ghostActive);
+                    UpdateLoopingTimelinePlayback(i, rec, currentUT, state, ghostActive,
+                        suppressGhosts, suppressVisualFx);
                     continue;
                 }
 
@@ -4673,6 +4667,22 @@ namespace Parsek
 
                 if (inRange)
                 {
+                    // High time warp: hide ghost visuals for performance
+                    if (suppressGhosts)
+                    {
+                        if (ghostActive && state.ghost.activeSelf)
+                        {
+                            state.ghost.SetActive(false);
+                            ParsekLog.Info("Flight",
+                                $"Ghost #{i} \"{rec.VesselName}\" hidden: warp {warpRate.ToString("F1", CultureInfo.InvariantCulture)}x > {GhostHideWarpThreshold}x");
+                            if (watchedRecordingIndex == i)
+                                ExitWatchMode();
+                        }
+                        DestroyAllOverlapGhosts(i);
+                        if (rec.TreeId == null) ApplyResourceDeltas(rec, currentUT);
+                        continue;
+                    }
+
                     if (hasPoints)
                     {
                         // Normal ghost playback (point-based, with optional orbit segments)
@@ -4682,6 +4692,12 @@ namespace Parsek
                             state = ghostStates[i];
                             if (loggedGhostEnter.Add(i))
                                 Log($"Ghost ENTERED range: #{i} \"{rec.VesselName}\" at UT {currentUT:F1}");
+                        }
+                        else if (!state.ghost.activeSelf)
+                        {
+                            state.ghost.SetActive(true);
+                            ParsekLog.Info("Flight",
+                                $"Ghost #{i} \"{rec.VesselName}\" re-shown after warp-down");
                         }
 
                         int playbackIdx = state.playbackIndex;
@@ -4696,6 +4712,10 @@ namespace Parsek
 
                         ApplyPartEvents(i, rec, currentUT, state);
                         UpdateReentryFx(i, state, rec.VesselName);
+                        if (suppressVisualFx)
+                            StopAllRcsEmissions(state);
+                        else
+                            RestoreAllRcsEmissions(state);
                         if (rec.TreeId == null)
                             ApplyResourceDeltas(rec, currentUT);
                     }
@@ -4706,6 +4726,12 @@ namespace Parsek
                         {
                             SpawnTimelineGhost(i, rec);
                             state = ghostStates[i];
+                        }
+                        else if (!state.ghost.activeSelf)
+                        {
+                            state.ghost.SetActive(true);
+                            ParsekLog.Info("Flight",
+                                $"Ghost #{i} \"{rec.VesselName}\" (background) re-shown after warp-down");
                         }
                         if (state != null && state.ghost != null)
                         {
@@ -4721,6 +4747,10 @@ namespace Parsek
                         // Reentry FX: no InterpolationResult set for background-only path — bodyName stays null,
                         // so UpdateReentryFx will no-op. Intentional: on-rails vessels don't reenter.
                         UpdateReentryFx(i, state, rec.VesselName);
+                        if (suppressVisualFx)
+                            StopAllRcsEmissions(state);
+                        else
+                            RestoreAllRcsEmissions(state);
                         if (rec.TreeId == null)
                             ApplyResourceDeltas(rec, currentUT);
                     }
@@ -4732,33 +4762,58 @@ namespace Parsek
                     if (rec.Points.Count > 0)
                         PositionGhostAt(state.ghost, rec.Points[rec.Points.Count - 1], rec.RecordingFormatVersion >= 5);
 
-                    // Watch mode: exit and switch player to spawned vessel
-                    if (watchedRecordingIndex == i)
+                    if (IsAnyWarpActive())
                     {
-                        ExitWatchMode();
-                        VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
-                        DestroyTimelineGhost(i);
-                        if (rec.SpawnedVesselPersistentId != 0)
+                        // Defer spawn until warp ends — ProtoVessel.Load unsafe during warp
+                        if (watchedRecordingIndex == i)
                         {
-                            ParsekLog.Info("CameraFollow",
-                                $"Recording #{i} spawned vessel pid={rec.SpawnedVesselPersistentId} \u2014 switching active vessel");
-                            StartCoroutine(DeferredActivateVessel(rec.SpawnedVesselPersistentId));
+                            pendingWatchRecordingId = rec.RecordingId;
+                            ParsekLog.Info("Flight", $"Watch mode deferred for spawn: #{i} \"{rec.VesselName}\"");
+                            ExitWatchMode();
                         }
+                        if (pendingSpawnRecordingIds.Add(rec.RecordingId))
+                            ParsekLog.Info("Flight", $"Deferred spawn queued (ghost exit during warp): #{i} \"{rec.VesselName}\"");
+                        DestroyTimelineGhost(i);
                     }
                     else
                     {
-                        VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
-                        DestroyTimelineGhost(i);
+                        // Watch mode: exit and switch player to spawned vessel
+                        if (watchedRecordingIndex == i)
+                        {
+                            ExitWatchMode();
+                            VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
+                            DestroyTimelineGhost(i);
+                            if (rec.SpawnedVesselPersistentId != 0)
+                            {
+                                ParsekLog.Info("CameraFollow",
+                                    $"Recording #{i} spawned vessel pid={rec.SpawnedVesselPersistentId} \u2014 switching active vessel");
+                                StartCoroutine(DeferredActivateVessel(rec.SpawnedVesselPersistentId));
+                            }
+                        }
+                        else
+                        {
+                            VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
+                            DestroyTimelineGhost(i);
+                        }
                     }
                     if (rec.TreeId == null)
                         ApplyResourceDeltas(rec, currentUT);
                 }
                 else if (pastChainEnd && needsSpawn && !ghostActive)
                 {
-                    // UT already past chain EndUT on scene load — spawn immediately, no ghost
-                    Log($"Ghost SKIPPED (UT already past EndUT): #{i} \"{rec.VesselName}\" at UT {currentUT:F1} " +
-                        $"(EndUT={rec.EndUT:F1}) — spawning vessel immediately");
-                    VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
+                    if (IsAnyWarpActive())
+                    {
+                        // Defer spawn until warp ends — ProtoVessel.Load unsafe during warp
+                        if (pendingSpawnRecordingIds.Add(rec.RecordingId))
+                            ParsekLog.Info("Flight", $"Deferred spawn queued (past EndUT during warp): #{i} \"{rec.VesselName}\"");
+                    }
+                    else
+                    {
+                        // UT already past chain EndUT on scene load — spawn immediately, no ghost
+                        Log($"Ghost SKIPPED (UT already past EndUT): #{i} \"{rec.VesselName}\" at UT {currentUT:F1} " +
+                            $"(EndUT={rec.EndUT:F1}) — spawning vessel immediately");
+                        VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
+                    }
                     if (rec.TreeId == null)
                         ApplyResourceDeltas(rec, currentUT);
                 }
@@ -4861,12 +4916,31 @@ namespace Parsek
 
         private double GetLoopIntervalSeconds(RecordingStore.Recording rec)
         {
-            if (rec == null) return DefaultLoopIntervalSeconds;
-            if (double.IsNaN(rec.LoopIntervalSeconds) || double.IsInfinity(rec.LoopIntervalSeconds))
-                return DefaultLoopIntervalSeconds;
+            double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
+                                    ?? DefaultLoopIntervalSeconds;
+            return ResolveLoopInterval(rec, globalInterval, DefaultLoopIntervalSeconds, MinCycleDuration);
+        }
+
+        internal static double ResolveLoopInterval(
+            RecordingStore.Recording rec, double globalAutoInterval,
+            double defaultInterval, double minCycleDuration)
+        {
+            if (rec == null) return defaultInterval;
+
+            double interval;
+            if (rec.LoopTimeUnit == RecordingStore.LoopTimeUnit.Auto)
+            {
+                interval = double.IsNaN(globalAutoInterval) || double.IsInfinity(globalAutoInterval)
+                    ? defaultInterval : Math.Max(0, globalAutoInterval);
+            }
+            else
+            {
+                interval = double.IsNaN(rec.LoopIntervalSeconds) || double.IsInfinity(rec.LoopIntervalSeconds)
+                    ? defaultInterval : rec.LoopIntervalSeconds;
+            }
+
             double duration = rec.EndUT - rec.StartUT;
-            // Clamp so cycleDuration is always >= MinCycleDuration
-            return Math.Max(-duration + MinCycleDuration, rec.LoopIntervalSeconds);
+            return Math.Max(-duration + minCycleDuration, interval);
         }
 
         private bool TryComputeLoopPlaybackUT(
@@ -4911,15 +4985,33 @@ namespace Parsek
             RecordingStore.Recording rec,
             double currentUT,
             GhostPlaybackState state,
-            bool ghostActive)
+            bool ghostActive,
+            bool suppressGhosts,
+            bool suppressVisualFx)
         {
             double intervalSeconds = GetLoopIntervalSeconds(rec);
             double duration = rec.EndUT - rec.StartUT;
 
+            // High time warp: hide ghost, destroy overlaps
+            if (suppressGhosts)
+            {
+                if (ghostActive && state.ghost.activeSelf)
+                {
+                    state.ghost.SetActive(false);
+                    ParsekLog.Info("Flight",
+                        $"Ghost #{recIdx} \"{rec.VesselName}\" (loop) hidden: warp > {GhostHideWarpThreshold}x");
+                    if (watchedRecordingIndex == recIdx)
+                        ExitWatchMode();
+                }
+                DestroyAllOverlapGhosts(recIdx);
+                return;
+            }
+
             // For negative intervals: use multi-cycle overlap path
             if (intervalSeconds < 0)
             {
-                UpdateOverlapLoopPlayback(recIdx, rec, currentUT, state, ghostActive, intervalSeconds, duration);
+                UpdateOverlapLoopPlayback(recIdx, rec, currentUT, state, ghostActive,
+                    intervalSeconds, duration, suppressVisualFx);
                 return;
             }
 
@@ -5011,6 +5103,12 @@ namespace Parsek
                         $" camDist={FlightCamera.fetch.Distance:F1}");
                 }
             }
+            else if (ghostActive && !state.ghost.activeSelf)
+            {
+                state.ghost.SetActive(true);
+                ParsekLog.Info("Flight",
+                    $"Ghost #{recIdx} \"{rec.VesselName}\" (loop) re-shown after warp-down");
+            }
 
             if (state == null || state.ghost == null)
                 return;
@@ -5055,6 +5153,10 @@ namespace Parsek
 
             ApplyPartEvents(recIdx, rec, loopUT, state);
             UpdateReentryFx(recIdx, state, rec.VesselName);
+            if (suppressVisualFx)
+                StopAllRcsEmissions(state);
+            else
+                RestoreAllRcsEmissions(state);
         }
 
         /// <summary>
@@ -5068,7 +5170,8 @@ namespace Parsek
             GhostPlaybackState primaryState,
             bool primaryActive,
             double intervalSeconds,
-            double duration)
+            double duration,
+            bool suppressVisualFx)
         {
             if (currentUT < rec.StartUT)
             {
@@ -5159,6 +5262,10 @@ namespace Parsek
 
                 ApplyPartEvents(recIdx, rec, loopUT, primaryState);
                 UpdateReentryFx(recIdx, primaryState, rec.VesselName);
+                if (suppressVisualFx)
+                    StopAllRcsEmissions(primaryState);
+                else
+                    RestoreAllRcsEmissions(primaryState);
             }
 
             // Update overlap ghosts (older cycles)
@@ -5229,6 +5336,10 @@ namespace Parsek
 
                 ApplyPartEvents(recIdx, rec, loopUT, ovState);
                 UpdateReentryFx(recIdx, ovState, rec.VesselName);
+                if (suppressVisualFx)
+                    StopAllRcsEmissions(ovState);
+                else
+                    RestoreAllRcsEmissions(ovState);
             }
         }
 
@@ -5659,7 +5770,8 @@ namespace Parsek
             loggedGhostEnter.Clear();
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
-            warpStoppedForRecording.Clear();
+            pendingSpawnRecordingIds.Clear();
+            pendingWatchRecordingId = null;
             CleanupActiveExplosions();
         }
 
@@ -5677,6 +5789,16 @@ namespace Parsek
             if (!ShouldTriggerExplosion(state.explosionFired, rec.TerminalStateValue,
                     state.ghost != null, rec.VesselName, recIdx))
                 return;
+
+            if (ShouldSuppressVisualFx(TimeWarp.CurrentRate))
+            {
+                state.explosionFired = true;
+                HideAllGhostParts(state);
+                ParsekLog.VerboseRateLimited("ExplosionFx", $"explosion-suppress-{recIdx}",
+                    $"Explosion suppressed for ghost #{recIdx} \"{rec.VesselName}\": " +
+                    $"warp rate {TimeWarp.CurrentRate.ToString("F1", CultureInfo.InvariantCulture)}x > {FxSuppressWarpThreshold}x");
+                return;
+            }
 
             state.explosionFired = true;
 
@@ -5929,7 +6051,7 @@ namespace Parsek
             loggedGhostEnter.Clear();
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
-            warpStoppedForRecording.Clear();
+            pendingSpawnRecordingIds.Remove(rec.RecordingId);
 
             ParsekLog.ScreenMessage($"Recording '{rec.VesselName}' deleted", 2f);
         }
@@ -6197,6 +6319,7 @@ namespace Parsek
         internal static void SpawnPartPuffAtPart(GameObject ghost, uint persistentId)
         {
             if (ghost == null) return;
+            if (ShouldSuppressVisualFx(TimeWarp.CurrentRate)) return;
             var t = ghost.transform.Find($"ghost_part_{persistentId}");
             if (t == null)
             {
@@ -6744,6 +6867,13 @@ namespace Parsek
         {
             var info = state.reentryFxInfo;
             if (info == null || state.ghost == null) return;
+
+            if (ShouldSuppressVisualFx(TimeWarp.CurrentRate))
+            {
+                DriveReentryToZero(info, recIdx, state.lastInterpolatedBodyName,
+                    state.lastInterpolatedAltitude, vesselName);
+                return;
+            }
 
             Vector3 interpolatedVel = state.lastInterpolatedVelocity;
             string bodyName = state.lastInterpolatedBodyName;
@@ -7379,6 +7509,72 @@ namespace Parsek
             if (!IsAnyWarpActive()) return;
             TimeWarp.SetRate(0, true);
             Log($"Warp reset for playback start ({context})");
+        }
+
+        // KSP rails warp levels: 1, 5, 10, 50, 100, 1000, 10000, 100000.
+        // FX threshold: 10x is the last level where explosions/puffs/reentry/RCS look reasonable.
+        // Ghost threshold: 50x is the last level where ghost meshes update often enough to be useful.
+        internal const float FxSuppressWarpThreshold = 10f;
+        internal const float GhostHideWarpThreshold = 50f;
+
+        internal static bool ShouldSuppressVisualFx(float currentWarpRate)
+        {
+            return currentWarpRate > FxSuppressWarpThreshold;
+        }
+
+        internal static bool ShouldSuppressGhosts(float currentWarpRate)
+        {
+            return currentWarpRate > GhostHideWarpThreshold;
+        }
+
+        internal static void StopAllRcsEmissions(GhostPlaybackState state)
+        {
+            if (state?.rcsInfos == null) return;
+            if (state.rcsSuppressed) return;
+            state.rcsSuppressed = true;
+            foreach (var info in state.rcsInfos.Values)
+                for (int j = 0; j < info.particleSystems.Count; j++)
+                {
+                    var ps = info.particleSystems[j];
+                    if (ps != null)
+                    {
+                        var em = ps.emission;
+                        if (em.enabled) em.enabled = false;
+                    }
+                }
+        }
+
+        internal static void RestoreAllRcsEmissions(GhostPlaybackState state)
+        {
+            if (state?.rcsInfos == null) return;
+            if (!state.rcsSuppressed) return;
+            state.rcsSuppressed = false;
+            foreach (var info in state.rcsInfos.Values)
+                for (int j = 0; j < info.particleSystems.Count; j++)
+                {
+                    var ps = info.particleSystems[j];
+                    if (ps != null)
+                    {
+                        var em = ps.emission;
+                        em.enabled = true;
+                        if (!ps.isPlaying) ps.Play();
+                    }
+                }
+        }
+
+        internal static bool ShouldFlushDeferredSpawns(int pendingCount, bool isWarpActive)
+        {
+            return pendingCount > 0 && !isWarpActive;
+        }
+
+        internal static bool ShouldSkipDeferredSpawn(bool vesselSpawned, bool hasSnapshot)
+        {
+            return vesselSpawned || !hasSnapshot;
+        }
+
+        internal static bool ShouldRestoreWatchMode(string pendingWatchId, string recordingId, uint spawnedPid)
+        {
+            return pendingWatchId != null && pendingWatchId == recordingId && spawnedPid != 0;
         }
 
         internal static bool ShouldPauseTimelineResourceReplay(bool isRecording)
