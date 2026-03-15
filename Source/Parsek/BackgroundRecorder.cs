@@ -634,6 +634,8 @@ namespace Parsek
         /// Pre-populates a BackgroundVesselState's tracking sets with the current
         /// state of every part on the vessel. Mirrors FlightRecorder.SeedExistingPartStates.
         /// </summary>
+        // TODO: ~340 lines of per-part seeding logic duplicated from FlightRecorder.SeedExistingPartStates.
+        // Extract shared static helpers that take tracking set collections as parameters.
         private static void SeedBackgroundPartStates(Vessel v, BackgroundVesselState state)
         {
             if (v == null || v.parts == null) return;
@@ -1338,79 +1340,16 @@ namespace Parsek
                 uint pid = part.persistentId;
                 string partName = part.partInfo?.name ?? "unknown";
 
-                if (active)
+                var events = FlightRecorder.ProcessRcsDebounce(
+                    key, pid, moduleIndex, partName,
+                    active, rcs.thrustForces, rcs.thrusterPower, ut,
+                    state.rcsActiveFrameCount, state.activeRcsKeys, state.lastRcsThrottle);
+                for (int e = 0; e < events.Count; e++)
                 {
-                    int count;
-                    state.rcsActiveFrameCount.TryGetValue(key, out count);
-                    count++;
-                    state.rcsActiveFrameCount[key] = count;
-
-                    if (FlightRecorder.ShouldStartRcsRecording(count, FlightRecorder.RcsDebounceFrameThreshold))
-                    {
-                        // Debounce threshold crossed — emit RCSActivated
-                        float power = FlightRecorder.ComputeRcsPower(rcs.thrustForces, rcs.thrusterPower);
-                        ParsekLog.Verbose("BgRecorder", $"RCS debounce threshold crossed: pid={pid} midx={moduleIndex} after {count} frames (bg vessel {state.vesselPid})");
-                        var events = FlightRecorder.CheckRcsTransition(
-                            key, pid, moduleIndex, partName,
-                            true, power,
-                            state.activeRcsKeys, state.lastRcsThrottle, ut);
-                        for (int e = 0; e < events.Count; e++)
-                        {
-                            treeRec.PartEvents.Add(events[e]);
-                            ParsekLog.Verbose("BgRecorder", $"Part event: {events[e].eventType} '{events[e].partName}' " +
-                                $"pid={events[e].partPersistentId} midx={events[e].moduleIndex} " +
-                                $"val={events[e].value:F2} (bg vessel {state.vesselPid})");
-                        }
-                    }
-                    else if (count > FlightRecorder.RcsDebounceFrameThreshold)
-                    {
-                        // Already recording — check for throttle changes
-                        float power = FlightRecorder.ComputeRcsPower(rcs.thrustForces, rcs.thrusterPower);
-                        var events = FlightRecorder.CheckRcsTransition(
-                            key, pid, moduleIndex, partName,
-                            true, power,
-                            state.activeRcsKeys, state.lastRcsThrottle, ut);
-                        for (int e = 0; e < events.Count; e++)
-                        {
-                            treeRec.PartEvents.Add(events[e]);
-                            ParsekLog.Verbose("BgRecorder", $"Part event: {events[e].eventType} '{events[e].partName}' " +
-                                $"pid={events[e].partPersistentId} midx={events[e].moduleIndex} " +
-                                $"val={events[e].value:F2} (bg vessel {state.vesselPid})");
-                        }
-                    }
-                    // else: count < threshold, still debouncing — skip
-                }
-                else
-                {
-                    // RCS not active this frame
-                    int count;
-                    if (state.rcsActiveFrameCount.TryGetValue(key, out count))
-                    {
-                        if (FlightRecorder.IsRcsRecordingSustained(count, FlightRecorder.RcsDebounceFrameThreshold))
-                        {
-                            // Was a sustained activation — emit RCSStopped
-                            var events = FlightRecorder.CheckRcsTransition(
-                                key, pid, moduleIndex, partName,
-                                false, 0f,
-                                state.activeRcsKeys, state.lastRcsThrottle, ut);
-                            for (int e = 0; e < events.Count; e++)
-                            {
-                                treeRec.PartEvents.Add(events[e]);
-                                ParsekLog.Verbose("BgRecorder", $"Part event: {events[e].eventType} '{events[e].partName}' " +
-                                    $"pid={events[e].partPersistentId} midx={events[e].moduleIndex} " +
-                                    $"val={events[e].value:F2} (bg vessel {state.vesselPid})");
-                            }
-                        }
-                        else
-                        {
-                            // Filtered micro-correction — clean up any stale state
-                            ParsekLog.VerboseRateLimited("BgRecorder", $"rcs_micro_bg_{key}",
-                                $"RCS micro-correction filtered: pid={pid} midx={moduleIndex}, {count} frames < {FlightRecorder.RcsDebounceFrameThreshold} (bg vessel {state.vesselPid})");
-                            state.activeRcsKeys.Remove(key);
-                            state.lastRcsThrottle.Remove(key);
-                        }
-                        state.rcsActiveFrameCount.Remove(key);
-                    }
+                    treeRec.PartEvents.Add(events[e]);
+                    ParsekLog.Verbose("BgRecorder", $"Part event: {events[e].eventType} '{events[e].partName}' " +
+                        $"pid={events[e].partPersistentId} midx={events[e].moduleIndex} " +
+                        $"val={events[e].value:F2} (bg vessel {state.vesselPid})");
                 }
             }
         }
