@@ -40,6 +40,18 @@ namespace Parsek
             toolTip = "Speed change (percent) that triggers a new sample")]
         public float speedChangeThreshold = 5.0f;
 
+        public float autoLoopIntervalSeconds = 10.0f;
+        public int autoLoopTimeUnit = 0; // 0=Sec, 1=Min, 2=Hour
+
+        public RecordingStore.LoopTimeUnit AutoLoopDisplayUnit
+        {
+            get => autoLoopTimeUnit == 1 ? RecordingStore.LoopTimeUnit.Min
+                 : autoLoopTimeUnit == 2 ? RecordingStore.LoopTimeUnit.Hour
+                 : RecordingStore.LoopTimeUnit.Sec;
+            set => autoLoopTimeUnit = value == RecordingStore.LoopTimeUnit.Min ? 1
+                 : value == RecordingStore.LoopTimeUnit.Hour ? 2 : 0;
+        }
+
         public static ParsekSettings Current =>
             HighLogic.CurrentGame?.Parameters?.CustomParams<ParsekSettings>();
     }

@@ -272,8 +272,8 @@ namespace Parsek
         private string pendingWatchRecordingId = null;  // recording ID that was in watch mode when deferred
         private bool timelineResourceReplayPausedLogged = false;
         private const double DefaultLoopIntervalSeconds = 10.0;
-        private const double MinLoopDurationSeconds = 0.001;
-        private const double MinCycleDuration = 0.001;
+        private const double MinLoopDurationSeconds = 1.0;
+        private const double MinCycleDuration = 1.0;
         private const double OverlapExplosionHoldSeconds = 3.0;
 
         // Camera follow (watch mode) — transient, never serialized
@@ -4849,12 +4849,31 @@ namespace Parsek
 
         private double GetLoopIntervalSeconds(RecordingStore.Recording rec)
         {
-            if (rec == null) return DefaultLoopIntervalSeconds;
-            if (double.IsNaN(rec.LoopIntervalSeconds) || double.IsInfinity(rec.LoopIntervalSeconds))
-                return DefaultLoopIntervalSeconds;
+            double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
+                                    ?? DefaultLoopIntervalSeconds;
+            return ResolveLoopInterval(rec, globalInterval, DefaultLoopIntervalSeconds, MinCycleDuration);
+        }
+
+        internal static double ResolveLoopInterval(
+            RecordingStore.Recording rec, double globalAutoInterval,
+            double defaultInterval, double minCycleDuration)
+        {
+            if (rec == null) return defaultInterval;
+
+            double interval;
+            if (rec.LoopTimeUnit == RecordingStore.LoopTimeUnit.Auto)
+            {
+                interval = double.IsNaN(globalAutoInterval) || double.IsInfinity(globalAutoInterval)
+                    ? defaultInterval : Math.Max(0, globalAutoInterval);
+            }
+            else
+            {
+                interval = double.IsNaN(rec.LoopIntervalSeconds) || double.IsInfinity(rec.LoopIntervalSeconds)
+                    ? defaultInterval : rec.LoopIntervalSeconds;
+            }
+
             double duration = rec.EndUT - rec.StartUT;
-            // Clamp so cycleDuration is always >= MinCycleDuration
-            return Math.Max(-duration + MinCycleDuration, rec.LoopIntervalSeconds);
+            return Math.Max(-duration + minCycleDuration, interval);
         }
 
         private bool TryComputeLoopPlaybackUT(
