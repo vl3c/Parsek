@@ -375,168 +375,9 @@ namespace Parsek
 
         void Update()
         {
-            // Auto-clear stale boarding confirmation after 3 frames
-            if (pendingBoardingTargetPid != 0)
-            {
-                boardingConfirmFrames++;
-                if (boardingConfirmFrames > 3)
-                {
-                    ParsekLog.Info("Flight", $"Boarding confirmation expired (targetPid={pendingBoardingTargetPid})");
-                    pendingBoardingTargetPid = 0;
-                    boardingConfirmFrames = 0;
-                }
-            }
-
-            // Auto-clear stale dock/undock confirmation after 5 frames
-            if (pendingDockMergedPid != 0)
-            {
-                dockConfirmFrames++;
-                if (dockConfirmFrames > 5)
-                {
-                    ParsekLog.Info("Flight", $"Dock confirmation expired (mergedPid={pendingDockMergedPid}, treeDock={pendingTreeDockMerge}, absorbedPid={pendingDockAbsorbedPid})");
-                    if (pendingDockAbsorbedPid != 0)
-                        dockingInProgress.Remove(pendingDockAbsorbedPid);
-                    pendingDockMergedPid = 0;
-                    pendingDockAsTarget = false;
-                    pendingTreeDockMerge = false;
-                    pendingDockAbsorbedPid = 0;
-                    dockConfirmFrames = 0;
-                }
-            }
-            if (pendingUndockOtherPid != 0)
-            {
-                undockConfirmFrames++;
-                if (undockConfirmFrames > 5)
-                {
-                    ParsekLog.Info("Flight", $"Undock confirmation expired (otherPid={pendingUndockOtherPid})");
-                    pendingUndockOtherPid = 0;
-                    undockConfirmFrames = 0;
-                }
-            }
-
-            // Tree mode: dock merge -- create merge branch point
-            if (activeTree != null && pendingTreeDockMerge && recorder != null
-                && !recorder.IsRecording && recorder.CaptureAtStop != null)
-            {
-                double mergeUT = Planetarium.GetUniversalTime();
-                if (recorder.CaptureAtStop.Points.Count > 0)
-                    mergeUT = recorder.CaptureAtStop.Points[recorder.CaptureAtStop.Points.Count - 1].ut;
-
-                // Determine parent recording IDs
-                string activeParentId = activeTree.ActiveRecordingId;
-                string bgParentId = null;
-                // The background partner is whichever vessel (absorbed OR merged) is in BackgroundMap.
-                // When we're the TARGET: absorbed vessel is in BackgroundMap.
-                // When we're the INITIATOR: merged (surviving) vessel is in BackgroundMap.
-                if (pendingDockAbsorbedPid != 0)
-                    activeTree.BackgroundMap.TryGetValue(pendingDockAbsorbedPid, out bgParentId);
-                if (bgParentId == null && pendingDockMergedPid != 0)
-                    activeTree.BackgroundMap.TryGetValue(pendingDockMergedPid, out bgParentId);
-
-                var stoppedRecorder = recorder;
-                recorder = null;
-
-                CreateMergeBranch(
-                    BranchPointType.Dock,
-                    pendingDockMergedPid,
-                    activeParentId,
-                    bgParentId,
-                    mergeUT,
-                    stoppedRecorder);
-
-                // Clean up
-                if (pendingDockAbsorbedPid != 0)
-                    dockingInProgress.Remove(pendingDockAbsorbedPid);
-
-                pendingTreeDockMerge = false;
-                pendingDockMergedPid = 0;
-                pendingDockAbsorbedPid = 0;
-                dockConfirmFrames = 0;
-                pendingDockAsTarget = false;
-
-                Log("Tree dock merge completed");
-            }
-
-            // Dock: initiator (pid changed, recorder already stopped by OnPhysicsFrame)
-            if (recorder != null && recorder.DockMergePending &&
-                !recorder.IsRecording && recorder.CaptureAtStop != null)
-            {
-                CommitDockUndockSegment(recorder, PartEventType.Docked, pendingDockMergedPid);
-                recorder = null;
-                StartRecording();
-                if (IsRecording)
-                {
-                    // Pass undock continuation pid so OnPhysicsFrame can detect sibling switch
-                    recorder.UndockSiblingPid = undockContinuationPid;
-                    Log($"Recording continues after dock (chain={activeChainId}, idx={activeChainNextIndex})");
-                    ScreenMessage("Recording continues (docked)", 2f);
-                }
-                pendingDockMergedPid = 0;
-                pendingDockAsTarget = false;
-                dockConfirmFrames = 0;
-            }
-
-            // Dock: target (pid unchanged, recorder already stopped by OnPartCouple)
-            if (pendingDockAsTarget && recorder != null &&
-                !recorder.IsRecording && recorder.CaptureAtStop != null)
-            {
-                CommitDockUndockSegment(recorder, PartEventType.Docked, pendingDockMergedPid);
-                recorder = null;
-                StartRecording();
-                if (IsRecording)
-                {
-                    recorder.UndockSiblingPid = undockContinuationPid;
-                    Log($"Recording continues after dock as target (chain={activeChainId}, idx={activeChainNextIndex})");
-                    ScreenMessage("Recording continues (docked)", 2f);
-                }
-                pendingDockAsTarget = false;
-                pendingDockMergedPid = 0;
-                dockConfirmFrames = 0;
-            }
-
-            // Undock: player stays on remaining vessel (same pid, recorder stopped by StopRecordingForChainBoundary)
-            if (pendingUndockOtherPid != 0 && recorder != null &&
-                !recorder.IsRecording && recorder.CaptureAtStop != null &&
-                !recorder.UndockSwitchPending)
-            {
-                CommitDockUndockSegment(recorder, PartEventType.Undocked, 0);
-                recorder = null;
-                StartRecording();
-                if (IsRecording)
-                {
-                    StartUndockContinuation(pendingUndockOtherPid);
-                    recorder.UndockSiblingPid = undockContinuationPid;
-                    Log($"Recording continues after undock (chain={activeChainId}, idx={activeChainNextIndex})");
-                    ScreenMessage("Recording continues (undocked)", 2f);
-                }
-                pendingUndockOtherPid = 0;
-                undockConfirmFrames = 0;
-            }
-
-            // Undock: player switched to undocked vessel (pid changed, recorder stopped by OnPhysicsFrame)
-            if (recorder != null && recorder.UndockSwitchPending &&
-                !recorder.IsRecording && recorder.CaptureAtStop != null)
-            {
-                uint oldPid = recorder.RecordingVesselId;
-                CommitDockUndockSegment(recorder, PartEventType.Undocked, 0);
-                recorder = null;
-
-                // Stop existing undock continuation (we're switching roles)
-                if (undockContinuationPid != 0)
-                    StopUndockContinuation("sibling switch");
-
-                StartRecording();
-                if (IsRecording)
-                {
-                    // The "old" vessel (remaining) becomes continuation
-                    StartUndockContinuation(oldPid);
-                    recorder.UndockSiblingPid = undockContinuationPid;
-                    Log($"Recording continues after undock switch (chain={activeChainId}, idx={activeChainNextIndex})");
-                    ScreenMessage("Recording continues (undocked)", 2f);
-                }
-                pendingUndockOtherPid = 0;
-                undockConfirmFrames = 0;
-            }
+            ClearStaleConfirmations();
+            HandleTreeDockMerge();
+            HandleDockUndockCommitRestart();
 
             // Chain: auto-commit previous segment when recording stopped (EVA exit)
             // VesselSnapshot nulled in CommitChainSegment — mid-chain segments are ghost-only.
@@ -548,149 +389,11 @@ namespace Parsek
                 // pendingAutoRecord is still true — will start child EVA recording next
             }
 
-            // Tree mode: board merge -- create merge branch point
-            if (activeTree != null && recorder != null && recorder.ChainToVesselPending
-                && !recorder.IsRecording && recorder.CaptureAtStop != null
-                && pendingBoardingTargetPid != 0
-                && FlightGlobals.ActiveVessel != null
-                && FlightGlobals.ActiveVessel.persistentId == pendingBoardingTargetPid)
-            {
-                double mergeUT = Planetarium.GetUniversalTime();
-                if (recorder.CaptureAtStop.Points.Count > 0)
-                    mergeUT = recorder.CaptureAtStop.Points[recorder.CaptureAtStop.Points.Count - 1].ut;
-
-                uint mergedPid = pendingBoardingTargetPid;
-
-                string activeParentId = activeTree.ActiveRecordingId;
-                string bgParentId = null;
-                if (pendingBoardingTargetInTree)
-                    activeTree.BackgroundMap.TryGetValue(mergedPid, out bgParentId);
-
-                // Fix 5: clear ChainToVesselPending before CreateMergeBranch
-                recorder.ChainToVesselPending = false;
-                var stoppedRecorder = recorder;
-                recorder = null;
-
-                CreateMergeBranch(
-                    BranchPointType.Board,
-                    mergedPid,
-                    activeParentId,
-                    bgParentId,
-                    mergeUT,
-                    stoppedRecorder);
-
-                pendingBoardingTargetPid = 0;
-                boardingConfirmFrames = 0;
-                pendingBoardingTargetInTree = false;
-                activeChainCrewName = null;
-
-                Log("Tree board merge completed");
-            }
-
-            // Chain: auto-commit EVA segment when boarding detected (EVA→vessel)
-            if (recorder != null && recorder.ChainToVesselPending && !recorder.IsRecording && recorder.CaptureAtStop != null)
-            {
-                // Only continue the chain if we're already in one AND the boarding event confirmed
-                if (activeChainId != null &&
-                    pendingBoardingTargetPid != 0 &&
-                    FlightGlobals.ActiveVessel != null &&
-                    FlightGlobals.ActiveVessel.persistentId == pendingBoardingTargetPid)
-                {
-                    Log($"Chain boarding confirmed: EVA→vessel pid={pendingBoardingTargetPid}");
-                    pendingBoardingTargetPid = 0;
-                    boardingConfirmFrames = 0;
-
-                    CommitChainSegment(recorder, activeChainCrewName);
-                    recorder = null;
-
-                    // Start new vessel recording on the boarded vessel
-                    activeChainCrewName = null; // vessel segment, not EVA
-                    StartRecording();
-                    if (IsRecording)
-                    {
-                        Log($"Chain vessel recording started (chain={activeChainId}, idx={activeChainNextIndex})");
-                        ScreenMessage("Recording STARTED (boarded vessel)", 2f);
-                    }
-                }
-                else
-                {
-                    // Not in a chain or boarding not confirmed — treat as normal stop
-                    recorder.ChainToVesselPending = false;
-                    pendingBoardingTargetPid = 0;
-                    boardingConfirmFrames = 0;
-                    Log("ChainToVessel without active chain or boarding confirmation — treating as normal stop");
-                    ParsekLog.ScreenMessage("Recording stopped — vessel changed", 3f);
-                    // Leave CaptureAtStop intact for normal revert/merge handling
-                }
-            }
-
-            // Atmosphere boundary: auto-split when crossing atmosphere edge
-            if (recorder != null && recorder.IsRecording && recorder.AtmosphereBoundaryCrossed &&
-                ParsekSettings.Current?.autoSplitAtAtmosphere != false)
-            {
-                string phase = recorder.EnteredAtmosphere ? "exo" : "atmo";
-                string newPhase = recorder.EnteredAtmosphere ? "atmo" : "exo";
-                string bodyName = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
-                ParsekLog.Info("Flight", $"Atmosphere auto-split triggered: {bodyName} {phase}→{newPhase} " +
-                    $"(chain={activeChainId ?? "(new)"}, points={recorder.Recording.Count})");
-                recorder.StopRecordingForChainBoundary();
-                CommitBoundarySplit(phase, bodyName);
-                recorder = null;
-                StartRecording();
-                if (IsRecording)
-                {
-                    recorder.UndockSiblingPid = undockContinuationPid;
-                    ParsekLog.Info("Flight", $"Recording continues after atmosphere boundary " +
-                        $"(chain={activeChainId}, idx={activeChainNextIndex}, {bodyName} {phase}→{newPhase})");
-                    ParsekLog.ScreenMessage($"Recording continues ({(newPhase == "atmo" ? "entering" : "exiting")} atmosphere)", 2f);
-                }
-            }
-
-            // SOI change: auto-split when transitioning between celestial bodies
-            if (recorder != null && recorder.IsRecording && recorder.SoiChangePending &&
-                ParsekSettings.Current?.autoSplitAtSoi != false)
-            {
-                string fromBody = recorder.SoiChangeFromBody ?? "Unknown";
-                string toBody = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
-                // Completed segment was at fromBody — tag as "exo" if it has atmosphere, "space" otherwise
-                CelestialBody fromCB = FlightGlobals.Bodies?.Find(b => b.name == fromBody);
-                string fromPhase = (fromCB != null && fromCB.atmosphere) ? "exo" : "space";
-                ParsekLog.Info("Flight", $"SOI auto-split triggered: {fromBody} ({fromPhase}) → {toBody} " +
-                    $"(chain={activeChainId ?? "(new)"}, points={recorder.Recording.Count})");
-                recorder.StopRecordingForChainBoundary();
-                CommitBoundarySplit(fromPhase, fromBody);
-                recorder = null;
-                StartRecording();
-                if (IsRecording)
-                {
-                    recorder.UndockSiblingPid = undockContinuationPid;
-                    ParsekLog.Info("Flight", $"Recording continues after SOI change " +
-                        $"({fromBody} → {toBody}, chain={activeChainId}, idx={activeChainNextIndex})");
-                    ParsekLog.ScreenMessage($"Recording continues (entering {toBody} SOI)", 2f);
-                }
-            }
-
-            // Tree mode: flush backgrounded recorder after OnPhysicsFrame detected the switch
-            if (activeTree != null && recorder != null && recorder.TransitionToBackgroundPending
-                && recorder.IsBackgrounded)
-            {
-                FlushRecorderToTreeRecording(recorder, activeTree);
-
-                // Add old vessel to BackgroundMap
-                string oldRecId = activeTree.ActiveRecordingId;
-                RecordingStore.Recording oldRec;
-                uint bgPidUpdate = 0;
-                if (oldRecId != null && activeTree.Recordings.TryGetValue(oldRecId, out oldRec)
-                    && oldRec.VesselPersistentId != 0)
-                {
-                    activeTree.BackgroundMap[oldRec.VesselPersistentId] = oldRecId;
-                    bgPidUpdate = oldRec.VesselPersistentId;
-                }
-                activeTree.ActiveRecordingId = null;
-                recorder = null;
-                if (bgPidUpdate != 0) backgroundRecorder?.OnVesselBackgrounded(bgPidUpdate);
-                Log($"Tree: recorder flushed to background (recId={oldRecId})");
-            }
+            HandleTreeBoardMerge();
+            HandleChainBoardingTransition();
+            HandleAtmosphereBoundarySplit();
+            HandleSoiChangeSplit();
+            HandleTreeBackgroundFlush();
 
             // Background recorder: update on-rails background vessels
             if (backgroundRecorder != null)
@@ -698,80 +401,13 @@ namespace Parsek
                 backgroundRecorder.UpdateOnRails(Planetarium.GetUniversalTime());
             }
 
-            // Joint break deferred check: if FlightRecorder signaled a joint break,
-            // stop recorder and start deferred vessel-creation check
-            if (!pendingSplitInProgress && recorder != null && recorder.IsRecording
-                && recorder.ConsumePendingJointBreakCheck())
-            {
-                // Snapshot existing vessel PIDs so the deferred check can identify NEW vessels
-                preBreakVesselPids = new HashSet<uint>();
-                if (FlightGlobals.Vessels != null)
-                {
-                    for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
-                    {
-                        Vessel v = FlightGlobals.Vessels[i];
-                        if (v != null) preBreakVesselPids.Add(v.persistentId);
-                    }
-                }
-                recorder.StopRecordingForChainBoundary();
-                pendingSplitRecorder = recorder;
-                recorder = null;
-                pendingSplitInProgress = true;
-                Log("Joint break detected — starting deferred vessel split check");
-                StartCoroutine(DeferredJointBreakCheck());
-            }
+            HandleJointBreakDeferredCheck();
 
             // Skip auto-record and chain handlers while a split is being processed
-            if (pendingSplitInProgress)
-            {
-                // Still run playback, input, and continuation sampling
-                UpdateContinuationSampling();
-                UpdateUndockContinuationSampling();
-                HandleInput();
-                if (isPlaying) UpdatePlayback();
-                UpdateTimelinePlayback();
-                return;
-            }
+            if (TryHandlePendingSplit()) return;
 
-            // Complete deferred auto-record for EVA (vessel switch may take a frame)
-            if (pendingAutoRecord && !IsRecording &&
-                FlightGlobals.ActiveVessel != null && FlightGlobals.ActiveVessel.isEVA)
-            {
-                StartRecording();
-
-                if (IsRecording)
-                {
-                    pendingAutoRecord = false;
-
-                    if (pendingChainContinuation)
-                    {
-                        pendingChainContinuation = false;
-                        pendingChainEvaName = null;
-                        Log($"Chain EVA recording started (chain={activeChainId}, idx={activeChainNextIndex}, crew={activeChainCrewName})");
-                        ScreenMessage("Recording STARTED (EVA chain)", 2f);
-                    }
-                    else
-                    {
-                        Log("Auto-record started (EVA from pad)");
-                        ScreenMessage("Recording STARTED (auto — EVA from pad)", 2f);
-                    }
-                }
-                // else: StartRecording failed (paused game or no active vessel).
-                // Keep pending flags so we retry next frame; fall through to
-                // HandleInput/playback so they aren't starved.
-            }
-
-            UpdateContinuationSampling();
-            UpdateUndockContinuationSampling();
-
-            HandleInput();
-
-            if (isPlaying)
-            {
-                UpdatePlayback();
-            }
-
-            UpdateTimelinePlayback();
+            HandleDeferredAutoRecordEva();
+            DispatchUpdateTail();
         }
 
         /// <summary>
@@ -815,71 +451,7 @@ namespace Parsek
                     }
                     case GhostPosMode.Orbit:
                     {
-                        Orbit orbit;
-                        if (orbitCache.TryGetValue(e.orbitCacheKey, out orbit))
-                        {
-                            Vector3d pos = orbit.getPositionAtUT(e.orbitUT);
-                            e.ghost.transform.position = pos;
-
-                            Vector3d vel = orbit.getOrbitalVelocityAtUT(e.orbitUT);
-
-                            if (e.isSpinning)
-                            {
-                                // Spin-forward: recompute boundary world rotation (positions may have shifted by FloatingOrigin)
-                                Vector3d velAtStart = orbit.getOrbitalVelocityAtUT(e.orbitSegmentStartUT);
-                                Vector3d posAtStart = orbit.getPositionAtUT(e.orbitSegmentStartUT);
-
-                                if (e.orbitBody != null)
-                                {
-                                    Vector3d radialAtStart = (posAtStart - (Vector3d)e.orbitBody.position).normalized;
-                                    Quaternion orbFrameAtStart;
-                                    if (Mathf.Abs(Vector3.Dot(((Vector3)velAtStart).normalized, ((Vector3)radialAtStart).normalized)) > 0.99f)
-                                        orbFrameAtStart = Quaternion.LookRotation(velAtStart, Vector3.up);
-                                    else
-                                        orbFrameAtStart = Quaternion.LookRotation(velAtStart, radialAtStart);
-
-                                    Quaternion bwRot = orbFrameAtStart * e.orbitFrameRot;
-                                    double dt = e.orbitUT - e.orbitSegmentStartUT;
-                                    Vector3 worldAxis = bwRot * e.orbitAngularVelocity;
-                                    float angle = (float)((double)e.orbitAngularVelocity.magnitude * dt * Mathf.Rad2Deg);
-                                    e.ghost.transform.rotation = Quaternion.AngleAxis(angle, worldAxis) * bwRot;
-                                }
-                                else
-                                {
-                                    // Body null fallback
-                                    if (vel.sqrMagnitude > 0.001)
-                                        e.ghost.transform.rotation = Quaternion.LookRotation(vel);
-                                    ParsekLog.VerboseRateLimited("Playback", $"orbit-late-body-null-{e.orbitCacheKey}",
-                                        $"Orbit LateUpdate: orbitBody null for cache={e.orbitCacheKey}, velocity fallback");
-                                }
-                            }
-                            else if (e.hasOrbitFrameRot && vel.sqrMagnitude > 0.001)
-                            {
-                                // Orbital-frame-relative path
-                                if (e.orbitBody != null)
-                                {
-                                    Vector3d radialOut = (pos - (Vector3d)e.orbitBody.position).normalized;
-                                    Quaternion orbFrame;
-                                    if (Mathf.Abs(Vector3.Dot(((Vector3)vel).normalized, ((Vector3)radialOut).normalized)) > 0.99f)
-                                        orbFrame = Quaternion.LookRotation(vel, Vector3.up);
-                                    else
-                                        orbFrame = Quaternion.LookRotation(vel, radialOut);
-
-                                    e.ghost.transform.rotation = orbFrame * e.orbitFrameRot;
-                                }
-                                else
-                                {
-                                    e.ghost.transform.rotation = Quaternion.LookRotation(vel);
-                                    ParsekLog.VerboseRateLimited("Playback", $"orbit-late-body-null-{e.orbitCacheKey}",
-                                        $"Orbit LateUpdate: orbitBody null for cache={e.orbitCacheKey}, velocity fallback");
-                                }
-                            }
-                            else if (vel.sqrMagnitude > 0.001)
-                            {
-                                // Prograde fallback (old recordings)
-                                e.ghost.transform.rotation = Quaternion.LookRotation(vel);
-                            }
-                        }
+                        ReapplyOrbitGhostPosition(e);
                         break;
                     }
                     case GhostPosMode.Surface:
@@ -969,6 +541,540 @@ namespace Parsek
 
             ui?.Cleanup();
         }
+
+        #region Update Extracted Steps
+
+        /// <summary>
+        /// Auto-clear stale boarding/dock/undock confirmations that were not consumed
+        /// within their frame windows (3 frames for boarding, 5 for dock/undock).
+        /// </summary>
+        private void ClearStaleConfirmations()
+        {
+            // Auto-clear stale boarding confirmation after 3 frames
+            if (pendingBoardingTargetPid != 0)
+            {
+                boardingConfirmFrames++;
+                if (boardingConfirmFrames > 3)
+                {
+                    ParsekLog.Info("Flight", $"Boarding confirmation expired (targetPid={pendingBoardingTargetPid})");
+                    pendingBoardingTargetPid = 0;
+                    boardingConfirmFrames = 0;
+                }
+            }
+
+            // Auto-clear stale dock confirmation after 5 frames
+            if (pendingDockMergedPid != 0)
+            {
+                dockConfirmFrames++;
+                if (dockConfirmFrames > 5)
+                {
+                    ParsekLog.Info("Flight", $"Dock confirmation expired (mergedPid={pendingDockMergedPid}, treeDock={pendingTreeDockMerge}, absorbedPid={pendingDockAbsorbedPid})");
+                    if (pendingDockAbsorbedPid != 0)
+                        dockingInProgress.Remove(pendingDockAbsorbedPid);
+                    pendingDockMergedPid = 0;
+                    pendingDockAsTarget = false;
+                    pendingTreeDockMerge = false;
+                    pendingDockAbsorbedPid = 0;
+                    dockConfirmFrames = 0;
+                }
+            }
+
+            // Auto-clear stale undock confirmation after 5 frames
+            if (pendingUndockOtherPid != 0)
+            {
+                undockConfirmFrames++;
+                if (undockConfirmFrames > 5)
+                {
+                    ParsekLog.Info("Flight", $"Undock confirmation expired (otherPid={pendingUndockOtherPid})");
+                    pendingUndockOtherPid = 0;
+                    undockConfirmFrames = 0;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Tree mode: dock merge -- create merge branch point when both sides are ready.
+        /// </summary>
+        private void HandleTreeDockMerge()
+        {
+            if (activeTree == null || !pendingTreeDockMerge || recorder == null
+                || recorder.IsRecording || recorder.CaptureAtStop == null)
+                return;
+
+            double mergeUT = Planetarium.GetUniversalTime();
+            if (recorder.CaptureAtStop.Points.Count > 0)
+                mergeUT = recorder.CaptureAtStop.Points[recorder.CaptureAtStop.Points.Count - 1].ut;
+
+            // Determine parent recording IDs
+            string activeParentId = activeTree.ActiveRecordingId;
+            string bgParentId = null;
+            // The background partner is whichever vessel (absorbed OR merged) is in BackgroundMap.
+            // When we're the TARGET: absorbed vessel is in BackgroundMap.
+            // When we're the INITIATOR: merged (surviving) vessel is in BackgroundMap.
+            if (pendingDockAbsorbedPid != 0)
+                activeTree.BackgroundMap.TryGetValue(pendingDockAbsorbedPid, out bgParentId);
+            if (bgParentId == null && pendingDockMergedPid != 0)
+                activeTree.BackgroundMap.TryGetValue(pendingDockMergedPid, out bgParentId);
+
+            var stoppedRecorder = recorder;
+            recorder = null;
+
+            CreateMergeBranch(
+                BranchPointType.Dock,
+                pendingDockMergedPid,
+                activeParentId,
+                bgParentId,
+                mergeUT,
+                stoppedRecorder);
+
+            // Clean up
+            if (pendingDockAbsorbedPid != 0)
+                dockingInProgress.Remove(pendingDockAbsorbedPid);
+
+            pendingTreeDockMerge = false;
+            pendingDockMergedPid = 0;
+            pendingDockAbsorbedPid = 0;
+            dockConfirmFrames = 0;
+            pendingDockAsTarget = false;
+
+            Log("Tree dock merge completed");
+        }
+
+        /// <summary>
+        /// Handles all four dock/undock commit-and-restart cases:
+        /// dock initiator, dock target, undock same-vessel, undock vessel-switched.
+        /// </summary>
+        private void HandleDockUndockCommitRestart()
+        {
+            // Dock: initiator (pid changed, recorder already stopped by OnPhysicsFrame)
+            if (recorder != null && recorder.DockMergePending &&
+                !recorder.IsRecording && recorder.CaptureAtStop != null)
+            {
+                CommitDockUndockSegment(recorder, PartEventType.Docked, pendingDockMergedPid);
+                recorder = null;
+                StartRecording();
+                if (IsRecording)
+                {
+                    // Pass undock continuation pid so OnPhysicsFrame can detect sibling switch
+                    recorder.UndockSiblingPid = undockContinuationPid;
+                    Log($"Recording continues after dock (chain={activeChainId}, idx={activeChainNextIndex})");
+                    ScreenMessage("Recording continues (docked)", 2f);
+                }
+                pendingDockMergedPid = 0;
+                pendingDockAsTarget = false;
+                dockConfirmFrames = 0;
+            }
+
+            // Dock: target (pid unchanged, recorder already stopped by OnPartCouple)
+            if (pendingDockAsTarget && recorder != null &&
+                !recorder.IsRecording && recorder.CaptureAtStop != null)
+            {
+                CommitDockUndockSegment(recorder, PartEventType.Docked, pendingDockMergedPid);
+                recorder = null;
+                StartRecording();
+                if (IsRecording)
+                {
+                    recorder.UndockSiblingPid = undockContinuationPid;
+                    Log($"Recording continues after dock as target (chain={activeChainId}, idx={activeChainNextIndex})");
+                    ScreenMessage("Recording continues (docked)", 2f);
+                }
+                pendingDockAsTarget = false;
+                pendingDockMergedPid = 0;
+                dockConfirmFrames = 0;
+            }
+
+            // Undock: player stays on remaining vessel (same pid, recorder stopped by StopRecordingForChainBoundary)
+            if (pendingUndockOtherPid != 0 && recorder != null &&
+                !recorder.IsRecording && recorder.CaptureAtStop != null &&
+                !recorder.UndockSwitchPending)
+            {
+                CommitDockUndockSegment(recorder, PartEventType.Undocked, 0);
+                recorder = null;
+                StartRecording();
+                if (IsRecording)
+                {
+                    StartUndockContinuation(pendingUndockOtherPid);
+                    recorder.UndockSiblingPid = undockContinuationPid;
+                    Log($"Recording continues after undock (chain={activeChainId}, idx={activeChainNextIndex})");
+                    ScreenMessage("Recording continues (undocked)", 2f);
+                }
+                pendingUndockOtherPid = 0;
+                undockConfirmFrames = 0;
+            }
+
+            // Undock: player switched to undocked vessel (pid changed, recorder stopped by OnPhysicsFrame)
+            if (recorder != null && recorder.UndockSwitchPending &&
+                !recorder.IsRecording && recorder.CaptureAtStop != null)
+            {
+                uint oldPid = recorder.RecordingVesselId;
+                CommitDockUndockSegment(recorder, PartEventType.Undocked, 0);
+                recorder = null;
+
+                // Stop existing undock continuation (we're switching roles)
+                if (undockContinuationPid != 0)
+                    StopUndockContinuation("sibling switch");
+
+                StartRecording();
+                if (IsRecording)
+                {
+                    // The "old" vessel (remaining) becomes continuation
+                    StartUndockContinuation(oldPid);
+                    recorder.UndockSiblingPid = undockContinuationPid;
+                    Log($"Recording continues after undock switch (chain={activeChainId}, idx={activeChainNextIndex})");
+                    ScreenMessage("Recording continues (undocked)", 2f);
+                }
+                pendingUndockOtherPid = 0;
+                undockConfirmFrames = 0;
+            }
+        }
+
+        /// <summary>
+        /// Tree mode: board merge -- create merge branch point when an EVA kerbal boards
+        /// a vessel that is tracked in the recording tree.
+        /// </summary>
+        private void HandleTreeBoardMerge()
+        {
+            if (activeTree == null || recorder == null || !recorder.ChainToVesselPending
+                || recorder.IsRecording || recorder.CaptureAtStop == null
+                || pendingBoardingTargetPid == 0
+                || FlightGlobals.ActiveVessel == null
+                || FlightGlobals.ActiveVessel.persistentId != pendingBoardingTargetPid)
+                return;
+
+            double mergeUT = Planetarium.GetUniversalTime();
+            if (recorder.CaptureAtStop.Points.Count > 0)
+                mergeUT = recorder.CaptureAtStop.Points[recorder.CaptureAtStop.Points.Count - 1].ut;
+
+            uint mergedPid = pendingBoardingTargetPid;
+
+            string activeParentId = activeTree.ActiveRecordingId;
+            string bgParentId = null;
+            if (pendingBoardingTargetInTree)
+                activeTree.BackgroundMap.TryGetValue(mergedPid, out bgParentId);
+
+            // Fix 5: clear ChainToVesselPending before CreateMergeBranch
+            recorder.ChainToVesselPending = false;
+            var stoppedRecorder = recorder;
+            recorder = null;
+
+            CreateMergeBranch(
+                BranchPointType.Board,
+                mergedPid,
+                activeParentId,
+                bgParentId,
+                mergeUT,
+                stoppedRecorder);
+
+            pendingBoardingTargetPid = 0;
+            boardingConfirmFrames = 0;
+            pendingBoardingTargetInTree = false;
+            activeChainCrewName = null;
+
+            Log("Tree board merge completed");
+        }
+
+        /// <summary>
+        /// Handles chain boarding transition: auto-commit EVA segment when boarding detected
+        /// (EVA to vessel), or treat as normal stop if not in a chain.
+        /// </summary>
+        private void HandleChainBoardingTransition()
+        {
+            if (recorder == null || !recorder.ChainToVesselPending ||
+                recorder.IsRecording || recorder.CaptureAtStop == null)
+                return;
+
+            // Only continue the chain if we're already in one AND the boarding event confirmed
+            if (activeChainId != null &&
+                pendingBoardingTargetPid != 0 &&
+                FlightGlobals.ActiveVessel != null &&
+                FlightGlobals.ActiveVessel.persistentId == pendingBoardingTargetPid)
+            {
+                Log($"Chain boarding confirmed: EVA→vessel pid={pendingBoardingTargetPid}");
+                pendingBoardingTargetPid = 0;
+                boardingConfirmFrames = 0;
+
+                CommitChainSegment(recorder, activeChainCrewName);
+                recorder = null;
+
+                // Start new vessel recording on the boarded vessel
+                activeChainCrewName = null; // vessel segment, not EVA
+                StartRecording();
+                if (IsRecording)
+                {
+                    Log($"Chain vessel recording started (chain={activeChainId}, idx={activeChainNextIndex})");
+                    ScreenMessage("Recording STARTED (boarded vessel)", 2f);
+                }
+            }
+            else
+            {
+                // Not in a chain or boarding not confirmed — treat as normal stop
+                recorder.ChainToVesselPending = false;
+                pendingBoardingTargetPid = 0;
+                boardingConfirmFrames = 0;
+                Log("ChainToVessel without active chain or boarding confirmation — treating as normal stop");
+                ParsekLog.ScreenMessage("Recording stopped — vessel changed", 3f);
+                // Leave CaptureAtStop intact for normal revert/merge handling
+            }
+        }
+
+        /// <summary>
+        /// Atmosphere boundary: auto-split when crossing atmosphere edge.
+        /// </summary>
+        private void HandleAtmosphereBoundarySplit()
+        {
+            if (recorder == null || !recorder.IsRecording || !recorder.AtmosphereBoundaryCrossed ||
+                ParsekSettings.Current?.autoSplitAtAtmosphere == false)
+                return;
+
+            string phase = recorder.EnteredAtmosphere ? "exo" : "atmo";
+            string newPhase = recorder.EnteredAtmosphere ? "atmo" : "exo";
+            string bodyName = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
+            ParsekLog.Info("Flight", $"Atmosphere auto-split triggered: {bodyName} {phase}→{newPhase} " +
+                $"(chain={activeChainId ?? "(new)"}, points={recorder.Recording.Count})");
+            recorder.StopRecordingForChainBoundary();
+            CommitBoundarySplit(phase, bodyName);
+            recorder = null;
+            StartRecording();
+            if (IsRecording)
+            {
+                recorder.UndockSiblingPid = undockContinuationPid;
+                ParsekLog.Info("Flight", $"Recording continues after atmosphere boundary " +
+                    $"(chain={activeChainId}, idx={activeChainNextIndex}, {bodyName} {phase}→{newPhase})");
+                ParsekLog.ScreenMessage($"Recording continues ({(newPhase == "atmo" ? "entering" : "exiting")} atmosphere)", 2f);
+            }
+        }
+
+        /// <summary>
+        /// SOI change: auto-split when transitioning between celestial bodies.
+        /// </summary>
+        private void HandleSoiChangeSplit()
+        {
+            if (recorder == null || !recorder.IsRecording || !recorder.SoiChangePending ||
+                ParsekSettings.Current?.autoSplitAtSoi == false)
+                return;
+
+            string fromBody = recorder.SoiChangeFromBody ?? "Unknown";
+            string toBody = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
+            // Completed segment was at fromBody — tag as "exo" if it has atmosphere, "space" otherwise
+            CelestialBody fromCB = FlightGlobals.Bodies?.Find(b => b.name == fromBody);
+            string fromPhase = (fromCB != null && fromCB.atmosphere) ? "exo" : "space";
+            ParsekLog.Info("Flight", $"SOI auto-split triggered: {fromBody} ({fromPhase}) → {toBody} " +
+                $"(chain={activeChainId ?? "(new)"}, points={recorder.Recording.Count})");
+            recorder.StopRecordingForChainBoundary();
+            CommitBoundarySplit(fromPhase, fromBody);
+            recorder = null;
+            StartRecording();
+            if (IsRecording)
+            {
+                recorder.UndockSiblingPid = undockContinuationPid;
+                ParsekLog.Info("Flight", $"Recording continues after SOI change " +
+                    $"({fromBody} → {toBody}, chain={activeChainId}, idx={activeChainNextIndex})");
+                ParsekLog.ScreenMessage($"Recording continues (entering {toBody} SOI)", 2f);
+            }
+        }
+
+        /// <summary>
+        /// Tree mode: flush backgrounded recorder after OnPhysicsFrame detected the vessel switch.
+        /// </summary>
+        private void HandleTreeBackgroundFlush()
+        {
+            if (activeTree == null || recorder == null || !recorder.TransitionToBackgroundPending
+                || !recorder.IsBackgrounded)
+                return;
+
+            FlushRecorderToTreeRecording(recorder, activeTree);
+
+            // Add old vessel to BackgroundMap
+            string oldRecId = activeTree.ActiveRecordingId;
+            RecordingStore.Recording oldRec;
+            uint bgPidUpdate = 0;
+            if (oldRecId != null && activeTree.Recordings.TryGetValue(oldRecId, out oldRec)
+                && oldRec.VesselPersistentId != 0)
+            {
+                activeTree.BackgroundMap[oldRec.VesselPersistentId] = oldRecId;
+                bgPidUpdate = oldRec.VesselPersistentId;
+            }
+            activeTree.ActiveRecordingId = null;
+            recorder = null;
+            if (bgPidUpdate != 0) backgroundRecorder?.OnVesselBackgrounded(bgPidUpdate);
+            Log($"Tree: recorder flushed to background (recId={oldRecId})");
+        }
+
+        /// <summary>
+        /// Joint break deferred check: if FlightRecorder signaled a joint break,
+        /// stop recorder and start deferred vessel-creation check.
+        /// </summary>
+        private void HandleJointBreakDeferredCheck()
+        {
+            if (pendingSplitInProgress || recorder == null || !recorder.IsRecording
+                || !recorder.ConsumePendingJointBreakCheck())
+                return;
+
+            // Snapshot existing vessel PIDs so the deferred check can identify NEW vessels
+            preBreakVesselPids = new HashSet<uint>();
+            if (FlightGlobals.Vessels != null)
+            {
+                for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
+                {
+                    Vessel v = FlightGlobals.Vessels[i];
+                    if (v != null) preBreakVesselPids.Add(v.persistentId);
+                }
+            }
+            recorder.StopRecordingForChainBoundary();
+            pendingSplitRecorder = recorder;
+            recorder = null;
+            pendingSplitInProgress = true;
+            Log("Joint break detected — starting deferred vessel split check");
+            StartCoroutine(DeferredJointBreakCheck());
+        }
+
+        /// <summary>
+        /// While a split is being processed, skip auto-record and chain handlers
+        /// but still run playback, input, and continuation sampling.
+        /// Returns true when the early-return from Update should fire.
+        /// </summary>
+        private bool TryHandlePendingSplit()
+        {
+            if (!pendingSplitInProgress) return false;
+
+            // Still run playback, input, and continuation sampling
+            UpdateContinuationSampling();
+            UpdateUndockContinuationSampling();
+            HandleInput();
+            if (isPlaying) UpdatePlayback();
+            UpdateTimelinePlayback();
+            return true;
+        }
+
+        /// <summary>
+        /// Complete deferred auto-record for EVA (vessel switch may take a frame).
+        /// </summary>
+        private void HandleDeferredAutoRecordEva()
+        {
+            if (!pendingAutoRecord || IsRecording ||
+                FlightGlobals.ActiveVessel == null || !FlightGlobals.ActiveVessel.isEVA)
+                return;
+
+            StartRecording();
+
+            if (IsRecording)
+            {
+                pendingAutoRecord = false;
+
+                if (pendingChainContinuation)
+                {
+                    pendingChainContinuation = false;
+                    pendingChainEvaName = null;
+                    Log($"Chain EVA recording started (chain={activeChainId}, idx={activeChainNextIndex}, crew={activeChainCrewName})");
+                    ScreenMessage("Recording STARTED (EVA chain)", 2f);
+                }
+                else
+                {
+                    Log("Auto-record started (EVA from pad)");
+                    ScreenMessage("Recording STARTED (auto — EVA from pad)", 2f);
+                }
+            }
+            // else: StartRecording failed (paused game or no active vessel).
+            // Keep pending flags so we retry next frame; fall through to
+            // HandleInput/playback so they aren't starved.
+        }
+
+        /// <summary>
+        /// Final dispatch: continuation sampling, input, and playback.
+        /// </summary>
+        private void DispatchUpdateTail()
+        {
+            UpdateContinuationSampling();
+            UpdateUndockContinuationSampling();
+
+            HandleInput();
+
+            if (isPlaying)
+            {
+                UpdatePlayback();
+            }
+
+            UpdateTimelinePlayback();
+        }
+
+        #endregion
+
+        #region LateUpdate Extracted Steps
+
+        /// <summary>
+        /// Re-applies ghost position for an orbital ghost after FloatingOrigin shift.
+        /// Handles spinning, orbital-frame-relative, and prograde-fallback rotation cases.
+        /// </summary>
+        private void ReapplyOrbitGhostPosition(GhostPosEntry e)
+        {
+            Orbit orbit;
+            if (!orbitCache.TryGetValue(e.orbitCacheKey, out orbit))
+                return;
+
+            Vector3d pos = orbit.getPositionAtUT(e.orbitUT);
+            e.ghost.transform.position = pos;
+
+            Vector3d vel = orbit.getOrbitalVelocityAtUT(e.orbitUT);
+
+            if (e.isSpinning)
+            {
+                // Spin-forward: recompute boundary world rotation (positions may have shifted by FloatingOrigin)
+                Vector3d velAtStart = orbit.getOrbitalVelocityAtUT(e.orbitSegmentStartUT);
+                Vector3d posAtStart = orbit.getPositionAtUT(e.orbitSegmentStartUT);
+
+                if (e.orbitBody != null)
+                {
+                    Vector3d radialAtStart = (posAtStart - (Vector3d)e.orbitBody.position).normalized;
+                    Quaternion orbFrameAtStart;
+                    if (Mathf.Abs(Vector3.Dot(((Vector3)velAtStart).normalized, ((Vector3)radialAtStart).normalized)) > 0.99f)
+                        orbFrameAtStart = Quaternion.LookRotation(velAtStart, Vector3.up);
+                    else
+                        orbFrameAtStart = Quaternion.LookRotation(velAtStart, radialAtStart);
+
+                    Quaternion bwRot = orbFrameAtStart * e.orbitFrameRot;
+                    double dt = e.orbitUT - e.orbitSegmentStartUT;
+                    Vector3 worldAxis = bwRot * e.orbitAngularVelocity;
+                    float angle = (float)((double)e.orbitAngularVelocity.magnitude * dt * Mathf.Rad2Deg);
+                    e.ghost.transform.rotation = Quaternion.AngleAxis(angle, worldAxis) * bwRot;
+                }
+                else
+                {
+                    // Body null fallback
+                    if (vel.sqrMagnitude > 0.001)
+                        e.ghost.transform.rotation = Quaternion.LookRotation(vel);
+                    ParsekLog.VerboseRateLimited("Playback", $"orbit-late-body-null-{e.orbitCacheKey}",
+                        $"Orbit LateUpdate: orbitBody null for cache={e.orbitCacheKey}, velocity fallback");
+                }
+            }
+            else if (e.hasOrbitFrameRot && vel.sqrMagnitude > 0.001)
+            {
+                // Orbital-frame-relative path
+                if (e.orbitBody != null)
+                {
+                    Vector3d radialOut = (pos - (Vector3d)e.orbitBody.position).normalized;
+                    Quaternion orbFrame;
+                    if (Mathf.Abs(Vector3.Dot(((Vector3)vel).normalized, ((Vector3)radialOut).normalized)) > 0.99f)
+                        orbFrame = Quaternion.LookRotation(vel, Vector3.up);
+                    else
+                        orbFrame = Quaternion.LookRotation(vel, radialOut);
+
+                    e.ghost.transform.rotation = orbFrame * e.orbitFrameRot;
+                }
+                else
+                {
+                    e.ghost.transform.rotation = Quaternion.LookRotation(vel);
+                    ParsekLog.VerboseRateLimited("Playback", $"orbit-late-body-null-{e.orbitCacheKey}",
+                        $"Orbit LateUpdate: orbitBody null for cache={e.orbitCacheKey}, velocity fallback");
+                }
+            }
+            else if (vel.sqrMagnitude > 0.001)
+            {
+                // Prograde fallback (old recordings)
+                e.ghost.transform.rotation = Quaternion.LookRotation(vel);
+            }
+        }
+
+        #endregion
 
         #endregion
 
