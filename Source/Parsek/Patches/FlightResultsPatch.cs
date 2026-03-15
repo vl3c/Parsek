@@ -69,6 +69,26 @@ namespace Parsek.Patches
         }
 
         /// <summary>
+        /// Returns true if there is a pending outcome message that was suppressed
+        /// and not yet replayed. Used as a safety net in OnFlightReady.
+        /// </summary>
+        internal static bool HasPendingResults()
+        {
+            return !string.IsNullOrEmpty(PendingOutcomeMsg);
+        }
+
+        /// <summary>
+        /// Clears the pending outcome message without replaying it.
+        /// Used on scene change to prevent stale crash reports from persisting.
+        /// </summary>
+        internal static void ClearPending()
+        {
+            if (!string.IsNullOrEmpty(PendingOutcomeMsg))
+                ParsekLog.Info("FlightResultsPatch", $"Cleared pending results (msg=\"{PendingOutcomeMsg}\")");
+            PendingOutcomeMsg = null;
+        }
+
+        /// <summary>
         /// Checks if the active recorder has a destroyed vessel recording in progress
         /// that hasn't been stashed yet (the split/coroutine path will stash it shortly).
         /// </summary>
