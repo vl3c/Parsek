@@ -231,6 +231,9 @@ namespace Parsek
         // Docking race condition guard (Task 5 sets, Task 6 checks)
         internal HashSet<uint> dockingInProgress = new HashSet<uint>();
 
+        // Tree destruction merge dialog guard (prevents duplicate coroutines)
+        private bool treeDestructionDialogPending;
+
         /// <summary>
         /// Holds captured vessel state between Phase 1 (synchronous, inside OnVesselWillDestroy)
         /// and Phase 3 (deferred, after yield return null). Captured by the coroutine state machine
@@ -950,6 +953,9 @@ namespace Parsek
                 backgroundRecorder = null;
             }
 
+            // Clear tree destruction dialog guard
+            treeDestructionDialogPending = false;
+
             // Clean up recording if active
             if (IsRecording)
             {
@@ -1001,6 +1007,14 @@ namespace Parsek
             pendingDockAbsorbedPid = 0;
             pendingBoardingTargetInTree = false;
             dockingInProgress.Clear();
+            treeDestructionDialogPending = false;
+
+            // Clear any suppressed flight results — don't carry stale crash reports across scenes
+            if (Patches.FlightResultsPatch.HasPendingResults())
+            {
+                ParsekLog.Info("Flight", "Clearing suppressed FlightResults on scene change");
+                Patches.FlightResultsPatch.ClearPending();
+            }
 
             // Clear split event detection state
             lastBranchUT = -1;
@@ -1232,6 +1246,16 @@ namespace Parsek
                 StartCoroutine(ShowPostDestructionMergeDialog());
             }
 
+            // Tree mode: if the active vessel is destroyed, check if all tree vessels are now dead
+            if (activeTree != null && recorder != null
+                && recorder.VesselDestroyedDuringRecording && v == FlightGlobals.ActiveVessel
+                && !treeDestructionDialogPending)
+            {
+                treeDestructionDialogPending = true;
+                ParsekLog.Info("Flight", "Active vessel destroyed in tree mode — scheduling tree destruction check");
+                StartCoroutine(ShowPostDestructionTreeMergeDialog());
+            }
+
             // If the continuation vessel is destroyed, mark the recording and stop tracking
             if (continuationVesselPid != 0 && v.persistentId == continuationVesselPid)
             {
@@ -1355,6 +1379,88 @@ namespace Parsek
             {
                 Log("Post-destruction: commit or dialog");
                 CommitOrShowDialog(RecordingStore.Pending);
+            }
+        }
+
+        /// <summary>
+        /// Coroutine that checks whether all tree leaves are terminal after the active vessel
+        /// is destroyed. If so, finalizes the tree and shows the tree merge dialog.
+        /// </summary>
+        IEnumerator ShowPostDestructionTreeMergeDialog()
+        {
+            // Wait one frame for destruction events to settle
+            yield return null;
+
+            // Guard: tree cleaned up during wait (scene change, etc.)
+            if (activeTree == null)
+            {
+                ParsekLog.Verbose("Flight", "ShowPostDestructionTreeMergeDialog: activeTree is null — aborting");
+                treeDestructionDialogPending = false;
+                yield break;
+            }
+
+            // Guard: someone else handled it
+            if (!treeDestructionDialogPending)
+            {
+                ParsekLog.Verbose("Flight", "ShowPostDestructionTreeMergeDialog: flag already cleared — aborting");
+                yield break;
+            }
+
+            // Guard: active vessel still alive
+            if (recorder != null && recorder.IsRecording && !recorder.VesselDestroyedDuringRecording)
+            {
+                ParsekLog.Verbose("Flight", "ShowPostDestructionTreeMergeDialog: active vessel still alive — aborting");
+                treeDestructionDialogPending = false;
+                yield break;
+            }
+
+            bool activeDestroyed = recorder == null || !recorder.IsRecording
+                || recorder.VesselDestroyedDuringRecording;
+            if (!RecordingTree.AreAllLeavesTerminal(activeTree.Recordings,
+                activeTree.ActiveRecordingId, activeDestroyed))
+            {
+                ParsekLog.Info("Flight",
+                    "ShowPostDestructionTreeMergeDialog: not all leaves terminal — other vessels still alive");
+                treeDestructionDialogPending = false;
+                yield break;
+            }
+
+            // All leaves are terminal — finalize and show dialog
+            ParsekLog.Info("Flight", "ShowPostDestructionTreeMergeDialog: all leaves terminal — finalizing tree");
+
+            double commitUT = Planetarium.GetUniversalTime();
+
+            // FinalizeTreeRecordings handles ForceStop + FlushRecorderToTreeRecording
+            FinalizeTreeRecordings(activeTree, commitUT, isSceneExit: false);
+            ParsekLog.Info("Flight",
+                $"ShowPostDestructionTreeMergeDialog: finalized tree '{activeTree.TreeName}'");
+
+            RecordingStore.StashPendingTree(activeTree);
+            ParsekLog.Info("Flight",
+                $"ShowPostDestructionTreeMergeDialog: stashed pending tree '{activeTree.TreeName}'");
+
+            // Clean up flight state
+            recorder = null;
+            if (backgroundRecorder != null)
+            {
+                backgroundRecorder.Shutdown();
+                Patches.PhysicsFramePatch.BackgroundRecorderInstance = null;
+                backgroundRecorder = null;
+            }
+            activeTree = null;
+            treeDestructionDialogPending = false;
+
+            // Show dialog or auto-merge
+            if (ParsekScenario.IsAutoMerge)
+            {
+                ParsekLog.Info("Flight", "ShowPostDestructionTreeMergeDialog: auto-merge enabled — committing tree");
+                RecordingStore.CommitPendingTree();
+                MergeDialog.ReplayFlightResultsIfPending();
+            }
+            else
+            {
+                ParsekLog.Info("Flight", "ShowPostDestructionTreeMergeDialog: showing tree merge dialog");
+                MergeDialog.ShowTreeDialog(RecordingStore.PendingTree);
             }
         }
 
@@ -2516,6 +2622,21 @@ namespace Parsek
                 ParsekLog.Info("Flight", $"Background EVA vessel ended: pid={pending.vesselPid} recId={pending.recordingId}");
             else
                 ParsekLog.Warn("Flight", $"Background vessel destroyed: pid={pending.vesselPid} recId={pending.recordingId}");
+
+            // Check if all tree vessels are now destroyed — trigger merge dialog
+            if (!treeDestructionDialogPending)
+            {
+                bool activeDestroyed = recorder == null || !recorder.IsRecording
+                    || recorder.VesselDestroyedDuringRecording;
+                if (RecordingTree.AreAllLeavesTerminal(activeTree.Recordings,
+                    activeTree.ActiveRecordingId, activeDestroyed))
+                {
+                    treeDestructionDialogPending = true;
+                    ParsekLog.Info("Flight",
+                        "All tree leaves now terminal after background destruction — triggering tree merge");
+                    StartCoroutine(ShowPostDestructionTreeMergeDialog());
+                }
+            }
         }
 
         #endregion
@@ -3317,6 +3438,14 @@ namespace Parsek
         {
             Log("Flight ready. Checking for pending recordings...");
 
+            // Safety net: if FlightResultsPatch has a pending message that was never replayed
+            // (e.g., tree destruction path didn't fire), replay it now
+            if (Patches.FlightResultsPatch.HasPendingResults())
+            {
+                ParsekLog.Warn("Flight", "FlightResults safety net: replaying suppressed results on OnFlightReady");
+                Patches.FlightResultsPatch.ReplayFlightResults();
+            }
+
             // Auto-migrate v4 recordings to v5 (world-space → surface-relative rotation)
             if (FlightGlobals.Bodies != null && FlightGlobals.Bodies.Count > 0)
             {
@@ -3373,6 +3502,7 @@ namespace Parsek
             pendingDockAbsorbedPid = 0;
             pendingBoardingTargetInTree = false;
             dockingInProgress.Clear();
+            treeDestructionDialogPending = false;
 
             // Handle pending tree: show tree merge dialog.
             // On non-revert scene changes, pending trees are auto-committed by ParsekScenario.
@@ -4479,7 +4609,8 @@ namespace Parsek
                         ParsekLog.Verbose("Flight", $"Spawn suppressed for #{i} ({rec.VesselName}): non-leaf tree recording");
                 }
 
-                // Terminal tree recordings (destroyed/recovered/docked/boarded) should not spawn
+                // Terminal tree recordings (destroyed/recovered/docked/boarded) should not spawn.
+                // This is the guard for bug #38: prevents spawning vessels from all-destroyed trees.
                 if (needsSpawn && rec.TerminalStateValue.HasValue)
                 {
                     var ts = rec.TerminalStateValue.Value;
