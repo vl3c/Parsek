@@ -121,7 +121,7 @@ namespace Parsek
 
             float warpRate = TimeWarp.CurrentRate;
             bool suppressGhosts = ParsekFlight.ShouldSuppressGhosts(warpRate);
-            bool suppressExplosionFx = ParsekFlight.ShouldSuppressExplosionFx(warpRate);
+            bool suppressVisualFx = ParsekFlight.ShouldSuppressVisualFx(warpRate);
 
             if (suppressGhosts)
             {
@@ -169,7 +169,7 @@ namespace Parsek
                     if (intervalSeconds < 0)
                     {
                         // Negative interval: multi-ghost overlap path
-                        UpdateOverlapKsc(i, rec, currentUT, intervalSeconds, duration, suppressExplosionFx);
+                        UpdateOverlapKsc(i, rec, currentUT, intervalSeconds, duration, suppressVisualFx);
                         continue;
                     }
 
@@ -183,14 +183,14 @@ namespace Parsek
                         out targetUT, out cycleIndex, out inPauseWindow);
 
                     UpdateSingleGhostKsc(i, rec, currentUT, targetUT, cycleIndex,
-                        inRange, inPauseWindow, suppressExplosionFx);
+                        inRange, inPauseWindow, suppressVisualFx);
                 }
                 else
                 {
                     // Non-looping: raw UT range check
                     DestroyAllKscOverlapGhosts(i);
                     bool inRange = currentUT >= rec.StartUT && currentUT <= rec.EndUT;
-                    UpdateSingleGhostKsc(i, rec, currentUT, currentUT, 0, inRange, false, suppressExplosionFx);
+                    UpdateSingleGhostKsc(i, rec, currentUT, currentUT, 0, inRange, false, suppressVisualFx);
                 }
             }
         }
@@ -200,7 +200,7 @@ namespace Parsek
         /// </summary>
         void UpdateSingleGhostKsc(int recIdx, RecordingStore.Recording rec,
             double currentUT, double targetUT, int cycleIndex,
-            bool inRange, bool inPauseWindow, bool suppressExplosionFx)
+            bool inRange, bool inPauseWindow, bool suppressVisualFx)
         {
             ParsekFlight.GhostPlaybackState state;
             kscGhosts.TryGetValue(recIdx, out state);
@@ -249,7 +249,7 @@ namespace Parsek
                 // Distance culling: skip expensive part events for ghosts too far from camera
                 if (IsGhostInCullRange(state.ghost))
                     ParsekFlight.ApplyPartEvents(recIdx, rec, targetUT, state);
-                if (suppressExplosionFx)
+                if (suppressVisualFx)
                     ParsekFlight.StopAllRcsEmissions(state);
                 else
                     ParsekFlight.RestoreAllRcsEmissions(state);
@@ -290,7 +290,7 @@ namespace Parsek
         /// (no camera logic, no reentry FX).
         /// </summary>
         void UpdateOverlapKsc(int recIdx, RecordingStore.Recording rec,
-            double currentUT, double intervalSeconds, double duration, bool suppressExplosionFx)
+            double currentUT, double intervalSeconds, double duration, bool suppressVisualFx)
         {
             ParsekFlight.GhostPlaybackState primaryState;
             kscGhosts.TryGetValue(recIdx, out primaryState);
@@ -358,7 +358,7 @@ namespace Parsek
 
                 if (IsGhostInCullRange(primaryState.ghost))
                     ParsekFlight.ApplyPartEvents(recIdx, rec, loopUT, primaryState);
-                if (suppressExplosionFx)
+                if (suppressVisualFx)
                     ParsekFlight.StopAllRcsEmissions(primaryState);
                 else
                     ParsekFlight.RestoreAllRcsEmissions(primaryState);
@@ -403,7 +403,7 @@ namespace Parsek
 
                 if (IsGhostInCullRange(ovState.ghost))
                     ParsekFlight.ApplyPartEvents(recIdx, rec, loopUT, ovState);
-                if (suppressExplosionFx)
+                if (suppressVisualFx)
                     ParsekFlight.StopAllRcsEmissions(ovState);
                 else
                     ParsekFlight.RestoreAllRcsEmissions(ovState);
@@ -793,7 +793,7 @@ namespace Parsek
             if (state.explosionFired) return;
             if (rec.TerminalStateValue != TerminalState.Destroyed) return;
 
-            if (ParsekFlight.ShouldSuppressExplosionFx(TimeWarp.CurrentRate))
+            if (ParsekFlight.ShouldSuppressVisualFx(TimeWarp.CurrentRate))
             {
                 state.explosionFired = true;
                 ParsekFlight.HideAllGhostParts(state);

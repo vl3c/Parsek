@@ -379,21 +379,21 @@ namespace Parsek.Tests
 
             Assert.True(wouldFire);
 
-            // But ShouldSuppressExplosionFx prevents the actual FX
-            bool suppressed = ParsekFlight.ShouldSuppressExplosionFx(warpRate);
+            // But ShouldSuppressVisualFx prevents the actual FX
+            bool suppressed = ParsekFlight.ShouldSuppressVisualFx(warpRate);
             Assert.Equal(expectedSuppressed, suppressed);
         }
 
         [Fact]
-        public void ShouldSuppressExplosionFx_At10x_DoesNotSuppress()
+        public void ShouldSuppressVisualFx_At10x_DoesNotSuppress()
         {
-            Assert.False(ParsekFlight.ShouldSuppressExplosionFx(10f));
+            Assert.False(ParsekFlight.ShouldSuppressVisualFx(10f));
         }
 
         [Fact]
-        public void ShouldSuppressExplosionFx_Above10x_Suppresses()
+        public void ShouldSuppressVisualFx_Above10x_Suppresses()
         {
-            Assert.True(ParsekFlight.ShouldSuppressExplosionFx(50f));
+            Assert.True(ParsekFlight.ShouldSuppressVisualFx(50f));
         }
     }
 }
