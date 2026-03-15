@@ -2399,6 +2399,15 @@ namespace Parsek
                     moduleIndex = moduleIndex
                 };
 
+                // LES particle FX (LES_Thruster) produces excessive particles at playback distance.
+                // Skip particle FX — the nozzle glow from FXModuleAnimateThrottle provides sufficient visual.
+                if (string.Equals(partName, "LaunchEscapeSystem", System.StringComparison.Ordinal))
+                {
+                    ParsekLog.Verbose("GhostVisual",
+                        $"    Skipping engine particle FX for '{partName}' pid={persistentId}: LES uses nozzle glow only");
+                    continue;
+                }
+
                 bool isRapierPart =
                     string.Equals(partName, "RAPIER", System.StringComparison.OrdinalIgnoreCase);
                 if (isRapierPart && moduleIndex > 0)
