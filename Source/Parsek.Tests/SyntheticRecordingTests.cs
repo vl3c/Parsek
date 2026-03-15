@@ -993,7 +993,7 @@ namespace Parsek.Tests
         private const uint ColorChangerShowcasePidBase = 99300000;
         // Optional companion part (e.g., kerbal actor) receives the second slot.
         // Total visible showcase row entries (indices 0-235, including inventory placement).
-        private const int ShowcaseRowCount = 243;
+        private const int ShowcaseRowCount = 244;
         // Split showcase into three parallel lines to avoid runway clipping.
         private static readonly int ShowcaseEntriesPerLine = (ShowcaseRowCount + 2) / 3;
         private const double ShowcaseLineSpacingMeters = 20.0;
@@ -1228,6 +1228,7 @@ namespace Parsek.Tests
 
             // ── ColorChanger EVA (kerbal helmet light) ──
             { "kerbalEVAFuture", 0.0 },
+            { "kerbalEVAfemaleFuture", 0.0 },
 
             // ── AnimateHeat parts ──
             { "airplaneTail", 0.0 },
@@ -1641,8 +1642,8 @@ namespace Parsek.Tests
                 BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Ion", "ionEngine", 235, pidBase),
 
                 // ── Additional engines (rows 237-238) ──
-                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - LES", "LaunchEscapeSystem", 237, pidBase, isSrb: true),
-                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - FL-C1000 Tank", "Size1p5.Tank.05", 238, pidBase, isSrb: true)
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - LES", "LaunchEscapeSystem", 238, pidBase, isSrb: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - FL-C1000 Tank", "Size1p5.Tank.05", 239, pidBase, isSrb: true)
             };
         }
 
@@ -1794,10 +1795,10 @@ namespace Parsek.Tests
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Survey Scanner", "SurveyScanner", 68,
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, AnimationGroupShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - ISRU", "ISRU", 239,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ISRU", "ISRU", 240,
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, AnimationGroupShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - Orbital Scanner", "OrbitalScanner", 240,
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Orbital Scanner", "OrbitalScanner", 241,
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, AnimationGroupShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
             };
@@ -2225,9 +2226,14 @@ namespace Parsek.Tests
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Docking Port Sr", "dockingPortLarge", 116,
                     ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
 
-                // Pattern A: EVA kerbal helmet light (row 236)
+                // Pattern A: EVA kerbal helmet lights (rows 236-237)
+                // Kerbals face toward pad (rotY+90°) so observer sees front, not back
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger EVA Kerbal", "kerbalEVAFuture", 236,
-                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid)
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid,
+                    configureGhostPartNode: node => node.SetValue("rot", "0,0.7071068,0,0.7071068", true)),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger EVA Kerbal Female", "kerbalEVAfemaleFuture", 237,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid,
+                    configureGhostPartNode: node => node.SetValue("rot", "0,0.7071068,0,0.7071068", true))
             };
         }
 
