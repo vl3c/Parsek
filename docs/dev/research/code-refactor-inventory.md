@@ -11,7 +11,7 @@ See [code-refactor-plan.md](../plans/code-refactor-plan.md) for the full refacto
 | File | Lines | Tier | Status | Notes |
 |------|-------|------|--------|-------|
 | TrajectoryMath.cs | 548 | Canary | Pass1-Done | Extracted AccumulateOrbitSegmentStats, DeterminePrimaryBody; added logging to FindFirstMovingPoint + ComputeStats; 18 new tests |
-| ParsekFlight.cs | 8,225 | 1 | Pending | Largest file, 7 nested types, coroutines |
+| ParsekFlight.cs | 8,493 | 1 | Pass1-Done | 28 methods extracted across 4 groups; Update() 400→35 lines; deduped PopulateGhostInfoDictionaries; coroutines untouched |
 | GhostVisualBuilder.cs | 6,395 | 1 | Pending | 16 types in one file, 8 static caches |
 | FlightRecorder.cs | 4,107 | 1 | Pending | 30+ tracking dicts, 20+ Check* methods |
 | ParsekScenario.cs | 2,297 | 2A | Pending | ScenarioModule, mixed concerns |
