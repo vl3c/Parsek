@@ -2570,5 +2570,39 @@ namespace Parsek.Tests
             // Empty string should not be treated as a duplicate
             Assert.Empty(dupes);
         }
+
+        #region IsStructuralJointBreak
+
+        [Fact]
+        public void IsStructuralJointBreak_SameJoint_ReturnsTrue()
+        {
+            // Broken joint IS the attach joint → real structural separation
+            bool result = FlightRecorder.IsStructuralJointBreak(
+                brokenJointIsAttachJoint: true, hasAttachJoint: true);
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void IsStructuralJointBreak_DifferentJoint_ReturnsFalse()
+        {
+            // Broken joint is NOT the attach joint (e.g., wheel suspension) → not structural
+            bool result = FlightRecorder.IsStructuralJointBreak(
+                brokenJointIsAttachJoint: false, hasAttachJoint: true);
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void IsStructuralJointBreak_NullAttachJoint_ReturnsTrue()
+        {
+            // Root part has no attach joint — any break is structural
+            bool result = FlightRecorder.IsStructuralJointBreak(
+                brokenJointIsAttachJoint: false, hasAttachJoint: false);
+
+            Assert.True(result);
+        }
+
+        #endregion
     }
 }
