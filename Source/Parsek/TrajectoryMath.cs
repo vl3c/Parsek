@@ -71,11 +71,23 @@ namespace Parsek
             for (int i = 0; i < points.Count; i++)
             {
                 if (System.Math.Abs(points[i].altitude - startAlt) >= altThreshold)
+                {
+                    ParsekLog.Verbose("TrajectoryMath",
+                        $"FindFirstMovingPoint: altitude trigger at index {i} " +
+                        $"(alt={points[i].altitude:F1}, startAlt={startAlt:F1}, delta={System.Math.Abs(points[i].altitude - startAlt):F1})");
                     return i;
+                }
                 if (points[i].velocity.magnitude >= speedThreshold)
+                {
+                    ParsekLog.Verbose("TrajectoryMath",
+                        $"FindFirstMovingPoint: speed trigger at index {i} " +
+                        $"(speed={points[i].velocity.magnitude:F1}m/s, threshold={speedThreshold:F1})");
                     return i;
+                }
             }
             // Vessel never moved significantly — keep all points
+            ParsekLog.Verbose("TrajectoryMath",
+                $"FindFirstMovingPoint: vessel never moved significantly across {points.Count} points, keeping all");
             return 0;
         }
 
@@ -261,10 +273,29 @@ namespace Parsek
                 }
             }
 
-            // Orbit segment stats
-            for (int i = 0; i < rec.OrbitSegments.Count; i++)
+            AccumulateOrbitSegmentStats(rec.OrbitSegments, bodyLookup, ref stats);
+            stats.primaryBody = DeterminePrimaryBody(bodyCounts);
+
+            ParsekLog.Verbose("TrajectoryMath",
+                $"ComputeStats complete: points={stats.pointCount} segments={stats.orbitSegmentCount} " +
+                $"events={stats.partEventCount} maxAlt={stats.maxAltitude:F0} maxSpeed={stats.maxSpeed:F1} " +
+                $"dist={stats.distanceTravelled:F0} range={stats.maxRange:F0} body={stats.primaryBody}");
+
+            return stats;
+        }
+
+        /// <summary>
+        /// Accumulates orbit segment contributions into recording stats: apoapsis altitude,
+        /// periapsis speed (vis-viva), and mean-speed distance for each segment.
+        /// </summary>
+        internal static void AccumulateOrbitSegmentStats(
+            List<OrbitSegment> segments,
+            System.Func<string, double[]> bodyLookup,
+            ref RecordingStats stats)
+        {
+            for (int i = 0; i < segments.Count; i++)
             {
-                var seg = rec.OrbitSegments[i];
+                var seg = segments[i];
                 if (bodyLookup == null) continue;
                 double[] bodyData = bodyLookup(seg.bodyName ?? "Kerbin");
                 if (bodyData == null) continue;
@@ -295,8 +326,13 @@ namespace Parsek
                     stats.distanceTravelled += meanSpeed * (seg.endUT - seg.startUT);
                 }
             }
+        }
 
-            // Primary body (most frequent)
+        /// <summary>
+        /// Returns the body name with the highest point count, or null if the dictionary is empty.
+        /// </summary>
+        internal static string DeterminePrimaryBody(Dictionary<string, int> bodyCounts)
+        {
             string primaryBody = null;
             int maxCount = 0;
             foreach (var kvp in bodyCounts)
@@ -307,9 +343,7 @@ namespace Parsek
                     primaryBody = kvp.Key;
                 }
             }
-            stats.primaryBody = primaryBody;
-
-            return stats;
+            return primaryBody;
         }
 
         private static double HaversineDistance(
