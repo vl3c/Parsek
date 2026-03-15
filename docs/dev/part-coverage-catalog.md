@@ -414,7 +414,7 @@ checked in; re-run the extraction from the KSP GameData directory to refresh.
 | flagPartSize2 | flagPartSize2 | Stock | — | N/A | — |  |
 | flagPartSize3 | flagPartSize3 | Stock | — | N/A | — |  |
 | flagPartSize4 | flagPartSize4 | Making History | — | N/A | — |  |
-| ISRU | ISRU | Stock | ModuleAnimationGroup | Full | — |  |
+| ISRU | ISRU | Stock | ModuleAnimationGroup | Full | Yes |  |
 | ladder1 | ladder1 | Stock | — | N/A | — |  |
 | LaunchEscapeSystem | LaunchEscapeSystem | Stock | ModuleEnginesFX | Full | — | Bug #32: LES plumes need verification |
 | MiniDrill | MiniDrill | Stock | ModuleAnimationGroup | Full | Yes |  |
@@ -444,7 +444,7 @@ checked in; re-run the extraction from the KSP GameData directory to refresh.
 | InfraredTelescope | InfraredTelescope | Stock | — | N/A | — |  |
 | Large_Crewed_Lab | Large.Crewed.Lab | Stock | ModuleColorChanger | Partial | — | ModuleColorChanger not tracked |
 | Magnetometer | Magnetometer | Stock | ModuleDeployablePart | Full | Yes |  |
-| OrbitalScanner | OrbitalScanner | Stock | ModuleAnimationGroup | Full | — |  |
+| OrbitalScanner | OrbitalScanner | Stock | ModuleAnimationGroup | Full | Yes |  |
 | RobotArmScanner_S1 | RobotArmScanner.S1 | Breaking Ground | ModuleRobotArmScanner | Full | Yes |  |
 | RobotArmScanner_S2 | RobotArmScanner.S2 | Breaking Ground | ModuleRobotArmScanner | Full | Yes |  |
 | RobotArmScanner_S3 | RobotArmScanner.S3 | Breaking Ground | ModuleRobotArmScanner | Full | Yes |  |
@@ -645,8 +645,6 @@ These parts have dynamic visual modules that Parsek handles but have not been vi
 | Part (cfg) | Runtime Name | Source | Visual Modules | Support |
 |------------|-------------|--------|----------------|---------|
 | HeatShield0 | HeatShield0 | Stock | ModuleColorChanger | Partial |
-| ISRU | ISRU | Stock | ModuleAnimationGroup | Full |
-| OrbitalScanner | OrbitalScanner | Stock | ModuleAnimationGroup | Full |
 | Size2LFB | Size2LFB | Stock | FXModuleAnimateThrottle, ModuleEnginesFX | Partial |
 | dockingPort3 | dockingPort3 | Stock | ModuleDockingNode | Full |
 | fireworksLauncherBig | fireworksLauncherBig | Stock | ModulePartFirework | Partial |
@@ -788,13 +786,11 @@ GAMEOBJECTS geometry rules are currently applied.
 
 ### Showcase Gaps (parts needing validation)
 
-6 non-cosmetic parts with supported visual modules that lack showcase entries:
+4 non-cosmetic parts with supported visual modules that lack showcase entries:
 
 | Part | Module | Notes |
 |------|--------|-------|
 | LaunchEscapeSystem | ModuleEnginesFX | Bug #32 — plume FX needs in-game verification |
-| ISRU | ModuleAnimationGroup | Intentionally excluded — no visible deploy change |
-| OrbitalScanner | ModuleAnimationGroup | Intentionally excluded — no visible deploy change |
 | Size1p5_Tank_05 | ModuleEngines | MH engine-tank hybrid, needs showcase |
 | Size2LFB | ModuleEnginesFX | Deprecated v1 Twin-Boar, low priority |
 | dockingPort3 | ModuleDockingNode | Chain boundary only, no visual event |

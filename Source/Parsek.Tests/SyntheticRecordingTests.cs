@@ -1090,6 +1090,10 @@ namespace Parsek.Tests
             { "fairingSize3", 0.22 },
             { "fairingSize4", 0.22 },
 
+            // ── ISRU / Scanners (ModuleAnimationGroup) ──
+            { "ISRU", 1.5 },
+            { "OrbitalScanner", 0.0 },
+
             // ── Drills (surface-attach / radial) ──
             { "MiniDrill", 0.0 },
             { "RadialDrill", 0.0 },
@@ -1788,6 +1792,12 @@ namespace Parsek.Tests
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, AnimationGroupShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Survey Scanner", "SurveyScanner", 68,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, AnimationGroupShowcasePidBase, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ISRU", "ISRU", 239,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, AnimationGroupShowcasePidBase, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Orbital Scanner", "OrbitalScanner", 240,
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, AnimationGroupShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
             };
@@ -3459,7 +3469,7 @@ namespace Parsek.Tests
         public void AnimationGroupShowcaseRecordings_BuildExpectedShape()
         {
             var recordings = AnimationGroupShowcaseRecordings(baseUT: 17000);
-            Assert.Equal(2, recordings.Length);
+            Assert.Equal(4, recordings.Length);
 
             var first = recordings[0].Build();
             Assert.Equal("Part Showcase - Ground Anchor", first.GetValue("vesselName"));
@@ -3470,7 +3480,7 @@ namespace Parsek.Tests
             Assert.Equal(((int)PartEventType.DeployableExtended).ToString(), events[0].GetValue("type"));
             Assert.Equal(((int)PartEventType.DeployableRetracted).ToString(), events[1].GetValue("type"));
 
-            var names = new[] { "groundAnchor", "SurveyScanner" };
+            var names = new[] { "groundAnchor", "SurveyScanner", "ISRU", "OrbitalScanner" };
             for (int i = 0; i < recordings.Length; i++)
             {
                 var g = recordings[i].Build().GetNode("GHOST_VISUAL_SNAPSHOT");
