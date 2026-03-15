@@ -3867,6 +3867,7 @@ namespace Parsek
 
         public void StopRecording()
         {
+            ParsekLog.Info("Flight", $"StopRecording: recorder={recorder != null}, isRecording={recorder?.IsRecording ?? false}, chain={activeChainId != null}");
             recorder?.StopRecording();
 
             // Tag the final segment with chain metadata if in a chain
@@ -3905,6 +3906,8 @@ namespace Parsek
 
         public void CommitFlight()
         {
+            ParsekLog.Info("Flight", $"CommitFlight: starting, recorder={(recorder != null ? $"count={recorder.Recording.Count}" : "null")}, chain={activeChainId != null}");
+
             // Guard: no recording data
             if (recorder == null || recorder.Recording.Count < 2)
             {
@@ -4215,39 +4218,7 @@ namespace Parsek
                 // Determine terminal state for recordings that don't have one yet
                 bool isLeaf = rec.ChildBranchPointId == null;
                 if (isLeaf && !rec.TerminalStateValue.HasValue)
-                {
-                    // Try to find the vessel
-                    Vessel vessel = rec.VesselPersistentId != 0
-                        ? FlightRecorder.FindVesselByPid(rec.VesselPersistentId)
-                        : null;
-
-                    if (vessel != null)
-                    {
-                        rec.TerminalStateValue = RecordingTree.DetermineTerminalState((int)vessel.situation);
-                        CaptureTerminalOrbit(rec, vessel);
-                        CaptureTerminalPosition(rec, vessel);
-
-                        // Re-snapshot live vessels for Commit Flight path (fresh state)
-                        if (!isSceneExit)
-                        {
-                            ConfigNode freshSnapshot = VesselSpawner.TryBackupSnapshot(vessel);
-                            if (freshSnapshot != null)
-                            {
-                                rec.VesselSnapshot = freshSnapshot;
-                                if (rec.GhostVisualSnapshot == null)
-                                    rec.GhostVisualSnapshot = freshSnapshot.CreateCopy();
-                            }
-                        }
-                    }
-                    else
-                    {
-                        // Vessel not found — mark as destroyed defensively
-                        rec.TerminalStateValue = TerminalState.Destroyed;
-                        rec.VesselSnapshot = null;
-                        ParsekLog.Warn("Flight", $"FinalizeTreeRecordings: vessel pid={rec.VesselPersistentId} " +
-                            $"not found for recording '{rec.RecordingId}' — marking Destroyed");
-                    }
-                }
+                    ResolveLeafTerminalState(rec, isSceneExit);
 
                 // Warn if leaf has no playback data
                 if (isLeaf && rec.Points.Count == 0 && rec.OrbitSegments.Count == 0 && !rec.SurfacePos.HasValue)
@@ -4268,6 +4239,48 @@ namespace Parsek
                 $"FinalizeTreeRecordings: tree '{tree.TreeName}' resource delta: " +
                 $"funds={tree.DeltaFunds:+0.0;-0.0}, science={tree.DeltaScience:+0.0;-0.0}, " +
                 $"rep={tree.DeltaReputation:+0.0;-0.0}");
+        }
+
+        /// <summary>
+        /// Resolves terminal state for a leaf recording that doesn't have one yet.
+        /// Finds the vessel by PID, captures orbit/position/snapshot, or marks destroyed.
+        /// </summary>
+        private static void ResolveLeafTerminalState(RecordingStore.Recording rec, bool isSceneExit)
+        {
+            // Try to find the vessel
+            Vessel vessel = rec.VesselPersistentId != 0
+                ? FlightRecorder.FindVesselByPid(rec.VesselPersistentId)
+                : null;
+
+            if (vessel != null)
+            {
+                rec.TerminalStateValue = RecordingTree.DetermineTerminalState((int)vessel.situation);
+                CaptureTerminalOrbit(rec, vessel);
+                CaptureTerminalPosition(rec, vessel);
+
+                // Re-snapshot live vessels for Commit Flight path (fresh state)
+                if (!isSceneExit)
+                {
+                    ConfigNode freshSnapshot = VesselSpawner.TryBackupSnapshot(vessel);
+                    if (freshSnapshot != null)
+                    {
+                        rec.VesselSnapshot = freshSnapshot;
+                        if (rec.GhostVisualSnapshot == null)
+                            rec.GhostVisualSnapshot = freshSnapshot.CreateCopy();
+                    }
+                }
+                ParsekLog.Verbose("Flight",
+                    $"ResolveLeafTerminalState: rec='{rec.RecordingId}' terminal={rec.TerminalStateValue} " +
+                    $"vessel situation={(int)vessel.situation} snapshot={!isSceneExit && rec.VesselSnapshot != null}");
+            }
+            else
+            {
+                // Vessel not found — mark as destroyed defensively
+                rec.TerminalStateValue = TerminalState.Destroyed;
+                rec.VesselSnapshot = null;
+                ParsekLog.Warn("Flight", $"ResolveLeafTerminalState: vessel pid={rec.VesselPersistentId} " +
+                    $"not found for recording '{rec.RecordingId}' — marking Destroyed");
+            }
         }
 
         internal static double ComputeTreeDeltaFunds(RecordingTree tree)
@@ -4486,76 +4499,10 @@ namespace Parsek
 
                     previewGhostState.materials = new List<Material>();
 
-                    if (parachuteInfoList != null)
-                    {
-                        previewGhostState.parachuteInfos = new Dictionary<uint, ParachuteGhostInfo>();
-                        for (int i = 0; i < parachuteInfoList.Count; i++)
-                            previewGhostState.parachuteInfos[parachuteInfoList[i].partPersistentId] = parachuteInfoList[i];
-                    }
-                    if (jettisonInfoList != null)
-                    {
-                        previewGhostState.jettisonInfos = new Dictionary<uint, JettisonGhostInfo>();
-                        for (int i = 0; i < jettisonInfoList.Count; i++)
-                            previewGhostState.jettisonInfos[jettisonInfoList[i].partPersistentId] = jettisonInfoList[i];
-                    }
-                    if (engineInfoList != null)
-                    {
-                        previewGhostState.engineInfos = new Dictionary<ulong, EngineGhostInfo>();
-                        for (int i = 0; i < engineInfoList.Count; i++)
-                        {
-                            ulong key = FlightRecorder.EncodeEngineKey(
-                                engineInfoList[i].partPersistentId, engineInfoList[i].moduleIndex);
-                            previewGhostState.engineInfos[key] = engineInfoList[i];
-                        }
-                    }
-                    if (deployableInfoList != null)
-                    {
-                        previewGhostState.deployableInfos = new Dictionary<uint, DeployableGhostInfo>();
-                        for (int i = 0; i < deployableInfoList.Count; i++)
-                            previewGhostState.deployableInfos[deployableInfoList[i].partPersistentId] = deployableInfoList[i];
-                    }
-                    if (heatInfoList != null)
-                    {
-                        previewGhostState.heatInfos = new Dictionary<uint, HeatGhostInfo>();
-                        for (int i = 0; i < heatInfoList.Count; i++)
-                            previewGhostState.heatInfos[heatInfoList[i].partPersistentId] = heatInfoList[i];
-                    }
-                    if (lightInfoList != null)
-                    {
-                        previewGhostState.lightInfos = new Dictionary<uint, LightGhostInfo>();
-                        previewGhostState.lightPlaybackStates = new Dictionary<uint, LightPlaybackState>();
-                        for (int i = 0; i < lightInfoList.Count; i++)
-                        {
-                            previewGhostState.lightInfos[lightInfoList[i].partPersistentId] = lightInfoList[i];
-                            previewGhostState.lightPlaybackStates[lightInfoList[i].partPersistentId] = new LightPlaybackState();
-                        }
-                    }
-                    if (fairingInfoList != null)
-                    {
-                        previewGhostState.fairingInfos = new Dictionary<uint, FairingGhostInfo>();
-                        for (int i = 0; i < fairingInfoList.Count; i++)
-                            previewGhostState.fairingInfos[fairingInfoList[i].partPersistentId] = fairingInfoList[i];
-                    }
-                    if (rcsInfoList != null)
-                    {
-                        previewGhostState.rcsInfos = new Dictionary<ulong, RcsGhostInfo>();
-                        for (int i = 0; i < rcsInfoList.Count; i++)
-                        {
-                            ulong key = FlightRecorder.EncodeEngineKey(
-                                rcsInfoList[i].partPersistentId, rcsInfoList[i].moduleIndex);
-                            previewGhostState.rcsInfos[key] = rcsInfoList[i];
-                        }
-                    }
-                    if (roboticInfoList != null)
-                    {
-                        previewGhostState.roboticInfos = new Dictionary<ulong, RoboticGhostInfo>();
-                        for (int i = 0; i < roboticInfoList.Count; i++)
-                        {
-                            ulong key = FlightRecorder.EncodeEngineKey(
-                                roboticInfoList[i].partPersistentId, roboticInfoList[i].moduleIndex);
-                            previewGhostState.roboticInfos[key] = roboticInfoList[i];
-                        }
-                    }
+                    PopulateGhostInfoDictionaries(previewGhostState,
+                        parachuteInfoList, jettisonInfoList, engineInfoList,
+                        deployableInfoList, heatInfoList, lightInfoList,
+                        fairingInfoList, rcsInfoList, roboticInfoList);
 
                     InitializeInventoryPlacementVisibility(previewRecording, previewGhostState);
 
@@ -4597,7 +4544,7 @@ namespace Parsek
         public void StopPlayback()
         {
             if (isPlaying)
-                Log("Manual playback stopped");
+                Log($"Manual playback stopped: ghostState={previewGhostState != null}, ghostObj={ghostObject != null}");
             isPlaying = false;
 
             if (previewGhostState != null)
@@ -5678,6 +5625,39 @@ namespace Parsek
                 state.materials = m != null ? new List<Material> { m } : new List<Material>();
             }
 
+            PopulateGhostInfoDictionaries(state,
+                parachuteInfoList, jettisonInfoList, engineInfoList,
+                deployableInfoList, heatInfoList, lightInfoList,
+                fairingInfoList, rcsInfoList, roboticInfoList);
+
+            InitializeInventoryPlacementVisibility(rec, state);
+
+            state.reentryFxInfo = GhostVisualBuilder.TryBuildReentryFx(
+                ghost,
+                state.heatInfos,
+                index,
+                rec.VesselName);
+            state.reentryMpb = new MaterialPropertyBlock();
+
+            ghostStates[index] = state;
+        }
+
+        /// <summary>
+        /// Populates all part-type ghost info dictionaries on a GhostPlaybackState
+        /// from the lists produced by BuildTimelineGhostFromSnapshot.
+        /// </summary>
+        private static void PopulateGhostInfoDictionaries(
+            GhostPlaybackState state,
+            List<ParachuteGhostInfo> parachuteInfoList,
+            List<JettisonGhostInfo> jettisonInfoList,
+            List<EngineGhostInfo> engineInfoList,
+            List<DeployableGhostInfo> deployableInfoList,
+            List<HeatGhostInfo> heatInfoList,
+            List<LightGhostInfo> lightInfoList,
+            List<FairingGhostInfo> fairingInfoList,
+            List<RcsGhostInfo> rcsInfoList,
+            List<RoboticGhostInfo> roboticInfoList)
+        {
             if (parachuteInfoList != null)
             {
                 state.parachuteInfos = new Dictionary<uint, ParachuteGhostInfo>();
@@ -5756,17 +5736,6 @@ namespace Parsek
                     state.roboticInfos[key] = roboticInfoList[i];
                 }
             }
-
-            InitializeInventoryPlacementVisibility(rec, state);
-
-            state.reentryFxInfo = GhostVisualBuilder.TryBuildReentryFx(
-                ghost,
-                state.heatInfos,
-                index,
-                rec.VesselName);
-            state.reentryMpb = new MaterialPropertyBlock();
-
-            ghostStates[index] = state;
         }
 
         internal void DestroyTimelineGhost(int index)
