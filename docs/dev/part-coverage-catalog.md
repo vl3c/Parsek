@@ -15,7 +15,7 @@ checked in; re-run the extraction from the KSP GameData directory to refresh.
 - Stock: 358 | Making History: 71 | Breaking Ground: 54
 - Ghost mesh rendering: 483 supported (all parts with MeshRenderer cloning)
 - Dynamic visual support: 171 full / 73 partial / 239 N/A (no visual modules)
-- Showcase coverage: 211 / 244 parts with visual modules (+ 1 EVA kerbal = 212 total showcased)
+- Showcase coverage: 231 / 244 parts with visual modules (+ 2 EVA kerbals = 233 total showcased)
 - EVA kerbals: 8 | Uncategorized/deprecated (category=none): 14
 
 ## Known Visual Playback Issues
@@ -40,7 +40,7 @@ checked in; re-run the extraction from the KSP GameData directory to refresh.
 
 | Module | Description | Affected Parts | Impact |
 |--------|-------------|----------------|--------|
-| ModuleColorChanger | Cabin lights, ablator colors | 33 parts | Low — cosmetic interior lights |
+| ModuleColorChanger | Cabin lights, ablator colors | 33 parts | Low — cosmetic interior lights (23 now showcased via LightOn/LightOff) |
 | ~~FXModuleAnimateThrottle~~ | ~~Throttle-driven nozzle glow~~ | ~~33 parts~~ | ~~Fixed (bug #40)~~ |
 | ~~FXModuleAnimateRCS~~ | ~~RCS response animation~~ | ~~5 parts~~ | ~~Fixed — uses heat animation system~~ |
 | ModulePartFirework | Firework FX | 2 parts | None — novelty item |
@@ -646,37 +646,16 @@ These parts have dynamic visual modules that Parsek handles but have not been vi
 |------------|-------------|--------|----------------|---------|
 | HeatShield0 | HeatShield0 | Stock | ModuleColorChanger | Partial |
 | ISRU | ISRU | Stock | ModuleAnimationGroup | Full |
-| Large_Crewed_Lab | Large.Crewed.Lab | Stock | ModuleColorChanger | Partial |
-| LaunchEscapeSystem | LaunchEscapeSystem | Stock | ModuleEnginesFX | Full |
-| MEMLander | MEMLander | Making History | ModuleColorChanger, ModuleRCSFX | Partial |
-| MK1CrewCabin | MK1CrewCabin | Stock | ModuleColorChanger | Partial |
-| Mark1Cockpit | Mark1Cockpit | Stock | ModuleColorChanger | Partial |
-| Mark2Cockpit | Mark2Cockpit | Stock | ModuleColorChanger | Partial |
-| Mk2Pod | Mk2Pod | Making History | ModuleColorChanger | Partial |
 | OrbitalScanner | OrbitalScanner | Stock | ModuleAnimationGroup | Full |
-| Size1p5_Tank_05 | Size1p5.Tank.05 | Making History | ModuleEngines | Full |
 | Size2LFB | Size2LFB | Stock | FXModuleAnimateThrottle, ModuleEnginesFX | Partial |
-| crewCabin | crewCabin | Stock | ModuleColorChanger | Partial |
-| cupola | cupola | Stock | ModuleColorChanger | Partial |
-| dockingPort2 | dockingPort2 | Stock | ModuleColorChanger, ModuleDockingNode | Partial |
 | dockingPort3 | dockingPort3 | Stock | ModuleDockingNode | Full |
-| dockingPortLarge | dockingPortLarge | Stock | ModuleColorChanger, ModuleDockingNode | Partial |
 | fireworksLauncherBig | fireworksLauncherBig | Stock | ModulePartFirework | Partial |
 | fireworksLauncherSmall | fireworksLauncherSmall | Stock | ModulePartFirework | Partial |
-| kerbalEVAFuture | kerbalEVAFuture | Breaking Ground | KerbalEVA, ModuleEvaChute, ModuleColorChanger | Partial |
 | kerbalEVAfemaleFuture | kerbalEVAfemaleFuture | Breaking Ground | KerbalEVA, ModuleEvaChute, ModuleColorChanger | Partial |
-| kv1Pod | kv1Pod | Making History | ModuleColorChanger | Partial |
-| kv2Pod | kv2Pod | Making History | ModuleColorChanger | Partial |
-| kv3Pod | kv3Pod | Making History | ModuleColorChanger | Partial |
-| landerCabinSmall | landerCabinSmall | Stock | ModuleColorChanger | Partial |
-| mk1-3pod | mk1-3pod | Stock | ModuleColorChanger, ModuleRCSFX | Partial |
-| mk1pod_v2 | mk1pod.v2 | Stock | ModuleColorChanger | Partial |
-| mk2Cockpit_Inline | mk2Cockpit.Inline | Stock | ModuleColorChanger | Partial |
-| mk2Cockpit_Standard | mk2Cockpit.Standard | Stock | ModuleColorChanger | Partial |
-| mk2CrewCabin | mk2CrewCabin | Stock | ModuleColorChanger | Partial |
 | mk2LanderCabin | mk2LanderCabin | Stock | ModuleColorChanger | Partial |
-| mk3Cockpit_Shuttle | mk3Cockpit.Shuttle | Stock | ModuleColorChanger | Partial |
-| mk3CrewCabin | mk3CrewCabin | Stock | ModuleColorChanger | Partial |
+
+Note: Heat shield ablation char (HeatShield0-3, HeatShield1p5) is driven by reentry FX, not toggleable
+events. These need in-flight reentry verification, not pad-based showcases.
 
 ### Parts with Unsupported Visual Modules (No Showcase Needed)
 

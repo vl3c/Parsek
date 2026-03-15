@@ -994,8 +994,8 @@ namespace Parsek.Tests
         // Optional companion part (e.g., kerbal actor) receives the second slot.
         // Total visible showcase row entries (indices 0-235, including inventory placement).
         private const int ShowcaseRowCount = 243;
-        // Split showcase into two parallel lines to avoid runway clipping.
-        private static readonly int ShowcaseEntriesPerLine = (ShowcaseRowCount + 1) / 2;
+        // Split showcase into three parallel lines to avoid runway clipping.
+        private static readonly int ShowcaseEntriesPerLine = (ShowcaseRowCount + 2) / 3;
         private const double ShowcaseLineSpacingMeters = 20.0;
         // Keep showcases close to the launchpad centerline without overlapping pad geometry.
         private const double ShowcaseDistanceFromPadMeters = 200.0;
@@ -1205,6 +1205,25 @@ namespace Parsek.Tests
             { "mk2LanderCabin.v2", 0.9019 },
             { "Mark1Cockpit", 0.6424 },
             { "mk2Cockpit.Standard", 0.5 },
+            { "kv1Pod", 1.025 },
+            { "kv2Pod", 1.025 },
+            { "kv3Pod", 1.025 },
+            { "landerCabinSmall", 0.625 },
+            { "Mark2Cockpit", 0.9375 },
+            { "mk2Cockpit.Inline", 1.25 },
+            { "mk3Cockpit.Shuttle", 3.1875 },
+            { "Mk2Pod", 1.0 },
+            { "crewCabin", 0.986899 },
+            { "MK1CrewCabin", 0.9375 },
+            { "mk2CrewCabin", 0.9375 },
+            { "mk3CrewCabin", 1.875 },
+            { "Large.Crewed.Lab", 1.825 },
+            { "MEMLander", 1.338 },
+            { "dockingPort2", 0.2828832 },
+            { "dockingPortLarge", 0.29 },
+
+            // ── ColorChanger EVA (kerbal helmet light) ──
+            { "kerbalEVAFuture", 0.0 },
 
             // ── AnimateHeat parts ──
             { "airplaneTail", 0.0 },
@@ -1282,6 +1301,10 @@ namespace Parsek.Tests
             { "turboJet", 0.0 },
             { "ionEngine", 0.2135562 },
 
+            // ── Engine flame showcase: LES + MH tank/engine hybrid ──
+            { "LaunchEscapeSystem", 0.0 },       // No node_stack_top; surface-attach LES tower
+            { "Size1p5.Tank.05", 0.0 },           // No node_stack_top; integrated engine tank
+
             // ── Inventory placement (kerbalEVA companion, not offset) ──
             // DeployedWeatherStn already listed above.
         };
@@ -1298,9 +1321,8 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Computes lat/lon/alt for a showcase row, splitting rows across two parallel lines.
-        /// Rows 0 to ShowcaseEntriesPerLine-1 are on the back line (200m from pad),
-        /// rows ShowcaseEntriesPerLine to ShowcaseRowCount-1 are on the front line (220m from pad).
+        /// Computes lat/lon/alt for a showcase row, splitting rows across three parallel lines.
+        /// Line 0 (back): 200m from pad, Line 1 (middle): 220m from pad, Line 2 (front): 240m from pad.
         /// </summary>
         private static void ShowcasePosition(int rowIndex, double distanceFromPadMeters,
             out double lat, out double lon, out double alt,
@@ -1446,18 +1468,17 @@ namespace Parsek.Tests
             };
         }
 
-        // Two parallel lines (rows 0-121 at 200m, rows 122-242 at 220m from pad):
+        // Three parallel lines (rows 0-80 at 200m, rows 81-161 at 220m, rows 162-242 at 240m from pad):
         // Back line — Lights: 0-5, Deployables: 6-23, Airplane Gear: 24-27, Landing Legs: 28-30,
         //   Cargo: 31-41, Engines (old unused): 42-44, Ladders: 45-46, RCS: 47-49, Fairings: 50-54,
         //   Extra Radiators: 55-56, Drills: 57-58, Deployed Science: 59-66,
-        //   Animation Group: 67-68, Parachutes: 69-73, Special Deploy Animations: 74-85,
-        //   Jettison (non-engine): 86-94, ColorChanger Cabin Lights: 95-100,
-        //   Robotics: 117-118 (partial)
-        // Front line — Robotics: 119-137, AeroSurface: 138, Robot Arm Scanners: 139-141,
-        //   Control Surfaces: 142-165, Wheel Dynamics: 166-171, AnimateHeat: 172-184,
-        //   Lights (extra): 185-188, RCS (extra): 189-190,
-        //   Engines (all 45): 191-235, Inventory Placement: 236,
-        //   ColorChanger Heat Shields: 237-242.
+        //   Animation Group: 67-68, Parachutes: 69-73, Special Deploy Animations: 74-85 (partial)
+        // Middle line — Special Deploy (cont): 86+, Jettison (non-engine): 86-94,
+        //   ColorChanger Cabin Lights: 95-116, Robotics: 117-137, AeroSurface: 138,
+        //   Robot Arm Scanners: 139-141, Control Surfaces: 142-161 (partial)
+        // Front line — Control Surfaces (cont): 162-165, Wheel Dynamics: 166-171,
+        //   AnimateHeat: 172-184, Lights (extra): 185-188, RCS (extra): 189-190,
+        //   Engines (all 47): 191-238, EVA ColorChanger: 236, Inventory Placement: 242.
 
         internal static RecordingBuilder[] DeployableShowcaseRecordings(double baseUT = 0)
         {
@@ -1613,7 +1634,11 @@ namespace Parsek.Tests
                 BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Goliath", "turboFanSize2", 234, pidBase),
 
                 // ── Special (row 235) ──
-                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Ion", "ionEngine", 235, pidBase)
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Ion", "ionEngine", 235, pidBase),
+
+                // ── Additional engines (rows 237-238) ──
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - LES", "LaunchEscapeSystem", 237, pidBase, isSrb: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - FL-C1000 Tank", "Size1p5.Tank.05", 238, pidBase, isSrb: true)
             };
         }
 
@@ -2154,6 +2179,44 @@ namespace Parsek.Tests
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Mk1 Cockpit", "Mark1Cockpit", 99,
                     ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Mk2 Cockpit", "mk2Cockpit.Standard", 100,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+
+                // Pattern A continued: MH command pods + stock cabins (rows 101-116)
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger KV-1 Pod", "kv1Pod", 101,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger KV-2 Pod", "kv2Pod", 102,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger KV-3 Pod", "kv3Pod", 103,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Mk1 Lander Can", "landerCabinSmall", 104,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Mk2 Cockpit Inline", "Mark2Cockpit", 105,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Mk2 Cockpit IVA", "mk2Cockpit.Inline", 106,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Mk3 Shuttle Cockpit", "mk3Cockpit.Shuttle", 107,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Mk2 Pod", "Mk2Pod", 108,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Crew Cabin", "crewCabin", 109,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Mk1 Crew Cabin", "MK1CrewCabin", 110,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Mk2 Crew Cabin", "mk2CrewCabin", 111,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Mk3 Crew Cabin", "mk3CrewCabin", 112,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Science Lab", "Large.Crewed.Lab", 113,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger MEM Lander", "MEMLander", 114,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Docking Port", "dockingPort2", 115,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Docking Port Sr", "dockingPortLarge", 116,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+
+                // Pattern A: EVA kerbal helmet light (row 236)
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger EVA Kerbal", "kerbalEVAFuture", 236,
                     ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid)
             };
         }
@@ -2992,7 +3055,7 @@ namespace Parsek.Tests
         public void EngineShowcaseRecordings_BuildExpectedShape()
         {
             var recordings = EngineShowcaseRecordings(baseUT: 17000);
-            Assert.Equal(45, recordings.Length);
+            Assert.Equal(47, recordings.Length);
 
             // First entry: liquid with shroud (LV-T30) → 8 events, first is ShroudJettisoned
             var first = recordings[0].Build();
@@ -3069,7 +3132,7 @@ namespace Parsek.Tests
         public void EngineShowcaseRecordings_AllEntriesFollowExpectedEventProfiles()
         {
             var recordings = EngineShowcaseRecordings(baseUT: 17000);
-            Assert.Equal(45, recordings.Length);
+            Assert.Equal(47, recordings.Length);
 
             for (int i = 0; i < recordings.Length; i++)
             {
@@ -4127,7 +4190,7 @@ namespace Parsek.Tests
         public void EngineShowcaseRecordings_AllEntriesUseDeterministicTimelineAndValues()
         {
             var recordings = EngineShowcaseRecordings(17000);
-            Assert.Equal(45, recordings.Length);
+            Assert.Equal(47, recordings.Length);
 
             var withShroudTypes = new[]
             {
