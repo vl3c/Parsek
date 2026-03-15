@@ -3158,6 +3158,7 @@ namespace Parsek
                             if (fxPrefab != null)
                             {
                                 GameObject fxInstance = Object.Instantiate(fxPrefab);
+                                fxInstance.SetActive(true);
                                 fxInstance.transform.SetParent(ghostFxParent, false);
                                 fxInstance.transform.localPosition = mmpLocalPos;
                                 fxInstance.transform.localRotation = mmpLocalRot;
