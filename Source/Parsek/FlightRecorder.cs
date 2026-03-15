@@ -139,9 +139,9 @@ namespace Parsek
         private const double roboticSampleIntervalSeconds = 0.25; // 4 Hz
         private const float roboticAngularDeadbandDegrees = 0.5f;
         private const float roboticLinearDeadbandMeters = 0.01f;
-        private const float animateHeatHotThreshold = 0.66f;
+        internal const float AnimateHeatHotThreshold = 0.66f;
         private const float animateHeatHotFallbackThreshold = 0.60f; // hysteresis: fall from Hot at 0.60, rise at 0.66
-        private const float animateHeatMediumThreshold = 0.33f;
+        internal const float AnimateHeatMediumThreshold = 0.33f;
         private const float animateHeatColdThreshold = 0.10f;
         private double lastRecordedUT = -1;
         private Vector3 lastRecordedVelocity;
@@ -725,9 +725,9 @@ namespace Parsek
             // Cold-Medium: rise at 0.33, fall at 0.10 (gap [0.10, 0.33) preserves current)
             // Medium-Hot:  rise at 0.66, fall at 0.60 (gap [0.60, 0.66) preserves current)
             HeatLevel target;
-            if (normalizedHeat >= animateHeatHotThreshold)
+            if (normalizedHeat >= AnimateHeatHotThreshold)
                 target = HeatLevel.Hot;
-            else if (normalizedHeat >= animateHeatMediumThreshold)
+            else if (normalizedHeat >= AnimateHeatMediumThreshold)
             {
                 // In the Medium zone — but check if falling from Hot with hysteresis
                 if (current == HeatLevel.Hot && normalizedHeat >= animateHeatHotFallbackThreshold)
@@ -3531,23 +3531,363 @@ namespace Parsek
                 $"Module caches seeded for vessel pid={v.persistentId}: engines={cachedEngines?.Count ?? 0}, " +
                 $"rcs={cachedRcsModules?.Count ?? 0}, robotics={cachedRoboticModules?.Count ?? 0}");
 
-            // Seed already-deployed fairings so we don't emit false events at first poll
-            if (v != null && v.parts != null)
+            // Seed all tracking sets with current part state so we don't emit
+            // false events at first poll (e.g., shrouds already jettisoned,
+            // engines already running, lights already on, etc.)
+            SeedExistingPartStates(v);
+        }
+
+        /// <summary>
+        /// Pre-populates all part-event tracking sets with the current state of
+        /// every part on the vessel. This prevents spurious events on the first
+        /// physics-frame poll when recording starts mid-flight (e.g., chain
+        /// continuation after staging, or background recorder initialization).
+        /// </summary>
+        internal void SeedExistingPartStates(Vessel v)
+        {
+            if (v == null || v.parts == null) return;
+
+            for (int i = 0; i < v.parts.Count; i++)
             {
-                for (int i = 0; i < v.parts.Count; i++)
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                // --- Fairings ---
+                var fairing = p.FindModuleImplementing<ModuleProceduralFairing>();
+                if (fairing != null)
                 {
-                    Part p = v.parts[i];
-                    if (p == null) continue;
-                    var fairing = p.FindModuleImplementing<ModuleProceduralFairing>();
-                    if (fairing == null) continue;
                     try
                     {
                         if (fairing.GetScalar >= 0.5f)
+                        {
                             deployedFairings.Add(p.persistentId);
+                            ParsekLog.Verbose("Recorder",
+                                $"Seeded already-deployed fairing: '{p.partInfo?.name}' pid={p.persistentId}");
+                        }
                     }
                     catch { }
                 }
+
+                // --- Shrouds (ModuleJettison) ---
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    var jettison = p.Modules[m] as ModuleJettison;
+                    if (jettison == null) continue;
+
+                    if (jettison.isJettisoned)
+                    {
+                        jettisonedShrouds.Add(p.persistentId);
+                        ParsekLog.Verbose("Recorder",
+                            $"Seeded already-jettisoned shroud: '{p.partInfo?.name}' pid={p.persistentId}");
+                        break; // One jettison per part is enough for the set
+                    }
+                }
+
+                // --- Parachutes ---
+                var chute = p.FindModuleImplementing<ModuleParachute>();
+                if (chute != null)
+                {
+                    int chuteState = chute.deploymentState == ModuleParachute.deploymentStates.DEPLOYED ? 2
+                                   : chute.deploymentState == ModuleParachute.deploymentStates.SEMIDEPLOYED ? 1
+                                   : 0;
+                    if (chuteState > 0)
+                    {
+                        parachuteStates[p.persistentId] = chuteState;
+                        ParsekLog.Verbose("Recorder",
+                            $"Seeded already-deployed parachute: '{p.partInfo?.name}' pid={p.persistentId} state={chuteState}");
+                    }
+                }
+
+                // --- Deployables (solar panels, antennas, etc.) ---
+                var deployable = p.FindModuleImplementing<ModuleDeployablePart>();
+                if (deployable != null)
+                {
+                    if (deployable.deployState == ModuleDeployablePart.DeployState.EXTENDED)
+                    {
+                        extendedDeployables.Add(p.persistentId);
+                        ParsekLog.Verbose("Recorder",
+                            $"Seeded already-extended deployable: '{p.partInfo?.name}' pid={p.persistentId}");
+                    }
+                }
+
+                // --- Lights ---
+                bool hasModuleLight = false;
+                var light = p.FindModuleImplementing<ModuleLight>();
+                if (light != null)
+                {
+                    hasModuleLight = true;
+                    if (light.isOn)
+                    {
+                        lightsOn.Add(p.persistentId);
+                        ParsekLog.Verbose("Recorder",
+                            $"Seeded already-on light: '{p.partInfo?.name}' pid={p.persistentId}");
+                    }
+                    if (light.isBlinking)
+                    {
+                        blinkingLights.Add(p.persistentId);
+                        float safeBlinkRate = light.blinkRate > 0f ? light.blinkRate : 1f;
+                        lightBlinkRates[p.persistentId] = safeBlinkRate;
+                        ParsekLog.Verbose("Recorder",
+                            $"Seeded already-blinking light: '{p.partInfo?.name}' pid={p.persistentId} rate={safeBlinkRate:F2}");
+                    }
+                }
+
+                // ColorChanger-based cabin lights (only if no ModuleLight to avoid double-counting)
+                if (!hasModuleLight)
+                {
+                    for (int m = 0; m < p.Modules.Count; m++)
+                    {
+                        var cc = p.Modules[m] as ModuleColorChanger;
+                        if (cc == null || !cc.toggleInFlight) continue;
+                        if (cc.animState)
+                        {
+                            lightsOn.Add(p.persistentId);
+                            ParsekLog.Verbose("Recorder",
+                                $"Seeded already-on ColorChanger light: '{p.partInfo?.name}' pid={p.persistentId}");
+                        }
+                        break;
+                    }
+                }
+
+                // --- Landing gear ---
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    var wheel = p.Modules[m] as ModuleWheels.ModuleWheelDeployment;
+                    if (wheel == null) continue;
+                    ClassifyGearState(wheel.stateString, out bool isDeployed, out bool isRetracted);
+                    if (isDeployed)
+                    {
+                        deployedGear.Add(p.persistentId);
+                        ParsekLog.Verbose("Recorder",
+                            $"Seeded already-deployed gear: '{p.partInfo?.name}' pid={p.persistentId}");
+                    }
+                    break; // one deployment module per part
+                }
+
+                // --- Cargo bays ---
+                var cargo = p.FindModuleImplementing<ModuleCargoBay>();
+                if (cargo != null)
+                {
+                    int deployIdx = cargo.DeployModuleIndex;
+                    if (deployIdx >= 0 && deployIdx < p.Modules.Count)
+                    {
+                        var anim = p.Modules[deployIdx] as ModuleAnimateGeneric;
+                        if (anim != null)
+                        {
+                            ClassifyCargoBayState(anim.animTime, cargo.closedPosition, out bool isOpen, out bool isClosed);
+                            if (isOpen)
+                            {
+                                openCargoBays.Add(p.persistentId);
+                                ParsekLog.Verbose("Recorder",
+                                    $"Seeded already-open cargo bay: '{p.partInfo?.name}' pid={p.persistentId}");
+                            }
+                        }
+                    }
+                }
+
+                // --- Ladders ---
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    PartModule module = p.Modules[m];
+                    if (module == null) continue;
+                    if (!string.Equals(module.moduleName, "RetractableLadder", StringComparison.Ordinal))
+                        continue;
+
+                    bool ladderDeployed, ladderRetracted;
+                    if (TryClassifyRetractableLadderState(module, out ladderDeployed, out ladderRetracted) && ladderDeployed)
+                    {
+                        ulong key = EncodeEngineKey(p.persistentId, m);
+                        deployedLadders.Add(key);
+                        ParsekLog.Verbose("Recorder",
+                            $"Seeded already-deployed ladder: '{p.partInfo?.name}' pid={p.persistentId} midx={m}");
+                    }
+                    break;
+                }
+
+                // --- Animation groups, aero surfaces, control surfaces, robot arm scanners ---
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    PartModule module = p.Modules[m];
+                    if (module == null) continue;
+
+                    if (string.Equals(module.moduleName, "ModuleAnimationGroup", StringComparison.Ordinal))
+                    {
+                        bool agDeployed, agRetracted;
+                        if (TryClassifyAnimationGroupState(module, out agDeployed, out agRetracted) && agDeployed)
+                        {
+                            ulong key = EncodeEngineKey(p.persistentId, m);
+                            deployedAnimationGroups.Add(key);
+                            ParsekLog.Verbose("Recorder",
+                                $"Seeded already-deployed animation group: '{p.partInfo?.name}' pid={p.persistentId} midx={m}");
+                        }
+                    }
+                    else if (string.Equals(module.moduleName, "ModuleAeroSurface", StringComparison.Ordinal))
+                    {
+                        bool asDeployed, asRetracted;
+                        if (TryClassifyAeroSurfaceState(module, out asDeployed, out asRetracted) && asDeployed)
+                        {
+                            ulong key = EncodeEngineKey(p.persistentId, m);
+                            deployedAeroSurfaceModules.Add(key);
+                            ParsekLog.Verbose("Recorder",
+                                $"Seeded already-deployed aero surface: '{p.partInfo?.name}' pid={p.persistentId} midx={m}");
+                        }
+                    }
+                    else if (string.Equals(module.moduleName, "ModuleControlSurface", StringComparison.Ordinal))
+                    {
+                        bool csDeployed, csRetracted;
+                        if (TryClassifyControlSurfaceState(module, out csDeployed, out csRetracted) && csDeployed)
+                        {
+                            ulong key = EncodeEngineKey(p.persistentId, m);
+                            deployedControlSurfaceModules.Add(key);
+                            ParsekLog.Verbose("Recorder",
+                                $"Seeded already-deployed control surface: '{p.partInfo?.name}' pid={p.persistentId} midx={m}");
+                        }
+                    }
+                    else if (string.Equals(module.moduleName, "ModuleRobotArmScanner", StringComparison.Ordinal))
+                    {
+                        bool rasDeployed, rasRetracted;
+                        if (TryClassifyRobotArmScannerState(module, out rasDeployed, out rasRetracted) && rasDeployed)
+                        {
+                            ulong key = EncodeEngineKey(p.persistentId, m);
+                            deployedRobotArmScannerModules.Add(key);
+                            ParsekLog.Verbose("Recorder",
+                                $"Seeded already-deployed robot arm scanner: '{p.partInfo?.name}' pid={p.persistentId} midx={m}");
+                        }
+                    }
+                }
+
+                // --- AnimateGeneric (catch-all, same exclusion logic as CheckAnimateGenericState) ---
+                bool hasDeployablePart = p.FindModuleImplementing<ModuleDeployablePart>() != null;
+                bool hasWheelDeploy = p.FindModuleImplementing<ModuleWheels.ModuleWheelDeployment>() != null;
+                bool hasCargoBay = cargo != null;
+                bool hasLadder = false, hasAnimGroup = false, hasAeroSurf = false;
+                bool hasCtrlSurf = false, hasRobotArm = false, hasAnimHeat = false;
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    PartModule mod = p.Modules[m];
+                    if (mod == null) continue;
+                    if (string.Equals(mod.moduleName, "RetractableLadder", StringComparison.Ordinal)) hasLadder = true;
+                    if (string.Equals(mod.moduleName, "ModuleAnimationGroup", StringComparison.Ordinal)) hasAnimGroup = true;
+                    if (string.Equals(mod.moduleName, "ModuleAeroSurface", StringComparison.Ordinal)) hasAeroSurf = true;
+                    if (string.Equals(mod.moduleName, "ModuleControlSurface", StringComparison.Ordinal)) hasCtrlSurf = true;
+                    if (string.Equals(mod.moduleName, "ModuleRobotArmScanner", StringComparison.Ordinal)) hasRobotArm = true;
+                    if (string.Equals(mod.moduleName, "ModuleAnimateHeat", StringComparison.Ordinal)) hasAnimHeat = true;
+                }
+                if (!hasDeployablePart && !hasWheelDeploy && !hasCargoBay &&
+                    !hasLadder && !hasAnimGroup && !hasAeroSurf && !hasCtrlSurf && !hasRobotArm && !hasAnimHeat)
+                {
+                    for (int m = 0; m < p.Modules.Count; m++)
+                    {
+                        var animGeneric = p.Modules[m] as ModuleAnimateGeneric;
+                        if (animGeneric == null) continue;
+                        if (string.IsNullOrEmpty(animGeneric.animationName)) continue;
+
+                        bool agDeployed, agRetracted;
+                        if (TryClassifyAnimateGenericState(animGeneric, out agDeployed, out agRetracted) && agDeployed)
+                        {
+                            ulong key = EncodeEngineKey(p.persistentId, m);
+                            deployedAnimateGenericModules.Add(key);
+                            ParsekLog.Verbose("Recorder",
+                                $"Seeded already-deployed AnimateGeneric: '{p.partInfo?.name}' pid={p.persistentId} midx={m}");
+                        }
+                    }
+                }
             }
+
+            // --- Engines (use cached list) ---
+            if (cachedEngines != null)
+            {
+                for (int i = 0; i < cachedEngines.Count; i++)
+                {
+                    var (part, engine, moduleIndex) = cachedEngines[i];
+                    if (part == null || engine == null) continue;
+                    if (engine.EngineIgnited && engine.isOperational)
+                    {
+                        ulong key = EncodeEngineKey(part.persistentId, moduleIndex);
+                        activeEngineKeys.Add(key);
+                        lastThrottle[key] = engine.currentThrottle;
+                        ParsekLog.Verbose("Recorder",
+                            $"Seeded already-active engine: '{part.partInfo?.name}' pid={part.persistentId} midx={moduleIndex} throttle={engine.currentThrottle:F2}");
+                    }
+                }
+            }
+
+            // --- RCS (use cached list) ---
+            if (cachedRcsModules != null)
+            {
+                for (int i = 0; i < cachedRcsModules.Count; i++)
+                {
+                    var (part, rcs, moduleIndex) = cachedRcsModules[i];
+                    if (part == null || rcs == null) continue;
+                    if (rcs.rcs_active && rcs.rcsEnabled)
+                    {
+                        ulong key = EncodeEngineKey(part.persistentId, moduleIndex);
+                        activeRcsKeys.Add(key);
+                        float power = 0f;
+                        if (rcs.thrusterPower > 0f && rcs.thrustForces != null && rcs.thrustForces.Length > 0)
+                        {
+                            float sum = 0f;
+                            for (int f = 0; f < rcs.thrustForces.Length; f++)
+                                sum += rcs.thrustForces[f];
+                            power = Mathf.Clamp01(sum / (rcs.thrusterPower * rcs.thrustForces.Length));
+                        }
+                        lastRcsThrottle[key] = power;
+                        ParsekLog.Verbose("Recorder",
+                            $"Seeded already-active RCS: '{part.partInfo?.name}' pid={part.persistentId} midx={moduleIndex} power={power:F2}");
+                    }
+                }
+            }
+
+            // --- AnimateHeat (poll-based, iterate parts) ---
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    PartModule module = p.Modules[m];
+                    if (module == null) continue;
+                    if (!string.Equals(module.moduleName, "ModuleAnimateHeat", System.StringComparison.Ordinal))
+                        continue;
+                    if (!TryClassifyAnimateHeatState(module, out float normalizedHeat, out _))
+                        continue;
+                    HeatLevel level;
+                    if (normalizedHeat >= AnimateHeatHotThreshold)
+                        level = HeatLevel.Hot;
+                    else if (normalizedHeat >= AnimateHeatMediumThreshold)
+                        level = HeatLevel.Medium;
+                    else
+                        level = HeatLevel.Cold;
+                    if (level != HeatLevel.Cold)
+                    {
+                        ulong key = EncodeEngineKey(p.persistentId, m);
+                        animateHeatLevels[key] = level;
+                        ParsekLog.Verbose("Recorder",
+                            $"Seeded AnimateHeat: '{p.partInfo?.name}' pid={p.persistentId} midx={m} level={level} heat={normalizedHeat:F3}");
+                    }
+                }
+            }
+
+            // --- Robotics (use cached list) ---
+            if (cachedRoboticModules != null)
+            {
+                for (int i = 0; i < cachedRoboticModules.Count; i++)
+                {
+                    var (part, module, moduleIndex, moduleName) = cachedRoboticModules[i];
+                    if (part == null || module == null) continue;
+                    // Robotics are only seeded if currently moving — most start stationary,
+                    // so no seeding needed for the common case. The IsMoving signal is
+                    // transient and expensive to read reliably, so we skip robotic seeding.
+                }
+            }
+
+            ParsekLog.Verbose("Recorder",
+                $"Initial state seeding complete: fairings={deployedFairings.Count} shrouds={jettisonedShrouds.Count} " +
+                $"parachutes={parachuteStates.Count} deployables={extendedDeployables.Count} lights={lightsOn.Count} " +
+                $"blinks={blinkingLights.Count} gear={deployedGear.Count} cargo={openCargoBays.Count} " +
+                $"ladders={deployedLadders.Count} animGroups={deployedAnimationGroups.Count} " +
+                $"animGeneric={deployedAnimateGenericModules.Count} heat={animateHeatLevels.Count} " +
+                $"engines={activeEngineKeys.Count} rcs={activeRcsKeys.Count}");
         }
 
         public void StopRecording()
