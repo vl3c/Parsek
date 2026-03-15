@@ -253,6 +253,15 @@ namespace Parsek.Tests
             Assert.False(GhostVisualBuilder.TryParseKspColor("0.5, 0.5", out _));
         }
 
+        // Hex format (#RRGGBB) is handled via ColorUtility.TryParseHtmlString
+        // which requires Unity runtime — can't be unit tested, verified in-game
+
+        [Fact]
+        public void TryParseKspColor_InvalidFloatComponents_ReturnsFalse()
+        {
+            Assert.False(GhostVisualBuilder.TryParseKspColor("abc, 0.5, 0.5, 1.0", out _));
+        }
+
         #endregion
 
         #region TryGetSelectedVariantTextureRules — ConfigNode parsing
