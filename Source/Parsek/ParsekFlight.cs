@@ -4496,14 +4496,14 @@ namespace Parsek
             double currentUT = Planetarium.GetUniversalTime();
 
             // Flush deferred spawns when warp ends
-            if (pendingSpawnRecordingIds.Count > 0 && !IsAnyWarpActive())
+            if (ShouldFlushDeferredSpawns(pendingSpawnRecordingIds.Count, IsAnyWarpActive()))
             {
                 int spawnedCount = 0;
                 for (int i = 0; i < committed.Count; i++)
                 {
                     var rec = committed[i];
                     if (!pendingSpawnRecordingIds.Contains(rec.RecordingId)) continue;
-                    if (rec.VesselSpawned || rec.VesselSnapshot == null)
+                    if (ShouldSkipDeferredSpawn(rec.VesselSpawned, rec.VesselSnapshot != null))
                     {
                         ParsekLog.Verbose("Flight", $"Deferred spawn skipped — #{i} \"{rec.VesselName}\" already spawned or no snapshot");
                         continue;
@@ -4513,7 +4513,7 @@ namespace Parsek
                     spawnedCount++;
 
                     // Restore camera follow if this recording was being watched when deferred
-                    if (pendingWatchRecordingId == rec.RecordingId && rec.SpawnedVesselPersistentId != 0)
+                    if (ShouldRestoreWatchMode(pendingWatchRecordingId, rec.RecordingId, rec.SpawnedVesselPersistentId))
                     {
                         ParsekLog.Info("CameraFollow",
                             $"Deferred watch: switching to spawned vessel pid={rec.SpawnedVesselPersistentId}");
@@ -7244,6 +7244,21 @@ namespace Parsek
             if (!IsAnyWarpActive()) return;
             TimeWarp.SetRate(0, true);
             Log($"Warp reset for playback start ({context})");
+        }
+
+        internal static bool ShouldFlushDeferredSpawns(int pendingCount, bool isWarpActive)
+        {
+            return pendingCount > 0 && !isWarpActive;
+        }
+
+        internal static bool ShouldSkipDeferredSpawn(bool vesselSpawned, bool hasSnapshot)
+        {
+            return vesselSpawned || !hasSnapshot;
+        }
+
+        internal static bool ShouldRestoreWatchMode(string pendingWatchId, string recordingId, uint spawnedPid)
+        {
+            return pendingWatchId == recordingId && spawnedPid != 0;
         }
 
         internal static bool ShouldPauseTimelineResourceReplay(bool isRecording)
