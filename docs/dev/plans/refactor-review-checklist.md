@@ -1,6 +1,16 @@
 # Refactor Review Checklist
 
-Dispatch a clean-context review agent after every file is refactored. The agent reads the git diff and verifies each item below.
+## Review Agent Requirements
+
+- **Model:** Always Opus (`model: "opus"`) — non-negotiable for review reliability
+- **Clean context:** Every review agent must be a fresh agent (no `resume`, no accumulated context from the refactoring). The reviewer must have zero knowledge of what was "supposed to" change — it only sees the diff and the checklist.
+- **Prompt:** Give the agent ONLY:
+  1. The path to this checklist file
+  2. The commit hash(es) to review
+  3. The file path(s) that were modified
+  4. A brief description of what was claimed (e.g., "11 methods extracted, 7-copy deduplication")
+- **Do NOT** tell the review agent the extraction rules, the plan, or any justification for the changes. It should discover whether the changes are correct independently.
+- **Subagent type:** Use default (general-purpose), NOT Plan — the reviewer needs full tool access to read files and run git commands.
 
 ## Checklist
 
@@ -41,3 +51,29 @@ For each diff hunk:
 - Verify semantic equivalence
 
 Report: PASS/FAIL per item, exact line numbers for any failures, concerns even if not outright bugs.
+
+## Example review agent dispatch
+
+```
+Agent(
+  model: "opus",
+  description: "Review XYZ.cs refactor",
+  prompt: """
+    You are a code review agent. Your ONLY job is to verify that a refactoring
+    introduced NO logic changes — only structural reshuffling and logging additions.
+
+    Working directory: C:/Users/vlad3/Documents/Code/Parsek/Parsek-code-refactor/
+
+    1. Read docs/dev/plans/refactor-review-checklist.md for the full checklist
+    2. Run: git show <COMMIT_HASH>
+    3. Read every diff hunk. For each change, verify it against the checklist.
+    4. For deduplication claims, read BOTH original blocks and verify they were identical.
+    5. Report PASS/FAIL per checklist item with exact line numbers for any issues.
+
+    File reviewed: Source/Parsek/XYZ.cs
+    Commit: <HASH>
+    Claimed changes: <brief description>
+  """,
+  run_in_background: true
+)
+```

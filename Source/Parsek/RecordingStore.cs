@@ -1271,30 +1271,35 @@ namespace Parsek
             if (IsRewinding)
             {
                 reason = "Rewind already in progress";
+                ParsekLog.Verbose("Store", $"CanRewind: blocked — {reason}");
                 return false;
             }
 
             if (string.IsNullOrEmpty(rec.RewindSaveFileName))
             {
                 reason = "No rewind save available";
+                ParsekLog.Verbose("Store", $"CanRewind: blocked for '{rec.VesselName}' — {reason}");
                 return false;
             }
 
             if (isRecording)
             {
                 reason = "Stop recording before rewinding";
+                ParsekLog.Verbose("Store", $"CanRewind: blocked — {reason}");
                 return false;
             }
 
             if (HasPending)
             {
                 reason = "Merge or discard pending recording first";
+                ParsekLog.Verbose("Store", $"CanRewind: blocked — {reason}");
                 return false;
             }
 
             if (HasPendingTree)
             {
                 reason = "Merge or discard pending tree first";
+                ParsekLog.Verbose("Store", $"CanRewind: blocked — {reason}");
                 return false;
             }
 
@@ -1304,10 +1309,12 @@ namespace Parsek
             if (string.IsNullOrEmpty(savePath) || !File.Exists(savePath))
             {
                 reason = "Rewind save file missing";
+                ParsekLog.Verbose("Store", $"CanRewind: blocked for '{rec.VesselName}' — {reason} (path={savePath ?? "null"})");
                 return false;
             }
 
             reason = "";
+            ParsekLog.Verbose("Store", $"CanRewind: allowed for '{rec.VesselName}' (save={rec.RewindSaveFileName})");
             return true;
         }
 
@@ -1597,6 +1604,16 @@ namespace Parsek
 
         internal static void DeserializeTrajectoryFrom(ConfigNode sourceNode, Recording rec)
         {
+            DeserializePoints(sourceNode, rec);
+            DeserializeOrbitSegments(sourceNode, rec);
+            DeserializePartEvents(sourceNode, rec);
+        }
+
+        /// <summary>
+        /// Deserializes POINT nodes from a trajectory ConfigNode into the recording's Points list.
+        /// </summary>
+        internal static void DeserializePoints(ConfigNode sourceNode, Recording rec)
+        {
             var inv = NumberStyles.Float;
             var ic = CultureInfo.InvariantCulture;
 
@@ -1644,6 +1661,15 @@ namespace Parsek
             }
             if (parseFailCount > 0)
                 Log($"[Parsek] WARNING: {parseFailCount}/{ptNodes.Length} trajectory points had unparseable UT in recording {rec.RecordingId}");
+        }
+
+        /// <summary>
+        /// Deserializes ORBIT_SEGMENT nodes from a trajectory ConfigNode into the recording's OrbitSegments list.
+        /// </summary>
+        internal static void DeserializeOrbitSegments(ConfigNode sourceNode, Recording rec)
+        {
+            var inv = NumberStyles.Float;
+            var ic = CultureInfo.InvariantCulture;
 
             ConfigNode[] segNodes = sourceNode.GetNodes("ORBIT_SEGMENT");
             for (int s = 0; s < segNodes.Length; s++)
@@ -1681,6 +1707,15 @@ namespace Parsek
 
                 rec.OrbitSegments.Add(seg);
             }
+        }
+
+        /// <summary>
+        /// Deserializes PART_EVENT nodes from a trajectory ConfigNode into the recording's PartEvents list.
+        /// </summary>
+        internal static void DeserializePartEvents(ConfigNode sourceNode, Recording rec)
+        {
+            var inv = NumberStyles.Float;
+            var ic = CultureInfo.InvariantCulture;
 
             ConfigNode[] peNodes = sourceNode.GetNodes("PART_EVENT");
             for (int pe = 0; pe < peNodes.Length; pe++)
