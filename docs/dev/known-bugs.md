@@ -447,3 +447,34 @@ SRB nozzles on ghost vessels remain glowing indefinitely after the SRB runs out 
 **Fix:** Extended `GhostVisualBuilder` to detect `FXModuleAnimateThrottle` as a fallback heat source. Name-based heuristic ("heat"/"emissive"/"glow"/"color") disambiguates multi-instance parts (Panther, Whiplash). `EngineIgnited`/`EngineThrottle` now call `ApplyHeatState(hot)`. Cold initialization at ghost spawn prevents prefab emissive bleed-through.
 
 **Status:** Fixed
+
+## 41. Spurious Decoupled events on rover wheels under impact stress
+
+When a rover flips or crashes, KSP fires `onPartJointBreak` for wheel parts even though the wheels remain physically attached to the vessel (the joint is stressed but the part stays). Parsek records `Decoupled` events for every `onPartJointBreak` and hides those parts on the ghost. Result: the ghost rover drives around with invisible wheels.
+
+**Observed in:** Sandbox career (2026-03-15). "Test Alibaba" rover (recording `58332bc4a9fd48ac9900c86e1bad5b27`): 4 `roverWheel1` parts received repeated `Decoupled` events totaling 4347 part events for a 37-part rover (117 events per part average). The wheels stayed attached on the real vessel and the rover kept driving. Other parts (`noseconeVS`, `ksp.r.largeBatteryPack`, `telescopicLadderBay`, `longAntenna`, `GooExperiment`, `sensorBarometer`) correctly received `Destroyed` events when they actually broke off.
+
+**Root cause:** `onPartJointBreak` fires for joints under impact stress, not just for permanent separations. KSP wheel joints can break and re-form during collisions — the part never actually leaves the vessel. The recording code treats every `onPartJointBreak` as a permanent `Decoupled` event without verifying that the part actually separated.
+
+**Possible fixes:**
+1. **Post-break verification:** After `onPartJointBreak`, wait 1-2 physics frames, then check if the part is still in the same vessel. If so, discard the Decoupled event.
+2. **Wheel-specific filter:** Skip `onPartJointBreak` for parts with `ModuleWheelBase` or `ModuleWheelDamage` — wheel joint breaks are rarely actual decoupling.
+3. **Duplicate Decoupled filter:** Track which parts have already received a Decoupled event and skip subsequent events for the same PID.
+
+**Status:** Open
+
+## 42. Engine shroud missing at recording start (initial state seeding)
+
+On multi-stage rockets, the second stage engine's protective shroud (ModuleJettison fairing) is missing from the ghost at the start of playback. The shroud should be visible during the first stage burn and only disappear at staging.
+
+**Observed in:** Sandbox career (2026-03-15). "#autoLOC_501218" (large multi-stage rocket in Dynawing Probe tree). SSME engines (PIDs 372523866, 409669795) have `ShroudJettisoned` events firing at the very start of the recording. The ghost builds the `Fairing` mesh correctly (`MR[1] 'Fairing'`, jettison detected) but immediately hides it.
+
+**Root cause (suspected):** Two possibilities:
+1. **Recording started with shrouds already jettisoned:** If all engines ignited simultaneously at launch (including the upper stage SSME), the `ModuleJettison` would fire immediately at recording start, and the `ShroudJettisoned` event would be recorded at UT=0 of the recording. This would be correct behavior — the shroud WAS jettisoned before the first trajectory point.
+2. **Initial state seeding bug:** The `CheckJettisonState` initial-state seeding at recording start might fire `ShroudJettisoned` for shrouds that are still intact, based on a stale `isJettisoned` flag.
+
+**Distinction from bug #31:** Bug #31 is about `ModulePartVariants` geometry selection for shroud transforms. This bug is about `ModuleJettison` timing — the correct shroud mesh is built but hidden too early.
+
+**Needs in-game investigation:** Check whether the SSME shrouds on this specific rocket design actually jettison at launch (all engines ignite at T-0) or at staging.
+
+**Status:** Open
