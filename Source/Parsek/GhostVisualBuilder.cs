@@ -1100,9 +1100,10 @@ namespace Parsek
                 srcPartLocalPos, srcPartLocalRot, srcFxTransform.forward, srcFxTransform.up,
                 ghostPartLocalPos, ghostPartLocalRot, ghostFxParent.forward, ghostFxParent.up);
 
-            ParsekLog.Verbose("GhostVisual", $"    [DIAG] FX parent align '{partName}' midx={moduleIndex} " +
+            ParsekLog.VerboseRateLimited("GhostVisual", $"ghost-build-{partName}",
+                $"    [DIAG] FX parent align '{partName}' midx={moduleIndex} " +
                 $"type={fxKind} transform='{transformName}' {diagnostic} " +
-                $"srcLocalRot={srcFxTransform.localRotation.eulerAngles} parentLocalRot={ghostFxParent.localRotation.eulerAngles}");
+                $"srcLocalRot={srcFxTransform.localRotation.eulerAngles} parentLocalRot={ghostFxParent.localRotation.eulerAngles}", 60.0);
         }
 
         private static void LogFxInstancePlacementDiagnostic(
@@ -1143,12 +1144,13 @@ namespace Parsek
                 fxPartLocalPos, fxPartLocalRot, fxTransform.forward, fxTransform.up);
 
             string safeAssetName = string.IsNullOrEmpty(fxAssetName) ? "<none>" : fxAssetName;
-            ParsekLog.Verbose("GhostVisual", $"    [DIAG] FX placement '{partName}' midx={moduleIndex} " +
+            ParsekLog.VerboseRateLimited("GhostVisual", $"ghost-build-{partName}",
+                $"    [DIAG] FX placement '{partName}' midx={moduleIndex} " +
                 $"type={fxKind} transform='{transformName}' asset='{safeAssetName}' " +
                 $"cfgOffset={configuredLocalOffset} cfgRot={configuredLocalRotation.eulerAngles} hasCfgRot={hasConfiguredLocalRotation} " +
                 $"parent='{ghostFxParent.name}' fx='{fxTransform.name}' " +
                 $"fxLocalPos={fxTransform.localPosition} fxLocalRot={fxTransform.localRotation.eulerAngles} " +
-                $"sourceToFx=({sourceToFx}) parentToFx=({parentToFx})");
+                $"sourceToFx=({sourceToFx}) parentToFx=({parentToFx})", 60.0);
         }
 
         private static int ConfigureGhostEngineParticleSystems(
@@ -2715,17 +2717,19 @@ namespace Parsek
                         Transform diagAnchor = kickbackAnchors[0];
                         Vector3 anchorPartLocalPos = prefab.transform.InverseTransformPoint(diagAnchor.position);
                         Quaternion anchorPartLocalRot = Quaternion.Inverse(prefab.transform.rotation) * diagAnchor.rotation;
-                        ParsekLog.Verbose("GhostVisual", $"    [DIAG] Kickback fallback anchor '{partName}' midx={moduleIndex} " +
+                        ParsekLog.VerboseRateLimited("GhostVisual", $"ghost-build-{partName}",
+                            $"    [DIAG] Kickback fallback anchor '{partName}' midx={moduleIndex} " +
                             $"transform='{kickbackTransform}' anchors={kickbackAnchors.Count} " +
                             $"anchorPartLocalPos={anchorPartLocalPos} anchorPartLocalRot={anchorPartLocalRot.eulerAngles} " +
                             $"anchorFwd={diagAnchor.forward} anchorUp={diagAnchor.up} " +
-                            $"targetOffset={kickbackOffset} targetRot={kickbackThumperLocalRot.eulerAngles}");
+                            $"targetOffset={kickbackOffset} targetRot={kickbackThumperLocalRot.eulerAngles}", 60.0);
                     }
                     else
                     {
-                        ParsekLog.Verbose("GhostVisual", $"    [DIAG] Kickback fallback anchor '{partName}' midx={moduleIndex} " +
+                        ParsekLog.VerboseRateLimited("GhostVisual", $"ghost-build-{partName}",
+                            $"    [DIAG] Kickback fallback anchor '{partName}' midx={moduleIndex} " +
                             $"transform='{kickbackTransform}' anchors=0 targetOffset={kickbackOffset} " +
-                            $"targetRot={kickbackThumperLocalRot.eulerAngles}");
+                            $"targetRot={kickbackThumperLocalRot.eulerAngles}", 60.0);
                     }
 
                     prefabFxEntries.Add(("fx_smokeTrail_medium",
@@ -5591,10 +5595,11 @@ namespace Parsek
                     MirrorTransformChain(src, modelRoot, modelNode.transform, cloneMap);
                     created++;
                 }
-                ParsekLog.Verbose("GhostVisual", $"    EnsureFullHierarchy '{partName}': " +
+                ParsekLog.VerboseRateLimited("GhostVisual", $"ghost-build-{partName}",
+                    $"    EnsureFullHierarchy '{partName}': " +
                     (created > 0
                         ? $"created {created} missing intermediate transforms for animation support"
-                        : $"all {allModelTransforms.Length} model transforms already in cloneMap"));
+                        : $"all {allModelTransforms.Length} model transforms already in cloneMap"), 60.0);
             }
 
             if (hasRoboticModules)
@@ -5632,7 +5637,8 @@ namespace Parsek
                         {
                             unresolved++;
                             if (unresolved <= 5)
-                                ParsekLog.Verbose("GhostVisual", $"    [DIAG] Deployable '{partName}': unresolved path '{path}'");
+                                ParsekLog.VerboseRateLimited("GhostVisual", $"ghost-build-{partName}",
+                                    $"    [DIAG] Deployable '{partName}': unresolved path '{path}'", 60.0);
                         }
                     }
 
@@ -5737,7 +5743,8 @@ namespace Parsek
                         {
                             unresolved++;
                             if (unresolved <= 5)
-                                ParsekLog.Verbose("GhostVisual", $"    [DIAG] Ladder '{partName}': unresolved path '{path}'");
+                                ParsekLog.VerboseRateLimited("GhostVisual", $"ghost-build-{partName}",
+                                    $"    [DIAG] Ladder '{partName}': unresolved path '{path}'", 60.0);
                         }
                     }
 
@@ -5788,7 +5795,8 @@ namespace Parsek
                         {
                             unresolved++;
                             if (unresolved <= 5)
-                                ParsekLog.Verbose("GhostVisual", $"    [DIAG] AnimationGroup '{partName}': unresolved path '{path}'");
+                                ParsekLog.VerboseRateLimited("GhostVisual", $"ghost-build-{partName}",
+                                    $"    [DIAG] AnimationGroup '{partName}': unresolved path '{path}'", 60.0);
                         }
                     }
 
@@ -5834,7 +5842,8 @@ namespace Parsek
                         {
                             unresolved++;
                             if (unresolved <= 5)
-                                ParsekLog.Verbose("GhostVisual", $"    [DIAG] AnimateGeneric '{partName}': unresolved path '{path}'");
+                                ParsekLog.VerboseRateLimited("GhostVisual", $"ghost-build-{partName}",
+                                    $"    [DIAG] AnimateGeneric '{partName}': unresolved path '{path}'", 60.0);
                         }
                     }
 
@@ -6010,7 +6019,8 @@ namespace Parsek
                         {
                             unresolved++;
                             if (unresolved <= 5)
-                                ParsekLog.Verbose("GhostVisual", $"    [DIAG] RobotArmScanner '{partName}': unresolved path '{path}'");
+                                ParsekLog.VerboseRateLimited("GhostVisual", $"ghost-build-{partName}",
+                                    $"    [DIAG] RobotArmScanner '{partName}': unresolved path '{path}'", 60.0);
                         }
                     }
 
@@ -6076,7 +6086,8 @@ namespace Parsek
                                 }
                                 else if (s < 5)
                                 {
-                                    ParsekLog.Verbose("GhostVisual", $"    [DIAG] CargoBay '{partName}': unresolved path '{path}'");
+                                    ParsekLog.VerboseRateLimited("GhostVisual", $"ghost-build-{partName}",
+                                        $"    [DIAG] CargoBay '{partName}': unresolved path '{path}'", 60.0);
                                 }
                             }
 
@@ -6145,7 +6156,8 @@ namespace Parsek
                         {
                             unresolved++;
                             if (unresolved <= 5)
-                                ParsekLog.Verbose("GhostVisual", $"    [DIAG] {heatSource} '{partName}': unresolved path '{path}'");
+                                ParsekLog.VerboseRateLimited("GhostVisual", $"ghost-build-{partName}",
+                                    $"    [DIAG] {heatSource} '{partName}': unresolved path '{path}'", 60.0);
                         }
                     }
                 }
@@ -6701,8 +6713,8 @@ namespace Parsek
                     // Fallback: sphere if no meshes available
                     shape.shapeType = ParticleSystemShapeType.Sphere;
                     shape.radius = vesselLength * 0.3f;
-                    ParsekLog.Warn("ReentryFx",
-                        $"No mesh filters found on ghost #{ghostIndex} — using sphere emission fallback");
+                    ParsekLog.Verbose("ReentryFx",
+                        $"No mesh filters found on ghost #{ghostIndex} — using sphere emission fallback (expected for SMR-only parts)");
                 }
 
                 // Emission: driven by DriveReentryLayers
