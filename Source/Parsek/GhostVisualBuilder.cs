@@ -5947,6 +5947,173 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Spawns a small smoke puff + spark burst at a part's world position.
+        /// Used when a Decoupled or Destroyed part event is applied during ghost playback.
+        /// Much smaller than the vessel explosion — just visual feedback for part separation.
+        /// The returned GameObject auto-destroys after particles expire.
+        /// </summary>
+        internal static GameObject SpawnPartPuffFx(Vector3 worldPosition, float partScale)
+        {
+            Shader alphaShader = Shader.Find("KSP/Particles/Alpha Blended");
+            if (alphaShader == null)
+            {
+                ParsekLog.Warn("PartPuffFx", "Shader 'KSP/Particles/Alpha Blended' not found — puff will not be created");
+                return null;
+            }
+
+            // Target: ~1/4 the visual impact of the vessel explosion.
+            // Explosion uses vesselLength (10-30m) as scale; parts are much smaller.
+            // Use a minimum of 2m so the puff is always visible.
+            float scale = Mathf.Clamp(partScale, 2f, 10f);
+
+            var obj = new GameObject("GhostPartPuffFx");
+            obj.transform.position = worldPosition;
+
+            // --- Smoke puff ---
+            var smokePs = obj.AddComponent<ParticleSystem>();
+            var smokeMain = smokePs.main;
+            smokeMain.simulationSpace = ParticleSystemSimulationSpace.World;
+            smokeMain.startLifetime = new ParticleSystem.MinMaxCurve(0.6f, 1.2f);
+            smokeMain.startSpeed = new ParticleSystem.MinMaxCurve(scale * 0.3f, scale * 0.8f);
+            smokeMain.startSize = new ParticleSystem.MinMaxCurve(scale * 0.15f, scale * 0.4f);
+            smokeMain.maxParticles = 100;
+            smokeMain.playOnAwake = false;
+            smokeMain.loop = false;
+            smokeMain.gravityModifier = 0.03f;
+            smokeMain.startColor = new ParticleSystem.MinMaxGradient(
+                new Color(0.4f, 0.4f, 0.4f, 0.6f),
+                new Color(0.25f, 0.22f, 0.2f, 0.5f));
+
+            var smokeShape = smokePs.shape;
+            smokeShape.shapeType = ParticleSystemShapeType.Sphere;
+            smokeShape.radius = scale * 0.1f;
+
+            var smokeEmission = smokePs.emission;
+            smokeEmission.enabled = true;
+            smokeEmission.rateOverTime = 0f;
+            smokeEmission.SetBursts(new ParticleSystem.Burst[]
+            {
+                new ParticleSystem.Burst(0f, 40, 60)
+            });
+
+            var smokeColor = smokePs.colorOverLifetime;
+            smokeColor.enabled = true;
+            var smokeGradient = new Gradient();
+            smokeGradient.SetKeys(
+                new GradientColorKey[]
+                {
+                    new GradientColorKey(new Color(0.5f, 0.45f, 0.4f), 0f),
+                    new GradientColorKey(new Color(0.3f, 0.28f, 0.25f), 0.5f),
+                    new GradientColorKey(new Color(0.2f, 0.18f, 0.16f), 1f)
+                },
+                new GradientAlphaKey[]
+                {
+                    new GradientAlphaKey(0f, 0f),
+                    new GradientAlphaKey(0.5f, 0.1f),
+                    new GradientAlphaKey(0.3f, 0.5f),
+                    new GradientAlphaKey(0f, 1f)
+                }
+            );
+            smokeColor.color = smokeGradient;
+
+            var smokeSize = smokePs.sizeOverLifetime;
+            smokeSize.enabled = true;
+            smokeSize.size = new ParticleSystem.MinMaxCurve(1f,
+                new AnimationCurve(
+                    new Keyframe(0f, 0.5f),
+                    new Keyframe(0.5f, 1.5f),
+                    new Keyframe(1f, 2.5f)));
+
+            if (cachedExplosionTexture == null)
+                cachedExplosionTexture = CreateSoftCircleTexture(32);
+            var smokeMat = new Material(alphaShader);
+            smokeMat.mainTexture = cachedExplosionTexture;
+            smokeMat.SetColor("_TintColor", new Color(0.35f, 0.3f, 0.25f, 0.5f));
+            var smokeRenderer = obj.GetComponent<ParticleSystemRenderer>();
+            smokeRenderer.renderMode = ParticleSystemRenderMode.Billboard;
+            smokeRenderer.maxParticleSize = 10f;
+            smokeRenderer.material = smokeMat;
+
+            var smokeCleanup = obj.AddComponent<MaterialCleanup>();
+            smokeCleanup.material = smokeMat;
+
+            // --- Small spark burst (additive) ---
+            Shader additiveShader = Shader.Find("KSP/Particles/Additive");
+            if (additiveShader != null)
+            {
+                var sparkObj = new GameObject("Sparks");
+                sparkObj.transform.SetParent(obj.transform, false);
+
+                var sparkPs = sparkObj.AddComponent<ParticleSystem>();
+                var sparkMain = sparkPs.main;
+                sparkMain.simulationSpace = ParticleSystemSimulationSpace.World;
+                sparkMain.startLifetime = new ParticleSystem.MinMaxCurve(0.3f, 0.6f);
+                sparkMain.startSpeed = new ParticleSystem.MinMaxCurve(scale * 0.5f, scale * 1.5f);
+                sparkMain.startSize = new ParticleSystem.MinMaxCurve(scale * 0.03f, scale * 0.1f);
+                sparkMain.maxParticles = 50;
+                sparkMain.playOnAwake = false;
+                sparkMain.loop = false;
+                sparkMain.gravityModifier = 0.3f;
+                sparkMain.startColor = new ParticleSystem.MinMaxGradient(
+                    new Color(1f, 0.9f, 0.5f, 0.8f),
+                    new Color(1f, 0.6f, 0.2f, 0.6f));
+
+                var sparkShape = sparkPs.shape;
+                sparkShape.shapeType = ParticleSystemShapeType.Sphere;
+                sparkShape.radius = scale * 0.08f;
+
+                var sparkEmission = sparkPs.emission;
+                sparkEmission.enabled = true;
+                sparkEmission.rateOverTime = 0f;
+                sparkEmission.SetBursts(new ParticleSystem.Burst[]
+                {
+                    new ParticleSystem.Burst(0f, 15, 30)
+                });
+
+                var sparkColor = sparkPs.colorOverLifetime;
+                sparkColor.enabled = true;
+                var sparkGradient = new Gradient();
+                sparkGradient.SetKeys(
+                    new GradientColorKey[]
+                    {
+                        new GradientColorKey(new Color(1f, 0.95f, 0.7f), 0f),
+                        new GradientColorKey(new Color(1f, 0.5f, 0.1f), 0.5f),
+                        new GradientColorKey(new Color(0.5f, 0.2f, 0.05f), 1f)
+                    },
+                    new GradientAlphaKey[]
+                    {
+                        new GradientAlphaKey(0.8f, 0f),
+                        new GradientAlphaKey(0.3f, 0.5f),
+                        new GradientAlphaKey(0f, 1f)
+                    }
+                );
+                sparkColor.color = sparkGradient;
+
+                var sparkMat = new Material(additiveShader);
+                sparkMat.mainTexture = cachedExplosionTexture;
+                sparkMat.SetColor("_TintColor", new Color(1f, 0.7f, 0.3f, 0.5f));
+                var sparkRenderer = sparkObj.GetComponent<ParticleSystemRenderer>();
+                sparkRenderer.renderMode = ParticleSystemRenderMode.Billboard;
+                sparkRenderer.maxParticleSize = 8f;
+                sparkRenderer.material = sparkMat;
+
+                var sparkCleanup = sparkObj.AddComponent<MaterialCleanup>();
+                sparkCleanup.material = sparkMat;
+
+                sparkPs.Play();
+            }
+
+            smokePs.Play();
+            Object.Destroy(obj, 3f);
+
+            ParsekLog.Verbose("PartPuffFx",
+                $"Created at ({worldPosition.x:F1},{worldPosition.y:F1},{worldPosition.z:F1}) scale={scale:F2}" +
+                $" (additive sparks={additiveShader != null})");
+
+            return obj;
+        }
+
+        /// <summary>
         /// Spawns a fire-and-forget explosion particle effect at the given world position.
         /// The returned GameObject auto-destroys after particles expire.
         /// Used when ghost playback reaches the end of a destroyed recording.
