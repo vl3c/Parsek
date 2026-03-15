@@ -27,26 +27,26 @@ See [code-refactor-plan.md](../plans/code-refactor-plan.md) for the full refacto
 | ActionReplay.cs | 504 | 3C | Pass1-Done | AccumulateReplayResult deduped 4 copies (-25 lines); 5 tests |
 | MilestoneStore.cs | 474 | 3C | Pass1-Done | BuildStateMap extracted; 5 tests |
 | ResourceBudget.cs | 408 | 3C | Pass1-Done | Logging additions only |
-| GameStateEvent.cs | 302 | 4 | Pending | Multi-type data file (5 types) |
-| GameStateBaseline.cs | 274 | 4 | Pending | Career state snapshot |
-| RecordingPaths.cs | 166 | 4 | Pending | Static path construction |
-| ParsekLog.cs | 161 | 4 | Pending | Central logging, do not modify structure |
-| FlightResultsPatch.cs | 103 | 4 | Pending | Harmony prefix |
-| Milestone.cs | 75 | 4 | Pending | Pure data + serialization |
-| PhysicsFramePatch.cs | 72 | 4 | Pending | Critical hot path |
-| SurfacePosition.cs | 65 | 4 | Pending | Pure data struct |
-| FacilityUpgradePatch.cs | 62 | 4 | Pending | Harmony prefix |
-| TechResearchPatch.cs | 61 | 4 | Pending | Harmony prefix |
-| ParsekSettings.cs | 58 | 4 | Pending | Pure settings container |
-| PartEvent.cs | 56 | 4 | Pending | Pure data types |
-| ParsekHarmony.cs | 54 | 4 | Pending | Harmony entry point |
-| OrbitSegment.cs | 51 | 4 | Pending | Pure data struct |
-| ScienceSubjectPatch.cs | 50 | 4 | Pending | Harmony postfix |
-| CommittedActionDialog.cs | 36 | 4 | Pending | Tiny dialog helper |
-| ParsekToolbarRegistration.cs | 32 | 4 | Pending | One-shot registration |
-| TrajectoryPoint.cs | 30 | 4 | Pending | Pure data struct |
-| BranchPoint.cs | 28 | 4 | Pending | Pure data class |
-| TerminalState.cs | 14 | 4 | Pending | Pure enum |
+| GameStateEvent.cs | 302 | 4 | Pass1-Done | No changes needed |
+| GameStateBaseline.cs | 274 | 4 | Pass1-Done | No changes needed |
+| RecordingPaths.cs | 166 | 4 | Pass1-Done | No changes needed |
+| ParsekLog.cs | 161 | 4 | Pass1-Done | No changes needed (logging infrastructure) |
+| FlightResultsPatch.cs | 103 | 4 | Pass1-Done | No changes needed |
+| Milestone.cs | 75 | 4 | Pass1-Done | No changes needed |
+| PhysicsFramePatch.cs | 72 | 4 | Pass1-Done | No changes needed |
+| SurfacePosition.cs | 65 | 4 | Pass1-Done | No changes needed |
+| FacilityUpgradePatch.cs | 62 | 4 | Pass1-Done | No changes needed |
+| TechResearchPatch.cs | 61 | 4 | Pass1-Done | No changes needed |
+| ParsekSettings.cs | 58 | 4 | Pass1-Done | No changes needed |
+| PartEvent.cs | 56 | 4 | Pass1-Done | No changes needed |
+| ParsekHarmony.cs | 54 | 4 | Pass1-Done | No changes needed |
+| OrbitSegment.cs | 51 | 4 | Pass1-Done | No changes needed |
+| ScienceSubjectPatch.cs | 50 | 4 | Pass1-Done | No changes needed |
+| CommittedActionDialog.cs | 36 | 4 | Pass1-Done | No changes needed |
+| ParsekToolbarRegistration.cs | 32 | 4 | Pass1-Done | No changes needed |
+| TrajectoryPoint.cs | 30 | 4 | Pass1-Done | No changes needed |
+| BranchPoint.cs | 28 | 4 | Pass1-Done | No changes needed |
+| TerminalState.cs | 14 | 4 | Pass1-Done | No changes needed |
 | Properties/AssemblyInfo.cs | 23 | 4 | Skip | Auto-generated |
 
 **Status values:** `Pending` | `Pass1-InProgress` | `Pass1-Done` | `Pass3-Done` | `Skip`
