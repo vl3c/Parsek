@@ -200,6 +200,21 @@ namespace Parsek
                 SurfacePosition.SaveInto(spNode, rec.SurfacePos.Value);
             }
 
+            // Playback settings, linkage, and chain metadata
+            SaveRecordingPlaybackAndLinkage(recNode, rec);
+
+            // Resource, rewind, geometry, and mutable state
+            SaveRecordingResourceAndState(recNode, rec);
+        }
+
+        /// <summary>
+        /// Saves playback settings (format version, loop, playback enabled),
+        /// EVA child linkage, and chain linkage into a RECORDING ConfigNode.
+        /// </summary>
+        private static void SaveRecordingPlaybackAndLinkage(ConfigNode recNode, RecordingStore.Recording rec)
+        {
+            var ic = CultureInfo.InvariantCulture;
+
             // Existing recording metadata
             recNode.AddValue("recordingFormatVersion", rec.RecordingFormatVersion);
             recNode.AddValue("loopPlayback", rec.LoopPlayback);
@@ -220,6 +235,15 @@ namespace Parsek
                 recNode.AddValue("chainIndex", rec.ChainIndex.ToString(ic));
             if (rec.ChainBranch > 0)
                 recNode.AddValue("chainBranch", rec.ChainBranch.ToString(ic));
+        }
+
+        /// <summary>
+        /// Saves atmosphere segment metadata, pre-launch resources, rewind save metadata,
+        /// mutable playback state, and UI grouping tags into a RECORDING ConfigNode.
+        /// </summary>
+        private static void SaveRecordingResourceAndState(ConfigNode recNode, RecordingStore.Recording rec)
+        {
+            var ic = CultureInfo.InvariantCulture;
 
             // Atmosphere segment metadata
             if (!string.IsNullOrEmpty(rec.SegmentPhase))
@@ -325,6 +349,30 @@ namespace Parsek
             if (spNode != null)
                 rec.SurfacePos = SurfacePosition.LoadFrom(spNode);
 
+            // Playback settings, linkage, and chain metadata
+            LoadRecordingPlaybackAndLinkage(recNode, rec);
+
+            // Resource, rewind, geometry, and mutable state
+            LoadRecordingResourceAndState(recNode, rec);
+
+            ParsekLog.Verbose("RecordingTree",
+                $"LoadRecordingFrom: id={rec.RecordingId} vessel='{rec.VesselName}' " +
+                $"terminal={rec.TerminalStateValue?.ToString() ?? "null"} " +
+                $"chain={rec.ChainId ?? "none"} formatVersion={rec.RecordingFormatVersion}");
+        }
+
+        #region LoadRecording Extracted Helpers
+
+        /// <summary>
+        /// Loads playback settings (format version, ghost geometry version, loop,
+        /// playback enabled), EVA child linkage, and chain linkage from a RECORDING
+        /// ConfigNode into the given Recording.
+        /// </summary>
+        private static void LoadRecordingPlaybackAndLinkage(ConfigNode recNode, RecordingStore.Recording rec)
+        {
+            var inv = NumberStyles.Float;
+            var ic = CultureInfo.InvariantCulture;
+
             // Existing recording metadata
             string formatVersionStr = recNode.GetValue("recordingFormatVersion");
             if (formatVersionStr != null)
@@ -387,6 +435,17 @@ namespace Parsek
                 if (int.TryParse(chainBranchStr, NumberStyles.Integer, ic, out chainBranch))
                     rec.ChainBranch = chainBranch;
             }
+        }
+
+        /// <summary>
+        /// Loads atmosphere segment metadata, pre-launch resources, rewind save metadata,
+        /// ghost geometry metadata, mutable playback state, and UI grouping tags from a
+        /// RECORDING ConfigNode into the given Recording.
+        /// </summary>
+        private static void LoadRecordingResourceAndState(ConfigNode recNode, RecordingStore.Recording rec)
+        {
+            var inv = NumberStyles.Float;
+            var ic = CultureInfo.InvariantCulture;
 
             // Atmosphere segment metadata
             rec.SegmentPhase = recNode.GetValue("segmentPhase");
@@ -485,6 +544,8 @@ namespace Parsek
             if (recGroups != null && recGroups.Length > 0)
                 rec.RecordingGroups = new List<string>(recGroups);
         }
+
+        #endregion
 
         // --- BranchPoint serialization helpers ---
 
