@@ -12,8 +12,8 @@ See [code-refactor-plan.md](../plans/code-refactor-plan.md) for the full refacto
 |------|-------|------|--------|-------|
 | TrajectoryMath.cs | 548 | Canary | Pass1-Done | Extracted AccumulateOrbitSegmentStats, DeterminePrimaryBody; added logging to FindFirstMovingPoint + ComputeStats; 18 new tests |
 | ParsekFlight.cs | 8,493 | 1 | Pass1-Done | 28 methods extracted across 4 groups; Update() 400→35 lines; deduped PopulateGhostInfoDictionaries; coroutines untouched |
-| GhostVisualBuilder.cs | 6,395 | 1 | Pending | 16 types in one file, 8 static caches |
-| FlightRecorder.cs | 4,107 | 1 | Pending | 30+ tracking dicts, 20+ Check* methods |
+| GhostVisualBuilder.cs | 6,268 | 1 | Pass1-Done | 11 methods extracted; deduped 7+2 copy patterns (-127 lines); 3 region markers added |
+| FlightRecorder.cs | 4,103 | 1 | Pass1-Done | 4 methods extracted; deduped BuildCaptureRecording (3 copies); 46 new tests; OnPhysicsFrame 168→65 lines |
 | ParsekScenario.cs | 2,297 | 2A | Pending | ScenarioModule, mixed concerns |
 | RecordingStore.cs | 1,995 | 2A | Pending | Central data store, Recording class 45+ fields |
 | ParsekUI.cs | 2,923 | 2B | Pending | 150+ private IMGUI methods |

@@ -151,6 +151,8 @@ namespace Parsek
                     {
                         treeRec.ExplicitEndUT = currentUT;
                         state.lastExplicitEndUpdate = currentUT;
+                        ParsekLog.VerboseRateLimited("BgRecorder", $"onRailsEndUT.{pid}",
+                            $"On-rails ExplicitEndUT updated: pid={pid} UT={currentUT:F1}", 30.0);
                     }
                 }
             }
@@ -219,6 +221,9 @@ namespace Parsek
 
             // Update ExplicitEndUT
             treeRec.ExplicitEndUT = ut;
+
+            ParsekLog.VerboseRateLimited("BgRecorder", $"bgPhysics.{pid}",
+                $"Background point sampled: pid={pid} pts={treeRec.Points.Count} alt={bgVessel.altitude:F0}", 5.0);
         }
 
         /// <summary>
@@ -687,6 +692,9 @@ namespace Parsek
 
             treeRec.Points.Add(point);
             treeRec.ExplicitEndUT = ut;
+
+            ParsekLog.Verbose("BgRecorder", $"Boundary point sampled: pid={v.persistentId} " +
+                $"UT={ut:F1} alt={v.altitude:F0} pts={treeRec.Points.Count}");
         }
 
         #endregion
