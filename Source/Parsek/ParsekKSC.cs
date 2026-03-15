@@ -572,20 +572,7 @@ namespace Parsek
             }
 
             if (colorChangerInfoList != null)
-            {
-                state.colorChangerInfos = new Dictionary<uint, List<ColorChangerGhostInfo>>();
-                for (int i = 0; i < colorChangerInfoList.Count; i++)
-                {
-                    uint pid = colorChangerInfoList[i].partPersistentId;
-                    List<ColorChangerGhostInfo> list;
-                    if (!state.colorChangerInfos.TryGetValue(pid, out list))
-                    {
-                        list = new List<ColorChangerGhostInfo>();
-                        state.colorChangerInfos[pid] = list;
-                    }
-                    list.Add(colorChangerInfoList[i]);
-                }
-            }
+                state.colorChangerInfos = GhostVisualBuilder.GroupColorChangersByPartId(colorChangerInfoList);
 
             ParsekFlight.InitializeInventoryPlacementVisibility(rec, state);
 

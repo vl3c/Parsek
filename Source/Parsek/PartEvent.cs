@@ -36,6 +36,8 @@ namespace Parsek
         ThermalAnimationHot,  // 31 - ModuleAnimateHeat entered hot visual state
         ThermalAnimationCold, // 32 - ModuleAnimateHeat returned to cold visual state
         ParachuteSemiDeployed, // 33 - parachute entered semi-deployed (streamer) state
+        // Explicit value for serialization stability. Values 0-33 are contiguous;
+        // new values must be explicitly numbered.
         ThermalAnimationMedium = 34 // ModuleAnimateHeat entered medium visual state
     }
 

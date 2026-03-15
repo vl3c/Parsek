@@ -97,7 +97,10 @@ namespace Parsek
         public uint partPersistentId;
         public string shaderProperty;      // "_EmissiveColor" or "_BurnColor"
         public bool isCabinLight;          // true = Pattern A (toggle), false = Pattern B (reentry)
-        public float peakCharIntensity;    // Pattern B: highest char fraction reached (permanent, never decreases)
+        // Pattern B: highest char fraction reached (permanent, never decreases).
+        // NOTE: Rewind past reentry won't reset this value — a reset mechanism
+        // will be needed when rewind/scrub support is added.
+        public float peakCharIntensity;
         public List<ColorChangerMaterialState> materials;
     }
 
@@ -251,6 +254,29 @@ namespace Parsek
             };
         private static readonly string[] EngineModelNodeTypes =
             { "MODEL_MULTI_PARTICLE_PERSIST", "MODEL_MULTI_PARTICLE", "MODEL_PARTICLE" };
+
+        /// <summary>
+        /// Groups a flat list of ColorChangerGhostInfo by partPersistentId.
+        /// Used at ghost build time to populate GhostPlaybackState.colorChangerInfos.
+        /// </summary>
+        internal static Dictionary<uint, List<ColorChangerGhostInfo>> GroupColorChangersByPartId(
+            List<ColorChangerGhostInfo> list)
+        {
+            var dict = new Dictionary<uint, List<ColorChangerGhostInfo>>();
+            if (list == null) return dict;
+            for (int i = 0; i < list.Count; i++)
+            {
+                uint pid = list[i].partPersistentId;
+                List<ColorChangerGhostInfo> bucket;
+                if (!dict.TryGetValue(pid, out bucket))
+                {
+                    bucket = new List<ColorChangerGhostInfo>();
+                    dict[pid] = bucket;
+                }
+                bucket.Add(list[i]);
+            }
+            return dict;
+        }
 
         /// <summary>
         /// Find a KSP fx_* prefab by name. These exist as children of legacy part
@@ -436,6 +462,8 @@ namespace Parsek
             fxLoadedObjectScanCompleted = false;
         }
 
+        // TODO: The out-parameter list is growing large (10 info lists). Consider
+        // bundling them into a GhostBuildResult class in a future cleanup PR.
         internal static GameObject BuildTimelineGhostFromSnapshot(
             RecordingStore.Recording rec, string rootName,
             out List<ParachuteGhostInfo> parachuteInfos,
@@ -4003,6 +4031,7 @@ namespace Parsek
             {
                 if (string.IsNullOrEmpty(materialName))
                     return false;
+                // StartsWith because Unity appends " (Instance)" to cloned material names
                 if (!materialName.StartsWith(rule.materialName, System.StringComparison.Ordinal))
                     return false;
             }
