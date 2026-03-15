@@ -1,0 +1,110 @@
+pid = d268b78368a44f6ca67942bc0f764329
+persistentId = 1356888984
+name = R2
+type = Probe
+sit = FLYING
+landed = False
+skipGroundPositioning = False
+skipGroundPositioningForDroppedPart = False
+vesselSpawning = False
+launchedFrom = LaunchPad
+landedAt = 
+displaylandedAt = 
+splashed = False
+met = 21.620000000471919
+lct = 18682.397168909374
+lastUT = 18704.017168909846
+distanceTraveled = 713.64616219735831
+root = 0
+lat = -0.18560125000384495
+lon = -74.646258681606994
+alt = 63.200923921423964
+hgt = 63.2009239
+nrm = -0.254901558,-0.657146215,-0.709354401
+rot = 0.172555551,0.194984481,0.851834118,0.454515338
+CoM = -0.00247597694,-5.9138608,-0.00946068764
+stg = 2
+prst = False
+ref = 0
+ctrl = True
+PQSMin = 2
+PQSMax = 10
+GroupOverride = 0
+OverrideDefault = False,False,False,False
+OverrideActionControl = 0,0,0,0
+OverrideAxisControl = 0,0,0,0
+OverrideGroupNames = ,,,
+altDispState = ASL
+cPch = 0.2199995
+cHdg = -0.7240016
+cMod = 0
+ORBIT
+{
+	SMA = 300812.07308462274
+	ECC = 0.99756632748548513
+	INC = 48.611577343020485
+	LPE = 0.098607803816948295
+	LAN = 147.65597789127321
+	MNA = 3.2896801555096253
+	EPH = 18704.017168909846
+	REF = 1
+	IDENT = Squad/Kerbin
+}
+ACTIONGROUPS
+{
+	Stage = True, 18682.3371689094
+	Gear = False, 0
+	Light = False, 0
+	RCS = False, 0
+	SAS = True, 17710.2632063543
+	Brakes = False, 0
+	Abort = False, 0
+	Custom01 = False, 0
+	Custom02 = False, 0
+	Custom03 = False, 0
+	Custom04 = False, 0
+	Custom05 = False, 0
+	Custom06 = False, 0
+	Custom07 = False, 0
+	Custom08 = False, 0
+	Custom09 = False, 0
+	Custom10 = False, 0
+}
+DISCOVERY
+{
+	state = -1
+	lastObservedTime = 0
+	lifetime = Infinity
+	refTime = Infinity
+	size = 2
+}
+FLIGHTPLAN
+{
+}
+CTRLSTATE
+{
+	pitch = 0.87625134
+	yaw = -0.22612901
+	roll = -0.000805339892
+	trimPitch = 0
+	trimYaw = 0
+	trimRoll = 0
+	mainThrottle = 1
+}
+VESSELMODULES
+{
+	ModularFlightIntegrator
+	{
+	}
+	AxisGroupsModule
+	{
+	}
+	SuspensionLoadBalancer
+	{
+	}
+	CommNetVessel
+	{
+		controlState = ProbeFull
+		canComm = True
+	}
+}

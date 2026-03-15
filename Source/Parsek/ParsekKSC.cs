@@ -464,13 +464,14 @@ namespace Parsek
             List<FairingGhostInfo> fairingInfoList;
             List<RcsGhostInfo> rcsInfoList;
             List<RoboticGhostInfo> roboticInfoList;
+            List<ColorChangerGhostInfo> colorChangerInfoList;
 
             GameObject ghost = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
                 rec, $"Parsek_KSC_{index}",
                 out parachuteInfoList, out jettisonInfoList,
                 out engineInfoList, out deployableInfoList,
                 out heatInfoList, out lightInfoList, out fairingInfoList,
-                out rcsInfoList, out roboticInfoList);
+                out rcsInfoList, out roboticInfoList, out colorChangerInfoList);
 
             if (ghost == null)
             {
@@ -569,6 +570,9 @@ namespace Parsek
                     state.roboticInfos[key] = roboticInfoList[i];
                 }
             }
+
+            if (colorChangerInfoList != null)
+                state.colorChangerInfos = GhostVisualBuilder.GroupColorChangersByPartId(colorChangerInfoList);
 
             ParsekFlight.InitializeInventoryPlacementVisibility(rec, state);
 

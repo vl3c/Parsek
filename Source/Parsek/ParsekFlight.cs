@@ -63,6 +63,7 @@ namespace Parsek
             public Dictionary<uint, HeatGhostInfo> heatInfos;
             public Dictionary<uint, LightGhostInfo> lightInfos;
             public Dictionary<uint, LightPlaybackState> lightPlaybackStates;
+            public Dictionary<uint, List<ColorChangerGhostInfo>> colorChangerInfos;
             public Dictionary<uint, FairingGhostInfo> fairingInfos;
             public Dictionary<uint, GameObject> fakeCanopies;
             public ReentryFxInfo reentryFxInfo;
@@ -4241,11 +4242,12 @@ namespace Parsek
                 List<FairingGhostInfo> fairingInfoList;
                 List<RcsGhostInfo> rcsInfoList;
                 List<RoboticGhostInfo> roboticInfoList;
+                List<ColorChangerGhostInfo> colorChangerInfoList;
                 ghost = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
                     previewRecording, "Parsek_Ghost_Preview",
                     out parachuteInfoList, out jettisonInfoList, out engineInfoList,
                     out deployableInfoList, out heatInfoList, out lightInfoList,
-                    out fairingInfoList, out rcsInfoList, out roboticInfoList);
+                    out fairingInfoList, out rcsInfoList, out roboticInfoList, out colorChangerInfoList);
                 builtFromSnapshot = ghost != null;
 
                 if (builtFromSnapshot)
@@ -4294,6 +4296,13 @@ namespace Parsek
                         previewGhostState.heatInfos = new Dictionary<uint, HeatGhostInfo>();
                         for (int i = 0; i < heatInfoList.Count; i++)
                             previewGhostState.heatInfos[heatInfoList[i].partPersistentId] = heatInfoList[i];
+
+                        // Initialize all heat parts to cold state at spawn
+                        foreach (var kvp in previewGhostState.heatInfos)
+                        {
+                            var coldEvt = new PartEvent { partPersistentId = kvp.Key };
+                            ApplyHeatState(previewGhostState, coldEvt, HeatLevel.Cold);
+                        }
                     }
                     if (lightInfoList != null)
                     {
@@ -4331,6 +4340,8 @@ namespace Parsek
                             previewGhostState.roboticInfos[key] = roboticInfoList[i];
                         }
                     }
+                    if (colorChangerInfoList != null)
+                        previewGhostState.colorChangerInfos = GhostVisualBuilder.GroupColorChangersByPartId(colorChangerInfoList);
 
                     InitializeInventoryPlacementVisibility(previewRecording, previewGhostState);
 
@@ -5518,6 +5529,7 @@ namespace Parsek
             List<FairingGhostInfo> fairingInfoList = null;
             List<RcsGhostInfo> rcsInfoList = null;
             List<RoboticGhostInfo> roboticInfoList = null;
+            List<ColorChangerGhostInfo> colorChangerInfoList = null;
             GameObject ghost = null;
             bool builtFromSnapshot = false;
 
@@ -5528,7 +5540,7 @@ namespace Parsek
                 ghost = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
                     rec, $"Parsek_Timeline_{index}", out parachuteInfoList, out jettisonInfoList,
                     out engineInfoList, out deployableInfoList, out heatInfoList, out lightInfoList, out fairingInfoList,
-                    out rcsInfoList, out roboticInfoList);
+                    out rcsInfoList, out roboticInfoList, out colorChangerInfoList);
                 builtFromSnapshot = ghost != null;
             }
 
@@ -5604,6 +5616,14 @@ namespace Parsek
                 state.heatInfos = new Dictionary<uint, HeatGhostInfo>();
                 for (int i = 0; i < heatInfoList.Count; i++)
                     state.heatInfos[heatInfoList[i].partPersistentId] = heatInfoList[i];
+
+                // Initialize all heat parts to cold state at spawn — ensures FXModuleAnimateThrottle
+                // parts don't inherit the prefab's baked emissive state.
+                foreach (var kvp in state.heatInfos)
+                {
+                    var coldEvt = new PartEvent { partPersistentId = kvp.Key };
+                    ApplyHeatState(state, coldEvt, HeatLevel.Cold);
+                }
             }
 
             if (lightInfoList != null)
@@ -5645,6 +5665,9 @@ namespace Parsek
                     state.roboticInfos[key] = roboticInfoList[i];
                 }
             }
+
+            if (colorChangerInfoList != null)
+                state.colorChangerInfos = GhostVisualBuilder.GroupColorChangersByPartId(colorChangerInfoList);
 
             InitializeInventoryPlacementVisibility(rec, state);
 
@@ -6030,7 +6053,7 @@ namespace Parsek
                     case PartEventType.Decoupled:
                         StopEngineFxForPart(state, evt.partPersistentId);
                         StopRcsFxForPart(state, evt.partPersistentId);
-                        ApplyHeatState(state, evt, heated: false);
+                        ApplyHeatState(state, evt, HeatLevel.Cold);
                         SpawnPartPuffAtPart(ghost, evt.partPersistentId);
                         if (tree != null)
                             HidePartSubtree(ghost, evt.partPersistentId, tree);
@@ -6043,7 +6066,7 @@ namespace Parsek
                     case PartEventType.Destroyed:
                         StopEngineFxForPart(state, evt.partPersistentId);
                         StopRcsFxForPart(state, evt.partPersistentId);
-                        ApplyHeatState(state, evt, heated: false);
+                        ApplyHeatState(state, evt, HeatLevel.Cold);
                         SpawnPartPuffAtPart(ghost, evt.partPersistentId);
                         HideGhostPart(ghost, evt.partPersistentId);
                         ParsekLog.Verbose("Flight", $"Part event applied: Destroyed '{evt.partName}' pid={evt.partPersistentId}");
@@ -6139,17 +6162,19 @@ namespace Parsek
                         break;
                     case PartEventType.EngineIgnited:
                         SetEngineEmission(state, evt, evt.value);
+                        ApplyHeatState(state, evt, HeatLevel.Hot);
                         ParsekLog.Verbose("Flight", $"Part event applied: EngineIgnited '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} throttle={evt.value:F2}");
                         break;
                     case PartEventType.EngineShutdown:
                         SetEngineEmission(state, evt, 0f);
                         // Also reset heat animation glow — engine nozzles stay emissive
                         // after shutdown if ThermalAnimationCold hasn't fired yet.
-                        ApplyHeatState(state, evt, heated: false);
+                        ApplyHeatState(state, evt, HeatLevel.Cold);
                         ParsekLog.Verbose("Flight", $"Part event applied: EngineShutdown '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex}");
                         break;
                     case PartEventType.EngineThrottle:
                         SetEngineEmission(state, evt, evt.value);
+                        ApplyHeatState(state, evt, HeatLevel.Hot);
                         break;
                     case PartEventType.DeployableExtended:
                         ApplyDeployableState(state, evt, deployed: true);
@@ -6160,11 +6185,15 @@ namespace Parsek
                         ParsekLog.Verbose("Flight", $"Part event applied: DeployableRetracted '{evt.partName}' pid={evt.partPersistentId}");
                         break;
                     case PartEventType.ThermalAnimationHot:
-                        ApplyHeatState(state, evt, heated: true);
+                        ApplyHeatState(state, evt, HeatLevel.Hot);
                         ParsekLog.Verbose("Flight", $"Part event applied: ThermalAnimationHot '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} heat={evt.value:F2}");
                         break;
+                    case PartEventType.ThermalAnimationMedium:
+                        ApplyHeatState(state, evt, HeatLevel.Medium);
+                        ParsekLog.Verbose("Flight", $"Part event applied: ThermalAnimationMedium '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} heat={evt.value:F2}");
+                        break;
                     case PartEventType.ThermalAnimationCold:
-                        ApplyHeatState(state, evt, heated: false);
+                        ApplyHeatState(state, evt, HeatLevel.Cold);
                         ParsekLog.Verbose("Flight", $"Part event applied: ThermalAnimationCold '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} heat={evt.value:F2}");
                         break;
                     case PartEventType.LightOn:
@@ -6219,14 +6248,17 @@ namespace Parsek
                         break;
                     case PartEventType.RCSActivated:
                         SetRcsEmission(state, evt, evt.value);
+                        ApplyHeatState(state, evt, HeatLevel.Hot);
                         ParsekLog.Verbose("Flight", $"Part event applied: RCSActivated '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} power={evt.value:F2}");
                         break;
                     case PartEventType.RCSStopped:
                         SetRcsEmission(state, evt, 0f);
+                        ApplyHeatState(state, evt, HeatLevel.Cold);
                         ParsekLog.Verbose("Flight", $"Part event applied: RCSStopped '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex}");
                         break;
                     case PartEventType.RCSThrottle:
                         SetRcsEmission(state, evt, evt.value);
+                        ApplyHeatState(state, evt, HeatLevel.Hot);
                         break;
                     case PartEventType.RoboticMotionStarted:
                     case PartEventType.RoboticPositionSample:
@@ -6462,7 +6494,7 @@ namespace Parsek
                         diagMain.startSpeedMultiplier,
                         ps.isPlaying);
                     string diagKey = $"engine-fx-{evt.partPersistentId}-{evt.moduleIndex}-{ps.GetInstanceID()}";
-                    ParsekLog.VerboseRateLimited("Flight", diagKey, diagLine, 0.5);
+                    ParsekLog.VerboseRateLimited("Flight", diagKey, diagLine, 60.0);
                 }
             }
         }
@@ -6721,7 +6753,7 @@ namespace Parsek
             }
         }
 
-        internal static bool ApplyHeatState(GhostPlaybackState state, PartEvent evt, bool heated)
+        internal static bool ApplyHeatState(GhostPlaybackState state, PartEvent evt, HeatLevel level)
         {
             if (state == null || state.heatInfos == null) return false;
 
@@ -6737,17 +6769,23 @@ namespace Parsek
                     var ts = info.transforms[i];
                     if (ts.t == null) continue;
 
-                    if (heated)
+                    switch (level)
                     {
-                        ts.t.localPosition = ts.deployedPos;
-                        ts.t.localRotation = ts.deployedRot;
-                        ts.t.localScale = ts.deployedScale;
-                    }
-                    else
-                    {
-                        ts.t.localPosition = ts.stowedPos;
-                        ts.t.localRotation = ts.stowedRot;
-                        ts.t.localScale = ts.stowedScale;
+                        case HeatLevel.Hot:
+                            ts.t.localPosition = ts.hotPos;
+                            ts.t.localRotation = ts.hotRot;
+                            ts.t.localScale = ts.hotScale;
+                            break;
+                        case HeatLevel.Medium:
+                            ts.t.localPosition = ts.mediumPos;
+                            ts.t.localRotation = ts.mediumRot;
+                            ts.t.localScale = ts.mediumScale;
+                            break;
+                        default:
+                            ts.t.localPosition = ts.coldPos;
+                            ts.t.localRotation = ts.coldRot;
+                            ts.t.localScale = ts.coldScale;
+                            break;
                     }
                     applied = true;
                 }
@@ -6760,32 +6798,44 @@ namespace Parsek
                     HeatMaterialState materialState = info.materialStates[i];
                     if (materialState.material == null) continue;
 
-                    if (!string.IsNullOrEmpty(materialState.colorProperty))
+                    Color color, emission;
+                    switch (level)
                     {
-                        materialState.material.SetColor(
-                            materialState.colorProperty,
-                            heated ? materialState.hotColor : materialState.coldColor);
+                        case HeatLevel.Hot:
+                            color = materialState.hotColor;
+                            emission = materialState.hotEmission;
+                            break;
+                        case HeatLevel.Medium:
+                            color = materialState.mediumColor;
+                            emission = materialState.mediumEmission;
+                            break;
+                        default:
+                            color = materialState.coldColor;
+                            emission = materialState.coldEmission;
+                            break;
                     }
 
+                    if (!string.IsNullOrEmpty(materialState.colorProperty))
+                        materialState.material.SetColor(materialState.colorProperty, color);
+
                     if (!string.IsNullOrEmpty(materialState.emissiveProperty))
-                    {
-                        materialState.material.SetColor(
-                            materialState.emissiveProperty,
-                            heated ? materialState.hotEmission : materialState.coldEmission);
-                    }
+                        materialState.material.SetColor(materialState.emissiveProperty, emission);
 
                     applied = true;
                 }
             }
 
+            if (applied)
+                ParsekLog.Verbose("Flight", $"Part pid={evt.partPersistentId}: applied heat level {level}");
+
             return applied;
         }
 
-        private void DriveReentryToZero(ReentryFxInfo info, int recIdx, string bodyName, double altitude, string vesselName)
+        private void DriveReentryToZero(ReentryFxInfo info, int recIdx, string bodyName, double altitude, string vesselName,
+            GhostPlaybackState state = null)
         {
-            DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, altitude, 0f, vesselName);
+            DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, altitude, 0f, vesselName, state);
             info.lastIntensity = 0f;
-
         }
 
         private void UpdateReentryFx(int recIdx, GhostPlaybackState state, string vesselName)
@@ -6806,7 +6856,7 @@ namespace Parsek
 
             if (string.IsNullOrEmpty(bodyName))
             {
-                DriveReentryToZero(info, recIdx, bodyName, 0.0, vesselName);
+                DriveReentryToZero(info, recIdx, bodyName, 0.0, vesselName, state);
                 return;
             }
 
@@ -6815,7 +6865,7 @@ namespace Parsek
             {
                 ParsekLog.VerboseRateLimited("Flight", $"ghost-{recIdx}-nobody",
                     $"ReentryFx: body '{bodyName}' not found — skipping");
-                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName);
+                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName, state);
                 return;
             }
 
@@ -6826,7 +6876,7 @@ namespace Parsek
             {
                 ParsekLog.VerboseRateLimited("Flight", $"ghost-{recIdx}-noatmo",
                     $"ReentryFx: body {bodyName} has no atmosphere — skipping");
-                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName);
+                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName, state);
                 return;
             }
 
@@ -6834,7 +6884,7 @@ namespace Parsek
             {
                 ParsekLog.VerboseRateLimited("Flight", $"ghost-{recIdx}-aboveatmo",
                     $"ReentryFx: altitude {altitude:F0} above atmosphereDepth {body.atmosphereDepth:F0} — skipping");
-                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName);
+                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName, state);
                 return;
             }
 
@@ -6844,7 +6894,7 @@ namespace Parsek
             {
                 ParsekLog.VerboseRateLimited("Flight", $"ghost-{recIdx}-badatmo",
                     $"ReentryFx: GetPressure/GetTemperature returned invalid value for ghost #{recIdx} — density fallback to 0");
-                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName);
+                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName, state);
                 return;
             }
 
@@ -6853,7 +6903,7 @@ namespace Parsek
             {
                 ParsekLog.VerboseRateLimited("Flight", $"ghost-{recIdx}-baddensity",
                     $"ReentryFx: GetDensity returned invalid value for ghost #{recIdx} — density fallback to 0");
-                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName);
+                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName, state);
                 return;
             }
 
@@ -6927,6 +6977,10 @@ namespace Parsek
                     }
                 }
             }
+
+            // Apply ablation char to heat shield parts (Pattern B: _BurnColor)
+            if (state != null)
+                ApplyColorChangerCharState(state, intensity);
 
             // Fire envelope particles
             if (info.fireParticles != null)
@@ -7156,15 +7210,84 @@ namespace Parsek
 
         internal static void SetLightState(GhostPlaybackState state, uint partPersistentId, bool on)
         {
-            if (state.lightInfos == null) return;
-
-            LightGhostInfo info;
-            if (!state.lightInfos.TryGetValue(partPersistentId, out info)) return;
-
-            for (int i = 0; i < info.lights.Count; i++)
+            // Toggle Unity Light components (existing behavior)
+            if (state.lightInfos != null)
             {
-                if (info.lights[i] != null)
-                    info.lights[i].enabled = on;
+                LightGhostInfo info;
+                if (state.lightInfos.TryGetValue(partPersistentId, out info))
+                {
+                    for (int i = 0; i < info.lights.Count; i++)
+                    {
+                        if (info.lights[i] != null)
+                            info.lights[i].enabled = on;
+                    }
+                }
+            }
+
+            // Toggle ColorChanger emissive materials (Pattern A: cabin lights)
+            ApplyColorChangerLightState(state, partPersistentId, on);
+        }
+
+        internal static void ApplyColorChangerLightState(GhostPlaybackState state, uint partPersistentId, bool on)
+        {
+            if (state.colorChangerInfos == null) return;
+
+            List<ColorChangerGhostInfo> infos;
+            if (!state.colorChangerInfos.TryGetValue(partPersistentId, out infos)) return;
+
+            for (int c = 0; c < infos.Count; c++)
+            {
+                var ccInfo = infos[c];
+                if (!ccInfo.isCabinLight) continue; // Only Pattern A responds to light events
+
+                for (int i = 0; i < ccInfo.materials.Count; i++)
+                {
+                    if (ccInfo.materials[i].material != null)
+                    {
+                        ccInfo.materials[i].material.SetColor(
+                            ccInfo.shaderProperty,
+                            on ? ccInfo.materials[i].onColor : ccInfo.materials[i].offColor);
+                    }
+                }
+
+                ParsekLog.VerboseRateLimited("Flight", $"cc-light-{partPersistentId}",
+                    $"Part pid={partPersistentId}: applied color changer cabin light state={on}");
+            }
+        }
+
+        /// <summary>
+        /// Applies ablation char color to heat shield parts (Pattern B) based on reentry intensity.
+        /// Called from DriveReentryLayers when reentry glow is active.
+        /// </summary>
+        internal static void ApplyColorChangerCharState(GhostPlaybackState state, float intensity)
+        {
+            if (state == null || state.colorChangerInfos == null) return;
+
+            foreach (var kvp in state.colorChangerInfos)
+            {
+                var infos = kvp.Value;
+                for (int c = 0; c < infos.Count; c++)
+                {
+                    var ccInfo = infos[c];
+                    if (ccInfo.isCabinLight) continue; // Only Pattern B responds to reentry
+
+                    // Char is permanent — only increase, never fade back
+                    float fraction = Mathf.Clamp01(intensity);
+                    if (fraction <= ccInfo.peakCharIntensity) continue;
+                    ccInfo.peakCharIntensity = fraction;
+
+                    for (int i = 0; i < ccInfo.materials.Count; i++)
+                    {
+                        if (ccInfo.materials[i].material != null)
+                        {
+                            Color lerped = Color.Lerp(
+                                ccInfo.materials[i].offColor,
+                                ccInfo.materials[i].onColor,
+                                fraction);
+                            ccInfo.materials[i].material.SetColor(ccInfo.shaderProperty, lerped);
+                        }
+                    }
+                }
             }
         }
 
