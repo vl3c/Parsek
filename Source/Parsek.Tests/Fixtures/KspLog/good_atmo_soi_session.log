@@ -35,5 +35,3 @@
 [LOG 14:21:30.750] [Parsek][VERBOSE][RecordingStore] Validating chains: 1 branch group(s)
 [LOG 14:21:30.760] [Parsek][VERBOSE][RecordingStore] All chains validated OK
 [LOG 14:21:50.100] [Parsek][VERBOSE][Flight] Ghost #0 destroyed — segment disabled (Mun Transfer, Kerbin atmo)
-[LOG 14:21:50.200] [Parsek][INFO][UI] Setting changed: autoSplitAtAtmosphere=True
-[LOG 14:21:50.300] [Parsek][INFO][UI] Setting changed: autoSplitAtSoi=False
