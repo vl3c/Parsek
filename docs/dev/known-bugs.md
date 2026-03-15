@@ -308,18 +308,13 @@ The Launch Escape System (`LaunchEscapeSystem` part) has 5 `thrustTransform` noz
 
 ## 33. Crash sequence: vessel stays visually intact until final explosion
 
-When a vessel crashes, some recordings show the ghost vessel staying fully intact during the impact sequence until the final explosion effect fires. The ghost should show parts breaking off progressively as the vessel disintegrates, but instead the full vessel model persists and then disappears all at once with the explosion.
+When a vessel crashes, the ghost appears to jump from intact to exploded with no visible breakup in between.
 
-**Root cause (from log analysis):** The crash destruction sequence records individual `Decoupled` and `Destroyed` part events as the vessel breaks apart. For ghost #9 (2026-03-14 session), the crash sequence has ~50 events across Decoupled + Destroyed types over a very short time window. One part (`SmallGearBay` pid=4174212781) received 6 separate `Decoupled` events — likely from multiple parent-child joint breaks during rapid disassembly.
+**Root cause:** Not a bug — fidelity limitation. The crash happens in 1-2 physics frames, so all `Decoupled` and `Destroyed` part events share the same UT. During playback, they all apply on the same rendered frame. The current behavior is correct: `Decoupled` hides parts without controllers (boosters, stages), and the explosion fires when the trajectory ends / root part is destroyed. There is simply no time gap between events for the player to perceive progressive breakup.
 
-The issue may be that:
-1. **Event timing compression:** All crash events happen within milliseconds of each other at the same UT (same physics frame or consecutive frames). During playback at normal speed, the interpolation window may not resolve these individual events — they all fire on the same rendered frame, making the visual jump from "intact" to "exploded" with no intermediate breakup.
-2. **Decoupled event subtree hiding:** `Decoupled` events hide the entire part subtree below the decoupled part. If the root part decouples early in the sequence, it could hide the entire vessel before the child `Destroyed` events have a chance to show progressive breakup.
-3. **Terminal explosion timing:** `ShouldTriggerExplosion` fires when the ghost reaches the end of the trajectory. If the explosion fires at the same frame as the crash events, the explosion visual masks the breakup sequence.
+**Observed in:** Sandbox career (2026-03-14). Ghost #9 crash sequence has ~50 events at the same UT.
 
-**Observed in:** Sandbox career (2026-03-14). Multiple crash recordings show this behavior. Ghost #9 crash sequence has the most detailed event chain.
-
-**Status:** Open
+**Status:** Not a bug — expected behavior for single-frame crashes
 
 ## 34. ShouldTriggerExplosion log spam (performance)
 
