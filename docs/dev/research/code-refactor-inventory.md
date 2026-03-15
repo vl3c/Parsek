@@ -16,8 +16,8 @@ See [code-refactor-plan.md](../plans/code-refactor-plan.md) for the full refacto
 | FlightRecorder.cs | 4,103 | 1 | Pass1-Done | 4 methods extracted; deduped BuildCaptureRecording (3 copies); 46 new tests; OnPhysicsFrame 168→65 lines |
 | ParsekScenario.cs | 2,297 | 2A | Pending | ScenarioModule, mixed concerns |
 | RecordingStore.cs | 1,995 | 2A | Pending | Central data store, Recording class 45+ fields |
-| ParsekUI.cs | 2,923 | 2B | Pending | 150+ private IMGUI methods |
-| BackgroundRecorder.cs | 1,524 | 2B | Pending | Mirrors FlightRecorder polling logic |
+| ParsekUI.cs | 2,985 | 2B | Pass1-Done | 6 methods extracted; DrawResourceLine deduped 3 copies; 18 methods rejected (sequential IMGUI) |
+| BackgroundRecorder.cs | 1,532 | 2B | Pass1-Done | 3 rate-limited logging additions; no extraction needed |
 | VesselSpawner.cs | 978 | 3A | Pending | Static, crew management in snapshots |
 | ParsekKSC.cs | 852 | 3A | Pending | Depends on ParsekFlight nested types |
 | MergeDialog.cs | 532 | 3A | Pending | Static, 3 dialog variants |
