@@ -1147,6 +1147,8 @@ namespace Parsek
             {
                 GUI.SetNextControlName("RecRename");
                 renamingRecordingText = GUILayout.TextField(renamingRecordingText, GUILayout.ExpandWidth(true));
+                if (GUI.GetNameOfFocusedControl() != "RecRename")
+                    GUI.FocusControl("RecRename");
                 if (Event.current.type == EventType.KeyDown)
                 {
                     if (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter)
@@ -1413,6 +1415,8 @@ namespace Parsek
                 GUILayout.Label(arrow, GUILayout.Width(15));
                 GUI.SetNextControlName("GrpRename");
                 renamingGroupText = GUILayout.TextField(renamingGroupText, GUILayout.ExpandWidth(true));
+                if (GUI.GetNameOfFocusedControl() != "GrpRename")
+                    GUI.FocusControl("GrpRename");
                 if (Event.current.type == EventType.KeyDown)
                 {
                     if (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter)
@@ -1649,9 +1653,7 @@ namespace Parsek
 
             if (string.IsNullOrEmpty(newName) || newName == oldName) return;
 
-            // Validate characters
-            if (newName.Contains("=") || newName.Contains("{") || newName.Contains("}") ||
-                newName.Contains("\n") || newName.Contains("\r"))
+            if (RecordingStore.IsInvalidGroupName(newName))
             {
                 ParsekLog.Warn("UI", $"Group rename rejected: '{newName}' contains invalid characters");
                 return;
@@ -1755,22 +1757,21 @@ namespace Parsek
             groupPopupRecIdx = -1;
             groupPopupChainId = chainId;
             groupPopupGroup = null;
-            // Checked = groups that ALL chain members are in
+            // Checked = groups that ALL chain members are in (single pass to find members, then check)
             var committed = RecordingStore.CommittedRecordings;
+            var memberIndices = RecordingStore.GetChainMemberIndices(chainId);
             var allGroups = RecordingStore.GetGroupNames();
             groupPopupChecked = new HashSet<string>();
             for (int g = 0; g < allGroups.Count; g++)
             {
                 bool allIn = true;
-                for (int i = 0; i < committed.Count; i++)
+                for (int m = 0; m < memberIndices.Count; m++)
                 {
-                    if (committed[i].ChainId == chainId)
-                    {
-                        if (committed[i].RecordingGroups == null || !committed[i].RecordingGroups.Contains(allGroups[g]))
-                        { allIn = false; break; }
-                    }
+                    var rec = committed[memberIndices[m]];
+                    if (rec.RecordingGroups == null || !rec.RecordingGroups.Contains(allGroups[g]))
+                    { allIn = false; break; }
                 }
-                if (allIn) groupPopupChecked.Add(allGroups[g]);
+                if (allIn && memberIndices.Count > 0) groupPopupChecked.Add(allGroups[g]);
             }
             groupPopupOriginal = new HashSet<string>(groupPopupChecked);
             groupPopupNewName = "";
@@ -1847,7 +1848,7 @@ namespace Parsek
                     ch = new List<string>();
                     parentToChildren[kvp.Value] = ch;
                 }
-                if (!ch.Contains(kvp.Key)) ch.Add(kvp.Key);
+                ch.Add(kvp.Key);
             }
             foreach (var ch in parentToChildren.Values)
                 ch.Sort(System.StringComparer.OrdinalIgnoreCase);
@@ -1901,9 +1902,8 @@ namespace Parsek
                 if (GUILayout.Button("+", GUILayout.Width(25)))
                 {
                     string newName = groupPopupNewName.Trim();
-                    if (!string.IsNullOrEmpty(newName) && !allNames.Contains(newName) &&
-                        !newName.Contains("=") && !newName.Contains("{") && !newName.Contains("}") &&
-                        !newName.Contains("\n") && !newName.Contains("\r"))
+                    if (!RecordingStore.IsInvalidGroupName(newName) &&
+                        !allNames.Contains(newName) && !knownEmptyGroups.Contains(newName))
                     {
                         knownEmptyGroups.Add(newName);
                         if (!isGroupPopup)

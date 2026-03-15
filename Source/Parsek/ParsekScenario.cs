@@ -1748,6 +1748,28 @@ namespace Parsek
                 }
             }
 
+            // Post-load validation: detect and break corrupted cycles
+            var visited = new HashSet<string>();
+            var toRemove = new List<string>();
+            foreach (var kvp in groupParents)
+            {
+                visited.Clear();
+                string current = kvp.Key;
+                bool hasCycle = false;
+                while (groupParents.TryGetValue(current, out string p))
+                {
+                    if (!visited.Add(current)) { hasCycle = true; break; }
+                    current = p;
+                }
+                if (hasCycle && !toRemove.Contains(kvp.Key))
+                    toRemove.Add(kvp.Key);
+            }
+            for (int i = 0; i < toRemove.Count; i++)
+            {
+                groupParents.Remove(toRemove[i]);
+                ParsekLog.Warn("Scenario", $"LoadGroupHierarchy: broke cycle involving group '{toRemove[i]}'");
+            }
+
             ScenarioLog($"[Parsek Scenario] Loaded {groupParents.Count} group hierarchy entries");
         }
 
@@ -1934,22 +1956,23 @@ namespace Parsek
         // ─── Group hierarchy management ──────────────────────────────────────
 
         /// <summary>
-        /// Returns true if 'candidate' is 'group' itself or an ancestor of 'group'.
+        /// Walks the parent chain from 'startGroup' upward, returns true if 'targetAncestor'
+        /// is found (or equals 'startGroup' itself). Used for cycle detection.
         /// Max depth guard protects against corrupted cycles.
         /// </summary>
-        internal static bool IsAncestorOrSelf(string group, string candidate)
+        internal static bool IsInAncestorChain(string startGroup, string targetAncestor)
         {
-            if (string.IsNullOrEmpty(group) || string.IsNullOrEmpty(candidate))
+            if (string.IsNullOrEmpty(startGroup) || string.IsNullOrEmpty(targetAncestor))
                 return false;
-            string current = group;
+            string current = startGroup;
             for (int depth = 0; depth < 100; depth++)
             {
-                if (current == candidate) return true;
+                if (current == targetAncestor) return true;
                 if (!groupParents.TryGetValue(current, out string parent))
                     return false;
                 current = parent;
             }
-            ParsekLog.Warn("Scenario", $"IsAncestorOrSelf: max depth reached for group '{group}' — possible cycle");
+            ParsekLog.Warn("Scenario", $"IsInAncestorChain: max depth reached for group '{startGroup}' — possible cycle");
             return true; // Assume cycle, block the assignment
         }
 
@@ -1968,7 +1991,7 @@ namespace Parsek
                 return true;
             }
 
-            if (IsAncestorOrSelf(parentGroup, childGroup))
+            if (IsInAncestorChain(parentGroup, childGroup))
             {
                 ParsekLog.Warn("Scenario", $"SetGroupParent: cannot assign '{childGroup}' to parent '{parentGroup}' — would create cycle");
                 return false;
@@ -1986,20 +2009,30 @@ namespace Parsek
         {
             if (string.IsNullOrEmpty(groupName)) return;
 
+            // Find grandparent (null if this group was root-level)
+            string grandparent;
+            groupParents.TryGetValue(groupName, out grandparent);
+
             // Remove as child
             groupParents.Remove(groupName);
 
-            // Promote children to root (remove entries where this group is the parent)
-            var toPromote = new List<string>();
+            // Reparent children to grandparent (or root if no grandparent)
+            var toReparent = new List<string>();
             foreach (var kvp in groupParents)
             {
                 if (kvp.Value == groupName)
-                    toPromote.Add(kvp.Key);
+                    toReparent.Add(kvp.Key);
             }
-            for (int i = 0; i < toPromote.Count; i++)
-                groupParents.Remove(toPromote[i]);
+            for (int i = 0; i < toReparent.Count; i++)
+            {
+                if (grandparent != null)
+                    groupParents[toReparent[i]] = grandparent;
+                else
+                    groupParents.Remove(toReparent[i]);
+            }
 
-            ParsekLog.Info("Scenario", $"Group '{groupName}' removed from hierarchy ({toPromote.Count} sub-groups promoted to root)");
+            string destLabel = grandparent != null ? $"reparented under '{grandparent}'" : "promoted to root";
+            ParsekLog.Info("Scenario", $"Group '{groupName}' removed from hierarchy ({toReparent.Count} sub-groups {destLabel})");
         }
 
         /// <summary>
@@ -2015,7 +2048,11 @@ namespace Parsek
 
         private static void CollectDescendants(string groupName, List<string> result, int depth)
         {
-            if (depth > 100) return; // Guard against corrupted cycles
+            if (depth > 100)
+            {
+                ParsekLog.Warn("Scenario", $"CollectDescendants: max depth reached for group '{groupName}' — possible cycle, result truncated");
+                return;
+            }
             foreach (var kvp in groupParents)
             {
                 if (kvp.Value == groupName)
