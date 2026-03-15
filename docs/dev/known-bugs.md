@@ -410,4 +410,6 @@ Also affects non-SRB engines with `FXModuleAnimateThrottle` (33 parts total: jet
 
 **Relationship to roadmap:** This is the same underlying gap as "FXModuleAnimateThrottle support" (Priority 3 in the part coverage catalog). Fixing this bug fixes the roadmap item.
 
-**Status:** Open
+**Fix:** Extended `GhostVisualBuilder` to detect `FXModuleAnimateThrottle` as a fallback heat source. Name-based heuristic ("heat"/"emissive"/"glow"/"color") disambiguates multi-instance parts (Panther, Whiplash). `EngineIgnited`/`EngineThrottle` now call `ApplyHeatState(hot)`. Cold initialization at ghost spawn prevents prefab emissive bleed-through.
+
+**Status:** Fixed
