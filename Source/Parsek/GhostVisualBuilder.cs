@@ -4074,6 +4074,11 @@ namespace Parsek
                         if (!string.IsNullOrEmpty(rule.shaderName))
                         {
                             Shader shader = Shader.Find(rule.shaderName);
+                            // Fallback: some KSP shaders (e.g., "KSP/Emissive Specular") aren't
+                            // findable by Shader.Find but exist on prefab materials. Search the
+                            // ghost renderers for a material that already has this shader.
+                            if (shader == null)
+                                shader = FindShaderOnRenderers(renderers, rule.shaderName);
                             if (shader != null)
                             {
                                 cloned.shader = shader;
@@ -4082,8 +4087,9 @@ namespace Parsek
                             }
                             else
                             {
-                                ParsekLog.Warn("GhostVisual", $"Part '{partName}' pid={persistentId}: " +
-                                    $"shader not found: '{rule.shaderName}'");
+                                ParsekLog.VerboseRateLimited("GhostVisual",
+                                    $"shader-notfound-{rule.shaderName}",
+                                    $"Part '{partName}' pid={persistentId}: shader not found: '{rule.shaderName}' (not in Shader.Find or any renderer material)");
                             }
                         }
 
@@ -4164,6 +4170,29 @@ namespace Parsek
             }
 
             return totalApplied;
+        }
+
+        /// <summary>
+        /// Fallback shader lookup: searches renderer materials for a shader matching by name.
+        /// Handles KSP shaders (e.g., "KSP/Emissive Specular") that exist on loaded materials
+        /// but aren't findable via Shader.Find().
+        /// </summary>
+        private static Shader FindShaderOnRenderers(Renderer[] renderers, string shaderName)
+        {
+            if (renderers == null || string.IsNullOrEmpty(shaderName)) return null;
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                if (renderers[i] == null) continue;
+                var mats = renderers[i].sharedMaterials;
+                if (mats == null) continue;
+                for (int m = 0; m < mats.Length; m++)
+                {
+                    if (mats[m] != null && mats[m].shader != null &&
+                        string.Equals(mats[m].shader.name, shaderName, System.StringComparison.Ordinal))
+                        return mats[m].shader;
+                }
+            }
+            return null;
         }
 
         internal static bool TryParseKspColor(string raw, out Color color)
