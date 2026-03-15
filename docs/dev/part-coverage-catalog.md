@@ -22,7 +22,7 @@ checked in; re-run the extraction from the KSP GameData directory to refresh.
 
 | Bug | Description | Status | Affected Parts |
 |-----|-------------|--------|----------------|
-| #28 | Building collision doesn't set TerminalState.Destroyed | Open | crash into KSC buildings |
+| #28 | Building collision doesn't set TerminalState.Destroyed | Fixed | crash into KSC buildings |
 | #29 | Ghost parts missing or wrong state | Open | rover wheels, SmallGearBay |
 | #30 | RCS fires constantly | Open | all RCS parts |
 | #31 | Engine shroud/cover variants | Open | multi-variant engines |
