@@ -2604,5 +2604,180 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region Initial state seeding prevents false events
+
+        [Fact]
+        public void CheckJettisonTransition_AlreadySeeded_NoEvent()
+        {
+            // If the shroud PID is already in jettisonedShrouds (seeded at recording start),
+            // calling CheckJettisonTransition with isJettisoned=true should NOT emit an event.
+            var seeded = new HashSet<uint> { 12345 };
+            var evt = FlightRecorder.CheckJettisonTransition(
+                12345, "liquidEngine", true, seeded, 100.0);
+
+            Assert.Null(evt);
+            Assert.Contains(12345u, seeded); // still in set
+        }
+
+        [Fact]
+        public void CheckJettisonTransition_NotSeeded_EmitsEvent()
+        {
+            // Without seeding, an already-jettisoned shroud produces a spurious event
+            var empty = new HashSet<uint>();
+            var evt = FlightRecorder.CheckJettisonTransition(
+                12345, "liquidEngine", true, empty, 100.0);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.ShroudJettisoned, evt.Value.eventType);
+        }
+
+        [Fact]
+        public void CheckEngineTransition_AlreadySeeded_NoIgnitedEvent()
+        {
+            // If the engine key is already in activeEngineKeys (seeded at recording start),
+            // calling CheckEngineTransition with ignited=true should NOT emit EngineIgnited.
+            ulong key = FlightRecorder.EncodeEngineKey(100, 0);
+            var active = new HashSet<ulong> { key };
+            var throttles = new Dictionary<ulong, float> { { key, 0.8f } };
+            var events = FlightRecorder.CheckEngineTransition(
+                key, 100, 0, "liquidEngine", true, 0.8f, active, throttles, 200.0);
+
+            Assert.Empty(events); // No EngineIgnited event
+        }
+
+        [Fact]
+        public void CheckEngineTransition_NotSeeded_EmitsIgnitedEvent()
+        {
+            // Without seeding, an already-running engine produces a spurious EngineIgnited
+            ulong key = FlightRecorder.EncodeEngineKey(100, 0);
+            var empty = new HashSet<ulong>();
+            var throttles = new Dictionary<ulong, float>();
+            var events = FlightRecorder.CheckEngineTransition(
+                key, 100, 0, "liquidEngine", true, 0.8f, empty, throttles, 200.0);
+
+            Assert.Single(events);
+            Assert.Equal(PartEventType.EngineIgnited, events[0].eventType);
+        }
+
+        [Fact]
+        public void CheckLightTransition_AlreadySeeded_NoEvent()
+        {
+            var seeded = new HashSet<uint> { 200 };
+            var evt = FlightRecorder.CheckLightTransition(
+                200, "spotLight", true, seeded, 100.0);
+
+            Assert.Null(evt); // No LightOn event
+        }
+
+        [Fact]
+        public void CheckLightTransition_NotSeeded_EmitsLightOnEvent()
+        {
+            var empty = new HashSet<uint>();
+            var evt = FlightRecorder.CheckLightTransition(
+                200, "spotLight", true, empty, 100.0);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.LightOn, evt.Value.eventType);
+        }
+
+        [Fact]
+        public void CheckDeployableTransition_AlreadySeeded_NoEvent()
+        {
+            var seeded = new HashSet<uint> { 300 };
+            var evt = FlightRecorder.CheckDeployableTransition(
+                300, "solarPanel", true, seeded, 100.0);
+
+            Assert.Null(evt); // No DeployableExtended event
+        }
+
+        [Fact]
+        public void CheckDeployableTransition_NotSeeded_EmitsExtendedEvent()
+        {
+            var empty = new HashSet<uint>();
+            var evt = FlightRecorder.CheckDeployableTransition(
+                300, "solarPanel", true, empty, 100.0);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.DeployableExtended, evt.Value.eventType);
+        }
+
+        [Fact]
+        public void CheckGearTransition_AlreadySeeded_NoEvent()
+        {
+            var seeded = new HashSet<uint> { 400 };
+            var evt = FlightRecorder.CheckGearTransition(
+                400, "landingGear", true, seeded, 100.0);
+
+            Assert.Null(evt); // No GearDeployed event
+        }
+
+        [Fact]
+        public void CheckCargoBayTransition_AlreadySeeded_NoEvent()
+        {
+            var seeded = new HashSet<uint> { 500 };
+            var evt = FlightRecorder.CheckCargoBayTransition(
+                500, "cargoBay", true, seeded, 100.0);
+
+            Assert.Null(evt); // No CargoBayOpened event
+        }
+
+        [Fact]
+        public void CheckParachuteTransition_AlreadySeeded_NoEvent()
+        {
+            // Parachute already in state 2 (deployed) at recording start
+            var seeded = new Dictionary<uint, int> { { 600, 2 } };
+            var evt = FlightRecorder.CheckParachuteTransition(
+                600, "parachute", 2, seeded, 100.0);
+
+            Assert.Null(evt); // No ParachuteDeployed event (same state)
+        }
+
+        [Fact]
+        public void CheckParachuteTransition_NotSeeded_EmitsDeployedEvent()
+        {
+            var empty = new Dictionary<uint, int>();
+            var evt = FlightRecorder.CheckParachuteTransition(
+                600, "parachute", 2, empty, 100.0);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.ParachuteDeployed, evt.Value.eventType);
+        }
+
+        [Fact]
+        public void CheckRcsTransition_AlreadySeeded_NoEvent()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(700, 0);
+            var active = new HashSet<ulong> { key };
+            var throttles = new Dictionary<ulong, float> { { key, 0.5f } };
+            var events = FlightRecorder.CheckRcsTransition(
+                key, 700, 0, "rcsBlock", true, 0.5f, active, throttles, 100.0);
+
+            Assert.Empty(events); // No RCSActivated event
+        }
+
+        [Fact]
+        public void CheckLadderTransition_AlreadySeeded_NoEvent()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(800, 2);
+            var seeded = new HashSet<ulong> { key };
+            var evt = FlightRecorder.CheckLadderTransition(
+                key, 800, "ladder", true, seeded, 100.0, 2);
+
+            Assert.Null(evt); // No DeployableExtended event
+        }
+
+        [Fact]
+        public void CheckAnimationGroupTransition_AlreadySeeded_NoEvent()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(900, 3);
+            var seeded = new HashSet<ulong> { key };
+            var evt = FlightRecorder.CheckAnimationGroupTransition(
+                key, 900, "fuelCell", true, seeded, 100.0, 3);
+
+            Assert.Null(evt); // No DeployableExtended event
+        }
+
+        #endregion
     }
 }

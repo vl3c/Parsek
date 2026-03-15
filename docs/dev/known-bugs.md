@@ -466,12 +466,10 @@ On multi-stage rockets, the second stage engine's protective shroud (ModuleJetti
 
 **Observed in:** Sandbox career (2026-03-15). "#autoLOC_501218" (large multi-stage rocket in Dynawing Probe tree). SSME engines (PIDs 372523866, 409669795) have `ShroudJettisoned` events firing at the very start of the recording. The ghost builds the `Fairing` mesh correctly (`MR[1] 'Fairing'`, jettison detected) but immediately hides it.
 
-**Root cause (suspected):** Two possibilities:
-1. **Recording started with shrouds already jettisoned:** If all engines ignited simultaneously at launch (including the upper stage SSME), the `ModuleJettison` would fire immediately at recording start, and the `ShroudJettisoned` event would be recorded at UT=0 of the recording. This would be correct behavior — the shroud WAS jettisoned before the first trajectory point.
-2. **Initial state seeding bug:** The `CheckJettisonState` initial-state seeding at recording start might fire `ShroudJettisoned` for shrouds that are still intact, based on a stale `isJettisoned` flag.
+**Root cause:** `jettisonedShrouds` HashSet was cleared but not seeded with already-jettisoned parts at recording start. When the first physics-frame poll ran `CheckJettisonTransition`, any shroud already jettisoned (from a previous stage) was not in the set, so `HashSet.Add` returned true and a spurious `ShroudJettisoned` event was emitted at UT=0. Same issue affected `activeEngineKeys` (engines already running produced spurious `EngineIgnited`), and all other tracking sets (`lightsOn`, `extendedDeployables`, `deployedGear`, `openCargoBays`, `parachuteStates`, `deployedLadders`, `deployedAnimationGroups`, `activeRcsKeys`, etc.).
+
+**Fix:** Added `SeedExistingPartStates` method in `FlightRecorder` that pre-populates all tracking sets by reading the current state of every part on the vessel at recording start. Added matching `SeedBackgroundPartStates` in `BackgroundRecorder`. Previously only `deployedFairings` was seeded; now all 15+ tracking sets are seeded consistently using the same state-reading logic as their respective `CheckXxxState` methods.
 
 **Distinction from bug #31:** Bug #31 is about `ModulePartVariants` geometry selection for shroud transforms. This bug is about `ModuleJettison` timing — the correct shroud mesh is built but hidden too early.
 
-**Needs in-game investigation:** Check whether the SSME shrouds on this specific rocket design actually jettison at launch (all engines ignite at T-0) or at staging.
-
-**Status:** Open
+**Status:** Fixed
