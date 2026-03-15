@@ -2697,30 +2697,6 @@ namespace Parsek
                 ParsekLog.Info("UI", $"Setting changed: autoMerge={s.autoMerge}");
             }
 
-            bool autoWarpStop = GUILayout.Toggle(s.autoWarpStop,
-                new GUIContent("Stop time warp for ghost playback", "Exit time warp when a ghost recording is about to start playing"));
-            if (autoWarpStop != s.autoWarpStop)
-            {
-                s.autoWarpStop = autoWarpStop;
-                ParsekLog.Info("UI", $"Setting changed: autoWarpStop={s.autoWarpStop}");
-            }
-
-            bool autoSplitAtAtmosphere = GUILayout.Toggle(s.autoSplitAtAtmosphere,
-                new GUIContent("Auto-split at atmosphere boundary", "Split recordings when crossing the atmosphere boundary"));
-            if (autoSplitAtAtmosphere != s.autoSplitAtAtmosphere)
-            {
-                s.autoSplitAtAtmosphere = autoSplitAtAtmosphere;
-                ParsekLog.Info("UI", $"Setting changed: autoSplitAtAtmosphere={s.autoSplitAtAtmosphere}");
-            }
-
-            bool autoSplitAtSoi = GUILayout.Toggle(s.autoSplitAtSoi,
-                new GUIContent("Auto-split at SOI change", "Split recordings when entering a new sphere of influence"));
-            if (autoSplitAtSoi != s.autoSplitAtSoi)
-            {
-                s.autoSplitAtSoi = autoSplitAtSoi;
-                ParsekLog.Info("UI", $"Setting changed: autoSplitAtSoi={s.autoSplitAtSoi}");
-            }
-
             GUILayout.Space(SpacingSmall);
             GUILayout.Label("Diagnostics", GUI.skin.box);
             bool verboseLogging = GUILayout.Toggle(s.verboseLogging, "Verbose logging (development default)");
@@ -2802,9 +2778,6 @@ namespace Parsek
                 s.autoRecordOnLaunch = true;
                 s.autoRecordOnEva = true;
                 s.autoMerge = false;
-                s.autoWarpStop = true;
-                s.autoSplitAtAtmosphere = true;
-                s.autoSplitAtSoi = true;
                 s.verboseLogging = true;
                 s.maxSampleInterval = 3.0f;
                 s.velocityDirThreshold = 2.0f;
