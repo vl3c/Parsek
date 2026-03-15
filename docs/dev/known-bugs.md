@@ -272,7 +272,15 @@ Some vessel parts are missing or display incorrectly during ghost playback (both
 - Added summary log per part: counts cloned MeshRenderers, cloned SkinnedMeshRenderers, null-mesh SMR skips, and damaged-wheel renderer skips
 - Diagnostic approach: the WARN log for null sharedMesh will appear in KSP.log when tested in-game, confirming whether missing wheel meshes are due to runtime procedural generation (requires separate fix) vs. the damaged transform overlap (now fixed)
 
-**Status:** Partially fixed — damaged transform filtering implemented. Null sharedMesh diagnostic pending in-game verification
+**In-game verification (2026-03-15):** All rover wheels and landing gear render correctly in the showcase. KSP.log confirms:
+- Zero null-sharedMesh warnings — tire meshes ARE present on prefabs (not procedurally generated)
+- Zero SkinnedMeshRenderers on any wheel part — all use regular MeshRenderers
+- Damaged wheel filtering working: roverWheel1 skipped 2 renderers, roverWheel2 skipped 1, roverWheelM1-F skipped 1
+- Variant textures applied correctly on roverWheelM1-F (Grey variant)
+
+The original "wheels missing" report was likely caused by the damaged mesh overlap (now fixed) or by a specific vessel configuration not reproduced in the showcase.
+
+**Status:** Fixed
 
 ## 30. All RCS thrusters fire constantly during ghost playback
 
