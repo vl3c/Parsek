@@ -31,8 +31,10 @@ checked in; re-run the extraction from the KSP GameData directory to refresh.
 | #34 | ShouldTriggerExplosion log spam | Fixed | all ghost parts |
 | #35 | Engine FX playing=False first frame | Not a bug | all engine parts |
 | #36 | GhostVisual VERBOSE log spam | Fixed | all ghost parts |
-| #37 | Ghost shows wrong texture variant | Fixed | parts with TEXTURE variant rules |
-| #38 | SRB nozzle glow persists after burnout | Fixed | 33 FXModuleAnimateThrottle parts (7 SRBs most visible) |
+| #37 | KSC ghosts not destroyed when disabled | Fixed | parts with TEXTURE variant rules |
+| #38 | Merge dialog not shown after destruction in tree mode | Fixed | tree mode vessel destruction |
+| #39 | Ghost shows wrong texture variant | Fixed | parts with TEXTURE variant rules |
+| #40 | SRB nozzle glow persists after burnout | Fixed | 33 FXModuleAnimateThrottle parts (7 SRBs most visible) |
 
 ## Unsupported Visual Module Types
 
@@ -733,12 +735,12 @@ Parts where the only visual gap is ModuleColorChanger (cabin lights), FXModuleAn
 | Module | Part Count | Description | Priority |
 |--------|-----------|-------------|----------|
 | ModuleColorChanger | 33 | Cabin interior lights, ablator color | Low — cosmetic only |
-| ~~FXModuleAnimateThrottle~~ | ~~33~~ | ~~Engine nozzle glow animation~~ | ~~Fixed (bug #38)~~ |
+| ~~FXModuleAnimateThrottle~~ | ~~33~~ | ~~Engine nozzle glow animation~~ | ~~Fixed (bug #40)~~ |
 | FXModuleAnimateRCS | 5 | RCS thruster response animation | Low — subtle effect |
 | ModulePartFirework | 2 | Firework launch effects | None — novelty |
 | ModuleControlSurface (continuous) | 24 | Continuous deflection angle — won't implement (binary deploy/retract is sufficient) | Closed |
 | ~~ModuleAnimateHeat (continuous)~~ | ~~16~~ | ~~3-state cold/medium/hot replaces binary~~ | ~~Fixed (3-state)~~ |
-| ModulePartVariants (TEXTURE/MATERIAL) | many | Variant texture/color not applied to ghost (bug #37) | Medium |
+| ModulePartVariants (TEXTURE/MATERIAL) | many | Variant texture/color not applied to ghost (bug #39) | Medium |
 
 ### DLC Parts Summary
 
@@ -788,14 +790,14 @@ glow stage. Recording uses three thresholds (0.10/0.33/0.66) with hysteresis gap
 both boundaries. Animation sampled at t=0/0.5/1.0. New ThermalAnimationMedium event type.
 Showcase recordings updated to demonstrate all 3 states.
 
-### ~~Priority 3: FXModuleAnimateThrottle (engine nozzle glow) — bug #38~~ DONE
+### ~~Priority 3: FXModuleAnimateThrottle (engine nozzle glow) — bug #40~~ DONE
 
 Fixed. Ghost builder now detects `FXModuleAnimateThrottle` as a fallback heat source and
 builds `HeatGhostInfo` from its animation. Engine events drive the heat state (binary
 hot/cold). Name-based heuristic disambiguates multi-instance parts. 33 engine parts now
 have correct nozzle glow behavior on ghost playback.
 
-### Priority 4: ModulePartVariants TEXTURE/MATERIAL rules (bug #37)
+### Priority 4: ModulePartVariants TEXTURE/MATERIAL rules (bug #39)
 
 Ghost parts with non-default texture variants show the prefab's default texture. Only
 GAMEOBJECTS geometry rules are currently applied.

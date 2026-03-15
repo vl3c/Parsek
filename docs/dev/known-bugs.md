@@ -308,18 +308,13 @@ The Launch Escape System (`LaunchEscapeSystem` part) has 5 `thrustTransform` noz
 
 ## 33. Crash sequence: vessel stays visually intact until final explosion
 
-When a vessel crashes, some recordings show the ghost vessel staying fully intact during the impact sequence until the final explosion effect fires. The ghost should show parts breaking off progressively as the vessel disintegrates, but instead the full vessel model persists and then disappears all at once with the explosion.
+When a vessel crashes, the ghost stays visually intact until the explosion fires. Parts that individually break off (sep motors, nose cones) are hidden correctly via `Decoupled`/`Destroyed` events, but parts still attached at final impact have no per-part event — they're cleaned up by `HideAllGhostParts` at explosion time.
 
-**Root cause (from log analysis):** The crash destruction sequence records individual `Decoupled` and `Destroyed` part events as the vessel breaks apart. For ghost #9 (2026-03-14 session), the crash sequence has ~50 events across Decoupled + Destroyed types over a very short time window. One part (`SmallGearBay` pid=4174212781) received 6 separate `Decoupled` events — likely from multiple parent-child joint breaks during rapid disassembly.
+**Root cause:** KSP's `onPartDie`/`onPartJointBreak` only fire for parts individually destroyed before the vessel is removed. Parts still attached at final vessel destruction get no event. For #autoLOC_8005481 (50 parts), only 10 parts got individual events; the other 40 stayed visible until the explosion. This is expected — the rocket genuinely stayed mostly intact until impact.
 
-The issue may be that:
-1. **Event timing compression:** All crash events happen within milliseconds of each other at the same UT (same physics frame or consecutive frames). During playback at normal speed, the interpolation window may not resolve these individual events — they all fire on the same rendered frame, making the visual jump from "intact" to "exploded" with no intermediate breakup.
-2. **Decoupled event subtree hiding:** `Decoupled` events hide the entire part subtree below the decoupled part. If the root part decouples early in the sequence, it could hide the entire vessel before the child `Destroyed` events have a chance to show progressive breakup.
-3. **Terminal explosion timing:** `ShouldTriggerExplosion` fires when the ghost reaches the end of the trajectory. If the explosion fires at the same frame as the crash events, the explosion visual masks the breakup sequence.
+**Improvement:** Added `SpawnPartPuffFx` — a small smoke puff (10-20 particles) + spark burst (8-15 particles) at the part's world position when `Decoupled` or `Destroyed` events are applied during ghost playback. Gives visible feedback for individual part separation/destruction even when all events fire on the same frame.
 
-**Observed in:** Sandbox career (2026-03-14). Multiple crash recordings show this behavior. Ghost #9 crash sequence has the most detailed event chain.
-
-**Status:** Open
+**Status:** Improved — part separation now has visual FX feedback
 
 ## 34. ShouldTriggerExplosion log spam (performance)
 
@@ -361,7 +356,35 @@ Combined with the ShouldTriggerExplosion spam (bug #34, now fixed), these two su
 
 **Status:** Fixed
 
-## 37. Ghost parts show wrong texture variant
+## 37. KSC ghosts not destroyed when recording is disabled
+
+When the user disables a recording's playback in the KSC scene (unchecks the enable checkbox), the ghost GameObject stays visible in the scene. It is never cleaned up until the player leaves KSC.
+
+**Root cause:** `ParsekKSC.Update()` (line 125) checks `ShouldShowInKSC(rec)` and `continue`s if false — skipping the recording entirely without destroying any existing ghost. In contrast, `ParsekFlight.Update()` explicitly destroys active ghosts when `PlaybackEnabled` is false before continuing.
+
+**Fix:** Before the `continue`, check `kscGhosts` and `kscOverlapGhosts` for the recording index and destroy any active ghosts. Mirrors the pattern from `ParsekFlight`.
+
+**Status:** Fixed
+
+## 38. Merge dialog not shown after vessel destruction in tree mode
+
+When a vessel explodes and the joint break creates a recording tree (`activeTree != null`), the post-destruction merge dialog is never shown. The user must manually revert the flight to trigger the dialog (fallback path via `OnFlightReady`).
+
+**Root cause:** `OnVesselWillDestroy` (ParsekFlight.cs line 1218) guards `ShowPostDestructionMergeDialog` with `activeTree == null` — it only fires in standalone mode. The comment claims "In tree mode, the deferred destruction check handles this already" but `DeferredDestructionCheck` only applies terminal state to background recordings; it never shows a dialog.
+
+The crash sequence: (1) vessel explodes → joint break → `DeferredJointBreakCheck` creates a tree, (2) continuation recording starts on debris/fragments, (3) fragments also destroyed, (4) no dialog fires because `activeTree != null`, (5) `FlightResultsPatch` suppresses KSP's "Catastrophic Failure" dialog expecting Parsek's dialog first — but it never comes.
+
+**Compounding issue:** `FlightResultsPatch` intercepts `FlightResultsDialog.Display` and defers it until the merge dialog completes. When no merge dialog fires, KSP's flight results are permanently suppressed too — the user sees nothing at all.
+
+**Observed in:** KSP.log (2026-03-15). Dynawing flights 2 and 3 — vessel destroyed, tree created by joint break, no dialog until manual revert. Flight 1 worked correctly (standalone mode, no tree).
+
+**Additional symptom:** When watching a non-looped destroyed recording via Watch mode, the camera auto-follows to a tree child recording that has a `VesselSnapshot`. When that child ends, it spawns the vessel (e.g., Dynawing Probe, FLYING) and KSP switches to it as the active vessel. The user is now controlling a spawned vessel in mid-air instead of returning to their pad vessel. The game enters a weird "in flight" state, showing collision warnings when trying to exit to KSC. (The `needsSpawn` guard already prevents spawning for Destroyed/Recovered recordings — verified in code.)
+
+**Fix:** Added `ShowPostDestructionTreeMergeDialog` coroutine triggered from both `OnVesselWillDestroy` (active vessel dies) and `DeferredDestructionCheck` (last background vessel dies). Uses `RecordingTree.AreAllLeavesTerminal` to detect when all tree leaves are dead, reuses `FinalizeTreeRecordings` + `StashPendingTree`, handles autoMerge. `treeDestructionDialogPending` flag prevents duplicate coroutines. `FlightResultsPatch.ClearPending` clears stale results on scene change. Safety net in `OnFlightReady` replays suppressed flight results if no dialog ever fired.
+
+**Status:** Fixed
+
+## 39. Ghost parts show wrong texture variant
 
 When a player selects a non-default part variant (e.g., a different paint scheme on the Mk1-3 Command Pod, or an orange fuel tank variant), the ghost renders with the prefab's default texture instead of the recorded variant's texture. The part geometry (shape) is correct — only the visual appearance (texture/color) is wrong.
 
@@ -379,9 +402,11 @@ Parts with geometry-only variants (GAMEOBJECTS rules) are handled correctly — 
 
 **Identified by:** Part coverage audit (2026-03-15)
 
-**Status:** Open
+**Fix:** Extended ghost builder to parse TEXTURE sub-nodes from VARIANT configs as generic property bags. Handles texture URLs, colors, floats, and shader replacements. Materials cloned before modification. Extracted `TryFindSelectedVariantNode` for shared variant-finding logic.
 
-## 38. SRB nozzle glow persists after burnout
+**Status:** Fixed
+
+## 40. SRB nozzle glow persists after burnout
 
 SRB nozzles on ghost vessels remain glowing indefinitely after the SRB runs out of fuel. The exhaust particle FX stops correctly on `EngineShutdown`, but the nozzle mesh stays emissive/hot-looking. Looks wrong after ~5 seconds — no heat source, but nozzle still glows.
 
@@ -393,22 +418,7 @@ SRB nozzles on ghost vessels remain glowing indefinitely after the SRB runs out 
 4. **Playback:** `EngineShutdown` handler calls `ApplyHeatState(heated: false)`, which looks up `state.heatInfos[pid]` — but no entry exists for this part (step 1), so the call returns false and does nothing.
 5. **Result:** Particle exhaust stops, but emissive nozzle glow is permanently frozen.
 
-**Affected parts:** 7 of 9 stock SRBs (all with `FXModuleAnimateThrottle`):
-- `solidBooster_v2` (RT-10 "Hammer") — animation: `heatAnimation`
-- `solidBooster1-1` (BACC "Thumper") — animation: `thumperEmissive`
-- `MassiveBooster` (S1 SRB-KD25k "Kickback") — animation: `HeatAnimationSRB`
-- `Mite` (FM1 "Mite") — animation: `FM1Emissive`
-- `Shrimp` (F3S0 "Shrimp") — animation: `F3S0Emissive`
-- `Thoroughbred` — animation: `S2-17Emissive`
-- `Clydesdale` — animation: `S2-33Emissive`
-
-Not affected: `solidBooster_sm_v2` (Flea) and `sepMotor1` (Sepratron) — no `FXModuleAnimateThrottle`.
-
-Also affects non-SRB engines with `FXModuleAnimateThrottle` (33 parts total: jets, ion engine, RAPIER, etc.), but SRBs are the most visible case because they always burn out mid-flight.
-
-**Fix:** Extend `GhostVisualBuilder` to detect `FXModuleAnimateThrottle` alongside `ModuleAnimateHeat` when building `HeatGhostInfo`. Both modules drive emissive animations — the only difference is the animation name field. Once `HeatGhostInfo` exists for the part, the existing `EngineShutdown` → `ApplyHeatState(heated: false)` path will work. `EngineIgnited` should also call `ApplyHeatState(heated: true)`.
-
-**Relationship to roadmap:** This is the same underlying gap as "FXModuleAnimateThrottle support" (Priority 3 in the part coverage catalog). Fixing this bug fixes the roadmap item.
+**Affected parts:** 7 of 9 stock SRBs (all with `FXModuleAnimateThrottle`), plus 26 other engines (jets, ion engine, RAPIER, etc.).
 
 **Fix:** Extended `GhostVisualBuilder` to detect `FXModuleAnimateThrottle` as a fallback heat source. Name-based heuristic ("heat"/"emissive"/"glow"/"color") disambiguates multi-instance parts (Panther, Whiplash). `EngineIgnited`/`EngineThrottle` now call `ApplyHeatState(hot)`. Cold initialization at ghost spawn prevents prefab emissive bleed-through.
 
