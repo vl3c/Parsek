@@ -2060,46 +2060,65 @@ namespace Parsek.Tests
         {
             return new[]
             {
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Airplane Tail", "airplaneTail", 172,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
-                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Airplane Tail B", "airplaneTailB", 173,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
-                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Avionics Nose Cone", "avionicsNoseCone", 174,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
-                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Circular Intake", "CircularIntake", 175,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
-                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Mk1 Intake Fuselage", "MK1IntakeFuselage", 176,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
-                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Nacelle Body", "nacelleBody", 177,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
-                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Nose Cone Adapter", "noseConeAdapter", 178,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
-                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Pointy Nose Cone A", "pointyNoseConeA", 179,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
-                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Pointy Nose Cone B", "pointyNoseConeB", 180,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
-                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Radial Engine Body", "radialEngineBody", 181,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
-                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Ram Air Intake", "ramAirIntake", 182,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
-                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Shock Cone Intake", "shockConeIntake", 183,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
-                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Standard Nose Cone", "standardNoseCone", 184,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
-                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
+                BuildAnimateHeat3StateShowcase(baseUT, "Part Showcase - AnimateHeat Airplane Tail", "airplaneTail", 172),
+                BuildAnimateHeat3StateShowcase(baseUT, "Part Showcase - AnimateHeat Airplane Tail B", "airplaneTailB", 173),
+                BuildAnimateHeat3StateShowcase(baseUT, "Part Showcase - AnimateHeat Avionics Nose Cone", "avionicsNoseCone", 174),
+                BuildAnimateHeat3StateShowcase(baseUT, "Part Showcase - AnimateHeat Circular Intake", "CircularIntake", 175),
+                BuildAnimateHeat3StateShowcase(baseUT, "Part Showcase - AnimateHeat Mk1 Intake Fuselage", "MK1IntakeFuselage", 176),
+                BuildAnimateHeat3StateShowcase(baseUT, "Part Showcase - AnimateHeat Nacelle Body", "nacelleBody", 177),
+                BuildAnimateHeat3StateShowcase(baseUT, "Part Showcase - AnimateHeat Nose Cone Adapter", "noseConeAdapter", 178),
+                BuildAnimateHeat3StateShowcase(baseUT, "Part Showcase - AnimateHeat Pointy Nose Cone A", "pointyNoseConeA", 179),
+                BuildAnimateHeat3StateShowcase(baseUT, "Part Showcase - AnimateHeat Pointy Nose Cone B", "pointyNoseConeB", 180),
+                BuildAnimateHeat3StateShowcase(baseUT, "Part Showcase - AnimateHeat Radial Engine Body", "radialEngineBody", 181),
+                BuildAnimateHeat3StateShowcase(baseUT, "Part Showcase - AnimateHeat Ram Air Intake", "ramAirIntake", 182),
+                BuildAnimateHeat3StateShowcase(baseUT, "Part Showcase - AnimateHeat Shock Cone Intake", "shockConeIntake", 183),
+                BuildAnimateHeat3StateShowcase(baseUT, "Part Showcase - AnimateHeat Standard Nose Cone", "standardNoseCone", 184)
             };
+        }
+
+        /// <summary>
+        /// Builds an AnimateHeat showcase recording with a 3-state cycle:
+        /// Cold -> Medium -> Hot -> Medium -> Cold, repeating across the 24-second clip.
+        /// 10 events per recording.
+        /// </summary>
+        private static RecordingBuilder BuildAnimateHeat3StateShowcase(
+            double baseUT, string vesselName, string partName, int rowIndex)
+        {
+            double t = baseUT + 30;
+            ShowcasePosition(rowIndex, ShowcaseDistanceFromPadMeters, out double lat, out double lon, out double alt);
+            alt += ShowcaseAltitudeOffset(partName);
+
+            var b = new RecordingBuilder(vesselName)
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
+                .WithLoopPlayback(loop: true, intervalSeconds: 0.0)
+                .WithRecordingGroup("Part Showcases");
+
+            // Static trajectory (24s)
+            for (int i = 0; i <= 8; i++)
+                b.AddPoint(t + (i * 3), lat, lon, alt);
+
+            // 3-state heat cycle: Cold -> Medium -> Hot -> Medium -> Cold (repeating)
+            b.AddPartEvent(t + 0.0,  SinglePartPid, (int)PartEventType.ThermalAnimationMedium, partName, value: 0.5f);
+            b.AddPartEvent(t + 2.0,  SinglePartPid, (int)PartEventType.ThermalAnimationHot,    partName, value: 1.0f);
+            b.AddPartEvent(t + 5.0,  SinglePartPid, (int)PartEventType.ThermalAnimationMedium, partName, value: 0.5f);
+            b.AddPartEvent(t + 7.0,  SinglePartPid, (int)PartEventType.ThermalAnimationCold,   partName, value: 0.0f);
+            b.AddPartEvent(t + 10.0, SinglePartPid, (int)PartEventType.ThermalAnimationMedium, partName, value: 0.5f);
+            b.AddPartEvent(t + 12.0, SinglePartPid, (int)PartEventType.ThermalAnimationHot,    partName, value: 1.0f);
+            b.AddPartEvent(t + 15.0, SinglePartPid, (int)PartEventType.ThermalAnimationMedium, partName, value: 0.5f);
+            b.AddPartEvent(t + 17.0, SinglePartPid, (int)PartEventType.ThermalAnimationCold,   partName, value: 0.0f);
+            b.AddPartEvent(t + 20.0, SinglePartPid, (int)PartEventType.ThermalAnimationMedium, partName, value: 0.5f);
+            b.AddPartEvent(t + 22.0, SinglePartPid, (int)PartEventType.ThermalAnimationHot,    partName, value: 1.0f);
+
+            var snap = new VesselSnapshotBuilder()
+                .WithName(vesselName)
+                .WithPersistentId((uint)(AnimateHeatShowcasePidBase + rowIndex))
+                .AddPart(partName, rotation: "0,-0.7071068,0,0.7071068")
+                .AsLanded(lat, lon, alt)
+                .Build();
+
+            b.WithGhostVisualSnapshot(snap);
+
+            return b;
         }
 
         internal static RecordingBuilder[] JettisonShowcaseRecordings(double baseUT = 0)
@@ -3591,12 +3610,14 @@ namespace Parsek.Tests
             var first = recordings[0].Build();
             Assert.Equal("Part Showcase - AnimateHeat Airplane Tail", first.GetValue("vesselName"));
             Assert.Equal("True", first.GetValue("loopPlayback"));
-            Assert.Equal(8, first.GetNodes("PART_EVENT").Length);
+            Assert.Equal(10, first.GetNodes("PART_EVENT").Length);
 
             var firstEvents = first.GetNodes("PART_EVENT");
-            Assert.Equal(((int)PartEventType.ThermalAnimationHot).ToString(), firstEvents[0].GetValue("type"));
-            Assert.Equal(((int)PartEventType.ThermalAnimationCold).ToString(), firstEvents[1].GetValue("type"));
-            Assert.Equal("1", firstEvents[0].GetValue("value"));
+            Assert.Equal(((int)PartEventType.ThermalAnimationMedium).ToString(), firstEvents[0].GetValue("type"));
+            Assert.Equal(((int)PartEventType.ThermalAnimationHot).ToString(), firstEvents[1].GetValue("type"));
+            Assert.Equal(((int)PartEventType.ThermalAnimationMedium).ToString(), firstEvents[2].GetValue("type"));
+            Assert.Equal(((int)PartEventType.ThermalAnimationCold).ToString(), firstEvents[3].GetValue("type"));
+            Assert.Equal("0.5", firstEvents[0].GetValue("value"));
 
             var names = new[]
             {
@@ -3794,13 +3815,8 @@ namespace Parsek.Tests
                     OffEvent = PartEventType.DeployableRetracted,
                     OnValue = 0f
                 },
-                new
-                {
-                    Recordings = AnimateHeatShowcaseRecordings(17000),
-                    OnEvent = PartEventType.ThermalAnimationHot,
-                    OffEvent = PartEventType.ThermalAnimationCold,
-                    OnValue = 1.0f
-                }
+                // AnimateHeat showcases use 3-state cycle (Cold/Medium/Hot), not simple alternating.
+                // Their shape is validated in AnimateHeatShowcaseRecordings_BuildExpectedShape.
             };
 
             foreach (var category in categories)

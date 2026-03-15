@@ -35,8 +35,11 @@ namespace Parsek
         RoboticMotionStopped, // 30 - robotic module stopped moving (value = sampled position)
         ThermalAnimationHot,  // 31 - ModuleAnimateHeat entered hot visual state
         ThermalAnimationCold, // 32 - ModuleAnimateHeat returned to cold visual state
-        ParachuteSemiDeployed // 33 - parachute entered semi-deployed (streamer) state
+        ParachuteSemiDeployed, // 33 - parachute entered semi-deployed (streamer) state
+        ThermalAnimationMedium = 34 // ModuleAnimateHeat entered medium visual state
     }
+
+    internal enum HeatLevel { Cold, Medium, Hot }
 
     public struct PartEvent
     {

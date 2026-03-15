@@ -94,7 +94,7 @@ namespace Parsek
             public HashSet<ulong> deployedAeroSurfaceModules = new HashSet<ulong>();
             public HashSet<ulong> deployedControlSurfaceModules = new HashSet<ulong>();
             public HashSet<ulong> deployedRobotArmScannerModules = new HashSet<ulong>();
-            public HashSet<ulong> hotAnimateHeatModules = new HashSet<ulong>();
+            public Dictionary<ulong, HeatLevel> animateHeatLevels = new Dictionary<ulong, HeatLevel>();
 
             // Engine/RCS/robotic caches
             public List<(Part part, ModuleEngines engine, int moduleIndex)> cachedEngines;
@@ -1321,8 +1321,7 @@ namespace Parsek
                         continue;
 
                     if (!FlightRecorder.TryClassifyAnimateHeatState(
-                        module, out bool isHot, out bool isCold,
-                        out float normalizedHeat, out string sourceField))
+                        module, out float normalizedHeat, out string sourceField))
                     {
                         ulong diagnosticKey = FlightRecorder.EncodeEngineKey(p.persistentId, m);
                         if (state.loggedAnimateHeatClassificationMisses.Add(diagnosticKey))
@@ -1335,7 +1334,7 @@ namespace Parsek
                     ulong key = FlightRecorder.EncodeEngineKey(p.persistentId, m);
                     var evt = FlightRecorder.CheckAnimateHeatTransition(
                         key, p.persistentId, p.partInfo?.name ?? "unknown",
-                        isHot, isCold, normalizedHeat, state.hotAnimateHeatModules, ut, m);
+                        normalizedHeat, state.animateHeatLevels, ut, m);
                     if (evt.HasValue)
                     {
                         treeRec.PartEvents.Add(evt.Value);

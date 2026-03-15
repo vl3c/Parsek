@@ -1709,34 +1709,204 @@ namespace Parsek.Tests
         public void AnimateHeatTransition_ColdToHot_EmitsHotEvent()
         {
             ulong key = FlightRecorder.EncodeEngineKey(450, 0);
-            var hotSet = new HashSet<ulong>();
+            var levelMap = new Dictionary<ulong, HeatLevel>();
 
             var evt = FlightRecorder.CheckAnimateHeatTransition(
                 key, 450, "shockConeIntake",
-                isHot: true, isCold: false, normalizedHeat: 0.85f,
-                hotSet, ut: 100.0, moduleIndex: 0);
+                normalizedHeat: 0.85f,
+                levelMap, ut: 100.0, moduleIndex: 0);
 
             Assert.True(evt.HasValue);
             Assert.Equal(PartEventType.ThermalAnimationHot, evt.Value.eventType);
             Assert.Equal(0.85f, evt.Value.value, 0.001f);
-            Assert.Contains(key, hotSet);
+            Assert.Equal(HeatLevel.Hot, levelMap[key]);
         }
 
         [Fact]
         public void AnimateHeatTransition_HotToCold_EmitsColdEvent()
         {
             ulong key = FlightRecorder.EncodeEngineKey(450, 0);
-            var hotSet = new HashSet<ulong> { key };
+            var levelMap = new Dictionary<ulong, HeatLevel> { { key, HeatLevel.Hot } };
 
             var evt = FlightRecorder.CheckAnimateHeatTransition(
                 key, 450, "shockConeIntake",
-                isHot: false, isCold: true, normalizedHeat: 0.02f,
-                hotSet, ut: 120.0, moduleIndex: 0);
+                normalizedHeat: 0.02f,
+                levelMap, ut: 120.0, moduleIndex: 0);
 
             Assert.True(evt.HasValue);
             Assert.Equal(PartEventType.ThermalAnimationCold, evt.Value.eventType);
             Assert.Equal(0.02f, evt.Value.value, 0.001f);
-            Assert.DoesNotContain(key, hotSet);
+            Assert.Equal(HeatLevel.Cold, levelMap[key]);
+        }
+
+        [Fact]
+        public void AnimateHeatTransition_ColdToMedium()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(450, 0);
+            var levelMap = new Dictionary<ulong, HeatLevel>();
+
+            var evt = FlightRecorder.CheckAnimateHeatTransition(
+                key, 450, "shockConeIntake",
+                normalizedHeat: 0.45f,
+                levelMap, ut: 100.0, moduleIndex: 0);
+
+            Assert.True(evt.HasValue);
+            Assert.Equal(PartEventType.ThermalAnimationMedium, evt.Value.eventType);
+            Assert.Equal(HeatLevel.Medium, levelMap[key]);
+        }
+
+        [Fact]
+        public void AnimateHeatTransition_MediumToHot()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(450, 0);
+            var levelMap = new Dictionary<ulong, HeatLevel> { { key, HeatLevel.Medium } };
+
+            var evt = FlightRecorder.CheckAnimateHeatTransition(
+                key, 450, "shockConeIntake",
+                normalizedHeat: 0.70f,
+                levelMap, ut: 100.0, moduleIndex: 0);
+
+            Assert.True(evt.HasValue);
+            Assert.Equal(PartEventType.ThermalAnimationHot, evt.Value.eventType);
+            Assert.Equal(HeatLevel.Hot, levelMap[key]);
+        }
+
+        [Fact]
+        public void AnimateHeatTransition_HotToMedium()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(450, 0);
+            var levelMap = new Dictionary<ulong, HeatLevel> { { key, HeatLevel.Hot } };
+
+            var evt = FlightRecorder.CheckAnimateHeatTransition(
+                key, 450, "shockConeIntake",
+                normalizedHeat: 0.50f,
+                levelMap, ut: 100.0, moduleIndex: 0);
+
+            Assert.True(evt.HasValue);
+            Assert.Equal(PartEventType.ThermalAnimationMedium, evt.Value.eventType);
+            Assert.Equal(HeatLevel.Medium, levelMap[key]);
+        }
+
+        [Fact]
+        public void AnimateHeatTransition_MediumToCold()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(450, 0);
+            var levelMap = new Dictionary<ulong, HeatLevel> { { key, HeatLevel.Medium } };
+
+            var evt = FlightRecorder.CheckAnimateHeatTransition(
+                key, 450, "shockConeIntake",
+                normalizedHeat: 0.05f,
+                levelMap, ut: 100.0, moduleIndex: 0);
+
+            Assert.True(evt.HasValue);
+            Assert.Equal(PartEventType.ThermalAnimationCold, evt.Value.eventType);
+            Assert.Equal(HeatLevel.Cold, levelMap[key]);
+        }
+
+        [Fact]
+        public void AnimateHeatTransition_ColdToHotDirect()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(450, 0);
+            var levelMap = new Dictionary<ulong, HeatLevel>();
+
+            var evt = FlightRecorder.CheckAnimateHeatTransition(
+                key, 450, "shockConeIntake",
+                normalizedHeat: 0.80f,
+                levelMap, ut: 100.0, moduleIndex: 0);
+
+            Assert.True(evt.HasValue);
+            Assert.Equal(PartEventType.ThermalAnimationHot, evt.Value.eventType);
+            Assert.Equal(HeatLevel.Hot, levelMap[key]);
+        }
+
+        [Fact]
+        public void AnimateHeatTransition_HotToColdDirect()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(450, 0);
+            var levelMap = new Dictionary<ulong, HeatLevel> { { key, HeatLevel.Hot } };
+
+            var evt = FlightRecorder.CheckAnimateHeatTransition(
+                key, 450, "shockConeIntake",
+                normalizedHeat: 0.05f,
+                levelMap, ut: 100.0, moduleIndex: 0);
+
+            Assert.True(evt.HasValue);
+            Assert.Equal(PartEventType.ThermalAnimationCold, evt.Value.eventType);
+            Assert.Equal(HeatLevel.Cold, levelMap[key]);
+        }
+
+        [Fact]
+        public void AnimateHeatTransition_InHysteresisGap_NoEvent()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(450, 0);
+            var levelMap = new Dictionary<ulong, HeatLevel>();
+
+            var evt = FlightRecorder.CheckAnimateHeatTransition(
+                key, 450, "shockConeIntake",
+                normalizedHeat: 0.20f,
+                levelMap, ut: 100.0, moduleIndex: 0);
+
+            Assert.Null(evt);
+        }
+
+        [Fact]
+        public void AnimateHeatTransition_StaysMedium_NoEvent()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(450, 0);
+            var levelMap = new Dictionary<ulong, HeatLevel> { { key, HeatLevel.Medium } };
+
+            var evt = FlightRecorder.CheckAnimateHeatTransition(
+                key, 450, "shockConeIntake",
+                normalizedHeat: 0.50f,
+                levelMap, ut: 100.0, moduleIndex: 0);
+
+            Assert.Null(evt);
+        }
+
+        [Fact]
+        public void AnimateHeatTransition_MediumInHysteresisGap_StaysMedium()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(450, 0);
+            var levelMap = new Dictionary<ulong, HeatLevel> { { key, HeatLevel.Medium } };
+
+            var evt = FlightRecorder.CheckAnimateHeatTransition(
+                key, 450, "shockConeIntake",
+                normalizedHeat: 0.20f,
+                levelMap, ut: 100.0, moduleIndex: 0);
+
+            Assert.Null(evt);
+            Assert.Equal(HeatLevel.Medium, levelMap[key]);
+        }
+
+        [Fact]
+        public void AnimateHeatTransition_HotInMediumHotHysteresis_StaysHot()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(450, 0);
+            var levelMap = new Dictionary<ulong, HeatLevel> { { key, HeatLevel.Hot } };
+
+            var evt = FlightRecorder.CheckAnimateHeatTransition(
+                key, 450, "shockConeIntake",
+                normalizedHeat: 0.63f,
+                levelMap, ut: 100.0, moduleIndex: 0);
+
+            Assert.Null(evt);
+            Assert.Equal(HeatLevel.Hot, levelMap[key]);
+        }
+
+        [Fact]
+        public void AnimateHeatTransition_HotFallsBelowHysteresis_BecomesMedium()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(450, 0);
+            var levelMap = new Dictionary<ulong, HeatLevel> { { key, HeatLevel.Hot } };
+
+            var evt = FlightRecorder.CheckAnimateHeatTransition(
+                key, 450, "shockConeIntake",
+                normalizedHeat: 0.55f,
+                levelMap, ut: 100.0, moduleIndex: 0);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.ThermalAnimationMedium, evt.Value.eventType);
+            Assert.Equal(HeatLevel.Medium, levelMap[key]);
         }
 
         [Fact]
@@ -1766,6 +1936,75 @@ namespace Parsek.Tests
             Assert.Equal(1f, loaded.PartEvents[0].value, 0.001f);
             Assert.Equal(0, loaded.PartEvents[0].moduleIndex);
             Assert.Equal(451u, loaded.PartEvents[0].partPersistentId);
+        }
+
+        [Fact]
+        public void ThermalAnimationMedium_SerializationRoundtrip()
+        {
+            var rec = new RecordingStore.Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 120, bodyName = "Kerbin" });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 110,
+                partPersistentId = 452,
+                eventType = PartEventType.ThermalAnimationMedium,
+                partName = "noseConeAdapter",
+                value = 0.5f,
+                moduleIndex = 0
+            });
+
+            var node = new ConfigNode("TEST");
+            RecordingStore.SerializeTrajectoryInto(node, rec);
+
+            var loaded = new RecordingStore.Recording();
+            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+
+            Assert.Single(loaded.PartEvents);
+            Assert.Equal(PartEventType.ThermalAnimationMedium, loaded.PartEvents[0].eventType);
+            Assert.Equal(0.5f, loaded.PartEvents[0].value, 0.001f);
+            Assert.Equal(0, loaded.PartEvents[0].moduleIndex);
+            Assert.Equal(452u, loaded.PartEvents[0].partPersistentId);
+        }
+
+        [Fact]
+        public void UnknownPartEventType_SkippedDuringDeserialization()
+        {
+            var rec = new RecordingStore.Recording();
+            rec.RecordingId = "test-forward-compat";
+            rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 120, bodyName = "Kerbin" });
+
+            // Serialize a valid event
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 105,
+                partPersistentId = 500,
+                eventType = PartEventType.ThermalAnimationHot,
+                partName = "shockConeIntake",
+                value = 1f
+            });
+
+            var node = new ConfigNode("TEST");
+            RecordingStore.SerializeTrajectoryInto(node, rec);
+
+            // Manually inject an unknown event type (999)
+            var unknownEvtNode = new ConfigNode("PART_EVENT");
+            unknownEvtNode.AddValue("ut", "110");
+            unknownEvtNode.AddValue("pid", "501");
+            unknownEvtNode.AddValue("type", "999");
+            unknownEvtNode.AddValue("part", "futurePart");
+            unknownEvtNode.AddValue("value", "1");
+            node.AddNode(unknownEvtNode);
+
+            var loaded = new RecordingStore.Recording();
+            loaded.RecordingId = "test-forward-compat";
+            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+
+            // The unknown event (type=999) should be skipped, only the valid event remains
+            Assert.Single(loaded.PartEvents);
+            Assert.Equal(PartEventType.ThermalAnimationHot, loaded.PartEvents[0].eventType);
+            Assert.Equal(500u, loaded.PartEvents[0].partPersistentId);
         }
 
         #endregion

@@ -1518,7 +1518,10 @@ namespace Parsek
                     if (Enum.IsDefined(typeof(PartEventType), typeInt))
                         evt.eventType = (PartEventType)typeInt;
                     else
-                        Log($"[Parsek] WARNING: Unknown PartEvent type id '{typeInt}' in recording {rec.RecordingId}");
+                    {
+                        Log($"[Recording] Skipping unknown PartEvent type={typeInt} in recording {rec.RecordingId}");
+                        continue;
+                    }
                 }
                 evt.partName = peNode.GetValue("part") ?? "";
 

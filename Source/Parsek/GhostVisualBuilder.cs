@@ -51,21 +51,31 @@ namespace Parsek
         public List<DeployableTransformState> transforms;
     }
 
+    internal struct HeatTransformState
+    {
+        public Transform t;
+        public Vector3 coldPos, mediumPos, hotPos;
+        public Quaternion coldRot, mediumRot, hotRot;
+        public Vector3 coldScale, mediumScale, hotScale;
+    }
+
     internal struct HeatMaterialState
     {
         public Material material;
         public string colorProperty;
         public Color coldColor;
+        public Color mediumColor;
         public Color hotColor;
         public string emissiveProperty;
         public Color coldEmission;
+        public Color mediumEmission;
         public Color hotEmission;
     }
 
     internal class HeatGhostInfo
     {
         public uint partPersistentId;
-        public List<DeployableTransformState> transforms;
+        public List<HeatTransformState> transforms;
         public List<HeatMaterialState> materialStates;
     }
 
@@ -1380,10 +1390,12 @@ namespace Parsek
             cargoBayCache.Clear();
         }
 
-        // Cache: partName(+anim) -> sampled ModuleAnimateHeat transform states
-        private static readonly Dictionary<string, List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
-            Vector3 dPos, Quaternion dRot, Vector3 dScale)>> animateHeatCache =
-            new Dictionary<string, List<(string, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3)>>();
+        // Cache: partName(+anim) -> sampled 3-state ModuleAnimateHeat transform states
+        private static readonly Dictionary<string, List<(string path,
+            Vector3 coldPos, Quaternion coldRot, Vector3 coldScale,
+            Vector3 medPos, Quaternion medRot, Vector3 medScale,
+            Vector3 hotPos, Quaternion hotRot, Vector3 hotScale)>> animateHeatCache =
+            new Dictionary<string, List<(string, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3)>>();
 
         internal static void ClearAnimateHeatCache()
         {
@@ -1689,8 +1701,10 @@ namespace Parsek
             return !string.IsNullOrEmpty(animationName);
         }
 
-        private static List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
-            Vector3 dPos, Quaternion dRot, Vector3 dScale)> SampleAnimateHeatStates(
+        private static List<(string path,
+            Vector3 coldPos, Quaternion coldRot, Vector3 coldScale,
+            Vector3 medPos, Quaternion medRot, Vector3 medScale,
+            Vector3 hotPos, Quaternion hotRot, Vector3 hotScale)> SampleAnimateHeatStates(
             Part prefab, string animationName)
         {
             string partKey = prefab.partInfo?.name ?? prefab.name;
@@ -1704,9 +1718,116 @@ namespace Parsek
                 return null;
             }
 
-            var sampledStates = SampleLadderStates(prefab, animationName, null);
-            animateHeatCache[cacheKey] = sampledStates;
-            return sampledStates;
+            var result = SampleHeatAnimation3State(prefab, animationName, partKey);
+            animateHeatCache[cacheKey] = result;
+            return result;
+        }
+
+        /// <summary>
+        /// Samples a heat animation at 3 points: t=0 (cold), t=0.5 (medium), t=1.0 (hot).
+        /// Returns only transforms where at least one sample differs from the others.
+        /// </summary>
+        private static List<(string path,
+            Vector3 coldPos, Quaternion coldRot, Vector3 coldScale,
+            Vector3 medPos, Quaternion medRot, Vector3 medScale,
+            Vector3 hotPos, Quaternion hotRot, Vector3 hotScale)> SampleHeatAnimation3State(
+            Part prefab, string animationName, string partKey)
+        {
+            Transform modelRoot = FindModelRoot(prefab);
+            GameObject tempClone = Object.Instantiate(modelRoot.gameObject);
+            List<(string, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3)> result = null;
+
+            try
+            {
+                Animation anim = null;
+                foreach (var candidate in tempClone.GetComponentsInChildren<Animation>(true))
+                {
+                    if (candidate[animationName] != null)
+                    {
+                        anim = candidate;
+                        break;
+                    }
+                }
+
+                if (anim == null)
+                {
+                    ParsekLog.Verbose("GhostVisual", $"  Heat3State '{partKey}': animation '{animationName}' not found on clone");
+                    return null;
+                }
+
+                AnimationState animState = anim[animationName];
+                animState.enabled = true;
+                animState.weight = 1f;
+
+                // Collect all transforms under the clone
+                var allTransforms = tempClone.GetComponentsInChildren<Transform>(true);
+
+                // Sample at t=0.0 (cold)
+                animState.normalizedTime = 0f;
+                anim.Sample();
+                var coldSnap = new Dictionary<string, (Vector3 pos, Quaternion rot, Vector3 scale)>();
+                for (int i = 0; i < allTransforms.Length; i++)
+                {
+                    Transform t = allTransforms[i];
+                    if (t == tempClone.transform) continue;
+                    string path = GetTransformPath(t, tempClone.transform);
+                    coldSnap[path] = (t.localPosition, t.localRotation, t.localScale);
+                }
+
+                // Sample at t=0.5 (medium)
+                animState.normalizedTime = 0.5f;
+                anim.Sample();
+                var medSnap = new Dictionary<string, (Vector3 pos, Quaternion rot, Vector3 scale)>();
+                for (int i = 0; i < allTransforms.Length; i++)
+                {
+                    Transform t = allTransforms[i];
+                    if (t == tempClone.transform) continue;
+                    string path = GetTransformPath(t, tempClone.transform);
+                    medSnap[path] = (t.localPosition, t.localRotation, t.localScale);
+                }
+
+                // Sample at t=1.0 (hot)
+                animState.normalizedTime = 1f;
+                anim.Sample();
+                var hotSnap = new Dictionary<string, (Vector3 pos, Quaternion rot, Vector3 scale)>();
+                for (int i = 0; i < allTransforms.Length; i++)
+                {
+                    Transform t = allTransforms[i];
+                    if (t == tempClone.transform) continue;
+                    string path = GetTransformPath(t, tempClone.transform);
+                    hotSnap[path] = (t.localPosition, t.localRotation, t.localScale);
+                }
+
+                // Find transforms where at least one sample differs
+                result = new List<(string, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3)>();
+                foreach (var kvp in coldSnap)
+                {
+                    string path = kvp.Key;
+                    if (!medSnap.TryGetValue(path, out var med) || !hotSnap.TryGetValue(path, out var hot))
+                        continue;
+
+                    var cold = kvp.Value;
+                    bool anyDiff = cold.pos != med.pos || cold.pos != hot.pos ||
+                                   cold.rot != med.rot || cold.rot != hot.rot ||
+                                   cold.scale != med.scale || cold.scale != hot.scale;
+                    if (!anyDiff) continue;
+
+                    result.Add((path, cold.pos, cold.rot, cold.scale, med.pos, med.rot, med.scale, hot.pos, hot.rot, hot.scale));
+                }
+
+                ParsekLog.Verbose("GhostVisual",
+                    $"[GhostVisual] Part '{partKey}': sampled 3-state heat animation '{animationName}' at t=0/0.5/1, " +
+                    $"{result.Count} transform deltas");
+
+                if (result.Count == 0)
+                    result = null;
+            }
+            finally
+            {
+                Object.Destroy(tempClone);
+            }
+
+            return result;
         }
 
         /// <summary>
@@ -4670,14 +4791,19 @@ namespace Parsek
                         ? coldEmission + HeatEmissionColor
                         : coldEmission;
 
+                    Color mediumColor = Color.Lerp(coldColor, hotColor, 0.5f);
+                    Color mediumEmission = Color.Lerp(coldEmission, hotEmission, 0.5f);
+
                     materialStates.Add(new HeatMaterialState
                     {
                         material = materialClone,
                         colorProperty = colorProperty,
                         coldColor = coldColor,
+                        mediumColor = mediumColor,
                         hotColor = hotColor,
                         emissiveProperty = emissiveProperty,
                         coldEmission = coldEmission,
+                        mediumEmission = mediumEmission,
                         hotEmission = hotEmission
                     });
                     trackedMaterials++;
@@ -5773,27 +5899,30 @@ namespace Parsek
             if (hasAnyHeatAnim)
             {
                 string heatSource = hasAnimateHeat ? "ModuleAnimateHeat" : "FXModuleAnimateThrottle";
-                List<DeployableTransformState> resolvedHeatTransforms = null;
+                List<HeatTransformState> resolvedHeatTransforms = null;
                 var sampledHeatStates = SampleAnimateHeatStates(prefab, heatAnimName);
                 if (sampledHeatStates != null && sampledHeatStates.Count > 0)
                 {
-                    resolvedHeatTransforms = new List<DeployableTransformState>();
+                    resolvedHeatTransforms = new List<HeatTransformState>();
                     int unresolved = 0;
                     for (int s = 0; s < sampledHeatStates.Count; s++)
                     {
-                        var (path, sPos, sRot, sScale, dPos, dRot, dScale) = sampledHeatStates[s];
+                        var (path, coldPos, coldRot, coldScale, medPos, medRot, medScale, hotPos, hotRot, hotScale) = sampledHeatStates[s];
                         Transform ghostT = FindTransformByPath(modelNode.transform, path);
                         if (ghostT != null)
                         {
-                            resolvedHeatTransforms.Add(new DeployableTransformState
+                            resolvedHeatTransforms.Add(new HeatTransformState
                             {
                                 t = ghostT,
-                                stowedPos = sPos,
-                                stowedRot = sRot,
-                                stowedScale = sScale,
-                                deployedPos = dPos,
-                                deployedRot = dRot,
-                                deployedScale = dScale
+                                coldPos = coldPos,
+                                coldRot = coldRot,
+                                coldScale = coldScale,
+                                mediumPos = medPos,
+                                mediumRot = medRot,
+                                mediumScale = medScale,
+                                hotPos = hotPos,
+                                hotRot = hotRot,
+                                hotScale = hotScale
                             });
                         }
                         else
@@ -5835,6 +5964,11 @@ namespace Parsek
                     ParsekLog.Verbose("GhostVisual", $"    {heatSource} detected: '{partName}' pid={persistentId}, anim='{heatAnimName}' " +
                         $"transforms={(resolvedHeatTransforms != null ? resolvedHeatTransforms.Count : 0)} " +
                         $"materials={(heatMaterialStates != null ? heatMaterialStates.Count : 0)}");
+                    if (heatMaterialStates != null && heatMaterialStates.Count > 0)
+                    {
+                        ParsekLog.Verbose("GhostVisual",
+                            $"[GhostVisual] Part '{partName}' pid={persistentId}: computed medium heat colors for {heatMaterialStates.Count} materials");
+                    }
                 }
                 else
                 {
@@ -6029,14 +6163,21 @@ namespace Parsek
                             ? coldEmission + ReentryHotEmissionLow
                             : coldEmission;
 
+                        // Medium fields populated for struct consistency but unused by reentry FX,
+                        // which uses continuous interpolation between cold/hot (not discrete states)
+                        Color mediumColor = Color.Lerp(coldColor, hotColor, 0.5f);
+                        Color mediumEmission = Color.Lerp(coldEmission, hotEmission, 0.5f);
+
                         info.glowMaterials.Add(new HeatMaterialState
                         {
                             material = materialClone,
                             colorProperty = colorProperty,
                             coldColor = coldColor,
+                            mediumColor = mediumColor,
                             hotColor = hotColor,
                             emissiveProperty = emissiveProperty,
                             coldEmission = coldEmission,
+                            mediumEmission = mediumEmission,
                             hotEmission = hotEmission
                         });
                     }
