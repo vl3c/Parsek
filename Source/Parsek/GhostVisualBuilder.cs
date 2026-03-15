@@ -536,10 +536,11 @@ namespace Parsek
                     collectedRoboticInfos.AddRange(partRoboticInfos);
             }
 
-            ParsekLog.Verbose("GhostVisual", $"Ghost built: {visualCount}/{partNodes.Length} parts with visuals" +
+            ParsekLog.VerboseRateLimited("GhostVisual", $"ghost_built_{rootName}",
+                $"Ghost built: {visualCount}/{partNodes.Length} parts with visuals" +
                 (skippedName > 0 ? $", {skippedName} bad name" : "") +
                 (skippedPrefab > 0 ? $", {skippedPrefab} no prefab" : "") +
-                (skippedMesh > 0 ? $", {skippedMesh} no mesh" : ""));
+                (skippedMesh > 0 ? $", {skippedMesh} no mesh" : ""), 60.0);
 
             if (!addedAnyVisual)
             {
@@ -2084,7 +2085,8 @@ namespace Parsek
             }
             string compStr = compNames.Count > 0 ? " [" + string.Join(", ", compNames) + "]" : "";
             string activeStr = t.gameObject.activeSelf ? "" : " (INACTIVE)";
-            ParsekLog.Verbose("GhostVisual", $"    HIERARCHY {partName}: {indent}{t.name}{compStr}{activeStr}");
+            ParsekLog.VerboseRateLimited("GhostVisual", $"hierarchy_{partName}_{depth}_{t.name}",
+                $"    HIERARCHY {partName}: {indent}{t.name}{compStr}{activeStr}", 60.0);
             for (int i = 0; i < t.childCount; i++)
                 DumpTransformHierarchy(t.GetChild(i), depth + 1, partName);
         }
@@ -4328,7 +4330,8 @@ namespace Parsek
             // Search from the Part root (not just modelRoot) to catch siblings of "model".
             if (prefab.FindModuleImplementing<ModuleEngines>() != null)
             {
-                ParsekLog.Verbose("GhostVisual", $"  ENGINE PART HIERARCHY DUMP for '{partName}' pid={persistentId}:");
+                ParsekLog.VerboseRateLimited("GhostVisual", $"engine_dump_{partName}",
+                    $"  ENGINE PART HIERARCHY DUMP for '{partName}' pid={persistentId}:", 60.0);
                 DumpTransformHierarchy(prefab.transform, 0, partName);
 
                 // Also log MeshRenderers found from Part root vs modelRoot
@@ -4336,9 +4339,10 @@ namespace Parsek
                 var modelMR = modelRoot.GetComponentsInChildren<MeshRenderer>(true);
                 if (allMR.Length != modelMR.Length)
                 {
-                    ParsekLog.Verbose("GhostVisual", $"  WARNING: Part root has {allMR.Length} MeshRenderers but " +
+                    ParsekLog.VerboseRateLimited("GhostVisual", $"engine_mr_warn_{partName}",
+                        $"  WARNING: Part root has {allMR.Length} MeshRenderers but " +
                         $"modelRoot '{modelRoot.name}' has only {modelMR.Length}! " +
-                        $"Missing renderers are OUTSIDE the model subtree.");
+                        $"Missing renderers are OUTSIDE the model subtree.", 60.0);
                     foreach (var mr in allMR)
                     {
                         bool isUnderModel = false;
@@ -4352,8 +4356,9 @@ namespace Parsek
                         {
                             var mf = mr.GetComponent<MeshFilter>();
                             string meshName = mf?.sharedMesh?.name ?? "(no mesh)";
-                            ParsekLog.Verbose("GhostVisual", $"    OUTSIDE-MODEL MR: '{mr.gameObject.name}' mesh={meshName} " +
-                                $"path={GetTransformPath(mr.transform, prefab.transform)}");
+                            ParsekLog.VerboseRateLimited("GhostVisual", $"outside_mr_{partName}_{mr.gameObject.name}",
+                                $"    OUTSIDE-MODEL MR: '{mr.gameObject.name}' mesh={meshName} " +
+                                $"path={GetTransformPath(mr.transform, prefab.transform)}", 60.0);
                         }
                     }
                 }
@@ -4406,19 +4411,22 @@ namespace Parsek
                 }
             }
             bool filterInactiveVariantRenderers = hasPartVariants && (activeMR > 0 || activeSMR > 0);
-            ParsekLog.Verbose("GhostVisual", $"  Part '{partName}' pid={persistentId}: modelRoot='{modelRoot.name}' " +
+            ParsekLog.VerboseRateLimited("GhostVisual", $"part_summary_{partName}",
+                $"  Part '{partName}' pid={persistentId}: modelRoot='{modelRoot.name}' " +
                 $"modelScale={modelRoot.localScale}, " +
                 $"{totalMR} MeshRenderers, {totalSMR} SkinnedMeshRenderers" +
-                (hasPartVariants ? " (has ModulePartVariants)" : ""));
+                (hasPartVariants ? " (has ModulePartVariants)" : ""), 60.0);
             if (hasPartVariants && hasVariantGameObjectRules)
             {
-                ParsekLog.Verbose("GhostVisual", $"  Variant selection: '{selectedVariantName}' with " +
-                    $"{selectedVariantGameObjects.Count} GAMEOBJECT rules");
+                ParsekLog.VerboseRateLimited("GhostVisual", $"variant_sel_{partName}",
+                    $"  Variant selection: '{selectedVariantName}' with " +
+                    $"{selectedVariantGameObjects.Count} GAMEOBJECT rules", 60.0);
             }
             if (hasPartVariants && !filterInactiveVariantRenderers && !hasVariantGameObjectRules)
             {
-                ParsekLog.Verbose("GhostVisual", $"  Variant fallback: no active variant renderers and no GAMEOBJECT rules " +
-                    $"— including all renderers (active MR={activeMR}, active SMR={activeSMR})");
+                ParsekLog.VerboseRateLimited("GhostVisual", $"variant_fb_{partName}",
+                    $"  Variant fallback: no active variant renderers and no GAMEOBJECT rules " +
+                    $"— including all renderers (active MR={activeMR}, active SMR={activeSMR})", 60.0);
             }
 
             // Name by persistentId for O(1) lookup during playback; fall back to part name
@@ -4450,7 +4458,8 @@ namespace Parsek
             modelNode.transform.localPosition = modelRoot.localPosition;
             modelNode.transform.localRotation = modelRoot.localRotation;
             modelNode.transform.localScale = modelRoot.localScale;
-            ParsekLog.Verbose("GhostVisual", $"  [DIAG] part '{partName}' modelRoot '{modelRoot.name}' localRot={modelRoot.localRotation} localPos={modelRoot.localPosition} localScale={modelRoot.localScale}");
+            ParsekLog.VerboseRateLimited("GhostVisual", $"part_diag_{partName}",
+                $"  [DIAG] part '{partName}' modelRoot '{modelRoot.name}' localRot={modelRoot.localRotation} localPos={modelRoot.localPosition} localScale={modelRoot.localScale}", 60.0);
             cloneMap[modelRoot] = modelNode.transform;
 
             // For light showcase recordings, lift only light-part visuals so probes stay
@@ -4484,14 +4493,17 @@ namespace Parsek
                 leaf.gameObject.AddComponent<MeshFilter>().sharedMesh = mf.sharedMesh;
                 leaf.gameObject.AddComponent<MeshRenderer>().sharedMaterials = mr.sharedMaterials;
                 meshCount++;
-                ParsekLog.Verbose("GhostVisual", $"    MR[{r}] '{mr.gameObject.name}' mesh={mf.sharedMesh.name} " +
-                    $"localPos={leaf.localPosition} localScale={leaf.localScale}");
+                ParsekLog.VerboseRateLimited("GhostVisual", $"mr_{partName}_{r}",
+                    $"    MR[{r}] '{mr.gameObject.name}' mesh={mf.sharedMesh.name} " +
+                    $"localPos={leaf.localPosition} localScale={leaf.localScale}", 60.0);
                 added = true;
             }
             if (variantSkipped > 0)
-                ParsekLog.Verbose("GhostVisual", $"  Skipped {variantSkipped} MeshRenderers on inactive variant objects");
+                ParsekLog.VerboseRateLimited("GhostVisual", $"variant_skip_{partName}",
+                    $"  Skipped {variantSkipped} MeshRenderers on inactive variant objects", 60.0);
             if (variantRuleSkipped > 0)
-                ParsekLog.Verbose("GhostVisual", $"  Skipped {variantRuleSkipped} MeshRenderers by selected variant GAMEOBJECT rules");
+                ParsekLog.VerboseRateLimited("GhostVisual", $"variant_ruleskip_{partName}",
+                    $"  Skipped {variantRuleSkipped} MeshRenderers by selected variant GAMEOBJECT rules", 60.0);
 
             for (int r = 0; r < skinnedRenderers.Length; r++)
             {
@@ -4570,12 +4582,14 @@ namespace Parsek
                 ghostSmr.shadowCastingMode = smr.shadowCastingMode;
                 ghostSmr.receiveShadows = smr.receiveShadows;
                 meshCount++;
-                ParsekLog.Verbose("GhostVisual", $"    SMR[{r}] '{smr.gameObject.name}' mesh={smr.sharedMesh.name} " +
+                ParsekLog.VerboseRateLimited("GhostVisual", $"smr_{partName}_{r}",
+                    $"    SMR[{r}] '{smr.gameObject.name}' mesh={smr.sharedMesh.name} " +
                     $"localPos={leaf.localPosition} localScale={leaf.localScale} " +
-                    $"bones={resolvedBones}/{(smr.bones != null ? smr.bones.Length : 0)}");
+                    $"bones={resolvedBones}/{(smr.bones != null ? smr.bones.Length : 0)}", 60.0);
                 if (usedPartRootFallbackForBones)
                 {
-                    ParsekLog.Verbose("GhostVisual", $"      SMR[{r}] '{smr.gameObject.name}': used part-root fallback for external bone transforms");
+                    ParsekLog.VerboseRateLimited("GhostVisual", $"smr_fb_{partName}_{r}",
+                        $"      SMR[{r}] '{smr.gameObject.name}': used part-root fallback for external bone transforms", 60.0);
                 }
                 added = true;
             }
@@ -4742,7 +4756,8 @@ namespace Parsek
                     Transform ghostJettison;
                     if (!cloneMap.TryGetValue(srcJettison, out ghostJettison) || ghostJettison == null)
                     {
-                        ParsekLog.Verbose("GhostVisual", $"    Jettison '{jettisonName}' found on prefab but not in cloneMap");
+                        ParsekLog.VerboseRateLimited("GhostVisual", $"jettison_miss_{partName}_{jettisonName}",
+                            $"    Jettison '{jettisonName}' found on prefab but not in cloneMap", 60.0);
                         continue;
                     }
 
@@ -5929,6 +5944,173 @@ namespace Parsek
                 if (material != null)
                     Destroy(material);
             }
+        }
+
+        /// <summary>
+        /// Spawns a small smoke puff + spark burst at a part's world position.
+        /// Used when a Decoupled or Destroyed part event is applied during ghost playback.
+        /// Much smaller than the vessel explosion — just visual feedback for part separation.
+        /// The returned GameObject auto-destroys after particles expire.
+        /// </summary>
+        internal static GameObject SpawnPartPuffFx(Vector3 worldPosition, float partScale)
+        {
+            Shader alphaShader = Shader.Find("KSP/Particles/Alpha Blended");
+            if (alphaShader == null)
+            {
+                ParsekLog.Warn("PartPuffFx", "Shader 'KSP/Particles/Alpha Blended' not found — puff will not be created");
+                return null;
+            }
+
+            // Target: ~1/4 the visual impact of the vessel explosion.
+            // Explosion uses vesselLength (10-30m) as scale; parts are much smaller.
+            // Use a minimum of 2m so the puff is always visible.
+            float scale = Mathf.Clamp(partScale, 2f, 10f);
+
+            var obj = new GameObject("GhostPartPuffFx");
+            obj.transform.position = worldPosition;
+
+            // --- Smoke puff ---
+            var smokePs = obj.AddComponent<ParticleSystem>();
+            var smokeMain = smokePs.main;
+            smokeMain.simulationSpace = ParticleSystemSimulationSpace.World;
+            smokeMain.startLifetime = new ParticleSystem.MinMaxCurve(0.6f, 1.2f);
+            smokeMain.startSpeed = new ParticleSystem.MinMaxCurve(scale * 0.3f, scale * 0.8f);
+            smokeMain.startSize = new ParticleSystem.MinMaxCurve(scale * 0.15f, scale * 0.4f);
+            smokeMain.maxParticles = 100;
+            smokeMain.playOnAwake = false;
+            smokeMain.loop = false;
+            smokeMain.gravityModifier = 0.03f;
+            smokeMain.startColor = new ParticleSystem.MinMaxGradient(
+                new Color(0.4f, 0.4f, 0.4f, 0.6f),
+                new Color(0.25f, 0.22f, 0.2f, 0.5f));
+
+            var smokeShape = smokePs.shape;
+            smokeShape.shapeType = ParticleSystemShapeType.Sphere;
+            smokeShape.radius = scale * 0.1f;
+
+            var smokeEmission = smokePs.emission;
+            smokeEmission.enabled = true;
+            smokeEmission.rateOverTime = 0f;
+            smokeEmission.SetBursts(new ParticleSystem.Burst[]
+            {
+                new ParticleSystem.Burst(0f, 40, 60)
+            });
+
+            var smokeColor = smokePs.colorOverLifetime;
+            smokeColor.enabled = true;
+            var smokeGradient = new Gradient();
+            smokeGradient.SetKeys(
+                new GradientColorKey[]
+                {
+                    new GradientColorKey(new Color(0.5f, 0.45f, 0.4f), 0f),
+                    new GradientColorKey(new Color(0.3f, 0.28f, 0.25f), 0.5f),
+                    new GradientColorKey(new Color(0.2f, 0.18f, 0.16f), 1f)
+                },
+                new GradientAlphaKey[]
+                {
+                    new GradientAlphaKey(0f, 0f),
+                    new GradientAlphaKey(0.5f, 0.1f),
+                    new GradientAlphaKey(0.3f, 0.5f),
+                    new GradientAlphaKey(0f, 1f)
+                }
+            );
+            smokeColor.color = smokeGradient;
+
+            var smokeSize = smokePs.sizeOverLifetime;
+            smokeSize.enabled = true;
+            smokeSize.size = new ParticleSystem.MinMaxCurve(1f,
+                new AnimationCurve(
+                    new Keyframe(0f, 0.5f),
+                    new Keyframe(0.5f, 1.5f),
+                    new Keyframe(1f, 2.5f)));
+
+            if (cachedExplosionTexture == null)
+                cachedExplosionTexture = CreateSoftCircleTexture(32);
+            var smokeMat = new Material(alphaShader);
+            smokeMat.mainTexture = cachedExplosionTexture;
+            smokeMat.SetColor("_TintColor", new Color(0.35f, 0.3f, 0.25f, 0.5f));
+            var smokeRenderer = obj.GetComponent<ParticleSystemRenderer>();
+            smokeRenderer.renderMode = ParticleSystemRenderMode.Billboard;
+            smokeRenderer.maxParticleSize = 10f;
+            smokeRenderer.material = smokeMat;
+
+            var smokeCleanup = obj.AddComponent<MaterialCleanup>();
+            smokeCleanup.material = smokeMat;
+
+            // --- Small spark burst (additive) ---
+            Shader additiveShader = Shader.Find("KSP/Particles/Additive");
+            if (additiveShader != null)
+            {
+                var sparkObj = new GameObject("Sparks");
+                sparkObj.transform.SetParent(obj.transform, false);
+
+                var sparkPs = sparkObj.AddComponent<ParticleSystem>();
+                var sparkMain = sparkPs.main;
+                sparkMain.simulationSpace = ParticleSystemSimulationSpace.World;
+                sparkMain.startLifetime = new ParticleSystem.MinMaxCurve(0.3f, 0.6f);
+                sparkMain.startSpeed = new ParticleSystem.MinMaxCurve(scale * 0.5f, scale * 1.5f);
+                sparkMain.startSize = new ParticleSystem.MinMaxCurve(scale * 0.03f, scale * 0.1f);
+                sparkMain.maxParticles = 50;
+                sparkMain.playOnAwake = false;
+                sparkMain.loop = false;
+                sparkMain.gravityModifier = 0.3f;
+                sparkMain.startColor = new ParticleSystem.MinMaxGradient(
+                    new Color(1f, 0.9f, 0.5f, 0.8f),
+                    new Color(1f, 0.6f, 0.2f, 0.6f));
+
+                var sparkShape = sparkPs.shape;
+                sparkShape.shapeType = ParticleSystemShapeType.Sphere;
+                sparkShape.radius = scale * 0.08f;
+
+                var sparkEmission = sparkPs.emission;
+                sparkEmission.enabled = true;
+                sparkEmission.rateOverTime = 0f;
+                sparkEmission.SetBursts(new ParticleSystem.Burst[]
+                {
+                    new ParticleSystem.Burst(0f, 15, 30)
+                });
+
+                var sparkColor = sparkPs.colorOverLifetime;
+                sparkColor.enabled = true;
+                var sparkGradient = new Gradient();
+                sparkGradient.SetKeys(
+                    new GradientColorKey[]
+                    {
+                        new GradientColorKey(new Color(1f, 0.95f, 0.7f), 0f),
+                        new GradientColorKey(new Color(1f, 0.5f, 0.1f), 0.5f),
+                        new GradientColorKey(new Color(0.5f, 0.2f, 0.05f), 1f)
+                    },
+                    new GradientAlphaKey[]
+                    {
+                        new GradientAlphaKey(0.8f, 0f),
+                        new GradientAlphaKey(0.3f, 0.5f),
+                        new GradientAlphaKey(0f, 1f)
+                    }
+                );
+                sparkColor.color = sparkGradient;
+
+                var sparkMat = new Material(additiveShader);
+                sparkMat.mainTexture = cachedExplosionTexture;
+                sparkMat.SetColor("_TintColor", new Color(1f, 0.7f, 0.3f, 0.5f));
+                var sparkRenderer = sparkObj.GetComponent<ParticleSystemRenderer>();
+                sparkRenderer.renderMode = ParticleSystemRenderMode.Billboard;
+                sparkRenderer.maxParticleSize = 8f;
+                sparkRenderer.material = sparkMat;
+
+                var sparkCleanup = sparkObj.AddComponent<MaterialCleanup>();
+                sparkCleanup.material = sparkMat;
+
+                sparkPs.Play();
+            }
+
+            smokePs.Play();
+            Object.Destroy(obj, 3f);
+
+            ParsekLog.Verbose("PartPuffFx",
+                $"Created at ({worldPosition.x:F1},{worldPosition.y:F1},{worldPosition.z:F1}) scale={scale:F2}" +
+                $" (additive sparks={additiveShader != null})");
+
+            return obj;
         }
 
         /// <summary>
