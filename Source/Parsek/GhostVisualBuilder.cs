@@ -142,6 +142,16 @@ namespace Parsek
         public float vesselLength;
     }
 
+    internal enum VariantPropertyType { Texture, Color, Float, Skip }
+
+    internal struct VariantTextureRule
+    {
+        public string materialName;
+        public string shaderName;
+        public string transformName;
+        public List<(string key, string value)> properties;
+    }
+
     internal static class GhostVisualBuilder
     {
         private static readonly Regex trailingNumericSuffixRegex =
@@ -3455,14 +3465,12 @@ namespace Parsek
             return true;
         }
 
-        private static bool TryGetSelectedVariantGameObjectStates(
-            Part prefab,
-            ConfigNode partNode,
-            out string selectedVariantName,
-            out Dictionary<string, bool> gameObjectStates)
+        internal static bool TryFindSelectedVariantNode(
+            Part prefab, ConfigNode partNode,
+            out ConfigNode selectedVariantNode, out string selectedVariantName)
         {
+            selectedVariantNode = null;
             selectedVariantName = null;
-            gameObjectStates = null;
 
             if (prefab == null || prefab.partInfo == null || prefab.partInfo.partConfig == null)
                 return false;
@@ -3501,7 +3509,6 @@ namespace Parsek
             if (variantNodes == null || variantNodes.Length == 0)
                 return false;
 
-            ConfigNode selectedVariantNode = null;
             string selectedLower = !string.IsNullOrEmpty(requestedVariantName)
                 ? requestedVariantName.ToLowerInvariant()
                 : null;
@@ -3543,6 +3550,21 @@ namespace Parsek
                 selectedVariantNode = variantNodes[0];
 
             selectedVariantName = FirstNonEmptyConfigValue(selectedVariantNode, "name") ?? "<unnamed>";
+            return true;
+        }
+
+        private static bool TryGetSelectedVariantGameObjectStates(
+            Part prefab,
+            ConfigNode partNode,
+            out string selectedVariantName,
+            out Dictionary<string, bool> gameObjectStates)
+        {
+            selectedVariantName = null;
+            gameObjectStates = null;
+
+            if (!TryFindSelectedVariantNode(prefab, partNode, out ConfigNode selectedVariantNode, out selectedVariantName))
+                return false;
+
             ConfigNode gameObjectsNode = selectedVariantNode.GetNode("GAMEOBJECTS");
             if (gameObjectsNode == null || gameObjectsNode.values == null || gameObjectsNode.values.Count == 0)
                 return false;
@@ -3568,6 +3590,280 @@ namespace Parsek
                 return false;
 
             gameObjectStates = states;
+            return true;
+        }
+
+        internal static bool TryGetSelectedVariantTextureRules(
+            Part prefab, ConfigNode partNode,
+            out string selectedVariantName, out List<VariantTextureRule> textureRules)
+        {
+            selectedVariantName = null;
+            textureRules = null;
+
+            if (!TryFindSelectedVariantNode(prefab, partNode, out ConfigNode selectedVariantNode, out selectedVariantName))
+                return false;
+
+            ConfigNode[] textureNodes = selectedVariantNode.GetNodes("TEXTURE");
+            if (textureNodes == null || textureNodes.Length == 0)
+                return false;
+
+            var rules = new List<VariantTextureRule>();
+            for (int t = 0; t < textureNodes.Length; t++)
+            {
+                var texNode = textureNodes[t];
+                var rule = new VariantTextureRule
+                {
+                    materialName = texNode.GetValue("materialName"),
+                    shaderName = texNode.GetValue("shader"),
+                    transformName = texNode.GetValue("transformName"),
+                    properties = new List<(string key, string value)>()
+                };
+
+                for (int v = 0; v < texNode.values.Count; v++)
+                {
+                    var val = texNode.values[v];
+                    if (val == null || string.IsNullOrEmpty(val.name))
+                        continue;
+
+                    string key = val.name.Trim();
+                    if (key == "shader" || key == "materialName" || key == "transformName")
+                        continue;
+
+                    string value = val.value != null ? val.value.Trim() : "";
+                    rule.properties.Add((key, value));
+                }
+
+                rules.Add(rule);
+            }
+
+            if (rules.Count == 0)
+                return false;
+
+            textureRules = rules;
+            return true;
+        }
+
+        internal static VariantPropertyType ClassifyVariantProperty(string key)
+        {
+            if (string.IsNullOrEmpty(key))
+                return VariantPropertyType.Skip;
+
+            if (key == "shader" || key == "materialName" || key == "transformName")
+                return VariantPropertyType.Skip;
+
+            if (key.EndsWith("URL", System.StringComparison.Ordinal))
+                return VariantPropertyType.Texture;
+
+            if (key == "_BumpMap" || key == "_Emissive" || key == "_SpecMap")
+                return VariantPropertyType.Texture;
+
+            if (key == "_Shininess" || key == "_Opacity" || key == "_RimFalloff" ||
+                key == "_AmbientMultiplier" || key == "_TemperatureColor")
+                return VariantPropertyType.Float;
+
+            if (key == "color" || key == "_Color" ||
+                key.IndexOf("Color", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                return VariantPropertyType.Color;
+
+            return VariantPropertyType.Skip;
+        }
+
+        internal static bool DoesRendererMatchTextureRule(
+            string materialName, string transformName, VariantTextureRule rule)
+        {
+            if (!string.IsNullOrEmpty(rule.materialName))
+            {
+                if (string.IsNullOrEmpty(materialName))
+                    return false;
+                if (!materialName.StartsWith(rule.materialName, System.StringComparison.Ordinal))
+                    return false;
+            }
+
+            if (!string.IsNullOrEmpty(rule.transformName))
+            {
+                if (string.IsNullOrEmpty(transformName))
+                    return false;
+                if (transformName != rule.transformName)
+                    return false;
+            }
+
+            return true;
+        }
+
+        internal static string TextureUrlToShaderProperty(string key)
+        {
+            if (key == "_BumpMap" || key == "_Emissive" || key == "_SpecMap")
+                return key;
+
+            if (key.EndsWith("URL", System.StringComparison.Ordinal))
+            {
+                string stripped = key.Substring(0, key.Length - 3);
+                if (stripped.Length == 0)
+                    return "_MainTex";
+
+                if (stripped.EndsWith("Texture", System.StringComparison.Ordinal))
+                    stripped = stripped.Substring(0, stripped.Length - 4);
+
+                return "_" + char.ToUpperInvariant(stripped[0]) + stripped.Substring(1);
+            }
+
+            return key;
+        }
+
+        internal static int ApplyVariantTextureRules(
+            Transform modelRoot, List<VariantTextureRule> rules,
+            string partName, uint persistentId)
+        {
+            if (modelRoot == null || rules == null || rules.Count == 0)
+                return 0;
+
+            var renderers = modelRoot.GetComponentsInChildren<Renderer>(true);
+            if (renderers == null || renderers.Length == 0)
+                return 0;
+
+            int totalApplied = 0;
+
+            for (int ri = 0; ri < renderers.Length; ri++)
+            {
+                Renderer renderer = renderers[ri];
+                if (renderer == null) continue;
+
+                Material[] mats = renderer.sharedMaterials;
+                if (mats == null || mats.Length == 0) continue;
+
+                string rendererTransformName = renderer.transform.name;
+
+                for (int mi = 0; mi < mats.Length; mi++)
+                {
+                    Material mat = mats[mi];
+                    if (mat == null) continue;
+
+                    string matName = mat.name;
+
+                    for (int ruleIdx = 0; ruleIdx < rules.Count; ruleIdx++)
+                    {
+                        var rule = rules[ruleIdx];
+
+                        if (!DoesRendererMatchTextureRule(matName, rendererTransformName, rule))
+                            continue;
+
+                        Material cloned = new Material(mat);
+                        mats[mi] = cloned;
+                        mat = cloned;
+                        ParsekLog.Verbose("GhostVisual", $"Part '{partName}' pid={persistentId}: " +
+                            $"cloned material '{matName}' for variant texture");
+
+                        if (!string.IsNullOrEmpty(rule.shaderName))
+                        {
+                            Shader shader = Shader.Find(rule.shaderName);
+                            if (shader != null)
+                            {
+                                cloned.shader = shader;
+                                ParsekLog.Verbose("GhostVisual", $"Part '{partName}' pid={persistentId}: " +
+                                    $"applied shader='{rule.shaderName}'");
+                            }
+                            else
+                            {
+                                ParsekLog.Warn("GhostVisual", $"Part '{partName}' pid={persistentId}: " +
+                                    $"shader not found: '{rule.shaderName}'");
+                            }
+                        }
+
+                        if (rule.properties != null)
+                        {
+                            for (int pi = 0; pi < rule.properties.Count; pi++)
+                            {
+                                var prop = rule.properties[pi];
+                                var propType = ClassifyVariantProperty(prop.key);
+
+                                switch (propType)
+                                {
+                                    case VariantPropertyType.Texture:
+                                    {
+                                        string shaderProp = TextureUrlToShaderProperty(prop.key);
+                                        bool isNormalMap = prop.key == "_BumpMap";
+                                        Texture2D tex = GameDatabase.Instance.GetTexture(prop.value, isNormalMap);
+                                        if (tex != null)
+                                        {
+                                            cloned.SetTexture(shaderProp, tex);
+                                            ParsekLog.Verbose("GhostVisual", $"Part '{partName}' pid={persistentId}: " +
+                                                $"applied {prop.key}={prop.value} (type=Texture, prop={shaderProp})");
+                                        }
+                                        else
+                                        {
+                                            ParsekLog.Warn("GhostVisual", $"Part '{partName}' pid={persistentId}: " +
+                                                $"texture not found: '{prop.value}'");
+                                        }
+                                        totalApplied++;
+                                        break;
+                                    }
+                                    case VariantPropertyType.Color:
+                                    {
+                                        string colorProp = prop.key == "color" ? "_Color" : prop.key;
+                                        if (TryParseKspColor(prop.value, out Color color))
+                                        {
+                                            cloned.SetColor(colorProp, color);
+                                            ParsekLog.Verbose("GhostVisual", $"Part '{partName}' pid={persistentId}: " +
+                                                $"applied {prop.key}={prop.value} (type=Color)");
+                                        }
+                                        totalApplied++;
+                                        break;
+                                    }
+                                    case VariantPropertyType.Float:
+                                    {
+                                        if (float.TryParse(prop.value, NumberStyles.Float,
+                                            CultureInfo.InvariantCulture, out float floatVal))
+                                        {
+                                            cloned.SetFloat(prop.key, floatVal);
+                                            ParsekLog.Verbose("GhostVisual", $"Part '{partName}' pid={persistentId}: " +
+                                                $"applied {prop.key}={prop.value} (type=Float)");
+                                        }
+                                        totalApplied++;
+                                        break;
+                                    }
+                                    case VariantPropertyType.Skip:
+                                        break;
+                                }
+                            }
+                        }
+
+                        break;
+                    }
+                }
+
+                renderer.sharedMaterials = mats;
+            }
+
+            return totalApplied;
+        }
+
+        internal static bool TryParseKspColor(string raw, out Color color)
+        {
+            color = Color.white;
+            if (string.IsNullOrEmpty(raw))
+                return false;
+
+            string trimmed = raw.Trim();
+
+            if (trimmed.StartsWith("#", System.StringComparison.Ordinal))
+                return ColorUtility.TryParseHtmlString(trimmed, out color);
+
+            string[] parts = trimmed.Split(',');
+            if (parts.Length < 3)
+                return false;
+
+            if (!float.TryParse(parts[0].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float r))
+                return false;
+            if (!float.TryParse(parts[1].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float g))
+                return false;
+            if (!float.TryParse(parts[2].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out float b))
+                return false;
+
+            float a = 1f;
+            if (parts.Length >= 4)
+                float.TryParse(parts[3].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out a);
+
+            color = new Color(r, g, b, a);
             return true;
         }
 
@@ -4578,6 +4874,20 @@ namespace Parsek
                     ParsekLog.Verbose("GhostVisual", $"      SMR[{r}] '{smr.gameObject.name}': used part-root fallback for external bone transforms");
                 }
                 added = true;
+            }
+
+            if (hasPartVariants)
+            {
+                if (TryGetSelectedVariantTextureRules(prefab, partNode,
+                    out string texVariantName, out List<VariantTextureRule> texRules))
+                {
+                    ParsekLog.Info("GhostVisual", $"Part '{partName}' pid={persistentId}: " +
+                        $"variant '{texVariantName}' has {texRules.Count} TEXTURE rules");
+                    int applied = ApplyVariantTextureRules(
+                        modelNode.transform, texRules, partName, persistentId);
+                    ParsekLog.Verbose("GhostVisual", $"Part '{partName}' pid={persistentId}: " +
+                        $"applied {applied} variant texture properties");
+                }
             }
 
             // Detect parachute parts via cloneMap (after cloneMap is fully populated)
