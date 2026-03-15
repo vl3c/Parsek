@@ -40,7 +40,7 @@ checked in; re-run the extraction from the KSP GameData directory to refresh.
 
 | Module | Description | Affected Parts | Impact |
 |--------|-------------|----------------|--------|
-| ModuleColorChanger | Cabin lights, ablator colors | 33 parts | Low — cosmetic interior lights (23 now showcased via LightOn/LightOff) |
+| ~~ModuleColorChanger~~ | ~~Cabin lights, ablator colors~~ | ~~33 parts~~ | ~~Fixed — cabin lights via LightOn/LightOff, ablation char via reentry FX~~ |
 | ~~FXModuleAnimateThrottle~~ | ~~Throttle-driven nozzle glow~~ | ~~33 parts~~ | ~~Fixed (bug #40)~~ |
 | ~~FXModuleAnimateRCS~~ | ~~RCS response animation~~ | ~~5 parts~~ | ~~Fixed — uses heat animation system~~ |
 | ModulePartFirework | Firework FX | 2 parts | None — novelty item |
@@ -777,12 +777,23 @@ GAMEOBJECTS geometry rules are currently applied.
 **Work required:** Read TEXTURE sub-nodes from selected VARIANT config, apply
 `renderer.material.SetTexture` overrides during ghost build. Similarly for MATERIAL rules.
 
-### Lower Priority
-
-- **ModuleColorChanger** (33 parts) — cabin interior lights. Low visual impact since these
-  are mostly visible through small windows. Would need color animation sampling.
+### Completed
 - ~~**FXModuleAnimateRCS** (5 parts)~~ — Fixed. Uses existing heat animation system, driven by RCS events.
-- **ModulePartFirework** (2 parts) — novelty firework launchers. Not worth implementing.
+- ~~**ModuleColorChanger** (33 parts)~~ — Fixed. Cabin lights toggle via LightOn/LightOff events,
+  ablation char driven by reentry FX (permanent char, never fades).
+
+### Future: ModulePartFirework (2 parts)
+
+Firework launchers (`fireworksLauncherSmall`, `fireworksLauncherBig`). Novelty item, low
+priority. Complex to implement — fireworks are world-space spawned particle systems, not
+part-attached. Each shot uses a trail prefab (4 types: Classic/Whirly/Strobe/Bare) then a
+burst prefab (8 types: Classic/Blossom/Palm/Rings/Crosette/Willow/Crackle/Kraken's Egg)
+with player-configurable colors (2-3 channels per burst). Prefabs loaded from GameDatabase
+by name from `FIREWORKFX_DEFINITION` configs.
+
+Would need: new `FireworkLaunched` event type carrying FX definition name + colors + shell
+mass, ghost playback that instantiates the prefab at the launcher's world position and runs
+the launch+burst sequence. Estimated 300-400 lines. Deferred.
 
 ### Showcase Gaps (parts needing validation)
 
