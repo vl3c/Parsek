@@ -16,6 +16,9 @@ namespace Parsek
 
         private readonly ParsekFlight flight;
 
+        // Opaque window style (replaces KSP's semi-transparent default)
+        private GUIStyle opaqueWindowStyle;
+
         // Map view markers
         private GUIStyle mapMarkerStyle;
         private Texture2D mapMarkerTexture;
@@ -56,9 +59,9 @@ namespace Parsek
         private bool actionsSortAscending = true;
 
         // Column widths — shared between header and body for alignment
-        private const float ColW_Enable = 15f;
+        private const float ColW_Enable = 20f;
         private const float ColW_Phase = 70f;
-        private const float ColW_Index = 25f;
+        private const float ColW_Index = 30f;
         private const float ColW_Launch = 110f;
         private const float ColW_Dur = 55f;
         private const float ColW_Status = 45f;
@@ -66,7 +69,6 @@ namespace Parsek
         private const float ColW_Watch = 50f;
         private const float ColW_Rewind = 55f;
         private const float ColW_Delete = 50f;
-        private const float ScrollbarWidth = 16f;
 
         // Chain and group expansion state
         private HashSet<string> expandedChains = new HashSet<string>();
@@ -75,10 +77,13 @@ namespace Parsek
         // Group rename (deferred to next frame to avoid IMGUI layout mismatch)
         private string renamingGroup;
         private string renamingGroupText = "";
+        private bool renamingGroupFocused;
 
         // Recording rename (deferred to next frame)
         private int renamingRecordingIdx = -1;
         private string renamingRecordingText = "";
+        private bool renamingRecordingFocused;
+        private Rect activeRenameRect;
 
         // Double-click detection
         private int lastClickedRecIdx = -1;
@@ -99,11 +104,10 @@ namespace Parsek
         private string groupPopupNewName = "";
         private Rect groupPopupRect;
         private Vector2 groupPopupScrollPos;
+        private bool isResizingGroupPopup;
         private const float ColW_Group = 50f;
-
-        // Group-level loop period editing
-        private string editingGroupLoopPeriod;
-        private string editingGroupLoopText = "";
+        private const float GroupPopupMinW = 220f;
+        private const float GroupPopupMinH = 200f;
 
         // Group delete confirm
         private string deleteConfirmGroup;
@@ -117,7 +121,7 @@ namespace Parsek
         private GUIStyle phaseStyleSpace;
 
         // Sort state
-        internal enum SortColumn { Index, Name, LaunchTime, Duration, Status }
+        internal enum SortColumn { Index, Phase, Name, LaunchTime, Duration, Status }
         private SortColumn sortColumn = SortColumn.Index;
         private bool sortAscending = true;
         private int[] sortedIndices; // maps display row → CommittedRecordings index
@@ -443,11 +447,13 @@ namespace Parsek
                     Event.current.Use();
             }
 
+            EnsureOpaqueWindowStyle();
             actionsWindowRect = ClickThruBlocker.GUILayoutWindow(
                 "ParsekActions".GetHashCode(),
                 actionsWindowRect,
                 DrawActionsWindow,
                 "Parsek \u2014 Game Actions",
+                opaqueWindowStyle,
                 GUILayout.Width(actionsWindowRect.width),
                 GUILayout.Height(actionsWindowRect.height)
             );
@@ -767,11 +773,13 @@ namespace Parsek
                     Event.current.Use();
             }
 
+            EnsureOpaqueWindowStyle();
             recordingsWindowRect = ClickThruBlocker.GUILayoutWindow(
                 "ParsekRecordings".GetHashCode(),
                 recordingsWindowRect,
                 DrawRecordingsWindow,
                 "Parsek \u2014 Recordings",
+                opaqueWindowStyle,
                 GUILayout.Width(recordingsWindowRect.width),
                 GUILayout.Height(recordingsWindowRect.height)
             );
@@ -804,6 +812,62 @@ namespace Parsek
             recordingsWindowHasInputLock = false;
         }
 
+        private void EnsureOpaqueWindowStyle()
+        {
+            if (opaqueWindowStyle != null) return;
+
+            // Copy KSP's default window style, then make background textures opaque
+            // while preserving all border/highlight details
+            opaqueWindowStyle = new GUIStyle(GUI.skin.window);
+            opaqueWindowStyle.normal.background = MakeOpaqueCopy(opaqueWindowStyle.normal.background);
+            opaqueWindowStyle.onNormal.background = MakeOpaqueCopy(opaqueWindowStyle.onNormal.background);
+            opaqueWindowStyle.focused.background = MakeOpaqueCopy(opaqueWindowStyle.focused.background);
+            opaqueWindowStyle.onFocused.background = MakeOpaqueCopy(opaqueWindowStyle.onFocused.background);
+            opaqueWindowStyle.active.background = MakeOpaqueCopy(opaqueWindowStyle.active.background);
+            opaqueWindowStyle.onActive.background = MakeOpaqueCopy(opaqueWindowStyle.onActive.background);
+            opaqueWindowStyle.hover.background = MakeOpaqueCopy(opaqueWindowStyle.hover.background);
+            opaqueWindowStyle.onHover.background = MakeOpaqueCopy(opaqueWindowStyle.onHover.background);
+        }
+
+        /// <summary>
+        /// Creates a readable copy of a texture with all pixel alpha set to 1.
+        /// Uses RenderTexture blit to handle non-readable source textures (KSP skin).
+        /// </summary>
+        private static Texture2D MakeOpaqueCopy(Texture2D source)
+        {
+            if (source == null) return null;
+
+            // Blit to RenderTexture (works even for non-readable textures)
+            RenderTexture rt = RenderTexture.GetTemporary(source.width, source.height, 0, RenderTextureFormat.ARGB32);
+            RenderTexture prev = RenderTexture.active;
+            Graphics.Blit(source, rt);
+            RenderTexture.active = rt;
+
+            Texture2D copy = new Texture2D(source.width, source.height, TextureFormat.ARGB32, false);
+            copy.ReadPixels(new Rect(0, 0, source.width, source.height), 0, 0);
+
+            RenderTexture.active = prev;
+            RenderTexture.ReleaseTemporary(rt);
+
+            // Max out alpha on all pixels
+            Color[] pixels = copy.GetPixels();
+            for (int i = 0; i < pixels.Length; i++)
+                pixels[i].a = 1f;
+            copy.SetPixels(pixels);
+            copy.Apply();
+            copy.filterMode = source.filterMode;
+            return copy;
+        }
+
+        /// <summary>
+        /// Returns the opaque window style for use by external callers (ParsekFlight, ParsekKSC).
+        /// </summary>
+        public GUIStyle GetOpaqueWindowStyle()
+        {
+            EnsureOpaqueWindowStyle();
+            return opaqueWindowStyle;
+        }
+
         private void EnsurePhaseStyles()
         {
             if (phaseStyleAtmo != null) return;
@@ -823,6 +887,19 @@ namespace Parsek
             var committed = RecordingStore.CommittedRecordings;
             double now = Planetarium.GetUniversalTime();
 
+            // Click outside active rename field → commit and close
+            if (Event.current.type == EventType.MouseDown &&
+                (renamingRecordingIdx >= 0 || renamingGroup != null))
+            {
+                if (activeRenameRect.width > 0 && !activeRenameRect.Contains(Event.current.mousePosition))
+                {
+                    if (renamingRecordingIdx >= 0)
+                        CommitRecordingRename(committed);
+                    if (renamingGroup != null)
+                        CommitGroupRename(renamingGroup);
+                }
+            }
+
             EnsureStatusStyles();
             EnsurePhaseStyles();
             RebuildSortedIndices(committed, now);
@@ -835,6 +912,10 @@ namespace Parsek
             }
             else
             {
+                // Scrollable table body (header inside scroll view for guaranteed alignment)
+                recordingsScrollPos = GUILayout.BeginScrollView(
+                    recordingsScrollPos, false, true, GUILayout.ExpandHeight(true));
+
                 // Header row
                 GUILayout.BeginHorizontal();
                 // Select-all enable header checkbox
@@ -850,10 +931,10 @@ namespace Parsek
                     ParsekLog.Info("UI", $"Set playback enabled for all recordings: enabled={newAllEnabled}");
                 }
                 DrawSortableHeader("#", SortColumn.Index, ColW_Index);
-                GUILayout.Label("Phase", GUILayout.Width(ColW_Phase));
                 DrawSortableHeader("Name", SortColumn.Name, 0, true);
+                DrawSortableHeader("Phase", SortColumn.Phase, ColW_Phase);
                 DrawSortableHeader("Launch", SortColumn.LaunchTime, ColW_Launch);
-                DrawSortableHeader("Dur", SortColumn.Duration, ColW_Dur);
+                DrawSortableHeader("Duration", SortColumn.Duration, ColW_Dur);
 
                 if (showExpandedStats)
                 {
@@ -898,12 +979,7 @@ namespace Parsek
                     GUILayout.Label("Watch", GUILayout.Width(ColW_Watch));
                 GUILayout.Label("Rewind", GUILayout.Width(ColW_Rewind));
                 GUILayout.Label("Delete", GUILayout.Width(ColW_Delete));
-                GUILayout.Space(ScrollbarWidth);
                 GUILayout.EndHorizontal();
-
-                // Scrollable table body (alwaysShowVertical keeps columns aligned with header)
-                recordingsScrollPos = GUILayout.BeginScrollView(
-                    recordingsScrollPos, false, true, GUILayout.ExpandHeight(true));
 
                 // Rebuild if a header click invalidated during this frame
                 RebuildSortedIndices(committed, now);
@@ -1053,8 +1129,10 @@ namespace Parsek
                 {
                     showExpandedStats = !showExpandedStats;
                     ParsekLog.Verbose("UI", $"Recordings Stats toggled: {(showExpandedStats ? "expanded" : "collapsed")}");
-                    if (showExpandedStats && recordingsWindowRect.width < 1015f)
-                        recordingsWindowRect.width = 1015f;
+                    if (showExpandedStats && recordingsWindowRect.width < 1150f)
+                        recordingsWindowRect.width = 1150f;
+                    else if (!showExpandedStats)
+                        recordingsWindowRect.width = 790f;
                 }
             }
 
@@ -1077,15 +1155,6 @@ namespace Parsek
             }
 
             GUILayout.EndHorizontal();
-
-            // Tooltip rendering (on top of all window content, before DragWindow)
-            if (Event.current.type == EventType.Repaint && hoveredRecIdx >= 0 &&
-                hoveredRecIdx < committed.Count &&
-                scrollViewRect.width > 0 &&
-                scrollViewRect.Contains(Event.current.mousePosition))
-            {
-                DrawRecordingTooltip(committed[hoveredRecIdx]);
-            }
 
             // Resize handle (bottom-right corner)
             Rect handleRect = new Rect(
@@ -1111,10 +1180,7 @@ namespace Parsek
             var rec = committed[ri];
             GUILayout.BeginHorizontal();
 
-            if (indentPx > 0f)
-                GUILayout.Space(indentPx);
-
-            // Enable checkbox
+            // Enable checkbox (always at column 0)
             bool enabled = GUILayout.Toggle(rec.PlaybackEnabled, "", GUILayout.Width(ColW_Enable));
             if (enabled != rec.PlaybackEnabled)
             {
@@ -1125,6 +1191,65 @@ namespace Parsek
 
             // #
             GUILayout.Label((ri + 1).ToString(), GUILayout.Width(ColW_Index));
+
+            // Name (double-click to rename, deferred to next frame)
+            // Indent inside Name column for grouped/chained recordings
+            if (indentPx > 0f) GUILayout.Space(indentPx);
+            string name = string.IsNullOrEmpty(rec.VesselName) ? "Untitled" : rec.VesselName;
+            if (renamingRecordingIdx == ri)
+            {
+                bool submitRec = Event.current.type == EventType.KeyDown &&
+                    (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter);
+                bool cancelRec = Event.current.type == EventType.KeyDown &&
+                    Event.current.keyCode == KeyCode.Escape;
+
+                GUI.SetNextControlName("RecRename");
+                renamingRecordingText = GUILayout.TextField(renamingRecordingText, GUILayout.ExpandWidth(true));
+                activeRenameRect = GUILayoutUtility.GetLastRect();
+
+                // Auto-focus once on first frame
+                if (!renamingRecordingFocused)
+                {
+                    GUI.FocusControl("RecRename");
+                    renamingRecordingFocused = true;
+                }
+
+                if (submitRec)
+                {
+                    CommitRecordingRename(committed);
+                    Event.current.Use();
+                }
+                else if (cancelRec)
+                {
+                    renamingRecordingIdx = -1;
+                    activeRenameRect = default;
+                    Event.current.Use();
+                }
+            }
+            else
+            {
+                if (GUILayout.Button(name, GUI.skin.label, GUILayout.ExpandWidth(true)))
+                {
+                    float now2 = Time.realtimeSinceStartup;
+                    if (lastClickedRecIdx == ri && now2 - lastClickTime < DoubleClickThreshold)
+                    {
+                        // Commit any active rename first
+                        if (renamingRecordingIdx >= 0)
+                            CommitRecordingRename(committed);
+                        if (renamingGroup != null)
+                            CommitGroupRename(renamingGroup);
+                        renamingRecordingIdx = ri;
+                        renamingRecordingText = rec.VesselName ?? "";
+                        renamingRecordingFocused = false;
+                        lastClickedRecIdx = -1;
+                    }
+                    else
+                    {
+                        lastClickedRecIdx = ri;
+                        lastClickTime = now2;
+                    }
+                }
+            }
 
             // Phase label
             string phaseLabel = RecordingStore.GetSegmentPhaseLabel(rec);
@@ -1139,54 +1264,6 @@ namespace Parsek
             else
             {
                 GUILayout.Label("", GUILayout.Width(ColW_Phase));
-            }
-
-            // Name (double-click to rename, deferred to next frame)
-            string name = string.IsNullOrEmpty(rec.VesselName) ? "Untitled" : rec.VesselName;
-            if (renamingRecordingIdx == ri)
-            {
-                GUI.SetNextControlName("RecRename");
-                renamingRecordingText = GUILayout.TextField(renamingRecordingText, GUILayout.ExpandWidth(true));
-                if (GUI.GetNameOfFocusedControl() != "RecRename")
-                    GUI.FocusControl("RecRename");
-                if (Event.current.type == EventType.KeyDown)
-                {
-                    if (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter)
-                    {
-                        string trimmed = renamingRecordingText.Trim();
-                        if (!string.IsNullOrEmpty(trimmed) && trimmed != rec.VesselName)
-                        {
-                            ParsekLog.Info("UI", $"Recording '{rec.VesselName}' renamed to '{trimmed}'");
-                            rec.VesselName = trimmed;
-                        }
-                        renamingRecordingIdx = -1;
-                        Event.current.Use();
-                    }
-                    else if (Event.current.keyCode == KeyCode.Escape)
-                    {
-                        renamingRecordingIdx = -1;
-                        Event.current.Use();
-                    }
-                }
-            }
-            else
-            {
-                if (GUILayout.Button(name, GUI.skin.label, GUILayout.ExpandWidth(true)))
-                {
-                    float now2 = Time.realtimeSinceStartup;
-                    if (lastClickedRecIdx == ri && now2 - lastClickTime < DoubleClickThreshold)
-                    {
-                        // Double-click detected — defer rename to next frame
-                        renamingRecordingIdx = ri;
-                        renamingRecordingText = rec.VesselName ?? "";
-                        lastClickedRecIdx = -1;
-                    }
-                    else
-                    {
-                        lastClickedRecIdx = ri;
-                        lastClickTime = now2;
-                    }
-                }
             }
 
             // Launch Time
@@ -1326,14 +1403,6 @@ namespace Parsek
 
             GUILayout.EndHorizontal();
 
-            // Hover detection
-            if (Event.current.type == EventType.Repaint)
-            {
-                Rect rowRect = GUILayoutUtility.GetLastRect();
-                if (rowRect.Contains(Event.current.mousePosition))
-                    hoveredRecIdx = ri;
-            }
-
             return false;
         }
 
@@ -1391,9 +1460,8 @@ namespace Parsek
 
             // ── Group header ──
             GUILayout.BeginHorizontal();
-            if (indent > 0f) GUILayout.Space(indent);
 
-            // Enable checkbox (aggregate)
+            // Enable checkbox (always at column 0)
             int enabledCount = 0;
             foreach (int idx in descendants)
                 if (committed[idx].PlaybackEnabled) enabledCount++;
@@ -1406,29 +1474,42 @@ namespace Parsek
                 ParsekLog.Info("UI", $"Set playback enabled for group '{groupName}': enabled={newEnabled}");
             }
 
-            // Expand/collapse + name (or rename TextField)
+            // Spacer for # column
+            GUILayout.Space(ColW_Index);
+
+            // Expand/collapse + name (indent inside Name column for sub-groups)
+            if (indent > 0f) GUILayout.Space(indent);
             bool expanded = expandedGroups.Contains(groupName);
             string arrow = expanded ? "\u25bc" : "\u25b6";
 
             if (renamingGroup == groupName)
             {
+                bool submitGrp = Event.current.type == EventType.KeyDown &&
+                    (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter);
+                bool cancelGrp = Event.current.type == EventType.KeyDown &&
+                    Event.current.keyCode == KeyCode.Escape;
+
                 GUILayout.Label(arrow, GUILayout.Width(15));
                 GUI.SetNextControlName("GrpRename");
                 renamingGroupText = GUILayout.TextField(renamingGroupText, GUILayout.ExpandWidth(true));
-                if (GUI.GetNameOfFocusedControl() != "GrpRename")
-                    GUI.FocusControl("GrpRename");
-                if (Event.current.type == EventType.KeyDown)
+                activeRenameRect = GUILayoutUtility.GetLastRect();
+
+                if (!renamingGroupFocused)
                 {
-                    if (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter)
-                    {
-                        CommitGroupRename(groupName);
-                        Event.current.Use();
-                    }
-                    else if (Event.current.keyCode == KeyCode.Escape)
-                    {
-                        renamingGroup = null;
-                        Event.current.Use();
-                    }
+                    GUI.FocusControl("GrpRename");
+                    renamingGroupFocused = true;
+                }
+
+                if (submitGrp)
+                {
+                    CommitGroupRename(groupName);
+                    Event.current.Use();
+                }
+                else if (cancelGrp)
+                {
+                    renamingGroup = null;
+                    activeRenameRect = default;
+                    Event.current.Use();
                 }
             }
             else
@@ -1439,8 +1520,14 @@ namespace Parsek
                     float t = Time.realtimeSinceStartup;
                     if (lastClickedGroup == groupName && t - lastGroupClickTime < DoubleClickThreshold)
                     {
+                        // Commit any active rename first
+                        if (renamingRecordingIdx >= 0)
+                            CommitRecordingRename(committed);
+                        if (renamingGroup != null)
+                            CommitGroupRename(renamingGroup);
                         renamingGroup = groupName;
                         renamingGroupText = groupName;
+                        renamingGroupFocused = false;
                         lastClickedGroup = null;
                     }
                     else
@@ -1583,6 +1670,12 @@ namespace Parsek
             float indent = depth * 15f;
 
             GUILayout.BeginHorizontal();
+
+            // Spacers matching header widget types for alignment
+            GUILayout.Space(ColW_Enable);
+            GUILayout.Space(ColW_Index);
+
+            // Indent inside Name column for chains in sub-groups
             if (indent > 0f) GUILayout.Space(indent);
 
             bool expanded = expandedChains.Contains(chainId);
@@ -1613,6 +1706,13 @@ namespace Parsek
                 OpenGroupPopupForChain(chainId);
                 ParsekLog.Verbose("UI", $"Group popup opened for chain '{chainName}'");
             }
+
+            // Spacers for remaining columns (Loop, Period, Watch, Rewind, Delete)
+            GUILayout.Label("", GUILayout.Width(ColW_Loop));
+            GUILayout.Label("", GUILayout.Width(ColW_Period));
+            if (InFlight) GUILayout.Label("", GUILayout.Width(ColW_Watch));
+            GUILayout.Label("", GUILayout.Width(ColW_Rewind));
+            GUILayout.Label("", GUILayout.Width(ColW_Delete));
 
             GUILayout.EndHorizontal();
 
@@ -1646,10 +1746,26 @@ namespace Parsek
                     CollectDescendantRecordings(children[c], grpToRecs, grpChildren, result);
         }
 
+        private void CommitRecordingRename(List<RecordingStore.Recording> committed)
+        {
+            int ri = renamingRecordingIdx;
+            renamingRecordingIdx = -1;
+            activeRenameRect = default;
+            if (ri < 0 || ri >= committed.Count) return;
+
+            string trimmed = renamingRecordingText.Trim();
+            if (!string.IsNullOrEmpty(trimmed) && trimmed != committed[ri].VesselName)
+            {
+                ParsekLog.Info("UI", $"Recording '{committed[ri].VesselName}' renamed to '{trimmed}'");
+                committed[ri].VesselName = trimmed;
+            }
+        }
+
         private void CommitGroupRename(string oldName)
         {
             string newName = renamingGroupText.Trim();
             renamingGroup = null;
+            activeRenameRect = default;
 
             if (string.IsNullOrEmpty(newName) || newName == oldName) return;
 
@@ -1708,9 +1824,14 @@ namespace Parsek
             grpChildren.TryGetValue(groupName, out children);
             int childCount = children != null ? children.Count : 0;
 
-            string subText = childCount > 0
-                ? $"\n{childCount} sub-group(s) will become top-level."
-                : "";
+            string subText = "";
+            if (childCount > 0)
+            {
+                string parentName;
+                ParsekScenario.groupParents.TryGetValue(groupName, out parentName);
+                string dest = parentName != null ? $"move under \"{parentName}\"" : "become top-level";
+                subText = $"\n{childCount} sub-group(s) will {dest}.";
+            }
             string msg = $"Delete group \"{groupName}\"?\n\n" +
                 $"{recCount} recording(s) will be removed from this group.{subText}\n\n" +
                 "No recordings are deleted.";
@@ -1796,6 +1917,9 @@ namespace Parsek
 
         private void InitGroupPopupExpansion()
         {
+            // Reset popup rect so it repositions near the clicked G button
+            groupPopupRect = new Rect(0, 0, 0, 0);
+            isResizingGroupPopup = false;
             groupPopupExpanded = new HashSet<string>();
             // Default: all groups expanded
             foreach (var kvp in ParsekScenario.groupParents)
@@ -1861,106 +1985,136 @@ namespace Parsek
             }
             rootNames.Sort(System.StringComparer.OrdinalIgnoreCase);
 
-            // Popup window
-            float popupWidth = 280f;
-            float popupHeight = 300f;
-            Rect popupRect = new Rect(
-                Mathf.Clamp(groupPopupPosition.x, 0, Screen.width - popupWidth),
-                Mathf.Clamp(groupPopupPosition.y, 0, Screen.height - popupHeight),
-                popupWidth, popupHeight);
-            groupPopupRect = popupRect;
-
-            GUILayout.Window("ParsekGroupPopup".GetHashCode(), popupRect, (id) =>
+            // Handle resize drag (outside window function to track across frames)
+            if (isResizingGroupPopup)
             {
-                bool isGroupPopup = groupPopupGroup != null;
-                string title = isGroupPopup ? "Set Parent Group" : "Manage Groups";
-                GUILayout.Label(title, GUI.skin.label);
-                GUILayout.Space(3);
-
-                groupPopupScrollPos = GUILayout.BeginScrollView(groupPopupScrollPos, GUILayout.Height(180));
-
-                // For group-in-group: add "(None / Root)" option
-                if (isGroupPopup)
+                if (Event.current.type == EventType.MouseDrag || Event.current.type == EventType.MouseUp)
                 {
-                    bool noneChecked = groupPopupChecked.Count == 0;
-                    bool newNone = GUILayout.Toggle(noneChecked, "(None / Root level)");
-                    if (newNone && !noneChecked)
-                        groupPopupChecked.Clear();
+                    float newW = Mathf.Max(GroupPopupMinW, Event.current.mousePosition.x - groupPopupRect.x);
+                    float newH = Mathf.Max(GroupPopupMinH, Event.current.mousePosition.y - groupPopupRect.y);
+                    groupPopupRect.width = newW;
+                    groupPopupRect.height = newH;
                 }
+                if (Event.current.type == EventType.MouseUp)
+                    isResizingGroupPopup = false;
+            }
 
-                // Draw group hierarchy with checkboxes
-                for (int r = 0; r < rootNames.Count; r++)
-                    DrawGroupPopupNode(rootNames[r], 0, parentToChildren, cycleInvalid, isGroupPopup);
+            // Initialize popup rect on first open
+            if (groupPopupRect.width < 1f)
+            {
+                groupPopupRect = new Rect(
+                    Mathf.Clamp(groupPopupPosition.x, 0, Screen.width - 280f),
+                    Mathf.Clamp(groupPopupPosition.y, 0, Screen.height - 300f),
+                    280f, 300f);
+            }
 
-                GUILayout.EndScrollView();
+            bool isGroupPopup = groupPopupGroup != null;
+            string popupTitle = isGroupPopup ? "Set Parent Group" : "Manage Groups";
 
-                GUILayout.Space(3);
+            EnsureOpaqueWindowStyle();
+            groupPopupRect = ClickThruBlocker.GUILayoutWindow(
+                "ParsekGroupPopup".GetHashCode(),
+                groupPopupRect,
+                (id) => DrawGroupPopupContents(rootNames, parentToChildren, cycleInvalid, allNames, isGroupPopup),
+                popupTitle,
+                opaqueWindowStyle,
+                GUILayout.Width(groupPopupRect.width),
+                GUILayout.Height(groupPopupRect.height));
+        }
 
-                // New group creation
-                GUILayout.BeginHorizontal();
-                groupPopupNewName = GUILayout.TextField(groupPopupNewName, GUILayout.ExpandWidth(true));
-                if (GUILayout.Button("+", GUILayout.Width(25)))
+        private void DrawGroupPopupContents(List<string> rootNames,
+            Dictionary<string, List<string>> parentToChildren,
+            HashSet<string> cycleInvalid, HashSet<string> allNames, bool isGroupPopup)
+        {
+            groupPopupScrollPos = GUILayout.BeginScrollView(groupPopupScrollPos, GUILayout.ExpandHeight(true));
+
+            // For group-in-group: add "(None / Root)" option
+            if (isGroupPopup)
+            {
+                bool noneChecked = groupPopupChecked.Count == 0;
+                bool newNone = GUILayout.Toggle(noneChecked, "(None / Root level)");
+                if (newNone && !noneChecked)
+                    groupPopupChecked.Clear();
+            }
+
+            // Draw group hierarchy with checkboxes
+            for (int r = 0; r < rootNames.Count; r++)
+                DrawGroupPopupNode(rootNames[r], 0, parentToChildren, cycleInvalid, isGroupPopup);
+
+            GUILayout.EndScrollView();
+
+            GUILayout.Space(3);
+
+            // New group creation
+            GUILayout.BeginHorizontal();
+            groupPopupNewName = GUILayout.TextField(groupPopupNewName, GUILayout.ExpandWidth(true));
+            if (GUILayout.Button("+", GUILayout.Width(25)))
+            {
+                string newName = groupPopupNewName.Trim();
+                if (!RecordingStore.IsInvalidGroupName(newName) &&
+                    !allNames.Contains(newName) && !knownEmptyGroups.Contains(newName))
                 {
-                    string newName = groupPopupNewName.Trim();
-                    if (!RecordingStore.IsInvalidGroupName(newName) &&
-                        !allNames.Contains(newName) && !knownEmptyGroups.Contains(newName))
-                    {
-                        knownEmptyGroups.Add(newName);
-                        if (!isGroupPopup)
-                            groupPopupChecked.Add(newName);
-                        groupPopupNewName = "";
-                        ParsekLog.Info("UI", $"Group '{newName}' created via popup");
-                    }
+                    knownEmptyGroups.Add(newName);
+                    if (!isGroupPopup)
+                        groupPopupChecked.Add(newName);
+                    groupPopupNewName = "";
+                    ParsekLog.Info("UI", $"Group '{newName}' created via popup");
                 }
-                GUILayout.EndHorizontal();
+            }
+            GUILayout.EndHorizontal();
 
-                GUILayout.Space(3);
+            GUILayout.Space(3);
 
-                // Done / Cancel
-                GUILayout.BeginHorizontal();
-                GUILayout.FlexibleSpace();
-                if (GUILayout.Button("Done", GUILayout.Width(60)))
-                {
-                    ApplyGroupPopupChanges();
-                    groupPopupOpen = false;
-                }
-                if (GUILayout.Button("Cancel", GUILayout.Width(60)))
-                {
-                    groupPopupOpen = false;
-                }
-                GUILayout.FlexibleSpace();
-                GUILayout.EndHorizontal();
-
-                GUI.DragWindow();
-            }, "");
-
-            // Click outside → close
-            if (Event.current.type == EventType.MouseDown &&
-                !groupPopupRect.Contains(Event.current.mousePosition))
+            // Done / Cancel
+            GUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
+            if (GUILayout.Button("OK", GUILayout.Width(60)))
+            {
+                ApplyGroupPopupChanges();
+                groupPopupOpen = false;
+            }
+            if (GUILayout.Button("Cancel", GUILayout.Width(60)))
             {
                 groupPopupOpen = false;
+            }
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+
+            // Resize handle (bottom-right corner)
+            Rect handleRect = new Rect(
+                groupPopupRect.width - ResizeHandleSize,
+                groupPopupRect.height - ResizeHandleSize,
+                ResizeHandleSize, ResizeHandleSize);
+            GUI.Label(handleRect, "\u25e2");
+            if (Event.current.type == EventType.MouseDown && handleRect.Contains(Event.current.mousePosition))
+            {
+                isResizingGroupPopup = true;
                 Event.current.Use();
             }
+
+            GUI.DragWindow();
         }
 
         private void DrawGroupPopupNode(string groupName, int depth,
             Dictionary<string, List<string>> parentToChildren,
             HashSet<string> cycleInvalid, bool singleSelect)
         {
-            GUILayout.BeginHorizontal();
-            if (depth > 0) GUILayout.Space(depth * 15f);
+            // Skip self + all descendants (can't assign a group to itself or its children)
+            if (cycleInvalid != null && cycleInvalid.Contains(groupName))
+                return;
 
-            bool isCycleInvalid = cycleInvalid != null && cycleInvalid.Contains(groupName);
-            bool wasEnabled = GUI.enabled;
-            if (isCycleInvalid) GUI.enabled = false;
+            List<string> children;
+            bool hasChildren = parentToChildren.TryGetValue(groupName, out children) && children.Count > 0;
+
+            GUILayout.BeginHorizontal();
+            if (depth > 0) GUILayout.Space(depth * 12f);
 
             bool isChecked = groupPopupChecked.Contains(groupName);
-            bool newChecked = GUILayout.Toggle(isChecked, "");
-            if (newChecked != isChecked && !isCycleInvalid)
+            bool newChecked = GUILayout.Toggle(isChecked, "", GUILayout.Width(20));
+            if (newChecked != isChecked)
             {
                 if (singleSelect)
                 {
-                    // For group-in-group: single parent only
                     groupPopupChecked.Clear();
                     if (newChecked) groupPopupChecked.Add(groupName);
                 }
@@ -1971,29 +2125,18 @@ namespace Parsek
                 }
             }
 
-            if (isCycleInvalid) GUI.enabled = wasEnabled;
-
-            // Group name with expand arrow if has children
-            List<string> children;
-            bool hasChildren = parentToChildren.TryGetValue(groupName, out children) && children.Count > 0;
-
             if (hasChildren)
             {
                 bool expanded = groupPopupExpanded.Contains(groupName);
                 string arrow = expanded ? "\u25bc" : "\u25b6";
-                if (GUILayout.Button(arrow, GUI.skin.label, GUILayout.Width(15)))
+                if (GUILayout.Button(arrow, GUI.skin.label, GUILayout.Width(14)))
                 {
                     if (expanded) groupPopupExpanded.Remove(groupName);
                     else groupPopupExpanded.Add(groupName);
                 }
             }
-            else
-            {
-                GUILayout.Space(15);
-            }
 
-            string tooltip = isCycleInvalid ? "Cannot assign (would create cycle)" : "";
-            GUILayout.Label(new GUIContent(groupName, tooltip));
+            GUILayout.Label(groupName, GUILayout.ExpandWidth(true));
 
             GUILayout.EndHorizontal();
 
@@ -2241,6 +2384,11 @@ namespace Parsek
                 case SortColumn.Index:
                     cmp = 0; // stable — Array.Sort preserves original order for equal elements
                     break;
+                case SortColumn.Phase:
+                    string pa = RecordingStore.GetSegmentPhaseLabel(ra);
+                    string pb = RecordingStore.GetSegmentPhaseLabel(rb);
+                    cmp = string.Compare(pa, pb, System.StringComparison.OrdinalIgnoreCase);
+                    break;
                 case SortColumn.Name:
                     string na = string.IsNullOrEmpty(ra.VesselName) ? "Untitled" : ra.VesselName;
                     string nb = string.IsNullOrEmpty(rb.VesselName) ? "Untitled" : rb.VesselName;
@@ -2480,11 +2628,13 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Settings window initial position: x={settingsWindowRect.x.ToString("F0", ic)} y={settingsWindowRect.y.ToString("F0", ic)}");
             }
 
+            EnsureOpaqueWindowStyle();
             settingsWindowRect = ClickThruBlocker.GUILayoutWindow(
                 "ParsekSettings".GetHashCode(),
                 settingsWindowRect,
                 DrawSettingsWindow,
                 "Parsek \u2014 Settings",
+                opaqueWindowStyle,
                 GUILayout.Width(280)
             );
             LogWindowPosition("Settings", ref lastSettingsWindowRect, settingsWindowRect);
