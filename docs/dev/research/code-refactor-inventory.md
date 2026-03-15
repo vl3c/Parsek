@@ -18,15 +18,15 @@ See [code-refactor-plan.md](../plans/code-refactor-plan.md) for the full refacto
 | RecordingStore.cs | 1,995 | 2A | Pending | Central data store, Recording class 45+ fields |
 | ParsekUI.cs | 2,985 | 2B | Pass1-Done | 6 methods extracted; DrawResourceLine deduped 3 copies; 18 methods rejected (sequential IMGUI) |
 | BackgroundRecorder.cs | 1,532 | 2B | Pass1-Done | 3 rate-limited logging additions; no extraction needed |
-| VesselSpawner.cs | 978 | 3A | Pending | Static, crew management in snapshots |
-| ParsekKSC.cs | 852 | 3A | Pending | Depends on ParsekFlight nested types |
-| MergeDialog.cs | 532 | 3A | Pending | Static, 3 dialog variants |
-| GameStateRecorder.cs | 757 | 3B | Pending | Suppression flags, facility polling |
-| GameStateStore.cs | 694 | 3B | Pending | Static singleton, resource coalescing |
-| RecordingTree.cs | 691 | 3B | Pending | Tree container, serialization |
-| ActionReplay.cs | 529 | 3C | Pending | Pure decision logic, all internal static |
-| MilestoneStore.cs | 461 | 3C | Pending | Epoch-based branch isolation |
-| ResourceBudget.cs | 400 | 3C | Pending | Budget caching/invalidation |
+| VesselSpawner.cs | 978 | 3A | Pass1-Done | 2 methods extracted (DetermineSituation pure); 10 tests |
+| ParsekKSC.cs | 852 | 3A | Pass1-Done | 2 particle cleanup helpers extracted (dedup) |
+| MergeDialog.cs | 532 | 3A | Pass1-Done | 3 methods extracted (tree dialog stats); 18 tests |
+| GameStateRecorder.cs | 757 | 3B | Pass1-Done | No changes needed — already well-structured |
+| GameStateStore.cs | 694 | 3B | Pass1-Done | 1 method extracted (BuildEventTypeDistribution); 6 tests |
+| RecordingTree.cs | 691 | 3B | Pass1-Done | 4 serialization helpers extracted; LoadRecordingFrom 226→75 lines |
+| ActionReplay.cs | 504 | 3C | Pass1-Done | AccumulateReplayResult deduped 4 copies (-25 lines); 5 tests |
+| MilestoneStore.cs | 474 | 3C | Pass1-Done | BuildStateMap extracted; 5 tests |
+| ResourceBudget.cs | 408 | 3C | Pass1-Done | Logging additions only |
 | GameStateEvent.cs | 302 | 4 | Pending | Multi-type data file (5 types) |
 | GameStateBaseline.cs | 274 | 4 | Pending | Career state snapshot |
 | RecordingPaths.cs | 166 | 4 | Pending | Static path construction |
