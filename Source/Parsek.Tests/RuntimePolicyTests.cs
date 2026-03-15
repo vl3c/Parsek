@@ -88,9 +88,9 @@ namespace Parsek.Tests
         [InlineData(50f, true)]
         [InlineData(100f, true)]
         [InlineData(1000f, true)]
-        public void ShouldSuppressExplosionFx_ThresholdAt10x(float warpRate, bool expected)
+        public void ShouldSuppressVisualFx_ThresholdAt10x(float warpRate, bool expected)
         {
-            Assert.Equal(expected, ParsekFlight.ShouldSuppressExplosionFx(warpRate));
+            Assert.Equal(expected, ParsekFlight.ShouldSuppressVisualFx(warpRate));
         }
 
         [Theory]

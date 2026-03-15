@@ -4447,7 +4447,7 @@ namespace Parsek
                 Log("Manual playback complete — reached end of recording");
                 // explosionAlreadyFired=false is safe: preview is one-shot (StopPlayback called immediately after)
                 if (previewRecording != null && ghostObject != null
-                    && !ShouldSuppressExplosionFx(TimeWarp.CurrentRate)
+                    && !ShouldSuppressVisualFx(TimeWarp.CurrentRate)
                     && ShouldTriggerExplosion(false, previewRecording.TerminalStateValue,
                            true, previewRecording.VesselName, -1))
                 {
@@ -4531,7 +4531,7 @@ namespace Parsek
 
             float warpRate = TimeWarp.CurrentRate;
             bool suppressGhosts = ShouldSuppressGhosts(warpRate);
-            bool suppressExplosionFx = ShouldSuppressExplosionFx(warpRate);
+            bool suppressVisualFx = ShouldSuppressVisualFx(warpRate);
 
             for (int i = 0; i < committed.Count; i++)
             {
@@ -4565,7 +4565,7 @@ namespace Parsek
                 if (ShouldLoopPlayback(rec))
                 {
                     UpdateLoopingTimelinePlayback(i, rec, currentUT, state, ghostActive,
-                        suppressGhosts, suppressExplosionFx);
+                        suppressGhosts, suppressVisualFx);
                     continue;
                 }
 
@@ -4688,7 +4688,7 @@ namespace Parsek
 
                         ApplyPartEvents(i, rec, currentUT, state);
                         UpdateReentryFx(i, state, rec.VesselName);
-                        if (suppressExplosionFx)
+                        if (suppressVisualFx)
                             StopAllRcsEmissions(state);
                         else
                             RestoreAllRcsEmissions(state);
@@ -4723,7 +4723,7 @@ namespace Parsek
                         // Reentry FX: no InterpolationResult set for background-only path — bodyName stays null,
                         // so UpdateReentryFx will no-op. Intentional: on-rails vessels don't reenter.
                         UpdateReentryFx(i, state, rec.VesselName);
-                        if (suppressExplosionFx)
+                        if (suppressVisualFx)
                             StopAllRcsEmissions(state);
                         else
                             RestoreAllRcsEmissions(state);
@@ -4963,7 +4963,7 @@ namespace Parsek
             GhostPlaybackState state,
             bool ghostActive,
             bool suppressGhosts,
-            bool suppressExplosionFx)
+            bool suppressVisualFx)
         {
             double intervalSeconds = GetLoopIntervalSeconds(rec);
             double duration = rec.EndUT - rec.StartUT;
@@ -4987,7 +4987,7 @@ namespace Parsek
             if (intervalSeconds < 0)
             {
                 UpdateOverlapLoopPlayback(recIdx, rec, currentUT, state, ghostActive,
-                    intervalSeconds, duration, suppressExplosionFx);
+                    intervalSeconds, duration, suppressVisualFx);
                 return;
             }
 
@@ -5129,7 +5129,7 @@ namespace Parsek
 
             ApplyPartEvents(recIdx, rec, loopUT, state);
             UpdateReentryFx(recIdx, state, rec.VesselName);
-            if (suppressExplosionFx)
+            if (suppressVisualFx)
                 StopAllRcsEmissions(state);
             else
                 RestoreAllRcsEmissions(state);
@@ -5147,7 +5147,7 @@ namespace Parsek
             bool primaryActive,
             double intervalSeconds,
             double duration,
-            bool suppressExplosionFx)
+            bool suppressVisualFx)
         {
             if (currentUT < rec.StartUT)
             {
@@ -5238,7 +5238,7 @@ namespace Parsek
 
                 ApplyPartEvents(recIdx, rec, loopUT, primaryState);
                 UpdateReentryFx(recIdx, primaryState, rec.VesselName);
-                if (suppressExplosionFx)
+                if (suppressVisualFx)
                     StopAllRcsEmissions(primaryState);
                 else
                     RestoreAllRcsEmissions(primaryState);
@@ -5312,7 +5312,7 @@ namespace Parsek
 
                 ApplyPartEvents(recIdx, rec, loopUT, ovState);
                 UpdateReentryFx(recIdx, ovState, rec.VesselName);
-                if (suppressExplosionFx)
+                if (suppressVisualFx)
                     StopAllRcsEmissions(ovState);
                 else
                     RestoreAllRcsEmissions(ovState);
@@ -5741,7 +5741,7 @@ namespace Parsek
                     state.ghost != null, rec.VesselName, recIdx))
                 return;
 
-            if (ShouldSuppressExplosionFx(TimeWarp.CurrentRate))
+            if (ShouldSuppressVisualFx(TimeWarp.CurrentRate))
             {
                 state.explosionFired = true;
                 HideAllGhostParts(state);
@@ -6261,7 +6261,7 @@ namespace Parsek
         internal static void SpawnPartPuffAtPart(GameObject ghost, uint persistentId)
         {
             if (ghost == null) return;
-            if (ShouldSuppressExplosionFx(TimeWarp.CurrentRate)) return;
+            if (ShouldSuppressVisualFx(TimeWarp.CurrentRate)) return;
             var t = ghost.transform.Find($"ghost_part_{persistentId}");
             if (t == null)
             {
@@ -6793,7 +6793,7 @@ namespace Parsek
             var info = state.reentryFxInfo;
             if (info == null || state.ghost == null) return;
 
-            if (ShouldSuppressExplosionFx(TimeWarp.CurrentRate))
+            if (ShouldSuppressVisualFx(TimeWarp.CurrentRate))
             {
                 DriveReentryToZero(info, recIdx, state.lastInterpolatedBodyName,
                     state.lastInterpolatedAltitude, vesselName);
@@ -7363,14 +7363,20 @@ namespace Parsek
             Log($"Warp reset for playback start ({context})");
         }
 
-        internal static bool ShouldSuppressExplosionFx(float currentWarpRate)
+        // KSP rails warp levels: 1, 5, 10, 50, 100, 1000, 10000, 100000.
+        // FX threshold: 10x is the last level where explosions/puffs/reentry/RCS look reasonable.
+        // Ghost threshold: 50x is the last level where ghost meshes update often enough to be useful.
+        internal const float FxSuppressWarpThreshold = 10f;
+        internal const float GhostHideWarpThreshold = 50f;
+
+        internal static bool ShouldSuppressVisualFx(float currentWarpRate)
         {
-            return currentWarpRate > 10f;
+            return currentWarpRate > FxSuppressWarpThreshold;
         }
 
         internal static bool ShouldSuppressGhosts(float currentWarpRate)
         {
-            return currentWarpRate > 50f;
+            return currentWarpRate > GhostHideWarpThreshold;
         }
 
         internal static void StopAllRcsEmissions(GhostPlaybackState state)
