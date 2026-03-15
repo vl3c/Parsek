@@ -772,3 +772,13 @@ the launch+burst sequence. Estimated 300-400 lines. Deferred.
 
 ModuleColorChanger is now fully supported. The remaining parts without showcase entries
 are command pods/crew cabins where cabin light behavior has been validated generically.
+
+### Code Cleanup TODOs
+
+Deferred refactoring items from PR #46 review. Search for `// TODO:` in source.
+
+| File | Description |
+|------|-------------|
+| `FlightRecorder.cs:3552` | Extract shared seeding helpers — ~340 lines duplicated between `SeedExistingPartStates` and `BackgroundRecorder.SeedBackgroundPartStates` |
+| `BackgroundRecorder.cs:637` | Same as above (mirror reference) |
+| `GhostVisualBuilder.cs:465` | Bundle `BuildTimelineGhostFromSnapshot` out-parameters into a `GhostBuildResult` class (currently 10 info lists) |
