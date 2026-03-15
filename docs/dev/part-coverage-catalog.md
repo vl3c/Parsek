@@ -14,8 +14,8 @@ checked in; re-run the extraction from the KSP GameData directory to refresh.
 - Total unique KSP parts: 483
 - Stock: 358 | Making History: 71 | Breaking Ground: 54
 - Ghost mesh rendering: 483 supported (all parts with MeshRenderer cloning)
-- Dynamic visual support: 171 full / 73 partial / 239 N/A (no visual modules)
-- Showcase coverage: 231 / 244 parts with visual modules (+ 2 EVA kerbals = 233 total showcased)
+- Dynamic visual support: 242 full / 2 partial / 239 N/A (no visual modules)
+- Showcase coverage: 214 / 244 parts with visual modules (+ 1 EVA kerbal = 215 total showcased)
 - EVA kerbals: 8 | Uncategorized/deprecated (category=none): 14
 
 ## Known Visual Playback Issues
@@ -23,18 +23,21 @@ checked in; re-run the extraction from the KSP GameData directory to refresh.
 | Bug | Description | Status | Affected Parts |
 |-----|-------------|--------|----------------|
 | #28 | Building collision doesn't set TerminalState.Destroyed | Fixed | crash into KSC buildings |
-| #29 | Ghost parts missing or wrong state | Open | rover wheels, SmallGearBay |
-| #30 | RCS fires constantly | Open | all RCS parts |
-| #31 | Engine shroud/cover variants | Open | multi-variant engines |
-| #32 | LES plumes need verification | Open | LaunchEscapeSystem |
-| #33 | Crash breakup not progressive | Open | all parts |
+| #29 | Ghost parts missing or wrong state | Fixed | rover wheels, SmallGearBay |
+| #30 | RCS fires constantly | Fixed | all RCS parts |
+| #31 | Engine shroud/cover variants | Not a bug | multi-variant engines |
+| #32 | LES plumes not playing (inactive FX instance) | Fixed | LaunchEscapeSystem, MODEL_MULTI_PARTICLE engines |
+| #33 | Crash breakup not progressive | Improved | all parts |
 | #34 | ShouldTriggerExplosion log spam | Fixed | all ghost parts |
-| #35 | Engine FX playing=False first frame | Not a bug | all engine parts |
+| #35 | Engine FX playing=False first frame | Fixed (root cause was bug #32) | all engine parts |
 | #36 | GhostVisual VERBOSE log spam | Fixed | all ghost parts |
 | #37 | KSC ghosts not destroyed when disabled | Fixed | parts with TEXTURE variant rules |
 | #38 | Merge dialog not shown after destruction in tree mode | Fixed | tree mode vessel destruction |
 | #39 | Ghost shows wrong texture variant | Fixed | parts with TEXTURE variant rules |
 | #40 | SRB nozzle glow persists after burnout | Fixed | 33 FXModuleAnimateThrottle parts (7 SRBs most visible) |
+| #41 | Spurious Decoupled events on rover wheels | Fixed | rover wheel parts under impact stress |
+| #42 | Engine shroud missing at recording start | Fixed | multi-stage rockets with ModuleJettison |
+| #43 | Ghost variant texture shader not found | Open — low priority | pointyNoseConeA, pointyNoseConeB |
 
 ## Unsupported Visual Module Types
 
@@ -43,6 +46,7 @@ checked in; re-run the extraction from the KSP GameData directory to refresh.
 | ~~ModuleColorChanger~~ | ~~Cabin lights, ablator colors~~ | ~~33 parts~~ | ~~Fixed — cabin lights via LightOn/LightOff, ablation char via reentry FX~~ |
 | ~~FXModuleAnimateThrottle~~ | ~~Throttle-driven nozzle glow~~ | ~~33 parts~~ | ~~Fixed (bug #40)~~ |
 | ~~FXModuleAnimateRCS~~ | ~~RCS response animation~~ | ~~5 parts~~ | ~~Fixed — uses heat animation system~~ |
+| ~~ModulePartVariants (TEXTURE/MATERIAL)~~ | ~~Variant texture/color not applied to ghost~~ | ~~many parts~~ | ~~Fixed (bug #39)~~ |
 | ModulePartFirework | Firework FX | 2 parts | None — novelty item |
 
 ## Parts by Category
@@ -51,23 +55,23 @@ checked in; re-run the extraction from the KSP GameData directory to refresh.
 
 | Part (cfg) | Runtime Name | Source | Visual Modules | Support | Showcase | Notes |
 |------------|-------------|--------|----------------|---------|----------|-------|
-| cupola | cupola | Stock | ModuleColorChanger | Partial | — | ModuleColorChanger not tracked |
+| cupola | cupola | Stock | ModuleColorChanger | Full | — |  |
 | HECS2_ProbeCore | HECS2.ProbeCore | Stock | — | N/A | — |  |
-| kv1Pod | kv1Pod | Making History | ModuleColorChanger | Partial | — | ModuleColorChanger not tracked |
-| kv2Pod | kv2Pod | Making History | ModuleColorChanger | Partial | — | ModuleColorChanger not tracked |
-| kv3Pod | kv3Pod | Making History | ModuleColorChanger | Partial | — | ModuleColorChanger not tracked |
-| landerCabinSmall | landerCabinSmall | Stock | ModuleColorChanger | Partial | — | ModuleColorChanger not tracked |
-| Mark1Cockpit | Mark1Cockpit | Stock | ModuleColorChanger | Partial | — | ModuleColorChanger not tracked |
-| Mark2Cockpit | Mark2Cockpit | Stock | ModuleColorChanger | Partial | — | ModuleColorChanger not tracked |
-| MEMLander | MEMLander | Making History | ModuleRCSFX, ModuleColorChanger | Partial | — | ModuleColorChanger not tracked |
-| mk1-3pod | mk1-3pod | Stock | ModuleRCSFX, ModuleColorChanger | Partial | — | ModuleColorChanger not tracked |
-| mk1pod_v2 | mk1pod.v2 | Stock | ModuleColorChanger | Partial | — | ModuleColorChanger not tracked |
-| mk2Cockpit_Inline | mk2Cockpit.Inline | Stock | ModuleColorChanger | Partial | — | ModuleColorChanger not tracked |
-| mk2Cockpit_Standard | mk2Cockpit.Standard | Stock | ModuleColorChanger | Partial | — | ModuleColorChanger not tracked |
+| kv1Pod | kv1Pod | Making History | ModuleColorChanger | Full | — |  |
+| kv2Pod | kv2Pod | Making History | ModuleColorChanger | Full | — |  |
+| kv3Pod | kv3Pod | Making History | ModuleColorChanger | Full | — |  |
+| landerCabinSmall | landerCabinSmall | Stock | ModuleColorChanger | Full | — |  |
+| Mark1Cockpit | Mark1Cockpit | Stock | ModuleColorChanger | Full | — |  |
+| Mark2Cockpit | Mark2Cockpit | Stock | ModuleColorChanger | Full | — |  |
+| MEMLander | MEMLander | Making History | ModuleRCSFX, ModuleColorChanger | Full | — |  |
+| mk1-3pod | mk1-3pod | Stock | ModuleRCSFX, ModuleColorChanger | Full | — |  |
+| mk1pod_v2 | mk1pod.v2 | Stock | ModuleColorChanger | Full | — |  |
+| mk2Cockpit_Inline | mk2Cockpit.Inline | Stock | ModuleColorChanger | Full | — |  |
+| mk2Cockpit_Standard | mk2Cockpit.Standard | Stock | ModuleColorChanger | Full | — |  |
 | mk2DroneCore | mk2DroneCore | Stock | — | N/A | — |  |
-| mk2LanderCabin_v2 | mk2LanderCabin.v2 | Stock | ModuleAnimateGeneric, ModuleColorChanger | Partial | Yes | ModuleColorChanger not tracked |
-| Mk2Pod | Mk2Pod | Making History | ModuleColorChanger | Partial | — | ModuleColorChanger not tracked |
-| mk3Cockpit_Shuttle | mk3Cockpit.Shuttle | Stock | ModuleColorChanger | Partial | — | ModuleColorChanger not tracked |
+| mk2LanderCabin_v2 | mk2LanderCabin.v2 | Stock | ModuleAnimateGeneric, ModuleColorChanger | Full | Yes |  |
+| Mk2Pod | Mk2Pod | Making History | ModuleColorChanger | Full | — |  |
+| mk3Cockpit_Shuttle | mk3Cockpit.Shuttle | Stock | ModuleColorChanger | Full | — |  |
 | MpoProbe | MpoProbe | Stock | — | N/A | — |  |
 | MtmStage | MtmStage | Stock | — | N/A | — |  |
 | probeCoreCube | probeCoreCube | Stock | — | N/A | — |  |
@@ -84,47 +88,47 @@ checked in; re-run the extraction from the KSP GameData directory to refresh.
 
 | Part (cfg) | Runtime Name | Source | Visual Modules | Support | Showcase | Notes |
 |------------|-------------|--------|----------------|---------|----------|-------|
-| engineLargeSkipper_v2 | engineLargeSkipper.v2 | Stock | ModuleEngines, ModuleJettison, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work); Has shroud (ModuleJettison) |
-| ionEngine | ionEngine | Stock | ModuleEnginesFX, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work) |
-| liquidEngine2-2_v2 | liquidEngine2-2.v2 | Stock | ModuleEngines, ModuleJettison, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work); Has shroud (ModuleJettison) |
-| liquidEngine2_v2 | liquidEngine2.v2 | Stock | ModuleEngines, ModuleJettison, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work); Has shroud (ModuleJettison) |
-| liquidEngine3_v2 | liquidEngine3.v2 | Stock | ModuleEngines, ModuleJettison, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work); Has shroud (ModuleJettison) |
-| liquidEngine_v2 | liquidEngine.v2 | Stock | ModuleEngines, ModuleJettison, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work); Has shroud (ModuleJettison) |
+| engineLargeSkipper_v2 | engineLargeSkipper.v2 | Stock | ModuleEngines, ModuleJettison, FXModuleAnimateThrottle | Full | Yes | Has shroud (ModuleJettison) |
+| ionEngine | ionEngine | Stock | ModuleEnginesFX, FXModuleAnimateThrottle | Full | Yes |  |
+| liquidEngine2-2_v2 | liquidEngine2-2.v2 | Stock | ModuleEngines, ModuleJettison, FXModuleAnimateThrottle | Full | Yes | Has shroud (ModuleJettison) |
+| liquidEngine2_v2 | liquidEngine2.v2 | Stock | ModuleEngines, ModuleJettison, FXModuleAnimateThrottle | Full | Yes | Has shroud (ModuleJettison) |
+| liquidEngine3_v2 | liquidEngine3.v2 | Stock | ModuleEngines, ModuleJettison, FXModuleAnimateThrottle | Full | Yes | Has shroud (ModuleJettison) |
+| liquidEngine_v2 | liquidEngine.v2 | Stock | ModuleEngines, ModuleJettison, FXModuleAnimateThrottle | Full | Yes | Has shroud (ModuleJettison) |
 | LiquidEngineKE-1 | LiquidEngineKE-1 | Making History | ModuleEngines, ModuleJettison | Full | Yes | Has shroud (ModuleJettison) |
 | LiquidEngineLV-T91 | LiquidEngineLV-T91 | Making History | ModuleEngines, ModuleJettison | Full | Yes | Has shroud (ModuleJettison) |
 | LiquidEngineLV-TX87 | LiquidEngineLV-TX87 | Making History | ModuleEngines, ModuleJettison | Full | Yes | Has shroud (ModuleJettison) |
-| liquidEngineMainsail_v2 | liquidEngineMainsail.v2 | Stock | ModuleEngines, ModuleJettison, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work); Has shroud (ModuleJettison) |
-| liquidEngineMini_v2 | liquidEngineMini.v2 | Stock | ModuleEnginesFX, ModuleJettison, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work); Has shroud (ModuleJettison) |
+| liquidEngineMainsail_v2 | liquidEngineMainsail.v2 | Stock | ModuleEngines, ModuleJettison, FXModuleAnimateThrottle | Full | Yes | Has shroud (ModuleJettison) |
+| liquidEngineMini_v2 | liquidEngineMini.v2 | Stock | ModuleEnginesFX, ModuleJettison, FXModuleAnimateThrottle | Full | Yes | Has shroud (ModuleJettison) |
 | LiquidEngineRE-I2 | LiquidEngineRE-I2 | Making History | ModuleEngines, ModuleJettison | Full | Yes | Has shroud (ModuleJettison) |
 | LiquidEngineRE-J10 | LiquidEngineRE-J10 | Making History | ModuleEngines, ModuleJettison | Full | Yes | Has shroud (ModuleJettison) |
 | LiquidEngineRK-7 | LiquidEngineRK-7 | Making History | ModuleEngines, ModuleJettison | Full | Yes | Has shroud (ModuleJettison) |
 | LiquidEngineRV-1 | LiquidEngineRV-1 | Making History | ModuleEnginesFX | Full | Yes |  |
-| microEngine_v2 | microEngine.v2 | Stock | ModuleEnginesFX, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work) |
+| microEngine_v2 | microEngine.v2 | Stock | ModuleEnginesFX, FXModuleAnimateThrottle | Full | Yes |  |
 | nuclearEngine | nuclearEngine | Stock | ModuleEngines, ModuleJettison, ModuleAnimateHeat | Full | Yes | Has shroud (ModuleJettison) |
-| omsEngine | omsEngine | Stock | ModuleEnginesFX, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work) |
-| radialEngineMini_v2 | radialEngineMini.v2 | Stock | ModuleEnginesFX, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work) |
-| radialLiquidEngine1-2 | radialLiquidEngine1-2 | Stock | ModuleEngines, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work) |
-| Size2LFB_v2 | Size2LFB.v2 | Stock | ModuleEnginesFX, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work) |
-| Size3AdvancedEngine | Size3AdvancedEngine | Stock | ModuleEnginesFX, ModuleJettison, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work); Has shroud (ModuleJettison) |
-| Size3EngineCluster | Size3EngineCluster | Stock | ModuleEnginesFX, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work) |
-| smallRadialEngine_v2 | smallRadialEngine.v2 | Stock | ModuleEnginesFX, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work) |
-| SSME | SSME | Stock | ModuleEnginesFX, ModuleJettison, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work); Has shroud (ModuleJettison) |
-| toroidalAerospike | toroidalAerospike | Stock | ModuleEngines, ModuleJettison, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work); Has shroud (ModuleJettison) |
+| omsEngine | omsEngine | Stock | ModuleEnginesFX, FXModuleAnimateThrottle | Full | Yes |  |
+| radialEngineMini_v2 | radialEngineMini.v2 | Stock | ModuleEnginesFX, FXModuleAnimateThrottle | Full | Yes |  |
+| radialLiquidEngine1-2 | radialLiquidEngine1-2 | Stock | ModuleEngines, FXModuleAnimateThrottle | Full | Yes |  |
+| Size2LFB_v2 | Size2LFB.v2 | Stock | ModuleEnginesFX, FXModuleAnimateThrottle | Full | Yes |  |
+| Size3AdvancedEngine | Size3AdvancedEngine | Stock | ModuleEnginesFX, ModuleJettison, FXModuleAnimateThrottle | Full | Yes | Has shroud (ModuleJettison) |
+| Size3EngineCluster | Size3EngineCluster | Stock | ModuleEnginesFX, FXModuleAnimateThrottle | Full | Yes |  |
+| smallRadialEngine_v2 | smallRadialEngine.v2 | Stock | ModuleEnginesFX, FXModuleAnimateThrottle | Full | Yes |  |
+| SSME | SSME | Stock | ModuleEnginesFX, ModuleJettison, FXModuleAnimateThrottle | Full | Yes | Has shroud (ModuleJettison) |
+| toroidalAerospike | toroidalAerospike | Stock | ModuleEngines, ModuleJettison, FXModuleAnimateThrottle | Full | Yes | Has shroud (ModuleJettison) |
 
 ### Propulsion — Solid Boosters
 
 | Part (cfg) | Runtime Name | Source | Visual Modules | Support | Showcase | Notes |
 |------------|-------------|--------|----------------|---------|----------|-------|
-| Clydesdale | Clydesdale | Stock | ModuleEngines, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work) |
-| MassiveBooster | MassiveBooster | Stock | ModuleEnginesFX, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work) |
-| Mite | Mite | Stock | ModuleEngines, ModuleJettison, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work); Has shroud (ModuleJettison) |
-| Pollux | Pollux | Making History | ModuleEngines, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work) |
+| Clydesdale | Clydesdale | Stock | ModuleEngines, FXModuleAnimateThrottle | Full | Yes |  |
+| MassiveBooster | MassiveBooster | Stock | ModuleEnginesFX, FXModuleAnimateThrottle | Full | Yes |  |
+| Mite | Mite | Stock | ModuleEngines, ModuleJettison, FXModuleAnimateThrottle | Full | Yes | Has shroud (ModuleJettison) |
+| Pollux | Pollux | Making History | ModuleEngines, FXModuleAnimateThrottle | Full | Yes |  |
 | sepMotor1 | sepMotor1 | Stock | ModuleEngines | Full | Yes |  |
-| Shrimp | Shrimp | Stock | ModuleEngines, ModuleJettison, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work); Has shroud (ModuleJettison) |
-| solidBooster1-1 | solidBooster1-1 | Stock | ModuleEngines, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work) |
+| Shrimp | Shrimp | Stock | ModuleEngines, ModuleJettison, FXModuleAnimateThrottle | Full | Yes | Has shroud (ModuleJettison) |
+| solidBooster1-1 | solidBooster1-1 | Stock | ModuleEngines, FXModuleAnimateThrottle | Full | Yes |  |
 | solidBooster_sm_v2 | solidBooster.sm.v2 | Stock | ModuleEngines, ModuleJettison | Full | Yes | Has shroud (ModuleJettison) |
-| solidBooster_v2 | solidBooster.v2 | Stock | ModuleEngines, ModuleJettison, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work); Has shroud (ModuleJettison) |
-| Thoroughbred | Thoroughbred | Stock | ModuleEngines, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work) |
+| solidBooster_v2 | solidBooster.v2 | Stock | ModuleEngines, ModuleJettison, FXModuleAnimateThrottle | Full | Yes | Has shroud (ModuleJettison) |
+| Thoroughbred | Thoroughbred | Stock | ModuleEngines, FXModuleAnimateThrottle | Full | Yes |  |
 
 ### Propulsion — Jet Engines
 
@@ -132,10 +136,10 @@ checked in; re-run the extraction from the KSP GameData directory to refresh.
 |------------|-------------|--------|----------------|---------|----------|-------|
 | JetEngine | JetEngine | Stock | ModuleEnginesFX, ModuleAnimateHeat, ModuleAnimateGeneric | Full | Yes |  |
 | miniJetEngine | miniJetEngine | Stock | ModuleEnginesFX | Full | Yes |  |
-| RAPIER | RAPIER | Stock | ModuleEnginesFX, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work) |
-| turboFanEngine | turboFanEngine | Stock | ModuleEnginesFX, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work) |
-| turboFanSize2 | turboFanSize2 | Stock | ModuleEnginesFX, ModuleAnimateHeat, ModuleAnimateGeneric, ModuleJettison, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work); Has shroud (ModuleJettison) |
-| turboJet | turboJet | Stock | ModuleEnginesFX, FXModuleAnimateThrottle | Partial | Yes | Throttle animation not tracked (FX particles work) |
+| RAPIER | RAPIER | Stock | ModuleEnginesFX, FXModuleAnimateThrottle | Full | Yes |  |
+| turboFanEngine | turboFanEngine | Stock | ModuleEnginesFX, FXModuleAnimateThrottle | Full | Yes |  |
+| turboFanSize2 | turboFanSize2 | Stock | ModuleEnginesFX, ModuleAnimateHeat, ModuleAnimateGeneric, ModuleJettison, FXModuleAnimateThrottle | Full | Yes | Has shroud (ModuleJettison) |
+| turboJet | turboJet | Stock | ModuleEnginesFX, FXModuleAnimateThrottle | Full | Yes |  |
 
 ### Fuel Tanks
 
@@ -353,11 +357,11 @@ checked in; re-run the extraction from the KSP GameData directory to refresh.
 | Decoupler_2 | Decoupler.2 | Stock | — | N/A | — |  |
 | Decoupler_3 | Decoupler.3 | Stock | — | N/A | — |  |
 | Decoupler_4 | Decoupler.4 | Making History | — | N/A | — |  |
-| dockingPort1 | dockingPort1 | Stock | ModuleDockingNode, ModuleAnimateGeneric, ModuleColorChanger | Partial | Yes | ModuleColorChanger not tracked |
-| dockingPort2 | dockingPort2 | Stock | ModuleDockingNode, ModuleColorChanger | Partial | — | ModuleColorChanger not tracked |
+| dockingPort1 | dockingPort1 | Stock | ModuleDockingNode, ModuleAnimateGeneric, ModuleColorChanger | Full | Yes |  |
+| dockingPort2 | dockingPort2 | Stock | ModuleDockingNode, ModuleColorChanger | Full | — |  |
 | dockingPort3 | dockingPort3 | Stock | ModuleDockingNode | Full | — |  |
-| dockingPortLarge | dockingPortLarge | Stock | ModuleDockingNode, ModuleColorChanger | Partial | — | ModuleColorChanger not tracked |
-| dockingPortLateral | dockingPortLateral | Stock | ModuleDockingNode, ModuleAnimateGeneric, ModuleColorChanger | Partial | Yes | ModuleColorChanger not tracked |
+| dockingPortLarge | dockingPortLarge | Stock | ModuleDockingNode, ModuleColorChanger | Full | — |  |
+| dockingPortLateral | dockingPortLateral | Stock | ModuleDockingNode, ModuleAnimateGeneric, ModuleColorChanger | Full | Yes |  |
 | EnginePlate1p5 | EnginePlate1p5 | Making History | ModuleJettison | Full | Yes |  |
 | EnginePlate2 | EnginePlate2 | Making History | ModuleJettison | Full | Yes |  |
 | EnginePlate3 | EnginePlate3 | Making History | ModuleJettison | Full | Yes |  |
@@ -365,7 +369,7 @@ checked in; re-run the extraction from the KSP GameData directory to refresh.
 | EnginePlate5 | EnginePlate5 | Making History | ModuleJettison | Full | Yes |  |
 | GrapplingDevice | GrapplingDevice | Stock | ModuleAnimateGeneric | Full | Yes |  |
 | InflatableAirlock | InflatableAirlock | Making History | ModuleDockingNode, ModuleAnimateGeneric | Full | Yes |  |
-| mk2DockingPort | mk2DockingPort | Stock | ModuleDockingNode, ModuleAnimateGeneric, ModuleColorChanger | Partial | Yes | ModuleColorChanger not tracked |
+| mk2DockingPort | mk2DockingPort | Stock | ModuleDockingNode, ModuleAnimateGeneric, ModuleColorChanger | Full | Yes |  |
 | radialDecoupler | radialDecoupler | Stock | — | N/A | — |  |
 | radialDecoupler1-2 | radialDecoupler1-2 | Stock | — | N/A | — |  |
 | radialDecoupler2 | radialDecoupler2 | Stock | — | N/A | — |  |
@@ -403,7 +407,7 @@ checked in; re-run the extraction from the KSP GameData directory to refresh.
 
 | Part (cfg) | Runtime Name | Source | Visual Modules | Support | Showcase | Notes |
 |------------|-------------|--------|----------------|---------|----------|-------|
-| crewCabin | crewCabin | Stock | ModuleColorChanger | Partial | — | ModuleColorChanger not tracked |
+| crewCabin | crewCabin | Stock | ModuleColorChanger | Full | — |  |
 | domeLight1 | domeLight1 | Stock | ModuleLight | Full | Yes |  |
 | fireworksLauncherBig | fireworksLauncherBig | Stock | ModulePartFirework | Partial | — | Firework FX not tracked |
 | fireworksLauncherSmall | fireworksLauncherSmall | Stock | ModulePartFirework | Partial | — | Firework FX not tracked |
@@ -416,12 +420,12 @@ checked in; re-run the extraction from the KSP GameData directory to refresh.
 | flagPartSize4 | flagPartSize4 | Making History | — | N/A | — |  |
 | ISRU | ISRU | Stock | ModuleAnimationGroup | Full | Yes |  |
 | ladder1 | ladder1 | Stock | — | N/A | — |  |
-| LaunchEscapeSystem | LaunchEscapeSystem | Stock | ModuleEnginesFX | Full | — | Bug #32: LES plumes need verification |
+| LaunchEscapeSystem | LaunchEscapeSystem | Stock | ModuleEnginesFX | Full | Yes |  |
 | MiniDrill | MiniDrill | Stock | ModuleAnimationGroup | Full | Yes |  |
 | MiniISRU | MiniISRU | Stock | — | N/A | — |  |
-| MK1CrewCabin | MK1CrewCabin | Stock | ModuleColorChanger | Partial | — | ModuleColorChanger not tracked |
-| mk2CrewCabin | mk2CrewCabin | Stock | ModuleColorChanger | Partial | — | ModuleColorChanger not tracked |
-| mk3CrewCabin | mk3CrewCabin | Stock | ModuleColorChanger | Partial | — | ModuleColorChanger not tracked |
+| MK1CrewCabin | MK1CrewCabin | Stock | ModuleColorChanger | Full | — |  |
+| mk2CrewCabin | mk2CrewCabin | Stock | ModuleColorChanger | Full | — |  |
+| mk3CrewCabin | mk3CrewCabin | Stock | ModuleColorChanger | Full | — |  |
 | navLight1 | navLight1 | Stock | ModuleLight | Full | Yes |  |
 | parachuteDrogue | parachuteDrogue | Stock | ModuleParachute | Full | Yes |  |
 | parachuteLarge | parachuteLarge | Stock | ModuleParachute | Full | Yes |  |
@@ -442,7 +446,7 @@ checked in; re-run the extraction from the KSP GameData directory to refresh.
 |------------|-------------|--------|----------------|---------|----------|-------|
 | GooExperiment | GooExperiment | Stock | ModuleAnimateGeneric | Full | Yes |  |
 | InfraredTelescope | InfraredTelescope | Stock | — | N/A | — |  |
-| Large_Crewed_Lab | Large.Crewed.Lab | Stock | ModuleColorChanger | Partial | — | ModuleColorChanger not tracked |
+| Large_Crewed_Lab | Large.Crewed.Lab | Stock | ModuleColorChanger | Full | — |  |
 | Magnetometer | Magnetometer | Stock | ModuleDeployablePart | Full | Yes |  |
 | OrbitalScanner | OrbitalScanner | Stock | ModuleAnimationGroup | Full | Yes |  |
 | RobotArmScanner_S1 | RobotArmScanner.S1 | Breaking Ground | ModuleRobotArmScanner | Full | Yes |  |
@@ -503,11 +507,11 @@ checked in; re-run the extraction from the KSP GameData directory to refresh.
 | foldingRadLarge | foldingRadLarge | Stock | ModuleDeployableRadiator | Full | Yes |  |
 | foldingRadMed | foldingRadMed | Stock | ModuleDeployableRadiator | Full | Yes |  |
 | foldingRadSmall | foldingRadSmall | Stock | ModuleDeployableRadiator | Full | Yes |  |
-| HeatShield0 | HeatShield0 | Stock | ModuleColorChanger | Partial | — | ModuleColorChanger not tracked |
-| HeatShield1 | HeatShield1 | Stock | ModuleJettison, ModuleColorChanger | Partial | Yes | ModuleColorChanger not tracked |
-| HeatShield1p5 | HeatShield1p5 | Making History | ModuleJettison, ModuleColorChanger | Partial | Yes | ModuleColorChanger not tracked |
-| HeatShield2 | HeatShield2 | Stock | ModuleJettison, ModuleColorChanger | Partial | Yes | ModuleColorChanger not tracked |
-| HeatShield3 | HeatShield3 | Stock | ModuleJettison, ModuleColorChanger | Partial | Yes | ModuleColorChanger not tracked |
+| HeatShield0 | HeatShield0 | Stock | ModuleColorChanger | Full | — |  |
+| HeatShield1 | HeatShield1 | Stock | ModuleJettison, ModuleColorChanger | Full | Yes |  |
+| HeatShield1p5 | HeatShield1p5 | Making History | ModuleJettison, ModuleColorChanger | Full | Yes |  |
+| HeatShield2 | HeatShield2 | Stock | ModuleJettison, ModuleColorChanger | Full | Yes |  |
+| HeatShield3 | HeatShield3 | Stock | ModuleJettison, ModuleColorChanger | Full | Yes |  |
 | InflatableHeatShield | InflatableHeatShield | Stock | ModuleAnimateGeneric, ModuleJettison | Full | Yes |  |
 | radPanelEdge | radPanelEdge | Stock | — | N/A | — |  |
 | radPanelLg | radPanelLg | Stock | — | N/A | — |  |
@@ -525,11 +529,11 @@ checked in; re-run the extraction from the KSP GameData directory to refresh.
 | landingLeg1 | landingLeg1 | Stock | ModuleWheelSuspension, ModuleWheelDeployment | Full | Yes |  |
 | landingLeg1-2 | landingLeg1-2 | Stock | ModuleWheelSuspension, ModuleWheelDeployment | Full | Yes |  |
 | miniLandingLeg | miniLandingLeg | Stock | ModuleWheelSuspension, ModuleWheelDeployment | Full | Yes |  |
-| roverWheel1 | roverWheel1 | Stock | ModuleWheelSuspension, ModuleWheelSteering, ModuleWheelMotor | Full | Yes | Bug #29: may be missing on ghost |
-| roverWheel2 | roverWheel2 | Stock | ModuleWheelSuspension, ModuleWheelSteering, ModuleWheelMotor | Full | Yes | Bug #29: may be missing on ghost |
-| roverWheel3 | roverWheel3 | Stock | ModuleWheelSuspension, ModuleWheelMotorSteering | Full | Yes | Bug #29: may be missing on ghost |
+| roverWheel1 | roverWheel1 | Stock | ModuleWheelSuspension, ModuleWheelSteering, ModuleWheelMotor | Full | Yes |  |
+| roverWheel2 | roverWheel2 | Stock | ModuleWheelSuspension, ModuleWheelSteering, ModuleWheelMotor | Full | Yes |  |
+| roverWheel3 | roverWheel3 | Stock | ModuleWheelSuspension, ModuleWheelMotorSteering | Full | Yes |  |
 | roverWheelM1-F | roverWheelM1-F | Making History | ModuleWheelSuspension, ModuleWheelSteering, ModuleWheelMotor, ModuleWheelDeployment | Full | Yes |  |
-| SmallGearBay | SmallGearBay | Stock | ModuleWheelSuspension, ModuleWheelSteering, ModuleWheelDeployment, ModuleLight | Full | Yes | Bug #29: gear display issues |
+| SmallGearBay | SmallGearBay | Stock | ModuleWheelSuspension, ModuleWheelSteering, ModuleWheelDeployment, ModuleLight | Full | Yes |  |
 | wheelMed | wheelMed | Stock | ModuleWheelSuspension, ModuleWheelSteering, ModuleWheelMotor | Full | Yes |  |
 
 ### Control
@@ -606,9 +610,9 @@ Prebuilt EVA parts, not available in the VAB/SPH editor.
 |------------|-------------|--------|----------------|---------|----------|-------|
 | kerbalEVA | kerbalEVA | Stock | — | N/A | Yes | BG overrides cfg but base part is stock |
 | kerbalEVAfemale | kerbalEVAfemale | Stock | — | N/A | — | BG overrides cfg but base part is stock |
-| kerbalEVAfemaleFuture | kerbalEVAfemaleFuture | Breaking Ground | KerbalEVA, ModuleEvaChute, ModuleColorChanger | Partial | — | ModuleColorChanger not tracked |
+| kerbalEVAfemaleFuture | kerbalEVAfemaleFuture | Breaking Ground | KerbalEVA, ModuleEvaChute, ModuleColorChanger | Full | — |  |
 | kerbalEVAfemaleVintage | kerbalEVAfemaleVintage | Making History | — | N/A | — |  |
-| kerbalEVAFuture | kerbalEVAFuture | Breaking Ground | KerbalEVA, ModuleEvaChute, ModuleColorChanger | Partial | — | ModuleColorChanger not tracked |
+| kerbalEVAFuture | kerbalEVAFuture | Breaking Ground | KerbalEVA, ModuleEvaChute, ModuleColorChanger | Full | — |  |
 | kerbalEVASlimSuit | kerbalEVASlimSuit | Stock | — | N/A | — | BG overrides cfg but base part is stock |
 | kerbalEVASlimSuitFemale | kerbalEVASlimSuitFemale | Stock | — | N/A | — | BG overrides cfg but base part is stock |
 | kerbalEVAVintage | kerbalEVAVintage | Making History | — | N/A | — | BG also overrides this cfg |
@@ -623,15 +627,15 @@ the editor part list but still exist at runtime.
 |------------|-------------|--------|----------------|---------|----------|-------|
 | flag | flag | Stock | — | N/A | — | Planted flag object |
 | HighGainAntenna5 | HighGainAntenna5 | Stock | ModuleDeployableAntenna | Full | Yes | Deprecated, superseded by HighGainAntenna5_v2 |
-| liquidEngine | liquidEngine | Stock | ModuleEngines, ModuleJettison, FXModuleAnimateThrottle | Partial | Yes | Deprecated v1 LV-T30 |
-| liquidEngine2 | liquidEngine2 | Stock | ModuleEngines, ModuleJettison, FXModuleAnimateThrottle | Partial | Yes | Deprecated v1 LV-T45 |
-| mk2LanderCabin | mk2LanderCabin | Stock | ModuleColorChanger | Partial | — | Deprecated v1; ModuleColorChanger not tracked |
+| liquidEngine | liquidEngine | Stock | ModuleEngines, ModuleJettison, FXModuleAnimateThrottle | Full | Yes | Deprecated v1 LV-T30 |
+| liquidEngine2 | liquidEngine2 | Stock | ModuleEngines, ModuleJettison, FXModuleAnimateThrottle | Full | Yes | Deprecated v1 LV-T45 |
+| mk2LanderCabin | mk2LanderCabin | Stock | ModuleColorChanger | Full | — | Deprecated v1 |
 | PotatoComet | PotatoComet | Stock | — | N/A | — | Procedural comet object |
 | PotatoRoid | PotatoRoid | Stock | — | N/A | — | Procedural asteroid object |
 | probeCoreHex | probeCoreHex | Stock | — | N/A | — | Deprecated v1 HECS |
 | rocketNoseCone_v2 | rocketNoseCone.v2 | Stock | — | N/A | — | Deprecated (misleading _v2 name) |
 | roverBody | roverBody | Stock | — | N/A | — | Deprecated v1 rover body |
-| Size2LFB | Size2LFB | Stock | ModuleEnginesFX, FXModuleAnimateThrottle | Partial | — | Deprecated v1 Twin-Boar |
+| Size2LFB | Size2LFB | Stock | ModuleEnginesFX, FXModuleAnimateThrottle | Full | — | Deprecated v1 Twin-Boar |
 | smallRadialEngine | smallRadialEngine | Stock | ModuleEnginesFX | Full | Yes | Deprecated v1 Spider |
 | spotLight1 | spotLight1 | Stock | ModuleLight | Full | Yes | Deprecated v1 spotlight |
 | spotLight2 | spotLight2 | Stock | ModuleLight | Full | Yes | Deprecated v1 spotlight |
@@ -644,75 +648,38 @@ These parts have dynamic visual modules that Parsek handles but have not been vi
 
 | Part (cfg) | Runtime Name | Source | Visual Modules | Support |
 |------------|-------------|--------|----------------|---------|
-| HeatShield0 | HeatShield0 | Stock | ModuleColorChanger | Partial |
-| Size2LFB | Size2LFB | Stock | FXModuleAnimateThrottle, ModuleEnginesFX | Partial |
+| HeatShield0 | HeatShield0 | Stock | ModuleColorChanger | Full |
+| Size2LFB | Size2LFB | Stock | FXModuleAnimateThrottle, ModuleEnginesFX | Full |
 | dockingPort3 | dockingPort3 | Stock | ModuleDockingNode | Full |
 | fireworksLauncherBig | fireworksLauncherBig | Stock | ModulePartFirework | Partial |
 | fireworksLauncherSmall | fireworksLauncherSmall | Stock | ModulePartFirework | Partial |
-| kerbalEVAfemaleFuture | kerbalEVAfemaleFuture | Breaking Ground | KerbalEVA, ModuleEvaChute, ModuleColorChanger | Partial |
-| mk2LanderCabin | mk2LanderCabin | Stock | ModuleColorChanger | Partial |
+| kerbalEVAfemaleFuture | kerbalEVAfemaleFuture | Breaking Ground | KerbalEVA, ModuleEvaChute, ModuleColorChanger | Full |
+| mk2LanderCabin | mk2LanderCabin | Stock | ModuleColorChanger | Full |
 
 Note: Heat shield ablation char (HeatShield0-3, HeatShield1p5) is driven by reentry FX, not toggleable
 events. These need in-flight reentry verification, not pad-based showcases.
 
 ### Parts with Unsupported Visual Modules (No Showcase Needed)
 
-Parts where the only visual gap is ModuleColorChanger (cabin lights) — these are cosmetic and don't need showcase validation, but are listed for completeness.
+Only 2 parts remain with truly unsupported visual modules — the firework launchers.
+All former FXModuleAnimateThrottle and ModuleColorChanger entries have been fixed.
 
 | Part (cfg) | Runtime Name | Source | Unsupported Modules |
 |------------|-------------|--------|---------------------|
-| Clydesdale | Clydesdale | Stock | FXModuleAnimateThrottle |
-| HeatShield1 | HeatShield1 | Stock | ModuleColorChanger |
-| HeatShield1p5 | HeatShield1p5 | Making History | ModuleColorChanger |
-| HeatShield2 | HeatShield2 | Stock | ModuleColorChanger |
-| HeatShield3 | HeatShield3 | Stock | ModuleColorChanger |
-| MassiveBooster | MassiveBooster | Stock | FXModuleAnimateThrottle |
-| Mite | Mite | Stock | FXModuleAnimateThrottle |
-| Pollux | Pollux | Making History | FXModuleAnimateThrottle |
-| RAPIER | RAPIER | Stock | FXModuleAnimateThrottle |
-| SSME | SSME | Stock | FXModuleAnimateThrottle |
-| Shrimp | Shrimp | Stock | FXModuleAnimateThrottle |
-| Size2LFB_v2 | Size2LFB.v2 | Stock | FXModuleAnimateThrottle |
-| Size3AdvancedEngine | Size3AdvancedEngine | Stock | FXModuleAnimateThrottle |
-| Size3EngineCluster | Size3EngineCluster | Stock | FXModuleAnimateThrottle |
-| Thoroughbred | Thoroughbred | Stock | FXModuleAnimateThrottle |
-| dockingPort1 | dockingPort1 | Stock | ModuleColorChanger |
-| dockingPortLateral | dockingPortLateral | Stock | ModuleColorChanger |
-| engineLargeSkipper_v2 | engineLargeSkipper.v2 | Stock | FXModuleAnimateThrottle |
-| ionEngine | ionEngine | Stock | FXModuleAnimateThrottle |
-| liquidEngine | liquidEngine | Stock | FXModuleAnimateThrottle |
-| liquidEngine2 | liquidEngine2 | Stock | FXModuleAnimateThrottle |
-| liquidEngine2-2_v2 | liquidEngine2-2.v2 | Stock | FXModuleAnimateThrottle |
-| liquidEngine2_v2 | liquidEngine2.v2 | Stock | FXModuleAnimateThrottle |
-| liquidEngine3_v2 | liquidEngine3.v2 | Stock | FXModuleAnimateThrottle |
-| liquidEngineMainsail_v2 | liquidEngineMainsail.v2 | Stock | FXModuleAnimateThrottle |
-| liquidEngineMini_v2 | liquidEngineMini.v2 | Stock | FXModuleAnimateThrottle |
-| liquidEngine_v2 | liquidEngine.v2 | Stock | FXModuleAnimateThrottle |
-| microEngine_v2 | microEngine.v2 | Stock | FXModuleAnimateThrottle |
-| mk2DockingPort | mk2DockingPort | Stock | ModuleColorChanger |
-| mk2LanderCabin_v2 | mk2LanderCabin.v2 | Stock | ModuleColorChanger |
-| omsEngine | omsEngine | Stock | FXModuleAnimateThrottle |
-| radialEngineMini_v2 | radialEngineMini.v2 | Stock | FXModuleAnimateThrottle |
-| radialLiquidEngine1-2 | radialLiquidEngine1-2 | Stock | FXModuleAnimateThrottle |
-| smallRadialEngine_v2 | smallRadialEngine.v2 | Stock | FXModuleAnimateThrottle |
-| solidBooster1-1 | solidBooster1-1 | Stock | FXModuleAnimateThrottle |
-| solidBooster_v2 | solidBooster.v2 | Stock | FXModuleAnimateThrottle |
-| toroidalAerospike | toroidalAerospike | Stock | FXModuleAnimateThrottle |
-| turboFanEngine | turboFanEngine | Stock | FXModuleAnimateThrottle |
-| turboFanSize2 | turboFanSize2 | Stock | FXModuleAnimateThrottle |
-| turboJet | turboJet | Stock | FXModuleAnimateThrottle |
+| fireworksLauncherBig | fireworksLauncherBig | Stock | ModulePartFirework |
+| fireworksLauncherSmall | fireworksLauncherSmall | Stock | ModulePartFirework |
 
 ### Module Types Not Yet Supported
 
 | Module | Part Count | Description | Priority |
 |--------|-----------|-------------|----------|
-| ModuleColorChanger | 33 | Cabin interior lights, ablator color | Low — cosmetic only |
+| ~~ModuleColorChanger~~ | ~~33~~ | ~~Cabin interior lights, ablator color~~ | ~~Fixed — cabin lights via LightOn/LightOff, ablation char via reentry FX~~ |
 | ~~FXModuleAnimateThrottle~~ | ~~33~~ | ~~Engine nozzle glow animation~~ | ~~Fixed (bug #40)~~ |
 | ~~FXModuleAnimateRCS~~ | ~~5~~ | ~~RCS thruster response animation~~ | ~~Fixed — uses heat animation system~~ |
 | ModulePartFirework | 2 | Firework launch effects | None — novelty |
 | ModuleControlSurface (continuous) | 24 | Continuous deflection angle — won't implement (binary deploy/retract is sufficient) | Closed |
 | ~~ModuleAnimateHeat (continuous)~~ | ~~16~~ | ~~3-state cold/medium/hot replaces binary~~ | ~~Fixed (3-state)~~ |
-| ModulePartVariants (TEXTURE/MATERIAL) | many | Variant texture/color not applied to ghost (bug #39) | Medium |
+| ~~ModulePartVariants (TEXTURE/MATERIAL)~~ | ~~many~~ | ~~Variant texture/color not applied to ghost (bug #39)~~ | ~~Fixed (bug #39)~~ |
 
 ### DLC Parts Summary
 
@@ -728,7 +695,7 @@ Consolidated from `next-parts-event-support-priority.md` (2026-02-22, now obsole
 ### Supported Module Baseline (as of 2026-03-15)
 
 Recording/playback handles 17 per-physics-frame polling checks plus 4 event-driven sources.
-212 parts have been visually validated via showcase recordings. Full list of supported modules:
+215 parts have been visually validated via showcase recordings. Full list of supported modules:
 parachute, jettison/fairing, deployable (solar/antenna/radiator), ladder, animation-group,
 standalone animate-generic, lights/blink, gear deployment, wheel/leg dynamics
 (suspension/steering/motor), engine + RCS particle FX, robotics motion, aero surface
@@ -769,13 +736,11 @@ builds `HeatGhostInfo` from its animation. Engine events drive the heat state (b
 hot/cold). Name-based heuristic disambiguates multi-instance parts. 33 engine parts now
 have correct nozzle glow behavior on ghost playback.
 
-### Priority 4: ModulePartVariants TEXTURE/MATERIAL rules (bug #39)
+### ~~Priority 4: ModulePartVariants TEXTURE/MATERIAL rules (bug #39)~~ DONE
 
-Ghost parts with non-default texture variants show the prefab's default texture. Only
-GAMEOBJECTS geometry rules are currently applied.
-
-**Work required:** Read TEXTURE sub-nodes from selected VARIANT config, apply
-`renderer.material.SetTexture` overrides during ghost build. Similarly for MATERIAL rules.
+Fixed. Ghost builder now parses TEXTURE sub-nodes from VARIANT configs as generic property
+bags. Handles texture URLs, colors, floats, and shader replacements. Materials cloned before
+modification. Extracted `TryFindSelectedVariantNode` for shared variant-finding logic.
 
 ### Completed
 - ~~**FXModuleAnimateRCS** (5 parts)~~ — Fixed. Uses existing heat animation system, driven by RCS events.
@@ -797,15 +762,13 @@ the launch+burst sequence. Estimated 300-400 lines. Deferred.
 
 ### Showcase Gaps (parts needing validation)
 
-4 non-cosmetic parts with supported visual modules that lack showcase entries:
+3 non-cosmetic parts with supported visual modules that lack showcase entries:
 
 | Part | Module | Notes |
 |------|--------|-------|
-| LaunchEscapeSystem | ModuleEnginesFX | Bug #32 — plume FX needs in-game verification |
 | Size1p5_Tank_05 | ModuleEngines | MH engine-tank hybrid, needs showcase |
 | Size2LFB | ModuleEnginesFX | Deprecated v1 Twin-Boar, low priority |
 | dockingPort3 | ModuleDockingNode | Chain boundary only, no visual event |
 
-The remaining 27 parts without showcase entries are command pods/crew cabins whose only
-visual gap is ModuleColorChanger (cabin lights) — these don't need showcase validation
-until ModuleColorChanger support is implemented.
+ModuleColorChanger is now fully supported. The remaining parts without showcase entries
+are command pods/crew cabins where cabin light behavior has been validated generically.
