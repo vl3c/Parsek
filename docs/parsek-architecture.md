@@ -2,7 +2,7 @@
 
 ## Document Status
 **Version:** 1.1
-**Phase:** Parsek 0.4.0
+**Phase:** Parsek 0.4.2
 **Last Updated:** March 2026
 
 ---
@@ -855,4 +855,4 @@ The architecture naturally enables use cases like racing your own ghosts, but th
 
 ---
 
-*Document version: 1.1 - Parsek 0.4.0 (orbital rotation fidelity, re-entry FX, camera follow)*
+*Document version: 1.1 - Parsek 0.4.2 (orbital rotation fidelity, re-entry FX, camera follow)*
