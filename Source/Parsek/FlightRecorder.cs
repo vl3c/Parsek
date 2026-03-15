@@ -61,6 +61,9 @@ namespace Parsek
         private HashSet<ulong> activeRcsKeys;
         private Dictionary<ulong, float> lastRcsThrottle;
         private HashSet<ulong> loggedRcsModuleKeys = new HashSet<ulong>();
+        // RCS debounce: filters SAS micro-corrections (1-3 frames) while preserving intentional burns (>0.15s)
+        internal const int RcsDebounceFrameThreshold = 8; // ~0.15s at 50Hz
+        private Dictionary<ulong, int> rcsActiveFrameCount = new Dictionary<ulong, int>();
         // Robotics state tracking (Breaking Ground; sparse sampling to limit event volume)
         private List<(Part part, PartModule module, int moduleIndex, string moduleName)> cachedRoboticModules;
         private HashSet<ulong> activeRoboticKeys;
@@ -2333,6 +2336,24 @@ namespace Parsek
             return power;
         }
 
+        /// <summary>
+        /// Returns true when the RCS frame count has exactly reached the debounce threshold,
+        /// meaning this is the first frame where recording should start.
+        /// </summary>
+        internal static bool ShouldStartRcsRecording(int frameCount, int threshold)
+        {
+            return frameCount == threshold;
+        }
+
+        /// <summary>
+        /// Returns true when the RCS frame count is at or above the debounce threshold,
+        /// meaning the activation was sustained and is being recorded.
+        /// </summary>
+        internal static bool IsRcsRecordingSustained(int frameCount, int threshold)
+        {
+            return frameCount >= threshold;
+        }
+
         internal static List<PartEvent> CheckRcsTransition(
             ulong key, uint pid, int moduleIndex, string partName,
             bool active, float power,
@@ -2405,7 +2426,6 @@ namespace Parsek
 
                 ulong key = EncodeEngineKey(part.persistentId, moduleIndex);
                 bool active = rcs.rcs_active && rcs.rcsEnabled;
-                float power = active ? ComputeRcsPower(rcs.thrustForces, rcs.thrusterPower) : 0f;
                 if (loggedRcsModuleKeys.Add(key))
                 {
                     int thrusterCount = rcs.thrusterTransforms != null ? rcs.thrusterTransforms.Count : 0;
@@ -2414,17 +2434,79 @@ namespace Parsek
                         $"midx={moduleIndex} thrusters={thrusterCount} forces={forceCount} power={rcs.thrusterPower:F2}");
                 }
 
-                var events = CheckRcsTransition(
-                    key, part.persistentId, moduleIndex,
-                    part.partInfo?.name ?? "unknown",
-                    active, power,
-                    activeRcsKeys, lastRcsThrottle, ut);
+                uint pid = part.persistentId;
+                string partName = part.partInfo?.name ?? "unknown";
 
-                for (int e = 0; e < events.Count; e++)
+                if (active)
                 {
-                    PartEvents.Add(events[e]);
-                    ParsekLog.Verbose("Recorder", $"Part event: {events[e].eventType} '{events[e].partName}' " +
-                        $"pid={events[e].partPersistentId} midx={events[e].moduleIndex} val={events[e].value:F2}");
+                    int count;
+                    rcsActiveFrameCount.TryGetValue(key, out count);
+                    count++;
+                    rcsActiveFrameCount[key] = count;
+
+                    if (ShouldStartRcsRecording(count, RcsDebounceFrameThreshold))
+                    {
+                        // Debounce threshold crossed — emit RCSActivated
+                        float power = ComputeRcsPower(rcs.thrustForces, rcs.thrusterPower);
+                        ParsekLog.Verbose("Recorder", $"RCS debounce threshold crossed: pid={pid} midx={moduleIndex} after {count} frames");
+                        var events = CheckRcsTransition(
+                            key, pid, moduleIndex, partName,
+                            true, power,
+                            activeRcsKeys, lastRcsThrottle, ut);
+                        for (int e = 0; e < events.Count; e++)
+                        {
+                            PartEvents.Add(events[e]);
+                            ParsekLog.Verbose("Recorder", $"Part event: {events[e].eventType} '{events[e].partName}' " +
+                                $"pid={events[e].partPersistentId} midx={events[e].moduleIndex} val={events[e].value:F2}");
+                        }
+                    }
+                    else if (count > RcsDebounceFrameThreshold)
+                    {
+                        // Already recording — check for throttle changes
+                        float power = ComputeRcsPower(rcs.thrustForces, rcs.thrusterPower);
+                        var events = CheckRcsTransition(
+                            key, pid, moduleIndex, partName,
+                            true, power,
+                            activeRcsKeys, lastRcsThrottle, ut);
+                        for (int e = 0; e < events.Count; e++)
+                        {
+                            PartEvents.Add(events[e]);
+                            ParsekLog.Verbose("Recorder", $"Part event: {events[e].eventType} '{events[e].partName}' " +
+                                $"pid={events[e].partPersistentId} midx={events[e].moduleIndex} val={events[e].value:F2}");
+                        }
+                    }
+                    // else: count < threshold, still debouncing — skip
+                }
+                else
+                {
+                    // RCS not active this frame
+                    int count;
+                    if (rcsActiveFrameCount.TryGetValue(key, out count))
+                    {
+                        if (IsRcsRecordingSustained(count, RcsDebounceFrameThreshold))
+                        {
+                            // Was a sustained activation — emit RCSStopped
+                            var events = CheckRcsTransition(
+                                key, pid, moduleIndex, partName,
+                                false, 0f,
+                                activeRcsKeys, lastRcsThrottle, ut);
+                            for (int e = 0; e < events.Count; e++)
+                            {
+                                PartEvents.Add(events[e]);
+                                ParsekLog.Verbose("Recorder", $"Part event: {events[e].eventType} '{events[e].partName}' " +
+                                    $"pid={events[e].partPersistentId} midx={events[e].moduleIndex} val={events[e].value:F2}");
+                            }
+                        }
+                        else
+                        {
+                            // Filtered micro-correction — clean up any stale state
+                            ParsekLog.VerboseRateLimited("Recorder", $"rcs_micro_{key}",
+                                $"RCS micro-correction filtered: pid={pid} midx={moduleIndex}, {count} frames < {RcsDebounceFrameThreshold}");
+                            activeRcsKeys.Remove(key);
+                            lastRcsThrottle.Remove(key);
+                        }
+                        rcsActiveFrameCount.Remove(key);
+                    }
                 }
             }
         }
@@ -3369,6 +3451,7 @@ namespace Parsek
             cachedRcsModules = CacheRcsModules(v);
             activeRcsKeys = new HashSet<ulong>();
             lastRcsThrottle = new Dictionary<ulong, float>();
+            rcsActiveFrameCount.Clear();
             loggedRcsModuleKeys.Clear();
             cachedRoboticModules = CacheRoboticModules(v);
             activeRoboticKeys = new HashSet<ulong>();
@@ -3822,6 +3905,8 @@ namespace Parsek
                         $"Spinning vessel detected (|angVel|={worldAngVel.magnitude:F4}), recording angular velocity for spin-forward");
                 }
             }
+
+            rcsActiveFrameCount.Clear();
 
             isOnRails = true;
             ParsekLog.Verbose("Recorder",
