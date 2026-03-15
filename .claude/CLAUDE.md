@@ -77,6 +77,10 @@ Every action, state transition, guard condition skip, and FX lifecycle event MUS
 - Use `[Collection("Sequential")]` on test classes that touch shared static state (ParsekLog, RecordingStore, etc.)
 - See `RewindLoggingTests.cs` for the canonical log-capture test pattern
 
+## Visual & Recording Design Principle
+
+Ghost visuals and recording data must be **correct visually, minimal, and efficient**. Many recordings play simultaneously — every per-frame computation and every stored event multiplies across all active ghosts. Prefer coarse-grained state snapshots over continuous sampling. Record threshold crossings, not continuous values. Use debounce to filter noise. If a visual detail isn't noticeable at playback speed, don't record it.
+
 ## Post-Change Checklist
 
 After any change to enums, event types, serialized fields, or schema:

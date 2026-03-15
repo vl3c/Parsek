@@ -251,14 +251,36 @@ Some vessel parts are missing or display incorrectly during ghost playback (both
 
 **Reproduction:** Record a vessel with rover wheels or landing gear. Watch the ghost playback — wheels may be missing entirely, gear may appear in wrong position.
 
-**Root cause (suspected):** Multiple potential causes:
-1. **Missing prefab resolution:** `GhostVisualBuilder.AddPartVisuals` clones meshes from the part prefab. Some parts (rover wheels, robotic parts) may have complex model hierarchies or use SkinnedMeshRenderer with external bones that the cloning process doesn't handle correctly.
-2. **Snapshot initial state mismatch:** The ghost snapshot captures part MODULE state at recording start. If gear/wheels are in a transitional animation state when captured, the ghost starts with that intermediate visual. Part events then replay on top of the wrong initial state.
-3. **Animation sampling gaps:** `SampleDeployableStates` samples animation at t=0 (stowed) and t=1 (deployed). Parts with non-standard animation setups or parts that use multiple animation clips may not be sampled correctly.
+**Root cause (investigation 2026-03-15):** Two confirmed issues with rover wheel ghost rendering:
 
-**Observed in:** KSC ghost testing (2026-03-14). Visible on multiple vessel types.
+1. **Damaged wheel transforms rendered alongside intact meshes:** Rover wheels with `ModuleWheelDamage` have `damagedTransformName` entries (e.g., `bustedwheel`, `wheelDamaged`) pointing to transforms that contain damaged/broken wheel meshes. These transforms are normally inactive in-game but `GetComponentsInChildren<MeshRenderer>(true)` collects them because it includes inactive objects. The ghost rendered both intact and damaged meshes simultaneously, producing visual artifacts.
 
-**Status:** Open
+   Part config survey:
+   - `roverWheelS2`: `damagedTransformName = bustedwheel`
+   - `roverWheelM1`: `damagedTransformName = wheelDamaged`
+   - `roverWheelTR-2L`: `damagedTransformName = bustedwheel`
+   - `roverWheelXL3`: `damagedTransformName = bustedwheel`
+   - Landing gear (GearSmall, GearMedium, GearLarge, GearFixed, GearFree, GearExtraLarge) have `ModuleWheelDamage` but no `damagedTransformName` — no damaged mesh to filter.
+
+2. **Possible null sharedMesh on SkinnedMeshRenderers:** Rover wheel tire meshes may be procedurally generated at runtime by KSP's wheel system. If the prefab's `SkinnedMeshRenderer.sharedMesh` is null, the ghost silently skips it with no diagnostic. Added WARN-level logging to identify this in-game.
+
+**Fix (partial):**
+- Added `GetDamagedWheelTransformNames(ConfigNode partConfig)` to extract `damagedTransformName` values from all `ModuleWheelDamage` MODULE nodes in the part config
+- Added `IsRendererOnDamagedTransform(Transform, HashSet<string>)` to check if a renderer's transform (or any ancestor) matches a damaged transform name
+- Both MeshRenderer and SkinnedMeshRenderer loops now skip renderers on damaged transforms with diagnostic logging
+- Added WARN-level log for null `sharedMesh` on SkinnedMeshRenderers: identifies whether tire meshes are procedurally generated
+- Added summary log per part: counts cloned MeshRenderers, cloned SkinnedMeshRenderers, null-mesh SMR skips, and damaged-wheel renderer skips
+- Diagnostic approach: the WARN log for null sharedMesh will appear in KSP.log when tested in-game, confirming whether missing wheel meshes are due to runtime procedural generation (requires separate fix) vs. the damaged transform overlap (now fixed)
+
+**In-game verification (2026-03-15):** All rover wheels and landing gear render correctly in the showcase. KSP.log confirms:
+- Zero null-sharedMesh warnings — tire meshes ARE present on prefabs (not procedurally generated)
+- Zero SkinnedMeshRenderers on any wheel part — all use regular MeshRenderers
+- Damaged wheel filtering working: roverWheel1 skipped 2 renderers, roverWheel2 skipped 1, roverWheelM1-F skipped 1
+- Variant textures applied correctly on roverWheelM1-F (Grey variant)
+
+The original "wheels missing" report was likely caused by the damaged mesh overlap (now fixed) or by a specific vessel configuration not reproduced in the showcase.
+
+**Status:** Fixed
 
 ## 30. All RCS thrusters fire constantly during ghost playback
 
@@ -277,7 +299,9 @@ Additionally, `ComputeRcsPower` normalizes thrust across all nozzles (`sum / (th
 
 **Observed in:** Sandbox career (2026-03-14). Visible on vessels with RCS blocks: ghost #9 (rcs=8), ghost #5 (rcs=8), ghost #10 (rcs=3), ghost #12 (rcs=10). No RCS events were recorded in this session (playback-only), but the FX build chain created particle systems for all RCS modules.
 
-**Status:** Open
+**Fix:** Added 8-frame debounce (~0.15s at 50Hz) to `CheckRcsState` in both `FlightRecorder` and `BackgroundRecorder`. RCS must be continuously `rcs_active` for 8 consecutive physics frames before `RCSActivated` is emitted. `RCSStopped` fires immediately when activity stops after a sustained activation. Micro-corrections below the threshold are silently filtered — no events emitted. Debounce state tracked in `rcsActiveFrameCount` dictionary, cleared on reset. Pure static helpers `ShouldStartRcsRecording`/`IsRcsRecordingSustained` extracted for testability. No changes to PartEvent struct, serialization, playback, or ghost builder.
+
+**Status:** Fixed
 
 ## 31. Engine shroud/cover not rendered correctly for some engines
 
@@ -291,7 +315,13 @@ The active variant's shroud is detected and tracked correctly via the `cloneMap`
 
 **Observed in:** KSC ghost testing (2026-03-14). Affected engine parts include `LiquidEngineKE-1` (72+60 variant misses), `engineLargeSkipper.v2` (25 variant misses), `LiquidEngineLV-T91`/`LiquidEngineLV-TX87` (18 variant misses).
 
-**Status:** Open — needs in-game visual verification to identify which specific engines show incorrect shrouds
+**In-game verification (2026-03-15):** Log analysis of a 126-part shuttle session confirms the variant-aware jettison detection works correctly. The active variant's shroud IS cloned and tracked for all affected engines. The "not in cloneMap" messages (138 in this session) are for inactive variant meshes that were correctly excluded by GAMEOBJECT variant rules. No actual rendering defects observed.
+
+Example — Poodle (liquidEngine2-2.v2, SingleBell variant): `Shroud2` correctly cloned and tracked, `Shroud1` correctly excluded with "not in cloneMap" message.
+
+The verbose "not in cloneMap" messages are informational, not errors. Consider rate-limiting them in a future cleanup pass.
+
+**Status:** Not a bug — working as designed
 
 ## 32. Launch Escape System (LES) plume effects need verification
 
@@ -304,7 +334,9 @@ The Launch Escape System (`LaunchEscapeSystem` part) has 5 `thrustTransform` noz
 
 **Observed in:** Log analysis (2026-03-14). Ghost build succeeds with 6 MeshRenderers and 5 thruster FX systems. Engine FX `playing=False` on initial ignition frame was observed for LES (90 occurrences) — the particle system may not visually start until the second frame after `EngineIgnited`.
 
-**Status:** Open — needs in-game visual comparison
+**Root cause (confirmed):** `GameDatabase.GetModelPrefab` returns inactive root GameObjects. The cloned FX instance inherited the inactive state, causing `ParticleSystem.Play()` to silently fail. Fix: added `SetActive(true)` after instantiation in the engine MODEL_MULTI_PARTICLE path (matching the existing RCS FX path). Fixes LES plume and silently broken MODEL_MULTI_PARTICLE on other engines.
+
+**Status:** Fixed
 
 ## 33. Crash sequence: vessel stays visually intact until final explosion
 
@@ -339,7 +371,9 @@ The engine FX diagnostic log (`SetEngineEmission` line 6140) reports `playing=Fa
 
 **Visual impact:** None — this is a logging artifact. The 462 `playing=False` log entries in the 2026-03-14 session are from the rate-limited diagnostic (0.5s interval) logging once at ignition time. The particle FX visually appears correctly from the next rendered frame.
 
-**Status:** Not a bug — logging artifact only
+**Update (2026-03-15):** The `playing=False` diagnostic was accurate — the particle systems genuinely were not playing due to the inactive-FX-instance bug (fixed in bug #32). The diagnostic correctly identified the symptom; the underlying cause was the missing `SetActive(true)` call, not a Unity timing quirk.
+
+**Status:** Fixed (root cause was bug #32)
 
 ## 36. GhostVisual VERBOSE output dominates log (performance)
 
@@ -383,3 +417,95 @@ The crash sequence: (1) vessel explodes → joint break → `DeferredJointBreakC
 **Fix:** Added `ShowPostDestructionTreeMergeDialog` coroutine triggered from both `OnVesselWillDestroy` (active vessel dies) and `DeferredDestructionCheck` (last background vessel dies). Uses `RecordingTree.AreAllLeavesTerminal` to detect when all tree leaves are dead, reuses `FinalizeTreeRecordings` + `StashPendingTree`, handles autoMerge. `treeDestructionDialogPending` flag prevents duplicate coroutines. `FlightResultsPatch.ClearPending` clears stale results on scene change. Safety net in `OnFlightReady` replays suppressed flight results if no dialog ever fired.
 
 **Status:** Fixed
+
+## 39. Ghost parts show wrong texture variant
+
+When a player selects a non-default part variant (e.g., a different paint scheme on the Mk1-3 Command Pod, or an orange fuel tank variant), the ghost renders with the prefab's default texture instead of the recorded variant's texture. The part geometry (shape) is correct — only the visual appearance (texture/color) is wrong.
+
+**Root cause:** `GhostVisualBuilder.TryGetSelectedVariantGameObjectStates` (line ~3458) only processes `GAMEOBJECTS` rules from the selected `VARIANT` config, which control geometry visibility (enable/disable sub-meshes). `TEXTURE` and `MATERIAL` variant rules are completely unsupported — they are never read from the variant config, and no `SetTexture` or material property overrides are applied to the ghost's cloned renderers. No warning is logged for the skipped rules.
+
+**Affected parts:** All parts with `ModulePartVariants` that use TEXTURE or MATERIAL rules for variant differentiation. Common examples:
+- Command pods with paint schemes (mk1pod_v2, mk1-3pod, mk2LanderCabin_v2)
+- Fuel tanks with color variants (fuelTank, fuelTankSmall, Rockomax series)
+- Structural adapters with color variants
+- Making History size 1.5 parts
+
+Parts with geometry-only variants (GAMEOBJECTS rules) are handled correctly — this bug only affects texture/material-based variants.
+
+**Distinction from bug #31:** Bug #31 is about engine shroud *geometry* (jettison transform) not rendering for non-active variant meshes. This bug is about the *surface appearance* (texture/color) being wrong even when the correct geometry is shown.
+
+**Identified by:** Part coverage audit (2026-03-15)
+
+**Fix:** Extended ghost builder to parse TEXTURE sub-nodes from VARIANT configs as generic property bags. Handles texture URLs, colors, floats, and shader replacements. Materials cloned before modification. Extracted `TryFindSelectedVariantNode` for shared variant-finding logic.
+
+**Status:** Fixed
+
+## 40. SRB nozzle glow persists after burnout
+
+SRB nozzles on ghost vessels remain glowing indefinitely after the SRB runs out of fuel. The exhaust particle FX stops correctly on `EngineShutdown`, but the nozzle mesh stays emissive/hot-looking. Looks wrong after ~5 seconds — no heat source, but nozzle still glows.
+
+**Root cause:** SRB nozzle glow is driven by `FXModuleAnimateThrottle`, not `ModuleAnimateHeat`. Parsek only handles `ModuleAnimateHeat` for heat ghost visuals. The chain of failure:
+
+1. **Ghost build:** `TryGetAnimateHeatAnimation` searches for `ModuleAnimateHeat` only. SRBs have `FXModuleAnimateThrottle` instead → no `HeatGhostInfo` is created.
+2. **Prefab clone:** The ghost mesh is cloned from the prefab with the `FXModuleAnimateThrottle` animation at whatever emissive state the prefab model had (often partially or fully glowing).
+3. **Recording:** `EngineShutdown` event is recorded correctly when SRB burns out (`isOperational` becomes false on fuel depletion).
+4. **Playback:** `EngineShutdown` handler calls `ApplyHeatState(heated: false)`, which looks up `state.heatInfos[pid]` — but no entry exists for this part (step 1), so the call returns false and does nothing.
+5. **Result:** Particle exhaust stops, but emissive nozzle glow is permanently frozen.
+
+**Affected parts:** 7 of 9 stock SRBs (all with `FXModuleAnimateThrottle`), plus 26 other engines (jets, ion engine, RAPIER, etc.).
+
+**Fix:** Extended `GhostVisualBuilder` to detect `FXModuleAnimateThrottle` as a fallback heat source. Name-based heuristic ("heat"/"emissive"/"glow"/"color") disambiguates multi-instance parts (Panther, Whiplash). `EngineIgnited`/`EngineThrottle` now call `ApplyHeatState(hot)`. Cold initialization at ghost spawn prevents prefab emissive bleed-through.
+
+**Status:** Fixed
+
+## 41. Spurious Decoupled events on rover wheels under impact stress
+
+When a rover flips or crashes, KSP fires `onPartJointBreak` for wheel parts even though the wheels remain physically attached to the vessel (the joint is stressed but the part stays). Parsek records `Decoupled` events for every `onPartJointBreak` and hides those parts on the ghost. Result: the ghost rover drives around with invisible wheels.
+
+**Observed in:** Sandbox career (2026-03-15). "Test Alibaba" rover (recording `58332bc4a9fd48ac9900c86e1bad5b27`): 4 `roverWheel1` parts received repeated `Decoupled` events totaling 4347 part events for a 37-part rover (117 events per part average). The wheels stayed attached on the real vessel and the rover kept driving. Other parts (`noseconeVS`, `ksp.r.largeBatteryPack`, `telescopicLadderBay`, `longAntenna`, `GooExperiment`, `sensorBarometer`) correctly received `Destroyed` events when they actually broke off.
+
+**Root cause:** `onPartJointBreak` fires for joints under impact stress, not just for permanent separations. KSP wheel joints can break and re-form during collisions — the part never actually leaves the vessel. The recording code treats every `onPartJointBreak` as a permanent `Decoupled` event without verifying that the part actually separated.
+
+**Fix:** Two guards in `OnPartJointBreak`: (1) structural joint filter — compares `joint` against `joint.Child.attachJoint` to skip non-structural breaks (wheel suspension, steering joints under stress); (2) PID deduplication — `decoupledPartIds` HashSet prevents duplicate Decoupled events for the same part. Pure logic extracted to `IsStructuralJointBreak(bool, bool)` for testability.
+
+**Status:** Fixed
+
+## 42. Engine shroud missing at recording start (initial state seeding)
+
+On multi-stage rockets, the second stage engine's protective shroud (ModuleJettison fairing) is missing from the ghost at the start of playback. The shroud should be visible during the first stage burn and only disappear at staging.
+
+**Observed in:** Sandbox career (2026-03-15). "#autoLOC_501218" (large multi-stage rocket in Dynawing Probe tree). SSME engines (PIDs 372523866, 409669795) have `ShroudJettisoned` events firing at the very start of the recording. The ghost builds the `Fairing` mesh correctly (`MR[1] 'Fairing'`, jettison detected) but immediately hides it.
+
+**Root cause:** `jettisonedShrouds` HashSet was cleared but not seeded with already-jettisoned parts at recording start. When the first physics-frame poll ran `CheckJettisonTransition`, any shroud already jettisoned (from a previous stage) was not in the set, so `HashSet.Add` returned true and a spurious `ShroudJettisoned` event was emitted at UT=0. Same issue affected `activeEngineKeys` (engines already running produced spurious `EngineIgnited`), and all other tracking sets (`lightsOn`, `extendedDeployables`, `deployedGear`, `openCargoBays`, `parachuteStates`, `deployedLadders`, `deployedAnimationGroups`, `activeRcsKeys`, etc.).
+
+**Fix:** Added `SeedExistingPartStates` method in `FlightRecorder` that pre-populates all tracking sets by reading the current state of every part on the vessel at recording start. Added matching `SeedBackgroundPartStates` in `BackgroundRecorder`. Previously only `deployedFairings` was seeded; now all 15+ tracking sets are seeded consistently using the same state-reading logic as their respective `CheckXxxState` methods.
+
+**Distinction from bug #31:** Bug #31 is about `ModulePartVariants` geometry selection for shroud transforms. This bug is about `ModuleJettison` timing — the correct shroud mesh is built but hidden too early.
+
+**Status:** Fixed
+
+## 43. Ghost variant texture shader not found: KSP/Emissive Specular
+
+When applying variant TEXTURE rules to ghost parts, `Shader.Find("KSP/Emissive Specular")` returns null. This affects `pointyNoseConeA` and `pointyNoseConeB` whose variants specify `shader = KSP/Emissive Specular`. The texture and color properties are still applied (using the existing shader), but the shader swap fails silently with a WARN log.
+
+**Observed in:** Shroud test session (2026-03-15). 138 warnings across 12+ ghost rebuild cycles for these two nose cone types.
+
+**Root cause:** `Shader.Find()` requires the shader to be loaded in memory. KSP shaders are in shader bundles that may not expose all shaders by name to `Shader.Find()`. The shader exists at runtime (stock parts use it), but the lookup path via string name may not find it.
+
+**Impact:** Low — cosmetic only. The nose cone still renders with the correct texture and colors, just without the shader change (which primarily affects specular/emissive rendering behavior). Visually negligible at playback speed.
+
+**Possible fix:** Cache a reference to known KSP shaders at mod initialization by finding them on existing materials rather than by name. Or accept the fallback as "good enough."
+
+**Status:** Open — low priority cosmetic
+
+## 44. Code cleanup: duplicated seeding logic and growing out-parameter list
+
+Technical debt from the part-audit PR (#46). Three `// TODO:` items in source code:
+
+1. **Seeding duplication (~340 lines):** `FlightRecorder.SeedExistingPartStates` and `BackgroundRecorder.SeedBackgroundPartStates` are near-identical. Both iterate all parts, check the same modules, seed the same tracking set types. If a new module type is added, both methods need updating. Extract shared static helpers that take tracking set collections as parameters.
+
+2. **BuildTimelineGhostFromSnapshot out-parameters (10 info lists):** The backward-compat overloads are unwieldy. Bundle into a `GhostBuildResult` class/struct.
+
+Locations: `FlightRecorder.cs:3552`, `BackgroundRecorder.cs:637`, `GhostVisualBuilder.cs:465`. Search `// TODO:` in source.
+
+**Status:** Open — tech debt, not a visual bug
