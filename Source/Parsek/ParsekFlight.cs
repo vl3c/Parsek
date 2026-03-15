@@ -5770,6 +5770,7 @@ namespace Parsek
                         StopEngineFxForPart(state, evt.partPersistentId);
                         StopRcsFxForPart(state, evt.partPersistentId);
                         ApplyHeatState(state, evt, heated: false);
+                        SpawnPartPuffAtPart(ghost, evt.partPersistentId);
                         if (tree != null)
                             HidePartSubtree(ghost, evt.partPersistentId, tree);
                         else
@@ -5782,6 +5783,7 @@ namespace Parsek
                         StopEngineFxForPart(state, evt.partPersistentId);
                         StopRcsFxForPart(state, evt.partPersistentId);
                         ApplyHeatState(state, evt, heated: false);
+                        SpawnPartPuffAtPart(ghost, evt.partPersistentId);
                         HideGhostPart(ghost, evt.partPersistentId);
                         ParsekLog.Verbose("Flight", $"Part event applied: Destroyed '{evt.partName}' pid={evt.partPersistentId}");
                         GhostVisualBuilder.RebuildReentryMeshes(ghost, state.reentryFxInfo);
@@ -5989,6 +5991,37 @@ namespace Parsek
                 RecalculateCameraPivot(state);
             UpdateBlinkingLights(state, currentUT);
             UpdateActiveRobotics(state, currentUT);
+        }
+
+        /// <summary>
+        /// Spawns a small smoke puff + spark FX at a ghost part's world position.
+        /// Called before hiding the part on Decoupled/Destroyed events.
+        /// </summary>
+        internal static void SpawnPartPuffAtPart(GameObject ghost, uint persistentId)
+        {
+            if (ghost == null) return;
+            var t = ghost.transform.Find($"ghost_part_{persistentId}");
+            if (t == null)
+            {
+                ParsekLog.Verbose("PartPuffFx", $"Skipped puff for pid={persistentId} — part transform not found");
+                return;
+            }
+            if (!t.gameObject.activeSelf)
+            {
+                ParsekLog.Verbose("PartPuffFx", $"Skipped puff for pid={persistentId} — part already inactive");
+                return;
+            }
+
+            // Estimate part scale from its renderer bounds
+            float partScale = 1f;
+            var renderer = t.GetComponentInChildren<Renderer>();
+            if (renderer != null)
+                partScale = renderer.bounds.size.magnitude * 0.5f;
+
+            var pos = t.position;
+            GhostVisualBuilder.SpawnPartPuffFx(pos, partScale);
+            ParsekLog.Verbose("PartPuffFx",
+                $"Spawned puff for pid={persistentId} at ({pos.x:F1},{pos.y:F1},{pos.z:F1}) scale={partScale:F2}");
         }
 
         internal static void HideGhostPart(GameObject ghost, uint persistentId)

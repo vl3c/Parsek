@@ -308,13 +308,13 @@ The Launch Escape System (`LaunchEscapeSystem` part) has 5 `thrustTransform` noz
 
 ## 33. Crash sequence: vessel stays visually intact until final explosion
 
-When a vessel crashes, the ghost appears to jump from intact to exploded with no visible breakup in between.
+When a vessel crashes, the ghost stays visually intact until the explosion fires. Parts that individually break off (sep motors, nose cones) are hidden correctly via `Decoupled`/`Destroyed` events, but parts still attached at final impact have no per-part event — they're cleaned up by `HideAllGhostParts` at explosion time.
 
-**Root cause:** Not a bug — fidelity limitation. The crash happens in 1-2 physics frames, so all `Decoupled` and `Destroyed` part events share the same UT. During playback, they all apply on the same rendered frame. The current behavior is correct: `Decoupled` hides parts without controllers (boosters, stages), and the explosion fires when the trajectory ends / root part is destroyed. There is simply no time gap between events for the player to perceive progressive breakup.
+**Root cause:** KSP's `onPartDie`/`onPartJointBreak` only fire for parts individually destroyed before the vessel is removed. Parts still attached at final vessel destruction get no event. For #autoLOC_8005481 (50 parts), only 10 parts got individual events; the other 40 stayed visible until the explosion. This is expected — the rocket genuinely stayed mostly intact until impact.
 
-**Observed in:** Sandbox career (2026-03-14). Ghost #9 crash sequence has ~50 events at the same UT.
+**Improvement:** Added `SpawnPartPuffFx` — a small smoke puff (10-20 particles) + spark burst (8-15 particles) at the part's world position when `Decoupled` or `Destroyed` events are applied during ghost playback. Gives visible feedback for individual part separation/destruction even when all events fire on the same frame.
 
-**Status:** Not a bug — expected behavior for single-frame crashes
+**Status:** Improved — part separation now has visual FX feedback
 
 ## 34. ShouldTriggerExplosion log spam (performance)
 
