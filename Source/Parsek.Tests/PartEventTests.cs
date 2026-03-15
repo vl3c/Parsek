@@ -1449,6 +1449,46 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region RCS debounce
+
+        [Fact]
+        public void ShouldStartRcsRecording_AtThreshold_ReturnsTrue()
+        {
+            Assert.True(FlightRecorder.ShouldStartRcsRecording(8, 8));
+        }
+
+        [Fact]
+        public void ShouldStartRcsRecording_BelowThreshold_ReturnsFalse()
+        {
+            Assert.False(FlightRecorder.ShouldStartRcsRecording(7, 8));
+        }
+
+        [Fact]
+        public void ShouldStartRcsRecording_AboveThreshold_ReturnsFalse()
+        {
+            Assert.False(FlightRecorder.ShouldStartRcsRecording(9, 8));
+        }
+
+        [Fact]
+        public void IsRcsRecordingSustained_AtThreshold_ReturnsTrue()
+        {
+            Assert.True(FlightRecorder.IsRcsRecordingSustained(8, 8));
+        }
+
+        [Fact]
+        public void IsRcsRecordingSustained_BelowThreshold_ReturnsFalse()
+        {
+            Assert.False(FlightRecorder.IsRcsRecordingSustained(5, 8));
+        }
+
+        [Fact]
+        public void IsRcsRecordingSustained_AboveThreshold_ReturnsTrue()
+        {
+            Assert.True(FlightRecorder.IsRcsRecordingSustained(20, 8));
+        }
+
+        #endregion
+
         #region RCS event serialization
 
         [Fact]
