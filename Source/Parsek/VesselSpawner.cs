@@ -38,6 +38,9 @@ namespace Parsek
         {
             try
             {
+                ParsekLog.Verbose("Spawner",
+                    $"RespawnVessel: excludeCrew={(excludeCrew != null ? excludeCrew.Count.ToString() : "null")}");
+
                 // Use a copy to avoid modifying the saved snapshot
                 ConfigNode spawnNode = vesselNode.CreateCopy();
 
@@ -107,32 +110,11 @@ namespace Parsek
                 // Determine situation from altitude and velocity
                 double orbitalSpeed = Math.Sqrt(body.gravParameter / (body.Radius + alt));
                 bool overWater = body.ocean && body.TerrainAltitude(lat, lon) < 0;
-                string sit;
-                if (alt <= 0 && overWater)
-                {
-                    sit = "SPLASHED";
-                    spawnNode.SetValue("landed", "False", true);
-                    spawnNode.SetValue("splashed", "True", true);
-                }
-                else if (alt <= 0)
-                {
-                    sit = "LANDED";
-                    spawnNode.SetValue("landed", "True", true);
-                    spawnNode.SetValue("splashed", "False", true);
-                }
-                else if (velocity.magnitude > orbitalSpeed * 0.9)
-                {
-                    sit = "ORBITING";
-                    spawnNode.SetValue("landed", "False", true);
-                    spawnNode.SetValue("splashed", "False", true);
-                }
-                else
-                {
-                    sit = "FLYING";
-                    spawnNode.SetValue("landed", "False", true);
-                    spawnNode.SetValue("splashed", "False", true);
-                }
-                spawnNode.SetValue("sit", sit, true);
+                string sit = DetermineSituation(alt, overWater, velocity.magnitude, orbitalSpeed);
+                ApplySituationToNode(spawnNode, sit);
+                ParsekLog.Verbose("Spawner",
+                    $"SpawnAtPosition: determined sit={sit} (alt={alt:F0}, speed={velocity.magnitude:F1}, " +
+                    $"orbitalSpeed={orbitalSpeed:F1}, overWater={overWater})");
 
                 // Rebuild ORBIT subnode from position + velocity
                 var orbit = new Orbit();
@@ -776,6 +758,9 @@ namespace Parsek
             }
 
             Vessel vessel = vesselOverride ?? FlightGlobals.ActiveVessel;
+            ParsekLog.Verbose("Spawner",
+                $"SnapshotVessel: using {(vesselOverride != null ? "override" : "active")} vessel, " +
+                $"vesselDestroyed={vesselDestroyed}, points={pending.Points.Count}");
             if (vessel == null)
             {
                 pending.VesselDestroyed = true;
@@ -924,8 +909,10 @@ namespace Parsek
         /// </summary>
         private static void RegenerateVesselIdentity(ConfigNode spawnNode)
         {
-            spawnNode.SetValue("pid", Guid.NewGuid().ToString("N"), true);
+            string newPid = Guid.NewGuid().ToString("N");
+            spawnNode.SetValue("pid", newPid, true);
             spawnNode.SetValue("persistentId", "0", true);
+            ParsekLog.Verbose("Spawner", $"Regenerated vessel identity: pid={newPid}");
         }
 
         private static void EnsureSpawnReadiness(ConfigNode spawnNode)
@@ -974,5 +961,36 @@ namespace Parsek
                 return snapshotAltitude;
             return 0.0;
         }
+
+        #region Extracted helpers
+
+        /// <summary>
+        /// Pure decision: determine vessel situation string from altitude, water presence,
+        /// speed, and orbital speed. Used by SpawnAtPosition.
+        /// </summary>
+        internal static string DetermineSituation(double alt, bool overWater, double speed, double orbitalSpeed)
+        {
+            if (alt <= 0 && overWater)
+                return "SPLASHED";
+            if (alt <= 0)
+                return "LANDED";
+            if (speed > orbitalSpeed * 0.9)
+                return "ORBITING";
+            return "FLYING";
+        }
+
+        /// <summary>
+        /// Apply a situation string and its corresponding landed/splashed flags to a spawn node.
+        /// </summary>
+        private static void ApplySituationToNode(ConfigNode spawnNode, string sit)
+        {
+            bool landed = sit == "LANDED";
+            bool splashed = sit == "SPLASHED";
+            spawnNode.SetValue("landed", landed ? "True" : "False", true);
+            spawnNode.SetValue("splashed", splashed ? "True" : "False", true);
+            spawnNode.SetValue("sit", sit, true);
+        }
+
+        #endregion
     }
 }
