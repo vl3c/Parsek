@@ -484,10 +484,14 @@ namespace Parsek
             }
 
             initialLoadDone = true;
+            int prevEvents = events.Count;
+            int prevSnapshots = contractSnapshots.Count;
             events.Clear();
             contractSnapshots.Clear();
             committedScienceSubjects.Clear();
             originalScienceValues.Clear();
+            ParsekLog.Verbose("GameStateStore",
+                $"LoadEventFile: cleared prior state ({prevEvents} events, {prevSnapshots} snapshots) before loading");
 
             string path = RecordingPaths.ResolveSaveScopedPath(
                 RecordingPaths.BuildGameStateEventsRelativePath());
@@ -542,20 +546,8 @@ namespace Parsek
                 // Log event type distribution for diagnostics
                 if (events.Count > 0)
                 {
-                    var typeCounts = new Dictionary<GameStateEventType, int>();
-                    for (int i = 0; i < events.Count; i++)
-                    {
-                        var type = events[i].eventType;
-                        if (typeCounts.ContainsKey(type))
-                            typeCounts[type]++;
-                        else
-                            typeCounts[type] = 1;
-                    }
-
-                    var parts = new List<string>();
-                    foreach (var kvp in typeCounts)
-                        parts.Add($"{kvp.Key}={kvp.Value}");
-                    ParsekLog.Verbose("GameStateStore", $"Event type distribution: {string.Join(", ", parts)}");
+                    string distribution = BuildEventTypeDistribution(events);
+                    ParsekLog.Verbose("GameStateStore", $"Event type distribution: {distribution}");
                 }
 
                 return true;
@@ -672,6 +664,29 @@ namespace Parsek
                 ParsekLog.Warn("GameStateStore", $"Failed to move temp file '{tmpPath}' to '{path}': {ex.Message}");
                 throw;
             }
+        }
+
+        /// <summary>
+        /// Builds a comma-separated distribution of event types from the given events list.
+        /// Pure function — no side effects, no Unity dependencies.
+        /// Example output: "ContractAccepted=2, FundsChanged=5, TechResearched=1"
+        /// </summary>
+        internal static string BuildEventTypeDistribution(IReadOnlyList<GameStateEvent> eventList)
+        {
+            var typeCounts = new Dictionary<GameStateEventType, int>();
+            for (int i = 0; i < eventList.Count; i++)
+            {
+                var type = eventList[i].eventType;
+                if (typeCounts.ContainsKey(type))
+                    typeCounts[type]++;
+                else
+                    typeCounts[type] = 1;
+            }
+
+            var parts = new List<string>();
+            foreach (var kvp in typeCounts)
+                parts.Add($"{kvp.Key}={kvp.Value}");
+            return string.Join(", ", parts);
         }
 
         #endregion
