@@ -47,6 +47,7 @@ These rules are given verbatim to every Pass 1 subagent.
 - Adding `#region` markers for organizational clarity
 - Adding `ParsekLog` calls (see Logging Carve-out below)
 - Marking **newly extracted** methods as `internal static` when they are pure functions testable without Unity, or `private` otherwise
+- **C# accessibility rule:** A method marked `internal static` can only use parameter types that are `internal` or `public`. If any parameter type is `private` (e.g., a `private enum`), the method MUST be `private static` instead. Do NOT change the access modifier on the pre-existing type to work around this.
 
 ### NOT ALLOWED
 
@@ -257,6 +258,7 @@ Each split:
 | `dotnet test` | After every build gate | 1250+ tests pass, 0 failures (count increases as we add tests) |
 | Orchestrator diff review | Every file change | Verify no logic changes, logging is correct, tests are meaningful |
 | Merge-check | After parallel batches | No file-level conflicts between parallel agents |
+| Supervisor build verify | Before every commit | Orchestrator runs `dotnet build` independently — never trust agent self-reported build success |
 | User approval | Before Pass 3 execution | User reviews Pass 2 analysis and split plan |
 
 ### Build Commands (relative to worktree root)
