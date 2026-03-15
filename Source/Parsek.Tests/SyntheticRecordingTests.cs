@@ -5461,7 +5461,10 @@ namespace Parsek.Tests
                     // Real recordings from default career (conditional)
                     if (realRecordingNodes.Length > 0)
                     {
-                        Assert.Contains("vesselName = R0", content);
+                        // Verify at least one real recording was injected by checking
+                        // for any vesselName from the first real recording node
+                        string firstRealVessel = realRecordingNodes[0].GetValue("vesselName");
+                        Assert.Contains($"vesselName = {firstRealVessel}", content);
                     }
 
                     Assert.Contains("FLIGHTSTATE", content);
