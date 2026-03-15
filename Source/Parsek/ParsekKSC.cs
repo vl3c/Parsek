@@ -782,40 +782,10 @@ namespace Parsek
             if (state == null) return;
 
             // Stop engine particle systems
-            if (state.engineInfos != null)
-            {
-                foreach (var kv in state.engineInfos)
-                {
-                    if (kv.Value.particleSystems == null) continue;
-                    for (int i = 0; i < kv.Value.particleSystems.Count; i++)
-                    {
-                        var ps = kv.Value.particleSystems[i];
-                        if (ps != null)
-                        {
-                            ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                            ps.Clear(true);
-                        }
-                    }
-                }
-            }
+            StopParticleSystems(state.engineInfos);
 
             // Stop RCS particle systems
-            if (state.rcsInfos != null)
-            {
-                foreach (var kv in state.rcsInfos)
-                {
-                    if (kv.Value.particleSystems == null) continue;
-                    for (int i = 0; i < kv.Value.particleSystems.Count; i++)
-                    {
-                        var ps = kv.Value.particleSystems[i];
-                        if (ps != null)
-                        {
-                            ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                            ps.Clear(true);
-                        }
-                    }
-                }
-            }
+            StopRcsParticleSystems(state.rcsInfos);
 
             ParsekFlight.DestroyAllFakeCanopies(state);
 
@@ -823,6 +793,50 @@ namespace Parsek
                 Destroy(state.ghost);
 
             ParsekLog.Verbose("KSCGhost", $"Ghost #{index} destroyed");
+        }
+
+        /// <summary>
+        /// Stop and clear all particle systems in engine ghost infos.
+        /// Extracted from DestroyKscGhost to deduplicate engine/RCS cleanup.
+        /// </summary>
+        private static void StopParticleSystems(Dictionary<ulong, EngineGhostInfo> infos)
+        {
+            if (infos == null) return;
+            foreach (var kv in infos)
+            {
+                if (kv.Value.particleSystems == null) continue;
+                for (int i = 0; i < kv.Value.particleSystems.Count; i++)
+                {
+                    var ps = kv.Value.particleSystems[i];
+                    if (ps != null)
+                    {
+                        ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                        ps.Clear(true);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Stop and clear all particle systems in RCS ghost infos.
+        /// Extracted from DestroyKscGhost to deduplicate engine/RCS cleanup.
+        /// </summary>
+        private static void StopRcsParticleSystems(Dictionary<ulong, RcsGhostInfo> infos)
+        {
+            if (infos == null) return;
+            foreach (var kv in infos)
+            {
+                if (kv.Value.particleSystems == null) continue;
+                for (int i = 0; i < kv.Value.particleSystems.Count; i++)
+                {
+                    var ps = kv.Value.particleSystems[i];
+                    if (ps != null)
+                    {
+                        ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                        ps.Clear(true);
+                    }
+                }
+            }
         }
 
         #endregion

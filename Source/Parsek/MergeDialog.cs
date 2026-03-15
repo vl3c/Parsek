@@ -234,6 +234,9 @@ namespace Parsek
             if (chainSiblings != null)
                 foreach (var s in chainSiblings) branchSet.Add(s.ChainBranch);
             int branchCount = branchSet.Count;
+            ParsekLog.Verbose("MergeDialog",
+                $"Chain dialog: branchCount={branchCount}, totalSegments={totalSegments}, " +
+                $"destroyed={pending.VesselDestroyed}, hasSnapshot={pending.VesselSnapshot != null}");
             string segmentLabel = branchCount > 1
                 ? $"Mission chain ({totalSegments} segments, {branchCount} vessels tracked)"
                 : $"Mission chain ({totalSegments} segments)";
@@ -359,61 +362,15 @@ namespace Parsek
             var allLeaves = tree.GetAllLeaves();
             var spawnableLeaves = tree.GetSpawnableLeaves();
 
-            // Compute total duration across all recordings in the tree
-            double minStartUT = double.MaxValue;
-            double maxEndUT = double.MinValue;
-            foreach (var rec in tree.Recordings.Values)
-            {
-                double start = rec.StartUT;
-                double end = rec.EndUT;
-                if (start < minStartUT) minStartUT = start;
-                if (end > maxEndUT) maxEndUT = end;
-            }
-            double duration = (minStartUT < double.MaxValue && maxEndUT > double.MinValue)
-                ? maxEndUT - minStartUT
-                : 0;
-
-            // Count destroyed leaves
-            int destroyedCount = 0;
-            for (int i = 0; i < allLeaves.Count; i++)
-            {
-                if (allLeaves[i].TerminalStateValue.HasValue
-                    && allLeaves[i].TerminalStateValue.Value == TerminalState.Destroyed)
-                    destroyedCount++;
-            }
-
-            int survivingCount = spawnableLeaves.Count;
+            int survivingCount;
+            int destroyedCount;
+            string message = BuildTreeDialogMessage(
+                tree, allLeaves, spawnableLeaves,
+                out survivingCount, out destroyedCount);
 
             ParsekLog.Info("MergeDialog",
                 $"Tree merge dialog: tree='{tree.TreeName}', recordings={tree.Recordings.Count}, " +
                 $"allLeaves={allLeaves.Count}, spawnable={survivingCount}, destroyed={destroyedCount}");
-
-            // Build vessel count text
-            string vesselCountText;
-            if (destroyedCount > 0)
-                vesselCountText = $"{survivingCount} vessel{(survivingCount != 1 ? "s" : "")} ({destroyedCount} destroyed)";
-            else
-                vesselCountText = $"{survivingCount} vessel{(survivingCount != 1 ? "s" : "")}";
-
-            // Build per-leaf summary
-            var sb = new StringBuilder();
-            for (int i = 0; i < allLeaves.Count; i++)
-            {
-                var leaf = allLeaves[i];
-                string situationText = GetLeafSituationText(leaf);
-                string marker = (leaf.RecordingId == tree.ActiveRecordingId) ? "  <-- you are here" : "";
-                sb.AppendLine($"  {leaf.VesselName} \u2014 {situationText}{marker}");
-            }
-
-            // Assemble message
-            string header = $"\"{tree.TreeName}\" \u2014 {vesselCountText}, {FormatDuration(duration)}\n\n";
-            string footer;
-            if (survivingCount > 0)
-                footer = "\nAll surviving vessels will appear after ghost playback.";
-            else
-                footer = "\nAll vessels were lost. Ghosts will replay the mission.";
-
-            string message = header + sb.ToString() + footer;
 
             // Buttons — capture in locals for lambda closures
             int spawnCount = survivingCount;
@@ -528,5 +485,95 @@ namespace Parsek
 
             return "Unknown";
         }
+
+        #region Extracted helpers
+
+        /// <summary>
+        /// Pure function: compute the tree merge dialog message text from tree data.
+        /// Extracts duration, destroyed/surviving counts, per-leaf summaries, and
+        /// assembles the full dialog body. Used by ShowTreeDialog.
+        /// </summary>
+        internal static string BuildTreeDialogMessage(
+            RecordingTree tree,
+            List<RecordingStore.Recording> allLeaves,
+            List<RecordingStore.Recording> spawnableLeaves,
+            out int survivingCount,
+            out int destroyedCount)
+        {
+            survivingCount = spawnableLeaves != null ? spawnableLeaves.Count : 0;
+            destroyedCount = CountDestroyedLeaves(allLeaves);
+            double duration = ComputeTreeDurationRange(tree);
+
+            // Build vessel count text
+            string vesselCountText;
+            if (destroyedCount > 0)
+                vesselCountText = $"{survivingCount} vessel{(survivingCount != 1 ? "s" : "")} ({destroyedCount} destroyed)";
+            else
+                vesselCountText = $"{survivingCount} vessel{(survivingCount != 1 ? "s" : "")}";
+
+            // Build per-leaf summary
+            string activeRecordingId = tree != null ? tree.ActiveRecordingId : null;
+            string treeName = tree != null ? tree.TreeName : "";
+            var sb = new StringBuilder();
+            for (int i = 0; i < (allLeaves != null ? allLeaves.Count : 0); i++)
+            {
+                var leaf = allLeaves[i];
+                string situationText = GetLeafSituationText(leaf);
+                string marker = (leaf.RecordingId == activeRecordingId) ? "  <-- you are here" : "";
+                sb.AppendLine($"  {leaf.VesselName} \u2014 {situationText}{marker}");
+            }
+
+            // Assemble message
+            string header = $"\"{treeName}\" \u2014 {vesselCountText}, {FormatDuration(duration)}\n\n";
+            string footer;
+            if (survivingCount > 0)
+                footer = "\nAll surviving vessels will appear after ghost playback.";
+            else
+                footer = "\nAll vessels were lost. Ghosts will replay the mission.";
+
+            return header + sb.ToString() + footer;
+        }
+
+        /// <summary>
+        /// Pure function: compute the total time span across all recordings in a tree.
+        /// Returns 0 if the tree has no recordings.
+        /// </summary>
+        internal static double ComputeTreeDurationRange(RecordingTree tree)
+        {
+            if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
+                return 0;
+
+            double minStartUT = double.MaxValue;
+            double maxEndUT = double.MinValue;
+            foreach (var rec in tree.Recordings.Values)
+            {
+                double start = rec.StartUT;
+                double end = rec.EndUT;
+                if (start < minStartUT) minStartUT = start;
+                if (end > maxEndUT) maxEndUT = end;
+            }
+
+            return (minStartUT < double.MaxValue && maxEndUT > double.MinValue)
+                ? maxEndUT - minStartUT
+                : 0;
+        }
+
+        /// <summary>
+        /// Pure function: count how many leaves have TerminalState.Destroyed.
+        /// </summary>
+        internal static int CountDestroyedLeaves(List<RecordingStore.Recording> leaves)
+        {
+            if (leaves == null) return 0;
+            int count = 0;
+            for (int i = 0; i < leaves.Count; i++)
+            {
+                if (leaves[i].TerminalStateValue.HasValue
+                    && leaves[i].TerminalStateValue.Value == TerminalState.Destroyed)
+                    count++;
+            }
+            return count;
+        }
+
+        #endregion
     }
 }
