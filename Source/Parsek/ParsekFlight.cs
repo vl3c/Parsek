@@ -7258,7 +7258,7 @@ namespace Parsek
 
         internal static bool ShouldRestoreWatchMode(string pendingWatchId, string recordingId, uint spawnedPid)
         {
-            return pendingWatchId == recordingId && spawnedPid != 0;
+            return pendingWatchId != null && pendingWatchId == recordingId && spawnedPid != 0;
         }
 
         internal static bool ShouldPauseTimelineResourceReplay(bool isRecording)

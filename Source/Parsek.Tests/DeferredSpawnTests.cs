@@ -94,10 +94,10 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldRestoreWatch_BothNullWithPid_ReturnsTrue()
+        public void ShouldRestoreWatch_BothNullWithPid_ReturnsFalse()
         {
-            // Edge case: null == null is true, pid non-zero
-            Assert.True(ParsekFlight.ShouldRestoreWatchMode(null, null, 42000));
+            // Defensive: null pendingWatchId means no watch was active
+            Assert.False(ParsekFlight.ShouldRestoreWatchMode(null, null, 42000));
         }
 
         #endregion
