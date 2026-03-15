@@ -69,6 +69,7 @@ namespace Parsek
             public MaterialPropertyBlock reentryMpb; // per-ghost to avoid shared-state bugs with overlapping ghosts
             public bool explosionFired;
             public bool pauseHidden;
+            public bool rcsSuppressed;
             public Transform cameraPivot; // child of ghost; centroid of active parts — camera targets this
             public Vector3 lastInterpolatedVelocity;
             public string lastInterpolatedBodyName;
@@ -4651,12 +4652,7 @@ namespace Parsek
                             ParsekLog.Info("Flight",
                                 $"Ghost #{i} \"{rec.VesselName}\" hidden: warp {warpRate:F0}x > 50x");
                             if (watchedRecordingIndex == i)
-                            {
-                                watchedOverlapCycleIndex = -1;
-                                overlapRetargetAfterUT = -1;
-                                if (overlapCameraAnchor != null) { Destroy(overlapCameraAnchor); overlapCameraAnchor = null; }
                                 ExitWatchMode();
-                            }
                         }
                         DestroyAllOverlapGhosts(i);
                         if (rec.TreeId == null) ApplyResourceDeltas(rec, currentUT);
@@ -4694,6 +4690,8 @@ namespace Parsek
                         UpdateReentryFx(i, state, rec.VesselName);
                         if (suppressExplosionFx)
                             StopAllRcsEmissions(state);
+                        else
+                            RestoreAllRcsEmissions(state);
                         if (rec.TreeId == null)
                             ApplyResourceDeltas(rec, currentUT);
                     }
@@ -4727,6 +4725,8 @@ namespace Parsek
                         UpdateReentryFx(i, state, rec.VesselName);
                         if (suppressExplosionFx)
                             StopAllRcsEmissions(state);
+                        else
+                            RestoreAllRcsEmissions(state);
                         if (rec.TreeId == null)
                             ApplyResourceDeltas(rec, currentUT);
                     }
@@ -4977,12 +4977,7 @@ namespace Parsek
                     ParsekLog.Info("Flight",
                         $"Ghost #{recIdx} \"{rec.VesselName}\" (loop) hidden: warp > 50x");
                     if (watchedRecordingIndex == recIdx)
-                    {
-                        watchedOverlapCycleIndex = -1;
-                        overlapRetargetAfterUT = -1;
-                        if (overlapCameraAnchor != null) { Destroy(overlapCameraAnchor); overlapCameraAnchor = null; }
                         ExitWatchMode();
-                    }
                 }
                 DestroyAllOverlapGhosts(recIdx);
                 return;
@@ -5136,6 +5131,8 @@ namespace Parsek
             UpdateReentryFx(recIdx, state, rec.VesselName);
             if (suppressExplosionFx)
                 StopAllRcsEmissions(state);
+            else
+                RestoreAllRcsEmissions(state);
         }
 
         /// <summary>
@@ -5243,6 +5240,8 @@ namespace Parsek
                 UpdateReentryFx(recIdx, primaryState, rec.VesselName);
                 if (suppressExplosionFx)
                     StopAllRcsEmissions(primaryState);
+                else
+                    RestoreAllRcsEmissions(primaryState);
             }
 
             // Update overlap ghosts (older cycles)
@@ -5315,6 +5314,8 @@ namespace Parsek
                 UpdateReentryFx(recIdx, ovState, rec.VesselName);
                 if (suppressExplosionFx)
                     StopAllRcsEmissions(ovState);
+                else
+                    RestoreAllRcsEmissions(ovState);
             }
         }
 
@@ -7375,6 +7376,8 @@ namespace Parsek
         internal static void StopAllRcsEmissions(GhostPlaybackState state)
         {
             if (state?.rcsInfos == null) return;
+            if (state.rcsSuppressed) return;
+            state.rcsSuppressed = true;
             foreach (var info in state.rcsInfos.Values)
                 for (int j = 0; j < info.particleSystems.Count; j++)
                 {
@@ -7383,6 +7386,24 @@ namespace Parsek
                     {
                         var em = ps.emission;
                         if (em.enabled) em.enabled = false;
+                    }
+                }
+        }
+
+        internal static void RestoreAllRcsEmissions(GhostPlaybackState state)
+        {
+            if (state?.rcsInfos == null) return;
+            if (!state.rcsSuppressed) return;
+            state.rcsSuppressed = false;
+            foreach (var info in state.rcsInfos.Values)
+                for (int j = 0; j < info.particleSystems.Count; j++)
+                {
+                    var ps = info.particleSystems[j];
+                    if (ps != null)
+                    {
+                        var em = ps.emission;
+                        em.enabled = true;
+                        if (!ps.isPlaying) ps.Play();
                     }
                 }
         }
