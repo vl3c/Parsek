@@ -4129,6 +4129,13 @@ namespace Parsek
                         previewGhostState.heatInfos = new Dictionary<uint, HeatGhostInfo>();
                         for (int i = 0; i < heatInfoList.Count; i++)
                             previewGhostState.heatInfos[heatInfoList[i].partPersistentId] = heatInfoList[i];
+
+                        // Initialize all heat parts to cold state at spawn
+                        foreach (var kvp in previewGhostState.heatInfos)
+                        {
+                            var coldEvt = new PartEvent { partPersistentId = kvp.Key };
+                            ApplyHeatState(previewGhostState, coldEvt, heated: false);
+                        }
                     }
                     if (lightInfoList != null)
                     {
@@ -5324,6 +5331,14 @@ namespace Parsek
                 state.heatInfos = new Dictionary<uint, HeatGhostInfo>();
                 for (int i = 0; i < heatInfoList.Count; i++)
                     state.heatInfos[heatInfoList[i].partPersistentId] = heatInfoList[i];
+
+                // Initialize all heat parts to cold state at spawn — ensures FXModuleAnimateThrottle
+                // parts don't inherit the prefab's baked emissive state.
+                foreach (var kvp in state.heatInfos)
+                {
+                    var coldEvt = new PartEvent { partPersistentId = kvp.Key };
+                    ApplyHeatState(state, coldEvt, heated: false);
+                }
             }
 
             if (lightInfoList != null)
@@ -5845,6 +5860,7 @@ namespace Parsek
                         break;
                     case PartEventType.EngineIgnited:
                         SetEngineEmission(state, evt, evt.value);
+                        ApplyHeatState(state, evt, heated: true);
                         ParsekLog.Verbose("Flight", $"Part event applied: EngineIgnited '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} throttle={evt.value:F2}");
                         break;
                     case PartEventType.EngineShutdown:
@@ -5856,6 +5872,7 @@ namespace Parsek
                         break;
                     case PartEventType.EngineThrottle:
                         SetEngineEmission(state, evt, evt.value);
+                        ApplyHeatState(state, evt, heated: true);
                         break;
                     case PartEventType.DeployableExtended:
                         ApplyDeployableState(state, evt, deployed: true);
