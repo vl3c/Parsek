@@ -424,13 +424,14 @@ namespace Parsek
             List<FairingGhostInfo> fairingInfoList;
             List<RcsGhostInfo> rcsInfoList;
             List<RoboticGhostInfo> roboticInfoList;
+            List<ColorChangerGhostInfo> colorChangerInfoList;
 
             GameObject ghost = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
                 rec, $"Parsek_KSC_{index}",
                 out parachuteInfoList, out jettisonInfoList,
                 out engineInfoList, out deployableInfoList,
                 out heatInfoList, out lightInfoList, out fairingInfoList,
-                out rcsInfoList, out roboticInfoList);
+                out rcsInfoList, out roboticInfoList, out colorChangerInfoList);
 
             if (ghost == null)
             {
@@ -527,6 +528,22 @@ namespace Parsek
                     ulong key = FlightRecorder.EncodeEngineKey(
                         roboticInfoList[i].partPersistentId, roboticInfoList[i].moduleIndex);
                     state.roboticInfos[key] = roboticInfoList[i];
+                }
+            }
+
+            if (colorChangerInfoList != null)
+            {
+                state.colorChangerInfos = new Dictionary<uint, List<ColorChangerGhostInfo>>();
+                for (int i = 0; i < colorChangerInfoList.Count; i++)
+                {
+                    uint pid = colorChangerInfoList[i].partPersistentId;
+                    List<ColorChangerGhostInfo> list;
+                    if (!state.colorChangerInfos.TryGetValue(pid, out list))
+                    {
+                        list = new List<ColorChangerGhostInfo>();
+                        state.colorChangerInfos[pid] = list;
+                    }
+                    list.Add(colorChangerInfoList[i]);
                 }
             }
 

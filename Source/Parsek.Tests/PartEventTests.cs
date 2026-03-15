@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Globalization;
 using Parsek.Tests.Generators;
+using UnityEngine;
 using Xunit;
 
 namespace Parsek.Tests
@@ -929,6 +930,240 @@ namespace Parsek.Tests
             Assert.Single(loaded.PartEvents);
             Assert.Equal(PartEventType.LightBlinkEnabled, loaded.PartEvents[0].eventType);
             Assert.Equal(1.5f, loaded.PartEvents[0].value, 0.001f);
+        }
+
+        #endregion
+
+        #region ColorChanger light transition (reuses CheckLightTransition)
+
+        [Fact]
+        public void ColorChanger_CabinLight_OffToOn_EmitsLightOnEvent()
+        {
+            // ModuleColorChanger with toggleInFlight=true feeds into the same
+            // CheckLightTransition as ModuleLight — verify this works correctly.
+            var lightsOn = new HashSet<uint>();
+            var evt = FlightRecorder.CheckLightTransition(
+                9999, "mk1pod.v2", isOn: true, lightsOn, 200.0);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.LightOn, evt.Value.eventType);
+            Assert.Equal(9999u, evt.Value.partPersistentId);
+            Assert.Equal(200.0, evt.Value.ut);
+            Assert.Equal("mk1pod.v2", evt.Value.partName);
+            Assert.Contains(9999u, lightsOn);
+        }
+
+        [Fact]
+        public void ColorChanger_CabinLight_OnToOff_EmitsLightOffEvent()
+        {
+            var lightsOn = new HashSet<uint> { 9999 };
+            var evt = FlightRecorder.CheckLightTransition(
+                9999, "mk1pod.v2", isOn: false, lightsOn, 210.0);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.LightOff, evt.Value.eventType);
+            Assert.Equal(9999u, evt.Value.partPersistentId);
+            Assert.DoesNotContain(9999u, lightsOn);
+        }
+
+        [Fact]
+        public void ColorChanger_CabinLight_SameState_NoEvent()
+        {
+            var lightsOn = new HashSet<uint>();
+            var evt = FlightRecorder.CheckLightTransition(
+                9999, "mk1pod.v2", isOn: false, lightsOn, 200.0);
+            Assert.Null(evt);
+
+            lightsOn.Add(9999);
+            evt = FlightRecorder.CheckLightTransition(
+                9999, "mk1pod.v2", isOn: true, lightsOn, 205.0);
+            Assert.Null(evt);
+        }
+
+        #endregion
+
+        #region ColorChanger curve evaluation
+
+        [Fact]
+        public void EvaluateColorCurves_Mk1Pod_OffIsBlack()
+        {
+            // Replicate mk1pod_v2 ModuleColorChanger color curves
+            var moduleNode = new ConfigNode("MODULE");
+            moduleNode.AddValue("name", "ModuleColorChanger");
+            moduleNode.AddValue("shaderProperty", "_EmissiveColor");
+            moduleNode.AddValue("toggleInFlight", "True");
+
+            var red = new ConfigNode("redCurve");
+            red.AddValue("key", "0 0 0 3");
+            red.AddValue("key", "1 1 0 0");
+            moduleNode.AddNode(red);
+
+            var green = new ConfigNode("greenCurve");
+            green.AddValue("key", "0 0 0 1");
+            green.AddValue("key", "1 1 1 0");
+            moduleNode.AddNode(green);
+
+            var blue = new ConfigNode("blueCurve");
+            blue.AddValue("key", "0 0 0 0");
+            blue.AddValue("key", "1 0.7 1.5 0");
+            moduleNode.AddNode(blue);
+
+            var alpha = new ConfigNode("alphaCurve");
+            alpha.AddValue("key", "0 1");
+            moduleNode.AddNode(alpha);
+
+            Color off = GhostVisualBuilder.EvaluateColorCurves(moduleNode, 0f);
+            Assert.InRange(off.r, -0.001f, 0.001f);
+            Assert.InRange(off.g, -0.001f, 0.001f);
+            Assert.InRange(off.b, -0.001f, 0.001f);
+            Assert.InRange(off.a, 0.999f, 1.001f);
+
+            Color on = GhostVisualBuilder.EvaluateColorCurves(moduleNode, 1f);
+            Assert.InRange(on.r, 0.999f, 1.001f);
+            Assert.InRange(on.g, 0.999f, 1.001f);
+            Assert.InRange(on.b, 0.69f, 0.71f);
+            Assert.InRange(on.a, 0.999f, 1.001f);
+        }
+
+        [Fact]
+        public void EvaluateColorCurves_HeatShield_BurnColor()
+        {
+            // Replicate HeatShield1 ModuleColorChanger (shieldChar) curves
+            var moduleNode = new ConfigNode("MODULE");
+            moduleNode.AddValue("name", "ModuleColorChanger");
+            moduleNode.AddValue("shaderProperty", "_BurnColor");
+            moduleNode.AddValue("toggleInFlight", "False");
+
+            var red = new ConfigNode("redCurve");
+            red.AddValue("key", "0 0");
+            red.AddValue("key", "1 1");
+            moduleNode.AddNode(red);
+
+            var green = new ConfigNode("greenCurve");
+            green.AddValue("key", "0 0");
+            green.AddValue("key", "1 1");
+            moduleNode.AddNode(green);
+
+            var blue = new ConfigNode("blueCurve");
+            blue.AddValue("key", "0 0");
+            blue.AddValue("key", "1 1");
+            moduleNode.AddNode(blue);
+
+            var alpha = new ConfigNode("alphaCurve");
+            alpha.AddValue("key", "0 0.8");
+            moduleNode.AddNode(alpha);
+
+            Color off = GhostVisualBuilder.EvaluateColorCurves(moduleNode, 0f);
+            Assert.InRange(off.r, -0.001f, 0.001f);
+            Assert.InRange(off.g, -0.001f, 0.001f);
+            Assert.InRange(off.b, -0.001f, 0.001f);
+            Assert.InRange(off.a, 0.79f, 0.81f);
+
+            Color on = GhostVisualBuilder.EvaluateColorCurves(moduleNode, 1f);
+            Assert.InRange(on.r, 0.999f, 1.001f);
+            Assert.InRange(on.g, 0.999f, 1.001f);
+            Assert.InRange(on.b, 0.999f, 1.001f);
+            Assert.InRange(on.a, 0.79f, 0.81f);
+        }
+
+        [Fact]
+        public void EvaluateSingleCurve_MidpointInterpolation()
+        {
+            var curveNode = new ConfigNode("redCurve");
+            curveNode.AddValue("key", "0 0");
+            curveNode.AddValue("key", "1 1");
+
+            float mid = GhostVisualBuilder.EvaluateSingleCurve(curveNode, 0.5f);
+            Assert.InRange(mid, 0.49f, 0.51f);
+        }
+
+        [Fact]
+        public void EvaluateSingleCurve_NullNode_ReturnsDefault()
+        {
+            float result = GhostVisualBuilder.EvaluateSingleCurve(null, 0.5f, defaultValue: 0.42f);
+            Assert.InRange(result, 0.419f, 0.421f);
+        }
+
+        [Fact]
+        public void EvaluateSingleCurve_EmptyKeys_ReturnsDefault()
+        {
+            var curveNode = new ConfigNode("testCurve");
+            float result = GhostVisualBuilder.EvaluateSingleCurve(curveNode, 0.5f);
+            Assert.InRange(result, -0.001f, 0.001f);
+        }
+
+        [Fact]
+        public void EvaluateSingleCurve_ClampsBelowRange()
+        {
+            var curveNode = new ConfigNode("testCurve");
+            curveNode.AddValue("key", "0.5 0.75");
+            curveNode.AddValue("key", "1 1");
+
+            float result = GhostVisualBuilder.EvaluateSingleCurve(curveNode, 0f);
+            Assert.InRange(result, 0.749f, 0.751f);
+        }
+
+        [Fact]
+        public void EvaluateSingleCurve_ClampsAboveRange()
+        {
+            var curveNode = new ConfigNode("testCurve");
+            curveNode.AddValue("key", "0 0.25");
+            curveNode.AddValue("key", "0.5 0.5");
+
+            float result = GhostVisualBuilder.EvaluateSingleCurve(curveNode, 1f);
+            Assert.InRange(result, 0.499f, 0.501f);
+        }
+
+        #endregion
+
+        #region ColorChanger BuildColorChangerInfos
+
+        [Fact]
+        public void BuildColorChangerInfos_NullPartNode_ReturnsNull()
+        {
+            var result = GhostVisualBuilder.BuildColorChangerInfos(null, null, 100, "test");
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void BuildColorChangerInfos_NoModuleNodes_ReturnsNull()
+        {
+            var partNode = new ConfigNode("PART");
+            partNode.AddValue("name", "testPart");
+            // No MODULE nodes at all
+            var result = GhostVisualBuilder.BuildColorChangerInfos(partNode, null, 100, "testPart");
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void BuildColorChangerInfos_NullGhostModelNode_ReturnsNull()
+        {
+            // When ghostModelNode is null, the function returns null immediately
+            // (no renderers to scan, no materials to clone).
+            var partNode = new ConfigNode("PART");
+            partNode.AddValue("name", "mk1pod.v2");
+            var module = new ConfigNode("MODULE");
+            module.AddValue("name", "ModuleColorChanger");
+            module.AddValue("shaderProperty", "_EmissiveColor");
+            module.AddValue("toggleInFlight", "True");
+            partNode.AddNode(module);
+
+            var result = GhostVisualBuilder.BuildColorChangerInfos(partNode, null, 100, "mk1pod.v2");
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void BuildColorChangerInfos_NonColorChangerModuleOnly_ReturnsNull()
+        {
+            // A PART node with only non-ColorChanger modules returns null.
+            var partNode = new ConfigNode("PART");
+            partNode.AddValue("name", "testPart");
+            var module = new ConfigNode("MODULE");
+            module.AddValue("name", "ModuleCommand");
+            partNode.AddNode(module);
+
+            var result = GhostVisualBuilder.BuildColorChangerInfos(partNode, null, 100, "testPart");
+            Assert.Null(result);
         }
 
         #endregion
