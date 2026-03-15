@@ -125,7 +125,9 @@ namespace Parsek
 
             if (suppressGhosts)
             {
-                // High time warp: hide primary ghosts, destroy overlap ghosts
+                // High time warp: hide primary ghosts, destroy overlap ghosts.
+                // KSC scene does not apply resource deltas (flight-only), so no
+                // ApplyResourceDeltas call needed here.
                 foreach (var kvp in kscGhosts)
                     if (kvp.Value.ghost != null && kvp.Value.ghost.activeSelf)
                     {
@@ -249,6 +251,8 @@ namespace Parsek
                     ParsekFlight.ApplyPartEvents(recIdx, rec, targetUT, state);
                 if (suppressExplosionFx)
                     ParsekFlight.StopAllRcsEmissions(state);
+                else
+                    ParsekFlight.RestoreAllRcsEmissions(state);
 
                 if (!state.explosionFired && targetUT >= rec.EndUT)
                     TriggerExplosionIfDestroyed(state, rec, recIdx);
@@ -356,6 +360,8 @@ namespace Parsek
                     ParsekFlight.ApplyPartEvents(recIdx, rec, loopUT, primaryState);
                 if (suppressExplosionFx)
                     ParsekFlight.StopAllRcsEmissions(primaryState);
+                else
+                    ParsekFlight.RestoreAllRcsEmissions(primaryState);
 
                 if (!primaryState.explosionFired && phase >= duration)
                     TriggerExplosionIfDestroyed(primaryState, rec, recIdx);
@@ -399,6 +405,8 @@ namespace Parsek
                     ParsekFlight.ApplyPartEvents(recIdx, rec, loopUT, ovState);
                 if (suppressExplosionFx)
                     ParsekFlight.StopAllRcsEmissions(ovState);
+                else
+                    ParsekFlight.RestoreAllRcsEmissions(ovState);
             }
         }
 
