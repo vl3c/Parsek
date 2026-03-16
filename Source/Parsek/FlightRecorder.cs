@@ -29,6 +29,12 @@ namespace Parsek
         public List<TrajectoryPoint> Recording { get; } = new List<TrajectoryPoint>();
         public List<OrbitSegment> OrbitSegments { get; } = new List<OrbitSegment>();
         public List<PartEvent> PartEvents { get; } = new List<PartEvent>();
+        public List<TrackSection> TrackSections { get; } = new List<TrackSection>();
+
+        // Environment tracking (v6+)
+        private EnvironmentHysteresis environmentHysteresis;
+        private TrackSection currentTrackSection;
+        private bool trackSectionActive;
 
         // Part event tracking
         private HashSet<uint> decoupledPartIds = new HashSet<uint>();
@@ -3347,6 +3353,81 @@ namespace Parsek
                 $"Captured rewind save at UT {Planetarium.GetUniversalTime()}: vessel \"{v.vesselName}\" in {v.situation} (save: {saveFileName})");
         }
 
+        #region Environment Tracking
+
+        /// <summary>
+        /// Extracts vessel state into primitive parameters and calls EnvironmentDetector.Classify.
+        /// This indirection keeps EnvironmentDetector pure-static and testable.
+        /// </summary>
+        private static SegmentEnvironment ClassifyCurrentEnvironment(Vessel v)
+        {
+            bool hasAtmosphere = v.mainBody != null && v.mainBody.atmosphere;
+            double atmosphereDepth = hasAtmosphere ? v.mainBody.atmosphereDepth : 0;
+            bool hasActiveThrust = false;
+
+            // Check for active thrust on any engine
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                var engines = v.parts[i].FindModulesImplementing<ModuleEngines>();
+                for (int j = 0; j < engines.Count; j++)
+                {
+                    if (engines[j].EngineIgnited && engines[j].finalThrust > 0)
+                    {
+                        hasActiveThrust = true;
+                        break;
+                    }
+                }
+                if (hasActiveThrust) break;
+            }
+
+            return EnvironmentDetector.Classify(
+                hasAtmosphere, v.altitude, atmosphereDepth,
+                (int)v.situation, v.srfSpeed, hasActiveThrust);
+        }
+
+        /// <summary>
+        /// Opens a new TrackSection with the given environment and reference frame.
+        /// </summary>
+        internal void StartNewTrackSection(SegmentEnvironment env, ReferenceFrame refFrame, double ut)
+        {
+            currentTrackSection = new TrackSection
+            {
+                environment = env,
+                referenceFrame = refFrame,
+                startUT = ut,
+                frames = new List<TrajectoryPoint>(),
+                checkpoints = new List<OrbitSegment>()
+            };
+            trackSectionActive = true;
+            ParsekLog.Info("Recorder", $"TrackSection started: env={env} ref={refFrame} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+        }
+
+        /// <summary>
+        /// Closes the current TrackSection, computes sample rate, and adds it to TrackSections list.
+        /// </summary>
+        internal void CloseCurrentTrackSection(double ut)
+        {
+            if (!trackSectionActive) return;
+            currentTrackSection.endUT = ut;
+
+            // Compute approximate sample rate
+            if (currentTrackSection.frames != null && currentTrackSection.frames.Count > 1)
+            {
+                double duration = currentTrackSection.endUT - currentTrackSection.startUT;
+                if (duration > 0)
+                    currentTrackSection.sampleRateHz = (float)(currentTrackSection.frames.Count / duration);
+            }
+
+            TrackSections.Add(currentTrackSection);
+            trackSectionActive = false;
+            ParsekLog.Info("Recorder",
+                $"TrackSection closed: env={currentTrackSection.environment} " +
+                $"frames={currentTrackSection.frames?.Count ?? 0} " +
+                $"duration={(ut - currentTrackSection.startUT).ToString("F2", CultureInfo.InvariantCulture)}s");
+        }
+
+        #endregion
+
         public void StartRecording(bool isPromotion = false)
         {
             if (Time.timeScale < 0.01f)
@@ -3418,6 +3499,12 @@ namespace Parsek
             SoiChangeFromBody = null;
             ParsekLog.Verbose("Recorder", $"Boundary detection initialized: body={v.mainBody?.name}, " +
                 $"inAtmo={wasInAtmosphere}, hasAtmo={v.mainBody?.atmosphere}, alt={v.altitude:F0}m");
+
+            // Initialize environment tracking (v6+)
+            TrackSections.Clear();
+            var initialEnv = ClassifyCurrentEnvironment(v);
+            environmentHysteresis = new EnvironmentHysteresis(initialEnv);
+            StartNewTrackSection(initialEnv, ReferenceFrame.Absolute, Planetarium.GetUniversalTime());
 
             // Log surface-relative rotation for synthetic recording calibration
             var ic = System.Globalization.CultureInfo.InvariantCulture;
@@ -3609,7 +3696,8 @@ namespace Parsek
                 RewindSaveFileName = RewindSaveFileName,
                 RewindReservedFunds = RewindReservedFunds,
                 RewindReservedScience = RewindReservedScience,
-                RewindReservedRep = RewindReservedRep
+                RewindReservedRep = RewindReservedRep,
+                TrackSections = new List<TrackSection>(TrackSections)
             };
             // Clear after first capture — prevents chain children from inheriting root's rewind save
             RewindSaveFileName = null;
@@ -3644,6 +3732,9 @@ namespace Parsek
                 Vessel v = FlightGlobals.ActiveVessel;
                 if (v != null) SamplePosition(v);
             }
+
+            // Close final TrackSection (v6+)
+            CloseCurrentTrackSection(Planetarium.GetUniversalTime());
 
             // Disconnect from Harmony patch
             Patches.PhysicsFramePatch.ActiveRecorder = null;
@@ -3685,6 +3776,9 @@ namespace Parsek
                 Vessel v = FlightGlobals.ActiveVessel;
                 if (v != null) SamplePosition(v);
             }
+
+            // Close final TrackSection (v6+)
+            CloseCurrentTrackSection(Planetarium.GetUniversalTime());
 
             Patches.PhysicsFramePatch.ActiveRecorder = null;
             UnsubscribePartEvents();
@@ -3881,6 +3975,19 @@ namespace Parsek
             CheckFairingState(v);
             CheckRoboticState(v);
 
+            // Environment tracking (v6+) — runs every physics frame regardless of adaptive sampling
+            if (environmentHysteresis != null)
+            {
+                var rawEnv = ClassifyCurrentEnvironment(v);
+                if (environmentHysteresis.Update(rawEnv, Planetarium.GetUniversalTime()))
+                {
+                    // Environment changed — close current section, start new one
+                    CloseCurrentTrackSection(Planetarium.GetUniversalTime());
+                    StartNewTrackSection(environmentHysteresis.CurrentEnvironment, ReferenceFrame.Absolute,
+                        Planetarium.GetUniversalTime());
+                }
+            }
+
             // Krakensbane-corrected true velocity
             Vector3 currentVelocity = (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity());
 
@@ -3910,6 +4017,12 @@ namespace Parsek
             Recording.Add(point);
             lastRecordedUT = point.ut;
             lastRecordedVelocity = point.velocity;
+
+            // Dual-write: flat Points list (backward compat) + current TrackSection (v6+)
+            if (trackSectionActive && currentTrackSection.frames != null)
+            {
+                currentTrackSection.frames.Add(point);
+            }
 
             RefreshBackupSnapshot(v, "periodic");
 
@@ -3952,6 +4065,12 @@ namespace Parsek
             Recording.Add(point);
             lastRecordedUT = point.ut;
             lastRecordedVelocity = point.velocity;
+
+            // Dual-write: flat Points list (backward compat) + current TrackSection (v6+)
+            if (trackSectionActive && currentTrackSection.frames != null)
+            {
+                currentTrackSection.frames.Add(point);
+            }
         }
 
         public void OnVesselGoOnRails(Vessel v)
@@ -4141,6 +4260,9 @@ namespace Parsek
                 isOnRails = false;
             }
 
+            // Close final TrackSection (v6+)
+            CloseCurrentTrackSection(Planetarium.GetUniversalTime());
+
             Patches.PhysicsFramePatch.ActiveRecorder = null;
             UnsubscribePartEvents();
             IsRecording = false;
@@ -4170,6 +4292,9 @@ namespace Parsek
             // Sample a boundary point if vessel is still accessible
             if (v != null)
                 SamplePosition(v);
+
+            // Close current TrackSection before backgrounding (v6+)
+            CloseCurrentTrackSection(Planetarium.GetUniversalTime());
 
             // Finalize any in-progress orbit segment (if already on rails during switch)
             if (isOnRails)

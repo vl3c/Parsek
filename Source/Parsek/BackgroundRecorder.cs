@@ -37,6 +37,9 @@ namespace Parsek
         private const float roboticAngularDeadbandDegrees = 0.5f;
         private const float roboticLinearDeadbandMeters = 0.01f;
 
+        // Injectable vessel finder for CheckpointAllVessels (null = use FlightRecorder.FindVesselByPid)
+        private System.Func<uint, Vessel> vesselFinderOverride;
+
         public BackgroundRecorder(RecordingTree tree)
         {
             this.tree = tree;
@@ -668,6 +671,95 @@ namespace Parsek
 
             ParsekLog.Info("BgRecorder", $"FinalizeAllForCommit complete at UT={commitUT:F1} " +
                 $"({onRailsStates.Count} on-rails, {loadedStates.Count} loaded)");
+        }
+
+        /// <summary>
+        /// Captures an orbital checkpoint for all on-rails background vessels at the given UT.
+        /// For each vessel with an open orbit segment, closes the current segment and opens a
+        /// fresh one with the vessel's current orbital elements. This creates clean reference
+        /// points for orbital propagation during playback.
+        /// Called at time warp boundaries and scene changes.
+        /// </summary>
+        internal void CheckpointAllVessels(double ut)
+        {
+            CheckpointAllVessels(ut, vesselFinderOverride);
+        }
+
+        /// <summary>
+        /// Core checkpoint logic with injectable vessel finder for testability.
+        /// If vesselFinder is null, uses FlightRecorder.FindVesselByPid.
+        /// </summary>
+        internal void CheckpointAllVessels(double ut, System.Func<uint, Vessel> vesselFinder)
+        {
+            if (tree == null) return;
+
+            int checkpointed = 0;
+            int skippedNoVessel = 0;
+            int skippedNotOrbital = 0;
+
+            foreach (var kvp in onRailsStates)
+            {
+                uint vesselPid = kvp.Key;
+                var state = kvp.Value;
+
+                // Only checkpoint vessels with open orbit segments (on-rails, orbiting)
+                if (!state.hasOpenOrbitSegment)
+                {
+                    // Landed/splashed or no-orbit vessels don't need orbital checkpoints
+                    skippedNotOrbital++;
+                    continue;
+                }
+
+                // Find the live vessel to get current orbital elements
+                Vessel v = vesselFinder != null
+                    ? vesselFinder(vesselPid)
+                    : FlightRecorder.FindVesselByPid(vesselPid);
+
+                // Close the current orbit segment at checkpoint UT regardless of vessel availability.
+                // The recorded orbital data up to this point is preserved even if the vessel
+                // can't be found (e.g., destroyed between frames).
+                CloseOrbitSegment(state, ut);
+
+                if (v == null || v.orbit == null)
+                {
+                    skippedNoVessel++;
+                    ParsekLog.Verbose("BgRecorder",
+                        $"CheckpointAllVessels: closed segment for pid={vesselPid} but " +
+                        $"vessel/orbit not found — no new segment opened");
+                    continue;
+                }
+
+                // Open a fresh orbit segment with current orbital elements
+                state.currentOrbitSegment = new OrbitSegment
+                {
+                    startUT = ut,
+                    inclination = v.orbit.inclination,
+                    eccentricity = v.orbit.eccentricity,
+                    semiMajorAxis = v.orbit.semiMajorAxis,
+                    longitudeOfAscendingNode = v.orbit.LAN,
+                    argumentOfPeriapsis = v.orbit.argumentOfPeriapsis,
+                    meanAnomalyAtEpoch = v.orbit.meanAnomalyAtEpoch,
+                    epoch = v.orbit.epoch,
+                    bodyName = v.mainBody?.name ?? "Unknown"
+                };
+                state.hasOpenOrbitSegment = true;
+                checkpointed++;
+            }
+
+            ParsekLog.Info("BgRecorder",
+                $"CheckpointAllVessels at UT={ut:F2}: checkpointed={checkpointed}, " +
+                $"skippedNotOrbital={skippedNotOrbital}, skippedNoVessel={skippedNoVessel}");
+        }
+
+        /// <summary>
+        /// Pure static method for determining whether an orbital checkpoint should be
+        /// captured for a given vessel situation.
+        /// </summary>
+        internal static bool IsOrbitalCheckpointSituation(Vessel.Situations situation)
+        {
+            return situation == Vessel.Situations.ORBITING
+                || situation == Vessel.Situations.SUB_ORBITAL
+                || situation == Vessel.Situations.ESCAPING;
         }
 
         #endregion
@@ -1745,6 +1837,29 @@ namespace Parsek
             if (loadedStates.TryGetValue(vesselPid, out state))
                 return state.decoupledPartIds;
             return null;
+        }
+
+        /// <summary>
+        /// For testing: injects an open orbit segment into the on-rails state for a vessel PID.
+        /// The vessel must already have an on-rails state (created by constructor or OnVesselBackgrounded).
+        /// </summary>
+        internal void InjectOpenOrbitSegmentForTesting(uint vesselPid, OrbitSegment segment)
+        {
+            BackgroundOnRailsState state;
+            if (onRailsStates.TryGetValue(vesselPid, out state))
+            {
+                state.currentOrbitSegment = segment;
+                state.hasOpenOrbitSegment = true;
+            }
+        }
+
+        /// <summary>
+        /// For testing: overrides the vessel finder used by CheckpointAllVessels.
+        /// Set to null to restore default behavior (FlightRecorder.FindVesselByPid).
+        /// </summary>
+        internal void SetVesselFinderForTesting(System.Func<uint, Vessel> finder)
+        {
+            vesselFinderOverride = finder;
         }
 
         #endregion

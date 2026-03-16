@@ -158,6 +158,9 @@ namespace Parsek
         // Vessel PIDs that existed before a joint break (for filtering pre-existing vessels)
         private HashSet<uint> preBreakVesselPids;
 
+        // Crash coalescer: groups rapid structural splits into single BREAKUP events
+        private CrashCoalescer crashCoalescer = new CrashCoalescer();
+
         // Merge event detection (tree mode)
         private bool pendingTreeDockMerge;           // true when a tree dock merge is pending
         private uint pendingDockAbsorbedPid;         // PID of absorbed vessel in dock merge
@@ -283,6 +286,7 @@ namespace Parsek
             GameEvents.onGroundSciencePartDeployed.Add(OnGroundSciencePartDeployed);
             GameEvents.onGroundSciencePartRemoved.Add(OnGroundSciencePartRemoved);
             GameEvents.onVesselChange.Add(OnVesselSwitchComplete);
+            GameEvents.onTimeWarpRateChanged.Add(OnTimeWarpRateChanged);
 
             ui = new ParsekUI(this);
 
@@ -336,6 +340,7 @@ namespace Parsek
             }
 
             HandleJointBreakDeferredCheck();
+            TickCrashCoalescer();
 
             // Skip auto-record and chain handlers while a split is being processed
             if (pendingSplitInProgress)
@@ -536,6 +541,7 @@ namespace Parsek
             GameEvents.onGroundSciencePartDeployed.Remove(OnGroundSciencePartDeployed);
             GameEvents.onGroundSciencePartRemoved.Remove(OnGroundSciencePartRemoved);
             GameEvents.onVesselChange.Remove(OnVesselSwitchComplete);
+            GameEvents.onTimeWarpRateChanged.Remove(OnTimeWarpRateChanged);
 
             // Clean up background recorder if active
             if (backgroundRecorder != null)
@@ -594,6 +600,15 @@ namespace Parsek
             if (activeTree != null)
             {
                 double commitUT = Planetarium.GetUniversalTime();
+
+                // Checkpoint all background vessels before finalization.
+                // This captures clean orbital reference points at the scene-change boundary.
+                if (backgroundRecorder != null)
+                {
+                    backgroundRecorder.CheckpointAllVessels(commitUT);
+                    ParsekLog.Info("Checkpoint",
+                        "Scene change: checkpointed all background vessels before finalization");
+                }
 
                 if (scene == GameScenes.FLIGHT)
                 {
@@ -1953,7 +1968,11 @@ namespace Parsek
                 // Only consider vessels whose PID was NOT in the pre-break snapshot,
                 // to avoid false matches with unrelated vessels (e.g., space stations).
                 uint recordedPid = pendingSplitRecorder.RecordingVesselId;
-                bool foundTrackable = false;
+
+                // Collect new vessel PIDs for classification
+                var newVesselPids = new List<uint>();
+                bool anyNewVesselHasController = false;
+                Vessel firstNewControlledVessel = null;
 
                 if (FlightGlobals.Vessels != null)
                 {
@@ -1970,25 +1989,57 @@ namespace Parsek
                         if (activeTree != null && activeTree.BackgroundMap.ContainsKey(v.persistentId))
                             continue;
 
-                        // Skip if not trackable
-                        if (!IsTrackableVessel(v)) continue;
+                        newVesselPids.Add(v.persistentId);
 
-                        // Skip if already branched at this UT
-                        if (!CheckBranchDeduplication(branchUT, v.persistentId))
-                            continue;
-
-                        // Found a trackable vessel — create branch
-                        Vessel activeVessel = FlightGlobals.ActiveVessel;
-                        CreateSplitBranch(BranchPointType.JointBreak, activeVessel, v, branchUT);
-                        foundTrackable = true;
-                        break; // one branch per coroutine invocation
+                        bool hasController = IsTrackableVessel(v);
+                        if (hasController)
+                        {
+                            anyNewVesselHasController = true;
+                            if (firstNewControlledVessel == null)
+                                firstNewControlledVessel = v;
+                        }
                     }
                 }
 
-                if (!foundTrackable)
+                // Classify the joint break result
+                var classification = SegmentBoundaryLogic.ClassifyJointBreakResult(
+                    recordedPid, newVesselPids, anyNewVesselHasController);
+
+                ParsekLog.Info("CrashCoalesce",
+                    $"Joint break classified: result={classification}, " +
+                    $"newVessels={newVesselPids.Count}, hasController={anyNewVesselHasController}, " +
+                    $"recordedPid={recordedPid}");
+
+                if (classification == JointBreakResult.WithinSegment)
                 {
-                    // No trackable vessel split (debris only) — resume recording
-                    ResumeSplitRecorder(pendingSplitRecorder, "joint break produced no trackable vessel");
+                    // No vessel split occurred — emit segment events and resume recording
+                    ParsekLog.Info("CrashCoalesce",
+                        "Within-segment breakage — emitting segment events and resuming recording");
+                    // SegmentEvents will be emitted on the active recording when it resumes.
+                    // The detailed per-part breakage events are handled by FlightRecorder's
+                    // onPartDie subscription, which already emits PartEvent entries.
+                    ResumeSplitRecorder(pendingSplitRecorder, "joint break was within-segment (no vessel split)");
+                }
+                else if (classification == JointBreakResult.StructuralSplit ||
+                         classification == JointBreakResult.DebrisSplit)
+                {
+                    // Vessel physically split — feed to crash coalescer for grouping
+                    bool childHasController = (classification == JointBreakResult.StructuralSplit);
+                    uint childPid = firstNewControlledVessel != null
+                        ? firstNewControlledVessel.persistentId
+                        : (newVesselPids.Count > 0 ? newVesselPids[0] : 0);
+
+                    ParsekLog.Info("CrashCoalesce",
+                        $"Feeding split to coalescer: classification={classification}, " +
+                        $"childPid={childPid}, childHasController={childHasController}");
+
+                    crashCoalescer.OnSplitEvent(branchUT, childPid, childHasController);
+
+                    // Resume the recorder — the coalescer's Tick will emit the BREAKUP
+                    // branch point after the coalescing window expires. The recorder needs
+                    // to keep running to capture continued trajectory data.
+                    ResumeSplitRecorder(pendingSplitRecorder,
+                        $"joint break fed to coalescer (classification={classification})");
                 }
             }
             finally
@@ -1997,6 +2048,74 @@ namespace Parsek
                 pendingSplitRecorder = null;
                 preBreakVesselPids = null;
             }
+        }
+
+        /// <summary>
+        /// Called each frame from Update() to check the crash coalescer for pending breakup events.
+        /// When the coalescing window expires, emits a BREAKUP branch point on the active tree.
+        /// </summary>
+        void TickCrashCoalescer()
+        {
+            if (crashCoalescer == null || !crashCoalescer.HasPendingBreakup)
+                return;
+
+            double currentUT = Planetarium.GetUniversalTime();
+            var breakupBp = crashCoalescer.Tick(currentUT);
+            if (breakupBp == null)
+                return;
+
+            ParsekLog.Info("CrashCoalesce",
+                $"Coalescer emitted BREAKUP: ut={breakupBp.UT:F2}, " +
+                $"cause={breakupBp.BreakupCause}, debris={breakupBp.DebrisCount}, " +
+                $"duration={breakupBp.BreakupDuration:F3}s");
+
+            ProcessBreakupEvent(breakupBp);
+        }
+
+        /// <summary>
+        /// Processes a BREAKUP branch point emitted by the crash coalescer.
+        /// If an active tree exists, adds the BREAKUP event as a terminal-like marker
+        /// on the current recording segment. If no tree exists, logs the event
+        /// for diagnostic purposes only (no tree to record to).
+        /// </summary>
+        void ProcessBreakupEvent(BranchPoint breakupBp)
+        {
+            if (activeTree == null)
+            {
+                ParsekLog.Info("CrashCoalesce",
+                    "ProcessBreakupEvent: no active tree — breakup event logged but not recorded. " +
+                    $"cause={breakupBp.BreakupCause}, debris={breakupBp.DebrisCount}");
+                return;
+            }
+
+            string activeRecId = activeTree.ActiveRecordingId;
+            if (string.IsNullOrEmpty(activeRecId))
+            {
+                ParsekLog.Warn("CrashCoalesce",
+                    "ProcessBreakupEvent: active tree has no active recording — cannot attach breakup event");
+                return;
+            }
+
+            Recording activeRec;
+            if (!activeTree.Recordings.TryGetValue(activeRecId, out activeRec))
+            {
+                ParsekLog.Warn("CrashCoalesce",
+                    $"ProcessBreakupEvent: active recording id={activeRecId} not found in tree");
+                return;
+            }
+
+            // Wire the breakup BP into the tree: parent is the active recording
+            breakupBp.ParentRecordingIds.Add(activeRecId);
+            activeTree.BranchPoints.Add(breakupBp);
+
+            // Set ChildBranchPointId on the active recording to link to this breakup
+            activeRec.ChildBranchPointId = breakupBp.Id;
+
+            ParsekLog.Info("CrashCoalesce",
+                $"ProcessBreakupEvent: BREAKUP attached to tree={activeTree.Id}, " +
+                $"parentRec={activeRecId}, bpId={breakupBp.Id}, " +
+                $"cause={breakupBp.BreakupCause}, debris={breakupBp.DebrisCount}, " +
+                $"duration={breakupBp.BreakupDuration:F3}s");
         }
 
         #endregion
@@ -2536,6 +2655,27 @@ namespace Parsek
         {
             recorder?.OnVesselSOIChanged(data);
             backgroundRecorder?.OnBackgroundVesselSOIChanged(data.host, data.from);
+        }
+
+        void OnTimeWarpRateChanged()
+        {
+            if (activeTree == null || backgroundRecorder == null) return;
+
+            double ut = Planetarium.GetUniversalTime();
+            float warpRate = TimeWarp.CurrentRate;
+
+            ParsekLog.Info("Checkpoint",
+                $"Time warp rate changed to {warpRate.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}x " +
+                $"at UT={ut:F2} — checkpointing all background vessels");
+
+            // Checkpoint background vessels first (before any state changes)
+            backgroundRecorder.CheckpointAllVessels(ut);
+
+            // The active vessel's orbit segments are already handled by
+            // onVesselGoOnRails/onVesselGoOffRails events which fire when
+            // time warp transitions between physics and rails modes.
+            ParsekLog.Verbose("Checkpoint",
+                "Active vessel orbit segments handled by on-rails events");
         }
 
         void OnPartCouple(GameEvents.FromToAction<Part, Part> data)
@@ -3676,6 +3816,13 @@ namespace Parsek
             {
                 ParsekLog.Warn("Flight", $"StartRecording blocked: {DetermineRecordingBlockReason()}");
                 return;
+            }
+
+            // Reset crash coalescer on new recording start to clear any stale state
+            if (crashCoalescer != null)
+            {
+                crashCoalescer.Reset();
+                ParsekLog.Verbose("CrashCoalesce", "Coalescer reset on recording start");
             }
 
             uint pid = FlightGlobals.ActiveVessel != null ? FlightGlobals.ActiveVessel.persistentId : 0;
