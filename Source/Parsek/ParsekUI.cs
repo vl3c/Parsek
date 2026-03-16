@@ -1336,9 +1336,9 @@ namespace Parsek
                     bool isRecording = InFlight && flight.IsRecording;
                     bool canRewind = RecordingStore.CanRewind(rec, out rewindReason, isRecording: isRecording);
                     GUI.enabled = canRewind;
-                    string label = (isFuture || isActive) ? "FF" : "R";
+                    string label = isFuture ? "FF" : "R";
                     string tooltip = canRewind
-                        ? ((isFuture || isActive) ? "Fast-forward to this recording" : "Rewind to this launch")
+                        ? (isFuture ? "Fast-forward to this launch" : "Rewind to this launch")
                         : rewindReason;
                     if (GUILayout.Button(new GUIContent(label, tooltip), GUILayout.Width(ColW_Rewind)))
                         ShowRewindConfirmation(rec);
