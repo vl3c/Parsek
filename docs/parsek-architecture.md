@@ -345,7 +345,7 @@ File format: `saves/<save>/Parsek/GameState/baseline_<UT>.pgsb`
 - `GetCommittedTechIds()` / `GetCommittedFacilityUpgrades()` - lookup helpers for action-blocking patches
 - `CurrentEpoch` - incremented on revert to isolate abandoned branches
 
-Milestones are **independent of recordings** - deleting a recording does not delete its milestone.
+Milestones are **independent of recordings** - hiding a recording does not affect its milestone.
 
 File format: `saves/<save>/Parsek/GameState/milestones.pgsm`
 
@@ -764,7 +764,7 @@ All planned part event types are now implemented. 28 event types are recorded; m
 ### Phase 3: Polish & Usability (Complete)
 
 **Done:**
-- [x] Recordings Manager UI (list recordings, per-recording loop/delete, sortable columns, status indicators)
+- [x] Recordings Manager UI (list recordings, per-recording loop/hide, sortable columns, status indicators)
 - [x] Settings panel (`GameParameters.CustomParameterNode` - toggle auto-record, adjust thresholds, in-flight Settings window)
 - [x] Recording stats (max altitude, max speed, distance, final body - computed from trajectory data)
 - [x] Non-revert recording commitment (commit current flight without reverting)

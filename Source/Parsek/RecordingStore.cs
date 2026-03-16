@@ -791,6 +791,33 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Replaces a group tag with a parent group tag on all committed recordings.
+        /// If parentGroup is null, the group tag is simply removed.
+        /// </summary>
+        public static int ReplaceGroupOnAll(string groupName, string parentGroup)
+        {
+            if (string.IsNullOrEmpty(groupName)) return 0;
+            int updated = 0;
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                var rec = committedRecordings[i];
+                if (rec.RecordingGroups == null) continue;
+                int idx = rec.RecordingGroups.IndexOf(groupName);
+                if (idx < 0) continue;
+                if (parentGroup != null && !rec.RecordingGroups.Contains(parentGroup))
+                    rec.RecordingGroups[idx] = parentGroup;
+                else
+                    rec.RecordingGroups.RemoveAt(idx);
+                if (rec.RecordingGroups.Count == 0)
+                    rec.RecordingGroups = null;
+                updated++;
+            }
+            string dest = parentGroup ?? "(standalone)";
+            ParsekLog.Info("RecordingStore", $"ReplaceGroupOnAll: '{groupName}' → '{dest}' on {updated} recordings");
+            return updated;
+        }
+
+        /// <summary>
         /// Resets state without Unity logging. For unit tests only.
         /// </summary>
         internal static void ResetForTesting()

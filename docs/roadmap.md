@@ -27,7 +27,7 @@ Like git, you can go back to any earlier point and start new work. Existing reco
 
 Re-entry heating FX with mesh-surface fire particles matching stock KSP aeroFX intensity formula.
 
-Recordings Manager UI with sortable columns, per-recording loop/delete, and status indicators.
+Recordings Manager UI with sortable columns, per-recording loop/hide, rewind/fast-forward, and status indicators.
 
 ### Orbital Rotation Fidelity
 
@@ -97,7 +97,7 @@ Reduce sidecar file sizes for long recordings:
 Full going-back-in-time system: milestones, resource budgeting, epoch isolation, action blocking, per-recording rewind saves, and Rewind UI.
 
 ### Milestones (done)
-Game state events (tech research, part purchases, facility upgrades, contracts, crew changes) are captured into milestones - immutable timeline commits independent of recordings. Created at recording commit time and on save (FlushPendingEvents captures events that happen without a flight). Deleting a recording does not delete its milestone.
+Game state events (tech research, part purchases, facility upgrades, contracts, crew changes) are captured into milestones - immutable timeline commits independent of recordings. Created at recording commit time and on save (FlushPendingEvents captures events that happen without a flight). Hiding a recording does not affect its milestone.
 
 ### Resource budget (done)
 Computed on-the-fly from recordings + milestones, partial-replay aware. Displayed in the Parsek UI when any resources are reserved. Red text + yellow "Over-committed!" warning when available resources go negative.
@@ -112,10 +112,10 @@ On revert, committed funds/science/reputation are deducted from game state so KS
 Harmony patches on `RDTech.UnlockTech` and `UpgradeableFacility.SetLevel` prevent re-researching committed tech or re-upgrading committed facilities. Explanatory popup dialog shows what's blocked and why.
 
 ### Rewind (done)
-Each recording owns a quicksave captured at recording start, stored in `Parsek/Saves/` (invisible to KSP's load menu). Resource snapshot (funds, science, reputation) captured alongside the quicksave for baseline resource reset on rewind. Quicksave deleted when recording is deleted or discarded. Only chain/tree roots get rewind saves (promotions skip capture).
+Each recording owns a quicksave captured at recording start, stored in `Parsek/Saves/` (invisible to KSP's load menu). Resource snapshot (funds, science, reputation) captured alongside the quicksave for baseline resource reset on rewind. Only chain/tree roots get rewind saves (promotions skip capture).
 
 ### Rewind UI (done)
-"Rewind" button per recording in the Recordings window. Confirmation dialog shows vessel name, launch date, future recording count, and warnings. On confirm: loads the quicksave, strips recorded vessel from flight state, transitions to Space Center. Deferred coroutine sets UT via Planetarium.SetUniversalTime (must happen after scene load - setting before LoadScene gets overwritten by the scene transition). Increments epoch, resets milestone mutable state, resets playback state, resets resources to PreLaunch baseline values, re-reserves crew, replays committed actions (tech, parts, facilities, crew via ActionReplay). All committed recordings replay as ghosts from the rewound point, re-applying resource deltas at the correct UT.
+"R" (rewind) / "FF" (fast-forward) button per recording in the Recordings window. Confirmation dialog shows vessel name, launch date, future recording count, and warnings. On confirm: loads the quicksave, strips recorded vessel from flight state, transitions to Space Center. Deferred coroutine sets UT via Planetarium.SetUniversalTime (must happen after scene load - setting before LoadScene gets overwritten by the scene transition). Increments epoch, resets milestone mutable state, resets playback state, resets resources to PreLaunch baseline values, re-reserves crew, replays committed actions (tech, parts, facilities, crew via ActionReplay). All committed recordings replay as ghosts from the rewound point, re-applying resource deltas at the correct UT.
 
 ### Action replay (done)
 After rewind resource adjustment, `ActionReplay.ReplayCommittedActions` programmatically re-applies committed game actions from milestones: tech unlock (via `UnlockProtoTechNode`, no science deduction), part purchase, facility upgrade, and crew hire. Each handler has idempotent guards (skip if already applied). Suppression flags prevent re-recording during replay.

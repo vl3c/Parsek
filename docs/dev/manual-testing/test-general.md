@@ -149,7 +149,7 @@ Use career mode for all tests (resource tracking requires it).
 2. Window shows correct status: Idle / RECORDING / PREVIEWING
 3. Recorded points count and duration update in real time
 4. Timeline count and active ghosts count are accurate
-5. All buttons work: Start/Stop Recording, Preview/Stop Preview, Clear, Despawn Ghosts, Wipe
+5. All buttons work: Start/Stop Recording, Preview/Stop Preview, Clear, Wipe
 
 ## Recordings Manager
 
@@ -178,12 +178,18 @@ Use career mode for all tests (resource tracking requires it).
 4. Check the select-all checkbox in the Loop header - all recordings toggle on
 5. Uncheck one - header shows mixed state
 
-### Delete recording
-1. Click the "X" delete button on a recording
-2. Verify: recording disappears from the list, ghost despawns if active
-3. Verify: crew is unreserved (check Astronaut Complex)
-4. Delete a recording from the middle of the list - verify remaining ghosts still work
-5. Verify: delete buttons are disabled during active recording
+### Hide recording
+1. Check the Hide checkbox on a recording
+2. Verify: with header Hide checkbox active (default), recording disappears from list
+3. Uncheck header Hide checkbox - hidden recording reappears with its Hide checkbox checked
+4. Uncheck the recording's Hide checkbox - it stays visible when header is re-checked
+5. Verify: hidden recordings still play as ghosts normally
+
+### Hide group
+1. Check the Hide checkbox on a group header row
+2. Verify: entire group disappears when header Hide is active
+3. Uncheck header Hide - group reappears with its checkbox checked
+4. Verify: group members are still accessible when group is unhidden
 
 ### Scroll and resize
 1. Merge many recordings (5+) to exceed the visible area
