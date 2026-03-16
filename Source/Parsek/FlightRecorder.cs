@@ -3421,9 +3421,26 @@ namespace Parsek
             TrackSections.Add(currentTrackSection);
             trackSectionActive = false;
             ParsekLog.Info("Recorder",
-                $"TrackSection closed: env={currentTrackSection.environment} " +
-                $"frames={currentTrackSection.frames?.Count ?? 0} " +
+                $"TrackSection closed: env={currentTrackSection.environment} ref={currentTrackSection.referenceFrame} " +
+                $"frames={currentTrackSection.frames?.Count ?? 0} checkpoints={currentTrackSection.checkpoints?.Count ?? 0} " +
                 $"duration={(ut - currentTrackSection.startUT).ToString("F2", CultureInfo.InvariantCulture)}s");
+        }
+
+        /// <summary>
+        /// Adds a finalized orbit segment to the current TrackSection's checkpoints list,
+        /// if the current section is ORBITAL_CHECKPOINT. Called whenever an orbit segment
+        /// is committed to the flat OrbitSegments list.
+        /// </summary>
+        internal void AddOrbitSegmentToCurrentTrackSection(OrbitSegment segment)
+        {
+            if (!trackSectionActive) return;
+            if (currentTrackSection.referenceFrame != ReferenceFrame.OrbitalCheckpoint) return;
+            if (currentTrackSection.checkpoints == null) return;
+
+            currentTrackSection.checkpoints.Add(segment);
+            ParsekLog.Verbose("Recorder",
+                $"Orbit segment added to TrackSection checkpoints: body={segment.bodyName} " +
+                $"UT={segment.startUT.ToString("F2", CultureInfo.InvariantCulture)}-{segment.endUT.ToString("F2", CultureInfo.InvariantCulture)}");
         }
 
         #endregion
@@ -3560,6 +3577,14 @@ namespace Parsek
                     TrajectoryMath.ComputeOrbitalFrameRotation(v.transform.rotation, orbVel, radialOut);
 
                 isOnRails = true;
+
+                // Recording started on rails — switch initial ABSOLUTE section to ORBITAL_CHECKPOINT
+                double packedUT = Planetarium.GetUniversalTime();
+                CloseCurrentTrackSection(packedUT);
+                StartNewTrackSection(initialEnv, ReferenceFrame.OrbitalCheckpoint, packedUT);
+                ParsekLog.Info("Recorder",
+                    $"Reference frame transition: Absolute -> OrbitalCheckpoint (started on rails) at UT={packedUT.ToString("F2", CultureInfo.InvariantCulture)}");
+
                 ParsekLog.Info("Recorder",
                     $"Recording started on rails — orbit segment (body={v.mainBody.name}, ofrRot={currentOrbitSegment.orbitalFrameRotation})");
             }
@@ -3726,6 +3751,7 @@ namespace Parsek
             {
                 currentOrbitSegment.endUT = Planetarium.GetUniversalTime();
                 OrbitSegments.Add(currentOrbitSegment);
+                AddOrbitSegmentToCurrentTrackSection(currentOrbitSegment);
                 isOnRails = false;
 
                 // Record a boundary point at stop time
@@ -3771,6 +3797,7 @@ namespace Parsek
             {
                 currentOrbitSegment.endUT = Planetarium.GetUniversalTime();
                 OrbitSegments.Add(currentOrbitSegment);
+                AddOrbitSegmentToCurrentTrackSection(currentOrbitSegment);
                 isOnRails = false;
 
                 Vessel v = FlightGlobals.ActiveVessel;
@@ -4123,6 +4150,17 @@ namespace Parsek
             decoupledPartIds.Clear();
 
             isOnRails = true;
+
+            // Reference frame transition: ABSOLUTE -> ORBITAL_CHECKPOINT
+            double onRailsUT = Planetarium.GetUniversalTime();
+            var currentEnv = environmentHysteresis != null
+                ? environmentHysteresis.CurrentEnvironment
+                : SegmentEnvironment.ExoBallistic;
+            CloseCurrentTrackSection(onRailsUT);
+            StartNewTrackSection(currentEnv, ReferenceFrame.OrbitalCheckpoint, onRailsUT);
+            ParsekLog.Info("Recorder",
+                $"Reference frame transition: Absolute -> OrbitalCheckpoint at UT={onRailsUT.ToString("F2", CultureInfo.InvariantCulture)}");
+
             ParsekLog.Verbose("Recorder",
                 $"Vessel went on rails — orbit segment (body={v.mainBody.name}, " +
                 $"ofrRot={currentOrbitSegment.orbitalFrameRotation}, " +
@@ -4144,7 +4182,18 @@ namespace Parsek
             // Finalize orbit segment
             currentOrbitSegment.endUT = Planetarium.GetUniversalTime();
             OrbitSegments.Add(currentOrbitSegment);
+            AddOrbitSegmentToCurrentTrackSection(currentOrbitSegment);
             isOnRails = false;
+
+            // Reference frame transition: ORBITAL_CHECKPOINT -> ABSOLUTE
+            double offRailsUT = Planetarium.GetUniversalTime();
+            var currentEnv = environmentHysteresis != null
+                ? environmentHysteresis.CurrentEnvironment
+                : SegmentEnvironment.ExoBallistic;
+            CloseCurrentTrackSection(offRailsUT);
+            StartNewTrackSection(currentEnv, ReferenceFrame.Absolute, offRailsUT);
+            ParsekLog.Info("Recorder",
+                $"Reference frame transition: OrbitalCheckpoint -> Absolute at UT={offRailsUT.ToString("F2", CultureInfo.InvariantCulture)}");
 
             // Record a boundary TrajectoryPoint at current UT.
             // Note: KSP may not perfectly preserve SAS orientation across on/off-rails,
@@ -4174,6 +4223,7 @@ namespace Parsek
             // Close current orbit segment in old SOI
             currentOrbitSegment.endUT = Planetarium.GetUniversalTime();
             OrbitSegments.Add(currentOrbitSegment);
+            AddOrbitSegmentToCurrentTrackSection(currentOrbitSegment);
 
             // Start new orbit segment in new SOI
             var v = data.host;
@@ -4229,6 +4279,7 @@ namespace Parsek
             {
                 currentOrbitSegment.endUT = Planetarium.GetUniversalTime();
                 OrbitSegments.Add(currentOrbitSegment);
+                AddOrbitSegmentToCurrentTrackSection(currentOrbitSegment);
                 isOnRails = false;
             }
 
@@ -4257,6 +4308,7 @@ namespace Parsek
             {
                 currentOrbitSegment.endUT = Planetarium.GetUniversalTime();
                 OrbitSegments.Add(currentOrbitSegment);
+                AddOrbitSegmentToCurrentTrackSection(currentOrbitSegment);
                 isOnRails = false;
             }
 
@@ -4293,16 +4345,17 @@ namespace Parsek
             if (v != null)
                 SamplePosition(v);
 
-            // Close current TrackSection before backgrounding (v6+)
-            CloseCurrentTrackSection(Planetarium.GetUniversalTime());
-
             // Finalize any in-progress orbit segment (if already on rails during switch)
             if (isOnRails)
             {
                 currentOrbitSegment.endUT = Planetarium.GetUniversalTime();
                 OrbitSegments.Add(currentOrbitSegment);
+                AddOrbitSegmentToCurrentTrackSection(currentOrbitSegment);
                 isOnRails = false;
             }
+
+            // Close current TrackSection before backgrounding (v6+)
+            CloseCurrentTrackSection(Planetarium.GetUniversalTime());
 
             // Start a new orbit segment for the background phase
             if (v != null && v.orbit != null)
@@ -4344,6 +4397,7 @@ namespace Parsek
             {
                 currentOrbitSegment.endUT = Planetarium.GetUniversalTime();
                 OrbitSegments.Add(currentOrbitSegment);
+                AddOrbitSegmentToCurrentTrackSection(currentOrbitSegment);
                 isOnRails = false;
             }
         }
