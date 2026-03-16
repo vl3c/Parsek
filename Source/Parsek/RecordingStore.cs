@@ -1450,6 +1450,8 @@ namespace Parsek
                 evtNode.AddValue("value", evt.value.ToString("R", ic));
                 evtNode.AddValue("midx", evt.moduleIndex.ToString(ic));
             }
+
+            SerializeSegmentEvents(targetNode, rec.SegmentEvents);
         }
 
         internal static void DeserializeTrajectoryFrom(ConfigNode sourceNode, Recording rec)
@@ -1457,6 +1459,7 @@ namespace Parsek
             DeserializePoints(sourceNode, rec);
             DeserializeOrbitSegments(sourceNode, rec);
             DeserializePartEvents(sourceNode, rec);
+            DeserializeSegmentEvents(sourceNode, rec.SegmentEvents);
         }
 
         /// <summary>
@@ -1599,6 +1602,84 @@ namespace Parsek
 
                 rec.PartEvents.Add(evt);
             }
+        }
+
+        /// <summary>
+        /// Serializes SegmentEvent entries as SEGMENT_EVENT child nodes.
+        /// </summary>
+        internal static void SerializeSegmentEvents(ConfigNode parent, List<SegmentEvent> events)
+        {
+            if (events == null || events.Count == 0)
+            {
+                Log("[Recording] SerializeSegmentEvents: 0 segment events");
+                return;
+            }
+
+            var ic = CultureInfo.InvariantCulture;
+            for (int i = 0; i < events.Count; i++)
+            {
+                var evt = events[i];
+                ConfigNode evtNode = parent.AddNode("SEGMENT_EVENT");
+                evtNode.AddValue("ut", evt.ut.ToString("R", ic));
+                evtNode.AddValue("type", ((int)evt.type).ToString(ic));
+                if (!string.IsNullOrEmpty(evt.details))
+                    evtNode.AddValue("details", evt.details);
+            }
+
+            Log($"[Recording] SerializeSegmentEvents: {events.Count} segment events serialized");
+        }
+
+        /// <summary>
+        /// Deserializes SEGMENT_EVENT child nodes into the given list.
+        /// Unknown type values are skipped with a warning log.
+        /// Missing ut values cause the event to be skipped.
+        /// </summary>
+        internal static void DeserializeSegmentEvents(ConfigNode parent, List<SegmentEvent> events)
+        {
+            ConfigNode[] seNodes = parent.GetNodes("SEGMENT_EVENT");
+            if (seNodes.Length == 0)
+                return;
+
+            var inv = NumberStyles.Float;
+            var ic = CultureInfo.InvariantCulture;
+            int skipped = 0;
+
+            for (int i = 0; i < seNodes.Length; i++)
+            {
+                var seNode = seNodes[i];
+
+                double ut;
+                if (!double.TryParse(seNode.GetValue("ut"), inv, ic, out ut))
+                {
+                    Log("[Recording] WARNING: Skipping SEGMENT_EVENT with missing or unparseable ut");
+                    skipped++;
+                    continue;
+                }
+
+                int typeInt;
+                if (!int.TryParse(seNode.GetValue("type"), NumberStyles.Integer, ic, out typeInt))
+                {
+                    Log("[Recording] WARNING: Skipping SEGMENT_EVENT with unparseable type");
+                    skipped++;
+                    continue;
+                }
+                if (!Enum.IsDefined(typeof(SegmentEventType), typeInt))
+                {
+                    Log($"[Recording] WARNING: Skipping SEGMENT_EVENT with unknown type={typeInt}");
+                    skipped++;
+                    continue;
+                }
+
+                var evt = new SegmentEvent
+                {
+                    ut = ut,
+                    type = (SegmentEventType)typeInt,
+                    details = seNode.GetValue("details")
+                };
+                events.Add(evt);
+            }
+
+            Log($"[Recording] DeserializeSegmentEvents: {events.Count} deserialized, {skipped} skipped (of {seNodes.Length} total)");
         }
 
         #endregion
