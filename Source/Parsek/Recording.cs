@@ -163,6 +163,7 @@ namespace Parsek
             SegmentPhase = source.SegmentPhase;
             SegmentBodyName = source.SegmentBodyName;
             PlaybackEnabled = source.PlaybackEnabled;
+            Hidden = source.Hidden;
             TreeId = source.TreeId;
             VesselPersistentId = source.VesselPersistentId;
             TerminalStateValue = source.TerminalStateValue;
