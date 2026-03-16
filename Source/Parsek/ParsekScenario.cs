@@ -889,30 +889,15 @@ namespace Parsek
 
             // CRITICAL: yield at least one frame before touching any singleton.
             // During OnLoad, singletons from the OLD scene may still be alive.
-            // Without this yield, AddFunds/AddScience/SetUniversalTime modify the
-            // OLD instances which are then destroyed when the new scene finishes loading.
+            // Without this yield, SetUniversalTime modifies the OLD Planetarium
+            // which is then destroyed when the new scene finishes loading.
             yield return null;
-
-            // Wait until ALL resource singletons are available
-            int maxWait = 120; // ~2 seconds at 60fps
-            while (maxWait-- > 0
-                   && (Funding.Instance == null
-                       || ResearchAndDevelopment.Instance == null
-                       || Reputation.Instance == null))
-                yield return null;
-
-            if (Funding.Instance == null || ResearchAndDevelopment.Instance == null || Reputation.Instance == null)
-            {
-                ParsekLog.Warn("Rewind",
-                    "Resource adjustment aborted: singletons not available after 120 frames");
-                resourceTickingSuspended = false;
-                yield break;
-            }
 
             var ic = CultureInfo.InvariantCulture;
 
-            // Apply adjusted UT — must happen after singletons are ready (new Planetarium).
-            // Setting UT before LoadScene does NOT work — the scene transition overwrites it.
+            // Apply adjusted UT unconditionally — Planetarium is always available
+            // after the first yield. This must NOT be gated on resource singletons
+            // (sandbox/science mode has no Funding/R&D/Reputation, but still needs UT).
             if (adjustedUT > 0)
             {
                 double prePlanetariumUT = Planetarium.GetUniversalTime();
@@ -922,61 +907,74 @@ namespace Parsek
                     $"(post-set check: {Planetarium.GetUniversalTime().ToString("F1", ic)})");
             }
 
-            // Log pre-adjustment state
-            double preFunds = Funding.Instance.Funds;
-            float preScience = ResearchAndDevelopment.Instance.Science;
-            float preRep = Reputation.Instance.reputation;
-            ParsekLog.Info("Rewind",
-                $"Pre-adjustment state: funds={preFunds.ToString("F1", ic)}, " +
-                $"science={preScience.ToString("F1", ic)}, " +
-                $"rep={preRep.ToString("F1", ic)}, " +
-                $"baseline: funds={baselineFunds.ToString("F1", ic)}, " +
-                $"science={baselineScience.ToString("F1", ic)}, " +
-                $"rep={baselineRep.ToString("F1", ic)}");
+            // Wait for resource singletons (career mode only).
+            // In sandbox/science mode these are permanently null — skip gracefully.
+            int maxWait = 120; // ~2 seconds at 60fps
+            while (maxWait-- > 0
+                   && (Funding.Instance == null
+                       || ResearchAndDevelopment.Instance == null
+                       || Reputation.Instance == null))
+                yield return null;
 
-            // Reset resources to baseline (the pre-launch snapshot values).
-            // Ghost playback will re-apply recording resource deltas at the correct UT.
-            // ActionReplay handles game-state actions (tech, parts, facilities) without
-            // resource deduction — those costs are part of the recording deltas.
-            double fundsCorrection = baselineFunds - preFunds;
-            double scienceCorrection = baselineScience - preScience;
-            double repCorrection = (double)baselineRep - (double)preRep;
+            bool hasResources = Funding.Instance != null
+                && ResearchAndDevelopment.Instance != null
+                && Reputation.Instance != null;
 
-            ParsekLog.Info("Rewind",
-                $"Resource reset to baseline: funds={baselineFunds.ToString("F1", ic)}, " +
-                $"science={baselineScience.ToString("F1", ic)}, " +
-                $"rep={baselineRep.ToString("F1", ic)}, " +
-                $"correction: {fundsCorrection.ToString("F1", ic)}, " +
-                $"{scienceCorrection.ToString("F1", ic)}, " +
-                $"{repCorrection.ToString("F1", ic)}");
-
-            // Apply with suppression (prevent synthetic game state events)
-            GameStateRecorder.SuppressResourceEvents = true;
-            try
+            if (hasResources)
             {
-                if (fundsCorrection != 0)
-                    Funding.Instance.AddFunds(fundsCorrection, TransactionReasons.None);
-                if (scienceCorrection != 0)
-                    ResearchAndDevelopment.Instance.AddScience((float)scienceCorrection, TransactionReasons.None);
-                if (repCorrection != 0)
-                    Reputation.Instance.AddReputation((float)repCorrection, TransactionReasons.None);
-            }
-            finally
-            {
-                GameStateRecorder.SuppressResourceEvents = false;
-            }
+                // Career mode: reset resources to baseline
+                double preFunds = Funding.Instance.Funds;
+                float preScience = ResearchAndDevelopment.Instance.Science;
+                float preRep = Reputation.Instance.reputation;
+                ParsekLog.Info("Rewind",
+                    $"Pre-adjustment state: funds={preFunds.ToString("F1", ic)}, " +
+                    $"science={preScience.ToString("F1", ic)}, " +
+                    $"rep={preRep.ToString("F1", ic)}, " +
+                    $"baseline: funds={baselineFunds.ToString("F1", ic)}, " +
+                    $"science={baselineScience.ToString("F1", ic)}, " +
+                    $"rep={baselineRep.ToString("F1", ic)}");
 
-            // Log post-adjustment state
-            ParsekLog.Info("Rewind",
-                $"Post-adjustment state: funds={Funding.Instance.Funds.ToString("F1", ic)}, " +
-                $"science={ResearchAndDevelopment.Instance.Science.ToString("F1", ic)}, " +
-                $"rep={Reputation.Instance.reputation.ToString("F1", ic)}");
+                double fundsCorrection = baselineFunds - preFunds;
+                double scienceCorrection = baselineScience - preScience;
+                double repCorrection = (double)baselineRep - (double)preRep;
+
+                ParsekLog.Info("Rewind",
+                    $"Resource reset to baseline: funds={baselineFunds.ToString("F1", ic)}, " +
+                    $"science={baselineScience.ToString("F1", ic)}, " +
+                    $"rep={baselineRep.ToString("F1", ic)}, " +
+                    $"correction: {fundsCorrection.ToString("F1", ic)}, " +
+                    $"{scienceCorrection.ToString("F1", ic)}, " +
+                    $"{repCorrection.ToString("F1", ic)}");
+
+                GameStateRecorder.SuppressResourceEvents = true;
+                try
+                {
+                    if (fundsCorrection != 0)
+                        Funding.Instance.AddFunds(fundsCorrection, TransactionReasons.None);
+                    if (scienceCorrection != 0)
+                        ResearchAndDevelopment.Instance.AddScience((float)scienceCorrection, TransactionReasons.None);
+                    if (repCorrection != 0)
+                        Reputation.Instance.AddReputation((float)repCorrection, TransactionReasons.None);
+                }
+                finally
+                {
+                    GameStateRecorder.SuppressResourceEvents = false;
+                }
+
+                ParsekLog.Info("Rewind",
+                    $"Post-adjustment state: funds={Funding.Instance.Funds.ToString("F1", ic)}, " +
+                    $"science={ResearchAndDevelopment.Instance.Science.ToString("F1", ic)}, " +
+                    $"rep={Reputation.Instance.reputation.ToString("F1", ic)}");
+            }
+            else
+            {
+                ParsekLog.Info("Rewind",
+                    "Sandbox/science mode: no resource singletons — skipping resource adjustment");
+            }
 
             // Replay committed actions (tech, parts, facilities, crew).
-            // Resources are NOT marked fully applied — ghost playback will re-apply
-            // recording resource deltas at the correct UT as the timeline replays.
-            // Pass rewindUT to skip events from after the rewind point (prevents
-            // replaying tech unlocks / part purchases that haven't happened yet).
+            // Always runs regardless of game mode — tech unlocks and facility upgrades
+            // exist in science mode too. Pass rewindUT to skip events after the rewind point.
             ActionReplay.ReplayCommittedActions(MilestoneStore.Milestones, rewindUT);
 
             // Belt-and-suspenders epoch guard
