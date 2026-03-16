@@ -5,182 +5,6 @@ using UnityEngine;
 
 namespace Parsek
 {
-    internal class JettisonGhostInfo
-    {
-        public uint partPersistentId;
-        public List<Transform> jettisonTransforms;
-    }
-
-    internal class ParachuteGhostInfo
-    {
-        public uint partPersistentId;
-        public Transform canopyTransform;
-        public Transform capTransform;
-        public Vector3 deployedCanopyScale;
-        public Vector3 deployedCanopyPos;
-        public Quaternion deployedCanopyRot;
-        public Vector3 semiDeployedCanopyScale;
-        public Vector3 semiDeployedCanopyPos;
-        public Quaternion semiDeployedCanopyRot;
-        public bool semiDeployedSampled;
-    }
-
-    internal class EngineGhostInfo
-    {
-        public uint partPersistentId;
-        public int moduleIndex;
-        public List<ParticleSystem> particleSystems = new List<ParticleSystem>();
-        public FloatCurve emissionCurve;
-        public FloatCurve speedCurve;
-    }
-
-    internal struct DeployableTransformState
-    {
-        public Transform t;
-        public Vector3 stowedPos;
-        public Quaternion stowedRot;
-        public Vector3 stowedScale;
-        public Vector3 deployedPos;
-        public Quaternion deployedRot;
-        public Vector3 deployedScale;
-    }
-
-    internal class DeployableGhostInfo
-    {
-        public uint partPersistentId;
-        public List<DeployableTransformState> transforms;
-    }
-
-    internal struct HeatTransformState
-    {
-        public Transform t;
-        public Vector3 coldPos, mediumPos, hotPos;
-        public Quaternion coldRot, mediumRot, hotRot;
-        public Vector3 coldScale, mediumScale, hotScale;
-    }
-
-    internal struct HeatMaterialState
-    {
-        public Material material;
-        public string colorProperty;
-        public Color coldColor;
-        public Color mediumColor;
-        public Color hotColor;
-        public string emissiveProperty;
-        public Color coldEmission;
-        public Color mediumEmission;
-        public Color hotEmission;
-    }
-
-    internal class HeatGhostInfo
-    {
-        public uint partPersistentId;
-        public List<HeatTransformState> transforms;
-        public List<HeatMaterialState> materialStates;
-    }
-
-    internal class LightGhostInfo
-    {
-        public uint partPersistentId;
-        public List<Light> lights;
-    }
-
-    internal struct ColorChangerMaterialState
-    {
-        public Material material;
-        public Color offColor;
-        public Color onColor;
-    }
-
-    internal class ColorChangerGhostInfo
-    {
-        public uint partPersistentId;
-        public string shaderProperty;      // "_EmissiveColor" or "_BurnColor"
-        public bool isCabinLight;          // true = Pattern A (toggle), false = Pattern B (reentry)
-        // Pattern B: highest char fraction reached (permanent, never decreases).
-        // NOTE: Rewind past reentry won't reset this value — a reset mechanism
-        // will be needed when rewind/scrub support is added.
-        public float peakCharIntensity;
-        public List<ColorChangerMaterialState> materials;
-    }
-
-    internal class RcsGhostInfo
-    {
-        public uint partPersistentId;
-        public int moduleIndex;
-        public List<ParticleSystem> particleSystems = new List<ParticleSystem>();
-        public FloatCurve emissionCurve;
-        public FloatCurve speedCurve;
-        public float emissionScale = 1f;
-        public float speedScale = 1f;
-    }
-
-    internal enum RoboticVisualMode
-    {
-        Rotational,
-        Linear,
-        RotorRpm
-    }
-
-    internal class RoboticGhostInfo
-    {
-        public uint partPersistentId;
-        public int moduleIndex;
-        public string moduleName;
-        public Transform servoTransform;
-        public Vector3 axisLocal = Vector3.up;
-        public Vector3 stowedPos;
-        public Quaternion stowedRot;
-        public RoboticVisualMode visualMode;
-        public float currentValue;
-        public bool active;
-        public double lastUpdateUT = double.NaN;
-    }
-
-    internal struct FxModelDefinition
-    {
-        public string transformName;
-        public string modelName;
-        public Vector3 localOffset;
-        public Quaternion localRotation;
-        public Vector3 localScale;
-    }
-
-    internal class FairingGhostInfo
-    {
-        public uint partPersistentId;
-        public GameObject fairingMeshObject;
-    }
-
-    internal struct FireShellMesh
-    {
-        public Mesh mesh;
-        public Transform transform;
-    }
-
-    internal class ReentryFxInfo
-    {
-        public ParticleSystem fireParticles;
-        public Mesh combinedEmissionMesh; // combined ghost meshes for surface emission, needs Destroy
-        public Texture2D generatedTexture; // runtime soft-circle, needs Destroy on cleanup
-        public List<FireShellMesh> fireShellMeshes; // mesh+transform pairs for DrawMesh flame overlay
-        public Material fireShellMaterial; // additive material for flame shell passes
-        public List<HeatMaterialState> glowMaterials = new List<HeatMaterialState>();
-        public List<Material> allClonedMaterials = new List<Material>();
-        public float lastIntensity;
-        public float vesselLength;
-    }
-
-    internal enum VariantPropertyType { Texture, Color, Float, Skip }
-
-    internal struct VariantTextureRule
-    {
-        public string materialName;
-        public string shaderName;
-        public string transformName;
-        public List<(string key, string value)> properties;
-    }
-
     internal static class GhostVisualBuilder
     {
         private static readonly Regex trailingNumericSuffixRegex =
@@ -462,31 +286,14 @@ namespace Parsek
             fxLoadedObjectScanCompleted = false;
         }
 
-        // TODO: The out-parameter list is growing large (10 info lists). Consider
-        // bundling them into a GhostBuildResult class in a future cleanup PR.
-        internal static GameObject BuildTimelineGhostFromSnapshot(
-            RecordingStore.Recording rec, string rootName,
-            out List<ParachuteGhostInfo> parachuteInfos,
-            out List<JettisonGhostInfo> jettisonInfos,
-            out List<EngineGhostInfo> engineInfos,
-            out List<DeployableGhostInfo> deployableInfos,
-            out List<HeatGhostInfo> heatInfos,
-            out List<LightGhostInfo> lightInfos,
-            out List<FairingGhostInfo> fairingInfos,
-            out List<RcsGhostInfo> rcsInfos,
-            out List<RoboticGhostInfo> roboticInfos,
-            out List<ColorChangerGhostInfo> colorChangerInfos)
+        /// <summary>
+        /// Builds a ghost GameObject from a recording's vessel snapshot, returning
+        /// all per-module-type ghost info lists bundled in a GhostBuildResult.
+        /// Returns null if the snapshot is missing or produces zero visuals.
+        /// </summary>
+        internal static GhostBuildResult BuildTimelineGhostFromSnapshot(
+            Recording rec, string rootName)
         {
-            parachuteInfos = null;
-            jettisonInfos = null;
-            engineInfos = null;
-            deployableInfos = null;
-            heatInfos = null;
-            lightInfos = null;
-            fairingInfos = null;
-            rcsInfos = null;
-            roboticInfos = null;
-            colorChangerInfos = null;
             ConfigNode snapshotNode = GetGhostSnapshot(rec);
             if (snapshotNode == null)
             {
@@ -621,95 +428,23 @@ namespace Parsek
                 return null;
             }
 
-            parachuteInfos = collectedParachuteInfos.Count > 0 ? collectedParachuteInfos : null;
-            jettisonInfos = collectedJettisonInfos.Count > 0 ? collectedJettisonInfos : null;
-            engineInfos = collectedEngineInfos.Count > 0 ? collectedEngineInfos : null;
-            deployableInfos = collectedDeployableInfos.Count > 0 ? collectedDeployableInfos : null;
-            heatInfos = collectedHeatInfos.Count > 0 ? collectedHeatInfos : null;
-            lightInfos = collectedLightInfos.Count > 0 ? collectedLightInfos : null;
-            fairingInfos = collectedFairingInfos.Count > 0 ? collectedFairingInfos : null;
-            rcsInfos = collectedRcsInfos.Count > 0 ? collectedRcsInfos : null;
-            roboticInfos = collectedRoboticInfos.Count > 0 ? collectedRoboticInfos : null;
-            colorChangerInfos = collectedColorChangerInfos.Count > 0 ? collectedColorChangerInfos : null;
-            return root;
+            return new GhostBuildResult
+            {
+                root = root,
+                parachuteInfos = collectedParachuteInfos.Count > 0 ? collectedParachuteInfos : null,
+                jettisonInfos = collectedJettisonInfos.Count > 0 ? collectedJettisonInfos : null,
+                engineInfos = collectedEngineInfos.Count > 0 ? collectedEngineInfos : null,
+                deployableInfos = collectedDeployableInfos.Count > 0 ? collectedDeployableInfos : null,
+                heatInfos = collectedHeatInfos.Count > 0 ? collectedHeatInfos : null,
+                lightInfos = collectedLightInfos.Count > 0 ? collectedLightInfos : null,
+                fairingInfos = collectedFairingInfos.Count > 0 ? collectedFairingInfos : null,
+                rcsInfos = collectedRcsInfos.Count > 0 ? collectedRcsInfos : null,
+                roboticInfos = collectedRoboticInfos.Count > 0 ? collectedRoboticInfos : null,
+                colorChangerInfos = collectedColorChangerInfos.Count > 0 ? collectedColorChangerInfos : null,
+            };
         }
 
-        // Backward-compat overload without rcs infos
-        internal static GameObject BuildTimelineGhostFromSnapshot(
-            RecordingStore.Recording rec, string rootName,
-            out List<ParachuteGhostInfo> parachuteInfos,
-            out List<JettisonGhostInfo> jettisonInfos,
-            out List<EngineGhostInfo> engineInfos,
-            out List<DeployableGhostInfo> deployableInfos,
-            out List<LightGhostInfo> lightInfos,
-            out List<FairingGhostInfo> fairingInfos)
-        {
-            return BuildTimelineGhostFromSnapshot(rec, rootName,
-                out parachuteInfos, out jettisonInfos, out engineInfos, out deployableInfos, out _,
-                out lightInfos, out fairingInfos, out _, out _, out _);
-        }
-
-        // Backward-compat overload without fairing/rcs infos
-        internal static GameObject BuildTimelineGhostFromSnapshot(
-            RecordingStore.Recording rec, string rootName,
-            out List<ParachuteGhostInfo> parachuteInfos,
-            out List<JettisonGhostInfo> jettisonInfos,
-            out List<EngineGhostInfo> engineInfos,
-            out List<DeployableGhostInfo> deployableInfos,
-            out List<LightGhostInfo> lightInfos)
-        {
-            return BuildTimelineGhostFromSnapshot(rec, rootName,
-                out parachuteInfos, out jettisonInfos, out engineInfos, out deployableInfos, out _,
-                out lightInfos, out _, out _, out _, out _);
-        }
-
-        // Backward-compat overload without light/fairing/rcs infos
-        internal static GameObject BuildTimelineGhostFromSnapshot(
-            RecordingStore.Recording rec, string rootName,
-            out List<ParachuteGhostInfo> parachuteInfos,
-            out List<JettisonGhostInfo> jettisonInfos,
-            out List<EngineGhostInfo> engineInfos,
-            out List<DeployableGhostInfo> deployableInfos)
-        {
-            return BuildTimelineGhostFromSnapshot(rec, rootName,
-                out parachuteInfos, out jettisonInfos, out engineInfos, out deployableInfos, out _, out _, out _, out _, out _, out _);
-        }
-
-        // Backward-compat overload without deployable/light/fairing/rcs infos
-        internal static GameObject BuildTimelineGhostFromSnapshot(
-            RecordingStore.Recording rec, string rootName,
-            out List<ParachuteGhostInfo> parachuteInfos,
-            out List<JettisonGhostInfo> jettisonInfos,
-            out List<EngineGhostInfo> engineInfos)
-        {
-            return BuildTimelineGhostFromSnapshot(rec, rootName,
-                out parachuteInfos, out jettisonInfos, out engineInfos, out _, out _, out _, out _, out _, out _, out _);
-        }
-
-        // Overload without info outputs for callers that don't need them (preview ghost)
-        internal static GameObject BuildTimelineGhostFromSnapshot(RecordingStore.Recording rec, string rootName)
-        {
-            return BuildTimelineGhostFromSnapshot(rec, rootName, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _);
-        }
-
-        // Overload with parachute + jettison info (backward compat)
-        internal static GameObject BuildTimelineGhostFromSnapshot(
-            RecordingStore.Recording rec, string rootName,
-            out List<ParachuteGhostInfo> parachuteInfos,
-            out List<JettisonGhostInfo> jettisonInfos)
-        {
-            return BuildTimelineGhostFromSnapshot(rec, rootName, out parachuteInfos, out jettisonInfos, out _, out _, out _, out _, out _, out _, out _, out _);
-        }
-
-        // Overload with only parachute info for backward compat
-        internal static GameObject BuildTimelineGhostFromSnapshot(
-            RecordingStore.Recording rec, string rootName,
-            out List<ParachuteGhostInfo> parachuteInfos)
-        {
-            return BuildTimelineGhostFromSnapshot(rec, rootName, out parachuteInfos, out _, out _, out _, out _, out _, out _, out _, out _, out _);
-        }
-
-        internal static ConfigNode GetGhostSnapshot(RecordingStore.Recording rec)
+        internal static ConfigNode GetGhostSnapshot(Recording rec)
         {
             if (rec == null) return null;
             return rec.GhostVisualSnapshot ?? rec.VesselSnapshot;
@@ -2399,6 +2134,487 @@ namespace Parsek
                 DumpTransformHierarchy(t.GetChild(i), depth + 1, partName);
         }
 
+        #region Extracted helpers for TryBuildEngineFX
+
+        /// <summary>
+        /// Scans EFFECTS config groups for MODEL_MULTI_PARTICLE/MODEL_PARTICLE entries.
+        /// Populates modelFxEntries with transform/model/offset/rotation tuples and extracts
+        /// the first emission and speed curves found.
+        /// </summary>
+        private static void ScanEffectsModelFxEntries(
+            ConfigNode[] effectGroups,
+            List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot)> modelFxEntries,
+            ref FloatCurve emissionCurve,
+            ref FloatCurve speedCurve)
+        {
+            for (int g = 0; g < effectGroups.Length; g++)
+            {
+                for (int n = 0; n < EngineModelNodeTypes.Length; n++)
+                {
+                    string nodeType = EngineModelNodeTypes[n];
+                    ConfigNode[] modelNodes = effectGroups[g].GetNodes(nodeType);
+                    for (int mp = 0; mp < modelNodes.Length; mp++)
+                    {
+                        string transformName = modelNodes[mp].GetValue("transformName");
+                        string modelName = modelNodes[mp].GetValue("modelName");
+                        if (!string.IsNullOrEmpty(transformName))
+                        {
+                            Vector3 mmpLocalPos = Vector3.zero;
+                            string mmpOffsetStr = modelNodes[mp].GetValue("localPosition");
+                            if (string.IsNullOrEmpty(mmpOffsetStr))
+                                mmpOffsetStr = modelNodes[mp].GetValue("localOffset");
+                            TryParseVector3(mmpOffsetStr, out mmpLocalPos);
+
+                            Quaternion mmpLocalRot = Quaternion.identity;
+                            string mmpRotStr = modelNodes[mp].GetValue("localRotation");
+                            if (!TryParseFxLocalRotation(mmpRotStr, out mmpLocalRot))
+                            {
+                                if (TryGetFxModelFallbackRotation(modelName, out mmpLocalRot))
+                                {
+                                    ParsekLog.Log($"    Engine FX model rotation fallback: '{modelName}' euler={mmpLocalRot.eulerAngles}");
+                                }
+                            }
+
+                            modelFxEntries.Add((nodeType, transformName, modelName ?? "", mmpLocalPos, mmpLocalRot));
+
+                            if (emissionCurve == null)
+                            {
+                                ConfigNode emNode = modelNodes[mp].GetNode("emission");
+                                if (emNode != null)
+                                {
+                                    emissionCurve = new FloatCurve();
+                                    emissionCurve.Load(emNode);
+                                }
+                                ConfigNode spNode = modelNodes[mp].GetNode("speed");
+                                if (spNode != null)
+                                {
+                                    speedCurve = new FloatCurve();
+                                    speedCurve.Load(spNode);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Scans EFFECTS config groups for PREFAB_PARTICLE entries (used by Spark, Twitch, Pug, etc.).
+        /// Populates prefabFxEntries with prefab/transform/offset/rotation tuples.
+        /// Skips flameout/sparks/debris prefabs -- only wants running FX.
+        /// </summary>
+        private static void ScanEffectsPrefabParticleEntries(
+            ConfigNode[] effectGroups,
+            List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation)> prefabFxEntries)
+        {
+            for (int g = 0; g < effectGroups.Length; g++)
+            {
+                ConfigNode[] ppNodes = effectGroups[g].GetNodes("PREFAB_PARTICLE");
+                for (int pp = 0; pp < ppNodes.Length; pp++)
+                {
+                    string prefabName = ppNodes[pp].GetValue("prefabName");
+                    string transformName = ppNodes[pp].GetValue("transformName");
+                    if (string.IsNullOrEmpty(prefabName) || string.IsNullOrEmpty(transformName))
+                        continue;
+
+                    string lower = prefabName.ToLowerInvariant();
+                    if (lower.Contains("flameout") || lower.Contains("sparks") || lower.Contains("debris"))
+                        continue;
+
+                    Vector3 localOffset = Vector3.zero;
+                    string offsetStr = ppNodes[pp].GetValue("localOffset");
+                    if (string.IsNullOrEmpty(offsetStr))
+                        offsetStr = ppNodes[pp].GetValue("localPosition");
+                    TryParseVector3(offsetStr, out localOffset);
+
+                    Quaternion localRot = Quaternion.identity;
+                    string rotStr = ppNodes[pp].GetValue("localRotation");
+                    bool hasLocalRot = TryParseFxLocalRotation(rotStr, out localRot);
+
+                    prefabFxEntries.Add((prefabName, transformName, localOffset, localRot, hasLocalRot));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Processes legacy PART-level fx_* child entries when no EFFECTS node is present.
+        /// Clones particle systems from prefab children onto ghost thrust anchors.
+        /// Returns true if any particle systems were added to the info.
+        /// </summary>
+        private static bool ProcessEngineLegacyFx(
+            Part prefab, ModuleEngines engine, EngineGhostInfo info,
+            string partName, int moduleIndex,
+            Transform modelRoot, Transform ghostModelNode,
+            Dictionary<Transform, Transform> cloneMap)
+        {
+            var legacyAnchors = new List<Transform>();
+            if (engine != null && engine.thrustTransforms != null)
+            {
+                for (int t = 0; t < engine.thrustTransforms.Count; t++)
+                {
+                    Transform anchor = engine.thrustTransforms[t];
+                    if (anchor != null && !legacyAnchors.Contains(anchor))
+                        legacyAnchors.Add(anchor);
+                }
+            }
+            if (legacyAnchors.Count == 0 && engine != null &&
+                !string.IsNullOrEmpty(engine.thrustVectorTransformName))
+            {
+                var namedAnchors = FindTransformsRecursive(prefab.transform, engine.thrustVectorTransformName);
+                for (int t = 0; t < namedAnchors.Count; t++)
+                {
+                    Transform anchor = namedAnchors[t];
+                    if (anchor != null && !legacyAnchors.Contains(anchor))
+                        legacyAnchors.Add(anchor);
+                }
+            }
+            Vector3 legacyFxOffset = engine != null ? engine.fxOffset : Vector3.zero;
+
+            for (int c = 0; c < prefab.transform.childCount; c++)
+            {
+                Transform child = prefab.transform.GetChild(c);
+                string childName = child.name.ToLowerInvariant();
+                if (!childName.StartsWith("fx_")) continue;
+
+                if (childName.Contains("flameout") || childName.Contains("sparks") || childName.Contains("debris"))
+                    continue;
+                if (!childName.Contains("flame") && !childName.Contains("exhaust") && !childName.Contains("smoke"))
+                    continue;
+
+                var ps = child.GetComponentInChildren<ParticleSystem>(true);
+                if (ps == null) continue;
+
+                int clonesAdded = 0;
+                if (legacyAnchors.Count > 0)
+                {
+                    for (int t = 0; t < legacyAnchors.Count; t++)
+                    {
+                        Transform srcLegacyAnchor = legacyAnchors[t];
+                        Transform ghostLegacyParent = ResolveGhostFxParent(
+                            srcLegacyAnchor, prefab.transform, modelRoot, ghostModelNode, cloneMap);
+                        if (ghostLegacyParent == null)
+                            continue;
+
+                        GameObject fxClone = Object.Instantiate(child.gameObject);
+                        fxClone.transform.SetParent(ghostLegacyParent, false);
+                        fxClone.transform.localPosition = legacyFxOffset;
+                        Quaternion legacyLocalRot = Quaternion.Inverse(srcLegacyAnchor.rotation) * child.rotation;
+                        fxClone.transform.localRotation = legacyLocalRot;
+                        fxClone.transform.localScale = child.localScale;
+
+                        var smokeTrail = fxClone.GetComponent("SmokeTrailControl");
+                        if (smokeTrail != null)
+                            Object.Destroy(smokeTrail);
+
+                        int addedSystems = ConfigureGhostEngineParticleSystems(fxClone, info.particleSystems);
+                        if (addedSystems > 0)
+                        {
+                            clonesAdded++;
+                            LogFxInstancePlacementDiagnostic(partName, moduleIndex, "LEGACY_CHILD",
+                                srcLegacyAnchor.name, child.name, prefab.transform, ghostModelNode,
+                                srcLegacyAnchor, ghostLegacyParent, fxClone.transform,
+                                legacyFxOffset, legacyLocalRot, true);
+                            ParsekLog.Log($"    Engine FX (legacy): '{partName}' midx={moduleIndex} " +
+                                $"fx='{child.name}' anchor='{srcLegacyAnchor.name}' offset={legacyFxOffset} systems={addedSystems}");
+                        }
+                        else
+                        {
+                            Object.Destroy(fxClone);
+                        }
+                    }
+                }
+
+                if (clonesAdded == 0)
+                {
+                    GameObject fxClone = Object.Instantiate(child.gameObject);
+                    fxClone.transform.SetParent(ghostModelNode.parent, false);
+                    fxClone.transform.localPosition = child.localPosition;
+                    fxClone.transform.localRotation = child.localRotation;
+                    fxClone.transform.localScale = child.localScale;
+
+                    var smokeTrail = fxClone.GetComponent("SmokeTrailControl");
+                    if (smokeTrail != null)
+                        Object.Destroy(smokeTrail);
+
+                    int addedSystems = ConfigureGhostEngineParticleSystems(fxClone, info.particleSystems);
+                    if (addedSystems > 0)
+                    {
+                        Transform fallbackParent = fxClone.transform.parent != null
+                            ? fxClone.transform.parent : ghostModelNode;
+                        LogFxInstancePlacementDiagnostic(partName, moduleIndex, "LEGACY_CHILD_FALLBACK",
+                            child.name, child.name, prefab.transform, ghostModelNode,
+                            child, fallbackParent, fxClone.transform,
+                            child.localPosition, child.localRotation, true);
+                        ParsekLog.Log($"    Engine FX (legacy): '{partName}' midx={moduleIndex} " +
+                            $"fx='{child.name}' systems={addedSystems}");
+                    }
+                    else
+                    {
+                        Object.Destroy(fxClone);
+                    }
+                }
+            }
+
+            return info.particleSystems.Count > 0;
+        }
+
+        /// <summary>
+        /// Instantiates model FX entries (MODEL_MULTI_PARTICLE/MODEL_PARTICLE) from EFFECTS config
+        /// and parents them to the ghost's mirrored transform hierarchy.
+        /// </summary>
+        private static void ProcessEngineModelFxEntries(
+            List<(string nodeType, string transformName, string modelName, Vector3 localPos, Quaternion localRot)> modelFxEntries,
+            Part prefab, EngineGhostInfo info,
+            string partName, int moduleIndex,
+            Transform modelRoot, Transform ghostModelNode,
+            Dictionary<Transform, Transform> cloneMap)
+        {
+            for (int f = 0; f < modelFxEntries.Count; f++)
+            {
+                var (nodeType, transformName, modelName, mmpLocalPos, mmpLocalRot) = modelFxEntries[f];
+
+                var fxTransforms = FindTransformsRecursive(prefab.transform, transformName);
+                for (int t = 0; t < fxTransforms.Count; t++)
+                {
+                    Transform srcFxTransform = fxTransforms[t];
+
+                    Transform ghostFxParent = ResolveGhostFxParent(
+                        srcFxTransform, prefab.transform, modelRoot, ghostModelNode, cloneMap);
+                    if (ghostFxParent == null)
+                    {
+                        ParsekLog.Log($"    Engine FX: '{partName}' midx={moduleIndex} " +
+                            $"transform='{transformName}' parent resolution failed");
+                        continue;
+                    }
+                    LogFxParentAlignmentDiagnostic(partName, moduleIndex, nodeType, transformName,
+                        prefab.transform, ghostModelNode, srcFxTransform, ghostFxParent);
+
+                    if (!string.IsNullOrEmpty(modelName))
+                    {
+                        GameObject fxPrefab = GameDatabase.Instance.GetModelPrefab(modelName);
+                        if (fxPrefab != null)
+                        {
+                            GameObject fxInstance = Object.Instantiate(fxPrefab);
+                            fxInstance.SetActive(true);
+                            fxInstance.transform.SetParent(ghostFxParent, false);
+                            fxInstance.transform.localPosition = mmpLocalPos;
+                            fxInstance.transform.localRotation = mmpLocalRot;
+
+                            int addedSystems = ConfigureGhostEngineParticleSystems(fxInstance, info.particleSystems);
+                            if (addedSystems > 0)
+                            {
+                                LogFxInstancePlacementDiagnostic(partName, moduleIndex, nodeType, transformName,
+                                    modelName, prefab.transform, ghostModelNode, srcFxTransform, ghostFxParent,
+                                    fxInstance.transform, mmpLocalPos, mmpLocalRot, true);
+                                Vector3 srcFwd = srcFxTransform.forward;
+                                Vector3 srcUp = srcFxTransform.up;
+                                Quaternion srcLocalRot = srcFxTransform.localRotation;
+                                ParsekLog.Log($"    Engine FX cloned: '{partName}' midx={moduleIndex} " +
+                                    $"type={nodeType} transform='{transformName}' model='{modelName}' " +
+                                    $"systems={addedSystems} " +
+                                    $"srcLocalRot={srcLocalRot} srcFwd={srcFwd} srcUp={srcUp}");
+                            }
+                            else
+                            {
+                                ParsekLog.Log($"    Engine FX model has no ParticleSystem: '{modelName}' for '{partName}'");
+                                Object.Destroy(fxInstance);
+                            }
+                        }
+                        else
+                        {
+                            ParsekLog.Verbose("GhostVisual", $"    Engine FX model not found: '{modelName}' for '{partName}'");
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Instantiates PREFAB_PARTICLE entries from EFFECTS config and parents them to the
+        /// ghost's mirrored transform hierarchy. Handles special cases like RAPIER white flame scaling.
+        /// </summary>
+        private static void ProcessEnginePrefabFxEntries(
+            List<(string prefabName, string transformName, Vector3 localOffset, Quaternion localRotation, bool hasLocalRotation)> prefabFxEntries,
+            Part prefab, EngineGhostInfo info,
+            string partName, int moduleIndex,
+            Transform modelRoot, Transform ghostModelNode,
+            Dictionary<Transform, Transform> cloneMap)
+        {
+            for (int f = 0; f < prefabFxEntries.Count; f++)
+            {
+                var (prefabName, transformName, localOffset, localRot, hasLocalRot) = prefabFxEntries[f];
+                string normalizedPrefabName = NormalizeFxPrefabName(prefabName);
+                bool isRapierWhiteFlame =
+                    string.Equals(partName, "RAPIER", System.StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(normalizedPrefabName, "fx_exhaustFlame_white", System.StringComparison.OrdinalIgnoreCase);
+
+                GameObject fxPrefab = FindFxPrefab(prefabName);
+                if (fxPrefab == null)
+                {
+                    ParsekLog.Log($"    Engine FX prefab not found: '{prefabName}' for '{partName}'");
+                    continue;
+                }
+
+                var fxTransforms = FindTransformsRecursive(prefab.transform, transformName);
+                if (fxTransforms.Count == 0)
+                {
+                    ParsekLog.Log($"    Engine FX (prefab): '{partName}' midx={moduleIndex} " +
+                        $"transform '{transformName}' not found on prefab");
+                    continue;
+                }
+                for (int t = 0; t < fxTransforms.Count; t++)
+                {
+                    if (isRapierWhiteFlame && t > 0)
+                        continue;
+
+                    Transform srcFxTransform = fxTransforms[t];
+
+                    Transform ghostFxParent = ResolveGhostFxParent(
+                        srcFxTransform, prefab.transform, modelRoot, ghostModelNode, cloneMap);
+                    if (ghostFxParent == null)
+                    {
+                        ParsekLog.Log($"    Engine FX (prefab): '{partName}' midx={moduleIndex} " +
+                            $"transform='{transformName}' parent resolution failed");
+                        continue;
+                    }
+                    LogFxParentAlignmentDiagnostic(partName, moduleIndex, "PREFAB_PARTICLE", transformName,
+                        prefab.transform, ghostModelNode, srcFxTransform, ghostFxParent);
+
+                    GameObject fxInstance = Object.Instantiate(fxPrefab);
+                    fxInstance.transform.SetParent(ghostFxParent, false);
+                    fxInstance.transform.localPosition = localOffset;
+                    if (hasLocalRot)
+                        fxInstance.transform.localRotation = localRot;
+
+                    if (isRapierWhiteFlame)
+                    {
+                        fxInstance.transform.localScale *= 0.35f;
+                        ParticleSystem[] rapierWhiteSystems = fxInstance.GetComponentsInChildren<ParticleSystem>(true);
+                        for (int psIndex = 0; psIndex < rapierWhiteSystems.Length; psIndex++)
+                        {
+                            var main = rapierWhiteSystems[psIndex].main;
+                            main.startSizeMultiplier *= 0.45f;
+                            main.startSpeedMultiplier *= 0.75f;
+                        }
+                    }
+
+                    var smokeTrail = fxInstance.GetComponent("SmokeTrailControl");
+                    if (smokeTrail != null)
+                        Object.Destroy(smokeTrail);
+
+                    int addedSystems = ConfigureGhostEngineParticleSystems(fxInstance, info.particleSystems);
+                    if (addedSystems > 0)
+                    {
+                        LogFxInstancePlacementDiagnostic(partName, moduleIndex, "PREFAB_PARTICLE", transformName,
+                            prefabName, prefab.transform, ghostModelNode, srcFxTransform, ghostFxParent,
+                            fxInstance.transform, localOffset, localRot, hasLocalRot);
+                        ParsekLog.Log($"    Engine FX (prefab): '{partName}' midx={moduleIndex} " +
+                            $"transform='{transformName}' prefab='{prefabName}' systems={addedSystems}");
+                    }
+                    else
+                    {
+                        ParsekLog.Log($"    Engine FX (prefab): '{partName}' midx={moduleIndex} " +
+                            $"prefab '{prefabName}' has no ParticleSystem");
+                        Object.Destroy(fxInstance);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Builds the smoke child particle system for SpawnExplosionFx.
+        /// Returns the created ParticleSystem, or null if the shader was not found.
+        /// </summary>
+        private static ParticleSystem BuildExplosionSmokeChild(
+            GameObject parentObj, float vesselLength)
+        {
+            Shader alphaShader = Shader.Find("KSP/Particles/Alpha Blended");
+            if (alphaShader == null)
+                return null;
+
+            var smokeObj = new GameObject("Smoke");
+            smokeObj.transform.SetParent(parentObj.transform, false);
+
+            var smokePs = smokeObj.AddComponent<ParticleSystem>();
+            var smokeMain = smokePs.main;
+            smokeMain.simulationSpace = ParticleSystemSimulationSpace.World;
+            smokeMain.startLifetime = new ParticleSystem.MinMaxCurve(2.0f, 3.5f);
+            smokeMain.startSpeed = new ParticleSystem.MinMaxCurve(vesselLength * 0.25f, vesselLength * 1f);
+            smokeMain.startSize = new ParticleSystem.MinMaxCurve(vesselLength * 0.3f, vesselLength * 0.8f);
+            smokeMain.maxParticles = 400;
+            smokeMain.playOnAwake = false;
+            smokeMain.loop = false;
+            smokeMain.gravityModifier = 0.03f;
+            smokeMain.startColor = new ParticleSystem.MinMaxGradient(
+                new Color(0.3f, 0.3f, 0.3f, 0.6f),
+                new Color(0.15f, 0.12f, 0.1f, 0.5f));
+
+            var smokeShape = smokePs.shape;
+            smokeShape.shapeType = ParticleSystemShapeType.Sphere;
+            smokeShape.radius = vesselLength * 0.3f;
+
+            var smokeEmission = smokePs.emission;
+            smokeEmission.enabled = true;
+            smokeEmission.rateOverTime = 0f;
+            smokeEmission.SetBursts(new ParticleSystem.Burst[]
+            {
+                new ParticleSystem.Burst(0.1f, 160, 240)
+            });
+
+            var smokeColor = smokePs.colorOverLifetime;
+            smokeColor.enabled = true;
+            var smokeGradient = new Gradient();
+            smokeGradient.SetKeys(
+                new GradientColorKey[]
+                {
+                    new GradientColorKey(new Color(0.4f, 0.35f, 0.3f), 0f),
+                    new GradientColorKey(new Color(0.25f, 0.22f, 0.2f), 0.4f),
+                    new GradientColorKey(new Color(0.15f, 0.13f, 0.12f), 1f)
+                },
+                new GradientAlphaKey[]
+                {
+                    new GradientAlphaKey(0.0f, 0f),
+                    new GradientAlphaKey(0.5f, 0.1f),
+                    new GradientAlphaKey(0.4f, 0.5f),
+                    new GradientAlphaKey(0f, 1f)
+                }
+            );
+            smokeColor.color = smokeGradient;
+
+            var smokeSize = smokePs.sizeOverLifetime;
+            smokeSize.enabled = true;
+            smokeSize.size = new ParticleSystem.MinMaxCurve(1f,
+                new AnimationCurve(
+                    new Keyframe(0f, 0.5f),
+                    new Keyframe(0.3f, 1.5f),
+                    new Keyframe(1f, 3.0f)));
+
+            var smokeNoise = smokePs.noise;
+            smokeNoise.enabled = true;
+            smokeNoise.strength = vesselLength * 0.2f;
+            smokeNoise.frequency = 1.5f;
+            smokeNoise.scrollSpeed = 0.8f;
+            smokeNoise.damping = true;
+
+            var smokeRenderer = smokeObj.GetComponent<ParticleSystemRenderer>();
+            smokeRenderer.renderMode = ParticleSystemRenderMode.Billboard;
+            smokeRenderer.maxParticleSize = 12f;
+
+            if (cachedExplosionTexture == null)
+                cachedExplosionTexture = CreateSoftCircleTexture(32);
+            var smokeMat = new Material(alphaShader);
+            smokeMat.mainTexture = cachedExplosionTexture;
+            smokeMat.SetColor("_TintColor", new Color(0.3f, 0.25f, 0.2f, 0.5f));
+            smokeRenderer.material = smokeMat;
+
+            var smokeCleanup = smokeObj.AddComponent<MaterialCleanup>();
+            smokeCleanup.material = smokeMat;
+
+            return smokePs;
+        }
+
+        #endregion
+
         private static List<EngineGhostInfo> TryBuildEngineFX(
             Part prefab, uint persistentId, string partName,
             Transform modelRoot, Transform ghostModelNode,
@@ -2472,92 +2688,8 @@ namespace Parsek
                 if (effectsNode != null)
                 {
                     ConfigNode[] effectGroups = effectsNode.GetNodes();
-
-                    // Scan for model FX nodes used by engines.
-                    for (int g = 0; g < effectGroups.Length; g++)
-                    {
-                        for (int n = 0; n < EngineModelNodeTypes.Length; n++)
-                        {
-                            string nodeType = EngineModelNodeTypes[n];
-                            ConfigNode[] modelNodes = effectGroups[g].GetNodes(nodeType);
-                            for (int mp = 0; mp < modelNodes.Length; mp++)
-                            {
-                                string transformName = modelNodes[mp].GetValue("transformName");
-                                string modelName = modelNodes[mp].GetValue("modelName");
-                                if (!string.IsNullOrEmpty(transformName))
-                                {
-                                    // Parse localPosition/localOffset from config
-                                    Vector3 mmpLocalPos = Vector3.zero;
-                                    string mmpOffsetStr = modelNodes[mp].GetValue("localPosition");
-                                    if (string.IsNullOrEmpty(mmpOffsetStr))
-                                        mmpOffsetStr = modelNodes[mp].GetValue("localOffset");
-                                    TryParseVector3(mmpOffsetStr, out mmpLocalPos);
-
-                                    Quaternion mmpLocalRot = Quaternion.identity;
-                                    string mmpRotStr = modelNodes[mp].GetValue("localRotation");
-                                    if (!TryParseFxLocalRotation(mmpRotStr, out mmpLocalRot))
-                                    {
-                                        // Some stock model FX rely on implicit orientation when
-                                        // localRotation is omitted from EFFECTS config.
-                                        if (TryGetFxModelFallbackRotation(modelName, out mmpLocalRot))
-                                        {
-                                            ParsekLog.Log($"    Engine FX model rotation fallback: '{modelName}' euler={mmpLocalRot.eulerAngles}");
-                                        }
-                                    }
-
-                                    modelFxEntries.Add((nodeType, transformName, modelName ?? "", mmpLocalPos, mmpLocalRot));
-
-                                    // Parse emission and speed curves from the first model entry.
-                                    if (emissionCurve == null)
-                                    {
-                                        ConfigNode emNode = modelNodes[mp].GetNode("emission");
-                                        if (emNode != null)
-                                        {
-                                            emissionCurve = new FloatCurve();
-                                            emissionCurve.Load(emNode);
-                                        }
-                                        ConfigNode spNode = modelNodes[mp].GetNode("speed");
-                                        if (spNode != null)
-                                        {
-                                            speedCurve = new FloatCurve();
-                                            speedCurve.Load(spNode);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Scan for PREFAB_PARTICLE (used by Spark, Twitch, Pug, Juno, Wheesley, Goliath)
-                    for (int g = 0; g < effectGroups.Length; g++)
-                    {
-                        ConfigNode[] ppNodes = effectGroups[g].GetNodes("PREFAB_PARTICLE");
-                        for (int pp = 0; pp < ppNodes.Length; pp++)
-                        {
-                            string prefabName = ppNodes[pp].GetValue("prefabName");
-                            string transformName = ppNodes[pp].GetValue("transformName");
-                            if (string.IsNullOrEmpty(prefabName) || string.IsNullOrEmpty(transformName))
-                                continue;
-
-                            // Skip flameout/engage/disengage prefabs — only want running FX
-                            string lower = prefabName.ToLowerInvariant();
-                            if (lower.Contains("flameout") || lower.Contains("sparks") || lower.Contains("debris"))
-                                continue;
-
-                            // Parse localOffset or localPosition (comma-separated x,y,z)
-                            Vector3 localOffset = Vector3.zero;
-                            string offsetStr = ppNodes[pp].GetValue("localOffset");
-                            if (string.IsNullOrEmpty(offsetStr))
-                                offsetStr = ppNodes[pp].GetValue("localPosition");
-                            TryParseVector3(offsetStr, out localOffset);
-
-                            Quaternion localRot = Quaternion.identity;
-                            string rotStr = ppNodes[pp].GetValue("localRotation");
-                            bool hasLocalRot = TryParseFxLocalRotation(rotStr, out localRot);
-
-                            prefabFxEntries.Add((prefabName, transformName, localOffset, localRot, hasLocalRot));
-                        }
-                    }
+                    ScanEffectsModelFxEntries(effectGroups, modelFxEntries, ref emissionCurve, ref speedCurve);
+                    ScanEffectsPrefabParticleEntries(effectGroups, prefabFxEntries);
                 }
 
                 var namedTransformCache = new Dictionary<string, List<Transform>>(System.StringComparer.OrdinalIgnoreCase);
@@ -3021,145 +3153,10 @@ namespace Parsek
                         continue;
                     }
 
-                    // Legacy PART-level fx_* entries are driven by thrust transform + fxOffset.
-                    // The child prefab position on part root can be far from nozzle on some parts
-                    // (e.g., Terrier/Swivel), so prefer anchoring to thrust transforms.
-                    var legacyAnchors = new List<Transform>();
-                    if (engine != null && engine.thrustTransforms != null)
-                    {
-                        for (int t = 0; t < engine.thrustTransforms.Count; t++)
-                        {
-                            Transform anchor = engine.thrustTransforms[t];
-                            if (anchor != null && !legacyAnchors.Contains(anchor))
-                                legacyAnchors.Add(anchor);
-                        }
-                    }
-                    if (legacyAnchors.Count == 0 && engine != null &&
-                        !string.IsNullOrEmpty(engine.thrustVectorTransformName))
-                    {
-                        var namedAnchors = FindTransformsRecursive(prefab.transform, engine.thrustVectorTransformName);
-                        for (int t = 0; t < namedAnchors.Count; t++)
-                        {
-                            Transform anchor = namedAnchors[t];
-                            if (anchor != null && !legacyAnchors.Contains(anchor))
-                                legacyAnchors.Add(anchor);
-                        }
-                    }
-                    Vector3 legacyFxOffset = engine != null ? engine.fxOffset : Vector3.zero;
-
-                    for (int c = 0; c < prefab.transform.childCount; c++)
-                    {
-                        Transform child = prefab.transform.GetChild(c);
-                        string childName = child.name.ToLowerInvariant();
-                        if (!childName.StartsWith("fx_")) continue;
-
-                        // Whitelist: only continuous thrust FX (flame, exhaust, smoke)
-                        if (childName.Contains("flameout") || childName.Contains("sparks") || childName.Contains("debris"))
-                            continue;
-                        if (!childName.Contains("flame") && !childName.Contains("exhaust") && !childName.Contains("smoke"))
-                            continue;
-
-                        var ps = child.GetComponentInChildren<ParticleSystem>(true);
-                        if (ps == null) continue;
-
-                        int clonesAdded = 0;
-                        if (legacyAnchors.Count > 0)
-                        {
-                            for (int t = 0; t < legacyAnchors.Count; t++)
-                            {
-                                Transform srcLegacyAnchor = legacyAnchors[t];
-                                Transform ghostLegacyParent = ResolveGhostFxParent(
-                                    srcLegacyAnchor, prefab.transform, modelRoot, ghostModelNode, cloneMap);
-                                if (ghostLegacyParent == null)
-                                    continue;
-
-                                GameObject fxClone = Object.Instantiate(child.gameObject);
-                                fxClone.transform.SetParent(ghostLegacyParent, false);
-                                fxClone.transform.localPosition = legacyFxOffset;
-                                // child.localRotation is relative to part root, but this clone is
-                                // parented to the mirrored thrust anchor. Convert to anchor-local.
-                                Quaternion legacyLocalRot = Quaternion.Inverse(srcLegacyAnchor.rotation) * child.rotation;
-                                fxClone.transform.localRotation = legacyLocalRot;
-                                fxClone.transform.localScale = child.localScale;
-
-                                // SmokeTrailControl expects real vessel/part state — destroy it on the ghost
-                                var smokeTrail = fxClone.GetComponent("SmokeTrailControl");
-                                if (smokeTrail != null)
-                                    Object.Destroy(smokeTrail);
-
-                                int addedSystems = ConfigureGhostEngineParticleSystems(fxClone, info.particleSystems);
-                                if (addedSystems > 0)
-                                {
-                                    clonesAdded++;
-                                    LogFxInstancePlacementDiagnostic(
-                                        partName,
-                                        moduleIndex,
-                                        "LEGACY_CHILD",
-                                        srcLegacyAnchor.name,
-                                        child.name,
-                                        prefab.transform,
-                                        ghostModelNode,
-                                        srcLegacyAnchor,
-                                        ghostLegacyParent,
-                                        fxClone.transform,
-                                        legacyFxOffset,
-                                        legacyLocalRot,
-                                        true);
-                                    ParsekLog.Log($"    Engine FX (legacy): '{partName}' midx={moduleIndex} " +
-                                        $"fx='{child.name}' anchor='{srcLegacyAnchor.name}' offset={legacyFxOffset} systems={addedSystems}");
-                                }
-                                else
-                                {
-                                    Object.Destroy(fxClone);
-                                }
-                            }
-                        }
-
-                        if (clonesAdded == 0)
-                        {
-                            // Fallback for uncommon prefabs where thrust anchors are unavailable.
-                            GameObject fxClone = Object.Instantiate(child.gameObject);
-                            fxClone.transform.SetParent(ghostModelNode.parent, false);
-                            fxClone.transform.localPosition = child.localPosition;
-                            fxClone.transform.localRotation = child.localRotation;
-                            fxClone.transform.localScale = child.localScale;
-
-                            // SmokeTrailControl expects real vessel/part state — destroy it on the ghost
-                            var smokeTrail = fxClone.GetComponent("SmokeTrailControl");
-                            if (smokeTrail != null)
-                                Object.Destroy(smokeTrail);
-
-                            int addedSystems = ConfigureGhostEngineParticleSystems(fxClone, info.particleSystems);
-                            if (addedSystems > 0)
-                            {
-                                Transform fallbackParent = fxClone.transform.parent != null
-                                    ? fxClone.transform.parent
-                                    : ghostModelNode;
-                                LogFxInstancePlacementDiagnostic(
-                                    partName,
-                                    moduleIndex,
-                                    "LEGACY_CHILD_FALLBACK",
-                                    child.name,
-                                    child.name,
-                                    prefab.transform,
-                                    ghostModelNode,
-                                    child,
-                                    fallbackParent,
-                                    fxClone.transform,
-                                    child.localPosition,
-                                    child.localRotation,
-                                    true);
-                                ParsekLog.Log($"    Engine FX (legacy): '{partName}' midx={moduleIndex} " +
-                                    $"fx='{child.name}' systems={addedSystems}");
-                            }
-                            else
-                            {
-                                Object.Destroy(fxClone);
-                            }
-                        }
-                    }
-
-                    if (info.particleSystems.Count > 0)
+                    bool legacyAdded = ProcessEngineLegacyFx(
+                        prefab, engine, info, partName, moduleIndex,
+                        modelRoot, ghostModelNode, cloneMap);
+                    if (legacyAdded)
                         result.Add(info);
                     else
                         ParsekLog.Verbose("GhostVisual", $"    Engine '{partName}' midx={moduleIndex}: no legacy fx_* children found");
@@ -3170,177 +3167,12 @@ namespace Parsek
                 info.speedCurve = speedCurve;
 
                 // Process model FX entries (MODEL_MULTI_PARTICLE/MODEL_PARTICLE variants).
-                for (int f = 0; f < modelFxEntries.Count; f++)
-                {
-                    var (nodeType, transformName, modelName, mmpLocalPos, mmpLocalRot) = modelFxEntries[f];
-
-                    // Find matching transform(s) in prefab — may be multiple (multi-nozzle engines)
-                    var fxTransforms = FindTransformsRecursive(prefab.transform, transformName);
-                    for (int t = 0; t < fxTransforms.Count; t++)
-                    {
-                        Transform srcFxTransform = fxTransforms[t];
-
-                        Transform ghostFxParent = ResolveGhostFxParent(
-                            srcFxTransform, prefab.transform, modelRoot, ghostModelNode, cloneMap);
-                        if (ghostFxParent == null)
-                        {
-                            ParsekLog.Log($"    Engine FX: '{partName}' midx={moduleIndex} " +
-                                $"transform='{transformName}' parent resolution failed");
-                            continue;
-                        }
-                        LogFxParentAlignmentDiagnostic(
-                            partName, moduleIndex, nodeType, transformName,
-                            prefab.transform, ghostModelNode, srcFxTransform, ghostFxParent);
-
-                        // Instantiate FX model prefab if available
-                        if (!string.IsNullOrEmpty(modelName))
-                        {
-                            GameObject fxPrefab = GameDatabase.Instance.GetModelPrefab(modelName);
-                            if (fxPrefab != null)
-                            {
-                                GameObject fxInstance = Object.Instantiate(fxPrefab);
-                                fxInstance.SetActive(true);
-                                fxInstance.transform.SetParent(ghostFxParent, false);
-                                fxInstance.transform.localPosition = mmpLocalPos;
-                                fxInstance.transform.localRotation = mmpLocalRot;
-
-                                int addedSystems = ConfigureGhostEngineParticleSystems(fxInstance, info.particleSystems);
-                                if (addedSystems > 0)
-                                {
-                                    LogFxInstancePlacementDiagnostic(
-                                        partName,
-                                        moduleIndex,
-                                        nodeType,
-                                        transformName,
-                                        modelName,
-                                        prefab.transform,
-                                        ghostModelNode,
-                                        srcFxTransform,
-                                        ghostFxParent,
-                                        fxInstance.transform,
-                                        mmpLocalPos,
-                                        mmpLocalRot,
-                                        true);
-                                    // Diagnostic: log source transform orientation to debug FX direction
-                                    Vector3 srcFwd = srcFxTransform.forward;
-                                    Vector3 srcUp = srcFxTransform.up;
-                                    Quaternion srcLocalRot = srcFxTransform.localRotation;
-                                    ParsekLog.Log($"    Engine FX cloned: '{partName}' midx={moduleIndex} " +
-                                        $"type={nodeType} transform='{transformName}' model='{modelName}' " +
-                                        $"systems={addedSystems} " +
-                                        $"srcLocalRot={srcLocalRot} srcFwd={srcFwd} srcUp={srcUp}");
-                                }
-                                else
-                                {
-                                    ParsekLog.Log($"    Engine FX model has no ParticleSystem: '{modelName}' for '{partName}'");
-                                    Object.Destroy(fxInstance);
-                                }
-                            }
-                            else
-                            {
-                                ParsekLog.Verbose("GhostVisual", $"    Engine FX model not found: '{modelName}' for '{partName}'");
-                            }
-                        }
-                    }
-                }
+                ProcessEngineModelFxEntries(modelFxEntries, prefab, info, partName, moduleIndex,
+                    modelRoot, ghostModelNode, cloneMap);
 
                 // Process PREFAB_PARTICLE entries (Spark, Twitch, Pug, Juno, Wheesley, Goliath)
-                for (int f = 0; f < prefabFxEntries.Count; f++)
-                {
-                    var (prefabName, transformName, localOffset, localRot, hasLocalRot) = prefabFxEntries[f];
-                    string normalizedPrefabName = NormalizeFxPrefabName(prefabName);
-                    bool isRapierWhiteFlame =
-                        string.Equals(partName, "RAPIER", System.StringComparison.OrdinalIgnoreCase) &&
-                        string.Equals(normalizedPrefabName, "fx_exhaustFlame_white", System.StringComparison.OrdinalIgnoreCase);
-
-                    // Resolve the fx_* prefab (cache, Resources, loaded objects, then substitutions).
-                    GameObject fxPrefab = FindFxPrefab(prefabName);
-                    if (fxPrefab == null)
-                    {
-                        ParsekLog.Log($"    Engine FX prefab not found: '{prefabName}' for '{partName}'");
-                        continue;
-                    }
-
-                    // Find the attachment transform(s) on the part
-                    var fxTransforms = FindTransformsRecursive(prefab.transform, transformName);
-                    if (fxTransforms.Count == 0)
-                    {
-                        ParsekLog.Log($"    Engine FX (prefab): '{partName}' midx={moduleIndex} " +
-                            $"transform '{transformName}' not found on prefab");
-                        continue;
-                    }
-                    for (int t = 0; t < fxTransforms.Count; t++)
-                    {
-                        if (isRapierWhiteFlame && t > 0)
-                            continue; // keep single compact white core on RAPIER
-
-                        Transform srcFxTransform = fxTransforms[t];
-
-                        Transform ghostFxParent = ResolveGhostFxParent(
-                            srcFxTransform, prefab.transform, modelRoot, ghostModelNode, cloneMap);
-                        if (ghostFxParent == null)
-                        {
-                            ParsekLog.Log($"    Engine FX (prefab): '{partName}' midx={moduleIndex} " +
-                                $"transform='{transformName}' parent resolution failed");
-                            continue;
-                        }
-                        LogFxParentAlignmentDiagnostic(
-                            partName, moduleIndex, "PREFAB_PARTICLE", transformName,
-                            prefab.transform, ghostModelNode, srcFxTransform, ghostFxParent);
-
-                        // Clone the prefab and apply localOffset/localRotation from config
-                        GameObject fxInstance = Object.Instantiate(fxPrefab);
-                        fxInstance.transform.SetParent(ghostFxParent, false);
-                        fxInstance.transform.localPosition = localOffset;
-                        if (hasLocalRot)
-                            fxInstance.transform.localRotation = localRot;
-
-                        if (isRapierWhiteFlame)
-                        {
-                            // Prevent SRB-sized white plume look on RAPIER.
-                            fxInstance.transform.localScale *= 0.35f;
-                            ParticleSystem[] rapierWhiteSystems = fxInstance.GetComponentsInChildren<ParticleSystem>(true);
-                            for (int psIndex = 0; psIndex < rapierWhiteSystems.Length; psIndex++)
-                            {
-                                var main = rapierWhiteSystems[psIndex].main;
-                                main.startSizeMultiplier *= 0.45f;
-                                main.startSpeedMultiplier *= 0.75f;
-                            }
-                        }
-
-                        // SmokeTrailControl expects real vessel/part state — destroy it on the ghost
-                        var smokeTrail = fxInstance.GetComponent("SmokeTrailControl");
-                        if (smokeTrail != null)
-                            Object.Destroy(smokeTrail);
-
-                        int addedSystems = ConfigureGhostEngineParticleSystems(fxInstance, info.particleSystems);
-                        if (addedSystems > 0)
-                        {
-                            LogFxInstancePlacementDiagnostic(
-                                partName,
-                                moduleIndex,
-                                "PREFAB_PARTICLE",
-                                transformName,
-                                prefabName,
-                                prefab.transform,
-                                ghostModelNode,
-                                srcFxTransform,
-                                ghostFxParent,
-                                fxInstance.transform,
-                                localOffset,
-                                localRot,
-                                hasLocalRot);
-                            ParsekLog.Log($"    Engine FX (prefab): '{partName}' midx={moduleIndex} " +
-                                $"transform='{transformName}' prefab='{prefabName}' systems={addedSystems}");
-                        }
-                        else
-                        {
-                            ParsekLog.Log($"    Engine FX (prefab): '{partName}' midx={moduleIndex} " +
-                                $"prefab '{prefabName}' has no ParticleSystem");
-                            Object.Destroy(fxInstance);
-                        }
-                    }
-                }
+                ProcessEnginePrefabFxEntries(prefabFxEntries, prefab, info, partName, moduleIndex,
+                    modelRoot, ghostModelNode, cloneMap);
 
                 if (info.particleSystems.Count > 0)
                     result.Add(info);
@@ -5005,6 +4837,344 @@ namespace Parsek
             return null;
         }
 
+        #region Extracted helpers for AddPartVisuals
+
+        /// <summary>
+        /// Resolves sampled animation states to ghost transforms and builds a DeployableGhostInfo.
+        /// Deduplicates the repeated resolve-loop pattern used by deployable, gear, ladder,
+        /// animation-group, animate-generic, and robot-arm-scanner detection paths.
+        /// Returns null if sampledStates is null or no transforms could be resolved.
+        /// </summary>
+        private static DeployableGhostInfo ResolveSampledStatesToDeployableInfo(
+            List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
+                Vector3 dPos, Quaternion dRot, Vector3 dScale)> sampledStates,
+            Transform modelNodeTransform,
+            uint persistentId,
+            string partName,
+            string moduleLabel,
+            bool logUnresolved)
+        {
+            if (sampledStates == null)
+                return null;
+
+            var resolvedTransforms = new List<DeployableTransformState>();
+            int unresolved = 0;
+            for (int s = 0; s < sampledStates.Count; s++)
+            {
+                var (path, sPos, sRot, sScale, dPos, dRot, dScale) = sampledStates[s];
+                Transform ghostT = FindTransformByPath(modelNodeTransform, path);
+                if (ghostT != null)
+                {
+                    resolvedTransforms.Add(new DeployableTransformState
+                    {
+                        t = ghostT,
+                        stowedPos = sPos,
+                        stowedRot = sRot,
+                        stowedScale = sScale,
+                        deployedPos = dPos,
+                        deployedRot = dRot,
+                        deployedScale = dScale
+                    });
+                }
+                else if (logUnresolved)
+                {
+                    unresolved++;
+                    if (unresolved <= 5)
+                        ParsekLog.VerboseRateLimited("GhostVisual", $"ghost-build-{partName}",
+                            $"    [DIAG] {moduleLabel} '{partName}': unresolved path '{path}'", 60.0);
+                }
+            }
+
+            if (resolvedTransforms.Count > 0)
+            {
+                ParsekLog.Verbose("GhostVisual", $"    {moduleLabel} detected: '{partName}' pid={persistentId}, " +
+                    $"{resolvedTransforms.Count}/{sampledStates.Count} transforms resolved");
+                return new DeployableGhostInfo
+                {
+                    partPersistentId = persistentId,
+                    transforms = resolvedTransforms
+                };
+            }
+
+            if (logUnresolved)
+            {
+                ParsekLog.Verbose("GhostVisual", $"    {moduleLabel} '{partName}' pid={persistentId}: " +
+                    $"sampled {sampledStates.Count} transforms but none resolved to ghost");
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Builds a LightGhostInfo by cloning Light components from the prefab model into the ghost.
+        /// Returns null if no lights were found or cloned.
+        /// </summary>
+        private static LightGhostInfo BuildLightGhostInfo(
+            Part prefab, Transform modelRoot, Transform modelNodeTransform,
+            Dictionary<Transform, Transform> cloneMap,
+            uint persistentId, string partName,
+            bool raiseLightVisualOnly)
+        {
+            ModuleLight lightModule = prefab.FindModuleImplementing<ModuleLight>();
+            if (lightModule == null)
+                return null;
+
+            var prefabLights = modelRoot.GetComponentsInChildren<Light>(true);
+            if (prefabLights == null || prefabLights.Length == 0)
+                return null;
+
+            var clonedLights = new List<Light>();
+            for (int li = 0; li < prefabLights.Length; li++)
+            {
+                Light srcLight = prefabLights[li];
+                if (srcLight == null) continue;
+
+                // Mirror the transform chain to find the correct ghost parent
+                Transform ghostParent = MirrorTransformChain(
+                    srcLight.transform, modelRoot, modelNodeTransform, cloneMap);
+
+                float clonedIntensity = srcLight.intensity;
+                float clonedRange = srcLight.range;
+                if (clonedIntensity <= 0.001f)
+                    clonedIntensity = LightMinimumIntensity;
+                if (clonedRange <= 0.001f)
+                    clonedRange = LightMinimumRange;
+
+                if (raiseLightVisualOnly)
+                {
+                    clonedIntensity = Mathf.Max(
+                        clonedIntensity * LightShowcaseIntensityScale,
+                        LightShowcaseMinimumIntensity);
+                    clonedRange = Mathf.Max(
+                        clonedRange * LightShowcaseRangeScale,
+                        LightShowcaseMinimumRange);
+                }
+
+                // Create a new Light component on the ghost transform
+                Light ghostLight = ghostParent.gameObject.AddComponent<Light>();
+                ghostLight.type = srcLight.type;
+                ghostLight.color = srcLight.color;
+                ghostLight.intensity = clonedIntensity;
+                ghostLight.range = clonedRange;
+                ghostLight.spotAngle = srcLight.spotAngle;
+                ghostLight.cullingMask = srcLight.cullingMask;
+                ghostLight.shadows = LightShadows.None;
+                ghostLight.renderMode = raiseLightVisualOnly
+                    ? LightRenderMode.ForcePixel
+                    : srcLight.renderMode;
+                ghostLight.enabled = false;
+                clonedLights.Add(ghostLight);
+                ParsekLog.Verbose("GhostVisual",
+                    $"      Light clone[{li}] '{srcLight.name}': " +
+                    $"srcI={srcLight.intensity:F2} srcR={srcLight.range:F1} " +
+                    $"-> ghostI={clonedIntensity:F2} ghostR={clonedRange:F1} " +
+                    $"mode={ghostLight.renderMode}");
+            }
+
+            if (clonedLights.Count > 0)
+            {
+                ParsekLog.Verbose("GhostVisual", $"    Light detected: '{partName}' pid={persistentId}, " +
+                    $"{clonedLights.Count} Light component(s) cloned");
+                return new LightGhostInfo
+                {
+                    partPersistentId = persistentId,
+                    lights = clonedLights
+                };
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Clones SkinnedMeshRenderers from the prefab model into the ghost, preserving bone
+        /// bindings and skinning quality. Returns the number of SkinnedMeshRenderers cloned.
+        /// </summary>
+        private static int CloneSkinnedMeshRenderers(
+            SkinnedMeshRenderer[] skinnedRenderers,
+            Transform modelRoot, Transform modelNodeTransform, Transform partRootTransform,
+            Part prefab, Dictionary<Transform, Transform> cloneMap,
+            bool filterInactiveVariantRenderers,
+            bool hasVariantGameObjectRules,
+            Dictionary<string, bool> selectedVariantGameObjects,
+            HashSet<string> damagedWheelNames,
+            uint persistentId, string partName,
+            ref int meshCount, ref int damagedSkipped, ref int nullMeshSkipped)
+        {
+            int skinnedCloned = 0;
+            for (int r = 0; r < skinnedRenderers.Length; r++)
+            {
+                var smr = skinnedRenderers[r];
+                if (smr == null) continue;
+                if (smr.sharedMesh == null)
+                {
+                    nullMeshSkipped++;
+                    ParsekLog.Warn("GhostVisual", $"Part '{partName}' pid={persistentId}: " +
+                        $"SkinnedMeshRenderer '{smr.name}' has null sharedMesh — tire mesh " +
+                        $"may be procedurally generated at runtime. Ghost will be missing this mesh.");
+                    continue;
+                }
+                if (filterInactiveVariantRenderers && !smr.gameObject.activeInHierarchy) continue;
+                if (hasVariantGameObjectRules &&
+                    !IsRendererEnabledByVariantRule(
+                        smr.transform, modelRoot, selectedVariantGameObjects,
+                        out string _, out bool _))
+                    continue;
+                if (IsRendererOnDamagedTransform(smr.transform, damagedWheelNames))
+                {
+                    damagedSkipped++;
+                    ParsekLog.VerboseRateLimited("GhostVisual", $"dmg_smr_{partName}_{r}",
+                        $"    Part '{partName}' pid={persistentId}: skipping damaged wheel " +
+                        $"SkinnedMeshRenderer '{smr.name}' (ModuleWheelDamage.damagedTransformName match)", 60.0);
+                    continue;
+                }
+
+                Transform leaf = MirrorTransformChain(smr.transform, modelRoot, modelNodeTransform, cloneMap);
+
+                // Preserve skinned meshes as skinned renderers so bone-driven animations
+                // (e.g. drills) still articulate on ghosts.
+                Transform[] ghostBones = null;
+                int resolvedBones = 0;
+                bool usedPartRootFallbackForBones = false;
+                if (smr.bones != null && smr.bones.Length > 0)
+                {
+                    ghostBones = new Transform[smr.bones.Length];
+                    for (int b = 0; b < smr.bones.Length; b++)
+                    {
+                        Transform srcBone = smr.bones[b];
+                        if (srcBone == null) continue;
+
+                        Transform ghostBone;
+                        if (!cloneMap.TryGetValue(srcBone, out ghostBone))
+                        {
+                            if (IsDescendantOf(srcBone, modelRoot))
+                            {
+                                ghostBone = MirrorTransformChain(srcBone, modelRoot, modelNodeTransform, cloneMap);
+                            }
+                            else if (IsDescendantOf(srcBone, prefab.transform))
+                            {
+                                // EVA rigs can keep bones outside modelRoot (e.g. model01).
+                                // Fall back to cloning from the full part hierarchy.
+                                ghostBone = MirrorTransformChain(srcBone, prefab.transform, partRootTransform, cloneMap);
+                                usedPartRootFallbackForBones = true;
+                            }
+                        }
+
+                        ghostBones[b] = ghostBone;
+                        if (ghostBone != null)
+                            resolvedBones++;
+                    }
+                }
+
+                Transform ghostRootBone = null;
+                Transform srcRootBone = smr.rootBone;
+                if (srcRootBone != null)
+                {
+                    if (!cloneMap.TryGetValue(srcRootBone, out ghostRootBone))
+                    {
+                        if (IsDescendantOf(srcRootBone, modelRoot))
+                        {
+                            ghostRootBone = MirrorTransformChain(srcRootBone, modelRoot, modelNodeTransform, cloneMap);
+                        }
+                        else if (IsDescendantOf(srcRootBone, prefab.transform))
+                        {
+                            ghostRootBone = MirrorTransformChain(srcRootBone, prefab.transform, partRootTransform, cloneMap);
+                            usedPartRootFallbackForBones = true;
+                        }
+                    }
+                }
+
+                var ghostSmr = leaf.gameObject.AddComponent<SkinnedMeshRenderer>();
+                ghostSmr.sharedMesh = smr.sharedMesh;
+                ghostSmr.sharedMaterials = smr.sharedMaterials;
+                ghostSmr.bones = ghostBones ?? new Transform[0];
+                ghostSmr.rootBone = ghostRootBone != null ? ghostRootBone : leaf;
+                ghostSmr.quality = smr.quality;
+                ghostSmr.updateWhenOffscreen = true;
+                ghostSmr.localBounds = smr.localBounds;
+                ghostSmr.shadowCastingMode = smr.shadowCastingMode;
+                ghostSmr.receiveShadows = smr.receiveShadows;
+                meshCount++;
+                skinnedCloned++;
+                ParsekLog.VerboseRateLimited("GhostVisual", $"smr_{partName}_{r}",
+                    $"    SMR[{r}] '{smr.gameObject.name}' mesh={smr.sharedMesh.name} " +
+                    $"localPos={leaf.localPosition} localScale={leaf.localScale} " +
+                    $"bones={resolvedBones}/{(smr.bones != null ? smr.bones.Length : 0)}", 60.0);
+                if (usedPartRootFallbackForBones)
+                {
+                    ParsekLog.VerboseRateLimited("GhostVisual", $"smr_fb_{partName}_{r}",
+                        $"      SMR[{r}] '{smr.gameObject.name}': used part-root fallback for external bone transforms", 60.0);
+                }
+            }
+
+            return skinnedCloned;
+        }
+
+        /// <summary>
+        /// Resolves a surface-transform-based deployable (AeroSurface or ControlSurface) by finding
+        /// the named transforms and computing deployed rotation from the deploy angle.
+        /// Returns null if no transforms were resolved.
+        /// </summary>
+        private static DeployableGhostInfo BuildSurfaceDeployableInfo(
+            Transform modelRoot, Transform modelNodeTransform,
+            Dictionary<Transform, Transform> cloneMap,
+            string transformName, float deployAngleDegrees,
+            uint persistentId, string partName, string moduleLabel)
+        {
+            var sourceTransforms = FindTransformsRecursive(modelRoot, transformName);
+            if (sourceTransforms == null || sourceTransforms.Count == 0)
+            {
+                ParsekLog.Verbose("GhostVisual", $"    {moduleLabel} '{partName}' pid={persistentId}: " +
+                    $"transform '{transformName}' not found under modelRoot");
+                return null;
+            }
+
+            var resolvedTransforms = new List<DeployableTransformState>();
+            for (int i = 0; i < sourceTransforms.Count; i++)
+            {
+                Transform sourceTransform = sourceTransforms[i];
+                if (sourceTransform == null) continue;
+
+                Transform ghostT;
+                if (!cloneMap.TryGetValue(sourceTransform, out ghostT) || ghostT == null)
+                {
+                    string path = GetTransformPath(sourceTransform, modelRoot);
+                    ghostT = FindTransformByPath(modelNodeTransform, path);
+                }
+                if (ghostT == null) continue;
+
+                Vector3 stowedPos = ghostT.localPosition;
+                Quaternion stowedRot = ghostT.localRotation;
+                Vector3 stowedScale = ghostT.localScale;
+                Quaternion deployedRot = stowedRot * Quaternion.AngleAxis(deployAngleDegrees, Vector3.right);
+
+                resolvedTransforms.Add(new DeployableTransformState
+                {
+                    t = ghostT,
+                    stowedPos = stowedPos,
+                    stowedRot = stowedRot,
+                    stowedScale = stowedScale,
+                    deployedPos = stowedPos,
+                    deployedRot = deployedRot,
+                    deployedScale = stowedScale
+                });
+            }
+
+            if (resolvedTransforms.Count > 0)
+            {
+                ParsekLog.Verbose("GhostVisual", $"    {moduleLabel} deployable detected: '{partName}' pid={persistentId}, " +
+                    $"transform='{transformName}' angle={deployAngleDegrees:F1} " +
+                    $"resolved={resolvedTransforms.Count}");
+                return new DeployableGhostInfo
+                {
+                    partPersistentId = persistentId,
+                    transforms = resolvedTransforms
+                };
+            }
+
+            return null;
+        }
+
+        #endregion
+
         private static bool AddPartVisuals(Transform root, ConfigNode partNode, Part prefab,
             uint persistentId, string partName, out int meshCount,
             out ParachuteGhostInfo parachuteInfo, out JettisonGhostInfo jettisonInfo,
@@ -5231,111 +5401,14 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited("GhostVisual", $"variant_ruleskip_{partName}",
                     $"  Skipped {variantRuleSkipped} MeshRenderers by selected variant GAMEOBJECT rules", 60.0);
 
-            for (int r = 0; r < skinnedRenderers.Length; r++)
-            {
-                var smr = skinnedRenderers[r];
-                if (smr == null) continue;
-                if (smr.sharedMesh == null)
-                {
-                    nullMeshSkipped++;
-                    ParsekLog.Warn("GhostVisual", $"Part '{partName}' pid={persistentId}: " +
-                        $"SkinnedMeshRenderer '{smr.name}' has null sharedMesh — tire mesh " +
-                        $"may be procedurally generated at runtime. Ghost will be missing this mesh.");
-                    continue;
-                }
-                if (filterInactiveVariantRenderers && !smr.gameObject.activeInHierarchy) continue;
-                if (hasVariantGameObjectRules &&
-                    !IsRendererEnabledByVariantRule(
-                        smr.transform, modelRoot, selectedVariantGameObjects,
-                        out string _, out bool _))
-                    continue;
-                if (IsRendererOnDamagedTransform(smr.transform, damagedWheelNames))
-                {
-                    damagedSkipped++;
-                    ParsekLog.VerboseRateLimited("GhostVisual", $"dmg_smr_{partName}_{r}",
-                        $"    Part '{partName}' pid={persistentId}: skipping damaged wheel " +
-                        $"SkinnedMeshRenderer '{smr.name}' (ModuleWheelDamage.damagedTransformName match)", 60.0);
-                    continue;
-                }
-
-                Transform leaf = MirrorTransformChain(smr.transform, modelRoot, modelNode.transform, cloneMap);
-
-                // Preserve skinned meshes as skinned renderers so bone-driven animations
-                // (e.g. drills) still articulate on ghosts.
-                Transform[] ghostBones = null;
-                int resolvedBones = 0;
-                bool usedPartRootFallbackForBones = false;
-                if (smr.bones != null && smr.bones.Length > 0)
-                {
-                    ghostBones = new Transform[smr.bones.Length];
-                    for (int b = 0; b < smr.bones.Length; b++)
-                    {
-                        Transform srcBone = smr.bones[b];
-                        if (srcBone == null) continue;
-
-                        Transform ghostBone;
-                        if (!cloneMap.TryGetValue(srcBone, out ghostBone))
-                        {
-                            if (IsDescendantOf(srcBone, modelRoot))
-                            {
-                                ghostBone = MirrorTransformChain(srcBone, modelRoot, modelNode.transform, cloneMap);
-                            }
-                            else if (IsDescendantOf(srcBone, prefab.transform))
-                            {
-                                // EVA rigs can keep bones outside modelRoot (e.g. model01).
-                                // Fall back to cloning from the full part hierarchy.
-                                ghostBone = MirrorTransformChain(srcBone, prefab.transform, partRoot.transform, cloneMap);
-                                usedPartRootFallbackForBones = true;
-                            }
-                        }
-
-                        ghostBones[b] = ghostBone;
-                        if (ghostBone != null)
-                            resolvedBones++;
-                    }
-                }
-
-                Transform ghostRootBone = null;
-                Transform srcRootBone = smr.rootBone;
-                if (srcRootBone != null)
-                {
-                    if (!cloneMap.TryGetValue(srcRootBone, out ghostRootBone))
-                    {
-                        if (IsDescendantOf(srcRootBone, modelRoot))
-                        {
-                            ghostRootBone = MirrorTransformChain(srcRootBone, modelRoot, modelNode.transform, cloneMap);
-                        }
-                        else if (IsDescendantOf(srcRootBone, prefab.transform))
-                        {
-                            ghostRootBone = MirrorTransformChain(srcRootBone, prefab.transform, partRoot.transform, cloneMap);
-                            usedPartRootFallbackForBones = true;
-                        }
-                    }
-                }
-
-                var ghostSmr = leaf.gameObject.AddComponent<SkinnedMeshRenderer>();
-                ghostSmr.sharedMesh = smr.sharedMesh;
-                ghostSmr.sharedMaterials = smr.sharedMaterials;
-                ghostSmr.bones = ghostBones ?? new Transform[0];
-                ghostSmr.rootBone = ghostRootBone != null ? ghostRootBone : leaf;
-                ghostSmr.quality = smr.quality;
-                ghostSmr.updateWhenOffscreen = true;
-                ghostSmr.localBounds = smr.localBounds;
-                ghostSmr.shadowCastingMode = smr.shadowCastingMode;
-                ghostSmr.receiveShadows = smr.receiveShadows;
-                meshCount++;
-                skinnedCloned++;
-                ParsekLog.VerboseRateLimited("GhostVisual", $"smr_{partName}_{r}",
-                    $"    SMR[{r}] '{smr.gameObject.name}' mesh={smr.sharedMesh.name} " +
-                    $"localPos={leaf.localPosition} localScale={leaf.localScale} " +
-                    $"bones={resolvedBones}/{(smr.bones != null ? smr.bones.Length : 0)}", 60.0);
-                if (usedPartRootFallbackForBones)
-                {
-                    ParsekLog.VerboseRateLimited("GhostVisual", $"smr_fb_{partName}_{r}",
-                        $"      SMR[{r}] '{smr.gameObject.name}': used part-root fallback for external bone transforms", 60.0);
-                }
+            skinnedCloned = CloneSkinnedMeshRenderers(
+                skinnedRenderers, modelRoot, modelNode.transform, partRoot.transform,
+                prefab, cloneMap,
+                filterInactiveVariantRenderers, hasVariantGameObjectRules, selectedVariantGameObjects,
+                damagedWheelNames, persistentId, partName,
+                ref meshCount, ref damagedSkipped, ref nullMeshSkipped);
+            if (skinnedCloned > 0)
                 added = true;
-            }
 
             // Summary log for renderer cloning results — helps diagnose missing ghost parts
             int meshCloned = meshCount - skinnedCloned;
@@ -5640,53 +5713,8 @@ namespace Parsek
             if (deployable != null)
             {
                 var sampledStates = SampleDeployableStates(prefab, deployable);
-                if (sampledStates != null)
-                {
-                    var resolvedTransforms = new List<DeployableTransformState>();
-                    int unresolved = 0;
-                    for (int s = 0; s < sampledStates.Count; s++)
-                    {
-                        var (path, sPos, sRot, sScale, dPos, dRot, dScale) = sampledStates[s];
-                        // Resolve path to ghost transform via cloneMap
-                        Transform ghostT = FindTransformByPath(modelNode.transform, path);
-                        if (ghostT != null)
-                        {
-                            resolvedTransforms.Add(new DeployableTransformState
-                            {
-                                t = ghostT,
-                                stowedPos = sPos,
-                                stowedRot = sRot,
-                                stowedScale = sScale,
-                                deployedPos = dPos,
-                                deployedRot = dRot,
-                                deployedScale = dScale
-                            });
-                        }
-                        else
-                        {
-                            unresolved++;
-                            if (unresolved <= 5)
-                                ParsekLog.VerboseRateLimited("GhostVisual", $"ghost-build-{partName}",
-                                    $"    [DIAG] Deployable '{partName}': unresolved path '{path}'", 60.0);
-                        }
-                    }
-
-                    if (resolvedTransforms.Count > 0)
-                    {
-                        deployableInfo = new DeployableGhostInfo
-                        {
-                            partPersistentId = persistentId,
-                            transforms = resolvedTransforms
-                        };
-                        ParsekLog.Verbose("GhostVisual", $"    Deployable detected: '{partName}' pid={persistentId}, " +
-                            $"{resolvedTransforms.Count}/{sampledStates.Count} transforms resolved");
-                    }
-                    else
-                    {
-                        ParsekLog.Verbose("GhostVisual", $"    Deployable '{partName}' pid={persistentId}: " +
-                            $"sampled {sampledStates.Count} transforms but none resolved to ghost");
-                    }
-                }
+                deployableInfo = ResolveSampledStatesToDeployableInfo(
+                    sampledStates, modelNode.transform, persistentId, partName, "Deployable", logUnresolved: true);
             }
 
             // Detect landing gear / legs (ModuleWheels.ModuleWheelDeployment) — reuses DeployableGhostInfo
@@ -5701,39 +5729,8 @@ namespace Parsek
                     string animTrfName = wheel.animationTrfName;
                     float depPos = wheel.deployedPosition;
                     var sampledStates = SampleGearStates(prefab, animStateName, animTrfName, depPos);
-                    if (sampledStates != null)
-                    {
-                        var resolvedTransforms = new List<DeployableTransformState>();
-                        for (int s = 0; s < sampledStates.Count; s++)
-                        {
-                            var (path, sPos, sRot, sScale, dPos, dRot, dScale) = sampledStates[s];
-                            Transform ghostT = FindTransformByPath(modelNode.transform, path);
-                            if (ghostT != null)
-                            {
-                                resolvedTransforms.Add(new DeployableTransformState
-                                {
-                                    t = ghostT,
-                                    stowedPos = sPos,
-                                    stowedRot = sRot,
-                                    stowedScale = sScale,
-                                    deployedPos = dPos,
-                                    deployedRot = dRot,
-                                    deployedScale = dScale
-                                });
-                            }
-                        }
-
-                        if (resolvedTransforms.Count > 0)
-                        {
-                            deployableInfo = new DeployableGhostInfo
-                            {
-                                partPersistentId = persistentId,
-                                transforms = resolvedTransforms
-                            };
-                            ParsekLog.Verbose("GhostVisual", $"    Gear detected: '{partName}' pid={persistentId}, " +
-                                $"{resolvedTransforms.Count}/{sampledStates.Count} transforms resolved");
-                        }
-                    }
+                    deployableInfo = ResolveSampledStatesToDeployableInfo(
+                        sampledStates, modelNode.transform, persistentId, partName, "Gear", logUnresolved: false);
                     break; // one deployment module per part
                 }
             }
@@ -5747,258 +5744,42 @@ namespace Parsek
             if (deployableInfo == null && hasRetractableLadder)
             {
                 var sampledStates = SampleLadderStates(prefab, ladderAnimName, ladderAnimRootName);
-                if (sampledStates != null)
-                {
-                    var resolvedTransforms = new List<DeployableTransformState>();
-                    int unresolved = 0;
-                    for (int s = 0; s < sampledStates.Count; s++)
-                    {
-                        var (path, sPos, sRot, sScale, dPos, dRot, dScale) = sampledStates[s];
-                        Transform ghostT = FindTransformByPath(modelNode.transform, path);
-                        if (ghostT != null)
-                        {
-                            resolvedTransforms.Add(new DeployableTransformState
-                            {
-                                t = ghostT,
-                                stowedPos = sPos,
-                                stowedRot = sRot,
-                                stowedScale = sScale,
-                                deployedPos = dPos,
-                                deployedRot = dRot,
-                                deployedScale = dScale
-                            });
-                        }
-                        else
-                        {
-                            unresolved++;
-                            if (unresolved <= 5)
-                                ParsekLog.VerboseRateLimited("GhostVisual", $"ghost-build-{partName}",
-                                    $"    [DIAG] Ladder '{partName}': unresolved path '{path}'", 60.0);
-                        }
-                    }
-
-                    if (resolvedTransforms.Count > 0)
-                    {
-                        deployableInfo = new DeployableGhostInfo
-                        {
-                            partPersistentId = persistentId,
-                            transforms = resolvedTransforms
-                        };
-                        ParsekLog.Verbose("GhostVisual", $"    Ladder detected: '{partName}' pid={persistentId}, " +
-                            $"{resolvedTransforms.Count}/{sampledStates.Count} transforms resolved");
-                    }
-                    else
-                    {
-                        ParsekLog.Verbose("GhostVisual", $"    Ladder '{partName}' pid={persistentId}: " +
-                            $"sampled {sampledStates.Count} transforms but none resolved to ghost");
-                    }
-                }
+                deployableInfo = ResolveSampledStatesToDeployableInfo(
+                    sampledStates, modelNode.transform, persistentId, partName, "Ladder", logUnresolved: true);
             }
 
             // Detect ModuleAnimationGroup deploy animations (e.g. drills) — reuses DeployableGhostInfo
             if (deployableInfo == null && hasAnimationGroupDeploy)
             {
                 var sampledStates = SampleLadderStates(prefab, animationGroupDeployAnimName, null);
-                if (sampledStates != null)
-                {
-                    var resolvedTransforms = new List<DeployableTransformState>();
-                    int unresolved = 0;
-                    for (int s = 0; s < sampledStates.Count; s++)
-                    {
-                        var (path, sPos, sRot, sScale, dPos, dRot, dScale) = sampledStates[s];
-                        Transform ghostT = FindTransformByPath(modelNode.transform, path);
-                        if (ghostT != null)
-                        {
-                            resolvedTransforms.Add(new DeployableTransformState
-                            {
-                                t = ghostT,
-                                stowedPos = sPos,
-                                stowedRot = sRot,
-                                stowedScale = sScale,
-                                deployedPos = dPos,
-                                deployedRot = dRot,
-                                deployedScale = dScale
-                            });
-                        }
-                        else
-                        {
-                            unresolved++;
-                            if (unresolved <= 5)
-                                ParsekLog.VerboseRateLimited("GhostVisual", $"ghost-build-{partName}",
-                                    $"    [DIAG] AnimationGroup '{partName}': unresolved path '{path}'", 60.0);
-                        }
-                    }
-
-                    if (resolvedTransforms.Count > 0)
-                    {
-                        deployableInfo = new DeployableGhostInfo
-                        {
-                            partPersistentId = persistentId,
-                            transforms = resolvedTransforms
-                        };
-                        ParsekLog.Verbose("GhostVisual", $"    AnimationGroup deployable detected: '{partName}' pid={persistentId}, " +
-                            $"{resolvedTransforms.Count}/{sampledStates.Count} transforms resolved");
-                    }
-                }
+                deployableInfo = ResolveSampledStatesToDeployableInfo(
+                    sampledStates, modelNode.transform, persistentId, partName, "AnimationGroup", logUnresolved: true);
             }
 
             // Detect standalone ModuleAnimateGeneric deploy animations (e.g. science/inflatable parts)
             if (deployableInfo == null && hasStandaloneAnimateGenericDeploy)
             {
                 var sampledStates = SampleLadderStates(prefab, standaloneAnimateGenericAnimName, null);
-                if (sampledStates != null)
-                {
-                    var resolvedTransforms = new List<DeployableTransformState>();
-                    int unresolved = 0;
-                    for (int s = 0; s < sampledStates.Count; s++)
-                    {
-                        var (path, sPos, sRot, sScale, dPos, dRot, dScale) = sampledStates[s];
-                        Transform ghostT = FindTransformByPath(modelNode.transform, path);
-                        if (ghostT != null)
-                        {
-                            resolvedTransforms.Add(new DeployableTransformState
-                            {
-                                t = ghostT,
-                                stowedPos = sPos,
-                                stowedRot = sRot,
-                                stowedScale = sScale,
-                                deployedPos = dPos,
-                                deployedRot = dRot,
-                                deployedScale = dScale
-                            });
-                        }
-                        else
-                        {
-                            unresolved++;
-                            if (unresolved <= 5)
-                                ParsekLog.VerboseRateLimited("GhostVisual", $"ghost-build-{partName}",
-                                    $"    [DIAG] AnimateGeneric '{partName}': unresolved path '{path}'", 60.0);
-                        }
-                    }
-
-                    if (resolvedTransforms.Count > 0)
-                    {
-                        deployableInfo = new DeployableGhostInfo
-                        {
-                            partPersistentId = persistentId,
-                            transforms = resolvedTransforms
-                        };
-                        ParsekLog.Verbose("GhostVisual", $"    AnimateGeneric deployable detected: '{partName}' pid={persistentId}, " +
-                            $"{resolvedTransforms.Count}/{sampledStates.Count} transforms resolved");
-                    }
-                }
+                deployableInfo = ResolveSampledStatesToDeployableInfo(
+                    sampledStates, modelNode.transform, persistentId, partName, "AnimateGeneric", logUnresolved: true);
             }
 
             // Detect ModuleAeroSurface visual transforms (airbrakes/control surfaces).
             if (deployableInfo == null && hasAeroSurfaceDeploy)
             {
-                var sourceTransforms = FindTransformsRecursive(modelRoot, aeroSurfaceTransformName);
-                if (sourceTransforms != null && sourceTransforms.Count > 0)
-                {
-                    var resolvedTransforms = new List<DeployableTransformState>();
-                    for (int i = 0; i < sourceTransforms.Count; i++)
-                    {
-                        Transform sourceTransform = sourceTransforms[i];
-                        if (sourceTransform == null) continue;
-
-                        Transform ghostT;
-                        if (!cloneMap.TryGetValue(sourceTransform, out ghostT) || ghostT == null)
-                        {
-                            string path = GetTransformPath(sourceTransform, modelRoot);
-                            ghostT = FindTransformByPath(modelNode.transform, path);
-                        }
-                        if (ghostT == null) continue;
-
-                        Vector3 stowedPos = ghostT.localPosition;
-                        Quaternion stowedRot = ghostT.localRotation;
-                        Vector3 stowedScale = ghostT.localScale;
-                        Quaternion deployedRot = stowedRot * Quaternion.AngleAxis(aeroSurfaceDeployAngle, Vector3.right);
-
-                        resolvedTransforms.Add(new DeployableTransformState
-                        {
-                            t = ghostT,
-                            stowedPos = stowedPos,
-                            stowedRot = stowedRot,
-                            stowedScale = stowedScale,
-                            deployedPos = stowedPos,
-                            deployedRot = deployedRot,
-                            deployedScale = stowedScale
-                        });
-                    }
-
-                    if (resolvedTransforms.Count > 0)
-                    {
-                        deployableInfo = new DeployableGhostInfo
-                        {
-                            partPersistentId = persistentId,
-                            transforms = resolvedTransforms
-                        };
-                        ParsekLog.Verbose("GhostVisual", $"    AeroSurface deployable detected: '{partName}' pid={persistentId}, " +
-                            $"transform='{aeroSurfaceTransformName}' angle={aeroSurfaceDeployAngle:F1} " +
-                            $"resolved={resolvedTransforms.Count}");
-                    }
-                }
-                else
-                {
-                    ParsekLog.Verbose("GhostVisual", $"    AeroSurface '{partName}' pid={persistentId}: " +
-                        $"transform '{aeroSurfaceTransformName}' not found under modelRoot");
-                }
+                deployableInfo = BuildSurfaceDeployableInfo(
+                    modelRoot, modelNode.transform, cloneMap,
+                    aeroSurfaceTransformName, aeroSurfaceDeployAngle,
+                    persistentId, partName, "AeroSurface");
             }
 
             // Detect ModuleControlSurface visual transforms (elevons/rudders/prop blades).
             if (deployableInfo == null && hasControlSurfaceDeploy)
             {
-                var sourceTransforms = FindTransformsRecursive(modelRoot, controlSurfaceTransformName);
-                if (sourceTransforms != null && sourceTransforms.Count > 0)
-                {
-                    var resolvedTransforms = new List<DeployableTransformState>();
-                    for (int i = 0; i < sourceTransforms.Count; i++)
-                    {
-                        Transform sourceTransform = sourceTransforms[i];
-                        if (sourceTransform == null) continue;
-
-                        Transform ghostT;
-                        if (!cloneMap.TryGetValue(sourceTransform, out ghostT) || ghostT == null)
-                        {
-                            string path = GetTransformPath(sourceTransform, modelRoot);
-                            ghostT = FindTransformByPath(modelNode.transform, path);
-                        }
-                        if (ghostT == null) continue;
-
-                        Vector3 stowedPos = ghostT.localPosition;
-                        Quaternion stowedRot = ghostT.localRotation;
-                        Vector3 stowedScale = ghostT.localScale;
-                        Quaternion deployedRot = stowedRot * Quaternion.AngleAxis(controlSurfaceDeployAngle, Vector3.right);
-
-                        resolvedTransforms.Add(new DeployableTransformState
-                        {
-                            t = ghostT,
-                            stowedPos = stowedPos,
-                            stowedRot = stowedRot,
-                            stowedScale = stowedScale,
-                            deployedPos = stowedPos,
-                            deployedRot = deployedRot,
-                            deployedScale = stowedScale
-                        });
-                    }
-
-                    if (resolvedTransforms.Count > 0)
-                    {
-                        deployableInfo = new DeployableGhostInfo
-                        {
-                            partPersistentId = persistentId,
-                            transforms = resolvedTransforms
-                        };
-                        ParsekLog.Verbose("GhostVisual", $"    ControlSurface deployable detected: '{partName}' pid={persistentId}, " +
-                            $"transform='{controlSurfaceTransformName}' angle={controlSurfaceDeployAngle:F1} " +
-                            $"resolved={resolvedTransforms.Count}");
-                    }
-                }
-                else
-                {
-                    ParsekLog.Verbose("GhostVisual", $"    ControlSurface '{partName}' pid={persistentId}: " +
-                        $"transform '{controlSurfaceTransformName}' not found under modelRoot");
-                }
+                deployableInfo = BuildSurfaceDeployableInfo(
+                    modelRoot, modelNode.transform, cloneMap,
+                    controlSurfaceTransformName, controlSurfaceDeployAngle,
+                    persistentId, partName, "ControlSurface");
             }
 
             // Detect ModuleRobotArmScanner deploy/unpack animation (Breaking Ground ROC arms).
@@ -6023,47 +5804,8 @@ namespace Parsek
                     }
                 }
 
-                if (sampledStates != null)
-                {
-                    var resolvedTransforms = new List<DeployableTransformState>();
-                    int unresolved = 0;
-                    for (int s = 0; s < sampledStates.Count; s++)
-                    {
-                        var (path, sPos, sRot, sScale, dPos, dRot, dScale) = sampledStates[s];
-                        Transform ghostT = FindTransformByPath(modelNode.transform, path);
-                        if (ghostT != null)
-                        {
-                            resolvedTransforms.Add(new DeployableTransformState
-                            {
-                                t = ghostT,
-                                stowedPos = sPos,
-                                stowedRot = sRot,
-                                stowedScale = sScale,
-                                deployedPos = dPos,
-                                deployedRot = dRot,
-                                deployedScale = dScale
-                            });
-                        }
-                        else
-                        {
-                            unresolved++;
-                            if (unresolved <= 5)
-                                ParsekLog.VerboseRateLimited("GhostVisual", $"ghost-build-{partName}",
-                                    $"    [DIAG] RobotArmScanner '{partName}': unresolved path '{path}'", 60.0);
-                        }
-                    }
-
-                    if (resolvedTransforms.Count > 0)
-                    {
-                        deployableInfo = new DeployableGhostInfo
-                        {
-                            partPersistentId = persistentId,
-                            transforms = resolvedTransforms
-                        };
-                        ParsekLog.Verbose("GhostVisual", $"    RobotArmScanner deployable detected: '{partName}' pid={persistentId}, " +
-                            $"anim='{selectedAnimName}' {resolvedTransforms.Count}/{sampledStates.Count} transforms resolved");
-                    }
-                }
+                deployableInfo = ResolveSampledStatesToDeployableInfo(
+                    sampledStates, modelNode.transform, persistentId, partName, "RobotArmScanner", logUnresolved: true);
             }
 
             // Detect cargo bays (ModuleCargoBay + linked ModuleAnimateGeneric) — reuses DeployableGhostInfo
@@ -6093,57 +5835,26 @@ namespace Parsek
                     {
                         var sampledStates = SampleCargoBayStates(
                             prefab, animModule.animationName, cargoBay.closedPosition);
-                        if (sampledStates != null)
+                        deployableInfo = ResolveSampledStatesToDeployableInfo(
+                            sampledStates, modelNode.transform, persistentId, partName, "CargoBay", logUnresolved: true);
+
+                        if (deployableInfo != null)
                         {
-                            var resolvedTransforms = new List<DeployableTransformState>();
-                            for (int s = 0; s < sampledStates.Count; s++)
+                            // Snap ghost to closed (stowed) state at build time.
+                            // Mk3 cargo bays have closedPosition=1 so prefab default (animTime=0) is OPEN.
+                            // Without this snap, the ghost would show open doors until the first event.
+                            var resolvedTransforms = deployableInfo.transforms;
+                            for (int i = 0; i < resolvedTransforms.Count; i++)
                             {
-                                var (path, sPos, sRot, sScale, dPos, dRot, dScale) = sampledStates[s];
-                                Transform ghostT = FindTransformByPath(modelNode.transform, path);
-                                if (ghostT != null)
-                                {
-                                    resolvedTransforms.Add(new DeployableTransformState
-                                    {
-                                        t = ghostT,
-                                        stowedPos = sPos,
-                                        stowedRot = sRot,
-                                        stowedScale = sScale,
-                                        deployedPos = dPos,
-                                        deployedRot = dRot,
-                                        deployedScale = dScale
-                                    });
-                                }
-                                else if (s < 5)
-                                {
-                                    ParsekLog.VerboseRateLimited("GhostVisual", $"ghost-build-{partName}",
-                                        $"    [DIAG] CargoBay '{partName}': unresolved path '{path}'", 60.0);
-                                }
+                                var ts = resolvedTransforms[i];
+                                if (ts.t == null) continue;
+                                ts.t.localPosition = ts.stowedPos;
+                                ts.t.localRotation = ts.stowedRot;
+                                ts.t.localScale = ts.stowedScale;
                             }
 
-                            if (resolvedTransforms.Count > 0)
-                            {
-                                deployableInfo = new DeployableGhostInfo
-                                {
-                                    partPersistentId = persistentId,
-                                    transforms = resolvedTransforms
-                                };
-
-                                // Snap ghost to closed (stowed) state at build time.
-                                // Mk3 cargo bays have closedPosition=1 so prefab default (animTime=0) is OPEN.
-                                // Without this snap, the ghost would show open doors until the first event.
-                                for (int i = 0; i < resolvedTransforms.Count; i++)
-                                {
-                                    var ts = resolvedTransforms[i];
-                                    if (ts.t == null) continue;
-                                    ts.t.localPosition = ts.stowedPos;
-                                    ts.t.localRotation = ts.stowedRot;
-                                    ts.t.localScale = ts.stowedScale;
-                                }
-
-                                ParsekLog.Verbose("GhostVisual", $"    CargoBay detected: '{partName}' pid={persistentId}, " +
-                                    $"{resolvedTransforms.Count}/{sampledStates.Count} transforms resolved" +
-                                    $" (closedPosition={cargoBay.closedPosition})");
-                            }
+                            ParsekLog.Verbose("GhostVisual", $"    CargoBay '{partName}' pid={persistentId}: " +
+                                $"closedPosition={cargoBay.closedPosition}");
                         }
                     }
                 }
@@ -6234,72 +5945,8 @@ namespace Parsek
             }
 
             // Detect light parts and clone Light components for ghost playback
-            ModuleLight lightModule = prefab.FindModuleImplementing<ModuleLight>();
-            if (lightModule != null)
-            {
-                var prefabLights = modelRoot.GetComponentsInChildren<Light>(true);
-                if (prefabLights != null && prefabLights.Length > 0)
-                {
-                    var clonedLights = new List<Light>();
-                    for (int li = 0; li < prefabLights.Length; li++)
-                    {
-                        Light srcLight = prefabLights[li];
-                        if (srcLight == null) continue;
-
-                        // Mirror the transform chain to find the correct ghost parent
-                        Transform ghostParent = MirrorTransformChain(
-                            srcLight.transform, modelRoot, modelNode.transform, cloneMap);
-
-                        float clonedIntensity = srcLight.intensity;
-                        float clonedRange = srcLight.range;
-                        if (clonedIntensity <= 0.001f)
-                            clonedIntensity = LightMinimumIntensity;
-                        if (clonedRange <= 0.001f)
-                            clonedRange = LightMinimumRange;
-
-                        if (raiseLightVisualOnly)
-                        {
-                            clonedIntensity = Mathf.Max(
-                                clonedIntensity * LightShowcaseIntensityScale,
-                                LightShowcaseMinimumIntensity);
-                            clonedRange = Mathf.Max(
-                                clonedRange * LightShowcaseRangeScale,
-                                LightShowcaseMinimumRange);
-                        }
-
-                        // Create a new Light component on the ghost transform
-                        Light ghostLight = ghostParent.gameObject.AddComponent<Light>();
-                        ghostLight.type = srcLight.type;
-                        ghostLight.color = srcLight.color;
-                        ghostLight.intensity = clonedIntensity;
-                        ghostLight.range = clonedRange;
-                        ghostLight.spotAngle = srcLight.spotAngle;
-                        ghostLight.cullingMask = srcLight.cullingMask;
-                        ghostLight.shadows = LightShadows.None;
-                        ghostLight.renderMode = raiseLightVisualOnly
-                            ? LightRenderMode.ForcePixel
-                            : srcLight.renderMode;
-                        ghostLight.enabled = false;
-                        clonedLights.Add(ghostLight);
-                        ParsekLog.Verbose("GhostVisual", 
-                            $"      Light clone[{li}] '{srcLight.name}': " +
-                            $"srcI={srcLight.intensity:F2} srcR={srcLight.range:F1} " +
-                            $"-> ghostI={clonedIntensity:F2} ghostR={clonedRange:F1} " +
-                            $"mode={ghostLight.renderMode}");
-                    }
-
-                    if (clonedLights.Count > 0)
-                    {
-                        lightInfo = new LightGhostInfo
-                        {
-                            partPersistentId = persistentId,
-                            lights = clonedLights
-                        };
-                        ParsekLog.Verbose("GhostVisual", $"    Light detected: '{partName}' pid={persistentId}, " +
-                            $"{clonedLights.Count} Light component(s) cloned");
-                    }
-                }
-            }
+            lightInfo = BuildLightGhostInfo(prefab, modelRoot, modelNode.transform, cloneMap,
+                persistentId, partName, raiseLightVisualOnly);
 
             // Detect ModuleColorChanger: cabin lights (Pattern A) and heat shield char (Pattern B)
             colorChangerInfos = BuildColorChangerInfos(partNode, modelNode.transform, persistentId, partName);
@@ -7245,89 +6892,9 @@ namespace Parsek
             cleanup.material = mat;
 
             // --- Smoke child particle system ---
-            Shader alphaShader = Shader.Find("KSP/Particles/Alpha Blended");
-            if (alphaShader != null)
-            {
-                var smokeObj = new GameObject("Smoke");
-                smokeObj.transform.SetParent(obj.transform, false);
-
-                var smokePs = smokeObj.AddComponent<ParticleSystem>();
-                var smokeMain = smokePs.main;
-                smokeMain.simulationSpace = ParticleSystemSimulationSpace.World;
-                smokeMain.startLifetime = new ParticleSystem.MinMaxCurve(2.0f, 3.5f);
-                smokeMain.startSpeed = new ParticleSystem.MinMaxCurve(vesselLength * 0.25f, vesselLength * 1f);
-                smokeMain.startSize = new ParticleSystem.MinMaxCurve(vesselLength * 0.3f, vesselLength * 0.8f);
-                smokeMain.maxParticles = 400;
-                smokeMain.playOnAwake = false;
-                smokeMain.loop = false;
-                smokeMain.gravityModifier = 0.03f;
-                smokeMain.startColor = new ParticleSystem.MinMaxGradient(
-                    new Color(0.3f, 0.3f, 0.3f, 0.6f),
-                    new Color(0.15f, 0.12f, 0.1f, 0.5f));
-
-                var smokeShape = smokePs.shape;
-                smokeShape.shapeType = ParticleSystemShapeType.Sphere;
-                smokeShape.radius = vesselLength * 0.3f;
-
-                var smokeEmission = smokePs.emission;
-                smokeEmission.enabled = true;
-                smokeEmission.rateOverTime = 0f;
-                smokeEmission.SetBursts(new ParticleSystem.Burst[]
-                {
-                    new ParticleSystem.Burst(0.1f, 160, 240)
-                });
-
-                var smokeColor = smokePs.colorOverLifetime;
-                smokeColor.enabled = true;
-                var smokeGradient = new Gradient();
-                smokeGradient.SetKeys(
-                    new GradientColorKey[]
-                    {
-                        new GradientColorKey(new Color(0.4f, 0.35f, 0.3f), 0f),
-                        new GradientColorKey(new Color(0.25f, 0.22f, 0.2f), 0.4f),
-                        new GradientColorKey(new Color(0.15f, 0.13f, 0.12f), 1f)
-                    },
-                    new GradientAlphaKey[]
-                    {
-                        new GradientAlphaKey(0.0f, 0f),
-                        new GradientAlphaKey(0.5f, 0.1f),
-                        new GradientAlphaKey(0.4f, 0.5f),
-                        new GradientAlphaKey(0f, 1f)
-                    }
-                );
-                smokeColor.color = smokeGradient;
-
-                var smokeSize = smokePs.sizeOverLifetime;
-                smokeSize.enabled = true;
-                smokeSize.size = new ParticleSystem.MinMaxCurve(1f,
-                    new AnimationCurve(
-                        new Keyframe(0f, 0.5f),
-                        new Keyframe(0.3f, 1.5f),
-                        new Keyframe(1f, 3.0f)));
-
-                var smokeNoise = smokePs.noise;
-                smokeNoise.enabled = true;
-                smokeNoise.strength = vesselLength * 0.2f;
-                smokeNoise.frequency = 1.5f;
-                smokeNoise.scrollSpeed = 0.8f;
-                smokeNoise.damping = true;
-
-                var smokeRenderer = smokeObj.GetComponent<ParticleSystemRenderer>();
-                smokeRenderer.renderMode = ParticleSystemRenderMode.Billboard;
-                smokeRenderer.maxParticleSize = 12f;
-
-                if (cachedExplosionTexture == null)
-                    cachedExplosionTexture = CreateSoftCircleTexture(32);
-                var smokeMat = new Material(alphaShader);
-                smokeMat.mainTexture = cachedExplosionTexture;
-                smokeMat.SetColor("_TintColor", new Color(0.3f, 0.25f, 0.2f, 0.5f));
-                smokeRenderer.material = smokeMat;
-
-                var smokeCleanup = smokeObj.AddComponent<MaterialCleanup>();
-                smokeCleanup.material = smokeMat;
-
+            var smokePs = BuildExplosionSmokeChild(obj, vesselLength);
+            if (smokePs != null)
                 smokePs.Play();
-            }
 
             ps.Play();
 

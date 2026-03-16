@@ -18,7 +18,7 @@ namespace Parsek
 
         internal static void Invalidate() { budgetDirty = true; }
 
-        internal static double CommittedFundsCost(RecordingStore.Recording rec)
+        internal static double CommittedFundsCost(Recording rec)
         {
             if (rec == null || rec.Points.Count == 0) return 0;
             if (rec.PreLaunchFunds == 0 && rec.Points[rec.Points.Count - 1].funds == 0)
@@ -48,7 +48,7 @@ namespace Parsek
             return remaining;
         }
 
-        internal static double CommittedScienceCost(RecordingStore.Recording rec)
+        internal static double CommittedScienceCost(Recording rec)
         {
             if (rec == null || rec.Points.Count == 0) return 0;
             if (rec.PreLaunchScience == 0 && rec.Points[rec.Points.Count - 1].science == 0)
@@ -78,7 +78,7 @@ namespace Parsek
             return remaining;
         }
 
-        internal static double CommittedReputationCost(RecordingStore.Recording rec)
+        internal static double CommittedReputationCost(Recording rec)
         {
             if (rec == null || rec.Points.Count == 0) return 0;
             if (rec.PreLaunchReputation == 0 && rec.Points[rec.Points.Count - 1].reputation == 0)
@@ -183,7 +183,7 @@ namespace Parsek
         }
 
         internal static BudgetSummary ComputeTotal(
-            IList<RecordingStore.Recording> recordings,
+            IList<Recording> recordings,
             IReadOnlyList<Milestone> milestones,
             IReadOnlyList<RecordingTree> trees = null)
         {
@@ -243,19 +243,19 @@ namespace Parsek
 
         // --- Full cost helpers (ignore application state) ---
 
-        internal static double FullCommittedFundsCost(RecordingStore.Recording rec)
+        internal static double FullCommittedFundsCost(Recording rec)
         {
             if (rec == null || rec.Points.Count == 0) return 0;
             return rec.PreLaunchFunds - rec.Points[rec.Points.Count - 1].funds;
         }
 
-        internal static double FullCommittedScienceCost(RecordingStore.Recording rec)
+        internal static double FullCommittedScienceCost(Recording rec)
         {
             if (rec == null || rec.Points.Count == 0) return 0;
             return rec.PreLaunchScience - rec.Points[rec.Points.Count - 1].science;
         }
 
-        internal static double FullCommittedReputationCost(RecordingStore.Recording rec)
+        internal static double FullCommittedReputationCost(Recording rec)
         {
             if (rec == null || rec.Points.Count == 0) return 0;
             return rec.PreLaunchReputation - rec.Points[rec.Points.Count - 1].reputation;
@@ -322,11 +322,14 @@ namespace Parsek
         }
 
         internal static BudgetSummary ComputeTotalFullCost(
-            IList<RecordingStore.Recording> recordings,
+            IList<Recording> recordings,
             IReadOnlyList<Milestone> milestones,
             IReadOnlyList<RecordingTree> trees = null)
         {
             var result = new BudgetSummary();
+
+            ParsekLog.Verbose("ResourceBudget",
+                $"ComputeTotalFullCost: {recordings?.Count ?? 0} recordings, {milestones?.Count ?? 0} milestones, {trees?.Count ?? 0} trees");
 
             if (recordings != null)
             {
@@ -359,6 +362,10 @@ namespace Parsek
                     result.reservedReputation += (double)FullMilestoneCommittedReputation(milestones[i]);
                 }
             }
+
+            ParsekLog.Verbose("ResourceBudget",
+                $"ComputeTotalFullCost result: funds={result.reservedFunds:F0}, " +
+                $"science={result.reservedScience:F1}, reputation={result.reservedReputation:F1}");
 
             return result;
         }

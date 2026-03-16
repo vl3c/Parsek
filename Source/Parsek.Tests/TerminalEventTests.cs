@@ -30,7 +30,7 @@ namespace Parsek.Tests
                 hasSurface = false
             };
 
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 RecordingId = "rec_1"
             };
@@ -61,7 +61,7 @@ namespace Parsek.Tests
                 hasSurface = false
             };
 
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 RecordingId = "rec_2"
             };
@@ -102,7 +102,7 @@ namespace Parsek.Tests
                 surfacePosition = surfPos
             };
 
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 RecordingId = "rec_3"
             };
@@ -131,7 +131,7 @@ namespace Parsek.Tests
                 hasSurface = false
             };
 
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 RecordingId = "rec_4"
             };
@@ -233,7 +233,7 @@ namespace Parsek.Tests
             };
 
             // Destroyed recording (should be excluded from BackgroundMap)
-            tree.Recordings["destroyed_rec"] = new RecordingStore.Recording
+            tree.Recordings["destroyed_rec"] = new Recording
             {
                 RecordingId = "destroyed_rec",
                 VesselPersistentId = 100,
@@ -242,7 +242,7 @@ namespace Parsek.Tests
             };
 
             // Active recording (excluded because it's the active recording)
-            tree.Recordings["active"] = new RecordingStore.Recording
+            tree.Recordings["active"] = new Recording
             {
                 RecordingId = "active",
                 VesselPersistentId = 200,
@@ -250,7 +250,7 @@ namespace Parsek.Tests
             };
 
             // Normal background recording (should be included)
-            tree.Recordings["bg_rec"] = new RecordingStore.Recording
+            tree.Recordings["bg_rec"] = new Recording
             {
                 RecordingId = "bg_rec",
                 VesselPersistentId = 300,
@@ -298,7 +298,7 @@ namespace Parsek.Tests
                 surfacePosition = surfPos
             };
 
-            var rec = new RecordingStore.Recording { RecordingId = "rec_edge" };
+            var rec = new Recording { RecordingId = "rec_edge" };
 
             ParsekFlight.ApplyTerminalData(data, rec);
 
@@ -314,7 +314,7 @@ namespace Parsek.Tests
         {
             // Verify that calling ApplyTerminalDestruction overwrites the recording's
             // terminal fields (this is the expected behavior — the method is the authority)
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 RecordingId = "rec_overwrite",
                 TerminalOrbitInclination = 99.9 // pre-existing value

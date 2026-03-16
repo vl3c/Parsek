@@ -32,7 +32,7 @@ namespace Parsek.Tests
             // Add active recording
             if (activeRecId != null)
             {
-                tree.Recordings[activeRecId] = new RecordingStore.Recording
+                tree.Recordings[activeRecId] = new Recording
                 {
                     RecordingId = activeRecId,
                     VesselName = "Active Vessel",
@@ -47,7 +47,7 @@ namespace Parsek.Tests
                 var (pid, recId) = backgroundVessels[i];
                 if (!tree.Recordings.ContainsKey(recId))
                 {
-                    tree.Recordings[recId] = new RecordingStore.Recording
+                    tree.Recordings[recId] = new Recording
                     {
                         RecordingId = recId,
                         VesselName = $"Background Vessel {i}",
@@ -164,21 +164,21 @@ namespace Parsek.Tests
             };
 
             // R1 is active -> not in background
-            tree.Recordings["R1"] = new RecordingStore.Recording
+            tree.Recordings["R1"] = new Recording
             {
                 RecordingId = "R1",
                 VesselPersistentId = 100,
                 TerminalStateValue = null
             };
             // R2 is background (not active, not terminated)
-            tree.Recordings["R2"] = new RecordingStore.Recording
+            tree.Recordings["R2"] = new Recording
             {
                 RecordingId = "R2",
                 VesselPersistentId = 200,
                 TerminalStateValue = null
             };
             // R3 is terminated -> not in background
-            tree.Recordings["R3"] = new RecordingStore.Recording
+            tree.Recordings["R3"] = new Recording
             {
                 RecordingId = "R3",
                 VesselPersistentId = 300,

@@ -34,7 +34,7 @@ namespace Parsek.Tests
         [Fact]
         public void ShouldTriggerExplosion_Destroyed_GhostAlive_ReturnsTrueAndLogs()
         {
-            bool result = ParsekFlight.ShouldTriggerExplosion(
+            bool result = GhostPlaybackLogic.ShouldTriggerExplosion(
                 explosionAlreadyFired: false,
                 terminalState: TerminalState.Destroyed,
                 ghostExists: true,
@@ -49,7 +49,7 @@ namespace Parsek.Tests
         [Fact]
         public void ShouldTriggerExplosion_AlreadyFired_ReturnsFalseAndLogs()
         {
-            bool result = ParsekFlight.ShouldTriggerExplosion(
+            bool result = GhostPlaybackLogic.ShouldTriggerExplosion(
                 explosionAlreadyFired: true,
                 terminalState: TerminalState.Destroyed,
                 ghostExists: true,
@@ -64,7 +64,7 @@ namespace Parsek.Tests
         [Fact]
         public void ShouldTriggerExplosion_NotDestroyed_Landed_ReturnsFalseAndLogs()
         {
-            bool result = ParsekFlight.ShouldTriggerExplosion(
+            bool result = GhostPlaybackLogic.ShouldTriggerExplosion(
                 explosionAlreadyFired: false,
                 terminalState: TerminalState.Landed,
                 ghostExists: true,
@@ -79,7 +79,7 @@ namespace Parsek.Tests
         [Fact]
         public void ShouldTriggerExplosion_NullTerminalState_ReturnsFalseAndLogs()
         {
-            bool result = ParsekFlight.ShouldTriggerExplosion(
+            bool result = GhostPlaybackLogic.ShouldTriggerExplosion(
                 explosionAlreadyFired: false,
                 terminalState: null,
                 ghostExists: true,
@@ -94,7 +94,7 @@ namespace Parsek.Tests
         [Fact]
         public void ShouldTriggerExplosion_GhostNull_ReturnsFalseAndLogs()
         {
-            bool result = ParsekFlight.ShouldTriggerExplosion(
+            bool result = GhostPlaybackLogic.ShouldTriggerExplosion(
                 explosionAlreadyFired: false,
                 terminalState: TerminalState.Destroyed,
                 ghostExists: false,
@@ -115,7 +115,7 @@ namespace Parsek.Tests
         [InlineData(TerminalState.Boarded)]
         public void ShouldTriggerExplosion_NonDestroyedStates_AllReturnFalse(TerminalState state)
         {
-            bool result = ParsekFlight.ShouldTriggerExplosion(
+            bool result = GhostPlaybackLogic.ShouldTriggerExplosion(
                 explosionAlreadyFired: false,
                 terminalState: state,
                 ghostExists: true,
@@ -133,7 +133,7 @@ namespace Parsek.Tests
         public void ShouldTriggerExplosion_AlreadyFired_SkipsBeforeCheckingTerminalState()
         {
             // Even with Destroyed state, already-fired should be checked first
-            ParsekFlight.ShouldTriggerExplosion(
+            GhostPlaybackLogic.ShouldTriggerExplosion(
                 explosionAlreadyFired: true,
                 terminalState: TerminalState.Destroyed,
                 ghostExists: true,
@@ -155,14 +155,14 @@ namespace Parsek.Tests
             ParsekLog.ClockOverrideForTesting = () => now;
 
             // First call: should emit
-            ParsekFlight.ShouldTriggerExplosion(true, TerminalState.Destroyed, true, "V", 2);
+            GhostPlaybackLogic.ShouldTriggerExplosion(true, TerminalState.Destroyed, true, "V", 2);
             Assert.Single(logLines, l => l.Contains("already fired") && l.Contains("#2"));
 
             // Repeated calls within rate-limit window: suppressed
             now += 0.1;
-            ParsekFlight.ShouldTriggerExplosion(true, TerminalState.Destroyed, true, "V", 2);
+            GhostPlaybackLogic.ShouldTriggerExplosion(true, TerminalState.Destroyed, true, "V", 2);
             now += 0.1;
-            ParsekFlight.ShouldTriggerExplosion(true, TerminalState.Destroyed, true, "V", 2);
+            GhostPlaybackLogic.ShouldTriggerExplosion(true, TerminalState.Destroyed, true, "V", 2);
 
             // Still only one log line for this key
             Assert.Single(logLines, l => l.Contains("already fired") && l.Contains("#2"));
@@ -177,14 +177,14 @@ namespace Parsek.Tests
             ParsekLog.ClockOverrideForTesting = () => now;
 
             // First call: should emit
-            ParsekFlight.ShouldTriggerExplosion(false, TerminalState.Recovered, true, "V", 4);
+            GhostPlaybackLogic.ShouldTriggerExplosion(false, TerminalState.Recovered, true, "V", 4);
             Assert.Single(logLines, l => l.Contains("not Destroyed") && l.Contains("#4"));
 
             // Repeated calls within rate-limit window: suppressed
             now += 0.1;
-            ParsekFlight.ShouldTriggerExplosion(false, TerminalState.Recovered, true, "V", 4);
+            GhostPlaybackLogic.ShouldTriggerExplosion(false, TerminalState.Recovered, true, "V", 4);
             now += 0.1;
-            ParsekFlight.ShouldTriggerExplosion(false, TerminalState.Recovered, true, "V", 4);
+            GhostPlaybackLogic.ShouldTriggerExplosion(false, TerminalState.Recovered, true, "V", 4);
 
             Assert.Single(logLines, l => l.Contains("not Destroyed") && l.Contains("#4"));
         }
@@ -198,8 +198,8 @@ namespace Parsek.Tests
             ParsekLog.ClockOverrideForTesting = () => now;
 
             // Two different ghost indices should each emit on first call
-            ParsekFlight.ShouldTriggerExplosion(true, TerminalState.Destroyed, true, "V", 1);
-            ParsekFlight.ShouldTriggerExplosion(true, TerminalState.Destroyed, true, "V", 2);
+            GhostPlaybackLogic.ShouldTriggerExplosion(true, TerminalState.Destroyed, true, "V", 1);
+            GhostPlaybackLogic.ShouldTriggerExplosion(true, TerminalState.Destroyed, true, "V", 2);
 
             Assert.Single(logLines, l => l.Contains("already fired") && l.Contains("#1"));
             Assert.Single(logLines, l => l.Contains("already fired") && l.Contains("#2"));
@@ -210,7 +210,7 @@ namespace Parsek.Tests
         [Fact]
         public void ApplyDestroyedFallback_WasDestroyed_NullTerminal_SetsDestroyed()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.TerminalStateValue = null;
 
             bool result = ParsekFlight.ApplyDestroyedFallback(true, rec);
@@ -223,7 +223,7 @@ namespace Parsek.Tests
         [Fact]
         public void ApplyDestroyedFallback_WasDestroyed_LandedTerminal_OverridesToDestroyed()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.TerminalStateValue = TerminalState.Landed;
 
             bool result = ParsekFlight.ApplyDestroyedFallback(true, rec);
@@ -236,7 +236,7 @@ namespace Parsek.Tests
         [Fact]
         public void ApplyDestroyedFallback_WasDestroyed_AlreadyDestroyed_NoChange()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.TerminalStateValue = TerminalState.Destroyed;
 
             bool result = ParsekFlight.ApplyDestroyedFallback(true, rec);
@@ -248,7 +248,7 @@ namespace Parsek.Tests
         [Fact]
         public void ApplyDestroyedFallback_NotDestroyed_NullTerminal_NoChange()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.TerminalStateValue = null;
 
             bool result = ParsekFlight.ApplyDestroyedFallback(false, rec);
@@ -260,7 +260,7 @@ namespace Parsek.Tests
         [Fact]
         public void ApplyDestroyedFallback_NotDestroyed_LandedTerminal_NoChange()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.TerminalStateValue = TerminalState.Landed;
 
             bool result = ParsekFlight.ApplyDestroyedFallback(false, rec);
@@ -370,7 +370,7 @@ namespace Parsek.Tests
         public void ShouldTriggerExplosion_PassesButWarpSuppresses_LogsSuppression(float warpRate, bool expectedSuppressed)
         {
             // ShouldTriggerExplosion returns true (all guards pass)
-            bool wouldFire = ParsekFlight.ShouldTriggerExplosion(
+            bool wouldFire = GhostPlaybackLogic.ShouldTriggerExplosion(
                 explosionAlreadyFired: false,
                 terminalState: TerminalState.Destroyed,
                 ghostExists: true,
@@ -380,20 +380,20 @@ namespace Parsek.Tests
             Assert.True(wouldFire);
 
             // But ShouldSuppressVisualFx prevents the actual FX
-            bool suppressed = ParsekFlight.ShouldSuppressVisualFx(warpRate);
+            bool suppressed = GhostPlaybackLogic.ShouldSuppressVisualFx(warpRate);
             Assert.Equal(expectedSuppressed, suppressed);
         }
 
         [Fact]
         public void ShouldSuppressVisualFx_At10x_DoesNotSuppress()
         {
-            Assert.False(ParsekFlight.ShouldSuppressVisualFx(10f));
+            Assert.False(GhostPlaybackLogic.ShouldSuppressVisualFx(10f));
         }
 
         [Fact]
         public void ShouldSuppressVisualFx_Above10x_Suppresses()
         {
-            Assert.True(ParsekFlight.ShouldSuppressVisualFx(50f));
+            Assert.True(GhostPlaybackLogic.ShouldSuppressVisualFx(50f));
         }
     }
 }

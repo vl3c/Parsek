@@ -25,7 +25,7 @@ namespace Parsek.Tests
         [Fact]
         public void LogSpawnContext_NullSnapshot_DoesNotThrow()
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 VesselName = "Ghost Ship",
                 VesselSnapshot = null
@@ -40,7 +40,7 @@ namespace Parsek.Tests
         {
             var node = new ConfigNode("VESSEL");
             // No PART nodes at all
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 VesselName = "Empty Pod",
                 VesselSnapshot = node
@@ -57,7 +57,7 @@ namespace Parsek.Tests
             // Has other nodes but no PART
             node.AddNode("ACTIONGROUPS");
 
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 VesselName = "No Parts",
                 VesselSnapshot = node
@@ -78,7 +78,7 @@ namespace Parsek.Tests
             var part = node.AddNode("PART");
             part.AddValue("crew", "Jeb Kerman");
 
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 VesselName = "Jeb's Rocket",
                 VesselSnapshot = node
@@ -100,7 +100,7 @@ namespace Parsek.Tests
             var lab = node.AddNode("PART");
             lab.AddValue("crew", "Bob Kerman");
 
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 VesselName = "Station",
                 VesselSnapshot = node
@@ -118,7 +118,7 @@ namespace Parsek.Tests
             var part = node.AddNode("PART");
             // Probe core — no crew values
 
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 VesselName = "Probe",
                 VesselSnapshot = node

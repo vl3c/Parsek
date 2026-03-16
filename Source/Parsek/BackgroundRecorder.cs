@@ -147,11 +147,13 @@ namespace Parsek
                 // Update ExplicitEndUT periodically
                 if (currentUT - state.lastExplicitEndUpdate >= ExplicitEndUpdateInterval)
                 {
-                    RecordingStore.Recording treeRec;
+                    Recording treeRec;
                     if (tree.Recordings.TryGetValue(state.recordingId, out treeRec))
                     {
                         treeRec.ExplicitEndUT = currentUT;
                         state.lastExplicitEndUpdate = currentUT;
+                        ParsekLog.VerboseRateLimited("BgRecorder", $"onRailsEndUT.{pid}",
+                            $"On-rails ExplicitEndUT updated: pid={pid} UT={currentUT:F1}", 30.0);
                     }
                 }
             }
@@ -179,7 +181,7 @@ namespace Parsek
             if (!loadedStates.TryGetValue(pid, out state)) return;
 
             // Get the tree recording
-            RecordingStore.Recording treeRec;
+            Recording treeRec;
             if (!tree.Recordings.TryGetValue(recordingId, out treeRec)) return;
 
             double ut = Planetarium.GetUniversalTime();
@@ -220,6 +222,9 @@ namespace Parsek
 
             // Update ExplicitEndUT
             treeRec.ExplicitEndUT = ut;
+
+            ParsekLog.VerboseRateLimited("BgRecorder", $"bgPhysics.{pid}",
+                $"Background point sampled: pid={pid} pts={treeRec.Points.Count} alt={bgVessel.altitude:F0}", 5.0);
         }
 
         /// <summary>
@@ -300,7 +305,7 @@ namespace Parsek
                 Vessel v = FlightRecorder.FindVesselByPid(vesselPid);
                 if (v != null)
                 {
-                    RecordingStore.Recording treeRec;
+                    Recording treeRec;
                     if (tree.Recordings.TryGetValue(loadedState.recordingId, out treeRec))
                     {
                         SampleBoundaryPoint(v, treeRec, ut);
@@ -331,7 +336,7 @@ namespace Parsek
             if (loadedStates.TryGetValue(pid, out loadedState))
             {
                 // Sample a final boundary point
-                RecordingStore.Recording treeRec;
+                Recording treeRec;
                 if (tree.Recordings.TryGetValue(loadedState.recordingId, out treeRec))
                 {
                     SampleBoundaryPoint(v, treeRec, ut);
@@ -377,7 +382,7 @@ namespace Parsek
                 InitializeLoadedState(v, pid, recordingId);
 
                 // Sample a boundary point
-                RecordingStore.Recording treeRec;
+                Recording treeRec;
                 if (tree.Recordings.TryGetValue(recordingId, out treeRec))
                 {
                     SampleBoundaryPoint(v, treeRec, ut);
@@ -509,7 +514,7 @@ namespace Parsek
             // Update ExplicitEndUT on all background recordings
             foreach (var kvp in tree.BackgroundMap)
             {
-                RecordingStore.Recording treeRec;
+                Recording treeRec;
                 if (tree.Recordings.TryGetValue(kvp.Value, out treeRec))
                 {
                     treeRec.ExplicitEndUT = commitUT;
@@ -544,7 +549,7 @@ namespace Parsek
                 state.hasOpenOrbitSegment = false;
 
                 // Capture SurfacePosition
-                RecordingStore.Recording treeRec;
+                Recording treeRec;
                 if (tree.Recordings.TryGetValue(recordingId, out treeRec))
                 {
                     treeRec.SurfacePos = new SurfacePosition
@@ -581,7 +586,7 @@ namespace Parsek
                 };
                 state.hasOpenOrbitSegment = true;
 
-                RecordingStore.Recording treeRec;
+                Recording treeRec;
                 if (tree.Recordings.TryGetValue(recordingId, out treeRec))
                 {
                     treeRec.ExplicitEndUT = ut;
@@ -595,7 +600,7 @@ namespace Parsek
                 // No orbit and not landed — edge case (e.g. vessel on launchpad with no orbit)
                 state.hasOpenOrbitSegment = false;
 
-                RecordingStore.Recording treeRec;
+                Recording treeRec;
                 if (tree.Recordings.TryGetValue(recordingId, out treeRec))
                 {
                     treeRec.ExplicitEndUT = ut;
@@ -632,288 +637,36 @@ namespace Parsek
 
         /// <summary>
         /// Pre-populates a BackgroundVesselState's tracking sets with the current
-        /// state of every part on the vessel. Mirrors FlightRecorder.SeedExistingPartStates.
+        /// state of every part on the vessel. Delegates to shared PartStateSeeder.
         /// </summary>
-        // TODO: ~340 lines of per-part seeding logic duplicated from FlightRecorder.SeedExistingPartStates.
-        // Extract shared static helpers that take tracking set collections as parameters.
         private static void SeedBackgroundPartStates(Vessel v, BackgroundVesselState state)
         {
-            if (v == null || v.parts == null) return;
-
-            for (int i = 0; i < v.parts.Count; i++)
-            {
-                Part p = v.parts[i];
-                if (p == null) continue;
-
-                // --- Fairings ---
-                var fairing = p.FindModuleImplementing<ModuleProceduralFairing>();
-                if (fairing != null)
+            PartStateSeeder.SeedPartStates(v,
+                new PartTrackingSets
                 {
-                    try
-                    {
-                        if (fairing.GetScalar >= 0.5f)
-                        {
-                            state.deployedFairings.Add(p.persistentId);
-                            ParsekLog.Verbose("BgRecorder",
-                                $"Seeded already-deployed fairing: '{p.partInfo?.name}' pid={p.persistentId}");
-                        }
-                    }
-                    catch { }
-                }
-
-                // --- Shrouds (ModuleJettison) ---
-                for (int m = 0; m < p.Modules.Count; m++)
-                {
-                    var jettison = p.Modules[m] as ModuleJettison;
-                    if (jettison == null) continue;
-                    if (jettison.isJettisoned)
-                    {
-                        state.jettisonedShrouds.Add(p.persistentId);
-                        ParsekLog.Verbose("BgRecorder",
-                            $"Seeded already-jettisoned shroud: '{p.partInfo?.name}' pid={p.persistentId}");
-                        break;
-                    }
-                }
-
-                // --- Parachutes ---
-                var chute = p.FindModuleImplementing<ModuleParachute>();
-                if (chute != null)
-                {
-                    int chuteState = chute.deploymentState == ModuleParachute.deploymentStates.DEPLOYED ? 2
-                                   : chute.deploymentState == ModuleParachute.deploymentStates.SEMIDEPLOYED ? 1
-                                   : 0;
-                    if (chuteState > 0)
-                    {
-                        state.parachuteStates[p.persistentId] = chuteState;
-                        ParsekLog.Verbose("BgRecorder",
-                            $"Seeded already-deployed parachute: '{p.partInfo?.name}' pid={p.persistentId} state={chuteState}");
-                    }
-                }
-
-                // --- Deployables ---
-                var deployable = p.FindModuleImplementing<ModuleDeployablePart>();
-                if (deployable != null)
-                {
-                    if (deployable.deployState == ModuleDeployablePart.DeployState.EXTENDED)
-                    {
-                        state.extendedDeployables.Add(p.persistentId);
-                        ParsekLog.Verbose("BgRecorder",
-                            $"Seeded already-extended deployable: '{p.partInfo?.name}' pid={p.persistentId}");
-                    }
-                }
-
-                // --- Lights ---
-                var light = p.FindModuleImplementing<ModuleLight>();
-                if (light != null)
-                {
-                    if (light.isOn)
-                    {
-                        state.lightsOn.Add(p.persistentId);
-                        ParsekLog.Verbose("BgRecorder",
-                            $"Seeded already-on light: '{p.partInfo?.name}' pid={p.persistentId}");
-                    }
-                    if (light.isBlinking)
-                    {
-                        state.blinkingLights.Add(p.persistentId);
-                        float safeBlinkRate = light.blinkRate > 0f ? light.blinkRate : 1f;
-                        state.lightBlinkRates[p.persistentId] = safeBlinkRate;
-                        ParsekLog.Verbose("BgRecorder",
-                            $"Seeded already-blinking light: '{p.partInfo?.name}' pid={p.persistentId} rate={safeBlinkRate:F2}");
-                    }
-                }
-
-                // --- Landing gear ---
-                for (int m = 0; m < p.Modules.Count; m++)
-                {
-                    var wheel = p.Modules[m] as ModuleWheels.ModuleWheelDeployment;
-                    if (wheel == null) continue;
-                    FlightRecorder.ClassifyGearState(wheel.stateString, out bool isDeployed, out bool isRetracted);
-                    if (isDeployed)
-                    {
-                        state.deployedGear.Add(p.persistentId);
-                        ParsekLog.Verbose("BgRecorder",
-                            $"Seeded already-deployed gear: '{p.partInfo?.name}' pid={p.persistentId}");
-                    }
-                    break;
-                }
-
-                // --- Cargo bays ---
-                var cargo = p.FindModuleImplementing<ModuleCargoBay>();
-                if (cargo != null)
-                {
-                    int deployIdx = cargo.DeployModuleIndex;
-                    if (deployIdx >= 0 && deployIdx < p.Modules.Count)
-                    {
-                        var anim = p.Modules[deployIdx] as ModuleAnimateGeneric;
-                        if (anim != null)
-                        {
-                            FlightRecorder.ClassifyCargoBayState(anim.animTime, cargo.closedPosition,
-                                out bool isOpen, out bool isClosed);
-                            if (isOpen)
-                            {
-                                state.openCargoBays.Add(p.persistentId);
-                                ParsekLog.Verbose("BgRecorder",
-                                    $"Seeded already-open cargo bay: '{p.partInfo?.name}' pid={p.persistentId}");
-                            }
-                        }
-                    }
-                }
-
-                // --- Ladders ---
-                for (int m = 0; m < p.Modules.Count; m++)
-                {
-                    PartModule module = p.Modules[m];
-                    if (module == null) continue;
-                    if (!string.Equals(module.moduleName, "RetractableLadder", System.StringComparison.Ordinal))
-                        continue;
-
-                    bool ladderDeployed, ladderRetracted;
-                    if (FlightRecorder.TryClassifyRetractableLadderState(module, out ladderDeployed, out ladderRetracted) && ladderDeployed)
-                    {
-                        ulong key = FlightRecorder.EncodeEngineKey(p.persistentId, m);
-                        state.deployedLadders.Add(key);
-                        ParsekLog.Verbose("BgRecorder",
-                            $"Seeded already-deployed ladder: '{p.partInfo?.name}' pid={p.persistentId} midx={m}");
-                    }
-                    break;
-                }
-
-                // --- Animation groups, aero/control surfaces, robot arm scanners ---
-                for (int m = 0; m < p.Modules.Count; m++)
-                {
-                    PartModule module = p.Modules[m];
-                    if (module == null) continue;
-
-                    if (string.Equals(module.moduleName, "ModuleAnimationGroup", System.StringComparison.Ordinal))
-                    {
-                        bool agDeployed, agRetracted;
-                        if (FlightRecorder.TryClassifyAnimationGroupState(module, out agDeployed, out agRetracted) && agDeployed)
-                        {
-                            ulong key = FlightRecorder.EncodeEngineKey(p.persistentId, m);
-                            state.deployedAnimationGroups.Add(key);
-                            ParsekLog.Verbose("BgRecorder",
-                                $"Seeded already-deployed animation group: '{p.partInfo?.name}' pid={p.persistentId} midx={m}");
-                        }
-                    }
-                    else if (string.Equals(module.moduleName, "ModuleAeroSurface", System.StringComparison.Ordinal))
-                    {
-                        bool asDeployed, asRetracted;
-                        if (FlightRecorder.TryClassifyAeroSurfaceState(module, out asDeployed, out asRetracted) && asDeployed)
-                        {
-                            ulong key = FlightRecorder.EncodeEngineKey(p.persistentId, m);
-                            state.deployedAeroSurfaceModules.Add(key);
-                            ParsekLog.Verbose("BgRecorder",
-                                $"Seeded already-deployed aero surface: '{p.partInfo?.name}' pid={p.persistentId} midx={m}");
-                        }
-                    }
-                    else if (string.Equals(module.moduleName, "ModuleControlSurface", System.StringComparison.Ordinal))
-                    {
-                        bool csDeployed, csRetracted;
-                        if (FlightRecorder.TryClassifyControlSurfaceState(module, out csDeployed, out csRetracted) && csDeployed)
-                        {
-                            ulong key = FlightRecorder.EncodeEngineKey(p.persistentId, m);
-                            state.deployedControlSurfaceModules.Add(key);
-                            ParsekLog.Verbose("BgRecorder",
-                                $"Seeded already-deployed control surface: '{p.partInfo?.name}' pid={p.persistentId} midx={m}");
-                        }
-                    }
-                    else if (string.Equals(module.moduleName, "ModuleRobotArmScanner", System.StringComparison.Ordinal))
-                    {
-                        bool rasDeployed, rasRetracted;
-                        if (FlightRecorder.TryClassifyRobotArmScannerState(module, out rasDeployed, out rasRetracted) && rasDeployed)
-                        {
-                            ulong key = FlightRecorder.EncodeEngineKey(p.persistentId, m);
-                            state.deployedRobotArmScannerModules.Add(key);
-                            ParsekLog.Verbose("BgRecorder",
-                                $"Seeded already-deployed robot arm scanner: '{p.partInfo?.name}' pid={p.persistentId} midx={m}");
-                        }
-                    }
-                    else if (module is ModuleAnimateGeneric animGeneric)
-                    {
-                        if (!string.IsNullOrEmpty(animGeneric.animationName))
-                        {
-                            bool agDeployed, agRetracted;
-                            if (FlightRecorder.TryClassifyAnimateGenericState(animGeneric, out agDeployed, out agRetracted) && agDeployed)
-                            {
-                                ulong key = FlightRecorder.EncodeEngineKey(p.persistentId, m);
-                                state.deployedAnimateGenericModules.Add(key);
-                                ParsekLog.Verbose("BgRecorder",
-                                    $"Seeded already-deployed AnimateGeneric: '{p.partInfo?.name}' pid={p.persistentId} midx={m}");
-                            }
-                        }
-                    }
-                    else if (string.Equals(module.moduleName, "ModuleAnimateHeat", System.StringComparison.Ordinal))
-                    {
-                        if (FlightRecorder.TryClassifyAnimateHeatState(module, out float normalizedHeat, out _))
-                        {
-                            HeatLevel level;
-                            if (normalizedHeat >= FlightRecorder.AnimateHeatHotThreshold)
-                                level = HeatLevel.Hot;
-                            else if (normalizedHeat >= FlightRecorder.AnimateHeatMediumThreshold)
-                                level = HeatLevel.Medium;
-                            else
-                                level = HeatLevel.Cold;
-                            if (level != HeatLevel.Cold)
-                            {
-                                ulong key = FlightRecorder.EncodeEngineKey(p.persistentId, m);
-                                state.animateHeatLevels[key] = level;
-                                ParsekLog.Verbose("BgRecorder",
-                                    $"Seeded AnimateHeat: '{p.partInfo?.name}' pid={p.persistentId} midx={m} level={level} heat={normalizedHeat:F3}");
-                            }
-                        }
-                    }
-                }
-            }
-
-            // --- Engines (use cached list) ---
-            if (state.cachedEngines != null)
-            {
-                for (int i = 0; i < state.cachedEngines.Count; i++)
-                {
-                    var (part, engine, moduleIndex) = state.cachedEngines[i];
-                    if (part == null || engine == null) continue;
-                    if (engine.EngineIgnited && engine.isOperational)
-                    {
-                        ulong key = FlightRecorder.EncodeEngineKey(part.persistentId, moduleIndex);
-                        state.activeEngineKeys.Add(key);
-                        state.lastThrottle[key] = engine.currentThrottle;
-                        ParsekLog.Verbose("BgRecorder",
-                            $"Seeded already-active engine: '{part.partInfo?.name}' pid={part.persistentId} midx={moduleIndex} throttle={engine.currentThrottle:F2}");
-                    }
-                }
-            }
-
-            // --- RCS (use cached list) ---
-            if (state.cachedRcsModules != null)
-            {
-                for (int i = 0; i < state.cachedRcsModules.Count; i++)
-                {
-                    var (part, rcs, moduleIndex) = state.cachedRcsModules[i];
-                    if (part == null || rcs == null) continue;
-                    if (rcs.rcs_active && rcs.rcsEnabled)
-                    {
-                        ulong key = FlightRecorder.EncodeEngineKey(part.persistentId, moduleIndex);
-                        state.activeRcsKeys.Add(key);
-                        float power = 0f;
-                        if (rcs.thrusterPower > 0f && rcs.thrustForces != null && rcs.thrustForces.Length > 0)
-                        {
-                            float sum = 0f;
-                            for (int f = 0; f < rcs.thrustForces.Length; f++)
-                                sum += rcs.thrustForces[f];
-                            power = Mathf.Clamp01(sum / (rcs.thrusterPower * rcs.thrustForces.Length));
-                        }
-                        state.lastRcsThrottle[key] = power;
-                        ParsekLog.Verbose("BgRecorder",
-                            $"Seeded already-active RCS: '{part.partInfo?.name}' pid={part.persistentId} midx={moduleIndex} power={power:F2}");
-                    }
-                }
-            }
-
-            ParsekLog.Verbose("BgRecorder",
-                $"Background state seeding complete: fairings={state.deployedFairings.Count} shrouds={state.jettisonedShrouds.Count} " +
-                $"parachutes={state.parachuteStates.Count} deployables={state.extendedDeployables.Count} lights={state.lightsOn.Count} " +
-                $"gear={state.deployedGear.Count} cargo={state.openCargoBays.Count} engines={state.activeEngineKeys.Count} " +
-                $"rcs={state.activeRcsKeys.Count}");
+                    deployedFairings = state.deployedFairings,
+                    jettisonedShrouds = state.jettisonedShrouds,
+                    parachuteStates = state.parachuteStates,
+                    extendedDeployables = state.extendedDeployables,
+                    lightsOn = state.lightsOn,
+                    blinkingLights = state.blinkingLights,
+                    lightBlinkRates = state.lightBlinkRates,
+                    deployedGear = state.deployedGear,
+                    openCargoBays = state.openCargoBays,
+                    deployedLadders = state.deployedLadders,
+                    deployedAnimationGroups = state.deployedAnimationGroups,
+                    deployedAnimateGenericModules = state.deployedAnimateGenericModules,
+                    deployedAeroSurfaceModules = state.deployedAeroSurfaceModules,
+                    deployedControlSurfaceModules = state.deployedControlSurfaceModules,
+                    deployedRobotArmScannerModules = state.deployedRobotArmScannerModules,
+                    animateHeatLevels = state.animateHeatLevels,
+                    activeEngineKeys = state.activeEngineKeys,
+                    lastThrottle = state.lastThrottle,
+                    activeRcsKeys = state.activeRcsKeys,
+                    lastRcsThrottle = state.lastRcsThrottle,
+                },
+                state.cachedEngines, state.cachedRcsModules,
+                seedColorChangerLights: false, logTag: "BgRecorder");
         }
 
         private void CloseOrbitSegment(BackgroundOnRailsState state, double ut)
@@ -922,7 +675,7 @@ namespace Parsek
 
             state.currentOrbitSegment.endUT = ut;
 
-            RecordingStore.Recording treeRec;
+            Recording treeRec;
             if (tree.Recordings.TryGetValue(state.recordingId, out treeRec))
             {
                 treeRec.OrbitSegments.Add(state.currentOrbitSegment);
@@ -935,7 +688,7 @@ namespace Parsek
                 $"UT={state.currentOrbitSegment.startUT:F1}-{ut:F1} body={state.currentOrbitSegment.bodyName}");
         }
 
-        private void SampleBoundaryPoint(Vessel v, RecordingStore.Recording treeRec, double ut)
+        private void SampleBoundaryPoint(Vessel v, Recording treeRec, double ut)
         {
             if (v == null) return;
 
@@ -959,6 +712,9 @@ namespace Parsek
 
             treeRec.Points.Add(point);
             treeRec.ExplicitEndUT = ut;
+
+            ParsekLog.Verbose("BgRecorder", $"Boundary point sampled: pid={v.persistentId} " +
+                $"UT={ut:F1} alt={v.altitude:F0} pts={treeRec.Points.Count}");
         }
 
         #endregion
@@ -971,7 +727,7 @@ namespace Parsek
         /// same Layer 1 static transition methods.
         /// </summary>
         private void PollPartEvents(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             CheckParachuteState(v, state, treeRec, ut);
             CheckJettisonState(v, state, treeRec, ut);
@@ -993,7 +749,7 @@ namespace Parsek
         }
 
         private void CheckParachuteState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (v == null || v.parts == null) return;
 
@@ -1021,7 +777,7 @@ namespace Parsek
         }
 
         private void CheckJettisonState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (v == null || v.parts == null) return;
 
@@ -1079,7 +835,7 @@ namespace Parsek
         }
 
         private void CheckDeployableState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (v == null || v.parts == null) return;
 
@@ -1110,7 +866,7 @@ namespace Parsek
         }
 
         private void CheckLightState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (v == null || v.parts == null) return;
 
@@ -1145,7 +901,7 @@ namespace Parsek
         }
 
         private void CheckGearState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (v == null || v.parts == null) return;
 
@@ -1176,7 +932,7 @@ namespace Parsek
         }
 
         private void CheckCargoBayState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (v == null || v.parts == null) return;
 
@@ -1237,7 +993,7 @@ namespace Parsek
         }
 
         private void CheckFairingState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (v == null || v.parts == null) return;
 
@@ -1278,7 +1034,7 @@ namespace Parsek
         }
 
         private void CheckEngineState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (state.cachedEngines == null) return;
 
@@ -1326,7 +1082,7 @@ namespace Parsek
         }
 
         private void CheckRcsState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (state.cachedRcsModules == null) return;
 
@@ -1355,7 +1111,7 @@ namespace Parsek
         }
 
         private void CheckLadderState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (v == null || v.parts == null) return;
 
@@ -1399,7 +1155,7 @@ namespace Parsek
         }
 
         private void CheckAnimationGroupState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (v == null || v.parts == null) return;
 
@@ -1443,7 +1199,7 @@ namespace Parsek
         }
 
         private void CheckAeroSurfaceState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (v == null || v.parts == null) return;
 
@@ -1487,7 +1243,7 @@ namespace Parsek
         }
 
         private void CheckControlSurfaceState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (v == null || v.parts == null) return;
 
@@ -1531,7 +1287,7 @@ namespace Parsek
         }
 
         private void CheckRobotArmScannerState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (v == null || v.parts == null) return;
 
@@ -1575,7 +1331,7 @@ namespace Parsek
         }
 
         private void CheckAnimateHeatState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (v == null || v.parts == null) return;
 
@@ -1617,7 +1373,7 @@ namespace Parsek
         }
 
         private void CheckAnimateGenericState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (v == null || v.parts == null) return;
 
@@ -1695,7 +1451,7 @@ namespace Parsek
         }
 
         private void CheckRoboticState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (state.cachedRoboticModules == null) return;
 

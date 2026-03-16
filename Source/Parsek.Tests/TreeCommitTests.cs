@@ -21,14 +21,14 @@ namespace Parsek.Tests
 
         // --- Helper methods ---
 
-        private RecordingStore.Recording MakeRecording(string id, string treeId,
+        private Recording MakeRecording(string id, string treeId,
             string vesselName = "TestVessel", uint pid = 0,
             TerminalState? terminalState = null,
             ConfigNode vesselSnapshot = null,
             string childBranchPointId = null,
             string parentBranchPointId = null)
         {
-            return new RecordingStore.Recording
+            return new Recording
             {
                 RecordingId = id,
                 TreeId = treeId,
@@ -451,7 +451,7 @@ namespace Parsek.Tests
             node.AddValue("ghostGeometryProbeStatus", "unknown");
             node.AddValue("ghostGeometryAvailable", "False");
 
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             RecordingTree.LoadRecordingFrom(node, rec);
 
             Assert.Equal(42u, rec.SpawnedVesselPersistentId);

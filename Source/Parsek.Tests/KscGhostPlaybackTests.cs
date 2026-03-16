@@ -25,7 +25,7 @@ namespace Parsek.Tests
 
         #region Helper: create recordings
 
-        static RecordingStore.Recording MakeKerbinRecording(
+        static Recording MakeKerbinRecording(
             double startUT = 100, double endUT = 200,
             bool loopPlayback = false, double loopInterval = 10.0,
             bool playbackEnabled = true,
@@ -33,7 +33,7 @@ namespace Parsek.Tests
             string bodyName = "Kerbin",
             TerminalState? terminalState = null)
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 VesselName = "TestVessel",
                 PlaybackEnabled = playbackEnabled,
@@ -71,9 +71,9 @@ namespace Parsek.Tests
         /// <summary>
         /// Create a recording that starts on Kerbin then transitions to Mun.
         /// </summary>
-        static RecordingStore.Recording MakeCrossBodyRecording()
+        static Recording MakeCrossBodyRecording()
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 VesselName = "MunTransfer",
                 PlaybackEnabled = true,
@@ -120,7 +120,7 @@ namespace Parsek.Tests
         [Fact]
         public void ShouldShowInKSC_EmptyPoints_ReturnsFalse()
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 PlaybackEnabled = true,
                 VesselName = "Test"
@@ -131,7 +131,7 @@ namespace Parsek.Tests
         [Fact]
         public void ShouldShowInKSC_SinglePoint_ReturnsFalse()
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 PlaybackEnabled = true,
                 VesselName = "Test"
@@ -165,7 +165,7 @@ namespace Parsek.Tests
         [Fact]
         public void ShouldShowInKSC_NullPoints_ReturnsFalse()
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 PlaybackEnabled = true,
                 VesselName = "Test",

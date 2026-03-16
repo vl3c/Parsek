@@ -23,12 +23,12 @@ namespace Parsek
         private Rect windowRect = new Rect(20, 100, 200, 10);
 
         // KSC ghost playback state — keyed by recording index in CommittedRecordings
-        private Dictionary<int, ParsekFlight.GhostPlaybackState> kscGhosts =
-            new Dictionary<int, ParsekFlight.GhostPlaybackState>();
+        private Dictionary<int, GhostPlaybackState> kscGhosts =
+            new Dictionary<int, GhostPlaybackState>();
 
         // Overlap ghosts for negative loop intervals (multiple simultaneous ghosts per recording)
-        private Dictionary<int, List<ParsekFlight.GhostPlaybackState>> kscOverlapGhosts =
-            new Dictionary<int, List<ParsekFlight.GhostPlaybackState>>();
+        private Dictionary<int, List<GhostPlaybackState>> kscOverlapGhosts =
+            new Dictionary<int, List<GhostPlaybackState>>();
 
         // Cached body lookup to avoid per-frame lambda allocations
         private Dictionary<string, CelestialBody> bodyCache;
@@ -121,8 +121,8 @@ namespace Parsek
             double currentUT = Planetarium.GetUniversalTime();
 
             float warpRate = TimeWarp.CurrentRate;
-            bool suppressGhosts = ParsekFlight.ShouldSuppressGhosts(warpRate);
-            bool suppressVisualFx = ParsekFlight.ShouldSuppressVisualFx(warpRate);
+            bool suppressGhosts = GhostPlaybackLogic.ShouldSuppressGhosts(warpRate);
+            bool suppressVisualFx = GhostPlaybackLogic.ShouldSuppressVisualFx(warpRate);
 
             if (suppressGhosts)
             {
@@ -134,7 +134,7 @@ namespace Parsek
                     {
                         kvp.Value.ghost.SetActive(false);
                         ParsekLog.Info("KSCGhost",
-                            $"Ghost #{kvp.Key} hidden: warp {warpRate.ToString("F1", CultureInfo.InvariantCulture)}x > {ParsekFlight.GhostHideWarpThreshold}x");
+                            $"Ghost #{kvp.Key} hidden: warp {warpRate.ToString("F1", CultureInfo.InvariantCulture)}x > {GhostPlaybackLogic.GhostHideWarpThreshold}x");
                     }
                 foreach (int key in new List<int>(kscOverlapGhosts.Keys))
                     DestroyAllKscOverlapGhosts(key);
@@ -199,11 +199,11 @@ namespace Parsek
         /// <summary>
         /// Single-ghost playback path (positive/zero loop interval, or non-looping).
         /// </summary>
-        void UpdateSingleGhostKsc(int recIdx, RecordingStore.Recording rec,
+        void UpdateSingleGhostKsc(int recIdx, Recording rec,
             double currentUT, double targetUT, int cycleIndex,
             bool inRange, bool inPauseWindow, bool suppressVisualFx)
         {
-            ParsekFlight.GhostPlaybackState state;
+            GhostPlaybackState state;
             kscGhosts.TryGetValue(recIdx, out state);
             bool ghostActive = state != null && state.ghost != null;
 
@@ -249,11 +249,11 @@ namespace Parsek
 
                 // Distance culling: skip expensive part events for ghosts too far from camera
                 if (IsGhostInCullRange(state.ghost))
-                    ParsekFlight.ApplyPartEvents(recIdx, rec, targetUT, state);
+                    GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, targetUT, state);
                 if (suppressVisualFx)
-                    ParsekFlight.StopAllRcsEmissions(state);
+                    GhostPlaybackLogic.StopAllRcsEmissions(state);
                 else
-                    ParsekFlight.RestoreAllRcsEmissions(state);
+                    GhostPlaybackLogic.RestoreAllRcsEmissions(state);
 
                 if (!state.explosionFired && targetUT >= rec.EndUT)
                     TriggerExplosionIfDestroyed(state, rec, recIdx);
@@ -267,7 +267,7 @@ namespace Parsek
                     if (!state.pauseHidden)
                     {
                         state.pauseHidden = true;
-                        ParsekFlight.HideAllGhostParts(state);
+                        GhostPlaybackLogic.HideAllGhostParts(state);
                         ParsekLog.Verbose("KSCGhost",
                             $"Ghost #{recIdx} \"{rec.VesselName}\" hidden during loop pause window");
                     }
@@ -290,10 +290,10 @@ namespace Parsek
         /// Simplified version of ParsekFlight.UpdateOverlapLoopPlayback
         /// (no camera logic, no reentry FX).
         /// </summary>
-        void UpdateOverlapKsc(int recIdx, RecordingStore.Recording rec,
+        void UpdateOverlapKsc(int recIdx, Recording rec,
             double currentUT, double intervalSeconds, double duration, bool suppressVisualFx)
         {
-            ParsekFlight.GhostPlaybackState primaryState;
+            GhostPlaybackState primaryState;
             kscGhosts.TryGetValue(recIdx, out primaryState);
             bool primaryActive = primaryState != null && primaryState.ghost != null;
 
@@ -308,14 +308,14 @@ namespace Parsek
             if (cycleDuration < MinCycleDuration) cycleDuration = MinCycleDuration;
 
             int firstCycle, lastCycle;
-            ParsekFlight.GetActiveCycles(currentUT, rec.StartUT, rec.EndUT,
+            GhostPlaybackLogic.GetActiveCycles(currentUT, rec.StartUT, rec.EndUT,
                 intervalSeconds, MaxOverlapGhostsPerRecording, out firstCycle, out lastCycle);
 
             // Ensure overlap list exists
-            List<ParsekFlight.GhostPlaybackState> overlaps;
+            List<GhostPlaybackState> overlaps;
             if (!kscOverlapGhosts.TryGetValue(recIdx, out overlaps))
             {
-                overlaps = new List<ParsekFlight.GhostPlaybackState>();
+                overlaps = new List<GhostPlaybackState>();
                 kscOverlapGhosts[recIdx] = overlaps;
             }
 
@@ -358,11 +358,11 @@ namespace Parsek
                     ref primaryState.playbackIndex, loopUT, srfRel);
 
                 if (IsGhostInCullRange(primaryState.ghost))
-                    ParsekFlight.ApplyPartEvents(recIdx, rec, loopUT, primaryState);
+                    GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, loopUT, primaryState);
                 if (suppressVisualFx)
-                    ParsekFlight.StopAllRcsEmissions(primaryState);
+                    GhostPlaybackLogic.StopAllRcsEmissions(primaryState);
                 else
-                    ParsekFlight.RestoreAllRcsEmissions(primaryState);
+                    GhostPlaybackLogic.RestoreAllRcsEmissions(primaryState);
 
                 if (!primaryState.explosionFired && phase >= duration)
                     TriggerExplosionIfDestroyed(primaryState, rec, recIdx);
@@ -403,11 +403,11 @@ namespace Parsek
                     ref ovState.playbackIndex, loopUT, srfRel);
 
                 if (IsGhostInCullRange(ovState.ghost))
-                    ParsekFlight.ApplyPartEvents(recIdx, rec, loopUT, ovState);
+                    GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, loopUT, ovState);
                 if (suppressVisualFx)
-                    ParsekFlight.StopAllRcsEmissions(ovState);
+                    GhostPlaybackLogic.StopAllRcsEmissions(ovState);
                 else
-                    ParsekFlight.RestoreAllRcsEmissions(ovState);
+                    GhostPlaybackLogic.RestoreAllRcsEmissions(ovState);
             }
         }
 
@@ -417,7 +417,7 @@ namespace Parsek
         /// </summary>
         void DestroyAllKscOverlapGhosts(int recIdx)
         {
-            List<ParsekFlight.GhostPlaybackState> list;
+            List<GhostPlaybackState> list;
             if (!kscOverlapGhosts.TryGetValue(recIdx, out list)) return;
             if (list.Count > 0)
                 ParsekLog.Verbose("KSCGhost",
@@ -430,7 +430,7 @@ namespace Parsek
         /// <summary>
         /// Filter recordings for KSC ghost display.
         /// </summary>
-        internal static bool ShouldShowInKSC(RecordingStore.Recording rec)
+        internal static bool ShouldShowInKSC(Recording rec)
         {
             if (!rec.PlaybackEnabled) return false;
             if (rec.Points == null || rec.Points.Count < 2) return false;
@@ -444,7 +444,7 @@ namespace Parsek
         /// Simplified version of ParsekFlight.SpawnTimelineGhost — no camera pivot,
         /// no reentry FX, no sphere fallback.
         /// </summary>
-        ParsekFlight.GhostPlaybackState SpawnKscGhost(RecordingStore.Recording rec, int index)
+        GhostPlaybackState SpawnKscGhost(Recording rec, int index)
         {
             // Skip if no snapshot — no sphere fallback in KSC
             var snapshot = GhostVisualBuilder.GetGhostSnapshot(rec);
@@ -455,32 +455,19 @@ namespace Parsek
                 return null;
             }
 
-            List<ParachuteGhostInfo> parachuteInfoList;
-            List<JettisonGhostInfo> jettisonInfoList;
-            List<EngineGhostInfo> engineInfoList;
-            List<DeployableGhostInfo> deployableInfoList;
-            List<HeatGhostInfo> heatInfoList;
-            List<LightGhostInfo> lightInfoList;
-            List<FairingGhostInfo> fairingInfoList;
-            List<RcsGhostInfo> rcsInfoList;
-            List<RoboticGhostInfo> roboticInfoList;
-            List<ColorChangerGhostInfo> colorChangerInfoList;
+            var buildResult = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
+                rec, $"Parsek_KSC_{index}");
 
-            GameObject ghost = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
-                rec, $"Parsek_KSC_{index}",
-                out parachuteInfoList, out jettisonInfoList,
-                out engineInfoList, out deployableInfoList,
-                out heatInfoList, out lightInfoList, out fairingInfoList,
-                out rcsInfoList, out roboticInfoList, out colorChangerInfoList);
-
-            if (ghost == null)
+            if (buildResult == null)
             {
                 ParsekLog.Verbose("KSCGhost",
                     $"Ghost #{index} \"{rec.VesselName}\": BuildTimelineGhostFromSnapshot returned null");
                 return null;
             }
 
-            var state = new ParsekFlight.GhostPlaybackState
+            GameObject ghost = buildResult.root;
+
+            var state = new GhostPlaybackState
             {
                 ghost = ghost,
                 // cameraPivot intentionally null — RecalculateCameraPivot no-ops
@@ -490,100 +477,100 @@ namespace Parsek
                 partTree = GhostVisualBuilder.BuildPartSubtreeMap(snapshot)
             };
 
-            if (parachuteInfoList != null)
+            if (buildResult.parachuteInfos != null)
             {
                 state.parachuteInfos = new Dictionary<uint, ParachuteGhostInfo>();
-                for (int i = 0; i < parachuteInfoList.Count; i++)
-                    state.parachuteInfos[parachuteInfoList[i].partPersistentId] = parachuteInfoList[i];
+                for (int i = 0; i < buildResult.parachuteInfos.Count; i++)
+                    state.parachuteInfos[buildResult.parachuteInfos[i].partPersistentId] = buildResult.parachuteInfos[i];
             }
 
-            if (jettisonInfoList != null)
+            if (buildResult.jettisonInfos != null)
             {
                 state.jettisonInfos = new Dictionary<uint, JettisonGhostInfo>();
-                for (int i = 0; i < jettisonInfoList.Count; i++)
-                    state.jettisonInfos[jettisonInfoList[i].partPersistentId] = jettisonInfoList[i];
+                for (int i = 0; i < buildResult.jettisonInfos.Count; i++)
+                    state.jettisonInfos[buildResult.jettisonInfos[i].partPersistentId] = buildResult.jettisonInfos[i];
             }
 
-            if (engineInfoList != null)
+            if (buildResult.engineInfos != null)
             {
                 state.engineInfos = new Dictionary<ulong, EngineGhostInfo>();
-                for (int i = 0; i < engineInfoList.Count; i++)
+                for (int i = 0; i < buildResult.engineInfos.Count; i++)
                 {
                     ulong key = FlightRecorder.EncodeEngineKey(
-                        engineInfoList[i].partPersistentId, engineInfoList[i].moduleIndex);
-                    state.engineInfos[key] = engineInfoList[i];
+                        buildResult.engineInfos[i].partPersistentId, buildResult.engineInfos[i].moduleIndex);
+                    state.engineInfos[key] = buildResult.engineInfos[i];
                 }
             }
 
-            if (deployableInfoList != null)
+            if (buildResult.deployableInfos != null)
             {
                 state.deployableInfos = new Dictionary<uint, DeployableGhostInfo>();
-                for (int i = 0; i < deployableInfoList.Count; i++)
-                    state.deployableInfos[deployableInfoList[i].partPersistentId] = deployableInfoList[i];
+                for (int i = 0; i < buildResult.deployableInfos.Count; i++)
+                    state.deployableInfos[buildResult.deployableInfos[i].partPersistentId] = buildResult.deployableInfos[i];
             }
 
-            if (heatInfoList != null)
+            if (buildResult.heatInfos != null)
             {
                 state.heatInfos = new Dictionary<uint, HeatGhostInfo>();
-                for (int i = 0; i < heatInfoList.Count; i++)
-                    state.heatInfos[heatInfoList[i].partPersistentId] = heatInfoList[i];
+                for (int i = 0; i < buildResult.heatInfos.Count; i++)
+                    state.heatInfos[buildResult.heatInfos[i].partPersistentId] = buildResult.heatInfos[i];
             }
 
-            if (lightInfoList != null)
+            if (buildResult.lightInfos != null)
             {
                 state.lightInfos = new Dictionary<uint, LightGhostInfo>();
                 state.lightPlaybackStates =
-                    new Dictionary<uint, ParsekFlight.LightPlaybackState>();
-                for (int i = 0; i < lightInfoList.Count; i++)
+                    new Dictionary<uint, LightPlaybackState>();
+                for (int i = 0; i < buildResult.lightInfos.Count; i++)
                 {
-                    state.lightInfos[lightInfoList[i].partPersistentId] = lightInfoList[i];
-                    state.lightPlaybackStates[lightInfoList[i].partPersistentId] =
-                        new ParsekFlight.LightPlaybackState();
+                    state.lightInfos[buildResult.lightInfos[i].partPersistentId] = buildResult.lightInfos[i];
+                    state.lightPlaybackStates[buildResult.lightInfos[i].partPersistentId] =
+                        new LightPlaybackState();
                 }
             }
 
-            if (fairingInfoList != null)
+            if (buildResult.fairingInfos != null)
             {
                 state.fairingInfos = new Dictionary<uint, FairingGhostInfo>();
-                for (int i = 0; i < fairingInfoList.Count; i++)
-                    state.fairingInfos[fairingInfoList[i].partPersistentId] = fairingInfoList[i];
+                for (int i = 0; i < buildResult.fairingInfos.Count; i++)
+                    state.fairingInfos[buildResult.fairingInfos[i].partPersistentId] = buildResult.fairingInfos[i];
             }
 
-            if (rcsInfoList != null)
+            if (buildResult.rcsInfos != null)
             {
                 state.rcsInfos = new Dictionary<ulong, RcsGhostInfo>();
-                for (int i = 0; i < rcsInfoList.Count; i++)
+                for (int i = 0; i < buildResult.rcsInfos.Count; i++)
                 {
                     ulong key = FlightRecorder.EncodeEngineKey(
-                        rcsInfoList[i].partPersistentId, rcsInfoList[i].moduleIndex);
-                    state.rcsInfos[key] = rcsInfoList[i];
+                        buildResult.rcsInfos[i].partPersistentId, buildResult.rcsInfos[i].moduleIndex);
+                    state.rcsInfos[key] = buildResult.rcsInfos[i];
                 }
             }
 
-            if (roboticInfoList != null)
+            if (buildResult.roboticInfos != null)
             {
                 state.roboticInfos = new Dictionary<ulong, RoboticGhostInfo>();
-                for (int i = 0; i < roboticInfoList.Count; i++)
+                for (int i = 0; i < buildResult.roboticInfos.Count; i++)
                 {
                     ulong key = FlightRecorder.EncodeEngineKey(
-                        roboticInfoList[i].partPersistentId, roboticInfoList[i].moduleIndex);
-                    state.roboticInfos[key] = roboticInfoList[i];
+                        buildResult.roboticInfos[i].partPersistentId, buildResult.roboticInfos[i].moduleIndex);
+                    state.roboticInfos[key] = buildResult.roboticInfos[i];
                 }
             }
 
-            if (colorChangerInfoList != null)
-                state.colorChangerInfos = GhostVisualBuilder.GroupColorChangersByPartId(colorChangerInfoList);
+            if (buildResult.colorChangerInfos != null)
+                state.colorChangerInfos = GhostVisualBuilder.GroupColorChangersByPartId(buildResult.colorChangerInfos);
 
-            ParsekFlight.InitializeInventoryPlacementVisibility(rec, state);
+            GhostPlaybackLogic.InitializeInventoryPlacementVisibility(rec, state);
 
             ParsekLog.Info("KSCGhost",
                 $"Ghost #{index} \"{rec.VesselName}\" spawned" +
-                $" (engines={engineInfoList?.Count ?? 0}" +
-                $" rcs={rcsInfoList?.Count ?? 0}" +
-                $" lights={lightInfoList?.Count ?? 0}" +
-                $" deployables={deployableInfoList?.Count ?? 0}" +
-                $" fairings={fairingInfoList?.Count ?? 0}" +
-                $" parachutes={parachuteInfoList?.Count ?? 0})");
+                $" (engines={buildResult.engineInfos?.Count ?? 0}" +
+                $" rcs={buildResult.rcsInfos?.Count ?? 0}" +
+                $" lights={buildResult.lightInfos?.Count ?? 0}" +
+                $" deployables={buildResult.deployableInfos?.Count ?? 0}" +
+                $" fairings={buildResult.fairingInfos?.Count ?? 0}" +
+                $" parachutes={buildResult.parachuteInfos?.Count ?? 0})");
 
             return state;
         }
@@ -738,7 +725,7 @@ namespace Parsek
         /// because the static 6-param overload doesn't return pause-window state.
         /// </summary>
         internal static bool TryComputeLoopUT(
-            RecordingStore.Recording rec,
+            Recording rec,
             double currentUT,
             out double loopUT,
             out int cycleIndex,
@@ -779,11 +766,11 @@ namespace Parsek
         /// clamped so cycleDuration is always >= MinCycleDuration.
         /// Negative intervals mean shorter cycles (overlapping launches from KSC).
         /// </summary>
-        internal static double GetLoopIntervalSeconds(RecordingStore.Recording rec)
+        internal static double GetLoopIntervalSeconds(Recording rec)
         {
             double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
                                     ?? DefaultLoopIntervalSeconds;
-            return ParsekFlight.ResolveLoopInterval(
+            return GhostPlaybackLogic.ResolveLoopInterval(
                 rec, globalInterval, DefaultLoopIntervalSeconds, MinCycleDuration);
         }
 
@@ -791,19 +778,19 @@ namespace Parsek
         /// Trigger explosion FX if the recording ended with vessel destruction.
         /// Guards against repeat firing via state.explosionFired.
         /// </summary>
-        void TriggerExplosionIfDestroyed(ParsekFlight.GhostPlaybackState state,
-            RecordingStore.Recording rec, int recIdx)
+        void TriggerExplosionIfDestroyed(GhostPlaybackState state,
+            Recording rec, int recIdx)
         {
             if (state == null || state.ghost == null) return;
             if (state.explosionFired) return;
             if (rec.TerminalStateValue != TerminalState.Destroyed) return;
 
-            if (ParsekFlight.ShouldSuppressVisualFx(TimeWarp.CurrentRate))
+            if (GhostPlaybackLogic.ShouldSuppressVisualFx(TimeWarp.CurrentRate))
             {
                 state.explosionFired = true;
-                ParsekFlight.HideAllGhostParts(state);
+                GhostPlaybackLogic.HideAllGhostParts(state);
                 ParsekLog.VerboseRateLimited("KSCGhost", $"explosion-suppress-{recIdx}",
-                    $"Explosion suppressed for ghost #{recIdx} \"{rec.VesselName}\": warp > {ParsekFlight.FxSuppressWarpThreshold}x");
+                    $"Explosion suppressed for ghost #{recIdx} \"{rec.VesselName}\": warp > {GhostPlaybackLogic.FxSuppressWarpThreshold}x");
                 return;
             }
 
@@ -822,58 +809,72 @@ namespace Parsek
             if (explosion != null)
                 Destroy(explosion, 6f);
 
-            ParsekFlight.HideAllGhostParts(state);
+            GhostPlaybackLogic.HideAllGhostParts(state);
         }
 
         /// <summary>
         /// Clean up a KSC ghost — stop FX, destroy canopies and GameObject.
         /// </summary>
-        void DestroyKscGhost(ParsekFlight.GhostPlaybackState state, int index)
+        void DestroyKscGhost(GhostPlaybackState state, int index)
         {
             if (state == null) return;
 
             // Stop engine particle systems
-            if (state.engineInfos != null)
-            {
-                foreach (var kv in state.engineInfos)
-                {
-                    if (kv.Value.particleSystems == null) continue;
-                    for (int i = 0; i < kv.Value.particleSystems.Count; i++)
-                    {
-                        var ps = kv.Value.particleSystems[i];
-                        if (ps != null)
-                        {
-                            ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                            ps.Clear(true);
-                        }
-                    }
-                }
-            }
+            StopParticleSystems(state.engineInfos);
 
             // Stop RCS particle systems
-            if (state.rcsInfos != null)
-            {
-                foreach (var kv in state.rcsInfos)
-                {
-                    if (kv.Value.particleSystems == null) continue;
-                    for (int i = 0; i < kv.Value.particleSystems.Count; i++)
-                    {
-                        var ps = kv.Value.particleSystems[i];
-                        if (ps != null)
-                        {
-                            ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                            ps.Clear(true);
-                        }
-                    }
-                }
-            }
+            StopRcsParticleSystems(state.rcsInfos);
 
-            ParsekFlight.DestroyAllFakeCanopies(state);
+            GhostPlaybackLogic.DestroyAllFakeCanopies(state);
 
             if (state.ghost != null)
                 Destroy(state.ghost);
 
             ParsekLog.Verbose("KSCGhost", $"Ghost #{index} destroyed");
+        }
+
+        /// <summary>
+        /// Stop and clear all particle systems in engine ghost infos.
+        /// Extracted from DestroyKscGhost to deduplicate engine/RCS cleanup.
+        /// </summary>
+        private static void StopParticleSystems(Dictionary<ulong, EngineGhostInfo> infos)
+        {
+            if (infos == null) return;
+            foreach (var kv in infos)
+            {
+                if (kv.Value.particleSystems == null) continue;
+                for (int i = 0; i < kv.Value.particleSystems.Count; i++)
+                {
+                    var ps = kv.Value.particleSystems[i];
+                    if (ps != null)
+                    {
+                        ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                        ps.Clear(true);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Stop and clear all particle systems in RCS ghost infos.
+        /// Extracted from DestroyKscGhost to deduplicate engine/RCS cleanup.
+        /// </summary>
+        private static void StopRcsParticleSystems(Dictionary<ulong, RcsGhostInfo> infos)
+        {
+            if (infos == null) return;
+            foreach (var kv in infos)
+            {
+                if (kv.Value.particleSystems == null) continue;
+                for (int i = 0; i < kv.Value.particleSystems.Count; i++)
+                {
+                    var ps = kv.Value.particleSystems[i];
+                    if (ps != null)
+                    {
+                        ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                        ps.Clear(true);
+                    }
+                }
+            }
         }
 
         #endregion

@@ -121,28 +121,28 @@ namespace Parsek.Tests
         public void GetRecommendedAction_Destroyed_ReturnsGhostOnly()
         {
             var result = RecordingStore.GetRecommendedAction(destroyed: true, hasSnapshot: false);
-            Assert.Equal(RecordingStore.MergeDefault.GhostOnly, result);
+            Assert.Equal(MergeDefault.GhostOnly, result);
         }
 
         [Fact]
         public void GetRecommendedAction_DestroyedWithSnapshot_ReturnsGhostOnly()
         {
             var result = RecordingStore.GetRecommendedAction(destroyed: true, hasSnapshot: true);
-            Assert.Equal(RecordingStore.MergeDefault.GhostOnly, result);
+            Assert.Equal(MergeDefault.GhostOnly, result);
         }
 
         [Fact]
         public void GetRecommendedAction_NoSnapshot_ReturnsGhostOnly()
         {
             var result = RecordingStore.GetRecommendedAction(destroyed: false, hasSnapshot: false);
-            Assert.Equal(RecordingStore.MergeDefault.GhostOnly, result);
+            Assert.Equal(MergeDefault.GhostOnly, result);
         }
 
         [Fact]
         public void GetRecommendedAction_IntactWithSnapshot_ReturnsPersist()
         {
             var result = RecordingStore.GetRecommendedAction(destroyed: false, hasSnapshot: true);
-            Assert.Equal(RecordingStore.MergeDefault.Persist, result);
+            Assert.Equal(MergeDefault.Persist, result);
         }
 
         #endregion
@@ -671,21 +671,21 @@ namespace Parsek.Tests
         [Fact]
         public void IsChainMidSegment_NullChainId_ReturnsFalse()
         {
-            var rec = new RecordingStore.Recording { ChainId = null, ChainIndex = 0 };
+            var rec = new Recording { ChainId = null, ChainIndex = 0 };
             Assert.False(RecordingStore.IsChainMidSegment(rec));
         }
 
         [Fact]
         public void IsChainMidSegment_EmptyChainId_ReturnsFalse()
         {
-            var rec = new RecordingStore.Recording { ChainId = "", ChainIndex = 0 };
+            var rec = new Recording { ChainId = "", ChainIndex = 0 };
             Assert.False(RecordingStore.IsChainMidSegment(rec));
         }
 
         [Fact]
         public void IsChainMidSegment_NegativeChainIndex_ReturnsFalse()
         {
-            var rec = new RecordingStore.Recording { ChainId = "some-chain", ChainIndex = -1 };
+            var rec = new Recording { ChainId = "some-chain", ChainIndex = -1 };
             Assert.False(RecordingStore.IsChainMidSegment(rec));
         }
 
@@ -753,7 +753,7 @@ namespace Parsek.Tests
         [Fact]
         public void GetChainEndUT_NullChainId_ReturnsOwnEndUT()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points.AddRange(MakePoints(3, 100));
             Assert.Equal(rec.EndUT, RecordingStore.GetChainEndUT(rec));
         }
@@ -907,7 +907,7 @@ namespace Parsek.Tests
         [Fact]
         public void BuildExcludeCrewSet_EmptyRecordingId_ReturnsNull()
         {
-            var rec = new RecordingStore.Recording { RecordingId = "" };
+            var rec = new Recording { RecordingId = "" };
             Assert.Null(VesselSpawner.BuildExcludeCrewSet(rec));
         }
 
@@ -1004,7 +1004,7 @@ namespace Parsek.Tests
         [Fact]
         public void Recording_StartUT_EndUT_WithPoints()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points.AddRange(MakePoints(5, 100));
             Assert.Equal(100, rec.StartUT);
             Assert.Equal(140, rec.EndUT); // 100 + 4*10
@@ -1013,14 +1013,14 @@ namespace Parsek.Tests
         [Fact]
         public void ApplyPersistenceArtifacts_CopiesChainFields()
         {
-            var source = new RecordingStore.Recording
+            var source = new Recording
             {
                 ChainId = "test-chain",
                 ChainIndex = 2,
                 VesselName = "Source"
             };
 
-            var target = new RecordingStore.Recording();
+            var target = new Recording();
             target.ApplyPersistenceArtifactsFrom(source);
 
             Assert.Equal("test-chain", target.ChainId);
@@ -1030,7 +1030,7 @@ namespace Parsek.Tests
         [Fact]
         public void ApplyPersistenceArtifacts_CopiesAllFields()
         {
-            var source = new RecordingStore.Recording
+            var source = new Recording
             {
                 RecordingId = "src-id",
                 ChainId = "test-chain",
@@ -1043,7 +1043,7 @@ namespace Parsek.Tests
                 VesselSituation = "Landed on Kerbin"
             };
 
-            var target = new RecordingStore.Recording();
+            var target = new Recording();
             target.ApplyPersistenceArtifactsFrom(source);
 
             Assert.Equal("src-id", target.RecordingId);
@@ -1060,7 +1060,7 @@ namespace Parsek.Tests
         [Fact]
         public void ApplyPersistenceArtifacts_NullSource_DoesNothing()
         {
-            var target = new RecordingStore.Recording { ChainId = "keep" };
+            var target = new Recording { ChainId = "keep" };
             target.ApplyPersistenceArtifactsFrom(null);
             Assert.Equal("keep", target.ChainId);
         }
