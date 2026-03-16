@@ -27,7 +27,7 @@ namespace Parsek
         private bool showRecordingsWindow;
         private Rect recordingsWindowRect;
         private Vector2 recordingsScrollPos;
-        private int deleteConfirmIndex = -1;
+        private bool hideActive = true;
         private bool isResizingRecordingsWindow;
         private bool recordingsWindowHasInputLock;
         private const string RecordingsInputLockId = "Parsek_RecordingsWindow";
@@ -67,8 +67,8 @@ namespace Parsek
         private const float ColW_Status = 55f;
         private const float ColW_Loop = 55f;
         private const float ColW_Watch = 50f;
-        private const float ColW_Rewind = 55f;
-        private const float ColW_Delete = 50f;
+        private const float ColW_Rewind = 65f;
+        private const float ColW_Hide = 50f;
 
         // Chain and group expansion state
         private HashSet<string> expandedChains = new HashSet<string>();
@@ -108,9 +108,6 @@ namespace Parsek
         private const float ColW_Group = 50f;
         private const float GroupPopupMinW = 220f;
         private const float GroupPopupMinH = 200f;
-
-        // Group delete confirm
-        private string deleteConfirmGroup;
 
         // Runtime-only empty groups (not persisted)
         private List<string> knownEmptyGroups = new List<string>();
@@ -192,8 +189,6 @@ namespace Parsek
             if (GUILayout.Button($"Recordings ({committedCount})"))
             {
                 showRecordingsWindow = !showRecordingsWindow;
-                if (!showRecordingsWindow)
-                    deleteConfirmIndex = -1;
                 ParsekLog.Verbose("UI", $"Recordings window toggled: {(showRecordingsWindow ? "open" : "closed")}");
             }
 
@@ -983,7 +978,7 @@ namespace Parsek
                 bool allLoop = loopCount == committed.Count;
                 GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
                 GUILayout.FlexibleSpace();
-                GUILayout.Label("Loop");
+                GUILayout.Label("Loop\nGhost");
                 bool newAllLoop = GUILayout.Toggle(allLoop, "");
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
@@ -1003,8 +998,21 @@ namespace Parsek
 
                 if (InFlight)
                     GUILayout.Label("Watch", GUILayout.Width(ColW_Watch));
-                GUILayout.Label("Rewind", GUILayout.Width(ColW_Rewind));
-                GUILayout.Label("Delete", GUILayout.Width(ColW_Delete));
+                GUILayout.Label("Rewind\nF.Forward", GUILayout.Width(ColW_Rewind));
+
+                // Hide column header + toggle
+                GUILayout.BeginHorizontal(GUILayout.Width(ColW_Hide));
+                GUILayout.FlexibleSpace();
+                GUILayout.Label("Hide");
+                bool newHideActive = GUILayout.Toggle(hideActive, "");
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+                if (newHideActive != hideActive)
+                {
+                    hideActive = newHideActive;
+                    ParsekLog.Info("UI", $"Hide active toggled: {hideActive}");
+                }
+
                 GUILayout.EndHorizontal();
 
                 // Rebuild if a header click invalidated during this frame
@@ -1138,10 +1146,6 @@ namespace Parsek
                     scrollViewRect = GUILayoutUtility.GetLastRect();
             }
 
-            // Reset out-of-range state
-            if (deleteConfirmIndex >= committed.Count)
-                deleteConfirmIndex = -1;
-
             // Bottom button bar
             GUILayout.Space(5);
             GUILayout.BeginHorizontal();
@@ -1173,7 +1177,6 @@ namespace Parsek
             if (GUILayout.Button("Close"))
             {
                 showRecordingsWindow = false;
-                deleteConfirmIndex = -1;
                 groupPopupOpen = false;
                 ParsekLog.Verbose("UI", "Recordings window closed via button");
             }
@@ -1202,6 +1205,7 @@ namespace Parsek
         private bool DrawRecordingRow(int ri, List<Recording> committed, double now, float indentPx)
         {
             var rec = committed[ri];
+            if (rec.Hidden && hideActive) return false;
             GUILayout.BeginHorizontal();
 
             // Enable checkbox (always at column 0)
@@ -1321,8 +1325,10 @@ namespace Parsek
                 GUI.enabled = true;
             }
 
-            // Rewind button
+            // Rewind / Fast-forward button
             {
+                bool isFuture = now < rec.StartUT;
+                bool isActive = now >= rec.StartUT && now <= rec.EndUT;
                 bool hasRewindSave = !string.IsNullOrEmpty(rec.RewindSaveFileName);
                 if (hasRewindSave)
                 {
@@ -1330,8 +1336,11 @@ namespace Parsek
                     bool isRecording = InFlight && flight.IsRecording;
                     bool canRewind = RecordingStore.CanRewind(rec, out rewindReason, isRecording: isRecording);
                     GUI.enabled = canRewind;
-                    string tooltip = canRewind ? "Rewind to this launch" : rewindReason;
-                    if (GUILayout.Button(new GUIContent("R", tooltip), GUILayout.Width(ColW_Rewind)))
+                    string label = (isFuture || isActive) ? "FF" : "R";
+                    string tooltip = canRewind
+                        ? ((isFuture || isActive) ? "Fast-forward to this recording" : "Rewind to this launch")
+                        : rewindReason;
+                    if (GUILayout.Button(new GUIContent(label, tooltip), GUILayout.Width(ColW_Rewind)))
                         ShowRewindConfirmation(rec);
                     GUI.enabled = true;
                 }
@@ -1341,33 +1350,17 @@ namespace Parsek
                 }
             }
 
-            // Delete button (X → ? → PopupDialog confirm → delete)
-            GUI.enabled = InFlight ? flight.CanDeleteRecording : true;
-            if (deleteConfirmIndex == ri)
+            // Hide checkbox
+            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Hide));
+            GUILayout.FlexibleSpace();
+            bool hidden = GUILayout.Toggle(rec.Hidden, "");
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+            if (hidden != rec.Hidden)
             {
-                if (GUILayout.Button("?", GUILayout.Width(ColW_Delete)))
-                {
-                    deleteConfirmIndex = -1;
-                    ParsekLog.Verbose("UI", $"Delete confirm clicked for recording index={ri} name='{rec.VesselName}'");
-                    ShowDeleteRecordingConfirmation(ri, rec.VesselName);
-                }
-                // Right-click cancels
-                if (Event.current.type == EventType.MouseDown && Event.current.button == 1 &&
-                    GUILayoutUtility.GetLastRect().Contains(Event.current.mousePosition))
-                {
-                    deleteConfirmIndex = -1;
-                    Event.current.Use();
-                }
+                rec.Hidden = hidden;
+                ParsekLog.Info("UI", $"Recording '{rec.VesselName}' hidden={hidden}");
             }
-            else
-            {
-                if (GUILayout.Button("X", GUILayout.Width(ColW_Delete)))
-                {
-                    deleteConfirmIndex = ri;
-                    ParsekLog.Verbose("UI", $"Delete armed for recording index={ri} name='{rec.VesselName}'");
-                }
-            }
-            GUI.enabled = true;
 
             GUILayout.EndHorizontal();
 
@@ -1440,40 +1433,6 @@ namespace Parsek
             }
         }
 
-        private void ShowDeleteRecordingConfirmation(int index, string vesselName)
-        {
-            int capturedIndex = index;
-            string capturedName = vesselName;
-            PopupDialog.SpawnPopupDialog(
-                new Vector2(0.5f, 0.5f),
-                new Vector2(0.5f, 0.5f),
-                new MultiOptionDialog(
-                    "ParsekDeleteRecordingConfirm",
-                    $"Delete recording \"{capturedName}\" and its files?\n\nThis cannot be undone.",
-                    "Confirm Delete Recording",
-                    HighLogic.UISkin,
-                    new DialogGUIButton("Delete", () =>
-                    {
-                        ParsekLog.Info("UI", $"Delete confirmed for recording index={capturedIndex} name='{capturedName}'");
-                        // Adjust index-based state fields
-                        AdjustIndexOnDelete(ref renamingRecordingIdx, capturedIndex);
-                        AdjustIndexOnDelete(ref loopPeriodFocusedRi, capturedIndex);
-                        if (groupPopupRecIdx == capturedIndex) groupPopupOpen = false;
-                        else if (groupPopupRecIdx > capturedIndex) groupPopupRecIdx--;
-                        if (InFlight)
-                            flight.DeleteRecording(capturedIndex);
-                        else
-                            RecordingStore.DeleteRecordingFull(capturedIndex);
-                        InvalidateSort();
-                    }),
-                    new DialogGUIButton("Cancel", () =>
-                    {
-                        ParsekLog.Verbose("UI", $"Delete cancelled for recording '{capturedName}'");
-                    })
-                ),
-                false, HighLogic.UISkin);
-        }
-
         // ─── Group tree rendering helpers ─────────────────────────────────
 
         /// <summary>
@@ -1485,6 +1444,10 @@ namespace Parsek
             Dictionary<string, List<int>> chainToRecs,
             Dictionary<string, List<string>> grpChildren)
         {
+            // Skip hidden groups when hide is active
+            if (hideActive && ParsekScenario.hiddenGroups.Contains(groupName))
+                return false;
+
             // Collect unique descendant recordings for aggregate controls
             var descendants = new HashSet<int>();
             CollectDescendantRecordings(groupName, grpToRecs, grpChildren, descendants);
@@ -1604,32 +1567,29 @@ namespace Parsek
             // Period placeholder
             GUILayout.Label("", GUILayout.Width(ColW_Period));
 
-            // Spacers for Watch/Rewind
+            // Spacers for Watch
             if (InFlight) GUILayout.Label("", GUILayout.Width(ColW_Watch));
-            GUILayout.Label("", GUILayout.Width(ColW_Rewind));
 
-            // Delete group button (two-stage)
-            if (deleteConfirmGroup == groupName)
+            // Disband group button (replaces old delete-group two-stage)
+            if (GUILayout.Button(new GUIContent("D", "Disband group (move members to parent)"), GUILayout.Width(ColW_Rewind)))
             {
-                if (GUILayout.Button("?", GUILayout.Width(ColW_Delete)))
-                {
-                    deleteConfirmGroup = null;
-                    ShowDeleteGroupConfirmation(groupName, descendants, grpChildren);
-                }
-                if (Event.current.type == EventType.MouseDown && Event.current.button == 1 &&
-                    GUILayoutUtility.GetLastRect().Contains(Event.current.mousePosition))
-                {
-                    deleteConfirmGroup = null;
-                    Event.current.Use();
-                }
+                ShowDisbandGroupConfirmation(groupName, descendants, grpChildren);
             }
-            else
+
+            // Hide group checkbox
+            bool groupHidden = ParsekScenario.hiddenGroups.Contains(groupName);
+            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Hide));
+            GUILayout.FlexibleSpace();
+            bool newGroupHidden = GUILayout.Toggle(groupHidden, "");
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+            if (newGroupHidden != groupHidden)
             {
-                if (GUILayout.Button("X", GUILayout.Width(ColW_Delete)))
-                {
-                    deleteConfirmGroup = groupName;
-                    ParsekLog.Verbose("UI", $"Delete armed for group '{groupName}'");
-                }
+                if (newGroupHidden)
+                    ParsekScenario.hiddenGroups.Add(groupName);
+                else
+                    ParsekScenario.hiddenGroups.Remove(groupName);
+                ParsekLog.Info("UI", $"Group '{groupName}' hidden={newGroupHidden}");
             }
 
             GUILayout.EndHorizontal();
@@ -1746,7 +1706,7 @@ namespace Parsek
             GUILayout.Label("", GUILayout.Width(ColW_Period));
             if (InFlight) GUILayout.Label("", GUILayout.Width(ColW_Watch));
             GUILayout.Label("", GUILayout.Width(ColW_Rewind));
-            GUILayout.Label("", GUILayout.Width(ColW_Delete));
+            GUILayout.Label("", GUILayout.Width(ColW_Hide));
 
             GUILayout.EndHorizontal();
 
@@ -1829,12 +1789,6 @@ namespace Parsek
             ParsekLog.Info("UI", $"Group '{oldName}' renamed to '{newName}'");
         }
 
-        private static void AdjustIndexOnDelete(ref int idx, int deletedIndex)
-        {
-            if (idx == deletedIndex) idx = -1;
-            else if (idx > deletedIndex) idx--;
-        }
-
         private string GenerateUniqueGroupName()
         {
             var existing = RecordingStore.GetGroupNames();
@@ -1849,7 +1803,7 @@ namespace Parsek
             }
         }
 
-        private void ShowDeleteGroupConfirmation(string groupName,
+        private void ShowDisbandGroupConfirmation(string groupName,
             HashSet<int> descendants,
             Dictionary<string, List<string>> grpChildren)
         {
@@ -1858,34 +1812,38 @@ namespace Parsek
             grpChildren.TryGetValue(groupName, out children);
             int childCount = children != null ? children.Count : 0;
 
+            // Determine parent group (null = root)
+            string parentName;
+            ParsekScenario.groupParents.TryGetValue(groupName, out parentName);
+
             string subText = "";
             if (childCount > 0)
             {
-                string parentName;
-                ParsekScenario.groupParents.TryGetValue(groupName, out parentName);
                 string dest = parentName != null ? $"move under \"{parentName}\"" : "become top-level";
                 subText = $"\n{childCount} sub-group(s) will {dest}.";
             }
-            string msg = $"Delete group \"{groupName}\"?\n\n" +
-                $"{recCount} recording(s) will be removed from this group.{subText}\n\n" +
+            string recDest = parentName != null ? $"moved to \"{parentName}\"" : "become standalone";
+            string msg = $"Disband group \"{groupName}\"?\n\n" +
+                $"{recCount} recording(s) will be {recDest}.{subText}\n\n" +
                 "No recordings are deleted.";
 
             string capturedName = groupName;
+            string capturedParent = parentName;
             PopupDialog.SpawnPopupDialog(
                 new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                new MultiOptionDialog("ParsekDeleteGroupConfirm", msg,
-                    "Confirm Delete Group", HighLogic.UISkin,
-                    new DialogGUIButton("Delete Group", () =>
+                new MultiOptionDialog("ParsekDisbandGroupConfirm", msg,
+                    "Confirm Disband Group", HighLogic.UISkin,
+                    new DialogGUIButton("Disband Group", () =>
                     {
-                        int updated = RecordingStore.RemoveGroupFromAll(capturedName);
+                        int updated = RecordingStore.ReplaceGroupOnAll(capturedName, capturedParent);
                         ParsekScenario.RemoveGroupFromHierarchy(capturedName);
                         knownEmptyGroups.Remove(capturedName);
                         expandedGroups.Remove(capturedName);
-                        ParsekLog.Info("UI", $"Group '{capturedName}' deleted ({updated} recordings updated)");
+                        ParsekLog.Info("UI", $"Group '{capturedName}' disbanded ({updated} recordings moved to '{capturedParent ?? "(standalone)"}')");
                     }),
                     new DialogGUIButton("Cancel", () =>
                     {
-                        ParsekLog.Verbose("UI", $"Delete group '{capturedName}' cancelled");
+                        ParsekLog.Verbose("UI", $"Disband group '{capturedName}' cancelled");
                     })
                 ), false, HighLogic.UISkin);
         }
@@ -2366,11 +2324,6 @@ namespace Parsek
                 InvalidateSort();
                 ParsekLog.Verbose("UI", $"Sort column changed: {sortColumn} {(sortAscending ? "asc" : "desc")}");
             }
-        }
-
-        internal void CancelDeleteConfirm()
-        {
-            deleteConfirmIndex = -1;
         }
 
         private void InvalidateSort()
@@ -3040,17 +2993,6 @@ namespace Parsek
                 ShowWipeActionsConfirmation(milestoneCount);
             GUI.enabled = true;
 
-            if (InFlight)
-            {
-                int activeGhosts = flight.TimelineGhostCount;
-                GUI.enabled = activeGhosts > 0;
-                if (GUILayout.Button($"Despawn Ghosts ({activeGhosts})"))
-                {
-                    flight.DestroyAllTimelineGhosts();
-                    ParsekLog.Info("UI", "Ghosts despawned from settings");
-                }
-                GUI.enabled = true;
-            }
         }
 
         public void DrawMapMarkers()

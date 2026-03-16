@@ -83,12 +83,13 @@ Click the "Recordings" button in the main Parsek window to open the Recordings M
 - **Launch Time** - KSP calendar format
 - **Duration** - compact format (e.g. "56s", "2m 30s", "1h 15m")
 - **Status** - `future` (grey), `active` (green), or `past` (dim) based on current UT
-- **Loop** - per-recording loop toggle (ghost replays continuously with a pause between cycles)
-- **Delete** - remove individual recordings (with crew unreservation and ghost cleanup)
+- **Loop / Ghost** - per-recording loop toggle (ghost replays continuously with a pause between cycles)
+- **Rewind / F.Forward** - "R" (rewind) / "FF" (fast-forward) buttons for recordings with rewind saves
+- **Hide** - per-recording hide toggle (hidden recordings still play as ghosts normally)
 
 Click any column header to sort by that column. Click again to reverse the sort order. The window is draggable and resizable.
 
-The select-all checkbox in the Loop column header toggles looping for all recordings at once.
+The select-all checkbox in the Loop column header toggles looping for all recordings at once. The Hide checkbox in the column header controls whether hidden recordings are shown — when checked (default), hidden recordings are filtered out; uncheck it to see and manage hidden recordings.
 
 ### Settings
 
@@ -131,7 +132,7 @@ Milestones are created:
 - When you commit a recording (bundles events since the last milestone)
 - On game save (captures any events not yet bundled)
 
-Deleting a recording does not delete its associated milestone.
+Hiding a recording does not affect its milestone or ghost playback - hidden recordings still play as ghosts normally.
 
 ### Rewind (Going Back in Time)
 
@@ -139,7 +140,7 @@ Rewind lets you go back to any earlier point in your timeline and launch new mis
 
 **How to rewind:**
 1. Open the Recordings Manager (click "Recordings" in the Parsek window)
-2. Click the "Rewind" button next to any recording that has a rewind save
+2. Click the "R" (rewind) / "FF" (fast-forward) button next to any recording that has a rewind save
 3. A confirmation dialog shows the vessel name, launch date, and how many future recordings exist
 4. On confirm, the game loads back to that recording's launch point in the Space Center
 

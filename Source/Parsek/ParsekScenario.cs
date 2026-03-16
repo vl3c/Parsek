@@ -32,6 +32,9 @@ namespace Parsek
         // Group hierarchy: child group name → parent group name
         internal static Dictionary<string, string> groupParents = new Dictionary<string, string>();
 
+        // Hidden groups (collapsed in UI by default)
+        internal static HashSet<string> hiddenGroups = new HashSet<string>();
+
         /// <summary>
         /// Read-only access to current replacement mappings. For testing/diagnostics.
         /// </summary>
@@ -125,6 +128,15 @@ namespace Parsek
                     entry.AddValue("parent", kvp.Value);
                 }
                 ScenarioLog($"[Parsek Scenario] Saved group hierarchy: {groupParents.Count} entries");
+            }
+
+            // Persist hidden groups
+            if (hiddenGroups.Count > 0)
+            {
+                ConfigNode hiddenNode = node.AddNode("HIDDEN_GROUPS");
+                foreach (var g in hiddenGroups)
+                    hiddenNode.AddValue("group", g);
+                ScenarioLog($"[Parsek Scenario] Saved hidden groups: {hiddenGroups.Count} entries");
             }
 
             // Save game state events to external file
@@ -221,6 +233,7 @@ namespace Parsek
             {
                 LoadCrewReplacements(node);
                 LoadGroupHierarchy(node);
+                LoadHiddenGroups(node);
             }
 
             // Game state recorder lifecycle — re-subscribe on every OnLoad (handles reverts)
@@ -1402,10 +1415,12 @@ namespace Parsek
                 recNode.AddValue("segmentBodyName", rec.SegmentBodyName);
             if (!rec.PlaybackEnabled)
                 recNode.AddValue("playbackEnabled", rec.PlaybackEnabled.ToString());
+            if (rec.Hidden)
+                recNode.AddValue("hidden", rec.Hidden.ToString());
 
             ParsekLog.Verbose("Scenario", $"Saved metadata: id={rec.RecordingId}, " +
                 $"phase={rec.SegmentPhase ?? "(none)"}, body={rec.SegmentBodyName ?? "(none)"}, " +
-                $"playback={rec.PlaybackEnabled}, chain={rec.ChainId ?? "(none)"}/{rec.ChainIndex}, " +
+                $"playback={rec.PlaybackEnabled}, hidden={rec.Hidden}, chain={rec.ChainId ?? "(none)"}/{rec.ChainIndex}, " +
                 $"preLaunch=[F={rec.PreLaunchFunds:F0}, S={rec.PreLaunchScience:F1}, R={rec.PreLaunchReputation:F1}]");
         }
 
@@ -1538,10 +1553,17 @@ namespace Parsek
                 if (bool.TryParse(playbackEnabledStr, out playbackEnabled))
                     rec.PlaybackEnabled = playbackEnabled;
             }
+            string hiddenStr = recNode.GetValue("hidden");
+            if (hiddenStr != null)
+            {
+                bool hidden;
+                if (bool.TryParse(hiddenStr, out hidden))
+                    rec.Hidden = hidden;
+            }
 
             ParsekLog.Verbose("Scenario", $"Loaded metadata: id={rec.RecordingId}, " +
                 $"phase={rec.SegmentPhase ?? "(none)"}, body={rec.SegmentBodyName ?? "(none)"}, " +
-                $"playback={rec.PlaybackEnabled}, chain={rec.ChainId ?? "(none)"}/{rec.ChainIndex}, " +
+                $"playback={rec.PlaybackEnabled}, hidden={rec.Hidden}, chain={rec.ChainId ?? "(none)"}/{rec.ChainIndex}, " +
                 $"preLaunch=[F={rec.PreLaunchFunds:F0}, S={rec.PreLaunchScience:F1}, R={rec.PreLaunchReputation:F1}]");
         }
 
@@ -1819,6 +1841,30 @@ namespace Parsek
             ScenarioLog($"[Parsek Scenario] Loaded {groupParents.Count} group hierarchy entries");
         }
 
+        private static void LoadHiddenGroups(ConfigNode node)
+        {
+            hiddenGroups.Clear();
+
+            ConfigNode hiddenNode = node.GetNode("HIDDEN_GROUPS");
+            if (hiddenNode == null)
+            {
+                ScenarioLog("[Parsek Scenario] Loaded 0 hidden groups (no HIDDEN_GROUPS node)");
+                return;
+            }
+
+            string[] groups = hiddenNode.GetValues("group");
+            if (groups != null)
+            {
+                for (int i = 0; i < groups.Length; i++)
+                {
+                    if (!string.IsNullOrEmpty(groups[i]))
+                        hiddenGroups.Add(groups[i]);
+                }
+            }
+
+            ScenarioLog($"[Parsek Scenario] Loaded {hiddenGroups.Count} hidden groups");
+        }
+
         /// <summary>
         /// Swap reserved crew out of the active flight vessel, replacing them
         /// with their hired replacements. Prevents the player from recording
@@ -2055,6 +2101,8 @@ namespace Parsek
         {
             if (string.IsNullOrEmpty(groupName)) return;
 
+            hiddenGroups.Remove(groupName);
+
             // Find grandparent (null if this group was root-level)
             string grandparent;
             groupParents.TryGetValue(groupName, out grandparent);
@@ -2117,6 +2165,10 @@ namespace Parsek
             if (string.IsNullOrEmpty(oldName) || string.IsNullOrEmpty(newName) || oldName == newName)
                 return;
 
+            // Update hidden groups
+            if (hiddenGroups.Remove(oldName))
+                hiddenGroups.Add(newName);
+
             int updated = 0;
 
             // Update as child (key)
@@ -2150,6 +2202,7 @@ namespace Parsek
         public static void ResetGroupsForTesting()
         {
             groupParents.Clear();
+            hiddenGroups.Clear();
         }
 
         #region Vessel Lifecycle Events
