@@ -23,6 +23,7 @@ namespace Parsek
         public List<OrbitSegment> OrbitSegments = new List<OrbitSegment>();
         public List<PartEvent> PartEvents = new List<PartEvent>();
         public List<SegmentEvent> SegmentEvents = new List<SegmentEvent>();
+        public List<TrackSection> TrackSections = new List<TrackSection>();
         public bool LoopPlayback;
         public double LoopIntervalSeconds = 10.0;
         public LoopTimeUnit LoopTimeUnit = LoopTimeUnit.Sec;
