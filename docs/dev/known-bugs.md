@@ -500,12 +500,10 @@ When applying variant TEXTURE rules to ghost parts, `Shader.Find("KSP/Emissive S
 
 ## 44. Code cleanup: duplicated seeding logic and growing out-parameter list
 
-Technical debt from the part-audit PR (#46). Three `// TODO:` items in source code:
+Technical debt from the part-audit PR (#46). Two `// TODO:` items in source code:
 
-1. **Seeding duplication (~340 lines):** `FlightRecorder.SeedExistingPartStates` and `BackgroundRecorder.SeedBackgroundPartStates` are near-identical. Both iterate all parts, check the same modules, seed the same tracking set types. If a new module type is added, both methods need updating. Extract shared static helpers that take tracking set collections as parameters.
+1. **Seeding duplication (~340 lines):** Extracted shared `PartStateSeeder` static class with `SeedPartStates` method. Both `FlightRecorder.SeedExistingPartStates` and `BackgroundRecorder.SeedBackgroundPartStates` now delegate to it, passing their respective tracking collections via `PartTrackingSets` parameter object. A `seedColorChangerLights` flag handles the one behavioral difference (FlightRecorder polls ColorChanger-based cabin lights; BackgroundRecorder does not). Also fixed BackgroundRecorder's seeding which previously lacked the AnimateGeneric exclusion logic (parts with dedicated handlers were not skipped).
 
-2. **BuildTimelineGhostFromSnapshot out-parameters (10 info lists):** The backward-compat overloads are unwieldy. Bundle into a `GhostBuildResult` class/struct.
+2. **BuildTimelineGhostFromSnapshot out-parameters (10 info lists):** Replaced with `GhostBuildResult` class that bundles the root `GameObject` and all 10 info lists. Method now returns `GhostBuildResult` (null on failure). All backward-compat overloads removed. Call sites in `ParsekFlight.cs` and `ParsekKSC.cs` updated. `PopulateGhostInfoDictionaries` now takes `GhostBuildResult` instead of 10 individual list parameters.
 
-Locations: `FlightRecorder.cs:3552`, `BackgroundRecorder.cs:637`, `GhostVisualBuilder.cs:465`. Search `// TODO:` in source.
-
-**Status:** Open — tech debt, not a visual bug
+**Status:** Fixed
