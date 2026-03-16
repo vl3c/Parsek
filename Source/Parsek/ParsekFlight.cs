@@ -297,7 +297,7 @@ namespace Parsek
             toolbarControl = gameObject.AddComponent<ToolbarControl>();
             toolbarControl.AddToAllToolbars(
                 () => { showUI = true; },
-                () => { showUI = false; ui.CancelDeleteConfirm(); },
+                () => { showUI = false; },
                 ApplicationLauncher.AppScenes.FLIGHT | ApplicationLauncher.AppScenes.MAPVIEW,
                 MODID, "parsekButton",
                 "Parsek/Textures/parsek_38",
