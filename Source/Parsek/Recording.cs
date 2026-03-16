@@ -33,6 +33,7 @@ namespace Parsek
         public string SegmentPhase;      // "atmo" or "exo" (null = untagged/legacy)
         public string SegmentBodyName;   // body name at split point (e.g., "Kerbin", "Duna")
         public bool PlaybackEnabled = true;  // false = skip ghost during playback
+        public bool Hidden;                  // true = hidden from recordings list (unless Show Hidden is on)
 
         // EVA child recording linkage
         public string ParentRecordingId;
@@ -162,6 +163,7 @@ namespace Parsek
             SegmentPhase = source.SegmentPhase;
             SegmentBodyName = source.SegmentBodyName;
             PlaybackEnabled = source.PlaybackEnabled;
+            Hidden = source.Hidden;
             TreeId = source.TreeId;
             VesselPersistentId = source.VesselPersistentId;
             TerminalStateValue = source.TerminalStateValue;
