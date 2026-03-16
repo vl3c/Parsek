@@ -23,12 +23,12 @@ namespace Parsek
         private Rect windowRect = new Rect(20, 100, 200, 10);
 
         // KSC ghost playback state — keyed by recording index in CommittedRecordings
-        private Dictionary<int, ParsekFlight.GhostPlaybackState> kscGhosts =
-            new Dictionary<int, ParsekFlight.GhostPlaybackState>();
+        private Dictionary<int, GhostPlaybackState> kscGhosts =
+            new Dictionary<int, GhostPlaybackState>();
 
         // Overlap ghosts for negative loop intervals (multiple simultaneous ghosts per recording)
-        private Dictionary<int, List<ParsekFlight.GhostPlaybackState>> kscOverlapGhosts =
-            new Dictionary<int, List<ParsekFlight.GhostPlaybackState>>();
+        private Dictionary<int, List<GhostPlaybackState>> kscOverlapGhosts =
+            new Dictionary<int, List<GhostPlaybackState>>();
 
         // Cached body lookup to avoid per-frame lambda allocations
         private Dictionary<string, CelestialBody> bodyCache;
@@ -203,7 +203,7 @@ namespace Parsek
             double currentUT, double targetUT, int cycleIndex,
             bool inRange, bool inPauseWindow, bool suppressVisualFx)
         {
-            ParsekFlight.GhostPlaybackState state;
+            GhostPlaybackState state;
             kscGhosts.TryGetValue(recIdx, out state);
             bool ghostActive = state != null && state.ghost != null;
 
@@ -293,7 +293,7 @@ namespace Parsek
         void UpdateOverlapKsc(int recIdx, Recording rec,
             double currentUT, double intervalSeconds, double duration, bool suppressVisualFx)
         {
-            ParsekFlight.GhostPlaybackState primaryState;
+            GhostPlaybackState primaryState;
             kscGhosts.TryGetValue(recIdx, out primaryState);
             bool primaryActive = primaryState != null && primaryState.ghost != null;
 
@@ -312,10 +312,10 @@ namespace Parsek
                 intervalSeconds, MaxOverlapGhostsPerRecording, out firstCycle, out lastCycle);
 
             // Ensure overlap list exists
-            List<ParsekFlight.GhostPlaybackState> overlaps;
+            List<GhostPlaybackState> overlaps;
             if (!kscOverlapGhosts.TryGetValue(recIdx, out overlaps))
             {
-                overlaps = new List<ParsekFlight.GhostPlaybackState>();
+                overlaps = new List<GhostPlaybackState>();
                 kscOverlapGhosts[recIdx] = overlaps;
             }
 
@@ -417,7 +417,7 @@ namespace Parsek
         /// </summary>
         void DestroyAllKscOverlapGhosts(int recIdx)
         {
-            List<ParsekFlight.GhostPlaybackState> list;
+            List<GhostPlaybackState> list;
             if (!kscOverlapGhosts.TryGetValue(recIdx, out list)) return;
             if (list.Count > 0)
                 ParsekLog.Verbose("KSCGhost",
@@ -444,7 +444,7 @@ namespace Parsek
         /// Simplified version of ParsekFlight.SpawnTimelineGhost — no camera pivot,
         /// no reentry FX, no sphere fallback.
         /// </summary>
-        ParsekFlight.GhostPlaybackState SpawnKscGhost(Recording rec, int index)
+        GhostPlaybackState SpawnKscGhost(Recording rec, int index)
         {
             // Skip if no snapshot — no sphere fallback in KSC
             var snapshot = GhostVisualBuilder.GetGhostSnapshot(rec);
@@ -467,7 +467,7 @@ namespace Parsek
 
             GameObject ghost = buildResult.root;
 
-            var state = new ParsekFlight.GhostPlaybackState
+            var state = new GhostPlaybackState
             {
                 ghost = ghost,
                 // cameraPivot intentionally null — RecalculateCameraPivot no-ops
@@ -520,12 +520,12 @@ namespace Parsek
             {
                 state.lightInfos = new Dictionary<uint, LightGhostInfo>();
                 state.lightPlaybackStates =
-                    new Dictionary<uint, ParsekFlight.LightPlaybackState>();
+                    new Dictionary<uint, LightPlaybackState>();
                 for (int i = 0; i < buildResult.lightInfos.Count; i++)
                 {
                     state.lightInfos[buildResult.lightInfos[i].partPersistentId] = buildResult.lightInfos[i];
                     state.lightPlaybackStates[buildResult.lightInfos[i].partPersistentId] =
-                        new ParsekFlight.LightPlaybackState();
+                        new LightPlaybackState();
                 }
             }
 
@@ -778,7 +778,7 @@ namespace Parsek
         /// Trigger explosion FX if the recording ended with vessel destruction.
         /// Guards against repeat firing via state.explosionFired.
         /// </summary>
-        void TriggerExplosionIfDestroyed(ParsekFlight.GhostPlaybackState state,
+        void TriggerExplosionIfDestroyed(GhostPlaybackState state,
             Recording rec, int recIdx)
         {
             if (state == null || state.ghost == null) return;
@@ -815,7 +815,7 @@ namespace Parsek
         /// <summary>
         /// Clean up a KSC ghost — stop FX, destroy canopies and GameObject.
         /// </summary>
-        void DestroyKscGhost(ParsekFlight.GhostPlaybackState state, int index)
+        void DestroyKscGhost(GhostPlaybackState state, int index)
         {
             if (state == null) return;
 
