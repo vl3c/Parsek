@@ -1539,20 +1539,19 @@ namespace Parsek
                 }
             }
 
-            // Group management buttons: G (assign parent) + X (disband)
-            GUILayout.BeginHorizontal(GUIStyle.none, GUILayout.Width(ColW_Group));
-            if (GUILayout.Button("G"))
+            // Group management buttons: G (assign parent) + X (disband) — share ColW_Group width
+            float halfGroup = (ColW_Group - 4f) * 0.5f; // 4px for spacing between buttons
+            if (GUILayout.Button("G", GUILayout.Width(halfGroup)))
             {
                 groupPopupPosition = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
                 OpenGroupPopupForGroup(groupName);
                 ParsekLog.Verbose("UI", $"Group popup opened for group '{groupName}'");
             }
-            if (GUILayout.Button("X"))
+            if (GUILayout.Button("X", GUILayout.Width(halfGroup)))
             {
                 ShowDisbandGroupConfirmation(groupName, descendants, grpChildren);
                 ParsekLog.Verbose("UI", $"Disband clicked for group '{groupName}'");
             }
-            GUILayout.EndHorizontal();
 
             // Loop checkbox (aggregate)
             int loopCount = 0;
