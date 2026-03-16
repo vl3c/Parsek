@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Globalization;
 using Parsek.Tests.Generators;
+using UnityEngine;
 using Xunit;
 
 namespace Parsek.Tests
@@ -933,6 +934,240 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region ColorChanger light transition (reuses CheckLightTransition)
+
+        [Fact]
+        public void ColorChanger_CabinLight_OffToOn_EmitsLightOnEvent()
+        {
+            // ModuleColorChanger with toggleInFlight=true feeds into the same
+            // CheckLightTransition as ModuleLight — verify this works correctly.
+            var lightsOn = new HashSet<uint>();
+            var evt = FlightRecorder.CheckLightTransition(
+                9999, "mk1pod.v2", isOn: true, lightsOn, 200.0);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.LightOn, evt.Value.eventType);
+            Assert.Equal(9999u, evt.Value.partPersistentId);
+            Assert.Equal(200.0, evt.Value.ut);
+            Assert.Equal("mk1pod.v2", evt.Value.partName);
+            Assert.Contains(9999u, lightsOn);
+        }
+
+        [Fact]
+        public void ColorChanger_CabinLight_OnToOff_EmitsLightOffEvent()
+        {
+            var lightsOn = new HashSet<uint> { 9999 };
+            var evt = FlightRecorder.CheckLightTransition(
+                9999, "mk1pod.v2", isOn: false, lightsOn, 210.0);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.LightOff, evt.Value.eventType);
+            Assert.Equal(9999u, evt.Value.partPersistentId);
+            Assert.DoesNotContain(9999u, lightsOn);
+        }
+
+        [Fact]
+        public void ColorChanger_CabinLight_SameState_NoEvent()
+        {
+            var lightsOn = new HashSet<uint>();
+            var evt = FlightRecorder.CheckLightTransition(
+                9999, "mk1pod.v2", isOn: false, lightsOn, 200.0);
+            Assert.Null(evt);
+
+            lightsOn.Add(9999);
+            evt = FlightRecorder.CheckLightTransition(
+                9999, "mk1pod.v2", isOn: true, lightsOn, 205.0);
+            Assert.Null(evt);
+        }
+
+        #endregion
+
+        #region ColorChanger curve evaluation
+
+        [Fact]
+        public void EvaluateColorCurves_Mk1Pod_OffIsBlack()
+        {
+            // Replicate mk1pod_v2 ModuleColorChanger color curves
+            var moduleNode = new ConfigNode("MODULE");
+            moduleNode.AddValue("name", "ModuleColorChanger");
+            moduleNode.AddValue("shaderProperty", "_EmissiveColor");
+            moduleNode.AddValue("toggleInFlight", "True");
+
+            var red = new ConfigNode("redCurve");
+            red.AddValue("key", "0 0 0 3");
+            red.AddValue("key", "1 1 0 0");
+            moduleNode.AddNode(red);
+
+            var green = new ConfigNode("greenCurve");
+            green.AddValue("key", "0 0 0 1");
+            green.AddValue("key", "1 1 1 0");
+            moduleNode.AddNode(green);
+
+            var blue = new ConfigNode("blueCurve");
+            blue.AddValue("key", "0 0 0 0");
+            blue.AddValue("key", "1 0.7 1.5 0");
+            moduleNode.AddNode(blue);
+
+            var alpha = new ConfigNode("alphaCurve");
+            alpha.AddValue("key", "0 1");
+            moduleNode.AddNode(alpha);
+
+            Color off = GhostVisualBuilder.EvaluateColorCurves(moduleNode, 0f);
+            Assert.InRange(off.r, -0.001f, 0.001f);
+            Assert.InRange(off.g, -0.001f, 0.001f);
+            Assert.InRange(off.b, -0.001f, 0.001f);
+            Assert.InRange(off.a, 0.999f, 1.001f);
+
+            Color on = GhostVisualBuilder.EvaluateColorCurves(moduleNode, 1f);
+            Assert.InRange(on.r, 0.999f, 1.001f);
+            Assert.InRange(on.g, 0.999f, 1.001f);
+            Assert.InRange(on.b, 0.69f, 0.71f);
+            Assert.InRange(on.a, 0.999f, 1.001f);
+        }
+
+        [Fact]
+        public void EvaluateColorCurves_HeatShield_BurnColor()
+        {
+            // Replicate HeatShield1 ModuleColorChanger (shieldChar) curves
+            var moduleNode = new ConfigNode("MODULE");
+            moduleNode.AddValue("name", "ModuleColorChanger");
+            moduleNode.AddValue("shaderProperty", "_BurnColor");
+            moduleNode.AddValue("toggleInFlight", "False");
+
+            var red = new ConfigNode("redCurve");
+            red.AddValue("key", "0 0");
+            red.AddValue("key", "1 1");
+            moduleNode.AddNode(red);
+
+            var green = new ConfigNode("greenCurve");
+            green.AddValue("key", "0 0");
+            green.AddValue("key", "1 1");
+            moduleNode.AddNode(green);
+
+            var blue = new ConfigNode("blueCurve");
+            blue.AddValue("key", "0 0");
+            blue.AddValue("key", "1 1");
+            moduleNode.AddNode(blue);
+
+            var alpha = new ConfigNode("alphaCurve");
+            alpha.AddValue("key", "0 0.8");
+            moduleNode.AddNode(alpha);
+
+            Color off = GhostVisualBuilder.EvaluateColorCurves(moduleNode, 0f);
+            Assert.InRange(off.r, -0.001f, 0.001f);
+            Assert.InRange(off.g, -0.001f, 0.001f);
+            Assert.InRange(off.b, -0.001f, 0.001f);
+            Assert.InRange(off.a, 0.79f, 0.81f);
+
+            Color on = GhostVisualBuilder.EvaluateColorCurves(moduleNode, 1f);
+            Assert.InRange(on.r, 0.999f, 1.001f);
+            Assert.InRange(on.g, 0.999f, 1.001f);
+            Assert.InRange(on.b, 0.999f, 1.001f);
+            Assert.InRange(on.a, 0.79f, 0.81f);
+        }
+
+        [Fact]
+        public void EvaluateSingleCurve_MidpointInterpolation()
+        {
+            var curveNode = new ConfigNode("redCurve");
+            curveNode.AddValue("key", "0 0");
+            curveNode.AddValue("key", "1 1");
+
+            float mid = GhostVisualBuilder.EvaluateSingleCurve(curveNode, 0.5f);
+            Assert.InRange(mid, 0.49f, 0.51f);
+        }
+
+        [Fact]
+        public void EvaluateSingleCurve_NullNode_ReturnsDefault()
+        {
+            float result = GhostVisualBuilder.EvaluateSingleCurve(null, 0.5f, defaultValue: 0.42f);
+            Assert.InRange(result, 0.419f, 0.421f);
+        }
+
+        [Fact]
+        public void EvaluateSingleCurve_EmptyKeys_ReturnsDefault()
+        {
+            var curveNode = new ConfigNode("testCurve");
+            float result = GhostVisualBuilder.EvaluateSingleCurve(curveNode, 0.5f);
+            Assert.InRange(result, -0.001f, 0.001f);
+        }
+
+        [Fact]
+        public void EvaluateSingleCurve_ClampsBelowRange()
+        {
+            var curveNode = new ConfigNode("testCurve");
+            curveNode.AddValue("key", "0.5 0.75");
+            curveNode.AddValue("key", "1 1");
+
+            float result = GhostVisualBuilder.EvaluateSingleCurve(curveNode, 0f);
+            Assert.InRange(result, 0.749f, 0.751f);
+        }
+
+        [Fact]
+        public void EvaluateSingleCurve_ClampsAboveRange()
+        {
+            var curveNode = new ConfigNode("testCurve");
+            curveNode.AddValue("key", "0 0.25");
+            curveNode.AddValue("key", "0.5 0.5");
+
+            float result = GhostVisualBuilder.EvaluateSingleCurve(curveNode, 1f);
+            Assert.InRange(result, 0.499f, 0.501f);
+        }
+
+        #endregion
+
+        #region ColorChanger BuildColorChangerInfos
+
+        [Fact]
+        public void BuildColorChangerInfos_NullPartNode_ReturnsNull()
+        {
+            var result = GhostVisualBuilder.BuildColorChangerInfos(null, null, 100, "test");
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void BuildColorChangerInfos_NoModuleNodes_ReturnsNull()
+        {
+            var partNode = new ConfigNode("PART");
+            partNode.AddValue("name", "testPart");
+            // No MODULE nodes at all
+            var result = GhostVisualBuilder.BuildColorChangerInfos(partNode, null, 100, "testPart");
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void BuildColorChangerInfos_NullGhostModelNode_ReturnsNull()
+        {
+            // When ghostModelNode is null, the function returns null immediately
+            // (no renderers to scan, no materials to clone).
+            var partNode = new ConfigNode("PART");
+            partNode.AddValue("name", "mk1pod.v2");
+            var module = new ConfigNode("MODULE");
+            module.AddValue("name", "ModuleColorChanger");
+            module.AddValue("shaderProperty", "_EmissiveColor");
+            module.AddValue("toggleInFlight", "True");
+            partNode.AddNode(module);
+
+            var result = GhostVisualBuilder.BuildColorChangerInfos(partNode, null, 100, "mk1pod.v2");
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void BuildColorChangerInfos_NonColorChangerModuleOnly_ReturnsNull()
+        {
+            // A PART node with only non-ColorChanger modules returns null.
+            var partNode = new ConfigNode("PART");
+            partNode.AddValue("name", "testPart");
+            var module = new ConfigNode("MODULE");
+            module.AddValue("name", "ModuleCommand");
+            partNode.AddNode(module);
+
+            var result = GhostVisualBuilder.BuildColorChangerInfos(partNode, null, 100, "testPart");
+            Assert.Null(result);
+        }
+
+        #endregion
+
         #region Gear state tracking
 
         [Fact]
@@ -1449,6 +1684,46 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region RCS debounce
+
+        [Fact]
+        public void ShouldStartRcsRecording_AtThreshold_ReturnsTrue()
+        {
+            Assert.True(FlightRecorder.ShouldStartRcsRecording(8, 8));
+        }
+
+        [Fact]
+        public void ShouldStartRcsRecording_BelowThreshold_ReturnsFalse()
+        {
+            Assert.False(FlightRecorder.ShouldStartRcsRecording(7, 8));
+        }
+
+        [Fact]
+        public void ShouldStartRcsRecording_AboveThreshold_ReturnsFalse()
+        {
+            Assert.False(FlightRecorder.ShouldStartRcsRecording(9, 8));
+        }
+
+        [Fact]
+        public void IsRcsRecordingSustained_AtThreshold_ReturnsTrue()
+        {
+            Assert.True(FlightRecorder.IsRcsRecordingSustained(8, 8));
+        }
+
+        [Fact]
+        public void IsRcsRecordingSustained_BelowThreshold_ReturnsFalse()
+        {
+            Assert.False(FlightRecorder.IsRcsRecordingSustained(5, 8));
+        }
+
+        [Fact]
+        public void IsRcsRecordingSustained_AboveThreshold_ReturnsTrue()
+        {
+            Assert.True(FlightRecorder.IsRcsRecordingSustained(20, 8));
+        }
+
+        #endregion
+
         #region RCS event serialization
 
         [Fact]
@@ -1709,34 +1984,204 @@ namespace Parsek.Tests
         public void AnimateHeatTransition_ColdToHot_EmitsHotEvent()
         {
             ulong key = FlightRecorder.EncodeEngineKey(450, 0);
-            var hotSet = new HashSet<ulong>();
+            var levelMap = new Dictionary<ulong, HeatLevel>();
 
             var evt = FlightRecorder.CheckAnimateHeatTransition(
                 key, 450, "shockConeIntake",
-                isHot: true, isCold: false, normalizedHeat: 0.85f,
-                hotSet, ut: 100.0, moduleIndex: 0);
+                normalizedHeat: 0.85f,
+                levelMap, ut: 100.0, moduleIndex: 0);
 
             Assert.True(evt.HasValue);
             Assert.Equal(PartEventType.ThermalAnimationHot, evt.Value.eventType);
             Assert.Equal(0.85f, evt.Value.value, 0.001f);
-            Assert.Contains(key, hotSet);
+            Assert.Equal(HeatLevel.Hot, levelMap[key]);
         }
 
         [Fact]
         public void AnimateHeatTransition_HotToCold_EmitsColdEvent()
         {
             ulong key = FlightRecorder.EncodeEngineKey(450, 0);
-            var hotSet = new HashSet<ulong> { key };
+            var levelMap = new Dictionary<ulong, HeatLevel> { { key, HeatLevel.Hot } };
 
             var evt = FlightRecorder.CheckAnimateHeatTransition(
                 key, 450, "shockConeIntake",
-                isHot: false, isCold: true, normalizedHeat: 0.02f,
-                hotSet, ut: 120.0, moduleIndex: 0);
+                normalizedHeat: 0.02f,
+                levelMap, ut: 120.0, moduleIndex: 0);
 
             Assert.True(evt.HasValue);
             Assert.Equal(PartEventType.ThermalAnimationCold, evt.Value.eventType);
             Assert.Equal(0.02f, evt.Value.value, 0.001f);
-            Assert.DoesNotContain(key, hotSet);
+            Assert.Equal(HeatLevel.Cold, levelMap[key]);
+        }
+
+        [Fact]
+        public void AnimateHeatTransition_ColdToMedium()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(450, 0);
+            var levelMap = new Dictionary<ulong, HeatLevel>();
+
+            var evt = FlightRecorder.CheckAnimateHeatTransition(
+                key, 450, "shockConeIntake",
+                normalizedHeat: 0.45f,
+                levelMap, ut: 100.0, moduleIndex: 0);
+
+            Assert.True(evt.HasValue);
+            Assert.Equal(PartEventType.ThermalAnimationMedium, evt.Value.eventType);
+            Assert.Equal(HeatLevel.Medium, levelMap[key]);
+        }
+
+        [Fact]
+        public void AnimateHeatTransition_MediumToHot()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(450, 0);
+            var levelMap = new Dictionary<ulong, HeatLevel> { { key, HeatLevel.Medium } };
+
+            var evt = FlightRecorder.CheckAnimateHeatTransition(
+                key, 450, "shockConeIntake",
+                normalizedHeat: 0.70f,
+                levelMap, ut: 100.0, moduleIndex: 0);
+
+            Assert.True(evt.HasValue);
+            Assert.Equal(PartEventType.ThermalAnimationHot, evt.Value.eventType);
+            Assert.Equal(HeatLevel.Hot, levelMap[key]);
+        }
+
+        [Fact]
+        public void AnimateHeatTransition_HotToMedium()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(450, 0);
+            var levelMap = new Dictionary<ulong, HeatLevel> { { key, HeatLevel.Hot } };
+
+            var evt = FlightRecorder.CheckAnimateHeatTransition(
+                key, 450, "shockConeIntake",
+                normalizedHeat: 0.50f,
+                levelMap, ut: 100.0, moduleIndex: 0);
+
+            Assert.True(evt.HasValue);
+            Assert.Equal(PartEventType.ThermalAnimationMedium, evt.Value.eventType);
+            Assert.Equal(HeatLevel.Medium, levelMap[key]);
+        }
+
+        [Fact]
+        public void AnimateHeatTransition_MediumToCold()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(450, 0);
+            var levelMap = new Dictionary<ulong, HeatLevel> { { key, HeatLevel.Medium } };
+
+            var evt = FlightRecorder.CheckAnimateHeatTransition(
+                key, 450, "shockConeIntake",
+                normalizedHeat: 0.05f,
+                levelMap, ut: 100.0, moduleIndex: 0);
+
+            Assert.True(evt.HasValue);
+            Assert.Equal(PartEventType.ThermalAnimationCold, evt.Value.eventType);
+            Assert.Equal(HeatLevel.Cold, levelMap[key]);
+        }
+
+        [Fact]
+        public void AnimateHeatTransition_ColdToHotDirect()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(450, 0);
+            var levelMap = new Dictionary<ulong, HeatLevel>();
+
+            var evt = FlightRecorder.CheckAnimateHeatTransition(
+                key, 450, "shockConeIntake",
+                normalizedHeat: 0.80f,
+                levelMap, ut: 100.0, moduleIndex: 0);
+
+            Assert.True(evt.HasValue);
+            Assert.Equal(PartEventType.ThermalAnimationHot, evt.Value.eventType);
+            Assert.Equal(HeatLevel.Hot, levelMap[key]);
+        }
+
+        [Fact]
+        public void AnimateHeatTransition_HotToColdDirect()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(450, 0);
+            var levelMap = new Dictionary<ulong, HeatLevel> { { key, HeatLevel.Hot } };
+
+            var evt = FlightRecorder.CheckAnimateHeatTransition(
+                key, 450, "shockConeIntake",
+                normalizedHeat: 0.05f,
+                levelMap, ut: 100.0, moduleIndex: 0);
+
+            Assert.True(evt.HasValue);
+            Assert.Equal(PartEventType.ThermalAnimationCold, evt.Value.eventType);
+            Assert.Equal(HeatLevel.Cold, levelMap[key]);
+        }
+
+        [Fact]
+        public void AnimateHeatTransition_InHysteresisGap_NoEvent()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(450, 0);
+            var levelMap = new Dictionary<ulong, HeatLevel>();
+
+            var evt = FlightRecorder.CheckAnimateHeatTransition(
+                key, 450, "shockConeIntake",
+                normalizedHeat: 0.20f,
+                levelMap, ut: 100.0, moduleIndex: 0);
+
+            Assert.Null(evt);
+        }
+
+        [Fact]
+        public void AnimateHeatTransition_StaysMedium_NoEvent()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(450, 0);
+            var levelMap = new Dictionary<ulong, HeatLevel> { { key, HeatLevel.Medium } };
+
+            var evt = FlightRecorder.CheckAnimateHeatTransition(
+                key, 450, "shockConeIntake",
+                normalizedHeat: 0.50f,
+                levelMap, ut: 100.0, moduleIndex: 0);
+
+            Assert.Null(evt);
+        }
+
+        [Fact]
+        public void AnimateHeatTransition_MediumInHysteresisGap_StaysMedium()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(450, 0);
+            var levelMap = new Dictionary<ulong, HeatLevel> { { key, HeatLevel.Medium } };
+
+            var evt = FlightRecorder.CheckAnimateHeatTransition(
+                key, 450, "shockConeIntake",
+                normalizedHeat: 0.20f,
+                levelMap, ut: 100.0, moduleIndex: 0);
+
+            Assert.Null(evt);
+            Assert.Equal(HeatLevel.Medium, levelMap[key]);
+        }
+
+        [Fact]
+        public void AnimateHeatTransition_HotInMediumHotHysteresis_StaysHot()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(450, 0);
+            var levelMap = new Dictionary<ulong, HeatLevel> { { key, HeatLevel.Hot } };
+
+            var evt = FlightRecorder.CheckAnimateHeatTransition(
+                key, 450, "shockConeIntake",
+                normalizedHeat: 0.63f,
+                levelMap, ut: 100.0, moduleIndex: 0);
+
+            Assert.Null(evt);
+            Assert.Equal(HeatLevel.Hot, levelMap[key]);
+        }
+
+        [Fact]
+        public void AnimateHeatTransition_HotFallsBelowHysteresis_BecomesMedium()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(450, 0);
+            var levelMap = new Dictionary<ulong, HeatLevel> { { key, HeatLevel.Hot } };
+
+            var evt = FlightRecorder.CheckAnimateHeatTransition(
+                key, 450, "shockConeIntake",
+                normalizedHeat: 0.55f,
+                levelMap, ut: 100.0, moduleIndex: 0);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.ThermalAnimationMedium, evt.Value.eventType);
+            Assert.Equal(HeatLevel.Medium, levelMap[key]);
         }
 
         [Fact]
@@ -1766,6 +2211,75 @@ namespace Parsek.Tests
             Assert.Equal(1f, loaded.PartEvents[0].value, 0.001f);
             Assert.Equal(0, loaded.PartEvents[0].moduleIndex);
             Assert.Equal(451u, loaded.PartEvents[0].partPersistentId);
+        }
+
+        [Fact]
+        public void ThermalAnimationMedium_SerializationRoundtrip()
+        {
+            var rec = new RecordingStore.Recording();
+            rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 120, bodyName = "Kerbin" });
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 110,
+                partPersistentId = 452,
+                eventType = PartEventType.ThermalAnimationMedium,
+                partName = "noseConeAdapter",
+                value = 0.5f,
+                moduleIndex = 0
+            });
+
+            var node = new ConfigNode("TEST");
+            RecordingStore.SerializeTrajectoryInto(node, rec);
+
+            var loaded = new RecordingStore.Recording();
+            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+
+            Assert.Single(loaded.PartEvents);
+            Assert.Equal(PartEventType.ThermalAnimationMedium, loaded.PartEvents[0].eventType);
+            Assert.Equal(0.5f, loaded.PartEvents[0].value, 0.001f);
+            Assert.Equal(0, loaded.PartEvents[0].moduleIndex);
+            Assert.Equal(452u, loaded.PartEvents[0].partPersistentId);
+        }
+
+        [Fact]
+        public void UnknownPartEventType_SkippedDuringDeserialization()
+        {
+            var rec = new RecordingStore.Recording();
+            rec.RecordingId = "test-forward-compat";
+            rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 120, bodyName = "Kerbin" });
+
+            // Serialize a valid event
+            rec.PartEvents.Add(new PartEvent
+            {
+                ut = 105,
+                partPersistentId = 500,
+                eventType = PartEventType.ThermalAnimationHot,
+                partName = "shockConeIntake",
+                value = 1f
+            });
+
+            var node = new ConfigNode("TEST");
+            RecordingStore.SerializeTrajectoryInto(node, rec);
+
+            // Manually inject an unknown event type (999)
+            var unknownEvtNode = new ConfigNode("PART_EVENT");
+            unknownEvtNode.AddValue("ut", "110");
+            unknownEvtNode.AddValue("pid", "501");
+            unknownEvtNode.AddValue("type", "999");
+            unknownEvtNode.AddValue("part", "futurePart");
+            unknownEvtNode.AddValue("value", "1");
+            node.AddNode(unknownEvtNode);
+
+            var loaded = new RecordingStore.Recording();
+            loaded.RecordingId = "test-forward-compat";
+            RecordingStore.DeserializeTrajectoryFrom(node, loaded);
+
+            // The unknown event (type=999) should be skipped, only the valid event remains
+            Assert.Single(loaded.PartEvents);
+            Assert.Equal(PartEventType.ThermalAnimationHot, loaded.PartEvents[0].eventType);
+            Assert.Equal(500u, loaded.PartEvents[0].partPersistentId);
         }
 
         #endregion
@@ -1859,6 +2373,49 @@ namespace Parsek.Tests
             Assert.Equal(0.33f, loaded.PartEvents[0].value, 0.01f);
             Assert.Equal(PartEventType.EngineShutdown, loaded.PartEvents[1].eventType);
             Assert.Equal(0f, loaded.PartEvents[1].value);
+        }
+
+        #endregion
+
+        #region IsHeatAnimationName heuristic
+
+        [Theory]
+        [InlineData("heatAnimation", true)]
+        [InlineData("thumperEmissive", true)]
+        [InlineData("HeatAnimationSRB", true)]
+        [InlineData("TurboJetHeat", true)]
+        [InlineData("TRJ_Heat", true)]
+        [InlineData("FM1Emissive", true)]
+        [InlineData("colorAnimation", true)]
+        [InlineData("nozzleGlow", true)]
+        [InlineData("TurboJetNozzleDry", false)]
+        [InlineData("TF2FanSpin", false)]
+        [InlineData("deployAnimation", false)]
+        [InlineData("", false)]
+        [InlineData(null, false)]
+        public void IsHeatAnimationName_MatchesExpected(string name, bool expected)
+        {
+            Assert.Equal(expected, GhostVisualBuilder.IsHeatAnimationName(name));
+        }
+
+        [Fact]
+        public void TryGetAnimateThrottleAnimation_NullPrefab_ReturnsFalse()
+        {
+            string animName;
+            bool result = GhostVisualBuilder.TryGetAnimateThrottleAnimation(null, out animName);
+
+            Assert.False(result);
+            Assert.Null(animName);
+        }
+
+        [Fact]
+        public void TryGetAnimateRcsAnimation_NullPrefab_ReturnsFalse()
+        {
+            string animName;
+            bool result = GhostVisualBuilder.TryGetAnimateRcsAnimation(null, out animName);
+
+            Assert.False(result);
+            Assert.Null(animName);
         }
 
         #endregion
@@ -2013,5 +2570,214 @@ namespace Parsek.Tests
             // Empty string should not be treated as a duplicate
             Assert.Empty(dupes);
         }
+
+        #region IsStructuralJointBreak
+
+        [Fact]
+        public void IsStructuralJointBreak_SameJoint_ReturnsTrue()
+        {
+            // Broken joint IS the attach joint → real structural separation
+            bool result = FlightRecorder.IsStructuralJointBreak(
+                brokenJointIsAttachJoint: true, hasAttachJoint: true);
+
+            Assert.True(result);
+        }
+
+        [Fact]
+        public void IsStructuralJointBreak_DifferentJoint_ReturnsFalse()
+        {
+            // Broken joint is NOT the attach joint (e.g., wheel suspension) → not structural
+            bool result = FlightRecorder.IsStructuralJointBreak(
+                brokenJointIsAttachJoint: false, hasAttachJoint: true);
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void IsStructuralJointBreak_NullAttachJoint_ReturnsTrue()
+        {
+            // Root part has no attach joint — any break is structural
+            bool result = FlightRecorder.IsStructuralJointBreak(
+                brokenJointIsAttachJoint: false, hasAttachJoint: false);
+
+            Assert.True(result);
+        }
+
+        #endregion
+
+        #region Initial state seeding prevents false events
+
+        [Fact]
+        public void CheckJettisonTransition_AlreadySeeded_NoEvent()
+        {
+            // If the shroud PID is already in jettisonedShrouds (seeded at recording start),
+            // calling CheckJettisonTransition with isJettisoned=true should NOT emit an event.
+            var seeded = new HashSet<uint> { 12345 };
+            var evt = FlightRecorder.CheckJettisonTransition(
+                12345, "liquidEngine", true, seeded, 100.0);
+
+            Assert.Null(evt);
+            Assert.Contains(12345u, seeded); // still in set
+        }
+
+        [Fact]
+        public void CheckJettisonTransition_NotSeeded_EmitsEvent()
+        {
+            // Without seeding, an already-jettisoned shroud produces a spurious event
+            var empty = new HashSet<uint>();
+            var evt = FlightRecorder.CheckJettisonTransition(
+                12345, "liquidEngine", true, empty, 100.0);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.ShroudJettisoned, evt.Value.eventType);
+        }
+
+        [Fact]
+        public void CheckEngineTransition_AlreadySeeded_NoIgnitedEvent()
+        {
+            // If the engine key is already in activeEngineKeys (seeded at recording start),
+            // calling CheckEngineTransition with ignited=true should NOT emit EngineIgnited.
+            ulong key = FlightRecorder.EncodeEngineKey(100, 0);
+            var active = new HashSet<ulong> { key };
+            var throttles = new Dictionary<ulong, float> { { key, 0.8f } };
+            var events = FlightRecorder.CheckEngineTransition(
+                key, 100, 0, "liquidEngine", true, 0.8f, active, throttles, 200.0);
+
+            Assert.Empty(events); // No EngineIgnited event
+        }
+
+        [Fact]
+        public void CheckEngineTransition_NotSeeded_EmitsIgnitedEvent()
+        {
+            // Without seeding, an already-running engine produces a spurious EngineIgnited
+            ulong key = FlightRecorder.EncodeEngineKey(100, 0);
+            var empty = new HashSet<ulong>();
+            var throttles = new Dictionary<ulong, float>();
+            var events = FlightRecorder.CheckEngineTransition(
+                key, 100, 0, "liquidEngine", true, 0.8f, empty, throttles, 200.0);
+
+            Assert.Single(events);
+            Assert.Equal(PartEventType.EngineIgnited, events[0].eventType);
+        }
+
+        [Fact]
+        public void CheckLightTransition_AlreadySeeded_NoEvent()
+        {
+            var seeded = new HashSet<uint> { 200 };
+            var evt = FlightRecorder.CheckLightTransition(
+                200, "spotLight", true, seeded, 100.0);
+
+            Assert.Null(evt); // No LightOn event
+        }
+
+        [Fact]
+        public void CheckLightTransition_NotSeeded_EmitsLightOnEvent()
+        {
+            var empty = new HashSet<uint>();
+            var evt = FlightRecorder.CheckLightTransition(
+                200, "spotLight", true, empty, 100.0);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.LightOn, evt.Value.eventType);
+        }
+
+        [Fact]
+        public void CheckDeployableTransition_AlreadySeeded_NoEvent()
+        {
+            var seeded = new HashSet<uint> { 300 };
+            var evt = FlightRecorder.CheckDeployableTransition(
+                300, "solarPanel", true, seeded, 100.0);
+
+            Assert.Null(evt); // No DeployableExtended event
+        }
+
+        [Fact]
+        public void CheckDeployableTransition_NotSeeded_EmitsExtendedEvent()
+        {
+            var empty = new HashSet<uint>();
+            var evt = FlightRecorder.CheckDeployableTransition(
+                300, "solarPanel", true, empty, 100.0);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.DeployableExtended, evt.Value.eventType);
+        }
+
+        [Fact]
+        public void CheckGearTransition_AlreadySeeded_NoEvent()
+        {
+            var seeded = new HashSet<uint> { 400 };
+            var evt = FlightRecorder.CheckGearTransition(
+                400, "landingGear", true, seeded, 100.0);
+
+            Assert.Null(evt); // No GearDeployed event
+        }
+
+        [Fact]
+        public void CheckCargoBayTransition_AlreadySeeded_NoEvent()
+        {
+            var seeded = new HashSet<uint> { 500 };
+            var evt = FlightRecorder.CheckCargoBayTransition(
+                500, "cargoBay", true, seeded, 100.0);
+
+            Assert.Null(evt); // No CargoBayOpened event
+        }
+
+        [Fact]
+        public void CheckParachuteTransition_AlreadySeeded_NoEvent()
+        {
+            // Parachute already in state 2 (deployed) at recording start
+            var seeded = new Dictionary<uint, int> { { 600, 2 } };
+            var evt = FlightRecorder.CheckParachuteTransition(
+                600, "parachute", 2, seeded, 100.0);
+
+            Assert.Null(evt); // No ParachuteDeployed event (same state)
+        }
+
+        [Fact]
+        public void CheckParachuteTransition_NotSeeded_EmitsDeployedEvent()
+        {
+            var empty = new Dictionary<uint, int>();
+            var evt = FlightRecorder.CheckParachuteTransition(
+                600, "parachute", 2, empty, 100.0);
+
+            Assert.NotNull(evt);
+            Assert.Equal(PartEventType.ParachuteDeployed, evt.Value.eventType);
+        }
+
+        [Fact]
+        public void CheckRcsTransition_AlreadySeeded_NoEvent()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(700, 0);
+            var active = new HashSet<ulong> { key };
+            var throttles = new Dictionary<ulong, float> { { key, 0.5f } };
+            var events = FlightRecorder.CheckRcsTransition(
+                key, 700, 0, "rcsBlock", true, 0.5f, active, throttles, 100.0);
+
+            Assert.Empty(events); // No RCSActivated event
+        }
+
+        [Fact]
+        public void CheckLadderTransition_AlreadySeeded_NoEvent()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(800, 2);
+            var seeded = new HashSet<ulong> { key };
+            var evt = FlightRecorder.CheckLadderTransition(
+                key, 800, "ladder", true, seeded, 100.0, 2);
+
+            Assert.Null(evt); // No DeployableExtended event
+        }
+
+        [Fact]
+        public void CheckAnimationGroupTransition_AlreadySeeded_NoEvent()
+        {
+            ulong key = FlightRecorder.EncodeEngineKey(900, 3);
+            var seeded = new HashSet<ulong> { key };
+            var evt = FlightRecorder.CheckAnimationGroupTransition(
+                key, 900, "fuelCell", true, seeded, 100.0, 3);
+
+            Assert.Null(evt); // No DeployableExtended event
+        }
+
+        #endregion
     }
 }

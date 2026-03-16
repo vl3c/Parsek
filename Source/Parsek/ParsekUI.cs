@@ -54,7 +54,7 @@ namespace Parsek
         private GUIStyle actionsWhiteStyle;
 
         // Actions table sort state
-        internal enum ActionsSortColumn { Time, Type, Description, Status }
+        private enum ActionsSortColumn { Time, Type, Description, Status }
         private ActionsSortColumn actionsSortColumn = ActionsSortColumn.Time;
         private bool actionsSortAscending = true;
 
@@ -63,8 +63,8 @@ namespace Parsek
         private const float ColW_Phase = 70f;
         private const float ColW_Index = 30f;
         private const float ColW_Launch = 110f;
-        private const float ColW_Dur = 55f;
-        private const float ColW_Status = 45f;
+        private const float ColW_Dur = 65f;
+        private const float ColW_Status = 55f;
         private const float ColW_Loop = 55f;
         private const float ColW_Watch = 50f;
         private const float ColW_Rewind = 55f;
@@ -139,10 +139,16 @@ namespace Parsek
         private const float ColW_Dist = 65f;
         private const float ColW_Pts = 35f;
 
-        // Loop period editing
-        private int editingLoopPeriodIdx = -1;
-        private string editingLoopPeriodText = "";
-        private const float ColW_Period = 55f;
+        // Loop period editing — buffer used while text field is focused
+        private int loopPeriodFocusedRi = -1;
+        private string loopPeriodEditText = "";
+        private Rect loopPeriodEditRect;
+
+        // Settings auto-loop editing
+        private string settingsAutoLoopText = "";
+        private bool settingsAutoLoopEditing;
+        private Rect settingsAutoLoopEditRect;
+        private const float ColW_Period = 80f;
 
         // Cached styles for status labels
         private GUIStyle statusStyleFuture;
@@ -330,24 +336,42 @@ namespace Parsek
             {
                 double currentFunds = 0;
                 try { if (Funding.Instance != null) currentFunds = Funding.Instance.Funds; } catch { }
-                if (DrawResourceLine("Funds", currentFunds, budget.reservedFunds, "N0", ic))
-                    anyOverCommitted = true;
+                double available = currentFunds - budget.reservedFunds;
+                double total = currentFunds;
+                bool over = available < 0;
+                if (over) anyOverCommitted = true;
+                Color prev = GUI.contentColor;
+                if (over) GUI.contentColor = Color.red;
+                GUILayout.Label($"Funds: {available.ToString("N0", ic)} available to use ({budget.reservedFunds.ToString("N0", ic)} committed out of {total.ToString("N0", ic)} total)");
+                GUI.contentColor = prev;
             }
 
             if (budget.reservedScience > 0)
             {
                 double currentScience = 0;
                 try { if (ResearchAndDevelopment.Instance != null) currentScience = ResearchAndDevelopment.Instance.Science; } catch { }
-                if (DrawResourceLine("Science", currentScience, budget.reservedScience, "F1", ic))
-                    anyOverCommitted = true;
+                double available = currentScience - budget.reservedScience;
+                double total = currentScience;
+                bool over = available < 0;
+                if (over) anyOverCommitted = true;
+                Color prev = GUI.contentColor;
+                if (over) GUI.contentColor = Color.red;
+                GUILayout.Label($"Science: {available.ToString("F1", ic)} available to use ({budget.reservedScience.ToString("F1", ic)} committed out of {total.ToString("F1", ic)} total)");
+                GUI.contentColor = prev;
             }
 
             if (budget.reservedReputation > 0)
             {
                 float currentRep = 0;
                 try { if (Reputation.Instance != null) currentRep = Reputation.Instance.reputation; } catch { }
-                if (DrawResourceLine("Reputation", (double)currentRep, budget.reservedReputation, "F0", ic))
-                    anyOverCommitted = true;
+                double available = currentRep - budget.reservedReputation;
+                double total = (double)currentRep;
+                bool over = available < 0;
+                if (over) anyOverCommitted = true;
+                Color prev = GUI.contentColor;
+                if (over) GUI.contentColor = Color.red;
+                GUILayout.Label($"Reputation: {available.ToString("F0", ic)} available to use ({budget.reservedReputation.ToString("F0", ic)} committed out of {total.ToString("F0", ic)} total)");
+                GUI.contentColor = prev;
             }
 
             if (anyOverCommitted)
@@ -357,24 +381,6 @@ namespace Parsek
                 GUILayout.Label("Over-committed! Some timeline actions may fail.");
                 GUI.contentColor = prev;
             }
-        }
-
-        /// <summary>
-        /// Draws a single resource budget line (label with available/committed/total).
-        /// Returns true if over-committed.
-        /// </summary>
-        private static bool DrawResourceLine(string label, double current, double reserved,
-            string format, System.Globalization.CultureInfo ic)
-        {
-            double available = current - reserved;
-            double total = current;
-            bool over = available < 0;
-            Color prev = GUI.contentColor;
-            if (over) GUI.contentColor = Color.red;
-            GUILayout.Label($"{label}: {available.ToString(format, ic)} available to use " +
-                $"({reserved.ToString(format, ic)} committed out of {total.ToString(format, ic)} total)");
-            GUI.contentColor = prev;
-            return over;
         }
 
         public void LogMainWindowPosition(Rect currentRect)
@@ -499,13 +505,61 @@ namespace Parsek
             DrawResourceBudget();
 
             // B. Recorded Actions List
-            var allEvents = BuildSortedActionEvents(
-                MilestoneStore.Milestones, MilestoneStore.CurrentEpoch,
-                actionsSortColumn, actionsSortAscending);
-
-            // C. Uncommitted events (not yet in any milestone)
             var milestones = MilestoneStore.Milestones;
             uint currentEpoch = MilestoneStore.CurrentEpoch;
+            // event, isReplayed, isCommitted (true=milestone, false=uncommitted)
+            var allEvents = new List<System.Tuple<GameStateEvent, bool>>();
+            for (int i = 0; i < milestones.Count; i++)
+            {
+                var m = milestones[i];
+                if (!m.Committed || m.Epoch != currentEpoch) continue;
+                for (int j = 0; j < m.Events.Count; j++)
+                {
+                    if (GameStateStore.IsMilestoneFilteredEvent(m.Events[j].eventType))
+                        continue;
+                    bool replayed = j <= m.LastReplayedEventIndex;
+                    allEvents.Add(System.Tuple.Create(m.Events[j], replayed));
+                }
+            }
+
+            // Sort events
+            switch (actionsSortColumn)
+            {
+                case ActionsSortColumn.Time:
+                    allEvents.Sort((a, b) => actionsSortAscending
+                        ? a.Item1.ut.CompareTo(b.Item1.ut)
+                        : b.Item1.ut.CompareTo(a.Item1.ut));
+                    break;
+                case ActionsSortColumn.Type:
+                    allEvents.Sort((a, b) =>
+                    {
+                        int cmp = string.Compare(
+                            GameStateEventDisplay.GetDisplayCategory(a.Item1.eventType),
+                            GameStateEventDisplay.GetDisplayCategory(b.Item1.eventType),
+                            System.StringComparison.Ordinal);
+                        return actionsSortAscending ? cmp : -cmp;
+                    });
+                    break;
+                case ActionsSortColumn.Description:
+                    allEvents.Sort((a, b) =>
+                    {
+                        int cmp = string.Compare(
+                            GameStateEventDisplay.GetDisplayDescription(a.Item1),
+                            GameStateEventDisplay.GetDisplayDescription(b.Item1),
+                            System.StringComparison.Ordinal);
+                        return actionsSortAscending ? cmp : -cmp;
+                    });
+                    break;
+                case ActionsSortColumn.Status:
+                    allEvents.Sort((a, b) =>
+                    {
+                        int cmp = a.Item2.CompareTo(b.Item2); // false (Pending) < true (Replayed)
+                        return actionsSortAscending ? cmp : -cmp;
+                    });
+                    break;
+            }
+
+            // C. Uncommitted events (not yet in any milestone)
             double lastMilestoneEndUT = 0;
             for (int i = 0; i < milestones.Count; i++)
             {
@@ -685,67 +739,6 @@ namespace Parsek
             ParsekLog.Verbose("UI", $"Actions sort changed: column={column} ascending={actionsSortAscending}");
         }
 
-        /// <summary>
-        /// Builds the list of committed action events from milestones and sorts them
-        /// by the specified column and direction.
-        /// </summary>
-        internal static List<System.Tuple<GameStateEvent, bool>> BuildSortedActionEvents(
-            System.Collections.Generic.IReadOnlyList<Milestone> milestones, uint currentEpoch,
-            ActionsSortColumn sortColumn, bool sortAscending)
-        {
-            var allEvents = new List<System.Tuple<GameStateEvent, bool>>();
-            for (int i = 0; i < milestones.Count; i++)
-            {
-                var m = milestones[i];
-                if (!m.Committed || m.Epoch != currentEpoch) continue;
-                for (int j = 0; j < m.Events.Count; j++)
-                {
-                    if (GameStateStore.IsMilestoneFilteredEvent(m.Events[j].eventType))
-                        continue;
-                    bool replayed = j <= m.LastReplayedEventIndex;
-                    allEvents.Add(System.Tuple.Create(m.Events[j], replayed));
-                }
-            }
-
-            switch (sortColumn)
-            {
-                case ActionsSortColumn.Time:
-                    allEvents.Sort((a, b) => sortAscending
-                        ? a.Item1.ut.CompareTo(b.Item1.ut)
-                        : b.Item1.ut.CompareTo(a.Item1.ut));
-                    break;
-                case ActionsSortColumn.Type:
-                    allEvents.Sort((a, b) =>
-                    {
-                        int cmp = string.Compare(
-                            GameStateEventDisplay.GetDisplayCategory(a.Item1.eventType),
-                            GameStateEventDisplay.GetDisplayCategory(b.Item1.eventType),
-                            System.StringComparison.Ordinal);
-                        return sortAscending ? cmp : -cmp;
-                    });
-                    break;
-                case ActionsSortColumn.Description:
-                    allEvents.Sort((a, b) =>
-                    {
-                        int cmp = string.Compare(
-                            GameStateEventDisplay.GetDisplayDescription(a.Item1),
-                            GameStateEventDisplay.GetDisplayDescription(b.Item1),
-                            System.StringComparison.Ordinal);
-                        return sortAscending ? cmp : -cmp;
-                    });
-                    break;
-                case ActionsSortColumn.Status:
-                    allEvents.Sort((a, b) =>
-                    {
-                        int cmp = a.Item2.CompareTo(b.Item2); // false (Pending) < true (Replayed)
-                        return sortAscending ? cmp : -cmp;
-                    });
-                    break;
-            }
-
-            return allEvents;
-        }
-
         public void DrawRecordingsWindowIfOpen(Rect mainWindowRect)
         {
             if (!showRecordingsWindow)
@@ -761,7 +754,7 @@ namespace Parsek
                 recordingsWindowRect = new Rect(
                     mainWindowRect.x + mainWindowRect.width + 10,
                     mainWindowRect.y,
-                    790, recHeight);
+                    883, recHeight);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI", $"Recordings window initial position: x={recordingsWindowRect.x.ToString("F0", ic)} y={recordingsWindowRect.y.ToString("F0", ic)}");
             }
@@ -913,6 +906,15 @@ namespace Parsek
                 }
             }
 
+            // Click outside active loop period field → commit and defocus
+            if (Event.current.type == EventType.MouseDown && loopPeriodFocusedRi >= 0)
+            {
+                if (loopPeriodEditRect.width > 0 && !loopPeriodEditRect.Contains(Event.current.mousePosition))
+                {
+                    CommitLoopPeriodEdit(committed);
+                }
+            }
+
             EnsureStatusStyles();
             EnsurePhaseStyles();
             RebuildSortedIndices(committed, now);
@@ -984,7 +986,7 @@ namespace Parsek
                 GUILayout.BeginHorizontal(GUILayout.Width(ColW_Period));
                 GUILayout.FlexibleSpace();
                 GUILayout.Label(new GUIContent("Every",
-                    "Loop interval (seconds):\n  Positive: wait N seconds after end\n  Zero: restart immediately\n  Negative: overlap by N seconds"));
+                    "Loop interval between cycles.\nClick unit to cycle: sec \u2192 min \u2192 hr \u2192 auto.\n\"auto\" inherits from Settings > Looping."));
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
 
@@ -997,16 +999,92 @@ namespace Parsek
                 // Rebuild if a header click invalidated during this frame
                 RebuildSortedIndices(committed, now);
 
-                // ── Build group tree data ──────────────────────────────
-                Dictionary<string, List<int>> grpToRecs;
-                Dictionary<string, List<int>> chainToRecs;
-                Dictionary<string, List<string>> grpChildren;
-                List<string> rootGrps;
-                HashSet<string> rootChainIds;
-                BuildGroupTreeData(sortedIndices, committed, knownEmptyGroups,
-                    ParsekScenario.groupParents,
-                    out grpToRecs, out chainToRecs, out grpChildren,
-                    out rootGrps, out rootChainIds);
+                // ── Build group tree data ──────────────────────────────────
+                // group name → list of recording indices directly in that group
+                var grpToRecs = new Dictionary<string, List<int>>();
+                // chainId → list of recording indices
+                var chainToRecs = new Dictionary<string, List<int>>();
+
+                for (int row = 0; row < sortedIndices.Length; row++)
+                {
+                    int ri = sortedIndices[row];
+                    var rec = committed[ri];
+
+                    // Multi-group: recording appears in each group it belongs to
+                    if (rec.RecordingGroups != null)
+                    {
+                        for (int g = 0; g < rec.RecordingGroups.Count; g++)
+                        {
+                            string grp = rec.RecordingGroups[g];
+                            List<int> list;
+                            if (!grpToRecs.TryGetValue(grp, out list))
+                            {
+                                list = new List<int>();
+                                grpToRecs[grp] = list;
+                            }
+                            if (!list.Contains(ri)) list.Add(ri);
+                        }
+                    }
+
+                    // Build chain lookup
+                    if (!string.IsNullOrEmpty(rec.ChainId))
+                    {
+                        List<int> list;
+                        if (!chainToRecs.TryGetValue(rec.ChainId, out list))
+                        {
+                            list = new List<int>();
+                            chainToRecs[rec.ChainId] = list;
+                        }
+                        list.Add(ri);
+                    }
+                }
+
+                // Build parent → children map from hierarchy
+                var grpChildren = new Dictionary<string, List<string>>();
+                var allGrpNames = new HashSet<string>(grpToRecs.Keys);
+                foreach (var kvp in ParsekScenario.groupParents)
+                {
+                    allGrpNames.Add(kvp.Key);
+                    allGrpNames.Add(kvp.Value);
+                }
+                for (int i = 0; i < knownEmptyGroups.Count; i++)
+                    allGrpNames.Add(knownEmptyGroups[i]);
+
+                foreach (var kvp in ParsekScenario.groupParents)
+                {
+                    List<string> children;
+                    if (!grpChildren.TryGetValue(kvp.Value, out children))
+                    {
+                        children = new List<string>();
+                        grpChildren[kvp.Value] = children;
+                    }
+                    if (!children.Contains(kvp.Key)) children.Add(kvp.Key);
+                }
+                foreach (var ch in grpChildren.Values)
+                    ch.Sort(System.StringComparer.OrdinalIgnoreCase);
+
+                // Root groups: in allGrpNames but not a child in groupParents
+                var rootGrps = new List<string>();
+                foreach (var g in allGrpNames)
+                {
+                    if (!ParsekScenario.groupParents.ContainsKey(g))
+                        rootGrps.Add(g);
+                }
+                rootGrps.Sort(System.StringComparer.OrdinalIgnoreCase);
+
+                // Root chains: chains where NO member has any RecordingGroups
+                var rootChainIds = new HashSet<string>();
+                foreach (var kvp in chainToRecs)
+                {
+                    bool anyInGrp = false;
+                    for (int i = 0; i < kvp.Value.Count; i++)
+                    {
+                        var rec = committed[kvp.Value[i]];
+                        if (rec.RecordingGroups != null && rec.RecordingGroups.Count > 0)
+                        { anyInGrp = true; break; }
+                    }
+                    if (!anyInGrp) rootChainIds.Add(kvp.Key);
+                }
 
                 // ── Draw tree ─────────────────────────────────────────────
                 bool deleted = false;
@@ -1052,8 +1130,6 @@ namespace Parsek
             // Reset out-of-range state
             if (deleteConfirmIndex >= committed.Count)
                 deleteConfirmIndex = -1;
-            if (editingLoopPeriodIdx >= committed.Count)
-                editingLoopPeriodIdx = -1;
 
             // Bottom button bar
             GUILayout.Space(5);
@@ -1069,7 +1145,7 @@ namespace Parsek
                     if (showExpandedStats && recordingsWindowRect.width < 1150f)
                         recordingsWindowRect.width = 1150f;
                     else if (!showExpandedStats)
-                        recordingsWindowRect.width = 790f;
+                        recordingsWindowRect.width = 883f;
                 }
             }
 
@@ -1130,7 +1206,63 @@ namespace Parsek
             GUILayout.Label((ri + 1).ToString(), GUILayout.Width(ColW_Index));
 
             // Name (double-click to rename, deferred to next frame)
-            DrawRecordingNameCell(ri, rec, indentPx, committed);
+            // Indent inside Name column for grouped/chained recordings
+            if (indentPx > 0f) GUILayout.Space(indentPx);
+            string name = string.IsNullOrEmpty(rec.VesselName) ? "Untitled" : rec.VesselName;
+            if (renamingRecordingIdx == ri)
+            {
+                bool submitRec = Event.current.type == EventType.KeyDown &&
+                    (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter);
+                bool cancelRec = Event.current.type == EventType.KeyDown &&
+                    Event.current.keyCode == KeyCode.Escape;
+
+                GUI.SetNextControlName("RecRename");
+                renamingRecordingText = GUILayout.TextField(renamingRecordingText, GUILayout.ExpandWidth(true));
+                activeRenameRect = GUILayoutUtility.GetLastRect();
+
+                // Auto-focus once on first frame
+                if (!renamingRecordingFocused)
+                {
+                    GUI.FocusControl("RecRename");
+                    renamingRecordingFocused = true;
+                }
+
+                if (submitRec)
+                {
+                    CommitRecordingRename(committed);
+                    Event.current.Use();
+                }
+                else if (cancelRec)
+                {
+                    renamingRecordingIdx = -1;
+                    activeRenameRect = default;
+                    Event.current.Use();
+                }
+            }
+            else
+            {
+                if (GUILayout.Button(name, GUI.skin.label, GUILayout.ExpandWidth(true)))
+                {
+                    float now2 = Time.realtimeSinceStartup;
+                    if (lastClickedRecIdx == ri && now2 - lastClickTime < DoubleClickThreshold)
+                    {
+                        // Commit any active rename first
+                        if (renamingRecordingIdx >= 0)
+                            CommitRecordingRename(committed);
+                        if (renamingGroup != null)
+                            CommitGroupRename(renamingGroup);
+                        renamingRecordingIdx = ri;
+                        renamingRecordingText = rec.VesselName ?? "";
+                        renamingRecordingFocused = false;
+                        lastClickedRecIdx = -1;
+                    }
+                    else
+                    {
+                        lastClickedRecIdx = ri;
+                        lastClickTime = now2;
+                    }
+                }
+            }
 
             // Phase label
             string phaseLabel = RecordingStore.GetSegmentPhaseLabel(rec);
@@ -1204,9 +1336,9 @@ namespace Parsek
             if (loop != rec.LoopPlayback)
             {
                 rec.LoopPlayback = loop;
+                if (!loop && loopPeriodFocusedRi == ri)
+                    loopPeriodFocusedRi = -1;
                 ParsekLog.Info("UI", $"Recording '{rec.VesselName}' loop playback set to {loop}");
-                if (!loop && editingLoopPeriodIdx == ri)
-                    editingLoopPeriodIdx = -1;
             }
 
             // Period
@@ -1287,68 +1419,6 @@ namespace Parsek
             return false;
         }
 
-        /// <summary>
-        /// Draws the recording name cell with inline rename support (double-click to edit).
-        /// </summary>
-        private void DrawRecordingNameCell(int ri, RecordingStore.Recording rec, float indentPx,
-            List<RecordingStore.Recording> committed)
-        {
-            if (indentPx > 0f) GUILayout.Space(indentPx);
-            string name = string.IsNullOrEmpty(rec.VesselName) ? "Untitled" : rec.VesselName;
-            if (renamingRecordingIdx == ri)
-            {
-                bool submitRec = Event.current.type == EventType.KeyDown &&
-                    (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter);
-                bool cancelRec = Event.current.type == EventType.KeyDown &&
-                    Event.current.keyCode == KeyCode.Escape;
-
-                GUI.SetNextControlName("RecRename");
-                renamingRecordingText = GUILayout.TextField(renamingRecordingText, GUILayout.ExpandWidth(true));
-                activeRenameRect = GUILayoutUtility.GetLastRect();
-
-                if (!renamingRecordingFocused)
-                {
-                    GUI.FocusControl("RecRename");
-                    renamingRecordingFocused = true;
-                }
-
-                if (submitRec)
-                {
-                    CommitRecordingRename(committed);
-                    Event.current.Use();
-                }
-                else if (cancelRec)
-                {
-                    renamingRecordingIdx = -1;
-                    activeRenameRect = default;
-                    Event.current.Use();
-                }
-            }
-            else
-            {
-                if (GUILayout.Button(name, GUI.skin.label, GUILayout.ExpandWidth(true)))
-                {
-                    float now2 = Time.realtimeSinceStartup;
-                    if (lastClickedRecIdx == ri && now2 - lastClickTime < DoubleClickThreshold)
-                    {
-                        if (renamingRecordingIdx >= 0)
-                            CommitRecordingRename(committed);
-                        if (renamingGroup != null)
-                            CommitGroupRename(renamingGroup);
-                        renamingRecordingIdx = ri;
-                        renamingRecordingText = rec.VesselName ?? "";
-                        renamingRecordingFocused = false;
-                        lastClickedRecIdx = -1;
-                    }
-                    else
-                    {
-                        lastClickedRecIdx = ri;
-                        lastClickTime = now2;
-                    }
-                }
-            }
-        }
-
         private void ShowDeleteRecordingConfirmation(int index, string vesselName)
         {
             int capturedIndex = index;
@@ -1365,8 +1435,8 @@ namespace Parsek
                     {
                         ParsekLog.Info("UI", $"Delete confirmed for recording index={capturedIndex} name='{capturedName}'");
                         // Adjust index-based state fields
-                        AdjustIndexOnDelete(ref editingLoopPeriodIdx, capturedIndex);
                         AdjustIndexOnDelete(ref renamingRecordingIdx, capturedIndex);
+                        AdjustIndexOnDelete(ref loopPeriodFocusedRi, capturedIndex);
                         if (groupPopupRecIdx == capturedIndex) groupPopupOpen = false;
                         else if (groupPopupRecIdx > capturedIndex) groupPopupRecIdx--;
                         if (InFlight)
@@ -1687,108 +1757,6 @@ namespace Parsek
             if (grpChildren.TryGetValue(groupName, out children))
                 for (int c = 0; c < children.Count; c++)
                     CollectDescendantRecordings(children[c], grpToRecs, grpChildren, result);
-        }
-
-        /// <summary>
-        /// Builds the group/chain/hierarchy lookup structures used by the recordings window tree.
-        /// Pure data-building step with no IMGUI calls.
-        /// </summary>
-        internal static void BuildGroupTreeData(
-            int[] sortedIndices,
-            List<RecordingStore.Recording> committed,
-            List<string> emptyGroups,
-            Dictionary<string, string> groupParents,
-            out Dictionary<string, List<int>> grpToRecs,
-            out Dictionary<string, List<int>> chainToRecs,
-            out Dictionary<string, List<string>> grpChildren,
-            out List<string> rootGrps,
-            out HashSet<string> rootChainIds)
-        {
-            // group name -> list of recording indices directly in that group
-            grpToRecs = new Dictionary<string, List<int>>();
-            // chainId -> list of recording indices
-            chainToRecs = new Dictionary<string, List<int>>();
-
-            for (int row = 0; row < sortedIndices.Length; row++)
-            {
-                int ri = sortedIndices[row];
-                var rec = committed[ri];
-
-                // Multi-group: recording appears in each group it belongs to
-                if (rec.RecordingGroups != null)
-                {
-                    for (int g = 0; g < rec.RecordingGroups.Count; g++)
-                    {
-                        string grp = rec.RecordingGroups[g];
-                        List<int> list;
-                        if (!grpToRecs.TryGetValue(grp, out list))
-                        {
-                            list = new List<int>();
-                            grpToRecs[grp] = list;
-                        }
-                        if (!list.Contains(ri)) list.Add(ri);
-                    }
-                }
-
-                // Build chain lookup
-                if (!string.IsNullOrEmpty(rec.ChainId))
-                {
-                    List<int> list;
-                    if (!chainToRecs.TryGetValue(rec.ChainId, out list))
-                    {
-                        list = new List<int>();
-                        chainToRecs[rec.ChainId] = list;
-                    }
-                    list.Add(ri);
-                }
-            }
-
-            // Build parent -> children map from hierarchy
-            grpChildren = new Dictionary<string, List<string>>();
-            var allGrpNames = new HashSet<string>(grpToRecs.Keys);
-            foreach (var kvp in groupParents)
-            {
-                allGrpNames.Add(kvp.Key);
-                allGrpNames.Add(kvp.Value);
-            }
-            for (int i = 0; i < emptyGroups.Count; i++)
-                allGrpNames.Add(emptyGroups[i]);
-
-            foreach (var kvp in groupParents)
-            {
-                List<string> children;
-                if (!grpChildren.TryGetValue(kvp.Value, out children))
-                {
-                    children = new List<string>();
-                    grpChildren[kvp.Value] = children;
-                }
-                if (!children.Contains(kvp.Key)) children.Add(kvp.Key);
-            }
-            foreach (var ch in grpChildren.Values)
-                ch.Sort(System.StringComparer.OrdinalIgnoreCase);
-
-            // Root groups: in allGrpNames but not a child in groupParents
-            rootGrps = new List<string>();
-            foreach (var g in allGrpNames)
-            {
-                if (!groupParents.ContainsKey(g))
-                    rootGrps.Add(g);
-            }
-            rootGrps.Sort(System.StringComparer.OrdinalIgnoreCase);
-
-            // Root chains: chains where NO member has any RecordingGroups
-            rootChainIds = new HashSet<string>();
-            foreach (var kvp in chainToRecs)
-            {
-                bool anyInGrp = false;
-                for (int i = 0; i < kvp.Value.Count; i++)
-                {
-                    var rec = committed[kvp.Value[i]];
-                    if (rec.RecordingGroups != null && rec.RecordingGroups.Count > 0)
-                    { anyInGrp = true; break; }
-                }
-                if (!anyInGrp) rootChainIds.Add(kvp.Key);
-            }
         }
 
         private void CommitRecordingRename(List<RecordingStore.Recording> committed)
@@ -2204,7 +2172,6 @@ namespace Parsek
                 {
                     // Remove parent (root level)
                     ParsekScenario.SetGroupParent(groupPopupGroup, null);
-                    ParsekLog.Info("UI", $"Group '{groupPopupGroup}' moved to root level");
                 }
                 else
                 {
@@ -2212,7 +2179,6 @@ namespace Parsek
                     foreach (var parent in groupPopupChecked)
                     {
                         ParsekScenario.SetGroupParent(groupPopupGroup, parent);
-                        ParsekLog.Info("UI", $"Group '{groupPopupGroup}' parent set to '{parent}'");
                         break;
                     }
                 }
@@ -2229,9 +2195,6 @@ namespace Parsek
                     RecordingStore.AddChainToGroup(groupPopupChainId, g);
                 foreach (var g in removed)
                     RecordingStore.RemoveChainFromGroup(groupPopupChainId, g);
-
-                if (added.Count > 0 || removed.Count > 0)
-                    ParsekLog.Info("UI", $"Chain '{groupPopupChainId}' groups updated: +{added.Count} -{removed.Count}");
             }
             else if (groupPopupRecIdx >= 0 && groupPopupRecIdx < committed.Count)
             {
@@ -2245,9 +2208,6 @@ namespace Parsek
                     RecordingStore.AddRecordingToGroup(groupPopupRecIdx, g);
                 foreach (var g in removed)
                     RecordingStore.RemoveRecordingFromGroup(groupPopupRecIdx, g);
-
-                if (added.Count > 0 || removed.Count > 0)
-                    ParsekLog.Info("UI", $"Recording index={groupPopupRecIdx} groups updated: +{added.Count} -{removed.Count}");
             }
         }
 
@@ -2566,79 +2526,191 @@ namespace Parsek
                 content, tooltipLabelStyle);
         }
 
-        private static readonly GUIContent intervalTooltip = new GUIContent("",
-            "Loop interval (seconds):\n  Positive: wait N seconds after end\n  Zero: restart immediately\n  Negative: overlap by N seconds");
+        // --- Loop time unit helpers (internal static for testability) ---
 
-        private string FormatInterval(double interval)
+        internal static string UnitLabel(RecordingStore.LoopTimeUnit unit)
+            => unit == RecordingStore.LoopTimeUnit.Min ? "min"
+             : unit == RecordingStore.LoopTimeUnit.Hour ? "hr"
+             : unit == RecordingStore.LoopTimeUnit.Auto ? "auto"
+             : "sec";
+
+        internal static RecordingStore.LoopTimeUnit CycleRecordingUnit(RecordingStore.LoopTimeUnit u)
+            => u == RecordingStore.LoopTimeUnit.Sec ? RecordingStore.LoopTimeUnit.Min
+             : u == RecordingStore.LoopTimeUnit.Min ? RecordingStore.LoopTimeUnit.Hour
+             : u == RecordingStore.LoopTimeUnit.Hour ? RecordingStore.LoopTimeUnit.Auto
+             : RecordingStore.LoopTimeUnit.Sec;
+
+        internal static RecordingStore.LoopTimeUnit CycleDisplayUnit(RecordingStore.LoopTimeUnit u)
+            => u == RecordingStore.LoopTimeUnit.Sec ? RecordingStore.LoopTimeUnit.Min
+             : u == RecordingStore.LoopTimeUnit.Min ? RecordingStore.LoopTimeUnit.Hour
+             : RecordingStore.LoopTimeUnit.Sec;
+
+        // Auto is resolved separately by callers; falls through to seconds if called directly.
+        internal static double ConvertFromSeconds(double seconds, RecordingStore.LoopTimeUnit unit)
+            => unit == RecordingStore.LoopTimeUnit.Min ? seconds / 60.0
+             : unit == RecordingStore.LoopTimeUnit.Hour ? seconds / 3600.0
+             : seconds;
+
+        // Auto is resolved separately by callers; falls through to seconds if called directly.
+        internal static double ConvertToSeconds(double value, RecordingStore.LoopTimeUnit unit)
+            => unit == RecordingStore.LoopTimeUnit.Min ? value * 60.0
+             : unit == RecordingStore.LoopTimeUnit.Hour ? value * 3600.0
+             : value;
+
+        internal static string FormatLoopValue(double value, RecordingStore.LoopTimeUnit unit)
         {
-            string sign = interval < 0 ? "-" : "";
-            return sign + FormatDuration(System.Math.Abs(interval));
+            if (unit == RecordingStore.LoopTimeUnit.Min || unit == RecordingStore.LoopTimeUnit.Hour)
+                return value.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+            return ((long)System.Math.Truncate(value)).ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
+
+        internal static bool TryParseLoopInput(string text, RecordingStore.LoopTimeUnit unit, out double value)
+        {
+            if (unit == RecordingStore.LoopTimeUnit.Min || unit == RecordingStore.LoopTimeUnit.Hour)
+                return double.TryParse(text, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out value);
+            int intVal;
+            bool ok = int.TryParse(text, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out intVal);
+            value = intVal;
+            return ok;
+        }
+
+        // --- Loop period cell ---
 
         private void DrawLoopPeriodCell(RecordingStore.Recording rec, int ri, double dur)
         {
+            // All states use same [value area][unit button] layout to keep column alignment consistent.
+            const float unitBtnW = 40f;
+            float valueBtnW = ColW_Period - unitBtnW - 2f;
+
             if (!rec.LoopPlayback)
             {
+                // Disabled: gray out the same two-control layout
                 GUI.enabled = false;
-                GUILayout.Label("-", GUILayout.Width(ColW_Period));
+                string disabledText;
+                if (rec.LoopTimeUnit == RecordingStore.LoopTimeUnit.Auto)
+                {
+                    var settings = ParsekSettings.Current;
+                    double gv = settings != null
+                        ? ConvertFromSeconds(settings.autoLoopIntervalSeconds, settings.AutoLoopDisplayUnit) : 10;
+                    var gu = settings != null ? settings.AutoLoopDisplayUnit : RecordingStore.LoopTimeUnit.Sec;
+                    disabledText = FormatLoopValue(gv, gu);
+                }
+                else
+                {
+                    disabledText = FormatLoopValue(ConvertFromSeconds(rec.LoopIntervalSeconds, rec.LoopTimeUnit), rec.LoopTimeUnit);
+                }
+                GUILayout.TextField(disabledText, GUILayout.Width(valueBtnW));
+                GUILayout.Button(UnitLabel(rec.LoopTimeUnit), GUILayout.Width(unitBtnW));
                 GUI.enabled = true;
                 return;
             }
 
-            if (editingLoopPeriodIdx == ri)
+            if (rec.LoopTimeUnit == RecordingStore.LoopTimeUnit.Auto)
             {
-                GUI.SetNextControlName("PeriodEdit");
-                editingLoopPeriodText = GUILayout.TextField(
-                    editingLoopPeriodText, GUILayout.Width(ColW_Period));
-
-                if (Event.current.type == EventType.KeyUp &&
-                    Event.current.keyCode == KeyCode.Return &&
-                    GUI.GetNameOfFocusedControl() == "PeriodEdit")
-                {
-                    ApplyLoopIntervalEdit(rec, dur);
-                    editingLoopPeriodIdx = -1;
-                }
+                // Auto mode: disabled text field showing global value + "auto" unit button
+                var settings = ParsekSettings.Current;
+                double globalVal = settings != null
+                    ? ConvertFromSeconds(settings.autoLoopIntervalSeconds, settings.AutoLoopDisplayUnit)
+                    : 10;
+                GUI.enabled = false;
+                var globalDisplayUnit = settings != null ? settings.AutoLoopDisplayUnit : RecordingStore.LoopTimeUnit.Sec;
+                GUILayout.TextField(FormatLoopValue(globalVal, globalDisplayUnit), GUILayout.Width(valueBtnW));
+                GUI.enabled = true;
             }
             else
             {
-                var content = new GUIContent(FormatInterval(rec.LoopIntervalSeconds), intervalTooltip.tooltip);
-                if (GUILayout.Button(content, GUILayout.Width(ColW_Period)))
+                // Manual mode: editable text field with edit buffer.
+                // When not actively editing, show formatted value from model.
+                // When editing (loopPeriodFocusedRi == ri), use buffer.
+                // Commit happens via click-outside (MouseDown check at top)
+                // or Enter key.
+                if (loopPeriodFocusedRi != ri)
                 {
-                    // Save any in-progress edit on another recording
-                    if (editingLoopPeriodIdx >= 0)
+                    // Not editing: show model value, click to start editing
+                    double displayValue = ConvertFromSeconds(rec.LoopIntervalSeconds, rec.LoopTimeUnit);
+                    string displayText = FormatLoopValue(displayValue, rec.LoopTimeUnit);
+                    string controlName = "LoopPeriod_" + ri;
+                    GUI.SetNextControlName(controlName);
+                    string newText = GUILayout.TextField(displayText, GUILayout.Width(valueBtnW));
+                    if (GUI.GetNameOfFocusedControl() == controlName)
                     {
-                        var committed = RecordingStore.CommittedRecordings;
-                        if (editingLoopPeriodIdx < committed.Count)
-                        {
-                            var editRec = committed[editingLoopPeriodIdx];
-                            double editDur = editRec.EndUT - editRec.StartUT;
-                            ApplyLoopIntervalEdit(editRec, editDur);
-                        }
+                        loopPeriodEditText = newText;
+                        loopPeriodFocusedRi = ri;
+                        loopPeriodEditRect = GUILayoutUtility.GetLastRect();
+                        ParsekLog.Verbose("UI",
+                            $"Recording '{rec.VesselName}' loop period edit started: " +
+                            $"value='{newText}' unit={UnitLabel(rec.LoopTimeUnit)}");
                     }
-
-                    editingLoopPeriodIdx = ri;
-                    editingLoopPeriodText = ((int)rec.LoopIntervalSeconds).ToString();
                 }
+                else
+                {
+                    // Enter key → commit (check before TextField, which consumes KeyDown)
+                    bool submitPeriod = Event.current.type == EventType.KeyDown &&
+                        (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter);
+
+                    // Editing: use buffer, track rect for click-outside
+                    GUI.SetNextControlName("LoopPeriod_" + ri);
+                    string newText = GUILayout.TextField(loopPeriodEditText, GUILayout.Width(valueBtnW));
+                    loopPeriodEditRect = GUILayoutUtility.GetLastRect();
+                    if (newText != loopPeriodEditText)
+                        loopPeriodEditText = newText;
+
+                    if (submitPeriod)
+                    {
+                        CommitLoopPeriodEdit(RecordingStore.CommittedRecordings);
+                        Event.current.Use();
+                    }
+                }
+            }
+
+            // Unit cycling button (shared by both auto and manual modes)
+            if (GUILayout.Button(UnitLabel(rec.LoopTimeUnit), GUILayout.Width(unitBtnW)))
+            {
+                var newUnit = CycleRecordingUnit(rec.LoopTimeUnit);
+                rec.LoopTimeUnit = newUnit;
+                GUIUtility.keyboardControl = 0;
+                loopPeriodFocusedRi = -1;
+                ParsekLog.Info("UI",
+                    $"Recording '{rec.VesselName}' loop unit changed to {newUnit}");
             }
         }
 
-        private void ApplyLoopIntervalEdit(RecordingStore.Recording rec, double dur)
+        private void CommitLoopPeriodEdit(System.Collections.Generic.List<RecordingStore.Recording> committed)
         {
-            double newInterval;
-            if (double.TryParse(editingLoopPeriodText, System.Globalization.NumberStyles.Float,
-                    System.Globalization.CultureInfo.InvariantCulture, out newInterval)
-                && newInterval > -(dur - 0.001))
+            if (loopPeriodFocusedRi < 0 || loopPeriodFocusedRi >= committed.Count) { loopPeriodFocusedRi = -1; return; }
+            var rec = committed[loopPeriodFocusedRi];
+            double dur = rec.EndUT - rec.StartUT;
+            double parsed;
+            if (TryParseLoopInput(loopPeriodEditText, rec.LoopTimeUnit, out parsed))
             {
-                rec.LoopIntervalSeconds = newInterval;
+                double newSeconds = ConvertToSeconds(parsed, rec.LoopTimeUnit);
+                double minSeconds = -(dur - 1.0); // cap: -totalDuration + 1s
+                if (newSeconds < minSeconds)
+                {
+                    newSeconds = minSeconds;
+                    ParsekLog.Info("UI",
+                        $"Recording '{rec.VesselName}' loop interval clamped to " +
+                        $"{newSeconds.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}s " +
+                        $"(minimum for duration {dur.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}s)");
+                }
+                rec.LoopIntervalSeconds = newSeconds;
                 ParsekLog.Info("UI",
                     $"Recording '{rec.VesselName}' loop interval updated to " +
-                    rec.LoopIntervalSeconds.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + "s");
+                    rec.LoopIntervalSeconds.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) +
+                    $"s (display: {FormatLoopValue(ConvertFromSeconds(newSeconds, rec.LoopTimeUnit), rec.LoopTimeUnit)} " +
+                    $"{UnitLabel(rec.LoopTimeUnit)})");
             }
             else
             {
                 ParsekLog.Warn("UI",
-                    $"Rejected loop interval edit '{editingLoopPeriodText}' for recording '{rec.VesselName}'");
+                    $"Recording '{rec.VesselName}' loop interval edit rejected: " +
+                    $"invalid input '{loopPeriodEditText}' for unit {rec.LoopTimeUnit}");
             }
+            loopPeriodFocusedRi = -1;
+            loopPeriodEditRect = default;
+            GUIUtility.keyboardControl = 0;
         }
 
         private void EnsureTooltipStyle()
@@ -2713,6 +2785,27 @@ namespace Parsek
             settingsWindowHasInputLock = false;
         }
 
+        private void CommitSettingsAutoLoopEdit(ParsekSettings s)
+        {
+            double parsed;
+            if (TryParseLoopInput(settingsAutoLoopText, s.AutoLoopDisplayUnit, out parsed) && parsed >= 0)
+            {
+                // float cast: KSP GameParameters requires float; loses precision beyond ~7 digits (fine for practical intervals)
+                s.autoLoopIntervalSeconds = (float)ConvertToSeconds(parsed, s.AutoLoopDisplayUnit);
+                ParsekLog.Info("UI",
+                    $"Setting changed: autoLoopIntervalSeconds={s.autoLoopIntervalSeconds.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}s");
+            }
+            else
+            {
+                ParsekLog.Warn("UI",
+                    $"Auto-loop settings edit rejected: invalid or negative input '{settingsAutoLoopText}' " +
+                    $"for unit {UnitLabel(s.AutoLoopDisplayUnit)}");
+            }
+            settingsAutoLoopEditing = false;
+            settingsAutoLoopEditRect = default;
+            GUIUtility.keyboardControl = 0;
+        }
+
         private void DrawSettingsWindow(int windowID)
         {
             var s = ParsekSettings.Current;
@@ -2725,13 +2818,162 @@ namespace Parsek
                 return;
             }
 
-            DrawRecordingSettings(s);
+            // Click outside active settings edit field → commit
+            if (Event.current.type == EventType.MouseDown && settingsAutoLoopEditing)
+            {
+                if (settingsAutoLoopEditRect.width > 0 && !settingsAutoLoopEditRect.Contains(Event.current.mousePosition))
+                    CommitSettingsAutoLoopEdit(s);
+            }
+
+            GUILayout.Label("Recording", GUI.skin.box);
+            bool autoRecordOnLaunch = GUILayout.Toggle(s.autoRecordOnLaunch,
+                new GUIContent("Auto-record on launch", "Start recording when a vessel leaves the pad or runway"));
+            if (autoRecordOnLaunch != s.autoRecordOnLaunch)
+            {
+                s.autoRecordOnLaunch = autoRecordOnLaunch;
+                ParsekLog.Info("UI", $"Setting changed: autoRecordOnLaunch={s.autoRecordOnLaunch}");
+            }
+
+            bool autoRecordOnEva = GUILayout.Toggle(s.autoRecordOnEva,
+                new GUIContent("Auto-record on EVA", "Start recording when a kerbal goes EVA from the pad"));
+            if (autoRecordOnEva != s.autoRecordOnEva)
+            {
+                s.autoRecordOnEva = autoRecordOnEva;
+                ParsekLog.Info("UI", $"Setting changed: autoRecordOnEva={s.autoRecordOnEva}");
+            }
+
+            bool autoMerge = GUILayout.Toggle(s.autoMerge,
+                new GUIContent("Auto-merge recordings", "When off, a confirmation dialog appears after each recording"));
+            if (autoMerge != s.autoMerge)
+            {
+                s.autoMerge = autoMerge;
+                ParsekLog.Info("UI", $"Setting changed: autoMerge={s.autoMerge}");
+            }
+
             GUILayout.Space(SpacingSmall);
-            DrawDiagnosticsSettings(s);
+            GUILayout.Label("Looping", GUI.skin.box);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(new GUIContent("Auto-loop every",
+                "Default loop interval for recordings set to 'auto' unit"), GUILayout.Width(100));
+            {
+                if (!settingsAutoLoopEditing)
+                {
+                    // Not editing: show formatted value from model
+                    double displayVal = ConvertFromSeconds(s.autoLoopIntervalSeconds, s.AutoLoopDisplayUnit);
+                    string displayText = FormatLoopValue(displayVal, s.AutoLoopDisplayUnit);
+                    GUI.SetNextControlName("AutoLoopEdit");
+                    string newText = GUILayout.TextField(displayText, GUILayout.Width(45));
+                    if (GUI.GetNameOfFocusedControl() == "AutoLoopEdit")
+                    {
+                        settingsAutoLoopText = newText;
+                        settingsAutoLoopEditing = true;
+                        settingsAutoLoopEditRect = GUILayoutUtility.GetLastRect();
+                        ParsekLog.Verbose("UI",
+                            $"Auto-loop settings edit started: value='{newText}' unit={UnitLabel(s.AutoLoopDisplayUnit)}");
+                    }
+                }
+                else
+                {
+                    // Enter key → commit (check before TextField, which consumes KeyDown)
+                    bool submitAutoLoop = Event.current.type == EventType.KeyDown &&
+                        (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter);
+
+                    // Editing: use buffer, track rect for click-outside
+                    GUI.SetNextControlName("AutoLoopEdit");
+                    string newText = GUILayout.TextField(settingsAutoLoopText, GUILayout.Width(45));
+                    settingsAutoLoopEditRect = GUILayoutUtility.GetLastRect();
+                    if (newText != settingsAutoLoopText)
+                        settingsAutoLoopText = newText;
+
+                    if (submitAutoLoop)
+                    {
+                        CommitSettingsAutoLoopEdit(s);
+                        Event.current.Use();
+                    }
+                }
+
+                if (GUILayout.Button(UnitLabel(s.AutoLoopDisplayUnit), GUILayout.Width(40)))
+                {
+                    if (settingsAutoLoopEditing)
+                        CommitSettingsAutoLoopEdit(s);
+                    s.AutoLoopDisplayUnit = CycleDisplayUnit(s.AutoLoopDisplayUnit);
+                    ParsekLog.Info("UI", $"Setting changed: autoLoopDisplayUnit={s.AutoLoopDisplayUnit}");
+                }
+            }
+            GUILayout.EndHorizontal();
+
             GUILayout.Space(SpacingSmall);
-            DrawSamplingSettings(s);
+            GUILayout.Label("Diagnostics", GUI.skin.box);
+            bool verboseLogging = GUILayout.Toggle(s.verboseLogging, "Verbose logging (development default)");
+            if (verboseLogging != s.verboseLogging)
+            {
+                s.verboseLogging = verboseLogging;
+                ParsekLog.Info("UI", $"Setting changed: verboseLogging={s.verboseLogging}");
+            }
+
             GUILayout.Space(SpacingSmall);
-            DrawDataManagementSettings();
+            GUILayout.Label("Sampling", GUI.skin.box);
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label($"Max interval: {s.maxSampleInterval:F1}s", GUILayout.Width(140));
+            float maxSampleInterval = GUILayout.HorizontalSlider(s.maxSampleInterval, 1f, 10f);
+            if (Mathf.Abs(maxSampleInterval - s.maxSampleInterval) > 0.0001f)
+            {
+                s.maxSampleInterval = maxSampleInterval;
+                ParsekLog.VerboseRateLimited("UI", "sampling.maxSampleInterval",
+                    $"Setting changed: maxSampleInterval={s.maxSampleInterval:F1}s", 1.0);
+            }
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label($"Direction: {s.velocityDirThreshold:F1}\u00b0", GUILayout.Width(140));
+            float velocityDirThreshold = GUILayout.HorizontalSlider(s.velocityDirThreshold, 0.5f, 10f);
+            if (Mathf.Abs(velocityDirThreshold - s.velocityDirThreshold) > 0.0001f)
+            {
+                s.velocityDirThreshold = velocityDirThreshold;
+                ParsekLog.VerboseRateLimited("UI", "sampling.velocityDirThreshold",
+                    $"Setting changed: velocityDirThreshold={s.velocityDirThreshold:F1}", 1.0);
+            }
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label($"Speed: {s.speedChangeThreshold:F0}%", GUILayout.Width(140));
+            float speedChangeThreshold = GUILayout.HorizontalSlider(s.speedChangeThreshold, 1f, 20f);
+            if (Mathf.Abs(speedChangeThreshold - s.speedChangeThreshold) > 0.0001f)
+            {
+                s.speedChangeThreshold = speedChangeThreshold;
+                ParsekLog.VerboseRateLimited("UI", "sampling.speedChangeThreshold",
+                    $"Setting changed: speedChangeThreshold={s.speedChangeThreshold:F0}%", 1.0);
+            }
+            GUILayout.EndHorizontal();
+
+            GUILayout.Space(SpacingSmall);
+            GUILayout.Label("Data Management", GUI.skin.box);
+
+            int committedCount = RecordingStore.CommittedRecordings.Count;
+            int milestoneCount = MilestoneStore.Milestones.Count;
+
+            GUI.enabled = committedCount > 0;
+            if (GUILayout.Button($"Wipe All Recordings ({committedCount})"))
+                ShowWipeRecordingsConfirmation(committedCount);
+            GUI.enabled = true;
+
+            GUI.enabled = milestoneCount > 0;
+            if (GUILayout.Button($"Wipe All Game Actions ({milestoneCount})"))
+                ShowWipeActionsConfirmation(milestoneCount);
+            GUI.enabled = true;
+
+            if (InFlight)
+            {
+                int activeGhosts = flight.TimelineGhostCount;
+                GUI.enabled = activeGhosts > 0;
+                if (GUILayout.Button($"Despawn Ghosts ({activeGhosts})"))
+                {
+                    flight.DestroyAllTimelineGhosts();
+                    ParsekLog.Info("UI", "Ghosts despawned from settings");
+                }
+                GUI.enabled = true;
+            }
 
             GUILayout.Space(SpacingLarge);
             GUILayout.BeginHorizontal();
@@ -2741,13 +2983,13 @@ namespace Parsek
                 s.autoRecordOnLaunch = true;
                 s.autoRecordOnEva = true;
                 s.autoMerge = false;
-                s.autoWarpStop = true;
-                s.autoSplitAtAtmosphere = true;
-                s.autoSplitAtSoi = true;
                 s.verboseLogging = true;
                 s.maxSampleInterval = 3.0f;
                 s.velocityDirThreshold = 2.0f;
                 s.speedChangeThreshold = 5.0f;
+                s.autoLoopIntervalSeconds = 10.0f;
+                s.autoLoopTimeUnit = 0;
+                settingsAutoLoopEditing = false;
                 ParsekLog.Info("UI", "Settings reset to defaults");
             }
             if (GUILayout.Button("Close"))
@@ -2766,129 +3008,6 @@ namespace Parsek
 
             GUI.DragWindow();
         }
-
-        #region Settings sub-sections
-
-        private static void DrawRecordingSettings(ParsekSettings s)
-        {
-            GUILayout.Label("Recording", GUI.skin.box);
-            bool autoRecordOnLaunch = GUILayout.Toggle(s.autoRecordOnLaunch,
-                new GUIContent("Auto-record on launch", "Start recording when a vessel leaves the pad or runway"));
-            if (autoRecordOnLaunch != s.autoRecordOnLaunch)
-            {
-                s.autoRecordOnLaunch = autoRecordOnLaunch;
-                ParsekLog.Info("UI", $"Setting changed: autoRecordOnLaunch={s.autoRecordOnLaunch}");
-            }
-            bool autoRecordOnEva = GUILayout.Toggle(s.autoRecordOnEva,
-                new GUIContent("Auto-record on EVA", "Start recording when a kerbal goes EVA from the pad"));
-            if (autoRecordOnEva != s.autoRecordOnEva)
-            {
-                s.autoRecordOnEva = autoRecordOnEva;
-                ParsekLog.Info("UI", $"Setting changed: autoRecordOnEva={s.autoRecordOnEva}");
-            }
-            bool autoMerge = GUILayout.Toggle(s.autoMerge,
-                new GUIContent("Auto-merge recordings", "When off, a confirmation dialog appears after each recording"));
-            if (autoMerge != s.autoMerge)
-            {
-                s.autoMerge = autoMerge;
-                ParsekLog.Info("UI", $"Setting changed: autoMerge={s.autoMerge}");
-            }
-            bool autoWarpStop = GUILayout.Toggle(s.autoWarpStop,
-                new GUIContent("Stop time warp for ghost playback", "Exit time warp when a ghost recording is about to start playing"));
-            if (autoWarpStop != s.autoWarpStop)
-            {
-                s.autoWarpStop = autoWarpStop;
-                ParsekLog.Info("UI", $"Setting changed: autoWarpStop={s.autoWarpStop}");
-            }
-            bool autoSplitAtAtmosphere = GUILayout.Toggle(s.autoSplitAtAtmosphere,
-                new GUIContent("Auto-split at atmosphere boundary", "Split recordings when crossing the atmosphere boundary"));
-            if (autoSplitAtAtmosphere != s.autoSplitAtAtmosphere)
-            {
-                s.autoSplitAtAtmosphere = autoSplitAtAtmosphere;
-                ParsekLog.Info("UI", $"Setting changed: autoSplitAtAtmosphere={s.autoSplitAtAtmosphere}");
-            }
-            bool autoSplitAtSoi = GUILayout.Toggle(s.autoSplitAtSoi,
-                new GUIContent("Auto-split at SOI change", "Split recordings when entering a new sphere of influence"));
-            if (autoSplitAtSoi != s.autoSplitAtSoi)
-            {
-                s.autoSplitAtSoi = autoSplitAtSoi;
-                ParsekLog.Info("UI", $"Setting changed: autoSplitAtSoi={s.autoSplitAtSoi}");
-            }
-        }
-
-        private static void DrawDiagnosticsSettings(ParsekSettings s)
-        {
-            GUILayout.Label("Diagnostics", GUI.skin.box);
-            bool verboseLogging = GUILayout.Toggle(s.verboseLogging, "Verbose logging (development default)");
-            if (verboseLogging != s.verboseLogging)
-            {
-                s.verboseLogging = verboseLogging;
-                ParsekLog.Info("UI", $"Setting changed: verboseLogging={s.verboseLogging}");
-            }
-        }
-
-        private static void DrawSamplingSettings(ParsekSettings s)
-        {
-            GUILayout.Label("Sampling", GUI.skin.box);
-            GUILayout.BeginHorizontal();
-            GUILayout.Label($"Max interval: {s.maxSampleInterval:F1}s", GUILayout.Width(140));
-            float maxSampleInterval = GUILayout.HorizontalSlider(s.maxSampleInterval, 1f, 10f);
-            if (Mathf.Abs(maxSampleInterval - s.maxSampleInterval) > 0.0001f)
-            {
-                s.maxSampleInterval = maxSampleInterval;
-                ParsekLog.VerboseRateLimited("UI", "sampling.maxSampleInterval",
-                    $"Setting changed: maxSampleInterval={s.maxSampleInterval:F1}s", 1.0);
-            }
-            GUILayout.EndHorizontal();
-            GUILayout.BeginHorizontal();
-            GUILayout.Label($"Direction: {s.velocityDirThreshold:F1}\u00b0", GUILayout.Width(140));
-            float velocityDirThreshold = GUILayout.HorizontalSlider(s.velocityDirThreshold, 0.5f, 10f);
-            if (Mathf.Abs(velocityDirThreshold - s.velocityDirThreshold) > 0.0001f)
-            {
-                s.velocityDirThreshold = velocityDirThreshold;
-                ParsekLog.VerboseRateLimited("UI", "sampling.velocityDirThreshold",
-                    $"Setting changed: velocityDirThreshold={s.velocityDirThreshold:F1}", 1.0);
-            }
-            GUILayout.EndHorizontal();
-            GUILayout.BeginHorizontal();
-            GUILayout.Label($"Speed: {s.speedChangeThreshold:F0}%", GUILayout.Width(140));
-            float speedChangeThreshold = GUILayout.HorizontalSlider(s.speedChangeThreshold, 1f, 20f);
-            if (Mathf.Abs(speedChangeThreshold - s.speedChangeThreshold) > 0.0001f)
-            {
-                s.speedChangeThreshold = speedChangeThreshold;
-                ParsekLog.VerboseRateLimited("UI", "sampling.speedChangeThreshold",
-                    $"Setting changed: speedChangeThreshold={s.speedChangeThreshold:F0}%", 1.0);
-            }
-            GUILayout.EndHorizontal();
-        }
-
-        private void DrawDataManagementSettings()
-        {
-            GUILayout.Label("Data Management", GUI.skin.box);
-            int committedCount = RecordingStore.CommittedRecordings.Count;
-            int milestoneCount = MilestoneStore.Milestones.Count;
-            GUI.enabled = committedCount > 0;
-            if (GUILayout.Button($"Wipe All Recordings ({committedCount})"))
-                ShowWipeRecordingsConfirmation(committedCount);
-            GUI.enabled = true;
-            GUI.enabled = milestoneCount > 0;
-            if (GUILayout.Button($"Wipe All Game Actions ({milestoneCount})"))
-                ShowWipeActionsConfirmation(milestoneCount);
-            GUI.enabled = true;
-            if (InFlight)
-            {
-                int activeGhosts = flight.TimelineGhostCount;
-                GUI.enabled = activeGhosts > 0;
-                if (GUILayout.Button($"Despawn Ghosts ({activeGhosts})"))
-                {
-                    flight.DestroyAllTimelineGhosts();
-                    ParsekLog.Info("UI", "Ghosts despawned from settings");
-                }
-                GUI.enabled = true;
-            }
-        }
-
-        #endregion
 
         public void DrawMapMarkers()
         {

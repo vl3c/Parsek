@@ -990,11 +990,12 @@ namespace Parsek.Tests
         private const uint WheelDynamicsShowcasePidBase = 99000000;
         private const uint AnimateHeatShowcasePidBase = 99100000;
         private const uint EngineShowcasePidBase = 99200000;
+        private const uint ColorChangerShowcasePidBase = 99300000;
         // Optional companion part (e.g., kerbal actor) receives the second slot.
         // Total visible showcase row entries (indices 0-235, including inventory placement).
-        private const int ShowcaseRowCount = 237;
-        // Split showcase into two parallel lines to avoid runway clipping.
-        private static readonly int ShowcaseEntriesPerLine = (ShowcaseRowCount + 1) / 2;
+        private const int ShowcaseRowCount = 244;
+        // Split showcase into three parallel lines to avoid runway clipping.
+        private static readonly int ShowcaseEntriesPerLine = (ShowcaseRowCount + 2) / 3;
         private const double ShowcaseLineSpacingMeters = 20.0;
         // Keep showcases close to the launchpad centerline without overlapping pad geometry.
         private const double ShowcaseDistanceFromPadMeters = 200.0;
@@ -1088,6 +1089,10 @@ namespace Parsek.Tests
             { "fairingSize2", 0.22 },
             { "fairingSize3", 0.22 },
             { "fairingSize4", 0.22 },
+
+            // ── ISRU / Scanners (ModuleAnimationGroup) ──
+            { "ISRU", 1.5 },
+            { "OrbitalScanner", 0.0 },
 
             // ── Drills (surface-attach / radial) ──
             { "MiniDrill", 0.0 },
@@ -1197,6 +1202,34 @@ namespace Parsek.Tests
             { "roverWheel3", 0.0 },
             { "wheelMed", 0.0 },
 
+            // ── ColorChanger cabin lights (command pods) ──
+            { "mk1pod.v2", 0.6424 },
+            { "mk1-3pod", 1.2894 },
+            { "cupola", 0.8518 },
+            { "mk2LanderCabin.v2", 0.9019 },
+            { "Mark1Cockpit", 0.6424 },
+            { "mk2Cockpit.Standard", 0.5 },
+            { "kv1Pod", 1.025 },
+            { "kv2Pod", 1.025 },
+            { "kv3Pod", 1.025 },
+            { "landerCabinSmall", 0.625 },
+            { "Mark2Cockpit", 0.9375 },
+            { "mk2Cockpit.Inline", 1.25 },
+            { "mk3Cockpit.Shuttle", 3.1875 },
+            { "Mk2Pod", 1.0 },
+            { "crewCabin", 0.986899 },
+            { "MK1CrewCabin", 0.9375 },
+            { "mk2CrewCabin", 0.9375 },
+            { "mk3CrewCabin", 1.875 },
+            { "Large.Crewed.Lab", 1.825 },
+            { "MEMLander", 1.338 },
+            { "dockingPort2", 0.2828832 },
+            { "dockingPortLarge", 0.29 },
+
+            // ── ColorChanger EVA (kerbal helmet light) ──
+            { "kerbalEVAFuture", 0.0 },
+            { "kerbalEVAfemaleFuture", 0.0 },
+
             // ── AnimateHeat parts ──
             { "airplaneTail", 0.0 },
             { "airplaneTailB", 0.0 },
@@ -1273,6 +1306,10 @@ namespace Parsek.Tests
             { "turboJet", 0.0 },
             { "ionEngine", 0.2135562 },
 
+            // ── Engine flame showcase: LES + MH tank/engine hybrid ──
+            { "LaunchEscapeSystem", 0.0 },       // No node_stack_top; surface-attach LES tower
+            { "Size1p5.Tank.05", 0.0 },           // No node_stack_top; integrated engine tank
+
             // ── Inventory placement (kerbalEVA companion, not offset) ──
             // DeployedWeatherStn already listed above.
         };
@@ -1289,9 +1326,8 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Computes lat/lon/alt for a showcase row, splitting rows across two parallel lines.
-        /// Rows 0 to ShowcaseEntriesPerLine-1 are on the back line (200m from pad),
-        /// rows ShowcaseEntriesPerLine to ShowcaseRowCount-1 are on the front line (220m from pad).
+        /// Computes lat/lon/alt for a showcase row, splitting rows across three parallel lines.
+        /// Line 0 (back): 200m from pad, Line 1 (middle): 220m from pad, Line 2 (front): 240m from pad.
         /// </summary>
         private static void ShowcasePosition(int rowIndex, double distanceFromPadMeters,
             out double lat, out double lon, out double alt,
@@ -1437,16 +1473,17 @@ namespace Parsek.Tests
             };
         }
 
-        // Two parallel lines (rows 0-118 at 200m, rows 119-236 at 220m from pad):
+        // Three parallel lines (rows 0-80 at 200m, rows 81-161 at 220m, rows 162-242 at 240m from pad):
         // Back line — Lights: 0-5, Deployables: 6-23, Airplane Gear: 24-27, Landing Legs: 28-30,
         //   Cargo: 31-41, Engines (old unused): 42-44, Ladders: 45-46, RCS: 47-49, Fairings: 50-54,
         //   Extra Radiators: 55-56, Drills: 57-58, Deployed Science: 59-66,
-        //   Animation Group: 67-68, Parachutes: 69-73, Special Deploy Animations: 74-85,
-        //   Jettison (non-engine): 86-94, Robotics: 117-118 (partial)
-        // Front line — Robotics: 119-137, AeroSurface: 138, Robot Arm Scanners: 139-141,
-        //   Control Surfaces: 142-165, Wheel Dynamics: 166-171, AnimateHeat: 172-184,
-        //   Lights (extra): 185-188, RCS (extra): 189-190,
-        //   Engines (all 45): 191-235, Inventory Placement: 236.
+        //   Animation Group: 67-68, Parachutes: 69-73, Special Deploy Animations: 74-85 (partial)
+        // Middle line — Special Deploy (cont): 86+, Jettison (non-engine): 86-94,
+        //   ColorChanger Cabin Lights: 95-116, Robotics: 117-137, AeroSurface: 138,
+        //   Robot Arm Scanners: 139-141, Control Surfaces: 142-161 (partial)
+        // Front line — Control Surfaces (cont): 162-165, Wheel Dynamics: 166-171,
+        //   AnimateHeat: 172-184, Lights (extra): 185-188, RCS (extra): 189-190,
+        //   Engines (all 47): 191-238, EVA ColorChanger: 236, Inventory Placement: 242.
 
         internal static RecordingBuilder[] DeployableShowcaseRecordings(double baseUT = 0)
         {
@@ -1602,7 +1639,11 @@ namespace Parsek.Tests
                 BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Goliath", "turboFanSize2", 234, pidBase),
 
                 // ── Special (row 235) ──
-                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Ion", "ionEngine", 235, pidBase)
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - Ion", "ionEngine", 235, pidBase),
+
+                // ── Additional engines (rows 237-238) ──
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - LES", "LaunchEscapeSystem", 238, pidBase, isSrb: true),
+                BuildCombinedEngineShowcaseRecording(baseUT, "Part Showcase - FL-C1000 Tank", "Size1p5.Tank.05", 239, pidBase, isSrb: true)
             };
         }
 
@@ -1752,6 +1793,12 @@ namespace Parsek.Tests
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, AnimationGroupShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
                 BuildPartShowcaseRecording(baseUT, "Part Showcase - Survey Scanner", "SurveyScanner", 68,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, AnimationGroupShowcasePidBase, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ISRU", "ISRU", 240,
+                    ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, AnimationGroupShowcasePidBase, SinglePartPid,
+                    firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - Orbital Scanner", "OrbitalScanner", 241,
                     ShowcaseDistanceFromPadMeters, PartEventType.DeployableExtended, PartEventType.DeployableRetracted, AnimationGroupShowcasePidBase, SinglePartPid,
                     firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
             };
@@ -2060,45 +2107,133 @@ namespace Parsek.Tests
         {
             return new[]
             {
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Airplane Tail", "airplaneTail", 172,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
-                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Airplane Tail B", "airplaneTailB", 173,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
-                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Avionics Nose Cone", "avionicsNoseCone", 174,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
-                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Circular Intake", "CircularIntake", 175,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
-                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Mk1 Intake Fuselage", "MK1IntakeFuselage", 176,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
-                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Nacelle Body", "nacelleBody", 177,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
-                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Nose Cone Adapter", "noseConeAdapter", 178,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
-                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Pointy Nose Cone A", "pointyNoseConeA", 179,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
-                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Pointy Nose Cone B", "pointyNoseConeB", 180,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
-                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Radial Engine Body", "radialEngineBody", 181,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
-                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Ram Air Intake", "ramAirIntake", 182,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
-                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Shock Cone Intake", "shockConeIntake", 183,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
-                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5),
-                BuildPartShowcaseRecording(baseUT, "Part Showcase - AnimateHeat Standard Nose Cone", "standardNoseCone", 184,
-                    ShowcaseDistanceFromPadMeters, PartEventType.ThermalAnimationHot, PartEventType.ThermalAnimationCold, AnimateHeatShowcasePidBase, SinglePartPid,
-                    eventValue: 1f, firstEventOffsetSeconds: 0.0, onDurationSeconds: 4.5, offDurationSeconds: 1.5)
+                BuildAnimateHeat3StateShowcase(baseUT, "Part Showcase - AnimateHeat Airplane Tail", "airplaneTail", 172),
+                BuildAnimateHeat3StateShowcase(baseUT, "Part Showcase - AnimateHeat Airplane Tail B", "airplaneTailB", 173),
+                BuildAnimateHeat3StateShowcase(baseUT, "Part Showcase - AnimateHeat Avionics Nose Cone", "avionicsNoseCone", 174),
+                BuildAnimateHeat3StateShowcase(baseUT, "Part Showcase - AnimateHeat Circular Intake", "CircularIntake", 175),
+                BuildAnimateHeat3StateShowcase(baseUT, "Part Showcase - AnimateHeat Mk1 Intake Fuselage", "MK1IntakeFuselage", 176),
+                BuildAnimateHeat3StateShowcase(baseUT, "Part Showcase - AnimateHeat Nacelle Body", "nacelleBody", 177),
+                BuildAnimateHeat3StateShowcase(baseUT, "Part Showcase - AnimateHeat Nose Cone Adapter", "noseConeAdapter", 178),
+                BuildAnimateHeat3StateShowcase(baseUT, "Part Showcase - AnimateHeat Pointy Nose Cone A", "pointyNoseConeA", 179),
+                BuildAnimateHeat3StateShowcase(baseUT, "Part Showcase - AnimateHeat Pointy Nose Cone B", "pointyNoseConeB", 180),
+                BuildAnimateHeat3StateShowcase(baseUT, "Part Showcase - AnimateHeat Radial Engine Body", "radialEngineBody", 181),
+                BuildAnimateHeat3StateShowcase(baseUT, "Part Showcase - AnimateHeat Ram Air Intake", "ramAirIntake", 182),
+                BuildAnimateHeat3StateShowcase(baseUT, "Part Showcase - AnimateHeat Shock Cone Intake", "shockConeIntake", 183),
+                BuildAnimateHeat3StateShowcase(baseUT, "Part Showcase - AnimateHeat Standard Nose Cone", "standardNoseCone", 184)
+            };
+        }
+
+        /// <summary>
+        /// Builds an AnimateHeat showcase recording with a 3-state cycle:
+        /// Cold -> Medium -> Hot -> Medium -> Cold, repeating across the 24-second clip.
+        /// 10 events per recording.
+        /// </summary>
+        private static RecordingBuilder BuildAnimateHeat3StateShowcase(
+            double baseUT, string vesselName, string partName, int rowIndex)
+        {
+            double t = baseUT + 30;
+            ShowcasePosition(rowIndex, ShowcaseDistanceFromPadMeters, out double lat, out double lon, out double alt);
+            alt += ShowcaseAltitudeOffset(partName);
+
+            var b = new RecordingBuilder(vesselName)
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
+                .WithLoopPlayback(loop: true, intervalSeconds: 0.0)
+                .WithRecordingGroup("Part Showcases");
+
+            // Static trajectory (24s)
+            for (int i = 0; i <= 8; i++)
+                b.AddPoint(t + (i * 3), lat, lon, alt);
+
+            // 3-state heat cycle: Cold -> Medium -> Hot -> Medium -> Cold (repeating)
+            b.AddPartEvent(t + 0.0,  SinglePartPid, (int)PartEventType.ThermalAnimationMedium, partName, value: 0.5f);
+            b.AddPartEvent(t + 2.0,  SinglePartPid, (int)PartEventType.ThermalAnimationHot,    partName, value: 1.0f);
+            b.AddPartEvent(t + 5.0,  SinglePartPid, (int)PartEventType.ThermalAnimationMedium, partName, value: 0.5f);
+            b.AddPartEvent(t + 7.0,  SinglePartPid, (int)PartEventType.ThermalAnimationCold,   partName, value: 0.0f);
+            b.AddPartEvent(t + 10.0, SinglePartPid, (int)PartEventType.ThermalAnimationMedium, partName, value: 0.5f);
+            b.AddPartEvent(t + 12.0, SinglePartPid, (int)PartEventType.ThermalAnimationHot,    partName, value: 1.0f);
+            b.AddPartEvent(t + 15.0, SinglePartPid, (int)PartEventType.ThermalAnimationMedium, partName, value: 0.5f);
+            b.AddPartEvent(t + 17.0, SinglePartPid, (int)PartEventType.ThermalAnimationCold,   partName, value: 0.0f);
+            b.AddPartEvent(t + 20.0, SinglePartPid, (int)PartEventType.ThermalAnimationMedium, partName, value: 0.5f);
+            b.AddPartEvent(t + 22.0, SinglePartPid, (int)PartEventType.ThermalAnimationHot,    partName, value: 1.0f);
+
+            var snap = new VesselSnapshotBuilder()
+                .WithName(vesselName)
+                .WithPersistentId((uint)(AnimateHeatShowcasePidBase + rowIndex))
+                .AddPart(partName, rotation: "0,-0.7071068,0,0.7071068")
+                .AsLanded(lat, lon, alt)
+                .Build();
+
+            b.WithGhostVisualSnapshot(snap);
+
+            return b;
+        }
+
+        /// <summary>
+        /// Showcase recordings for parts with ModuleColorChanger cabin lights (Pattern A:
+        /// toggleInFlight=true, _EmissiveColor). These toggle LightOn/LightOff events to
+        /// exercise the emissive color change on command pods that use ModuleColorChanger
+        /// instead of ModuleLight.
+        /// </summary>
+        internal static RecordingBuilder[] ColorChangerShowcaseRecordings(double baseUT = 0)
+        {
+            return new[]
+            {
+                // Pattern A: Cabin lights (command pods, rows 95-100)
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Mk1 Pod", "mk1pod.v2", 95,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Mk1-3 Pod", "mk1-3pod", 96,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Cupola", "cupola", 97,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Mk2 Lander", "mk2LanderCabin.v2", 98,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Mk1 Cockpit", "Mark1Cockpit", 99,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Mk2 Cockpit", "mk2Cockpit.Standard", 100,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+
+                // Pattern A continued: MH command pods + stock cabins (rows 101-116)
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger KV-1 Pod", "kv1Pod", 101,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger KV-2 Pod", "kv2Pod", 102,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger KV-3 Pod", "kv3Pod", 103,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Mk1 Lander Can", "landerCabinSmall", 104,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Mk2 Cockpit Inline", "Mark2Cockpit", 105,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Mk2 Cockpit IVA", "mk2Cockpit.Inline", 106,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Mk3 Shuttle Cockpit", "mk3Cockpit.Shuttle", 107,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Mk2 Pod", "Mk2Pod", 108,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Crew Cabin", "crewCabin", 109,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Mk1 Crew Cabin", "MK1CrewCabin", 110,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Mk2 Crew Cabin", "mk2CrewCabin", 111,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Mk3 Crew Cabin", "mk3CrewCabin", 112,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Science Lab", "Large.Crewed.Lab", 113,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger MEM Lander", "MEMLander", 114,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Docking Port", "dockingPort2", 115,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger Docking Port Sr", "dockingPortLarge", 116,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid),
+
+                // Pattern A: EVA kerbal helmet lights (rows 236-237)
+                // Kerbals face toward pad (rotY+90°) so observer sees front, not back
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger EVA Kerbal", "kerbalEVAFuture", 236,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid,
+                    configureGhostPartNode: node => node.SetValue("rot", "0,0.7071068,0,0.7071068", true)),
+                BuildPartShowcaseRecording(baseUT, "Part Showcase - ColorChanger EVA Kerbal Female", "kerbalEVAfemaleFuture", 237,
+                    ShowcaseDistanceFromPadMeters, PartEventType.LightOn, PartEventType.LightOff, ColorChangerShowcasePidBase, SinglePartPid,
+                    configureGhostPartNode: node => node.SetValue("rot", "0,0.7071068,0,0.7071068", true))
             };
         }
 
@@ -2936,7 +3071,7 @@ namespace Parsek.Tests
         public void EngineShowcaseRecordings_BuildExpectedShape()
         {
             var recordings = EngineShowcaseRecordings(baseUT: 17000);
-            Assert.Equal(45, recordings.Length);
+            Assert.Equal(47, recordings.Length);
 
             // First entry: liquid with shroud (LV-T30) → 8 events, first is ShroudJettisoned
             var first = recordings[0].Build();
@@ -3013,7 +3148,7 @@ namespace Parsek.Tests
         public void EngineShowcaseRecordings_AllEntriesFollowExpectedEventProfiles()
         {
             var recordings = EngineShowcaseRecordings(baseUT: 17000);
-            Assert.Equal(45, recordings.Length);
+            Assert.Equal(47, recordings.Length);
 
             for (int i = 0; i < recordings.Length; i++)
             {
@@ -3340,7 +3475,7 @@ namespace Parsek.Tests
         public void AnimationGroupShowcaseRecordings_BuildExpectedShape()
         {
             var recordings = AnimationGroupShowcaseRecordings(baseUT: 17000);
-            Assert.Equal(2, recordings.Length);
+            Assert.Equal(4, recordings.Length);
 
             var first = recordings[0].Build();
             Assert.Equal("Part Showcase - Ground Anchor", first.GetValue("vesselName"));
@@ -3351,7 +3486,7 @@ namespace Parsek.Tests
             Assert.Equal(((int)PartEventType.DeployableExtended).ToString(), events[0].GetValue("type"));
             Assert.Equal(((int)PartEventType.DeployableRetracted).ToString(), events[1].GetValue("type"));
 
-            var names = new[] { "groundAnchor", "SurveyScanner" };
+            var names = new[] { "groundAnchor", "SurveyScanner", "ISRU", "OrbitalScanner" };
             for (int i = 0; i < recordings.Length; i++)
             {
                 var g = recordings[i].Build().GetNode("GHOST_VISUAL_SNAPSHOT");
@@ -3591,12 +3726,14 @@ namespace Parsek.Tests
             var first = recordings[0].Build();
             Assert.Equal("Part Showcase - AnimateHeat Airplane Tail", first.GetValue("vesselName"));
             Assert.Equal("True", first.GetValue("loopPlayback"));
-            Assert.Equal(8, first.GetNodes("PART_EVENT").Length);
+            Assert.Equal(10, first.GetNodes("PART_EVENT").Length);
 
             var firstEvents = first.GetNodes("PART_EVENT");
-            Assert.Equal(((int)PartEventType.ThermalAnimationHot).ToString(), firstEvents[0].GetValue("type"));
-            Assert.Equal(((int)PartEventType.ThermalAnimationCold).ToString(), firstEvents[1].GetValue("type"));
-            Assert.Equal("1", firstEvents[0].GetValue("value"));
+            Assert.Equal(((int)PartEventType.ThermalAnimationMedium).ToString(), firstEvents[0].GetValue("type"));
+            Assert.Equal(((int)PartEventType.ThermalAnimationHot).ToString(), firstEvents[1].GetValue("type"));
+            Assert.Equal(((int)PartEventType.ThermalAnimationMedium).ToString(), firstEvents[2].GetValue("type"));
+            Assert.Equal(((int)PartEventType.ThermalAnimationCold).ToString(), firstEvents[3].GetValue("type"));
+            Assert.Equal("0.5", firstEvents[0].GetValue("value"));
 
             var names = new[]
             {
@@ -3671,6 +3808,7 @@ namespace Parsek.Tests
                 ControlSurfaceShowcaseRecordings(17000),
                 WheelDynamicsShowcaseRecordings(17000),
                 AnimateHeatShowcaseRecordings(17000),
+                ColorChangerShowcaseRecordings(17000),
                 new[] { InventoryPlacementShowcaseRecording(17000) }
             };
 
@@ -3794,13 +3932,8 @@ namespace Parsek.Tests
                     OffEvent = PartEventType.DeployableRetracted,
                     OnValue = 0f
                 },
-                new
-                {
-                    Recordings = AnimateHeatShowcaseRecordings(17000),
-                    OnEvent = PartEventType.ThermalAnimationHot,
-                    OffEvent = PartEventType.ThermalAnimationCold,
-                    OnValue = 1.0f
-                }
+                // AnimateHeat showcases use 3-state cycle (Cold/Medium/Hot), not simple alternating.
+                // Their shape is validated in AnimateHeatShowcaseRecordings_BuildExpectedShape.
             };
 
             foreach (var category in categories)
@@ -4073,7 +4206,7 @@ namespace Parsek.Tests
         public void EngineShowcaseRecordings_AllEntriesUseDeterministicTimelineAndValues()
         {
             var recordings = EngineShowcaseRecordings(17000);
-            Assert.Equal(45, recordings.Length);
+            Assert.Equal(47, recordings.Length);
 
             var withShroudTypes = new[]
             {
@@ -4276,7 +4409,8 @@ namespace Parsek.Tests
                 RobotArmScannerShowcaseRecordings(17000),
                 ControlSurfaceShowcaseRecordings(17000),
                 WheelDynamicsShowcaseRecordings(17000),
-                AnimateHeatShowcaseRecordings(17000)
+                AnimateHeatShowcaseRecordings(17000),
+                ColorChangerShowcaseRecordings(17000)
             };
 
             foreach (var category in allShowcases)
@@ -4327,6 +4461,7 @@ namespace Parsek.Tests
                 ControlSurfaceShowcaseRecordings(17000),
                 WheelDynamicsShowcaseRecordings(17000),
                 AnimateHeatShowcaseRecordings(17000),
+                ColorChangerShowcaseRecordings(17000),
                 new[] { InventoryPlacementShowcaseRecording(17000) }
             };
 
@@ -5052,6 +5187,9 @@ namespace Parsek.Tests
             var animateHeatShowcases = AnimateHeatShowcaseRecordings(baseUT);
             for (int i = 0; i < animateHeatShowcases.Length; i++)
                 writer.AddRecording(animateHeatShowcases[i]);
+            var colorChangerShowcases = ColorChangerShowcaseRecordings(baseUT);
+            for (int i = 0; i < colorChangerShowcases.Length; i++)
+                writer.AddRecording(colorChangerShowcases[i]);
             writer.AddRecording(InventoryPlacementShowcaseRecording(baseUT));
 
             var chainSegments = EvaBoardChain(baseUT);
@@ -5098,11 +5236,12 @@ namespace Parsek.Tests
                 {
                     writer.InjectIntoSaveFile(savePath, tempPath);
 
-                    // Copy real recording sidecar files from default career
+                    // Copy real recording sidecar files from frozen fixture
                     if (realRecordingNodes.Length > 0)
                     {
-                        string defaultCareerDir = Path.Combine(kspRoot, "saves", "default");
-                        CopyRealRecordingFiles(defaultCareerDir, saveDir, realRecordingNodes);
+                        string fixtureDir = ResolveDefaultCareerFixtureDir()
+                            ?? Path.Combine(kspRoot, "saves", "default");
+                        CopyRealRecordingFiles(fixtureDir, saveDir, realRecordingNodes);
                     }
 
                     string content = File.ReadAllText(tempPath);
@@ -5329,7 +5468,10 @@ namespace Parsek.Tests
                     // Real recordings from default career (conditional)
                     if (realRecordingNodes.Length > 0)
                     {
-                        Assert.Contains("vesselName = R0", content);
+                        // Verify at least one real recording was injected by checking
+                        // for any vesselName from the first real recording node
+                        string firstRealVessel = realRecordingNodes[0].GetValue("vesselName");
+                        Assert.Contains($"vesselName = {firstRealVessel}", content);
                     }
 
                     Assert.Contains("FLIGHTSTATE", content);
@@ -5535,9 +5677,32 @@ namespace Parsek.Tests
         /// to the writer. Returns the array of RECORDING ConfigNodes that were added
         /// (empty array if the default career is absent).
         /// </summary>
+        /// <summary>
+        /// Returns the path to the frozen default career fixture directory
+        /// (Source/Parsek.Tests/Fixtures/DefaultCareer).
+        /// </summary>
+        private static string ResolveDefaultCareerFixtureDir()
+        {
+            // Test working dir is bin/Debug/net472/ — walk up to project root
+            string dir = Directory.GetCurrentDirectory();
+            for (int i = 0; i < 6; i++)
+            {
+                string candidate = Path.Combine(dir, "Source", "Parsek.Tests", "Fixtures", "DefaultCareer");
+                if (Directory.Exists(candidate))
+                    return candidate;
+                dir = Path.GetDirectoryName(dir);
+                if (dir == null) break;
+            }
+            return null;
+        }
+
         private static ConfigNode[] AddRealCareerRecordings(ScenarioWriter writer, string kspRoot)
         {
-            string defaultPersistent = Path.Combine(kspRoot, "saves", "default", "persistent.sfs");
+            // Use frozen fixture copy instead of live default career
+            string fixtureDir = ResolveDefaultCareerFixtureDir();
+            string defaultPersistent = fixtureDir != null
+                ? Path.Combine(fixtureDir, "persistent.sfs")
+                : Path.Combine(kspRoot, "saves", "default", "persistent.sfs");
             if (!File.Exists(defaultPersistent))
                 return new ConfigNode[0];
 

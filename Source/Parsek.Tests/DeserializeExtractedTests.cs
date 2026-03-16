@@ -364,9 +364,9 @@ namespace Parsek.Tests
                 var rec = new RecordingStore.Recording();
                 RecordingStore.DeserializePartEvents(node, rec);
 
-                Assert.Single(rec.PartEvents);
+                Assert.Empty(rec.PartEvents); // unknown types are now skipped
                 Assert.Contains(logLines, l =>
-                    l.Contains("Unknown PartEvent type") && l.Contains("99999"));
+                    l.Contains("Skipping unknown PartEvent type") && l.Contains("99999"));
             }
             finally
             {
