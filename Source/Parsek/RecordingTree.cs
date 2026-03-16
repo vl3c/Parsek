@@ -571,6 +571,16 @@ namespace Parsek
 
             for (int i = 0; i < bp.ChildRecordingIds.Count; i++)
                 bpNode.AddValue("childId", bp.ChildRecordingIds[i] ?? "");
+
+            // Breakup-specific metadata
+            if (bp.Type == BranchPointType.Breakup)
+            {
+                if (!string.IsNullOrEmpty(bp.BreakupCause))
+                    bpNode.AddValue("breakupCause", bp.BreakupCause);
+                bpNode.AddValue("breakupDuration", bp.BreakupDuration.ToString("R", ic));
+                bpNode.AddValue("debrisCount", bp.DebrisCount.ToString(ic));
+                bpNode.AddValue("coalesceWindow", bp.CoalesceWindow.ToString("R", ic));
+            }
         }
 
         internal static BranchPoint LoadBranchPointFrom(ConfigNode bpNode)
@@ -592,6 +602,17 @@ namespace Parsek
 
             string[] childIds = bpNode.GetValues("childId");
             bp.ChildRecordingIds = new List<string>(childIds);
+
+            // Breakup-specific metadata
+            if (bp.Type == BranchPointType.Breakup)
+            {
+                bp.BreakupCause = bpNode.GetValue("breakupCause");
+                double.TryParse(bpNode.GetValue("breakupDuration"), inv, ic, out bp.BreakupDuration);
+                int debrisCount;
+                if (int.TryParse(bpNode.GetValue("debrisCount"), NumberStyles.Integer, ic, out debrisCount))
+                    bp.DebrisCount = debrisCount;
+                double.TryParse(bpNode.GetValue("coalesceWindow"), inv, ic, out bp.CoalesceWindow);
+            }
 
             return bp;
         }
