@@ -31,6 +31,7 @@ namespace Parsek
         public List<PartEvent> PartEvents { get; } = new List<PartEvent>();
 
         // Part event tracking
+        private HashSet<uint> decoupledPartIds = new HashSet<uint>();
         private Dictionary<uint, int> parachuteStates = new Dictionary<uint, int>(); // 0=stowed, 1=semi, 2=deployed
         private HashSet<uint> jettisonedShrouds = new HashSet<uint>();
         private Dictionary<ulong, string> jettisonNameRawCache = new Dictionary<ulong, string>();
@@ -48,7 +49,7 @@ namespace Parsek
         private HashSet<ulong> deployedAeroSurfaceModules = new HashSet<ulong>();
         private HashSet<ulong> deployedControlSurfaceModules = new HashSet<ulong>();
         private HashSet<ulong> deployedRobotArmScannerModules = new HashSet<ulong>();
-        private HashSet<ulong> hotAnimateHeatModules = new HashSet<ulong>();
+        private Dictionary<ulong, HeatLevel> animateHeatLevels = new Dictionary<ulong, HeatLevel>();
 
         // Engine state tracking (key = EncodeEngineKey(pid, moduleIndex))
         private List<(Part part, ModuleEngines engine, int moduleIndex)> cachedEngines;
@@ -61,6 +62,9 @@ namespace Parsek
         private HashSet<ulong> activeRcsKeys;
         private Dictionary<ulong, float> lastRcsThrottle;
         private HashSet<ulong> loggedRcsModuleKeys = new HashSet<ulong>();
+        // RCS debounce: filters SAS micro-corrections (1-3 frames) while preserving intentional burns (>0.15s)
+        internal const int RcsDebounceFrameThreshold = 8; // ~0.15s at 50Hz
+        private Dictionary<ulong, int> rcsActiveFrameCount = new Dictionary<ulong, int>();
         // Robotics state tracking (Breaking Ground; sparse sampling to limit event volume)
         private List<(Part part, PartModule module, int moduleIndex, string moduleName)> cachedRoboticModules;
         private HashSet<ulong> activeRoboticKeys;
@@ -135,8 +139,10 @@ namespace Parsek
         private const double roboticSampleIntervalSeconds = 0.25; // 4 Hz
         private const float roboticAngularDeadbandDegrees = 0.5f;
         private const float roboticLinearDeadbandMeters = 0.01f;
-        private const float animateHeatHotThreshold = 0.75f;
-        private const float animateHeatColdThreshold = 0.10f;
+        internal const float AnimateHeatHotThreshold = 0.66f;
+        internal const float AnimateHeatHotFallbackThreshold = 0.60f; // hysteresis: fall from Hot at 0.60, rise at 0.66
+        internal const float AnimateHeatMediumThreshold = 0.33f;
+        internal const float AnimateHeatColdThreshold = 0.10f;
         private double lastRecordedUT = -1;
         private Vector3 lastRecordedVelocity;
         private ConfigNode lastGoodVesselSnapshot;
@@ -230,6 +236,25 @@ namespace Parsek
             }
             if (joint.Child.vessel.persistentId != RecordingVesselId) return;
 
+            // Skip non-structural joint breaks (e.g., wheel suspension stress)
+            // Part.attachJoint is the structural connection to parent — only that indicates real separation
+            var childAttachJoint = joint.Child.attachJoint;
+            if (!IsStructuralJointBreak(joint == childAttachJoint, childAttachJoint != null))
+            {
+                ParsekLog.VerboseRateLimited("Recorder", $"joint-break-nonstructural-{joint.Child.persistentId}",
+                    $"OnPartJointBreak: non-structural joint break on '{joint.Child.partInfo?.name}' pid={joint.Child.persistentId} (breakForce={breakForce:F1}), skipping");
+                return;
+            }
+
+            // Skip duplicate decoupled events for the same part
+            if (decoupledPartIds.Contains(joint.Child.persistentId))
+            {
+                ParsekLog.VerboseRateLimited("Recorder", $"joint-break-dup-{joint.Child.persistentId}",
+                    $"OnPartJointBreak: duplicate for already-decoupled '{joint.Child.partInfo?.name}' pid={joint.Child.persistentId}, skipping");
+                return;
+            }
+            decoupledPartIds.Add(joint.Child.persistentId);
+
             PartEvents.Add(new PartEvent
             {
                 ut = Planetarium.GetUniversalTime(),
@@ -241,6 +266,20 @@ namespace Parsek
 
             // Signal potential vessel split for deferred check by ParsekFlight
             HasPendingJointBreakCheck = true;
+        }
+
+        /// <summary>
+        /// Determines whether a joint break is structural (real separation) or non-structural
+        /// (e.g., wheel suspension stress). Only the structural attachJoint indicates real decoupling.
+        /// </summary>
+        /// <param name="brokenJointIsAttachJoint">True if the broken joint is the child's attachJoint.</param>
+        /// <param name="hasAttachJoint">True if the child part has a non-null attachJoint (false for root parts).</param>
+        internal static bool IsStructuralJointBreak(bool brokenJointIsAttachJoint, bool hasAttachJoint)
+        {
+            // If the child has no attach joint (root part), any break is structural
+            if (!hasAttachJoint) return true;
+            // Only the structural attach joint indicates real separation
+            return brokenJointIsAttachJoint;
         }
 
         /// <summary>
@@ -675,40 +714,64 @@ namespace Parsek
 
         internal static PartEvent? CheckAnimateHeatTransition(
             ulong key, uint partPersistentId, string partName,
-            bool isHot, bool isCold, float normalizedHeat,
-            HashSet<ulong> hotSet, double ut, int moduleIndex)
+            float normalizedHeat,
+            Dictionary<ulong, HeatLevel> levelMap, double ut, int moduleIndex)
         {
-            bool wasHot = hotSet.Contains(key);
+            HeatLevel current;
+            if (!levelMap.TryGetValue(key, out current))
+                current = HeatLevel.Cold;
 
-            if (isHot && !wasHot)
+            // Determine target level with hysteresis gaps:
+            // Cold-Medium: rise at 0.33, fall at 0.10 (gap [0.10, 0.33) preserves current)
+            // Medium-Hot:  rise at 0.66, fall at 0.60 (gap [0.60, 0.66) preserves current)
+            HeatLevel target;
+            if (normalizedHeat >= AnimateHeatHotThreshold)
+                target = HeatLevel.Hot;
+            else if (normalizedHeat >= AnimateHeatMediumThreshold)
             {
-                hotSet.Add(key);
-                return new PartEvent
-                {
-                    ut = ut,
-                    partPersistentId = partPersistentId,
-                    eventType = PartEventType.ThermalAnimationHot,
-                    partName = partName,
-                    value = normalizedHeat,
-                    moduleIndex = moduleIndex
-                };
+                // In the Medium zone — but check if falling from Hot with hysteresis
+                if (current == HeatLevel.Hot && normalizedHeat >= AnimateHeatHotFallbackThreshold)
+                    target = HeatLevel.Hot; // stay Hot in [0.60, 0.66) gap
+                else
+                    target = HeatLevel.Medium;
+            }
+            else if (normalizedHeat < AnimateHeatColdThreshold)
+                target = HeatLevel.Cold;
+            else
+                target = current; // hysteresis gap [0.10, 0.33) — keep current level
+
+            if (target == current)
+                return null;
+
+            levelMap[key] = target;
+
+            PartEventType eventType;
+            switch (target)
+            {
+                case HeatLevel.Hot:
+                    eventType = PartEventType.ThermalAnimationHot;
+                    break;
+                case HeatLevel.Medium:
+                    eventType = PartEventType.ThermalAnimationMedium;
+                    break;
+                default:
+                    eventType = PartEventType.ThermalAnimationCold;
+                    break;
             }
 
-            if (isCold && wasHot)
-            {
-                hotSet.Remove(key);
-                return new PartEvent
-                {
-                    ut = ut,
-                    partPersistentId = partPersistentId,
-                    eventType = PartEventType.ThermalAnimationCold,
-                    partName = partName,
-                    value = normalizedHeat,
-                    moduleIndex = moduleIndex
-                };
-            }
+            ParsekLog.Verbose("Recorder",
+                $"[Recording][AnimateHeat] Part '{partName}' pid={partPersistentId}: " +
+                $"heat level {current} -> {target} (normalizedHeat={normalizedHeat:F3})");
 
-            return null;
+            return new PartEvent
+            {
+                ut = ut,
+                partPersistentId = partPersistentId,
+                eventType = eventType,
+                partName = partName,
+                value = normalizedHeat,
+                moduleIndex = moduleIndex
+            };
         }
 
         private void CheckLightState(Vessel v)
@@ -721,26 +784,60 @@ namespace Parsek
                 Part p = v.parts[i];
                 if (p == null) continue;
 
+                bool hasModuleLight = false;
                 var light = p.FindModuleImplementing<ModuleLight>();
-                if (light == null) continue;
-
-                var evt = CheckLightTransition(
-                    p.persistentId, p.partInfo?.name ?? "unknown", light.isOn, lightsOn, ut);
-                if (evt.HasValue)
+                if (light != null)
                 {
-                    PartEvents.Add(evt.Value);
-                    ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
+                    hasModuleLight = true;
+                    var evt = CheckLightTransition(
+                        p.persistentId, p.partInfo?.name ?? "unknown", light.isOn, lightsOn, ut);
+                    if (evt.HasValue)
+                    {
+                        PartEvents.Add(evt.Value);
+                        ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
+                    }
+
+                    var blinkEvents = CheckLightBlinkTransition(
+                        p.persistentId, p.partInfo?.name ?? "unknown",
+                        light.isBlinking, light.blinkRate,
+                        blinkingLights, lightBlinkRates, ut);
+                    for (int e = 0; e < blinkEvents.Count; e++)
+                    {
+                        PartEvents.Add(blinkEvents[e]);
+                        ParsekLog.Verbose("Recorder", $"Part event: {blinkEvents[e].eventType} '{blinkEvents[e].partName}' " +
+                            $"pid={blinkEvents[e].partPersistentId} val={blinkEvents[e].value:F2}");
+                    }
                 }
 
-                var blinkEvents = CheckLightBlinkTransition(
-                    p.persistentId, p.partInfo?.name ?? "unknown",
-                    light.isBlinking, light.blinkRate,
-                    blinkingLights, lightBlinkRates, ut);
-                for (int e = 0; e < blinkEvents.Count; e++)
+                // Also check ModuleColorChanger with toggleInFlight=true (cabin lights).
+                // Parts with both ModuleLight and ModuleColorChanger toggle together via the
+                // Light action group, so the lightsOn HashSet deduplicates via partPersistentId.
+                // For parts with ONLY ModuleColorChanger, this produces the LightOn/LightOff events.
+                if (!hasModuleLight)
                 {
-                    PartEvents.Add(blinkEvents[e]);
-                    ParsekLog.Verbose("Recorder", $"Part event: {blinkEvents[e].eventType} '{blinkEvents[e].partName}' " +
-                        $"pid={blinkEvents[e].partPersistentId} val={blinkEvents[e].value:F2}");
+                    bool foundToggleableColorChanger = false;
+                    var modules = p.Modules;
+                    for (int mi = 0; mi < modules.Count; mi++)
+                    {
+                        var cc = modules[mi] as ModuleColorChanger;
+                        if (cc == null) continue;
+                        if (!cc.toggleInFlight) continue;
+
+                        foundToggleableColorChanger = true;
+                        var ccEvt = CheckLightTransition(
+                            p.persistentId, p.partInfo?.name ?? "unknown", cc.animState, lightsOn, ut);
+                        if (ccEvt.HasValue)
+                        {
+                            PartEvents.Add(ccEvt.Value);
+                            ParsekLog.Verbose("Recorder",
+                                $"ColorChanger state change: pid={p.persistentId} animState={cc.animState} " +
+                                $"event={ccEvt.Value.eventType} '{ccEvt.Value.partName}'");
+                        }
+                        break; // Only one toggleable ColorChanger per part matters
+                    }
+
+                    if (!foundToggleableColorChanger)
+                        continue;
                 }
             }
         }
@@ -1221,11 +1318,8 @@ namespace Parsek
         }
 
         internal static bool TryClassifyAnimateHeatState(
-            PartModule animateHeatModule, out bool isHot, out bool isCold,
-            out float normalizedHeat, out string sourceField)
+            PartModule animateHeatModule, out float normalizedHeat, out string sourceField)
         {
-            isHot = false;
-            isCold = false;
             normalizedHeat = 0f;
             sourceField = null;
             if (animateHeatModule == null) return false;
@@ -1251,8 +1345,6 @@ namespace Parsek
 
                 normalizedHeat = NormalizeAnimateHeatScalar(raw);
                 sourceField = candidateFields[i];
-                isHot = normalizedHeat >= animateHeatHotThreshold;
-                isCold = normalizedHeat <= animateHeatColdThreshold;
                 return true;
             }
 
@@ -1814,8 +1906,7 @@ namespace Parsek
                         continue;
 
                     if (!TryClassifyAnimateHeatState(
-                        module, out bool isHot, out bool isCold,
-                        out float normalizedHeat, out string sourceField))
+                        module, out float normalizedHeat, out string sourceField))
                     {
                         ulong diagnosticKey = EncodeEngineKey(p.persistentId, m);
                         if (loggedAnimateHeatClassificationMisses.Add(diagnosticKey))
@@ -1829,7 +1920,7 @@ namespace Parsek
                     ulong key = EncodeEngineKey(p.persistentId, m);
                     var evt = CheckAnimateHeatTransition(
                         key, p.persistentId, p.partInfo?.name ?? "unknown",
-                        isHot, isCold, normalizedHeat, hotAnimateHeatModules, ut, m);
+                        normalizedHeat, animateHeatLevels, ut, m);
                     if (evt.HasValue)
                     {
                         PartEvents.Add(evt.Value);
@@ -2306,6 +2397,24 @@ namespace Parsek
             return power;
         }
 
+        /// <summary>
+        /// Returns true when the RCS frame count has exactly reached the debounce threshold,
+        /// meaning this is the first frame where recording should start.
+        /// </summary>
+        internal static bool ShouldStartRcsRecording(int frameCount, int threshold)
+        {
+            return frameCount == threshold;
+        }
+
+        /// <summary>
+        /// Returns true when the RCS frame count is at or above the debounce threshold,
+        /// meaning the activation was sustained and is being recorded.
+        /// </summary>
+        internal static bool IsRcsRecordingSustained(int frameCount, int threshold)
+        {
+            return frameCount >= threshold;
+        }
+
         internal static List<PartEvent> CheckRcsTransition(
             ulong key, uint pid, int moduleIndex, string partName,
             bool active, float power,
@@ -2366,6 +2475,73 @@ namespace Parsek
             return events;
         }
 
+        /// <summary>
+        /// Shared RCS debounce state machine. Manages frame counting, debounce
+        /// threshold crossing, throttle change detection, and micro-correction
+        /// filtering. Returns any part events produced this frame.
+        /// </summary>
+        internal static List<PartEvent> ProcessRcsDebounce(
+            ulong key, uint pid, int moduleIndex, string partName,
+            bool active, float[] thrustForces, float thrusterPower, double ut,
+            Dictionary<ulong, int> frameCountMap,
+            HashSet<ulong> activeSet, Dictionary<ulong, float> throttleMap)
+        {
+            var events = new List<PartEvent>();
+
+            if (active)
+            {
+                int count;
+                frameCountMap.TryGetValue(key, out count);
+                count++;
+                frameCountMap[key] = count;
+
+                if (ShouldStartRcsRecording(count, RcsDebounceFrameThreshold))
+                {
+                    // Debounce threshold crossed — emit RCSActivated
+                    float power = ComputeRcsPower(thrustForces, thrusterPower);
+                    var transition = CheckRcsTransition(
+                        key, pid, moduleIndex, partName,
+                        true, power, activeSet, throttleMap, ut);
+                    events.AddRange(transition);
+                }
+                else if (count > RcsDebounceFrameThreshold)
+                {
+                    // Already recording — check for throttle changes
+                    float power = ComputeRcsPower(thrustForces, thrusterPower);
+                    var transition = CheckRcsTransition(
+                        key, pid, moduleIndex, partName,
+                        true, power, activeSet, throttleMap, ut);
+                    events.AddRange(transition);
+                }
+                // else: count < threshold, still debouncing — skip
+            }
+            else
+            {
+                // RCS not active this frame
+                int count;
+                if (frameCountMap.TryGetValue(key, out count))
+                {
+                    if (IsRcsRecordingSustained(count, RcsDebounceFrameThreshold))
+                    {
+                        // Was a sustained activation — emit RCSStopped
+                        var transition = CheckRcsTransition(
+                            key, pid, moduleIndex, partName,
+                            false, 0f, activeSet, throttleMap, ut);
+                        events.AddRange(transition);
+                    }
+                    else
+                    {
+                        // Filtered micro-correction — clean up any stale state
+                        activeSet.Remove(key);
+                        throttleMap.Remove(key);
+                    }
+                    frameCountMap.Remove(key);
+                }
+            }
+
+            return events;
+        }
+
         private void CheckRcsState(Vessel v)
         {
             if (cachedRcsModules == null) return;
@@ -2378,7 +2554,6 @@ namespace Parsek
 
                 ulong key = EncodeEngineKey(part.persistentId, moduleIndex);
                 bool active = rcs.rcs_active && rcs.rcsEnabled;
-                float power = active ? ComputeRcsPower(rcs.thrustForces, rcs.thrusterPower) : 0f;
                 if (loggedRcsModuleKeys.Add(key))
                 {
                     int thrusterCount = rcs.thrusterTransforms != null ? rcs.thrusterTransforms.Count : 0;
@@ -2387,12 +2562,13 @@ namespace Parsek
                         $"midx={moduleIndex} thrusters={thrusterCount} forces={forceCount} power={rcs.thrusterPower:F2}");
                 }
 
-                var events = CheckRcsTransition(
-                    key, part.persistentId, moduleIndex,
-                    part.partInfo?.name ?? "unknown",
-                    active, power,
-                    activeRcsKeys, lastRcsThrottle, ut);
+                uint pid = part.persistentId;
+                string partName = part.partInfo?.name ?? "unknown";
 
+                var events = ProcessRcsDebounce(
+                    key, pid, moduleIndex, partName,
+                    active, rcs.thrustForces, rcs.thrusterPower, ut,
+                    rcsActiveFrameCount, activeRcsKeys, lastRcsThrottle);
                 for (int e = 0; e < events.Count; e++)
                 {
                     PartEvents.Add(events[e]);
@@ -3317,6 +3493,7 @@ namespace Parsek
         /// </summary>
         private void ResetPartEventTrackingState(Vessel v)
         {
+            decoupledPartIds.Clear();
             parachuteStates.Clear();
             jettisonedShrouds.Clear();
             jettisonNameRawCache.Clear();
@@ -3334,7 +3511,7 @@ namespace Parsek
             deployedAeroSurfaceModules.Clear();
             deployedControlSurfaceModules.Clear();
             deployedRobotArmScannerModules.Clear();
-            hotAnimateHeatModules.Clear();
+            animateHeatLevels.Clear();
             loggedLadderClassificationMisses.Clear();
             loggedAnimationGroupClassificationMisses.Clear();
             loggedAnimateGenericClassificationMisses.Clear();
@@ -3353,6 +3530,7 @@ namespace Parsek
             cachedRcsModules = CacheRcsModules(v);
             activeRcsKeys = new HashSet<ulong>();
             lastRcsThrottle = new Dictionary<ulong, float>();
+            rcsActiveFrameCount.Clear();
             loggedRcsModuleKeys.Clear();
             cachedRoboticModules = CacheRoboticModules(v);
             activeRoboticKeys = new HashSet<ulong>();
@@ -3363,23 +3541,357 @@ namespace Parsek
                 $"Module caches seeded for vessel pid={v.persistentId}: engines={cachedEngines?.Count ?? 0}, " +
                 $"rcs={cachedRcsModules?.Count ?? 0}, robotics={cachedRoboticModules?.Count ?? 0}");
 
-            // Seed already-deployed fairings so we don't emit false events at first poll
-            if (v != null && v.parts != null)
+            // Seed all tracking sets with current part state so we don't emit
+            // false events at first poll (e.g., shrouds already jettisoned,
+            // engines already running, lights already on, etc.)
+            SeedExistingPartStates(v);
+        }
+
+        /// <summary>
+        /// Pre-populates all part-event tracking sets with the current state of
+        /// every part on the vessel. This prevents spurious events on the first
+        /// physics-frame poll when recording starts mid-flight (e.g., chain
+        /// continuation after staging, or background recorder initialization).
+        /// </summary>
+        // TODO: ~340 lines of per-part seeding logic duplicated in BackgroundRecorder.SeedBackgroundPartStates.
+        // Extract shared static helpers that take tracking set collections as parameters.
+        internal void SeedExistingPartStates(Vessel v)
+        {
+            if (v == null || v.parts == null) return;
+
+            for (int i = 0; i < v.parts.Count; i++)
             {
-                for (int i = 0; i < v.parts.Count; i++)
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                // --- Fairings ---
+                var fairing = p.FindModuleImplementing<ModuleProceduralFairing>();
+                if (fairing != null)
                 {
-                    Part p = v.parts[i];
-                    if (p == null) continue;
-                    var fairing = p.FindModuleImplementing<ModuleProceduralFairing>();
-                    if (fairing == null) continue;
                     try
                     {
                         if (fairing.GetScalar >= 0.5f)
+                        {
                             deployedFairings.Add(p.persistentId);
+                            ParsekLog.Verbose("Recorder",
+                                $"Seeded already-deployed fairing: '{p.partInfo?.name}' pid={p.persistentId}");
+                        }
                     }
                     catch { }
                 }
+
+                // --- Shrouds (ModuleJettison) ---
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    var jettison = p.Modules[m] as ModuleJettison;
+                    if (jettison == null) continue;
+
+                    if (jettison.isJettisoned)
+                    {
+                        jettisonedShrouds.Add(p.persistentId);
+                        ParsekLog.Verbose("Recorder",
+                            $"Seeded already-jettisoned shroud: '{p.partInfo?.name}' pid={p.persistentId}");
+                        break; // One jettison per part is enough for the set
+                    }
+                }
+
+                // --- Parachutes ---
+                var chute = p.FindModuleImplementing<ModuleParachute>();
+                if (chute != null)
+                {
+                    int chuteState = chute.deploymentState == ModuleParachute.deploymentStates.DEPLOYED ? 2
+                                   : chute.deploymentState == ModuleParachute.deploymentStates.SEMIDEPLOYED ? 1
+                                   : 0;
+                    if (chuteState > 0)
+                    {
+                        parachuteStates[p.persistentId] = chuteState;
+                        ParsekLog.Verbose("Recorder",
+                            $"Seeded already-deployed parachute: '{p.partInfo?.name}' pid={p.persistentId} state={chuteState}");
+                    }
+                }
+
+                // --- Deployables (solar panels, antennas, etc.) ---
+                var deployable = p.FindModuleImplementing<ModuleDeployablePart>();
+                if (deployable != null)
+                {
+                    if (deployable.deployState == ModuleDeployablePart.DeployState.EXTENDED)
+                    {
+                        extendedDeployables.Add(p.persistentId);
+                        ParsekLog.Verbose("Recorder",
+                            $"Seeded already-extended deployable: '{p.partInfo?.name}' pid={p.persistentId}");
+                    }
+                }
+
+                // --- Lights ---
+                bool hasModuleLight = false;
+                var light = p.FindModuleImplementing<ModuleLight>();
+                if (light != null)
+                {
+                    hasModuleLight = true;
+                    if (light.isOn)
+                    {
+                        lightsOn.Add(p.persistentId);
+                        ParsekLog.Verbose("Recorder",
+                            $"Seeded already-on light: '{p.partInfo?.name}' pid={p.persistentId}");
+                    }
+                    if (light.isBlinking)
+                    {
+                        blinkingLights.Add(p.persistentId);
+                        float safeBlinkRate = light.blinkRate > 0f ? light.blinkRate : 1f;
+                        lightBlinkRates[p.persistentId] = safeBlinkRate;
+                        ParsekLog.Verbose("Recorder",
+                            $"Seeded already-blinking light: '{p.partInfo?.name}' pid={p.persistentId} rate={safeBlinkRate:F2}");
+                    }
+                }
+
+                // ColorChanger-based cabin lights (only if no ModuleLight to avoid double-counting)
+                if (!hasModuleLight)
+                {
+                    for (int m = 0; m < p.Modules.Count; m++)
+                    {
+                        var cc = p.Modules[m] as ModuleColorChanger;
+                        if (cc == null || !cc.toggleInFlight) continue;
+                        if (cc.animState)
+                        {
+                            lightsOn.Add(p.persistentId);
+                            ParsekLog.Verbose("Recorder",
+                                $"Seeded already-on ColorChanger light: '{p.partInfo?.name}' pid={p.persistentId}");
+                        }
+                        break;
+                    }
+                }
+
+                // --- Landing gear ---
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    var wheel = p.Modules[m] as ModuleWheels.ModuleWheelDeployment;
+                    if (wheel == null) continue;
+                    ClassifyGearState(wheel.stateString, out bool isDeployed, out bool isRetracted);
+                    if (isDeployed)
+                    {
+                        deployedGear.Add(p.persistentId);
+                        ParsekLog.Verbose("Recorder",
+                            $"Seeded already-deployed gear: '{p.partInfo?.name}' pid={p.persistentId}");
+                    }
+                    break; // one deployment module per part
+                }
+
+                // --- Cargo bays ---
+                var cargo = p.FindModuleImplementing<ModuleCargoBay>();
+                if (cargo != null)
+                {
+                    int deployIdx = cargo.DeployModuleIndex;
+                    if (deployIdx >= 0 && deployIdx < p.Modules.Count)
+                    {
+                        var anim = p.Modules[deployIdx] as ModuleAnimateGeneric;
+                        if (anim != null)
+                        {
+                            ClassifyCargoBayState(anim.animTime, cargo.closedPosition, out bool isOpen, out bool isClosed);
+                            if (isOpen)
+                            {
+                                openCargoBays.Add(p.persistentId);
+                                ParsekLog.Verbose("Recorder",
+                                    $"Seeded already-open cargo bay: '{p.partInfo?.name}' pid={p.persistentId}");
+                            }
+                        }
+                    }
+                }
+
+                // --- Ladders ---
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    PartModule module = p.Modules[m];
+                    if (module == null) continue;
+                    if (!string.Equals(module.moduleName, "RetractableLadder", StringComparison.Ordinal))
+                        continue;
+
+                    bool ladderDeployed, ladderRetracted;
+                    if (TryClassifyRetractableLadderState(module, out ladderDeployed, out ladderRetracted) && ladderDeployed)
+                    {
+                        ulong key = EncodeEngineKey(p.persistentId, m);
+                        deployedLadders.Add(key);
+                        ParsekLog.Verbose("Recorder",
+                            $"Seeded already-deployed ladder: '{p.partInfo?.name}' pid={p.persistentId} midx={m}");
+                    }
+                    break;
+                }
+
+                // --- Animation groups, aero surfaces, control surfaces, robot arm scanners ---
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    PartModule module = p.Modules[m];
+                    if (module == null) continue;
+
+                    if (string.Equals(module.moduleName, "ModuleAnimationGroup", StringComparison.Ordinal))
+                    {
+                        bool agDeployed, agRetracted;
+                        if (TryClassifyAnimationGroupState(module, out agDeployed, out agRetracted) && agDeployed)
+                        {
+                            ulong key = EncodeEngineKey(p.persistentId, m);
+                            deployedAnimationGroups.Add(key);
+                            ParsekLog.Verbose("Recorder",
+                                $"Seeded already-deployed animation group: '{p.partInfo?.name}' pid={p.persistentId} midx={m}");
+                        }
+                    }
+                    else if (string.Equals(module.moduleName, "ModuleAeroSurface", StringComparison.Ordinal))
+                    {
+                        bool asDeployed, asRetracted;
+                        if (TryClassifyAeroSurfaceState(module, out asDeployed, out asRetracted) && asDeployed)
+                        {
+                            ulong key = EncodeEngineKey(p.persistentId, m);
+                            deployedAeroSurfaceModules.Add(key);
+                            ParsekLog.Verbose("Recorder",
+                                $"Seeded already-deployed aero surface: '{p.partInfo?.name}' pid={p.persistentId} midx={m}");
+                        }
+                    }
+                    else if (string.Equals(module.moduleName, "ModuleControlSurface", StringComparison.Ordinal))
+                    {
+                        bool csDeployed, csRetracted;
+                        if (TryClassifyControlSurfaceState(module, out csDeployed, out csRetracted) && csDeployed)
+                        {
+                            ulong key = EncodeEngineKey(p.persistentId, m);
+                            deployedControlSurfaceModules.Add(key);
+                            ParsekLog.Verbose("Recorder",
+                                $"Seeded already-deployed control surface: '{p.partInfo?.name}' pid={p.persistentId} midx={m}");
+                        }
+                    }
+                    else if (string.Equals(module.moduleName, "ModuleRobotArmScanner", StringComparison.Ordinal))
+                    {
+                        bool rasDeployed, rasRetracted;
+                        if (TryClassifyRobotArmScannerState(module, out rasDeployed, out rasRetracted) && rasDeployed)
+                        {
+                            ulong key = EncodeEngineKey(p.persistentId, m);
+                            deployedRobotArmScannerModules.Add(key);
+                            ParsekLog.Verbose("Recorder",
+                                $"Seeded already-deployed robot arm scanner: '{p.partInfo?.name}' pid={p.persistentId} midx={m}");
+                        }
+                    }
+                }
+
+                // --- AnimateGeneric (catch-all, same exclusion logic as CheckAnimateGenericState) ---
+                bool hasDeployablePart = p.FindModuleImplementing<ModuleDeployablePart>() != null;
+                bool hasWheelDeploy = p.FindModuleImplementing<ModuleWheels.ModuleWheelDeployment>() != null;
+                bool hasCargoBay = cargo != null;
+                bool hasLadder = false, hasAnimGroup = false, hasAeroSurf = false;
+                bool hasCtrlSurf = false, hasRobotArm = false, hasAnimHeat = false;
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    PartModule mod = p.Modules[m];
+                    if (mod == null) continue;
+                    if (string.Equals(mod.moduleName, "RetractableLadder", StringComparison.Ordinal)) hasLadder = true;
+                    if (string.Equals(mod.moduleName, "ModuleAnimationGroup", StringComparison.Ordinal)) hasAnimGroup = true;
+                    if (string.Equals(mod.moduleName, "ModuleAeroSurface", StringComparison.Ordinal)) hasAeroSurf = true;
+                    if (string.Equals(mod.moduleName, "ModuleControlSurface", StringComparison.Ordinal)) hasCtrlSurf = true;
+                    if (string.Equals(mod.moduleName, "ModuleRobotArmScanner", StringComparison.Ordinal)) hasRobotArm = true;
+                    if (string.Equals(mod.moduleName, "ModuleAnimateHeat", StringComparison.Ordinal)) hasAnimHeat = true;
+                }
+                if (!hasDeployablePart && !hasWheelDeploy && !hasCargoBay &&
+                    !hasLadder && !hasAnimGroup && !hasAeroSurf && !hasCtrlSurf && !hasRobotArm && !hasAnimHeat)
+                {
+                    for (int m = 0; m < p.Modules.Count; m++)
+                    {
+                        var animGeneric = p.Modules[m] as ModuleAnimateGeneric;
+                        if (animGeneric == null) continue;
+                        if (string.IsNullOrEmpty(animGeneric.animationName)) continue;
+
+                        bool agDeployed, agRetracted;
+                        if (TryClassifyAnimateGenericState(animGeneric, out agDeployed, out agRetracted) && agDeployed)
+                        {
+                            ulong key = EncodeEngineKey(p.persistentId, m);
+                            deployedAnimateGenericModules.Add(key);
+                            ParsekLog.Verbose("Recorder",
+                                $"Seeded already-deployed AnimateGeneric: '{p.partInfo?.name}' pid={p.persistentId} midx={m}");
+                        }
+                    }
+                }
             }
+
+            // --- Engines (use cached list) ---
+            if (cachedEngines != null)
+            {
+                for (int i = 0; i < cachedEngines.Count; i++)
+                {
+                    var (part, engine, moduleIndex) = cachedEngines[i];
+                    if (part == null || engine == null) continue;
+                    if (engine.EngineIgnited && engine.isOperational)
+                    {
+                        ulong key = EncodeEngineKey(part.persistentId, moduleIndex);
+                        activeEngineKeys.Add(key);
+                        lastThrottle[key] = engine.currentThrottle;
+                        ParsekLog.Verbose("Recorder",
+                            $"Seeded already-active engine: '{part.partInfo?.name}' pid={part.persistentId} midx={moduleIndex} throttle={engine.currentThrottle:F2}");
+                    }
+                }
+            }
+
+            // --- RCS (use cached list) ---
+            if (cachedRcsModules != null)
+            {
+                for (int i = 0; i < cachedRcsModules.Count; i++)
+                {
+                    var (part, rcs, moduleIndex) = cachedRcsModules[i];
+                    if (part == null || rcs == null) continue;
+                    if (rcs.rcs_active && rcs.rcsEnabled)
+                    {
+                        ulong key = EncodeEngineKey(part.persistentId, moduleIndex);
+                        activeRcsKeys.Add(key);
+                        float power = 0f;
+                        if (rcs.thrusterPower > 0f && rcs.thrustForces != null && rcs.thrustForces.Length > 0)
+                        {
+                            float sum = 0f;
+                            for (int f = 0; f < rcs.thrustForces.Length; f++)
+                                sum += rcs.thrustForces[f];
+                            power = Mathf.Clamp01(sum / (rcs.thrusterPower * rcs.thrustForces.Length));
+                        }
+                        lastRcsThrottle[key] = power;
+                        ParsekLog.Verbose("Recorder",
+                            $"Seeded already-active RCS: '{part.partInfo?.name}' pid={part.persistentId} midx={moduleIndex} power={power:F2}");
+                    }
+                }
+            }
+
+            // --- AnimateHeat (poll-based, iterate parts) ---
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    PartModule module = p.Modules[m];
+                    if (module == null) continue;
+                    if (!string.Equals(module.moduleName, "ModuleAnimateHeat", System.StringComparison.Ordinal))
+                        continue;
+                    if (!TryClassifyAnimateHeatState(module, out float normalizedHeat, out _))
+                        continue;
+                    HeatLevel level;
+                    if (normalizedHeat >= AnimateHeatHotThreshold)
+                        level = HeatLevel.Hot;
+                    else if (normalizedHeat >= AnimateHeatMediumThreshold)
+                        level = HeatLevel.Medium;
+                    else
+                        level = HeatLevel.Cold;
+                    if (level != HeatLevel.Cold)
+                    {
+                        ulong key = EncodeEngineKey(p.persistentId, m);
+                        animateHeatLevels[key] = level;
+                        ParsekLog.Verbose("Recorder",
+                            $"Seeded AnimateHeat: '{p.partInfo?.name}' pid={p.persistentId} midx={m} level={level} heat={normalizedHeat:F3}");
+                    }
+                }
+            }
+
+            // --- Robotics ---
+            // Robotics are intentionally not seeded. Most start stationary, and the
+            // IsMoving signal is transient and expensive to read reliably. The first
+            // RoboticMotionStarted event will be emitted when movement is detected.
+
+            ParsekLog.Verbose("Recorder",
+                $"Initial state seeding complete: fairings={deployedFairings.Count} shrouds={jettisonedShrouds.Count} " +
+                $"parachutes={parachuteStates.Count} deployables={extendedDeployables.Count} lights={lightsOn.Count} " +
+                $"blinks={blinkingLights.Count} gear={deployedGear.Count} cargo={openCargoBays.Count} " +
+                $"ladders={deployedLadders.Count} animGroups={deployedAnimationGroups.Count} " +
+                $"animGeneric={deployedAnimateGenericModules.Count} heat={animateHeatLevels.Count} " +
+                $"engines={activeEngineKeys.Count} rcs={activeRcsKeys.Count}");
         }
 
         /// <summary>
@@ -3798,6 +4310,9 @@ namespace Parsek
                         $"Spinning vessel detected (|angVel|={worldAngVel.magnitude:F4}), recording angular velocity for spin-forward");
                 }
             }
+
+            rcsActiveFrameCount.Clear();
+            decoupledPartIds.Clear();
 
             isOnRails = true;
             ParsekLog.Verbose("Recorder",
