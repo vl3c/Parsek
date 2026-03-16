@@ -9,7 +9,7 @@ namespace Parsek.Tests
     /// Tests for FindWaypointIndex binary search logic.
     /// Calls TrajectoryMath.FindWaypointIndex directly (exposed via InternalsVisibleTo).
     /// </summary>
-    public class WaypointSearchTests
+    public class WaypointSearchTests : IDisposable
     {
         private List<TrajectoryPoint> points;
         private int cachedIndex;
@@ -18,6 +18,12 @@ namespace Parsek.Tests
         {
             points = new List<TrajectoryPoint>();
             cachedIndex = 0;
+            ParsekLog.SuppressLogging = true;
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.ResetTestOverrides();
         }
 
         private void PopulateRecording(params double[] timestamps)
