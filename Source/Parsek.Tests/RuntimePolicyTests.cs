@@ -76,7 +76,7 @@ namespace Parsek.Tests
         public void IsAnyWarpActive_CoversRailsAndPhysicsModes(
             int currentRateIndex, float currentRate, bool expected)
         {
-            bool actual = ParsekFlight.IsAnyWarpActive(currentRateIndex, currentRate);
+            bool actual = GhostPlaybackLogic.IsAnyWarpActive(currentRateIndex, currentRate);
             Assert.Equal(expected, actual);
         }
 
@@ -90,7 +90,7 @@ namespace Parsek.Tests
         [InlineData(1000f, true)]
         public void ShouldSuppressVisualFx_ThresholdAt10x(float warpRate, bool expected)
         {
-            Assert.Equal(expected, ParsekFlight.ShouldSuppressVisualFx(warpRate));
+            Assert.Equal(expected, GhostPlaybackLogic.ShouldSuppressVisualFx(warpRate));
         }
 
         [Theory]
@@ -103,7 +103,7 @@ namespace Parsek.Tests
         [InlineData(100000f, true)]
         public void ShouldSuppressGhosts_ThresholdAt50x(float warpRate, bool expected)
         {
-            Assert.Equal(expected, ParsekFlight.ShouldSuppressGhosts(warpRate));
+            Assert.Equal(expected, GhostPlaybackLogic.ShouldSuppressGhosts(warpRate));
         }
 
         [Theory]
@@ -111,7 +111,7 @@ namespace Parsek.Tests
         [InlineData(false, false)]
         public void ShouldPauseTimelineResourceReplay_ReflectsRecordingState(bool isRecording, bool expected)
         {
-            bool actual = ParsekFlight.ShouldPauseTimelineResourceReplay(isRecording);
+            bool actual = GhostPlaybackLogic.ShouldPauseTimelineResourceReplay(isRecording);
             Assert.Equal(expected, actual);
         }
 
@@ -121,7 +121,7 @@ namespace Parsek.Tests
         public void ShouldLoopPlayback_RespectsRecordingFlag(
             bool recordingLoopPlayback, bool expected)
         {
-            bool actual = ParsekFlight.ShouldLoopPlayback(recordingLoopPlayback);
+            bool actual = GhostPlaybackLogic.ShouldLoopPlayback(recordingLoopPlayback);
             Assert.Equal(expected, actual);
         }
 
@@ -129,7 +129,7 @@ namespace Parsek.Tests
         public void ComputeTargetResourceIndex_FindsHighestPassedPoint()
         {
             var points = MakePoints(10, 20, 30, 40);
-            int target = ParsekFlight.ComputeTargetResourceIndex(points, lastAppliedResourceIndex: -1, currentUT: 29);
+            int target = GhostPlaybackLogic.ComputeTargetResourceIndex(points, lastAppliedResourceIndex: -1, currentUT: 29);
             Assert.Equal(1, target);
         }
 
@@ -137,14 +137,14 @@ namespace Parsek.Tests
         public void ComputeTargetResourceIndex_NoAdvanceWhenBeforeNextPoint()
         {
             var points = MakePoints(10, 20, 30, 40);
-            int target = ParsekFlight.ComputeTargetResourceIndex(points, lastAppliedResourceIndex: 1, currentUT: 25);
+            int target = GhostPlaybackLogic.ComputeTargetResourceIndex(points, lastAppliedResourceIndex: 1, currentUT: 25);
             Assert.Equal(1, target);
         }
 
         [Fact]
         public void ComputeScaledRcsEmissionRate_ShowcaseEnforcesVisibilityFloor()
         {
-            float rate = ParsekFlight.ComputeScaledRcsEmissionRate(
+            float rate = GhostPlaybackLogic.ComputeScaledRcsEmissionRate(
                 emissionCurve: null, power: 0.01f, emissionScale: 120f);
 
             Assert.True(rate >= 60f, $"Expected showcase emission >= 60, got {rate}");
@@ -153,7 +153,7 @@ namespace Parsek.Tests
         [Fact]
         public void ComputeScaledRcsSpeed_ShowcaseEnforcesVisibilityFloor()
         {
-            float speed = ParsekFlight.ComputeScaledRcsSpeed(
+            float speed = GhostPlaybackLogic.ComputeScaledRcsSpeed(
                 speedCurve: null, power: 0.01f, speedScale: 2.5f);
 
             Assert.True(speed >= 4f, $"Expected showcase speed >= 4, got {speed}");
@@ -162,9 +162,9 @@ namespace Parsek.Tests
         [Fact]
         public void ComputeScaledRcsRates_NonShowcaseDoesNotApplyFloors()
         {
-            float rate = ParsekFlight.ComputeScaledRcsEmissionRate(
+            float rate = GhostPlaybackLogic.ComputeScaledRcsEmissionRate(
                 emissionCurve: null, power: 0.25f, emissionScale: 1f);
-            float speed = ParsekFlight.ComputeScaledRcsSpeed(
+            float speed = GhostPlaybackLogic.ComputeScaledRcsSpeed(
                 speedCurve: null, power: 0.25f, speedScale: 1f);
 
             Assert.Equal(25f, rate);
@@ -180,7 +180,7 @@ namespace Parsek.Tests
         public void ComputeRotorDeltaDegrees_UsesRpmAndDeltaTime(
             float rpm, double deltaSeconds, float expectedDegrees)
         {
-            float actual = ParsekFlight.ComputeRotorDeltaDegrees(rpm, deltaSeconds);
+            float actual = GhostPlaybackLogic.ComputeRotorDeltaDegrees(rpm, deltaSeconds);
             Assert.Equal(expectedDegrees, actual, 0.001f);
         }
 
@@ -196,7 +196,7 @@ namespace Parsek.Tests
         public void TryComputeLoopPlaybackUT_RespectsPlaybackAndPauseWindows(
             double currentUT, bool expectedInPlayback, double expectedLoopUT, int expectedCycle)
         {
-            bool inPlayback = ParsekFlight.TryComputeLoopPlaybackUT(
+            bool inPlayback = GhostPlaybackLogic.TryComputeLoopPlaybackUT(
                 currentUT,
                 startUT: 100,
                 endUT: 120,
@@ -234,7 +234,7 @@ namespace Parsek.Tests
         {
             // 20s recording, 10s interval, cycleDuration=30
             // At t=115 (elapsed=15 into cycle 0 of range starting at 100)
-            ParsekFlight.GetActiveCycles(
+            GhostPlaybackLogic.GetActiveCycles(
                 currentUT: 115, startUT: 100, endUT: 120,
                 intervalSeconds: 10, maxCycles: 5,
                 out int first, out int last);
@@ -247,7 +247,7 @@ namespace Parsek.Tests
         {
             // 20s recording, 10s interval, cycleDuration=30
             // At t=135 (elapsed=35): cycle 1, phase=5
-            ParsekFlight.GetActiveCycles(
+            GhostPlaybackLogic.GetActiveCycles(
                 currentUT: 135, startUT: 100, endUT: 120,
                 intervalSeconds: 10, maxCycles: 5,
                 out int first, out int last);
@@ -260,7 +260,7 @@ namespace Parsek.Tests
         {
             // 20s recording, 0s interval, cycleDuration=20
             // At t=110 (elapsed=10): cycle 0, phase=10
-            ParsekFlight.GetActiveCycles(
+            GhostPlaybackLogic.GetActiveCycles(
                 currentUT: 110, startUT: 100, endUT: 120,
                 intervalSeconds: 0, maxCycles: 5,
                 out int first, out int last);
@@ -273,7 +273,7 @@ namespace Parsek.Tests
         {
             // 20s recording, 0s interval, cycleDuration=20
             // At t=145 (elapsed=45): cycle 2, phase=5
-            ParsekFlight.GetActiveCycles(
+            GhostPlaybackLogic.GetActiveCycles(
                 currentUT: 145, startUT: 100, endUT: 120,
                 intervalSeconds: 0, maxCycles: 5,
                 out int first, out int last);
@@ -289,7 +289,7 @@ namespace Parsek.Tests
             // elapsedMinusDuration=50-60=-10 → firstCycle=0
             // Cycle 0 started at 100, plays from 100..160 → phase at t=150 is 50 (still playing)
             // Cycle 1 started at 140, plays from 100..160 → phase at t=150 is 10 (playing)
-            ParsekFlight.GetActiveCycles(
+            GhostPlaybackLogic.GetActiveCycles(
                 currentUT: 150, startUT: 100, endUT: 160,
                 intervalSeconds: -20, maxCycles: 5,
                 out int first, out int last);
@@ -304,7 +304,7 @@ namespace Parsek.Tests
             // At t=145 (elapsed=45): lastCycle=floor(45/20)=2
             // elapsedMinusDuration=45-60=-15 → firstCycle=0
             // So cycles 0, 1, 2 are all active
-            ParsekFlight.GetActiveCycles(
+            GhostPlaybackLogic.GetActiveCycles(
                 currentUT: 145, startUT: 100, endUT: 160,
                 intervalSeconds: -40, maxCycles: 5,
                 out int first, out int last);
@@ -317,7 +317,7 @@ namespace Parsek.Tests
         {
             // 60s recording, -40s interval, cycleDuration=20
             // maxCycles=2, so even if 3 are active, cap to 2
-            ParsekFlight.GetActiveCycles(
+            GhostPlaybackLogic.GetActiveCycles(
                 currentUT: 145, startUT: 100, endUT: 160,
                 intervalSeconds: -40, maxCycles: 2,
                 out int first, out int last);
@@ -328,7 +328,7 @@ namespace Parsek.Tests
         [Fact]
         public void GetActiveCycles_BeforeStart_ReturnsZero()
         {
-            ParsekFlight.GetActiveCycles(
+            GhostPlaybackLogic.GetActiveCycles(
                 currentUT: 50, startUT: 100, endUT: 160,
                 intervalSeconds: -20, maxCycles: 5,
                 out int first, out int last);
@@ -341,7 +341,7 @@ namespace Parsek.Tests
         {
             // 20s recording, 1000s interval, cycleDuration=1020
             // At t=1130 (elapsed=1030): cycle 1, phase=10 (in playback)
-            ParsekFlight.GetActiveCycles(
+            GhostPlaybackLogic.GetActiveCycles(
                 currentUT: 1130, startUT: 100, endUT: 120,
                 intervalSeconds: 1000, maxCycles: 5,
                 out int first, out int last);
@@ -353,7 +353,7 @@ namespace Parsek.Tests
         public void GetActiveCycles_NearMinCycleDuration()
         {
             // 10s recording, interval = -9.999 → cycleDuration = 0.001
-            ParsekFlight.GetActiveCycles(
+            GhostPlaybackLogic.GetActiveCycles(
                 currentUT: 100.005, startUT: 100, endUT: 110,
                 intervalSeconds: -9.999, maxCycles: 5,
                 out int first, out int last);
@@ -368,7 +368,7 @@ namespace Parsek.Tests
         {
             // 20s recording, -5s interval, cycleDuration=15
             // At t=118 (elapsed=18): cycle 1, phase=3
-            bool ok = ParsekFlight.TryComputeLoopPlaybackUT(
+            bool ok = GhostPlaybackLogic.TryComputeLoopPlaybackUT(
                 currentUT: 118, startUT: 100, endUT: 120,
                 intervalSeconds: -5,
                 out double loopUT, out int cycleIndex);
@@ -385,7 +385,7 @@ namespace Parsek.Tests
         {
             // 21s recording, -20s interval, cycleDuration=1
             // At t=110 (elapsed=10): lastCycle=10, many overlapping
-            ParsekFlight.GetActiveCycles(
+            GhostPlaybackLogic.GetActiveCycles(
                 currentUT: 110, startUT: 100, endUT: 121,
                 intervalSeconds: -20, maxCycles: 5,
                 out int first, out int last);
@@ -402,7 +402,7 @@ namespace Parsek.Tests
             // At t=110 (elapsed=10): lastCycle=10
             // Without cap (maxCycles=100): firstCycle = max(0, floor((10-21)/1)+1) = 0
             // All cycles 0-10 still playing (phase < 21 for all)
-            ParsekFlight.GetActiveCycles(
+            GhostPlaybackLogic.GetActiveCycles(
                 currentUT: 110, startUT: 100, endUT: 121,
                 intervalSeconds: -20, maxCycles: 100,
                 out int first, out int last);
@@ -419,7 +419,7 @@ namespace Parsek.Tests
             // Cycle 0 started at t=100, phase=25 > 21 → expired
             // Cycle 4 started at t=104, phase=21 → exactly at boundary
             // firstCycle = max(0, floor((25-21)/1)+1) = 5
-            ParsekFlight.GetActiveCycles(
+            GhostPlaybackLogic.GetActiveCycles(
                 currentUT: 125, startUT: 100, endUT: 121,
                 intervalSeconds: -20, maxCycles: 100,
                 out int first, out int last);
@@ -433,7 +433,7 @@ namespace Parsek.Tests
         {
             // 20s recording, 0s interval → cycleDuration = 20
             // At t=120 (elapsed=20): exactly at cycle boundary
-            bool ok = ParsekFlight.TryComputeLoopPlaybackUT(
+            bool ok = GhostPlaybackLogic.TryComputeLoopPlaybackUT(
                 currentUT: 120, startUT: 100, endUT: 120,
                 intervalSeconds: 0,
                 out double loopUT, out int cycleIndex);
@@ -447,7 +447,7 @@ namespace Parsek.Tests
         {
             // 20s recording, 10s interval, cycleDuration=30
             // At t=125 (elapsed=25, cycleTime=25): phase > duration (20) → pause window
-            bool ok = ParsekFlight.TryComputeLoopPlaybackUT(
+            bool ok = GhostPlaybackLogic.TryComputeLoopPlaybackUT(
                 currentUT: 125, startUT: 100, endUT: 120,
                 intervalSeconds: 10,
                 out double loopUT, out int cycleIndex);
@@ -460,7 +460,7 @@ namespace Parsek.Tests
         public void GetActiveCycles_ZeroDuration_ReturnsZero()
         {
             // Degenerate: startUT == endUT
-            ParsekFlight.GetActiveCycles(
+            GhostPlaybackLogic.GetActiveCycles(
                 currentUT: 100, startUT: 100, endUT: 100,
                 intervalSeconds: 10, maxCycles: 5,
                 out int first, out int last);

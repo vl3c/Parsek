@@ -1008,7 +1008,7 @@ namespace Parsek
                 if (rec.LoopPlayback) continue;
                 if (rec.Points.Count < 2) continue;
 
-                int targetIndex = ParsekFlight.ComputeTargetResourceIndex(
+                int targetIndex = GhostPlaybackLogic.ComputeTargetResourceIndex(
                     rec.Points, rec.LastAppliedResourceIndex, currentUT);
 
                 if (targetIndex <= rec.LastAppliedResourceIndex)

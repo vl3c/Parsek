@@ -121,8 +121,8 @@ namespace Parsek
             double currentUT = Planetarium.GetUniversalTime();
 
             float warpRate = TimeWarp.CurrentRate;
-            bool suppressGhosts = ParsekFlight.ShouldSuppressGhosts(warpRate);
-            bool suppressVisualFx = ParsekFlight.ShouldSuppressVisualFx(warpRate);
+            bool suppressGhosts = GhostPlaybackLogic.ShouldSuppressGhosts(warpRate);
+            bool suppressVisualFx = GhostPlaybackLogic.ShouldSuppressVisualFx(warpRate);
 
             if (suppressGhosts)
             {
@@ -134,7 +134,7 @@ namespace Parsek
                     {
                         kvp.Value.ghost.SetActive(false);
                         ParsekLog.Info("KSCGhost",
-                            $"Ghost #{kvp.Key} hidden: warp {warpRate.ToString("F1", CultureInfo.InvariantCulture)}x > {ParsekFlight.GhostHideWarpThreshold}x");
+                            $"Ghost #{kvp.Key} hidden: warp {warpRate.ToString("F1", CultureInfo.InvariantCulture)}x > {GhostPlaybackLogic.GhostHideWarpThreshold}x");
                     }
                 foreach (int key in new List<int>(kscOverlapGhosts.Keys))
                     DestroyAllKscOverlapGhosts(key);
@@ -249,11 +249,11 @@ namespace Parsek
 
                 // Distance culling: skip expensive part events for ghosts too far from camera
                 if (IsGhostInCullRange(state.ghost))
-                    ParsekFlight.ApplyPartEvents(recIdx, rec, targetUT, state);
+                    GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, targetUT, state);
                 if (suppressVisualFx)
-                    ParsekFlight.StopAllRcsEmissions(state);
+                    GhostPlaybackLogic.StopAllRcsEmissions(state);
                 else
-                    ParsekFlight.RestoreAllRcsEmissions(state);
+                    GhostPlaybackLogic.RestoreAllRcsEmissions(state);
 
                 if (!state.explosionFired && targetUT >= rec.EndUT)
                     TriggerExplosionIfDestroyed(state, rec, recIdx);
@@ -267,7 +267,7 @@ namespace Parsek
                     if (!state.pauseHidden)
                     {
                         state.pauseHidden = true;
-                        ParsekFlight.HideAllGhostParts(state);
+                        GhostPlaybackLogic.HideAllGhostParts(state);
                         ParsekLog.Verbose("KSCGhost",
                             $"Ghost #{recIdx} \"{rec.VesselName}\" hidden during loop pause window");
                     }
@@ -308,7 +308,7 @@ namespace Parsek
             if (cycleDuration < MinCycleDuration) cycleDuration = MinCycleDuration;
 
             int firstCycle, lastCycle;
-            ParsekFlight.GetActiveCycles(currentUT, rec.StartUT, rec.EndUT,
+            GhostPlaybackLogic.GetActiveCycles(currentUT, rec.StartUT, rec.EndUT,
                 intervalSeconds, MaxOverlapGhostsPerRecording, out firstCycle, out lastCycle);
 
             // Ensure overlap list exists
@@ -358,11 +358,11 @@ namespace Parsek
                     ref primaryState.playbackIndex, loopUT, srfRel);
 
                 if (IsGhostInCullRange(primaryState.ghost))
-                    ParsekFlight.ApplyPartEvents(recIdx, rec, loopUT, primaryState);
+                    GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, loopUT, primaryState);
                 if (suppressVisualFx)
-                    ParsekFlight.StopAllRcsEmissions(primaryState);
+                    GhostPlaybackLogic.StopAllRcsEmissions(primaryState);
                 else
-                    ParsekFlight.RestoreAllRcsEmissions(primaryState);
+                    GhostPlaybackLogic.RestoreAllRcsEmissions(primaryState);
 
                 if (!primaryState.explosionFired && phase >= duration)
                     TriggerExplosionIfDestroyed(primaryState, rec, recIdx);
@@ -403,11 +403,11 @@ namespace Parsek
                     ref ovState.playbackIndex, loopUT, srfRel);
 
                 if (IsGhostInCullRange(ovState.ghost))
-                    ParsekFlight.ApplyPartEvents(recIdx, rec, loopUT, ovState);
+                    GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, loopUT, ovState);
                 if (suppressVisualFx)
-                    ParsekFlight.StopAllRcsEmissions(ovState);
+                    GhostPlaybackLogic.StopAllRcsEmissions(ovState);
                 else
-                    ParsekFlight.RestoreAllRcsEmissions(ovState);
+                    GhostPlaybackLogic.RestoreAllRcsEmissions(ovState);
             }
         }
 
@@ -561,7 +561,7 @@ namespace Parsek
             if (buildResult.colorChangerInfos != null)
                 state.colorChangerInfos = GhostVisualBuilder.GroupColorChangersByPartId(buildResult.colorChangerInfos);
 
-            ParsekFlight.InitializeInventoryPlacementVisibility(rec, state);
+            GhostPlaybackLogic.InitializeInventoryPlacementVisibility(rec, state);
 
             ParsekLog.Info("KSCGhost",
                 $"Ghost #{index} \"{rec.VesselName}\" spawned" +
@@ -770,7 +770,7 @@ namespace Parsek
         {
             double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
                                     ?? DefaultLoopIntervalSeconds;
-            return ParsekFlight.ResolveLoopInterval(
+            return GhostPlaybackLogic.ResolveLoopInterval(
                 rec, globalInterval, DefaultLoopIntervalSeconds, MinCycleDuration);
         }
 
@@ -785,12 +785,12 @@ namespace Parsek
             if (state.explosionFired) return;
             if (rec.TerminalStateValue != TerminalState.Destroyed) return;
 
-            if (ParsekFlight.ShouldSuppressVisualFx(TimeWarp.CurrentRate))
+            if (GhostPlaybackLogic.ShouldSuppressVisualFx(TimeWarp.CurrentRate))
             {
                 state.explosionFired = true;
-                ParsekFlight.HideAllGhostParts(state);
+                GhostPlaybackLogic.HideAllGhostParts(state);
                 ParsekLog.VerboseRateLimited("KSCGhost", $"explosion-suppress-{recIdx}",
-                    $"Explosion suppressed for ghost #{recIdx} \"{rec.VesselName}\": warp > {ParsekFlight.FxSuppressWarpThreshold}x");
+                    $"Explosion suppressed for ghost #{recIdx} \"{rec.VesselName}\": warp > {GhostPlaybackLogic.FxSuppressWarpThreshold}x");
                 return;
             }
 
@@ -809,7 +809,7 @@ namespace Parsek
             if (explosion != null)
                 Destroy(explosion, 6f);
 
-            ParsekFlight.HideAllGhostParts(state);
+            GhostPlaybackLogic.HideAllGhostParts(state);
         }
 
         /// <summary>
@@ -825,7 +825,7 @@ namespace Parsek
             // Stop RCS particle systems
             StopRcsParticleSystems(state.rcsInfos);
 
-            ParsekFlight.DestroyAllFakeCanopies(state);
+            GhostPlaybackLogic.DestroyAllFakeCanopies(state);
 
             if (state.ghost != null)
                 Destroy(state.ghost);

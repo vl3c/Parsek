@@ -326,45 +326,45 @@ namespace Parsek.Tests
         public void WatchCycleOnRebuild_NotWatching_Unchanged()
         {
             // Not watching — value passes through unchanged
-            Assert.Equal(5, ParsekFlight.ComputeWatchCycleOnLoopRebuild(5, false, true, false));
-            Assert.Equal(-1, ParsekFlight.ComputeWatchCycleOnLoopRebuild(-1, false, false, false));
+            Assert.Equal(5, GhostPlaybackLogic.ComputeWatchCycleOnLoopRebuild(5, false, true, false));
+            Assert.Equal(-1, GhostPlaybackLogic.ComputeWatchCycleOnLoopRebuild(-1, false, false, false));
         }
 
         [Fact]
         public void WatchCycleOnRebuild_Watching_NeedsExplosion_NotPaused_ReturnsHold()
         {
             // Watching, fresh explosion needed, not in pause window → -2 (hold)
-            Assert.Equal(-2, ParsekFlight.ComputeWatchCycleOnLoopRebuild(3, true, true, false));
+            Assert.Equal(-2, GhostPlaybackLogic.ComputeWatchCycleOnLoopRebuild(3, true, true, false));
         }
 
         [Fact]
         public void WatchCycleOnRebuild_Watching_NeedsExplosion_InPauseWindow_ReturnsReady()
         {
             // Watching, explosion needed but we're in pause window → -1 (ready for re-target)
-            Assert.Equal(-1, ParsekFlight.ComputeWatchCycleOnLoopRebuild(3, true, true, true));
+            Assert.Equal(-1, GhostPlaybackLogic.ComputeWatchCycleOnLoopRebuild(3, true, true, true));
         }
 
         [Fact]
         public void WatchCycleOnRebuild_Watching_ExplosionAlreadyFired_ReturnsReady()
         {
             // Watching, explosion already fired (e.g. during pause window with time warp) → -1
-            Assert.Equal(-1, ParsekFlight.ComputeWatchCycleOnLoopRebuild(3, true, false, false));
+            Assert.Equal(-1, GhostPlaybackLogic.ComputeWatchCycleOnLoopRebuild(3, true, false, false));
         }
 
         [Fact]
         public void WatchCycleOnRebuild_Watching_NoExplosionTerminal_ReturnsReady()
         {
             // Watching, non-explosion terminal state (e.g. Landed) → -1
-            Assert.Equal(-1, ParsekFlight.ComputeWatchCycleOnLoopRebuild(0, true, false, false));
+            Assert.Equal(-1, GhostPlaybackLogic.ComputeWatchCycleOnLoopRebuild(0, true, false, false));
         }
 
         [Fact]
         public void WatchCycleOnRebuild_Watching_AlreadyInHold_StaysInHold()
         {
             // Already in hold (-2) — don't restart, let existing hold expire
-            Assert.Equal(-2, ParsekFlight.ComputeWatchCycleOnLoopRebuild(-2, true, false, false));
+            Assert.Equal(-2, GhostPlaybackLogic.ComputeWatchCycleOnLoopRebuild(-2, true, false, false));
             // Even if a new explosion is needed, don't restart the hold
-            Assert.Equal(-2, ParsekFlight.ComputeWatchCycleOnLoopRebuild(-2, true, true, false));
+            Assert.Equal(-2, GhostPlaybackLogic.ComputeWatchCycleOnLoopRebuild(-2, true, true, false));
         }
 
         #endregion
