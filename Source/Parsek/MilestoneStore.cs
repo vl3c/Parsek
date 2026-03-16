@@ -199,6 +199,35 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Builds a milestone-id-to-lastReplayedIndex map from MILESTONE_STATE ConfigNodes.
+        /// Pure function — operates only on the provided nodes.
+        /// </summary>
+        internal static Dictionary<string, int> BuildStateMap(ConfigNode[] stateNodes)
+        {
+            var stateMap = new Dictionary<string, int>();
+            if (stateNodes == null) return stateMap;
+
+            for (int i = 0; i < stateNodes.Length; i++)
+            {
+                string id = stateNodes[i].GetValue("id");
+                string idxStr = stateNodes[i].GetValue("lastReplayedIdx");
+                if (id != null && idxStr != null)
+                {
+                    int idx;
+                    if (int.TryParse(idxStr, System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture, out idx))
+                    {
+                        stateMap[id] = idx;
+                    }
+                }
+            }
+
+            ParsekLog.Verbose("MilestoneStore",
+                $"BuildStateMap: parsed {stateMap.Count} entries from {stateNodes.Length} MILESTONE_STATE nodes");
+            return stateMap;
+        }
+
+        /// <summary>
         /// Restores mutable milestone state (LastReplayedEventIndex) from the .sfs
         /// scenario node. When resetUnmatched is true (revert path), milestones not
         /// found in the saved state are reset to -1 (unreplayed) — these are milestones
@@ -213,25 +242,7 @@ namespace Parsek
             }
 
             ConfigNode[] stateNodes = scenarioNode.GetNodes("MILESTONE_STATE");
-
-            var stateMap = new Dictionary<string, int>();
-            if (stateNodes != null)
-            {
-                for (int i = 0; i < stateNodes.Length; i++)
-                {
-                    string id = stateNodes[i].GetValue("id");
-                    string idxStr = stateNodes[i].GetValue("lastReplayedIdx");
-                    if (id != null && idxStr != null)
-                    {
-                        int idx;
-                        if (int.TryParse(idxStr, System.Globalization.NumberStyles.Integer,
-                            System.Globalization.CultureInfo.InvariantCulture, out idx))
-                        {
-                            stateMap[id] = idx;
-                        }
-                    }
-                }
-            }
+            var stateMap = BuildStateMap(stateNodes);
 
             ParsekLog.Verbose("MilestoneStore",
                 $"RestoreMutableState: {stateMap.Count} saved states, {milestones.Count} milestones, resetUnmatched={resetUnmatched}");
@@ -376,6 +387,8 @@ namespace Parsek
                     }
                 }
             }
+            ParsekLog.Verbose("MilestoneStore",
+                $"RemoveCommittedEvent: no match for {target.eventType} key='{target.key}' ut={target.ut:F1} in epoch={CurrentEpoch}");
             return false;
         }
 

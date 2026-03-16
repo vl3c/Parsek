@@ -80,54 +80,7 @@ namespace Parsek
             var recordings = RecordingStore.CommittedRecordings;
             ParsekLog.Info("Scenario", $"OnSave: saving {recordings.Count} committed recordings, epoch={MilestoneStore.CurrentEpoch}");
 
-            for (int r = 0; r < recordings.Count; r++)
-            {
-                var rec = recordings[r];
-
-                // Skip tree recordings — they are saved under RECORDING_TREE nodes below
-                if (rec.TreeId != null)
-                    continue;
-
-                ConfigNode recNode = node.AddNode("RECORDING");
-
-                // Write bulk data to external files
-                if (!RecordingStore.SaveRecordingFiles(rec))
-                    ScenarioLog($"[Parsek Scenario] WARNING: File write failed for '{rec.VesselName}'");
-
-                SaveRecordingMetadata(recNode, rec);
-                recNode.AddValue("vesselName", rec.VesselName);
-                recNode.AddValue("pointCount", rec.Points.Count);
-
-                // Persist EVA child recording linkage
-                if (!string.IsNullOrEmpty(rec.ParentRecordingId))
-                    recNode.AddValue("parentRecordingId", rec.ParentRecordingId);
-                if (!string.IsNullOrEmpty(rec.EvaCrewName))
-                    recNode.AddValue("evaCrewName", rec.EvaCrewName);
-
-                // Persist chain linkage
-                if (!string.IsNullOrEmpty(rec.ChainId))
-                    recNode.AddValue("chainId", rec.ChainId);
-                if (rec.ChainIndex >= 0)
-                    recNode.AddValue("chainIndex", rec.ChainIndex);
-                if (rec.ChainBranch > 0)
-                    recNode.AddValue("chainBranch", rec.ChainBranch);
-
-                // Persist spawned vessel pid so we can detect duplicates after scene changes
-                if (rec.SpawnedVesselPersistentId != 0)
-                    recNode.AddValue("spawnedPid", rec.SpawnedVesselPersistentId);
-
-                if (rec.VesselDestroyed)
-                    recNode.AddValue("vesselDestroyed", rec.VesselDestroyed.ToString());
-
-                // Persist terminal state + vessel PID for standalone recordings
-                if (rec.TerminalStateValue.HasValue)
-                    recNode.AddValue("terminalState", ((int)rec.TerminalStateValue.Value).ToString(CultureInfo.InvariantCulture));
-                if (rec.VesselPersistentId != 0)
-                    recNode.AddValue("vesselPersistentId", rec.VesselPersistentId.ToString(CultureInfo.InvariantCulture));
-
-                // Persist resource index so quickload doesn't re-apply deltas
-                recNode.AddValue("lastResIdx", rec.LastAppliedResourceIndex);
-            }
+            SaveStandaloneRecordings(node, recordings);
 
             // Save committed recording trees
             node.RemoveNodes("RECORDING_TREE");
@@ -438,53 +391,7 @@ namespace Parsek
                 // Match by recordingId (not positional index) — the saved RECORDING nodes
                 // may be from a stale quicksave with a different number/order of recordings
                 // than the current in-memory list (e.g. after clear-all + re-record).
-                var savedRecById = new Dictionary<string, ConfigNode>(savedRecNodes.Length);
-                for (int s = 0; s < savedRecNodes.Length; s++)
-                {
-                    string sid = savedRecNodes[s].GetValue("recordingId");
-                    if (!string.IsNullOrEmpty(sid))
-                        savedRecById[sid] = savedRecNodes[s];
-                }
-                for (int i = 0; i < recordings.Count; i++)
-                {
-                    // Skip tree recordings — their mutable state is restored from tree nodes
-                    if (recordings[i].TreeId != null) continue;
-
-                    recordings[i].VesselSpawned = false;
-                    recordings[i].SpawnAttempts = 0;
-
-                    uint savedPid = 0;
-                    int resIdx = -1;
-                    ConfigNode savedNode;
-                    if (recordings[i].RecordingId != null && savedRecById.TryGetValue(recordings[i].RecordingId, out savedNode))
-                    {
-                        string pidStr = savedNode.GetValue("spawnedPid");
-                        if (pidStr != null && !uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out savedPid))
-                            ParsekLog.Warn("Scenario", $"Failed to parse spawnedPid '{pidStr}' for recording #{i}");
-
-                        string resIdxStr = savedNode.GetValue("lastResIdx");
-                        if (resIdxStr != null && !int.TryParse(resIdxStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out resIdx))
-                            ParsekLog.Warn("Scenario", $"Failed to parse lastResIdx '{resIdxStr}' for recording #{i}");
-
-                        string playbackEnabledStr = savedNode.GetValue("playbackEnabled");
-                        if (playbackEnabledStr != null)
-                        {
-                            bool savedPlaybackEnabled;
-                            if (bool.TryParse(playbackEnabledStr, out savedPlaybackEnabled))
-                                recordings[i].PlaybackEnabled = savedPlaybackEnabled;
-                            else
-                                ParsekLog.Warn("Scenario", $"Failed to parse playbackEnabled '{playbackEnabledStr}' for recording #{i}");
-                        }
-                    }
-                    else
-                    {
-                        ParsekLog.Verbose("Scenario",
-                            $"No saved mutable state for recording #{i} \"{recordings[i].VesselName}\" " +
-                            $"(id={recordings[i].RecordingId ?? "null"}) — using defaults");
-                    }
-                    recordings[i].SpawnedVesselPersistentId = savedPid;
-                    recordings[i].LastAppliedResourceIndex = resIdx;
-                }
+                RestoreStandaloneMutableState(recordings, savedRecNodes);
 
                 // Restore tree recording mutable state from RECORDING_TREE nodes.
                 // First, reset ALL tree recordings to defaults. On revert, the launch
@@ -630,98 +537,7 @@ namespace Parsek
             ConfigNode[] recNodes = node.GetNodes("RECORDING");
             ScenarioLog($"[Parsek Scenario] Loading {recNodes.Length} committed recordings");
 
-            for (int r = 0; r < recNodes.Length; r++)
-            {
-                var recNode = recNodes[r];
-                var rec = new RecordingStore.Recording
-                {
-                    VesselName = recNode.GetValue("vesselName") ?? "Unknown"
-                };
-                LoadRecordingMetadata(recNode, rec);
-
-                // Load bulk data from external files
-                RecordingStore.LoadRecordingFiles(rec);
-
-                // Restore EVA child recording linkage
-                rec.ParentRecordingId = recNode.GetValue("parentRecordingId");
-                rec.EvaCrewName = recNode.GetValue("evaCrewName");
-
-                // Restore chain linkage
-                rec.ChainId = recNode.GetValue("chainId");
-                string chainIdxStr = recNode.GetValue("chainIndex");
-                if (chainIdxStr != null)
-                {
-                    int ci;
-                    if (int.TryParse(chainIdxStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out ci))
-                        rec.ChainIndex = ci;
-                }
-                string chainBranchStr = recNode.GetValue("chainBranch");
-                if (chainBranchStr != null)
-                {
-                    int cb;
-                    if (int.TryParse(chainBranchStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out cb))
-                        rec.ChainBranch = cb;
-                }
-
-                // Restore spawned vessel pid for duplicate spawn detection
-                string pidStr = recNode.GetValue("spawnedPid");
-                if (pidStr != null)
-                {
-                    uint pid;
-                    if (uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out pid))
-                        rec.SpawnedVesselPersistentId = pid;
-                }
-
-                // Restore vessel destroyed flag
-                string destroyedStr = recNode.GetValue("vesselDestroyed");
-                if (destroyedStr != null)
-                {
-                    bool destroyed;
-                    if (bool.TryParse(destroyedStr, out destroyed))
-                        rec.VesselDestroyed = destroyed;
-                }
-
-                // Restore terminal state + vessel PID for standalone recordings
-                string terminalStateStr = recNode.GetValue("terminalState");
-                if (terminalStateStr != null)
-                {
-                    int ts;
-                    if (int.TryParse(terminalStateStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out ts)
-                        && Enum.IsDefined(typeof(TerminalState), ts))
-                        rec.TerminalStateValue = (TerminalState)ts;
-                }
-                string vpidStr = recNode.GetValue("vesselPersistentId");
-                if (vpidStr != null)
-                {
-                    uint vpid;
-                    if (uint.TryParse(vpidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out vpid))
-                        rec.VesselPersistentId = vpid;
-                }
-
-                // Restore resource application index
-                string resIdxStr = recNode.GetValue("lastResIdx");
-                if (resIdxStr != null)
-                {
-                    int resIdx;
-                    if (int.TryParse(resIdxStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out resIdx))
-                        rec.LastAppliedResourceIndex = resIdx;
-                }
-
-                // Always add — even degraded recordings (missing .prec → 0 points)
-                // must occupy their slot to preserve index-based revert mapping.
-                recordings.Add(rec);
-                string phaseInfo = !string.IsNullOrEmpty(rec.SegmentPhase)
-                    ? $", phase={rec.SegmentBodyName} {rec.SegmentPhase}" : "";
-                string chainInfo = !string.IsNullOrEmpty(rec.ChainId)
-                    ? $", chain={rec.ChainId.Substring(0, System.Math.Min(8, rec.ChainId.Length))}../{rec.ChainIndex}" : "";
-                string enabledInfo = !rec.PlaybackEnabled ? ", DISABLED" : "";
-                ScenarioLog($"[Parsek Scenario] Loaded recording: {rec.VesselName}, " +
-                    $"{rec.Points.Count} points, {rec.OrbitSegments.Count} orbit segments" +
-                    (rec.Points.Count > 0 ? $", UT {rec.StartUT:F0}-{rec.EndUT:F0}" : ", degraded (0 points)") +
-                    (rec.VesselSnapshot != null ? " (vessel spawn)" :
-                     rec.GhostVisualSnapshot != null ? " (ghost-only)" : "") +
-                    phaseInfo + chainInfo + enabledInfo);
-            }
+            LoadStandaloneRecordingsFromNodes(recNodes, recordings);
 
             // Validate chain integrity before any playback
             RecordingStore.ValidateChains();
@@ -1164,7 +980,11 @@ namespace Parsek
                 return;
 
             if (resourceTickingSuspended)
+            {
+                ParsekLog.VerboseRateLimited("Scenario", "UpdateSuspended",
+                    "Update: resource ticking suspended (waiting for coroutine)");
                 return;
+            }
 
             if (Funding.Instance == null && ResearchAndDevelopment.Instance == null
                 && Reputation.Instance == null)
@@ -1188,7 +1008,7 @@ namespace Parsek
                 if (rec.LoopPlayback) continue;
                 if (rec.Points.Count < 2) continue;
 
-                int targetIndex = ParsekFlight.ComputeTargetResourceIndex(
+                int targetIndex = GhostPlaybackLogic.ComputeTargetResourceIndex(
                     rec.Points, rec.LastAppliedResourceIndex, currentUT);
 
                 if (targetIndex <= rec.LastAppliedResourceIndex)
@@ -1327,16 +1147,232 @@ namespace Parsek
         #region Crew Reservation
 
         /// <summary>
+        /// Saves standalone (non-tree) recordings to the given ConfigNode.
+        /// Writes bulk data to external files, then persists metadata and mutable state
+        /// (EVA linkage, chain linkage, terminal state, resource index) into RECORDING nodes.
+        /// </summary>
+        /// <summary>
+        /// Restores mutable playback state (spawnedPid, lastResIdx, playbackEnabled) for
+        /// standalone recordings from saved RECORDING ConfigNodes. Matches by recordingId.
+        /// Tree recordings are skipped (restored from RECORDING_TREE nodes separately).
+        /// </summary>
+        /// <summary>
+        /// Deserializes standalone RECORDING nodes and adds the resulting recordings to the list.
+        /// Loads metadata, external files (trajectory/snapshots), EVA/chain linkage, terminal state,
+        /// and resource application index for each recording.
+        /// </summary>
+        private static void LoadStandaloneRecordingsFromNodes(
+            ConfigNode[] recNodes, List<Recording> recordings)
+        {
+            for (int r = 0; r < recNodes.Length; r++)
+            {
+                var recNode = recNodes[r];
+                var rec = new Recording
+                {
+                    VesselName = recNode.GetValue("vesselName") ?? "Unknown"
+                };
+                LoadRecordingMetadata(recNode, rec);
+
+                // Load bulk data from external files
+                RecordingStore.LoadRecordingFiles(rec);
+
+                // Restore EVA child recording linkage
+                rec.ParentRecordingId = recNode.GetValue("parentRecordingId");
+                rec.EvaCrewName = recNode.GetValue("evaCrewName");
+
+                // Restore chain linkage
+                rec.ChainId = recNode.GetValue("chainId");
+                string chainIdxStr = recNode.GetValue("chainIndex");
+                if (chainIdxStr != null)
+                {
+                    int ci;
+                    if (int.TryParse(chainIdxStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out ci))
+                        rec.ChainIndex = ci;
+                }
+                string chainBranchStr = recNode.GetValue("chainBranch");
+                if (chainBranchStr != null)
+                {
+                    int cb;
+                    if (int.TryParse(chainBranchStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out cb))
+                        rec.ChainBranch = cb;
+                }
+
+                // Restore spawned vessel pid for duplicate spawn detection
+                string pidStr = recNode.GetValue("spawnedPid");
+                if (pidStr != null)
+                {
+                    uint pid;
+                    if (uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out pid))
+                        rec.SpawnedVesselPersistentId = pid;
+                }
+
+                // Restore vessel destroyed flag
+                string destroyedStr = recNode.GetValue("vesselDestroyed");
+                if (destroyedStr != null)
+                {
+                    bool destroyed;
+                    if (bool.TryParse(destroyedStr, out destroyed))
+                        rec.VesselDestroyed = destroyed;
+                }
+
+                // Restore terminal state + vessel PID for standalone recordings
+                string terminalStateStr = recNode.GetValue("terminalState");
+                if (terminalStateStr != null)
+                {
+                    int ts;
+                    if (int.TryParse(terminalStateStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out ts)
+                        && Enum.IsDefined(typeof(TerminalState), ts))
+                        rec.TerminalStateValue = (TerminalState)ts;
+                }
+                string vpidStr = recNode.GetValue("vesselPersistentId");
+                if (vpidStr != null)
+                {
+                    uint vpid;
+                    if (uint.TryParse(vpidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out vpid))
+                        rec.VesselPersistentId = vpid;
+                }
+
+                // Restore resource application index
+                string resIdxStr = recNode.GetValue("lastResIdx");
+                if (resIdxStr != null)
+                {
+                    int resIdx;
+                    if (int.TryParse(resIdxStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out resIdx))
+                        rec.LastAppliedResourceIndex = resIdx;
+                }
+
+                // Always add — even degraded recordings (missing .prec → 0 points)
+                // must occupy their slot to preserve index-based revert mapping.
+                recordings.Add(rec);
+                string phaseInfo = !string.IsNullOrEmpty(rec.SegmentPhase)
+                    ? $", phase={rec.SegmentBodyName} {rec.SegmentPhase}" : "";
+                string chainInfo = !string.IsNullOrEmpty(rec.ChainId)
+                    ? $", chain={rec.ChainId.Substring(0, System.Math.Min(8, rec.ChainId.Length))}../{rec.ChainIndex}" : "";
+                string enabledInfo = !rec.PlaybackEnabled ? ", DISABLED" : "";
+                ScenarioLog($"[Parsek Scenario] Loaded recording: {rec.VesselName}, " +
+                    $"{rec.Points.Count} points, {rec.OrbitSegments.Count} orbit segments" +
+                    (rec.Points.Count > 0 ? $", UT {rec.StartUT:F0}-{rec.EndUT:F0}" : ", degraded (0 points)") +
+                    (rec.VesselSnapshot != null ? " (vessel spawn)" :
+                     rec.GhostVisualSnapshot != null ? " (ghost-only)" : "") +
+                    phaseInfo + chainInfo + enabledInfo);
+            }
+        }
+
+        private static void RestoreStandaloneMutableState(
+            List<Recording> recordings, ConfigNode[] savedRecNodes)
+        {
+            var savedRecById = new Dictionary<string, ConfigNode>(savedRecNodes.Length);
+            for (int s = 0; s < savedRecNodes.Length; s++)
+            {
+                string sid = savedRecNodes[s].GetValue("recordingId");
+                if (!string.IsNullOrEmpty(sid))
+                    savedRecById[sid] = savedRecNodes[s];
+            }
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                // Skip tree recordings — their mutable state is restored from tree nodes
+                if (recordings[i].TreeId != null) continue;
+
+                recordings[i].VesselSpawned = false;
+                recordings[i].SpawnAttempts = 0;
+
+                uint savedPid = 0;
+                int resIdx = -1;
+                ConfigNode savedNode;
+                if (recordings[i].RecordingId != null && savedRecById.TryGetValue(recordings[i].RecordingId, out savedNode))
+                {
+                    string pidStr = savedNode.GetValue("spawnedPid");
+                    if (pidStr != null && !uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out savedPid))
+                        ParsekLog.Warn("Scenario", $"Failed to parse spawnedPid '{pidStr}' for recording #{i}");
+
+                    string resIdxStr = savedNode.GetValue("lastResIdx");
+                    if (resIdxStr != null && !int.TryParse(resIdxStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out resIdx))
+                        ParsekLog.Warn("Scenario", $"Failed to parse lastResIdx '{resIdxStr}' for recording #{i}");
+
+                    string playbackEnabledStr = savedNode.GetValue("playbackEnabled");
+                    if (playbackEnabledStr != null)
+                    {
+                        bool savedPlaybackEnabled;
+                        if (bool.TryParse(playbackEnabledStr, out savedPlaybackEnabled))
+                            recordings[i].PlaybackEnabled = savedPlaybackEnabled;
+                        else
+                            ParsekLog.Warn("Scenario", $"Failed to parse playbackEnabled '{playbackEnabledStr}' for recording #{i}");
+                    }
+                }
+                else
+                {
+                    ParsekLog.Verbose("Scenario",
+                        $"No saved mutable state for recording #{i} \"{recordings[i].VesselName}\" " +
+                        $"(id={recordings[i].RecordingId ?? "null"}) — using defaults");
+                }
+                recordings[i].SpawnedVesselPersistentId = savedPid;
+                recordings[i].LastAppliedResourceIndex = resIdx;
+            }
+        }
+
+        private static void SaveStandaloneRecordings(ConfigNode node, List<Recording> recordings)
+        {
+            for (int r = 0; r < recordings.Count; r++)
+            {
+                var rec = recordings[r];
+
+                // Skip tree recordings — they are saved under RECORDING_TREE nodes below
+                if (rec.TreeId != null)
+                    continue;
+
+                ConfigNode recNode = node.AddNode("RECORDING");
+
+                // Write bulk data to external files
+                if (!RecordingStore.SaveRecordingFiles(rec))
+                    ScenarioLog($"[Parsek Scenario] WARNING: File write failed for '{rec.VesselName}'");
+
+                SaveRecordingMetadata(recNode, rec);
+                recNode.AddValue("vesselName", rec.VesselName);
+                recNode.AddValue("pointCount", rec.Points.Count);
+
+                // Persist EVA child recording linkage
+                if (!string.IsNullOrEmpty(rec.ParentRecordingId))
+                    recNode.AddValue("parentRecordingId", rec.ParentRecordingId);
+                if (!string.IsNullOrEmpty(rec.EvaCrewName))
+                    recNode.AddValue("evaCrewName", rec.EvaCrewName);
+
+                // Persist chain linkage
+                if (!string.IsNullOrEmpty(rec.ChainId))
+                    recNode.AddValue("chainId", rec.ChainId);
+                if (rec.ChainIndex >= 0)
+                    recNode.AddValue("chainIndex", rec.ChainIndex);
+                if (rec.ChainBranch > 0)
+                    recNode.AddValue("chainBranch", rec.ChainBranch);
+
+                // Persist spawned vessel pid so we can detect duplicates after scene changes
+                if (rec.SpawnedVesselPersistentId != 0)
+                    recNode.AddValue("spawnedPid", rec.SpawnedVesselPersistentId);
+
+                if (rec.VesselDestroyed)
+                    recNode.AddValue("vesselDestroyed", rec.VesselDestroyed.ToString());
+
+                // Persist terminal state + vessel PID for standalone recordings
+                if (rec.TerminalStateValue.HasValue)
+                    recNode.AddValue("terminalState", ((int)rec.TerminalStateValue.Value).ToString(CultureInfo.InvariantCulture));
+                if (rec.VesselPersistentId != 0)
+                    recNode.AddValue("vesselPersistentId", rec.VesselPersistentId.ToString(CultureInfo.InvariantCulture));
+
+                // Persist resource index so quickload doesn't re-apply deltas
+                recNode.AddValue("lastResIdx", rec.LastAppliedResourceIndex);
+            }
+        }
+
+        /// <summary>
         /// Saves versioned recording metadata and ghost-geometry metadata.
         /// Extracted for testability.
         /// </summary>
-        internal static void SaveRecordingMetadata(ConfigNode recNode, RecordingStore.Recording rec)
+        internal static void SaveRecordingMetadata(ConfigNode recNode, Recording rec)
         {
             recNode.AddValue("recordingId", rec.RecordingId ?? "");
             recNode.AddValue("recordingFormatVersion", rec.RecordingFormatVersion);
             recNode.AddValue("loopPlayback", rec.LoopPlayback);
             recNode.AddValue("loopIntervalSeconds", rec.LoopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture));
-            if (rec.LoopTimeUnit != RecordingStore.LoopTimeUnit.Sec)
+            if (rec.LoopTimeUnit != LoopTimeUnit.Sec)
                 recNode.AddValue("loopTimeUnit", rec.LoopTimeUnit.ToString());
             if (rec.PreLaunchFunds != 0)
                 recNode.AddValue("preLaunchFunds", rec.PreLaunchFunds.ToString("R", CultureInfo.InvariantCulture));
@@ -1378,7 +1414,7 @@ namespace Parsek
         /// Missing fields are treated as old-format recordings.
         /// Extracted for testability.
         /// </summary>
-        internal static void LoadRecordingMetadata(ConfigNode recNode, RecordingStore.Recording rec)
+        internal static void LoadRecordingMetadata(ConfigNode recNode, Recording rec)
         {
             string id = recNode.GetValue("recordingId");
             if (!string.IsNullOrEmpty(id))
@@ -1420,7 +1456,7 @@ namespace Parsek
             string loopTimeUnitStr = recNode.GetValue("loopTimeUnit");
             if (loopTimeUnitStr != null)
             {
-                RecordingStore.LoopTimeUnit loopTimeUnit;
+                LoopTimeUnit loopTimeUnit;
                 if (System.Enum.TryParse(loopTimeUnitStr, out loopTimeUnit))
                     rec.LoopTimeUnit = loopTimeUnit;
             }
@@ -2122,7 +2158,7 @@ namespace Parsek
         /// Prepares a standalone pending recording for ghost-only commit (no vessel spawn).
         /// Nulls vessel snapshot and unreserves crew. Call RecordingStore.CommitPending() after this.
         /// </summary>
-        private static void AutoCommitGhostOnly(RecordingStore.Recording pending)
+        private static void AutoCommitGhostOnly(Recording pending)
         {
             UnreserveCrewInSnapshot(pending.VesselSnapshot);
             pending.VesselSnapshot = null;
@@ -2268,7 +2304,7 @@ namespace Parsek
         /// Checks if a recording matches the given vessel name.
         /// Uses name-based matching (ProtoVessel doesn't expose vessel persistentId directly).
         /// </summary>
-        private static bool MatchesVessel(RecordingStore.Recording rec, string vesselName)
+        private static bool MatchesVessel(Recording rec, string vesselName)
         {
             return !string.IsNullOrEmpty(rec.VesselName)
                 && string.Equals(rec.VesselName, vesselName, StringComparison.Ordinal);

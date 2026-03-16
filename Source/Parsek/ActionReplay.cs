@@ -100,65 +100,21 @@ namespace Parsek
                         switch (evt.eventType)
                         {
                             case GameStateEventType.TechResearched:
-                            {
-                                bool wasSkipped;
-                                if (ReplayTechUnlock(evt, out wasSkipped))
-                                {
-                                    if (wasSkipped) skipCount++;
-                                    else techCount++;
-                                }
-                                else
-                                {
-                                    if (wasSkipped) skipCount++;
-                                    else failCount++;
-                                }
+                                AccumulateReplayResult(ReplayTechUnlock(evt, out var techSkip), techSkip,
+                                    ref techCount, ref skipCount, ref failCount);
                                 break;
-                            }
                             case GameStateEventType.PartPurchased:
-                            {
-                                bool wasSkipped;
-                                if (ReplayPartPurchase(evt, out wasSkipped))
-                                {
-                                    if (wasSkipped) skipCount++;
-                                    else partCount++;
-                                }
-                                else
-                                {
-                                    if (wasSkipped) skipCount++;
-                                    else failCount++;
-                                }
+                                AccumulateReplayResult(ReplayPartPurchase(evt, out var partSkip), partSkip,
+                                    ref partCount, ref skipCount, ref failCount);
                                 break;
-                            }
                             case GameStateEventType.FacilityUpgraded:
-                            {
-                                bool wasSkipped;
-                                if (ReplayFacilityUpgrade(evt, out wasSkipped))
-                                {
-                                    if (wasSkipped) skipCount++;
-                                    else facilityCount++;
-                                }
-                                else
-                                {
-                                    if (wasSkipped) skipCount++;
-                                    else failCount++;
-                                }
+                                AccumulateReplayResult(ReplayFacilityUpgrade(evt, out var facSkip), facSkip,
+                                    ref facilityCount, ref skipCount, ref failCount);
                                 break;
-                            }
                             case GameStateEventType.CrewHired:
-                            {
-                                bool wasSkipped;
-                                if (ReplayCrewHire(evt, out wasSkipped))
-                                {
-                                    if (wasSkipped) skipCount++;
-                                    else crewCount++;
-                                }
-                                else
-                                {
-                                    if (wasSkipped) skipCount++;
-                                    else failCount++;
-                                }
+                                AccumulateReplayResult(ReplayCrewHire(evt, out var crewSkip), crewSkip,
+                                    ref crewCount, ref skipCount, ref failCount);
                                 break;
-                            }
                         }
                     }
 
@@ -499,6 +455,25 @@ namespace Parsek
             if (string.IsNullOrEmpty(kerbalName)) return ReplayDecision.Fail;
             if (alreadyInRoster) return ReplayDecision.Skip;
             return ReplayDecision.Act;
+        }
+
+        #endregion
+
+        #region Replay Helpers
+
+        /// <summary>
+        /// Accumulates the result of a single replay action into the running counters.
+        /// </summary>
+        internal static void AccumulateReplayResult(
+            bool success, bool wasSkipped,
+            ref int successCount, ref int skipCount, ref int failCount)
+        {
+            if (wasSkipped)
+                skipCount++;
+            else if (success)
+                successCount++;
+            else
+                failCount++;
         }
 
         #endregion

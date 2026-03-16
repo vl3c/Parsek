@@ -35,75 +35,8 @@ namespace Parsek
         private GameObject ghostObject;
         private List<Material> previewGhostMaterials = new List<Material>();
         private GhostPlaybackState previewGhostState;
-        private RecordingStore.Recording previewRecording;
+        private Recording previewRecording;
         internal int lastPlaybackIndex = 0;
-
-        // Per-ghost playback state (bundled to prevent dict-sync bugs)
-        internal class LightPlaybackState
-        {
-            public bool isOn;
-            public bool blinkEnabled;
-            public float blinkRateHz = 1f;
-        }
-
-        internal class GhostPlaybackState
-        {
-            public GameObject ghost;
-            public List<Material> materials;
-            public int playbackIndex;
-            public int partEventIndex;
-            public int loopCycleIndex = -1;
-            public Dictionary<uint, List<uint>> partTree;
-            public Dictionary<uint, ParachuteGhostInfo> parachuteInfos;
-            public Dictionary<uint, JettisonGhostInfo> jettisonInfos;
-            public Dictionary<ulong, EngineGhostInfo> engineInfos; // key = EncodeEngineKey(pid, moduleIndex)
-            public Dictionary<ulong, RcsGhostInfo> rcsInfos;   // separate from engineInfos — keys can overlap for same part
-            public Dictionary<ulong, RoboticGhostInfo> roboticInfos; // key = EncodeEngineKey(pid, moduleIndex)
-            public Dictionary<uint, DeployableGhostInfo> deployableInfos;
-            public Dictionary<uint, HeatGhostInfo> heatInfos;
-            public Dictionary<uint, LightGhostInfo> lightInfos;
-            public Dictionary<uint, LightPlaybackState> lightPlaybackStates;
-            public Dictionary<uint, List<ColorChangerGhostInfo>> colorChangerInfos;
-            public Dictionary<uint, FairingGhostInfo> fairingInfos;
-            public Dictionary<uint, GameObject> fakeCanopies;
-            public ReentryFxInfo reentryFxInfo;
-            public MaterialPropertyBlock reentryMpb; // per-ghost to avoid shared-state bugs with overlapping ghosts
-            public bool explosionFired;
-            public bool pauseHidden;
-            public bool rcsSuppressed;
-            public Transform cameraPivot; // child of ghost; centroid of active parts — camera targets this
-            public Vector3 lastInterpolatedVelocity;
-            public string lastInterpolatedBodyName;
-            public double lastInterpolatedAltitude;
-
-            public void SetInterpolated(InterpolationResult r)
-            {
-                lastInterpolatedVelocity = r.velocity;
-                lastInterpolatedBodyName = r.bodyName;
-                lastInterpolatedAltitude = r.altitude;
-            }
-        }
-
-        internal struct InterpolationResult
-        {
-            public Vector3 velocity;
-            public string bodyName;
-            public double altitude;
-
-            public static readonly InterpolationResult Zero = new InterpolationResult
-            {
-                velocity = Vector3.zero,
-                bodyName = null,
-                altitude = 0
-            };
-
-            public InterpolationResult(Vector3 vel, string body, double alt)
-            {
-                velocity = vel;
-                bodyName = body;
-                altitude = alt;
-            }
-        }
 
         private Dictionary<int, GhostPlaybackState> ghostStates = new Dictionary<int, GhostPlaybackState>();
         private readonly MaterialPropertyBlock reentryShellMpb = new MaterialPropertyBlock();
@@ -275,7 +208,7 @@ namespace Parsek
         private bool timelineResourceReplayPausedLogged = false;
         private const double DefaultLoopIntervalSeconds = 10.0;
         private const double MinLoopDurationSeconds = 1.0;
-        private const double MinCycleDuration = 1.0;
+        // MinCycleDuration is now in GhostPlaybackLogic
         private const double OverlapExplosionHoldSeconds = 3.0;
 
         // Camera follow (watch mode) — transient, never serialized
@@ -375,168 +308,10 @@ namespace Parsek
 
         void Update()
         {
-            // Auto-clear stale boarding confirmation after 3 frames
-            if (pendingBoardingTargetPid != 0)
-            {
-                boardingConfirmFrames++;
-                if (boardingConfirmFrames > 3)
-                {
-                    ParsekLog.Info("Flight", $"Boarding confirmation expired (targetPid={pendingBoardingTargetPid})");
-                    pendingBoardingTargetPid = 0;
-                    boardingConfirmFrames = 0;
-                }
-            }
+            ClearStaleConfirmations();
 
-            // Auto-clear stale dock/undock confirmation after 5 frames
-            if (pendingDockMergedPid != 0)
-            {
-                dockConfirmFrames++;
-                if (dockConfirmFrames > 5)
-                {
-                    ParsekLog.Info("Flight", $"Dock confirmation expired (mergedPid={pendingDockMergedPid}, treeDock={pendingTreeDockMerge}, absorbedPid={pendingDockAbsorbedPid})");
-                    if (pendingDockAbsorbedPid != 0)
-                        dockingInProgress.Remove(pendingDockAbsorbedPid);
-                    pendingDockMergedPid = 0;
-                    pendingDockAsTarget = false;
-                    pendingTreeDockMerge = false;
-                    pendingDockAbsorbedPid = 0;
-                    dockConfirmFrames = 0;
-                }
-            }
-            if (pendingUndockOtherPid != 0)
-            {
-                undockConfirmFrames++;
-                if (undockConfirmFrames > 5)
-                {
-                    ParsekLog.Info("Flight", $"Undock confirmation expired (otherPid={pendingUndockOtherPid})");
-                    pendingUndockOtherPid = 0;
-                    undockConfirmFrames = 0;
-                }
-            }
-
-            // Tree mode: dock merge -- create merge branch point
-            if (activeTree != null && pendingTreeDockMerge && recorder != null
-                && !recorder.IsRecording && recorder.CaptureAtStop != null)
-            {
-                double mergeUT = Planetarium.GetUniversalTime();
-                if (recorder.CaptureAtStop.Points.Count > 0)
-                    mergeUT = recorder.CaptureAtStop.Points[recorder.CaptureAtStop.Points.Count - 1].ut;
-
-                // Determine parent recording IDs
-                string activeParentId = activeTree.ActiveRecordingId;
-                string bgParentId = null;
-                // The background partner is whichever vessel (absorbed OR merged) is in BackgroundMap.
-                // When we're the TARGET: absorbed vessel is in BackgroundMap.
-                // When we're the INITIATOR: merged (surviving) vessel is in BackgroundMap.
-                if (pendingDockAbsorbedPid != 0)
-                    activeTree.BackgroundMap.TryGetValue(pendingDockAbsorbedPid, out bgParentId);
-                if (bgParentId == null && pendingDockMergedPid != 0)
-                    activeTree.BackgroundMap.TryGetValue(pendingDockMergedPid, out bgParentId);
-
-                var stoppedRecorder = recorder;
-                recorder = null;
-
-                CreateMergeBranch(
-                    BranchPointType.Dock,
-                    pendingDockMergedPid,
-                    activeParentId,
-                    bgParentId,
-                    mergeUT,
-                    stoppedRecorder);
-
-                // Clean up
-                if (pendingDockAbsorbedPid != 0)
-                    dockingInProgress.Remove(pendingDockAbsorbedPid);
-
-                pendingTreeDockMerge = false;
-                pendingDockMergedPid = 0;
-                pendingDockAbsorbedPid = 0;
-                dockConfirmFrames = 0;
-                pendingDockAsTarget = false;
-
-                Log("Tree dock merge completed");
-            }
-
-            // Dock: initiator (pid changed, recorder already stopped by OnPhysicsFrame)
-            if (recorder != null && recorder.DockMergePending &&
-                !recorder.IsRecording && recorder.CaptureAtStop != null)
-            {
-                CommitDockUndockSegment(recorder, PartEventType.Docked, pendingDockMergedPid);
-                recorder = null;
-                StartRecording();
-                if (IsRecording)
-                {
-                    // Pass undock continuation pid so OnPhysicsFrame can detect sibling switch
-                    recorder.UndockSiblingPid = undockContinuationPid;
-                    Log($"Recording continues after dock (chain={activeChainId}, idx={activeChainNextIndex})");
-                    ScreenMessage("Recording continues (docked)", 2f);
-                }
-                pendingDockMergedPid = 0;
-                pendingDockAsTarget = false;
-                dockConfirmFrames = 0;
-            }
-
-            // Dock: target (pid unchanged, recorder already stopped by OnPartCouple)
-            if (pendingDockAsTarget && recorder != null &&
-                !recorder.IsRecording && recorder.CaptureAtStop != null)
-            {
-                CommitDockUndockSegment(recorder, PartEventType.Docked, pendingDockMergedPid);
-                recorder = null;
-                StartRecording();
-                if (IsRecording)
-                {
-                    recorder.UndockSiblingPid = undockContinuationPid;
-                    Log($"Recording continues after dock as target (chain={activeChainId}, idx={activeChainNextIndex})");
-                    ScreenMessage("Recording continues (docked)", 2f);
-                }
-                pendingDockAsTarget = false;
-                pendingDockMergedPid = 0;
-                dockConfirmFrames = 0;
-            }
-
-            // Undock: player stays on remaining vessel (same pid, recorder stopped by StopRecordingForChainBoundary)
-            if (pendingUndockOtherPid != 0 && recorder != null &&
-                !recorder.IsRecording && recorder.CaptureAtStop != null &&
-                !recorder.UndockSwitchPending)
-            {
-                CommitDockUndockSegment(recorder, PartEventType.Undocked, 0);
-                recorder = null;
-                StartRecording();
-                if (IsRecording)
-                {
-                    StartUndockContinuation(pendingUndockOtherPid);
-                    recorder.UndockSiblingPid = undockContinuationPid;
-                    Log($"Recording continues after undock (chain={activeChainId}, idx={activeChainNextIndex})");
-                    ScreenMessage("Recording continues (undocked)", 2f);
-                }
-                pendingUndockOtherPid = 0;
-                undockConfirmFrames = 0;
-            }
-
-            // Undock: player switched to undocked vessel (pid changed, recorder stopped by OnPhysicsFrame)
-            if (recorder != null && recorder.UndockSwitchPending &&
-                !recorder.IsRecording && recorder.CaptureAtStop != null)
-            {
-                uint oldPid = recorder.RecordingVesselId;
-                CommitDockUndockSegment(recorder, PartEventType.Undocked, 0);
-                recorder = null;
-
-                // Stop existing undock continuation (we're switching roles)
-                if (undockContinuationPid != 0)
-                    StopUndockContinuation("sibling switch");
-
-                StartRecording();
-                if (IsRecording)
-                {
-                    // The "old" vessel (remaining) becomes continuation
-                    StartUndockContinuation(oldPid);
-                    recorder.UndockSiblingPid = undockContinuationPid;
-                    Log($"Recording continues after undock switch (chain={activeChainId}, idx={activeChainNextIndex})");
-                    ScreenMessage("Recording continues (undocked)", 2f);
-                }
-                pendingUndockOtherPid = 0;
-                undockConfirmFrames = 0;
-            }
+            HandleTreeDockMerge();
+            HandleDockUndockCommitRestart();
 
             // Chain: auto-commit previous segment when recording stopped (EVA exit)
             // VesselSnapshot nulled in CommitChainSegment — mid-chain segments are ghost-only.
@@ -548,147 +323,11 @@ namespace Parsek
                 // pendingAutoRecord is still true — will start child EVA recording next
             }
 
-            // Tree mode: board merge -- create merge branch point
-            if (activeTree != null && recorder != null && recorder.ChainToVesselPending
-                && !recorder.IsRecording && recorder.CaptureAtStop != null
-                && pendingBoardingTargetPid != 0
-                && FlightGlobals.ActiveVessel != null
-                && FlightGlobals.ActiveVessel.persistentId == pendingBoardingTargetPid)
-            {
-                double mergeUT = Planetarium.GetUniversalTime();
-                if (recorder.CaptureAtStop.Points.Count > 0)
-                    mergeUT = recorder.CaptureAtStop.Points[recorder.CaptureAtStop.Points.Count - 1].ut;
-
-                uint mergedPid = pendingBoardingTargetPid;
-
-                string activeParentId = activeTree.ActiveRecordingId;
-                string bgParentId = null;
-                if (pendingBoardingTargetInTree)
-                    activeTree.BackgroundMap.TryGetValue(mergedPid, out bgParentId);
-
-                // Fix 5: clear ChainToVesselPending before CreateMergeBranch
-                recorder.ChainToVesselPending = false;
-                var stoppedRecorder = recorder;
-                recorder = null;
-
-                CreateMergeBranch(
-                    BranchPointType.Board,
-                    mergedPid,
-                    activeParentId,
-                    bgParentId,
-                    mergeUT,
-                    stoppedRecorder);
-
-                pendingBoardingTargetPid = 0;
-                boardingConfirmFrames = 0;
-                pendingBoardingTargetInTree = false;
-                activeChainCrewName = null;
-
-                Log("Tree board merge completed");
-            }
-
-            // Chain: auto-commit EVA segment when boarding detected (EVA→vessel)
-            if (recorder != null && recorder.ChainToVesselPending && !recorder.IsRecording && recorder.CaptureAtStop != null)
-            {
-                // Only continue the chain if we're already in one AND the boarding event confirmed
-                if (activeChainId != null &&
-                    pendingBoardingTargetPid != 0 &&
-                    FlightGlobals.ActiveVessel != null &&
-                    FlightGlobals.ActiveVessel.persistentId == pendingBoardingTargetPid)
-                {
-                    Log($"Chain boarding confirmed: EVA→vessel pid={pendingBoardingTargetPid}");
-                    pendingBoardingTargetPid = 0;
-                    boardingConfirmFrames = 0;
-
-                    CommitChainSegment(recorder, activeChainCrewName);
-                    recorder = null;
-
-                    // Start new vessel recording on the boarded vessel
-                    activeChainCrewName = null; // vessel segment, not EVA
-                    StartRecording();
-                    if (IsRecording)
-                    {
-                        Log($"Chain vessel recording started (chain={activeChainId}, idx={activeChainNextIndex})");
-                        ScreenMessage("Recording STARTED (boarded vessel)", 2f);
-                    }
-                }
-                else
-                {
-                    // Not in a chain or boarding not confirmed — treat as normal stop
-                    recorder.ChainToVesselPending = false;
-                    pendingBoardingTargetPid = 0;
-                    boardingConfirmFrames = 0;
-                    Log("ChainToVessel without active chain or boarding confirmation — treating as normal stop");
-                    ParsekLog.ScreenMessage("Recording stopped — vessel changed", 3f);
-                    // Leave CaptureAtStop intact for normal revert/merge handling
-                }
-            }
-
-            // Atmosphere boundary: auto-split when crossing atmosphere edge
-            if (recorder != null && recorder.IsRecording && recorder.AtmosphereBoundaryCrossed)
-            {
-                string phase = recorder.EnteredAtmosphere ? "exo" : "atmo";
-                string newPhase = recorder.EnteredAtmosphere ? "atmo" : "exo";
-                string bodyName = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
-                ParsekLog.Info("Flight", $"Atmosphere auto-split triggered: {bodyName} {phase}→{newPhase} " +
-                    $"(chain={activeChainId ?? "(new)"}, points={recorder.Recording.Count})");
-                recorder.StopRecordingForChainBoundary();
-                CommitBoundarySplit(phase, bodyName);
-                recorder = null;
-                StartRecording();
-                if (IsRecording)
-                {
-                    recorder.UndockSiblingPid = undockContinuationPid;
-                    ParsekLog.Info("Flight", $"Recording continues after atmosphere boundary " +
-                        $"(chain={activeChainId}, idx={activeChainNextIndex}, {bodyName} {phase}→{newPhase})");
-                    ParsekLog.ScreenMessage($"Recording continues ({(newPhase == "atmo" ? "entering" : "exiting")} atmosphere)", 2f);
-                }
-            }
-
-            // SOI change: auto-split when transitioning between celestial bodies
-            if (recorder != null && recorder.IsRecording && recorder.SoiChangePending)
-            {
-                string fromBody = recorder.SoiChangeFromBody ?? "Unknown";
-                string toBody = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
-                // Completed segment was at fromBody — tag as "exo" if it has atmosphere, "space" otherwise
-                CelestialBody fromCB = FlightGlobals.Bodies?.Find(b => b.name == fromBody);
-                string fromPhase = (fromCB != null && fromCB.atmosphere) ? "exo" : "space";
-                ParsekLog.Info("Flight", $"SOI auto-split triggered: {fromBody} ({fromPhase}) → {toBody} " +
-                    $"(chain={activeChainId ?? "(new)"}, points={recorder.Recording.Count})");
-                recorder.StopRecordingForChainBoundary();
-                CommitBoundarySplit(fromPhase, fromBody);
-                recorder = null;
-                StartRecording();
-                if (IsRecording)
-                {
-                    recorder.UndockSiblingPid = undockContinuationPid;
-                    ParsekLog.Info("Flight", $"Recording continues after SOI change " +
-                        $"({fromBody} → {toBody}, chain={activeChainId}, idx={activeChainNextIndex})");
-                    ParsekLog.ScreenMessage($"Recording continues (entering {toBody} SOI)", 2f);
-                }
-            }
-
-            // Tree mode: flush backgrounded recorder after OnPhysicsFrame detected the switch
-            if (activeTree != null && recorder != null && recorder.TransitionToBackgroundPending
-                && recorder.IsBackgrounded)
-            {
-                FlushRecorderToTreeRecording(recorder, activeTree);
-
-                // Add old vessel to BackgroundMap
-                string oldRecId = activeTree.ActiveRecordingId;
-                RecordingStore.Recording oldRec;
-                uint bgPidUpdate = 0;
-                if (oldRecId != null && activeTree.Recordings.TryGetValue(oldRecId, out oldRec)
-                    && oldRec.VesselPersistentId != 0)
-                {
-                    activeTree.BackgroundMap[oldRec.VesselPersistentId] = oldRecId;
-                    bgPidUpdate = oldRec.VesselPersistentId;
-                }
-                activeTree.ActiveRecordingId = null;
-                recorder = null;
-                if (bgPidUpdate != 0) backgroundRecorder?.OnVesselBackgrounded(bgPidUpdate);
-                Log($"Tree: recorder flushed to background (recId={oldRecId})");
-            }
+            HandleTreeBoardMerge();
+            HandleChainBoardingTransition();
+            HandleAtmosphereBoundarySplit();
+            HandleSoiChangeSplit();
+            HandleTreeBackgroundFlush();
 
             // Background recorder: update on-rails background vessels
             if (backgroundRecorder != null)
@@ -696,28 +335,7 @@ namespace Parsek
                 backgroundRecorder.UpdateOnRails(Planetarium.GetUniversalTime());
             }
 
-            // Joint break deferred check: if FlightRecorder signaled a joint break,
-            // stop recorder and start deferred vessel-creation check
-            if (!pendingSplitInProgress && recorder != null && recorder.IsRecording
-                && recorder.ConsumePendingJointBreakCheck())
-            {
-                // Snapshot existing vessel PIDs so the deferred check can identify NEW vessels
-                preBreakVesselPids = new HashSet<uint>();
-                if (FlightGlobals.Vessels != null)
-                {
-                    for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
-                    {
-                        Vessel v = FlightGlobals.Vessels[i];
-                        if (v != null) preBreakVesselPids.Add(v.persistentId);
-                    }
-                }
-                recorder.StopRecordingForChainBoundary();
-                pendingSplitRecorder = recorder;
-                recorder = null;
-                pendingSplitInProgress = true;
-                Log("Joint break detected — starting deferred vessel split check");
-                StartCoroutine(DeferredJointBreakCheck());
-            }
+            HandleJointBreakDeferredCheck();
 
             // Skip auto-record and chain handlers while a split is being processed
             if (pendingSplitInProgress)
@@ -731,33 +349,7 @@ namespace Parsek
                 return;
             }
 
-            // Complete deferred auto-record for EVA (vessel switch may take a frame)
-            if (pendingAutoRecord && !IsRecording &&
-                FlightGlobals.ActiveVessel != null && FlightGlobals.ActiveVessel.isEVA)
-            {
-                StartRecording();
-
-                if (IsRecording)
-                {
-                    pendingAutoRecord = false;
-
-                    if (pendingChainContinuation)
-                    {
-                        pendingChainContinuation = false;
-                        pendingChainEvaName = null;
-                        Log($"Chain EVA recording started (chain={activeChainId}, idx={activeChainNextIndex}, crew={activeChainCrewName})");
-                        ScreenMessage("Recording STARTED (EVA chain)", 2f);
-                    }
-                    else
-                    {
-                        Log("Auto-record started (EVA from pad)");
-                        ScreenMessage("Recording STARTED (auto — EVA from pad)", 2f);
-                    }
-                }
-                // else: StartRecording failed (paused game or no active vessel).
-                // Keep pending flags so we retry next frame; fall through to
-                // HandleInput/playback so they aren't starved.
-            }
+            HandleDeferredAutoRecordEva();
 
             UpdateContinuationSampling();
             UpdateUndockContinuationSampling();
@@ -994,33 +586,7 @@ namespace Parsek
                 StopUndockContinuation("scene change");
             }
 
-            // Clear dock/undock pending state
-            pendingDockMergedPid = 0;
-            pendingDockAsTarget = false;
-            dockConfirmFrames = 0;
-            pendingUndockOtherPid = 0;
-            undockConfirmFrames = 0;
-
-            // Clear merge event detection state
-            pendingTreeDockMerge = false;
-            pendingDockAbsorbedPid = 0;
-            pendingBoardingTargetInTree = false;
-            dockingInProgress.Clear();
-            treeDestructionDialogPending = false;
-
-            // Clear any suppressed flight results — don't carry stale crash reports across scenes
-            if (Patches.FlightResultsPatch.HasPendingResults())
-            {
-                ParsekLog.Info("Flight", "Clearing suppressed FlightResults on scene change");
-                Patches.FlightResultsPatch.ClearPending();
-            }
-
-            // Clear split event detection state
-            lastBranchUT = -1;
-            lastBranchVesselPids.Clear();
-            pendingSplitInProgress = false;
-            pendingSplitRecorder = null;
-            preBreakVesselPids = null;
+            ClearSceneChangeTransientState();
 
             // Tree mode: finalize and commit tree on scene exit.
             // Background recorder must be finalized BEFORE the tree commit so
@@ -1509,7 +1075,7 @@ namespace Parsek
 
                 // Add old vessel to BackgroundMap
                 string oldRecId = activeTree.ActiveRecordingId;
-                RecordingStore.Recording oldRec;
+                Recording oldRec;
                 if (oldRecId != null && activeTree.Recordings.TryGetValue(oldRecId, out oldRec)
                     && oldRec.VesselPersistentId != 0)
                 {
@@ -1530,7 +1096,7 @@ namespace Parsek
                 FlushRecorderToTreeRecording(recorder, activeTree);
 
                 string oldRecId = activeTree.ActiveRecordingId;
-                RecordingStore.Recording oldRec;
+                Recording oldRec;
                 uint bgPid2 = 0;
                 if (oldRecId != null && activeTree.Recordings.TryGetValue(oldRecId, out oldRec)
                     && oldRec.VesselPersistentId != 0)
@@ -1571,7 +1137,7 @@ namespace Parsek
                 return;
             }
 
-            RecordingStore.Recording treeRec;
+            Recording treeRec;
             if (!tree.Recordings.TryGetValue(recId, out treeRec))
             {
                 ParsekLog.Warn("Flight", $"FlushRecorderToTreeRecording: recording id '{recId}' not found in tree");
@@ -1680,7 +1246,7 @@ namespace Parsek
         /// For EVA branches, evaVesselPid identifies which child is the kerbal (receives
         /// EvaCrewName and ParentRecordingId). If 0, defaults to activeVesselPid.
         /// </summary>
-        internal static (BranchPoint bp, RecordingStore.Recording activeChild, RecordingStore.Recording backgroundChild)
+        internal static (BranchPoint bp, Recording activeChild, Recording backgroundChild)
             BuildSplitBranchData(
                 string parentRecordingId, string treeId, double branchUT,
                 BranchPointType branchType, uint activeVesselPid, string activeVesselName,
@@ -1700,7 +1266,7 @@ namespace Parsek
                 ChildRecordingIds = new List<string> { activeChildId, backgroundChildId }
             };
 
-            var activeChild = new RecordingStore.Recording
+            var activeChild = new Recording
             {
                 RecordingId = activeChildId,
                 TreeId = treeId,
@@ -1710,7 +1276,7 @@ namespace Parsek
                 ExplicitStartUT = branchUT
             };
 
-            var backgroundChild = new RecordingStore.Recording
+            var backgroundChild = new Recording
             {
                 RecordingId = backgroundChildId,
                 TreeId = treeId,
@@ -1746,7 +1312,7 @@ namespace Parsek
         /// Takes a list of parent recording IDs (1 for foreign vessel merge, 2 for two-tree merge)
         /// and returns a single child recording for the merged vessel.
         /// </summary>
-        internal static (BranchPoint bp, RecordingStore.Recording mergedChild)
+        internal static (BranchPoint bp, Recording mergedChild)
             BuildMergeBranchData(
                 List<string> parentRecordingIds, string treeId, double mergeUT,
                 BranchPointType branchType, uint mergedVesselPid, string mergedVesselName)
@@ -1763,7 +1329,7 @@ namespace Parsek
                 ChildRecordingIds = new List<string> { childId }
             };
 
-            var mergedChild = new RecordingStore.Recording
+            var mergedChild = new Recording
             {
                 RecordingId = childId,
                 TreeId = treeId,
@@ -1817,7 +1383,7 @@ namespace Parsek
                 activeTree.PreTreeReputation = splitRecorder.PreLaunchReputation;
 
                 // Create root recording from captured data
-                var rootRec = new RecordingStore.Recording
+                var rootRec = new Recording
                 {
                     RecordingId = rootRecId,
                     TreeId = treeId,
@@ -1861,7 +1427,7 @@ namespace Parsek
                 }
 
                 // Flush captured data into the existing tree recording
-                RecordingStore.Recording parentRec;
+                Recording parentRec;
                 if (activeTree.Recordings.TryGetValue(parentRecordingId, out parentRec))
                 {
                     if (splitRecorder.CaptureAtStop != null)
@@ -1876,7 +1442,7 @@ namespace Parsek
             }
 
             // Set ChildBranchPointId on parent
-            RecordingStore.Recording parentRecording;
+            Recording parentRecording;
             if (activeTree.Recordings.TryGetValue(parentRecordingId, out parentRecording))
             {
                 // Will be set after we know the BP id
@@ -1998,7 +1564,7 @@ namespace Parsek
                 parentIds.Add(backgroundParentRecordingId);
 
             // 2. Flush captured data from stopped recorder into the active parent recording
-            RecordingStore.Recording activeParentRec = null;
+            Recording activeParentRec = null;
             if (activeTree.Recordings.TryGetValue(activeParentRecordingId, out activeParentRec))
             {
                 if (stoppedRecorder.CaptureAtStop != null)
@@ -2018,7 +1584,7 @@ namespace Parsek
             // Per Fix 3: derive background vessel PID from the recording's VesselPersistentId
             if (backgroundParentRecordingId != null)
             {
-                RecordingStore.Recording bgParentRec;
+                Recording bgParentRec;
                 if (activeTree.Recordings.TryGetValue(backgroundParentRecordingId, out bgParentRec))
                 {
                     bgParentRec.ExplicitEndUT = mergeUT;
@@ -2052,7 +1618,7 @@ namespace Parsek
                 activeParentRec.ChildBranchPointId = bp.Id;
             if (backgroundParentRecordingId != null)
             {
-                RecordingStore.Recording bgParentRec2;
+                Recording bgParentRec2;
                 if (activeTree.Recordings.TryGetValue(backgroundParentRecordingId, out bgParentRec2))
                     bgParentRec2.ChildBranchPointId = bp.Id;
             }
@@ -2471,7 +2037,7 @@ namespace Parsek
         /// Returns true if the terminal state was overridden.
         /// </summary>
         internal static bool ApplyDestroyedFallback(
-            bool wasDestroyed, RecordingStore.Recording rec)
+            bool wasDestroyed, Recording rec)
         {
             if (!wasDestroyed) return false;
             if (rec.TerminalStateValue == TerminalState.Destroyed) return false;
@@ -2490,7 +2056,7 @@ namespace Parsek
         /// </summary>
         internal static void ApplyTerminalDestruction(
             PendingDestruction pending,
-            RecordingStore.Recording rec)
+            Recording rec)
         {
             rec.TerminalStateValue = TerminalState.Destroyed;
             rec.ExplicitEndUT = pending.capturedUT;
@@ -2502,7 +2068,7 @@ namespace Parsek
         /// </summary>
         internal static void ApplyTerminalData(
             PendingDestruction data,
-            RecordingStore.Recording rec)
+            Recording rec)
         {
             if (data.hasOrbit)
             {
@@ -2607,7 +2173,7 @@ namespace Parsek
             }
 
             // Vessel is truly destroyed — apply terminal state
-            RecordingStore.Recording rec;
+            Recording rec;
             if (!activeTree.Recordings.TryGetValue(pending.recordingId, out rec))
             {
                 ParsekLog.Warn("Flight", $"DeferredDestructionCheck: recording '{pending.recordingId}' not found in tree");
@@ -3313,7 +2879,7 @@ namespace Parsek
                 bodyName = otherVessel.mainBody.name
             };
 
-            var contRec = new RecordingStore.Recording
+            var contRec = new Recording
             {
                 VesselName = otherVessel.vesselName + " (undock continuation)",
                 ChainId = activeChainId,
@@ -3462,53 +3028,7 @@ namespace Parsek
                 }
             }
 
-            // Shutdown background recorder before clearing tree
-            if (backgroundRecorder != null)
-            {
-                backgroundRecorder.Shutdown();
-                Patches.PhysicsFramePatch.BackgroundRecorderInstance = null;
-                backgroundRecorder = null;
-            }
-
-            // Clear tree state on flight ready (revert resets everything)
-            activeTree = null;
-
-            // Clear split event detection state
-            lastBranchUT = -1;
-            lastBranchVesselPids.Clear();
-            pendingSplitInProgress = false;
-            pendingSplitRecorder = null;
-            preBreakVesselPids = null;
-
-            // Clear chain state on flight ready (revert resets everything)
-            activeChainId = null;
-            activeChainNextIndex = 0;
-            activeChainPrevId = null;
-            activeChainCrewName = null;
-            pendingChainContinuation = false;
-            pendingChainIsBoarding = false;
-            pendingChainEvaName = null;
-            pendingBoardingTargetPid = 0;
-            pendingBoundaryAnchor = null;
-            continuationVesselPid = 0;
-            continuationRecordingIdx = -1;
-
-            // Clear dock/undock state
-            pendingDockMergedPid = 0;
-            pendingDockAsTarget = false;
-            dockConfirmFrames = 0;
-            pendingUndockOtherPid = 0;
-            undockConfirmFrames = 0;
-            undockContinuationPid = 0;
-            undockContinuationRecIdx = -1;
-            undockContinuationLastUT = -1;
-
-            // Clear merge event detection state
-            pendingTreeDockMerge = false;
-            pendingDockAbsorbedPid = 0;
-            pendingBoardingTargetInTree = false;
-            dockingInProgress.Clear();
-            treeDestructionDialogPending = false;
+            ResetFlightReadyState();
 
             // Handle pending tree: show tree merge dialog.
             // On non-revert scene changes, pending trees are auto-committed by ParsekScenario.
@@ -3592,6 +3112,527 @@ namespace Parsek
                 Log($"  Recording #{i}: \"{rec.VesselName}\" UT {rec.StartUT:F0}-{rec.EndUT:F0}, " +
                     $"{rec.Points.Count} pts{orbitInfo}, {hasVessel}{chainInfo}");
             }
+        }
+
+        #endregion
+
+        #region Scene Change Helpers
+
+        /// <summary>
+        /// Clears all transient dock/undock, merge detection, and split event state
+        /// on scene change. Called from OnSceneChangeRequested after continuation finalization.
+        /// </summary>
+        private void ClearSceneChangeTransientState()
+        {
+            // Clear dock/undock pending state
+            pendingDockMergedPid = 0;
+            pendingDockAsTarget = false;
+            dockConfirmFrames = 0;
+            pendingUndockOtherPid = 0;
+            undockConfirmFrames = 0;
+
+            // Clear merge event detection state
+            pendingTreeDockMerge = false;
+            pendingDockAbsorbedPid = 0;
+            pendingBoardingTargetInTree = false;
+            dockingInProgress.Clear();
+            treeDestructionDialogPending = false;
+
+            // Clear any suppressed flight results — don't carry stale crash reports across scenes
+            if (Patches.FlightResultsPatch.HasPendingResults())
+            {
+                ParsekLog.Info("Flight", "Clearing suppressed FlightResults on scene change");
+                Patches.FlightResultsPatch.ClearPending();
+            }
+
+            // Clear split event detection state
+            lastBranchUT = -1;
+            lastBranchVesselPids.Clear();
+            pendingSplitInProgress = false;
+            pendingSplitRecorder = null;
+            preBreakVesselPids = null;
+        }
+
+        #endregion
+
+        #region Flight Ready Helpers
+
+        /// <summary>
+        /// Resets all transient state on flight ready: background recorder, tree, chain,
+        /// split detection, dock/undock, merge detection. Called at the start of OnFlightReady
+        /// after v4-to-v5 migration.
+        /// </summary>
+        private void ResetFlightReadyState()
+        {
+            // Shutdown background recorder before clearing tree
+            if (backgroundRecorder != null)
+            {
+                backgroundRecorder.Shutdown();
+                Patches.PhysicsFramePatch.BackgroundRecorderInstance = null;
+                backgroundRecorder = null;
+            }
+
+            // Clear tree state on flight ready (revert resets everything)
+            activeTree = null;
+
+            // Clear split event detection state
+            lastBranchUT = -1;
+            lastBranchVesselPids.Clear();
+            pendingSplitInProgress = false;
+            pendingSplitRecorder = null;
+            preBreakVesselPids = null;
+
+            // Clear chain state on flight ready (revert resets everything)
+            activeChainId = null;
+            activeChainNextIndex = 0;
+            activeChainPrevId = null;
+            activeChainCrewName = null;
+            pendingChainContinuation = false;
+            pendingChainIsBoarding = false;
+            pendingChainEvaName = null;
+            pendingBoardingTargetPid = 0;
+            pendingBoundaryAnchor = null;
+            continuationVesselPid = 0;
+            continuationRecordingIdx = -1;
+
+            // Clear dock/undock state
+            pendingDockMergedPid = 0;
+            pendingDockAsTarget = false;
+            dockConfirmFrames = 0;
+            pendingUndockOtherPid = 0;
+            undockConfirmFrames = 0;
+            undockContinuationPid = 0;
+            undockContinuationRecIdx = -1;
+            undockContinuationLastUT = -1;
+
+            // Clear merge event detection state
+            pendingTreeDockMerge = false;
+            pendingDockAbsorbedPid = 0;
+            pendingBoardingTargetInTree = false;
+            dockingInProgress.Clear();
+            treeDestructionDialogPending = false;
+        }
+
+        #endregion
+
+        #region Update Helpers
+
+        /// <summary>
+        /// Expires stale boarding/dock/undock confirmation windows.
+        /// Called at the start of Update() each frame.
+        /// </summary>
+        private void ClearStaleConfirmations()
+        {
+            // Auto-clear stale boarding confirmation after 3 frames
+            if (pendingBoardingTargetPid != 0)
+            {
+                boardingConfirmFrames++;
+                if (boardingConfirmFrames > 3)
+                {
+                    ParsekLog.Info("Flight", $"Boarding confirmation expired (targetPid={pendingBoardingTargetPid})");
+                    pendingBoardingTargetPid = 0;
+                    boardingConfirmFrames = 0;
+                }
+            }
+
+            // Auto-clear stale dock/undock confirmation after 5 frames
+            if (pendingDockMergedPid != 0)
+            {
+                dockConfirmFrames++;
+                if (dockConfirmFrames > 5)
+                {
+                    ParsekLog.Info("Flight", $"Dock confirmation expired (mergedPid={pendingDockMergedPid}, treeDock={pendingTreeDockMerge}, absorbedPid={pendingDockAbsorbedPid})");
+                    if (pendingDockAbsorbedPid != 0)
+                        dockingInProgress.Remove(pendingDockAbsorbedPid);
+                    pendingDockMergedPid = 0;
+                    pendingDockAsTarget = false;
+                    pendingTreeDockMerge = false;
+                    pendingDockAbsorbedPid = 0;
+                    dockConfirmFrames = 0;
+                }
+            }
+            if (pendingUndockOtherPid != 0)
+            {
+                undockConfirmFrames++;
+                if (undockConfirmFrames > 5)
+                {
+                    ParsekLog.Info("Flight", $"Undock confirmation expired (otherPid={pendingUndockOtherPid})");
+                    pendingUndockOtherPid = 0;
+                    undockConfirmFrames = 0;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Handles tree dock merge: creates merge branch point when recorder is stopped
+        /// and dock merge is pending. Consumes pending dock state.
+        /// </summary>
+        private void HandleTreeDockMerge()
+        {
+            if (activeTree == null || !pendingTreeDockMerge || recorder == null
+                || recorder.IsRecording || recorder.CaptureAtStop == null)
+                return;
+
+            double mergeUT = Planetarium.GetUniversalTime();
+            if (recorder.CaptureAtStop.Points.Count > 0)
+                mergeUT = recorder.CaptureAtStop.Points[recorder.CaptureAtStop.Points.Count - 1].ut;
+
+            // Determine parent recording IDs
+            string activeParentId = activeTree.ActiveRecordingId;
+            string bgParentId = null;
+            // The background partner is whichever vessel (absorbed OR merged) is in BackgroundMap.
+            // When we're the TARGET: absorbed vessel is in BackgroundMap.
+            // When we're the INITIATOR: merged (surviving) vessel is in BackgroundMap.
+            if (pendingDockAbsorbedPid != 0)
+                activeTree.BackgroundMap.TryGetValue(pendingDockAbsorbedPid, out bgParentId);
+            if (bgParentId == null && pendingDockMergedPid != 0)
+                activeTree.BackgroundMap.TryGetValue(pendingDockMergedPid, out bgParentId);
+
+            var stoppedRecorder = recorder;
+            recorder = null;
+
+            CreateMergeBranch(
+                BranchPointType.Dock,
+                pendingDockMergedPid,
+                activeParentId,
+                bgParentId,
+                mergeUT,
+                stoppedRecorder);
+
+            // Clean up
+            if (pendingDockAbsorbedPid != 0)
+                dockingInProgress.Remove(pendingDockAbsorbedPid);
+
+            pendingTreeDockMerge = false;
+            pendingDockMergedPid = 0;
+            pendingDockAbsorbedPid = 0;
+            dockConfirmFrames = 0;
+            pendingDockAsTarget = false;
+
+            Log("Tree dock merge completed");
+        }
+
+        /// <summary>
+        /// Handles dock/undock commit and restart: commits the stopped recorder segment,
+        /// then restarts recording on the merged/remaining vessel.
+        /// </summary>
+        private void HandleDockUndockCommitRestart()
+        {
+            // Dock: initiator (pid changed, recorder already stopped by OnPhysicsFrame)
+            if (recorder != null && recorder.DockMergePending &&
+                !recorder.IsRecording && recorder.CaptureAtStop != null)
+            {
+                CommitDockUndockSegment(recorder, PartEventType.Docked, pendingDockMergedPid);
+                recorder = null;
+                StartRecording();
+                if (IsRecording)
+                {
+                    // Pass undock continuation pid so OnPhysicsFrame can detect sibling switch
+                    recorder.UndockSiblingPid = undockContinuationPid;
+                    Log($"Recording continues after dock (chain={activeChainId}, idx={activeChainNextIndex})");
+                    ScreenMessage("Recording continues (docked)", 2f);
+                }
+                pendingDockMergedPid = 0;
+                pendingDockAsTarget = false;
+                dockConfirmFrames = 0;
+            }
+
+            // Dock: target (pid unchanged, recorder already stopped by OnPartCouple)
+            if (pendingDockAsTarget && recorder != null &&
+                !recorder.IsRecording && recorder.CaptureAtStop != null)
+            {
+                CommitDockUndockSegment(recorder, PartEventType.Docked, pendingDockMergedPid);
+                recorder = null;
+                StartRecording();
+                if (IsRecording)
+                {
+                    recorder.UndockSiblingPid = undockContinuationPid;
+                    Log($"Recording continues after dock as target (chain={activeChainId}, idx={activeChainNextIndex})");
+                    ScreenMessage("Recording continues (docked)", 2f);
+                }
+                pendingDockAsTarget = false;
+                pendingDockMergedPid = 0;
+                dockConfirmFrames = 0;
+            }
+
+            // Undock: player stays on remaining vessel (same pid, recorder stopped by StopRecordingForChainBoundary)
+            if (pendingUndockOtherPid != 0 && recorder != null &&
+                !recorder.IsRecording && recorder.CaptureAtStop != null &&
+                !recorder.UndockSwitchPending)
+            {
+                CommitDockUndockSegment(recorder, PartEventType.Undocked, 0);
+                recorder = null;
+                StartRecording();
+                if (IsRecording)
+                {
+                    StartUndockContinuation(pendingUndockOtherPid);
+                    recorder.UndockSiblingPid = undockContinuationPid;
+                    Log($"Recording continues after undock (chain={activeChainId}, idx={activeChainNextIndex})");
+                    ScreenMessage("Recording continues (undocked)", 2f);
+                }
+                pendingUndockOtherPid = 0;
+                undockConfirmFrames = 0;
+            }
+
+            // Undock: player switched to undocked vessel (pid changed, recorder stopped by OnPhysicsFrame)
+            if (recorder != null && recorder.UndockSwitchPending &&
+                !recorder.IsRecording && recorder.CaptureAtStop != null)
+            {
+                uint oldPid = recorder.RecordingVesselId;
+                CommitDockUndockSegment(recorder, PartEventType.Undocked, 0);
+                recorder = null;
+
+                // Stop existing undock continuation (we're switching roles)
+                if (undockContinuationPid != 0)
+                    StopUndockContinuation("sibling switch");
+
+                StartRecording();
+                if (IsRecording)
+                {
+                    // The "old" vessel (remaining) becomes continuation
+                    StartUndockContinuation(oldPid);
+                    recorder.UndockSiblingPid = undockContinuationPid;
+                    Log($"Recording continues after undock switch (chain={activeChainId}, idx={activeChainNextIndex})");
+                    ScreenMessage("Recording continues (undocked)", 2f);
+                }
+                pendingUndockOtherPid = 0;
+                undockConfirmFrames = 0;
+            }
+        }
+
+        /// <summary>
+        /// Handles tree board merge: creates merge branch point when boarding is detected
+        /// in tree mode and the recorder is stopped with ChainToVesselPending.
+        /// </summary>
+        private void HandleTreeBoardMerge()
+        {
+            if (activeTree == null || recorder == null || !recorder.ChainToVesselPending
+                || recorder.IsRecording || recorder.CaptureAtStop == null
+                || pendingBoardingTargetPid == 0
+                || FlightGlobals.ActiveVessel == null
+                || FlightGlobals.ActiveVessel.persistentId != pendingBoardingTargetPid)
+                return;
+
+            double mergeUT = Planetarium.GetUniversalTime();
+            if (recorder.CaptureAtStop.Points.Count > 0)
+                mergeUT = recorder.CaptureAtStop.Points[recorder.CaptureAtStop.Points.Count - 1].ut;
+
+            uint mergedPid = pendingBoardingTargetPid;
+
+            string activeParentId = activeTree.ActiveRecordingId;
+            string bgParentId = null;
+            if (pendingBoardingTargetInTree)
+                activeTree.BackgroundMap.TryGetValue(mergedPid, out bgParentId);
+
+            // Fix 5: clear ChainToVesselPending before CreateMergeBranch
+            recorder.ChainToVesselPending = false;
+            var stoppedRecorder = recorder;
+            recorder = null;
+
+            CreateMergeBranch(
+                BranchPointType.Board,
+                mergedPid,
+                activeParentId,
+                bgParentId,
+                mergeUT,
+                stoppedRecorder);
+
+            pendingBoardingTargetPid = 0;
+            boardingConfirmFrames = 0;
+            pendingBoardingTargetInTree = false;
+            activeChainCrewName = null;
+
+            Log("Tree board merge completed");
+        }
+
+        /// <summary>
+        /// Handles chain boarding transition: auto-commits EVA segment when boarding
+        /// detected (EVA to vessel), or treats as normal stop if not in a chain.
+        /// </summary>
+        private void HandleChainBoardingTransition()
+        {
+            if (recorder == null || !recorder.ChainToVesselPending
+                || recorder.IsRecording || recorder.CaptureAtStop == null)
+                return;
+
+            // Only continue the chain if we're already in one AND the boarding event confirmed
+            if (activeChainId != null &&
+                pendingBoardingTargetPid != 0 &&
+                FlightGlobals.ActiveVessel != null &&
+                FlightGlobals.ActiveVessel.persistentId == pendingBoardingTargetPid)
+            {
+                Log($"Chain boarding confirmed: EVA\u2192vessel pid={pendingBoardingTargetPid}");
+                pendingBoardingTargetPid = 0;
+                boardingConfirmFrames = 0;
+
+                CommitChainSegment(recorder, activeChainCrewName);
+                recorder = null;
+
+                // Start new vessel recording on the boarded vessel
+                activeChainCrewName = null; // vessel segment, not EVA
+                StartRecording();
+                if (IsRecording)
+                {
+                    Log($"Chain vessel recording started (chain={activeChainId}, idx={activeChainNextIndex})");
+                    ScreenMessage("Recording STARTED (boarded vessel)", 2f);
+                }
+            }
+            else
+            {
+                // Not in a chain or boarding not confirmed — treat as normal stop
+                recorder.ChainToVesselPending = false;
+                pendingBoardingTargetPid = 0;
+                boardingConfirmFrames = 0;
+                Log("ChainToVessel without active chain or boarding confirmation \u2014 treating as normal stop");
+                ParsekLog.ScreenMessage("Recording stopped \u2014 vessel changed", 3f);
+                // Leave CaptureAtStop intact for normal revert/merge handling
+            }
+        }
+
+        /// <summary>
+        /// Handles atmosphere boundary auto-split when crossing the atmosphere edge.
+        /// Commits the current segment, restarts recording in the new phase.
+        /// </summary>
+        private void HandleAtmosphereBoundarySplit()
+        {
+            if (recorder == null || !recorder.IsRecording || !recorder.AtmosphereBoundaryCrossed)
+                return;
+
+            string phase = recorder.EnteredAtmosphere ? "exo" : "atmo";
+            string newPhase = recorder.EnteredAtmosphere ? "atmo" : "exo";
+            string bodyName = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
+            ParsekLog.Info("Flight", $"Atmosphere auto-split triggered: {bodyName} {phase}\u2192{newPhase} " +
+                $"(chain={activeChainId ?? "(new)"}, points={recorder.Recording.Count})");
+            recorder.StopRecordingForChainBoundary();
+            CommitBoundarySplit(phase, bodyName);
+            recorder = null;
+            StartRecording();
+            if (IsRecording)
+            {
+                recorder.UndockSiblingPid = undockContinuationPid;
+                ParsekLog.Info("Flight", $"Recording continues after atmosphere boundary " +
+                    $"(chain={activeChainId}, idx={activeChainNextIndex}, {bodyName} {phase}\u2192{newPhase})");
+                ParsekLog.ScreenMessage($"Recording continues ({(newPhase == "atmo" ? "entering" : "exiting")} atmosphere)", 2f);
+            }
+        }
+
+        /// <summary>
+        /// Handles SOI change auto-split when transitioning between celestial bodies.
+        /// Commits the current segment, restarts recording in the new SOI.
+        /// </summary>
+        private void HandleSoiChangeSplit()
+        {
+            if (recorder == null || !recorder.IsRecording || !recorder.SoiChangePending)
+                return;
+
+            string fromBody = recorder.SoiChangeFromBody ?? "Unknown";
+            string toBody = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
+            // Completed segment was at fromBody — tag as "exo" if it has atmosphere, "space" otherwise
+            CelestialBody fromCB = FlightGlobals.Bodies?.Find(b => b.name == fromBody);
+            string fromPhase = (fromCB != null && fromCB.atmosphere) ? "exo" : "space";
+            ParsekLog.Info("Flight", $"SOI auto-split triggered: {fromBody} ({fromPhase}) \u2192 {toBody} " +
+                $"(chain={activeChainId ?? "(new)"}, points={recorder.Recording.Count})");
+            recorder.StopRecordingForChainBoundary();
+            CommitBoundarySplit(fromPhase, fromBody);
+            recorder = null;
+            StartRecording();
+            if (IsRecording)
+            {
+                recorder.UndockSiblingPid = undockContinuationPid;
+                ParsekLog.Info("Flight", $"Recording continues after SOI change " +
+                    $"({fromBody} \u2192 {toBody}, chain={activeChainId}, idx={activeChainNextIndex})");
+                ParsekLog.ScreenMessage($"Recording continues (entering {toBody} SOI)", 2f);
+            }
+        }
+
+        /// <summary>
+        /// Flushes the backgrounded recorder to its tree recording and updates BackgroundMap.
+        /// Called from Update when TransitionToBackgroundPending and IsBackgrounded are both true.
+        /// </summary>
+        private void HandleTreeBackgroundFlush()
+        {
+            if (activeTree == null || recorder == null || !recorder.TransitionToBackgroundPending
+                || !recorder.IsBackgrounded)
+                return;
+
+            FlushRecorderToTreeRecording(recorder, activeTree);
+
+            // Add old vessel to BackgroundMap
+            string oldRecId = activeTree.ActiveRecordingId;
+            Recording oldRec;
+            uint bgPidUpdate = 0;
+            if (oldRecId != null && activeTree.Recordings.TryGetValue(oldRecId, out oldRec)
+                && oldRec.VesselPersistentId != 0)
+            {
+                activeTree.BackgroundMap[oldRec.VesselPersistentId] = oldRecId;
+                bgPidUpdate = oldRec.VesselPersistentId;
+            }
+            activeTree.ActiveRecordingId = null;
+            recorder = null;
+            if (bgPidUpdate != 0) backgroundRecorder?.OnVesselBackgrounded(bgPidUpdate);
+            Log($"Tree: recorder flushed to background (recId={oldRecId})");
+        }
+
+        /// <summary>
+        /// Handles joint break deferred check: stops recorder and starts deferred vessel-creation check
+        /// when FlightRecorder signals a joint break.
+        /// </summary>
+        private void HandleJointBreakDeferredCheck()
+        {
+            if (pendingSplitInProgress || recorder == null || !recorder.IsRecording
+                || !recorder.ConsumePendingJointBreakCheck())
+                return;
+
+            // Snapshot existing vessel PIDs so the deferred check can identify NEW vessels
+            preBreakVesselPids = new HashSet<uint>();
+            if (FlightGlobals.Vessels != null)
+            {
+                for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
+                {
+                    Vessel v = FlightGlobals.Vessels[i];
+                    if (v != null) preBreakVesselPids.Add(v.persistentId);
+                }
+            }
+            recorder.StopRecordingForChainBoundary();
+            pendingSplitRecorder = recorder;
+            recorder = null;
+            pendingSplitInProgress = true;
+            Log("Joint break detected \u2014 starting deferred vessel split check");
+            StartCoroutine(DeferredJointBreakCheck());
+        }
+
+        /// <summary>
+        /// Handles deferred auto-record for EVA: starts recording when vessel switch
+        /// to the EVA kerbal is complete.
+        /// </summary>
+        private void HandleDeferredAutoRecordEva()
+        {
+            if (!pendingAutoRecord || IsRecording ||
+                FlightGlobals.ActiveVessel == null || !FlightGlobals.ActiveVessel.isEVA)
+                return;
+
+            StartRecording();
+
+            if (IsRecording)
+            {
+                pendingAutoRecord = false;
+
+                if (pendingChainContinuation)
+                {
+                    pendingChainContinuation = false;
+                    pendingChainEvaName = null;
+                    Log($"Chain EVA recording started (chain={activeChainId}, idx={activeChainNextIndex}, crew={activeChainCrewName})");
+                    ScreenMessage("Recording STARTED (EVA chain)", 2f);
+                }
+                else
+                {
+                    Log("Auto-record started (EVA from pad)");
+                    ScreenMessage("Recording STARTED (auto \u2014 EVA from pad)", 2f);
+                }
+            }
+            // else: StartRecording failed (paused game or no active vessel).
+            // Keep pending flags so we retry next frame; fall through to
+            // HandleInput/playback so they aren't starved.
         }
 
         #endregion
@@ -3811,7 +3852,7 @@ namespace Parsek
 
             // Identify the active vessel's recording
             string activeRecId = activeTree.ActiveRecordingId;
-            RecordingStore.Recording activeRec = null;
+            Recording activeRec = null;
             if (activeRecId != null)
                 activeTree.Recordings.TryGetValue(activeRecId, out activeRec);
 
@@ -4163,7 +4204,7 @@ namespace Parsek
         /// <summary>
         /// Captures terminal orbit parameters from a vessel's current orbit.
         /// </summary>
-        static void CaptureTerminalOrbit(RecordingStore.Recording rec, Vessel vessel)
+        static void CaptureTerminalOrbit(Recording rec, Vessel vessel)
         {
             if (vessel == null || vessel.orbit == null) return;
 
@@ -4186,7 +4227,7 @@ namespace Parsek
         /// <summary>
         /// Captures terminal surface position from a vessel's current state.
         /// </summary>
-        static void CaptureTerminalPosition(RecordingStore.Recording rec, Vessel vessel)
+        static void CaptureTerminalPosition(Recording rec, Vessel vessel)
         {
             if (vessel == null) return;
 
@@ -4233,21 +4274,10 @@ namespace Parsek
             if (capture != null)
             {
                 previewRecording = capture;
-                List<ParachuteGhostInfo> parachuteInfoList;
-                List<JettisonGhostInfo> jettisonInfoList;
-                List<EngineGhostInfo> engineInfoList;
-                List<DeployableGhostInfo> deployableInfoList;
-                List<HeatGhostInfo> heatInfoList;
-                List<LightGhostInfo> lightInfoList;
-                List<FairingGhostInfo> fairingInfoList;
-                List<RcsGhostInfo> rcsInfoList;
-                List<RoboticGhostInfo> roboticInfoList;
-                List<ColorChangerGhostInfo> colorChangerInfoList;
-                ghost = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
-                    previewRecording, "Parsek_Ghost_Preview",
-                    out parachuteInfoList, out jettisonInfoList, out engineInfoList,
-                    out deployableInfoList, out heatInfoList, out lightInfoList,
-                    out fairingInfoList, out rcsInfoList, out roboticInfoList, out colorChangerInfoList);
+                var buildResult = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
+                    previewRecording, "Parsek_Ghost_Preview");
+                if (buildResult != null)
+                    ghost = buildResult.root;
                 builtFromSnapshot = ghost != null;
 
                 if (builtFromSnapshot)
@@ -4263,87 +4293,9 @@ namespace Parsek
 
                     previewGhostState.materials = new List<Material>();
 
-                    if (parachuteInfoList != null)
-                    {
-                        previewGhostState.parachuteInfos = new Dictionary<uint, ParachuteGhostInfo>();
-                        for (int i = 0; i < parachuteInfoList.Count; i++)
-                            previewGhostState.parachuteInfos[parachuteInfoList[i].partPersistentId] = parachuteInfoList[i];
-                    }
-                    if (jettisonInfoList != null)
-                    {
-                        previewGhostState.jettisonInfos = new Dictionary<uint, JettisonGhostInfo>();
-                        for (int i = 0; i < jettisonInfoList.Count; i++)
-                            previewGhostState.jettisonInfos[jettisonInfoList[i].partPersistentId] = jettisonInfoList[i];
-                    }
-                    if (engineInfoList != null)
-                    {
-                        previewGhostState.engineInfos = new Dictionary<ulong, EngineGhostInfo>();
-                        for (int i = 0; i < engineInfoList.Count; i++)
-                        {
-                            ulong key = FlightRecorder.EncodeEngineKey(
-                                engineInfoList[i].partPersistentId, engineInfoList[i].moduleIndex);
-                            previewGhostState.engineInfos[key] = engineInfoList[i];
-                        }
-                    }
-                    if (deployableInfoList != null)
-                    {
-                        previewGhostState.deployableInfos = new Dictionary<uint, DeployableGhostInfo>();
-                        for (int i = 0; i < deployableInfoList.Count; i++)
-                            previewGhostState.deployableInfos[deployableInfoList[i].partPersistentId] = deployableInfoList[i];
-                    }
-                    if (heatInfoList != null)
-                    {
-                        previewGhostState.heatInfos = new Dictionary<uint, HeatGhostInfo>();
-                        for (int i = 0; i < heatInfoList.Count; i++)
-                            previewGhostState.heatInfos[heatInfoList[i].partPersistentId] = heatInfoList[i];
+                    GhostPlaybackLogic.PopulateGhostInfoDictionaries(previewGhostState, buildResult);
 
-                        // Initialize all heat parts to cold state at spawn
-                        foreach (var kvp in previewGhostState.heatInfos)
-                        {
-                            var coldEvt = new PartEvent { partPersistentId = kvp.Key };
-                            ApplyHeatState(previewGhostState, coldEvt, HeatLevel.Cold);
-                        }
-                    }
-                    if (lightInfoList != null)
-                    {
-                        previewGhostState.lightInfos = new Dictionary<uint, LightGhostInfo>();
-                        previewGhostState.lightPlaybackStates = new Dictionary<uint, LightPlaybackState>();
-                        for (int i = 0; i < lightInfoList.Count; i++)
-                        {
-                            previewGhostState.lightInfos[lightInfoList[i].partPersistentId] = lightInfoList[i];
-                            previewGhostState.lightPlaybackStates[lightInfoList[i].partPersistentId] = new LightPlaybackState();
-                        }
-                    }
-                    if (fairingInfoList != null)
-                    {
-                        previewGhostState.fairingInfos = new Dictionary<uint, FairingGhostInfo>();
-                        for (int i = 0; i < fairingInfoList.Count; i++)
-                            previewGhostState.fairingInfos[fairingInfoList[i].partPersistentId] = fairingInfoList[i];
-                    }
-                    if (rcsInfoList != null)
-                    {
-                        previewGhostState.rcsInfos = new Dictionary<ulong, RcsGhostInfo>();
-                        for (int i = 0; i < rcsInfoList.Count; i++)
-                        {
-                            ulong key = FlightRecorder.EncodeEngineKey(
-                                rcsInfoList[i].partPersistentId, rcsInfoList[i].moduleIndex);
-                            previewGhostState.rcsInfos[key] = rcsInfoList[i];
-                        }
-                    }
-                    if (roboticInfoList != null)
-                    {
-                        previewGhostState.roboticInfos = new Dictionary<ulong, RoboticGhostInfo>();
-                        for (int i = 0; i < roboticInfoList.Count; i++)
-                        {
-                            ulong key = FlightRecorder.EncodeEngineKey(
-                                roboticInfoList[i].partPersistentId, roboticInfoList[i].moduleIndex);
-                            previewGhostState.roboticInfos[key] = roboticInfoList[i];
-                        }
-                    }
-                    if (colorChangerInfoList != null)
-                        previewGhostState.colorChangerInfos = GhostVisualBuilder.GroupColorChangersByPartId(colorChangerInfoList);
-
-                    InitializeInventoryPlacementVisibility(previewRecording, previewGhostState);
+                    GhostPlaybackLogic.InitializeInventoryPlacementVisibility(previewRecording, previewGhostState);
 
                     previewGhostState.reentryFxInfo = GhostVisualBuilder.TryBuildReentryFx(
                         ghost, previewGhostState.heatInfos, -1, previewRecording.VesselName);
@@ -4415,7 +4367,7 @@ namespace Parsek
 
                 DestroyReentryFxResources(previewGhostState.reentryFxInfo);
 
-                DestroyAllFakeCanopies(previewGhostState);
+                GhostPlaybackLogic.DestroyAllFakeCanopies(previewGhostState);
                 previewGhostState = null;
             }
             else if (previewGhostMaterials != null)
@@ -4458,8 +4410,8 @@ namespace Parsek
                 Log("Manual playback complete — reached end of recording");
                 // explosionAlreadyFired=false is safe: preview is one-shot (StopPlayback called immediately after)
                 if (previewRecording != null && ghostObject != null
-                    && !ShouldSuppressVisualFx(TimeWarp.CurrentRate)
-                    && ShouldTriggerExplosion(false, previewRecording.TerminalStateValue,
+                    && !GhostPlaybackLogic.ShouldSuppressVisualFx(TimeWarp.CurrentRate)
+                    && GhostPlaybackLogic.ShouldTriggerExplosion(false, previewRecording.TerminalStateValue,
                            true, previewRecording.VesselName, -1))
                 {
                     Vector3 pos = ghostObject.transform.position;
@@ -4469,7 +4421,7 @@ namespace Parsek
                         $"at ({pos.x:F1},{pos.y:F1},{pos.z:F1}) vesselLength={len:F1}m");
                     // Hide ghost parts before explosion renders
                     if (previewGhostState != null)
-                        HideAllGhostParts(previewGhostState);
+                        GhostPlaybackLogic.HideAllGhostParts(previewGhostState);
                     else
                     {
                         var t = ghostObject.transform;
@@ -4494,7 +4446,7 @@ namespace Parsek
             if (previewGhostState != null && previewRecording != null)
             {
                 previewGhostState.SetInterpolated(interpResult);
-                ApplyPartEvents(-1, previewRecording, recordingTime, previewGhostState);
+                GhostPlaybackLogic.ApplyPartEvents(-1, previewRecording, recordingTime, previewGhostState);
                 UpdateReentryFx(-1, previewGhostState, previewRecording.VesselName ?? "Preview");
             }
         }
@@ -4509,14 +4461,14 @@ namespace Parsek
             double currentUT = Planetarium.GetUniversalTime();
 
             // Flush deferred spawns when warp ends
-            if (ShouldFlushDeferredSpawns(pendingSpawnRecordingIds.Count, IsAnyWarpActive()))
+            if (GhostPlaybackLogic.ShouldFlushDeferredSpawns(pendingSpawnRecordingIds.Count, IsAnyWarpActive()))
             {
                 int spawnedCount = 0;
                 for (int i = 0; i < committed.Count; i++)
                 {
                     var rec = committed[i];
                     if (!pendingSpawnRecordingIds.Contains(rec.RecordingId)) continue;
-                    if (ShouldSkipDeferredSpawn(rec.VesselSpawned, rec.VesselSnapshot != null))
+                    if (GhostPlaybackLogic.ShouldSkipDeferredSpawn(rec.VesselSpawned, rec.VesselSnapshot != null))
                     {
                         ParsekLog.Verbose("Flight", $"Deferred spawn skipped — #{i} \"{rec.VesselName}\" already spawned or no snapshot");
                         continue;
@@ -4526,7 +4478,7 @@ namespace Parsek
                     spawnedCount++;
 
                     // Restore camera follow if this recording was being watched when deferred
-                    if (ShouldRestoreWatchMode(pendingWatchRecordingId, rec.RecordingId, rec.SpawnedVesselPersistentId))
+                    if (GhostPlaybackLogic.ShouldRestoreWatchMode(pendingWatchRecordingId, rec.RecordingId, rec.SpawnedVesselPersistentId))
                     {
                         ParsekLog.Info("CameraFollow",
                             $"Deferred watch: switching to spawned vessel pid={rec.SpawnedVesselPersistentId}");
@@ -4541,8 +4493,8 @@ namespace Parsek
             if (committed.Count == 0) return;
 
             float warpRate = TimeWarp.CurrentRate;
-            bool suppressGhosts = ShouldSuppressGhosts(warpRate);
-            bool suppressVisualFx = ShouldSuppressVisualFx(warpRate);
+            bool suppressGhosts = GhostPlaybackLogic.ShouldSuppressGhosts(warpRate);
+            bool suppressVisualFx = GhostPlaybackLogic.ShouldSuppressVisualFx(warpRate);
 
             for (int i = 0; i < committed.Count; i++)
             {
@@ -4661,7 +4613,7 @@ namespace Parsek
                         {
                             state.ghost.SetActive(false);
                             ParsekLog.Info("Flight",
-                                $"Ghost #{i} \"{rec.VesselName}\" hidden: warp {warpRate.ToString("F1", CultureInfo.InvariantCulture)}x > {GhostHideWarpThreshold}x");
+                                $"Ghost #{i} \"{rec.VesselName}\" hidden: warp {warpRate.ToString("F1", CultureInfo.InvariantCulture)}x > {GhostPlaybackLogic.GhostHideWarpThreshold}x");
                             if (watchedRecordingIndex == i)
                                 ExitWatchMode();
                         }
@@ -4697,12 +4649,12 @@ namespace Parsek
                         state.SetInterpolated(interpResult);
                         state.playbackIndex = playbackIdx;
 
-                        ApplyPartEvents(i, rec, currentUT, state);
+                        GhostPlaybackLogic.ApplyPartEvents(i, rec, currentUT, state);
                         UpdateReentryFx(i, state, rec.VesselName);
                         if (suppressVisualFx)
-                            StopAllRcsEmissions(state);
+                            GhostPlaybackLogic.StopAllRcsEmissions(state);
                         else
-                            RestoreAllRcsEmissions(state);
+                            GhostPlaybackLogic.RestoreAllRcsEmissions(state);
                         if (rec.TreeId == null)
                             ApplyResourceDeltas(rec, currentUT);
                     }
@@ -4730,14 +4682,14 @@ namespace Parsek
                         if (loggedGhostEnter.Add(i))
                             ParsekLog.Verbose("Flight", $"Ghost ENTERED range (background): #{i} \"{rec.VesselName}\" " +
                                 $"orbit={hasOrbitData} surface={hasSurfaceData}");
-                        ApplyPartEvents(i, rec, currentUT, state);
+                        GhostPlaybackLogic.ApplyPartEvents(i, rec, currentUT, state);
                         // Reentry FX: no InterpolationResult set for background-only path — bodyName stays null,
                         // so UpdateReentryFx will no-op. Intentional: on-rails vessels don't reenter.
                         UpdateReentryFx(i, state, rec.VesselName);
                         if (suppressVisualFx)
-                            StopAllRcsEmissions(state);
+                            GhostPlaybackLogic.StopAllRcsEmissions(state);
                         else
-                            RestoreAllRcsEmissions(state);
+                            GhostPlaybackLogic.RestoreAllRcsEmissions(state);
                         if (rec.TreeId == null)
                             ApplyResourceDeltas(rec, currentUT);
                     }
@@ -4894,44 +4846,22 @@ namespace Parsek
             }
         }
 
-        private bool ShouldLoopPlayback(RecordingStore.Recording rec)
+        private bool ShouldLoopPlayback(Recording rec)
         {
             if (rec == null || !rec.LoopPlayback || rec.Points == null || rec.Points.Count < 2)
                 return false;
             return rec.EndUT - rec.StartUT > MinLoopDurationSeconds;
         }
 
-        private double GetLoopIntervalSeconds(RecordingStore.Recording rec)
+        private double GetLoopIntervalSeconds(Recording rec)
         {
             double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
                                     ?? DefaultLoopIntervalSeconds;
-            return ResolveLoopInterval(rec, globalInterval, DefaultLoopIntervalSeconds, MinCycleDuration);
-        }
-
-        internal static double ResolveLoopInterval(
-            RecordingStore.Recording rec, double globalAutoInterval,
-            double defaultInterval, double minCycleDuration)
-        {
-            if (rec == null) return defaultInterval;
-
-            double interval;
-            if (rec.LoopTimeUnit == RecordingStore.LoopTimeUnit.Auto)
-            {
-                interval = double.IsNaN(globalAutoInterval) || double.IsInfinity(globalAutoInterval)
-                    ? defaultInterval : Math.Max(0, globalAutoInterval);
-            }
-            else
-            {
-                interval = double.IsNaN(rec.LoopIntervalSeconds) || double.IsInfinity(rec.LoopIntervalSeconds)
-                    ? defaultInterval : rec.LoopIntervalSeconds;
-            }
-
-            double duration = rec.EndUT - rec.StartUT;
-            return Math.Max(-duration + minCycleDuration, interval);
+            return GhostPlaybackLogic.ResolveLoopInterval(rec, globalInterval, DefaultLoopIntervalSeconds, GhostPlaybackLogic.MinCycleDuration);
         }
 
         private bool TryComputeLoopPlaybackUT(
-            RecordingStore.Recording rec,
+            Recording rec,
             double currentUT,
             out double loopUT,
             out int cycleIndex,
@@ -4969,7 +4899,7 @@ namespace Parsek
 
         private void UpdateLoopingTimelinePlayback(
             int recIdx,
-            RecordingStore.Recording rec,
+            Recording rec,
             double currentUT,
             GhostPlaybackState state,
             bool ghostActive,
@@ -4986,7 +4916,7 @@ namespace Parsek
                 {
                     state.ghost.SetActive(false);
                     ParsekLog.Info("Flight",
-                        $"Ghost #{recIdx} \"{rec.VesselName}\" (loop) hidden: warp > {GhostHideWarpThreshold}x");
+                        $"Ghost #{recIdx} \"{rec.VesselName}\" (loop) hidden: warp > {GhostPlaybackLogic.GhostHideWarpThreshold}x");
                     if (watchedRecordingIndex == recIdx)
                         ExitWatchMode();
                 }
@@ -5032,7 +4962,7 @@ namespace Parsek
                 TriggerExplosionIfDestroyed(state, rec, recIdx);
 
                 // Determine camera transition: -2 = hold at explosion, -1 = ready for re-target
-                int newWatchCycle = ComputeWatchCycleOnLoopRebuild(
+                int newWatchCycle = GhostPlaybackLogic.ComputeWatchCycleOnLoopRebuild(
                     watchedOverlapCycleIndex, isWatching, needsExplosion, inPauseWindow);
 
                 if (newWatchCycle == -2)
@@ -5062,7 +4992,7 @@ namespace Parsek
                         $"Loop: watched cycle={state?.loopCycleIndex} ended (no hold needed), ready for re-target");
                 }
 
-                ResetReentryFx(state, recIdx);
+                GhostPlaybackLogic.ResetReentryFx(state, recIdx);
                 DestroyTimelineGhost(recIdx);
                 ghostActive = false;
                 state = null;
@@ -5116,7 +5046,7 @@ namespace Parsek
                 if (!state.pauseHidden)
                 {
                     state.pauseHidden = true;
-                    HideAllGhostParts(state);
+                    GhostPlaybackLogic.HideAllGhostParts(state);
                     ParsekLog.Verbose("Flight",
                         $"Ghost #{recIdx} \"{rec.VesselName}\" hidden during loop pause window");
                 }
@@ -5138,12 +5068,12 @@ namespace Parsek
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
 
-            ApplyPartEvents(recIdx, rec, loopUT, state);
+            GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, loopUT, state);
             UpdateReentryFx(recIdx, state, rec.VesselName);
             if (suppressVisualFx)
-                StopAllRcsEmissions(state);
+                GhostPlaybackLogic.StopAllRcsEmissions(state);
             else
-                RestoreAllRcsEmissions(state);
+                GhostPlaybackLogic.RestoreAllRcsEmissions(state);
         }
 
         /// <summary>
@@ -5152,7 +5082,7 @@ namespace Parsek
         /// </summary>
         private void UpdateOverlapLoopPlayback(
             int recIdx,
-            RecordingStore.Recording rec,
+            Recording rec,
             double currentUT,
             GhostPlaybackState primaryState,
             bool primaryActive,
@@ -5168,10 +5098,10 @@ namespace Parsek
             }
 
             double cycleDuration = duration + intervalSeconds;
-            if (cycleDuration < MinCycleDuration) cycleDuration = MinCycleDuration;
+            if (cycleDuration < GhostPlaybackLogic.MinCycleDuration) cycleDuration = GhostPlaybackLogic.MinCycleDuration;
 
             int firstCycle, lastCycle;
-            GetActiveCycles(currentUT, rec.StartUT, rec.EndUT, intervalSeconds,
+            GhostPlaybackLogic.GetActiveCycles(currentUT, rec.StartUT, rec.EndUT, intervalSeconds,
                 MaxOverlapGhostsPerRecording, out firstCycle, out lastCycle);
 
             // Ensure overlap list exists
@@ -5247,12 +5177,12 @@ namespace Parsek
                 primaryState.SetInterpolated(interpResult);
                 primaryState.playbackIndex = playbackIdx;
 
-                ApplyPartEvents(recIdx, rec, loopUT, primaryState);
+                GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, loopUT, primaryState);
                 UpdateReentryFx(recIdx, primaryState, rec.VesselName);
                 if (suppressVisualFx)
-                    StopAllRcsEmissions(primaryState);
+                    GhostPlaybackLogic.StopAllRcsEmissions(primaryState);
                 else
-                    RestoreAllRcsEmissions(primaryState);
+                    GhostPlaybackLogic.RestoreAllRcsEmissions(primaryState);
             }
 
             // Update overlap ghosts (older cycles)
@@ -5321,12 +5251,12 @@ namespace Parsek
                 ovState.SetInterpolated(interpResult);
                 ovState.playbackIndex = playbackIdx;
 
-                ApplyPartEvents(recIdx, rec, loopUT, ovState);
+                GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, loopUT, ovState);
                 UpdateReentryFx(recIdx, ovState, rec.VesselName);
                 if (suppressVisualFx)
-                    StopAllRcsEmissions(ovState);
+                    GhostPlaybackLogic.StopAllRcsEmissions(ovState);
                 else
-                    RestoreAllRcsEmissions(ovState);
+                    GhostPlaybackLogic.RestoreAllRcsEmissions(ovState);
             }
         }
 
@@ -5335,9 +5265,9 @@ namespace Parsek
         /// that we've passed since the last frame. Computes delta between consecutive
         /// points and adds it to the current career pools.
         /// </summary>
-        void ApplyResourceDeltas(RecordingStore.Recording rec, double currentUT)
+        void ApplyResourceDeltas(Recording rec, double currentUT)
         {
-            if (ShouldPauseTimelineResourceReplay(IsRecording))
+            if (GhostPlaybackLogic.ShouldPauseTimelineResourceReplay(IsRecording))
             {
                 if (!timelineResourceReplayPausedLogged)
                 {
@@ -5355,7 +5285,7 @@ namespace Parsek
             var points = rec.Points;
 
             // Find the highest point index whose UT we've passed
-            int targetIndex = ComputeTargetResourceIndex(points, rec.LastAppliedResourceIndex, currentUT);
+            int targetIndex = GhostPlaybackLogic.ComputeTargetResourceIndex(points, rec.LastAppliedResourceIndex, currentUT);
 
             // Apply deltas for each point we've newly passed
             if (targetIndex > rec.LastAppliedResourceIndex)
@@ -5451,7 +5381,7 @@ namespace Parsek
 
         void ApplyTreeLumpSum(RecordingTree tree)
         {
-            if (ShouldPauseTimelineResourceReplay(IsRecording))
+            if (GhostPlaybackLogic.ShouldPauseTimelineResourceReplay(IsRecording))
                 return; // retry next frame
 
             GameStateRecorder.SuppressResourceEvents = true;
@@ -5514,22 +5444,13 @@ namespace Parsek
             return null;
         }
 
-        void SpawnTimelineGhost(int index, RecordingStore.Recording rec)
+        void SpawnTimelineGhost(int index, Recording rec)
         {
             Log($"Spawning timeline ghost #{index} for {rec.VesselName}");
 
             // Use a slightly different color to distinguish from manual preview
             Color ghostColor = new Color(0.2f, 1f, 0.4f, 0.8f); // bright green-cyan
-            List<ParachuteGhostInfo> parachuteInfoList = null;
-            List<JettisonGhostInfo> jettisonInfoList = null;
-            List<EngineGhostInfo> engineInfoList = null;
-            List<DeployableGhostInfo> deployableInfoList = null;
-            List<HeatGhostInfo> heatInfoList = null;
-            List<LightGhostInfo> lightInfoList = null;
-            List<FairingGhostInfo> fairingInfoList = null;
-            List<RcsGhostInfo> rcsInfoList = null;
-            List<RoboticGhostInfo> roboticInfoList = null;
-            List<ColorChangerGhostInfo> colorChangerInfoList = null;
+            GhostBuildResult buildResult = null;
             GameObject ghost = null;
             bool builtFromSnapshot = false;
 
@@ -5537,10 +5458,10 @@ namespace Parsek
             // Avoids per-loop-cycle warning spam for snapshot-less recordings (bug #21).
             if (GhostVisualBuilder.GetGhostSnapshot(rec) != null)
             {
-                ghost = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
-                    rec, $"Parsek_Timeline_{index}", out parachuteInfoList, out jettisonInfoList,
-                    out engineInfoList, out deployableInfoList, out heatInfoList, out lightInfoList, out fairingInfoList,
-                    out rcsInfoList, out roboticInfoList, out colorChangerInfoList);
+                buildResult = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
+                    rec, $"Parsek_Timeline_{index}");
+                if (buildResult != null)
+                    ghost = buildResult.root;
                 builtFromSnapshot = ghost != null;
             }
 
@@ -5579,97 +5500,9 @@ namespace Parsek
                 state.materials = m != null ? new List<Material> { m } : new List<Material>();
             }
 
-            if (parachuteInfoList != null)
-            {
-                state.parachuteInfos = new Dictionary<uint, ParachuteGhostInfo>();
-                for (int i = 0; i < parachuteInfoList.Count; i++)
-                    state.parachuteInfos[parachuteInfoList[i].partPersistentId] = parachuteInfoList[i];
-            }
+            GhostPlaybackLogic.PopulateGhostInfoDictionaries(state, buildResult);
 
-            if (jettisonInfoList != null)
-            {
-                state.jettisonInfos = new Dictionary<uint, JettisonGhostInfo>();
-                for (int i = 0; i < jettisonInfoList.Count; i++)
-                    state.jettisonInfos[jettisonInfoList[i].partPersistentId] = jettisonInfoList[i];
-            }
-
-            if (engineInfoList != null)
-            {
-                state.engineInfos = new Dictionary<ulong, EngineGhostInfo>();
-                for (int i = 0; i < engineInfoList.Count; i++)
-                {
-                    ulong key = FlightRecorder.EncodeEngineKey(
-                        engineInfoList[i].partPersistentId, engineInfoList[i].moduleIndex);
-                    state.engineInfos[key] = engineInfoList[i];
-                }
-            }
-
-            if (deployableInfoList != null)
-            {
-                state.deployableInfos = new Dictionary<uint, DeployableGhostInfo>();
-                for (int i = 0; i < deployableInfoList.Count; i++)
-                    state.deployableInfos[deployableInfoList[i].partPersistentId] = deployableInfoList[i];
-            }
-
-            if (heatInfoList != null)
-            {
-                state.heatInfos = new Dictionary<uint, HeatGhostInfo>();
-                for (int i = 0; i < heatInfoList.Count; i++)
-                    state.heatInfos[heatInfoList[i].partPersistentId] = heatInfoList[i];
-
-                // Initialize all heat parts to cold state at spawn — ensures FXModuleAnimateThrottle
-                // parts don't inherit the prefab's baked emissive state.
-                foreach (var kvp in state.heatInfos)
-                {
-                    var coldEvt = new PartEvent { partPersistentId = kvp.Key };
-                    ApplyHeatState(state, coldEvt, HeatLevel.Cold);
-                }
-            }
-
-            if (lightInfoList != null)
-            {
-                state.lightInfos = new Dictionary<uint, LightGhostInfo>();
-                state.lightPlaybackStates = new Dictionary<uint, LightPlaybackState>();
-                for (int i = 0; i < lightInfoList.Count; i++)
-                {
-                    state.lightInfos[lightInfoList[i].partPersistentId] = lightInfoList[i];
-                    state.lightPlaybackStates[lightInfoList[i].partPersistentId] = new LightPlaybackState();
-                }
-            }
-
-            if (fairingInfoList != null)
-            {
-                state.fairingInfos = new Dictionary<uint, FairingGhostInfo>();
-                for (int i = 0; i < fairingInfoList.Count; i++)
-                    state.fairingInfos[fairingInfoList[i].partPersistentId] = fairingInfoList[i];
-            }
-
-            if (rcsInfoList != null)
-            {
-                state.rcsInfos = new Dictionary<ulong, RcsGhostInfo>();
-                for (int i = 0; i < rcsInfoList.Count; i++)
-                {
-                    ulong key = FlightRecorder.EncodeEngineKey(
-                        rcsInfoList[i].partPersistentId, rcsInfoList[i].moduleIndex);
-                    state.rcsInfos[key] = rcsInfoList[i];
-                }
-            }
-
-            if (roboticInfoList != null)
-            {
-                state.roboticInfos = new Dictionary<ulong, RoboticGhostInfo>();
-                for (int i = 0; i < roboticInfoList.Count; i++)
-                {
-                    ulong key = FlightRecorder.EncodeEngineKey(
-                        roboticInfoList[i].partPersistentId, roboticInfoList[i].moduleIndex);
-                    state.roboticInfos[key] = roboticInfoList[i];
-                }
-            }
-
-            if (colorChangerInfoList != null)
-                state.colorChangerInfos = GhostVisualBuilder.GroupColorChangersByPartId(colorChangerInfoList);
-
-            InitializeInventoryPlacementVisibility(rec, state);
+            GhostPlaybackLogic.InitializeInventoryPlacementVisibility(rec, state);
 
             state.reentryFxInfo = GhostVisualBuilder.TryBuildReentryFx(
                 ghost,
@@ -5719,7 +5552,7 @@ namespace Parsek
             if (state.ghost != null)
                 Destroy(state.ghost);
 
-            DestroyAllFakeCanopies(state);
+            GhostPlaybackLogic.DestroyAllFakeCanopies(state);
             ghostStates.Remove(index);
         }
 
@@ -5753,24 +5586,24 @@ namespace Parsek
         /// Checks whether the recording ended with destruction and spawns an explosion FX if so.
         /// Pure decision logic is in ShouldTriggerExplosion; this method handles the side effects.
         /// </summary>
-        void TriggerExplosionIfDestroyed(GhostPlaybackState state, RecordingStore.Recording rec, int recIdx)
+        void TriggerExplosionIfDestroyed(GhostPlaybackState state, Recording rec, int recIdx)
         {
             if (state == null)
             {
                 ParsekLog.Verbose("ExplosionFx", $"TriggerExplosionIfDestroyed: ghost #{recIdx} — skipped (state is null)");
                 return;
             }
-            if (!ShouldTriggerExplosion(state.explosionFired, rec.TerminalStateValue,
+            if (!GhostPlaybackLogic.ShouldTriggerExplosion(state.explosionFired, rec.TerminalStateValue,
                     state.ghost != null, rec.VesselName, recIdx))
                 return;
 
-            if (ShouldSuppressVisualFx(TimeWarp.CurrentRate))
+            if (GhostPlaybackLogic.ShouldSuppressVisualFx(TimeWarp.CurrentRate))
             {
                 state.explosionFired = true;
-                HideAllGhostParts(state);
+                GhostPlaybackLogic.HideAllGhostParts(state);
                 ParsekLog.VerboseRateLimited("ExplosionFx", $"explosion-suppress-{recIdx}",
                     $"Explosion suppressed for ghost #{recIdx} \"{rec.VesselName}\": " +
-                    $"warp rate {TimeWarp.CurrentRate.ToString("F1", CultureInfo.InvariantCulture)}x > {FxSuppressWarpThreshold}x");
+                    $"warp rate {TimeWarp.CurrentRate.ToString("F1", CultureInfo.InvariantCulture)}x > {GhostPlaybackLogic.FxSuppressWarpThreshold}x");
                 return;
             }
 
@@ -5807,58 +5640,8 @@ namespace Parsek
             }
 
             // Hide all ghost parts so the explosion plays over empty space
-            HideAllGhostParts(state);
+            GhostPlaybackLogic.HideAllGhostParts(state);
             ParsekLog.Verbose("ExplosionFx", $"Ghost #{recIdx} parts hidden after explosion");
-        }
-
-        /// <summary>
-        /// Pure decision logic: should we trigger an explosion for this ghost/recording pair?
-        /// Extracted for testability and logging of guard condition skips.
-        /// Parameters are primitives so this can be called from tests without GhostPlaybackState.
-        /// </summary>
-        internal static bool ShouldTriggerExplosion(bool explosionAlreadyFired, TerminalState? terminalState,
-            bool ghostExists, string vesselName, int recIdx)
-        {
-            if (explosionAlreadyFired)
-            {
-                ParsekLog.VerboseRateLimited("ExplosionFx", $"explosion_fired_{recIdx}",
-                    $"ShouldTriggerExplosion: ghost #{recIdx} — skipped (already fired)");
-                return false;
-            }
-            if (terminalState != TerminalState.Destroyed)
-            {
-                ParsekLog.VerboseRateLimited("ExplosionFx", $"not_destroyed_{recIdx}",
-                    $"ShouldTriggerExplosion: ghost #{recIdx} — skipped (terminalState={terminalState?.ToString() ?? "null"}, not Destroyed)");
-                return false;
-            }
-            if (!ghostExists)
-            {
-                ParsekLog.Verbose("ExplosionFx", $"ShouldTriggerExplosion: ghost #{recIdx} — skipped (ghost GO is null)");
-                return false;
-            }
-            ParsekLog.Verbose("ExplosionFx", $"ShouldTriggerExplosion: ghost #{recIdx} \"{vesselName}\" — will fire");
-            return true;
-        }
-
-        internal static void HideAllGhostParts(GhostPlaybackState state)
-        {
-            if (state.ghost == null) return;
-            var t = state.ghost.transform;
-            int hidden = 0;
-            // Keep cameraPivot active — FlightCamera targets it during watch-mode hold.
-            // Disabling it would make KSP snap the camera back to the active vessel.
-            var pivotT = state.cameraPivot;
-            for (int c = 0; c < t.childCount; c++)
-            {
-                var child = t.GetChild(c);
-                if (pivotT != null && child == pivotT) continue;
-                if (child.gameObject.activeSelf)
-                {
-                    child.gameObject.SetActive(false);
-                    hidden++;
-                }
-            }
-            ParsekLog.Verbose("GhostVisual", $"HideAllGhostParts: hidden {hidden}/{t.childCount} children (cameraPivot preserved)");
         }
 
         void CleanupActiveExplosions()
@@ -5908,7 +5691,7 @@ namespace Parsek
 
             DestroyReentryFxResources(state.reentryFxInfo);
             if (state.ghost != null) Destroy(state.ghost);
-            DestroyAllFakeCanopies(state);
+            GhostPlaybackLogic.DestroyAllFakeCanopies(state);
         }
 
         /// <summary>
@@ -6030,807 +5813,6 @@ namespace Parsek
             ParsekLog.ScreenMessage($"Recording '{rec.VesselName}' deleted", 2f);
         }
 
-        internal static void ApplyPartEvents(int recIdx, RecordingStore.Recording rec, double currentUT, GhostPlaybackState state)
-        {
-            if (rec.PartEvents == null || rec.PartEvents.Count == 0) return;
-            if (state.ghost == null)
-            {
-                ParsekLog.VerboseRateLimited("Flight", $"apply-part-events-null-ghost-{recIdx}",
-                    $"ApplyPartEvents: ghost is null for recording #{recIdx}");
-                return;
-            }
-
-            int evtIdx = state.partEventIndex;
-            var tree = state.partTree;
-            var ghost = state.ghost;
-            bool visibilityChanged = false;
-
-            while (evtIdx < rec.PartEvents.Count && rec.PartEvents[evtIdx].ut <= currentUT)
-            {
-                var evt = rec.PartEvents[evtIdx];
-                switch (evt.eventType)
-                {
-                    case PartEventType.Decoupled:
-                        StopEngineFxForPart(state, evt.partPersistentId);
-                        StopRcsFxForPart(state, evt.partPersistentId);
-                        ApplyHeatState(state, evt, HeatLevel.Cold);
-                        SpawnPartPuffAtPart(ghost, evt.partPersistentId);
-                        if (tree != null)
-                            HidePartSubtree(ghost, evt.partPersistentId, tree);
-                        else
-                            HideGhostPart(ghost, evt.partPersistentId);
-                        ParsekLog.Verbose("Flight", $"Part event applied: Decoupled '{evt.partName}' pid={evt.partPersistentId}");
-                        GhostVisualBuilder.RebuildReentryMeshes(ghost, state.reentryFxInfo);
-                        visibilityChanged = true;
-                        break;
-                    case PartEventType.Destroyed:
-                        StopEngineFxForPart(state, evt.partPersistentId);
-                        StopRcsFxForPart(state, evt.partPersistentId);
-                        ApplyHeatState(state, evt, HeatLevel.Cold);
-                        SpawnPartPuffAtPart(ghost, evt.partPersistentId);
-                        HideGhostPart(ghost, evt.partPersistentId);
-                        ParsekLog.Verbose("Flight", $"Part event applied: Destroyed '{evt.partName}' pid={evt.partPersistentId}");
-                        GhostVisualBuilder.RebuildReentryMeshes(ghost, state.reentryFxInfo);
-                        visibilityChanged = true;
-                        break;
-                    case PartEventType.ParachuteCut:
-                        if (state.parachuteInfos != null)
-                        {
-                            ParachuteGhostInfo cutInfo;
-                            if (state.parachuteInfos.TryGetValue(evt.partPersistentId, out cutInfo))
-                            {
-                                if (cutInfo.canopyTransform != null)
-                                    cutInfo.canopyTransform.localScale = Vector3.zero;
-                                if (cutInfo.capTransform != null)
-                                    cutInfo.capTransform.gameObject.SetActive(false);
-                            }
-                        }
-                        DestroyFakeCanopy(state, evt.partPersistentId);
-                        ParsekLog.Verbose("Flight", $"Part event: ParachuteCut '{evt.partName}' — canopy hidden, housing remains");
-                        break;
-                    case PartEventType.ShroudJettisoned:
-                        ApplyJettisonPanelState(state, evt, jettisoned: true);
-                        ParsekLog.Verbose("Flight", $"Part event applied: ShroudJettisoned '{evt.partName}' pid={evt.partPersistentId}");
-                        break;
-                    case PartEventType.ParachuteDestroyed:
-                        // Clean up canopy visuals before hiding the part
-                        if (state.parachuteInfos != null)
-                        {
-                            ParachuteGhostInfo destroyedInfo;
-                            if (state.parachuteInfos.TryGetValue(evt.partPersistentId, out destroyedInfo))
-                            {
-                                if (destroyedInfo.canopyTransform != null)
-                                    destroyedInfo.canopyTransform.localScale = Vector3.zero;
-                            }
-                        }
-                        DestroyFakeCanopy(state, evt.partPersistentId);
-                        HideGhostPart(ghost, evt.partPersistentId);
-                        ParsekLog.Verbose("Flight", $"Part event applied: ParachuteDestroyed '{evt.partName}' pid={evt.partPersistentId}");
-                        visibilityChanged = true;
-                        break;
-                    case PartEventType.ParachuteSemiDeployed:
-                        if (state.parachuteInfos != null)
-                        {
-                            ParachuteGhostInfo semiInfo;
-                            if (state.parachuteInfos.TryGetValue(evt.partPersistentId, out semiInfo) &&
-                                semiInfo.canopyTransform != null && semiInfo.semiDeployedSampled)
-                            {
-                                semiInfo.canopyTransform.localScale = semiInfo.semiDeployedCanopyScale;
-                                semiInfo.canopyTransform.localPosition = semiInfo.semiDeployedCanopyPos;
-                                semiInfo.canopyTransform.localRotation = semiInfo.semiDeployedCanopyRot;
-                                if (semiInfo.capTransform != null)
-                                    semiInfo.capTransform.gameObject.SetActive(false);
-                                ParsekLog.Verbose("Flight", $"Part event: ParachuteSemiDeployed '{evt.partName}' — streamer canopy shown");
-                            }
-                            else
-                            {
-                                ParsekLog.Verbose("Flight", $"Part event: ParachuteSemiDeployed '{evt.partName}' — no semi-deployed state sampled, skipping");
-                            }
-                        }
-                        break;
-                    case PartEventType.ParachuteDeployed:
-                        bool usedRealCanopy = false;
-
-                        if (state.parachuteInfos != null)
-                        {
-                            ParachuteGhostInfo info;
-                            if (state.parachuteInfos.TryGetValue(evt.partPersistentId, out info) && info.canopyTransform != null)
-                            {
-                                info.canopyTransform.localScale = info.deployedCanopyScale;
-                                info.canopyTransform.localPosition = info.deployedCanopyPos;
-                                info.canopyTransform.localRotation = info.deployedCanopyRot;
-                                if (info.capTransform != null)
-                                    info.capTransform.gameObject.SetActive(false);
-                                usedRealCanopy = true;
-                                ParsekLog.Verbose("Flight", $"Part event: ParachuteDeployed '{evt.partName}' — real canopy deployed");
-                            }
-                        }
-
-                        if (!usedRealCanopy)
-                        {
-                            var canopy = GhostVisualBuilder.CreateFakeCanopy(ghost, evt.partPersistentId);
-                            if (canopy != null)
-                            {
-                                TrackFakeCanopy(state, evt.partPersistentId, canopy);
-                                ParsekLog.Verbose("Flight", $"Part event: ParachuteDeployed '{evt.partName}' — fake canopy (fallback)");
-                            }
-                            else
-                            {
-                                ParsekLog.Verbose("Flight", $"Part event: ParachuteDeployed '{evt.partName}' — could not create canopy");
-                            }
-                        }
-                        break;
-                    case PartEventType.EngineIgnited:
-                        SetEngineEmission(state, evt, evt.value);
-                        ApplyHeatState(state, evt, HeatLevel.Hot);
-                        ParsekLog.Verbose("Flight", $"Part event applied: EngineIgnited '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} throttle={evt.value:F2}");
-                        break;
-                    case PartEventType.EngineShutdown:
-                        SetEngineEmission(state, evt, 0f);
-                        // Also reset heat animation glow — engine nozzles stay emissive
-                        // after shutdown if ThermalAnimationCold hasn't fired yet.
-                        ApplyHeatState(state, evt, HeatLevel.Cold);
-                        ParsekLog.Verbose("Flight", $"Part event applied: EngineShutdown '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex}");
-                        break;
-                    case PartEventType.EngineThrottle:
-                        SetEngineEmission(state, evt, evt.value);
-                        ApplyHeatState(state, evt, HeatLevel.Hot);
-                        break;
-                    case PartEventType.DeployableExtended:
-                        ApplyDeployableState(state, evt, deployed: true);
-                        ParsekLog.Verbose("Flight", $"Part event applied: DeployableExtended '{evt.partName}' pid={evt.partPersistentId}");
-                        break;
-                    case PartEventType.DeployableRetracted:
-                        ApplyDeployableState(state, evt, deployed: false);
-                        ParsekLog.Verbose("Flight", $"Part event applied: DeployableRetracted '{evt.partName}' pid={evt.partPersistentId}");
-                        break;
-                    case PartEventType.ThermalAnimationHot:
-                        ApplyHeatState(state, evt, HeatLevel.Hot);
-                        ParsekLog.Verbose("Flight", $"Part event applied: ThermalAnimationHot '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} heat={evt.value:F2}");
-                        break;
-                    case PartEventType.ThermalAnimationMedium:
-                        ApplyHeatState(state, evt, HeatLevel.Medium);
-                        ParsekLog.Verbose("Flight", $"Part event applied: ThermalAnimationMedium '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} heat={evt.value:F2}");
-                        break;
-                    case PartEventType.ThermalAnimationCold:
-                        ApplyHeatState(state, evt, HeatLevel.Cold);
-                        ParsekLog.Verbose("Flight", $"Part event applied: ThermalAnimationCold '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} heat={evt.value:F2}");
-                        break;
-                    case PartEventType.LightOn:
-                        ApplyLightPowerEvent(state, evt.partPersistentId, true);
-                        ParsekLog.Verbose("Flight", $"Part event applied: LightOn '{evt.partName}' pid={evt.partPersistentId}");
-                        break;
-                    case PartEventType.LightOff:
-                        ApplyLightPowerEvent(state, evt.partPersistentId, false);
-                        ParsekLog.Verbose("Flight", $"Part event applied: LightOff '{evt.partName}' pid={evt.partPersistentId}");
-                        break;
-                    case PartEventType.LightBlinkEnabled:
-                        ApplyLightBlinkModeEvent(state, evt.partPersistentId, enabled: true, evt.value);
-                        ParsekLog.Verbose("Flight", $"Part event applied: LightBlinkEnabled '{evt.partName}' pid={evt.partPersistentId} rate={evt.value:F2}");
-                        break;
-                    case PartEventType.LightBlinkDisabled:
-                        ApplyLightBlinkModeEvent(state, evt.partPersistentId, enabled: false, evt.value);
-                        ParsekLog.Verbose("Flight", $"Part event applied: LightBlinkDisabled '{evt.partName}' pid={evt.partPersistentId}");
-                        break;
-                    case PartEventType.LightBlinkRate:
-                        ApplyLightBlinkRateEvent(state, evt.partPersistentId, evt.value);
-                        ParsekLog.Verbose("Flight", $"Part event applied: LightBlinkRate '{evt.partName}' pid={evt.partPersistentId} rate={evt.value:F2}");
-                        break;
-                    case PartEventType.GearDeployed:
-                        ApplyDeployableState(state, evt, deployed: true);
-                        ParsekLog.Verbose("Flight", $"Part event applied: GearDeployed '{evt.partName}' pid={evt.partPersistentId}");
-                        break;
-                    case PartEventType.GearRetracted:
-                        ApplyDeployableState(state, evt, deployed: false);
-                        ParsekLog.Verbose("Flight", $"Part event applied: GearRetracted '{evt.partName}' pid={evt.partPersistentId}");
-                        break;
-                    case PartEventType.CargoBayOpened:
-                        if (!ApplyDeployableState(state, evt, deployed: true))
-                            ApplyJettisonPanelState(state, evt, jettisoned: true);
-                        ParsekLog.Verbose("Flight", $"Part event applied: CargoBayOpened '{evt.partName}' pid={evt.partPersistentId}");
-                        break;
-                    case PartEventType.CargoBayClosed:
-                        if (!ApplyDeployableState(state, evt, deployed: false))
-                            ApplyJettisonPanelState(state, evt, jettisoned: false);
-                        ParsekLog.Verbose("Flight", $"Part event applied: CargoBayClosed '{evt.partName}' pid={evt.partPersistentId}");
-                        break;
-                    case PartEventType.FairingJettisoned:
-                        if (state.fairingInfos != null)
-                        {
-                            FairingGhostInfo fInfo;
-                            if (state.fairingInfos.TryGetValue(evt.partPersistentId, out fInfo)
-                                && fInfo.fairingMeshObject != null)
-                            {
-                                fInfo.fairingMeshObject.SetActive(false);
-                                ParsekLog.Verbose("Flight", $"Part event applied: FairingJettisoned '{evt.partName}' pid={evt.partPersistentId}");
-                            }
-                        }
-                        break;
-                    case PartEventType.RCSActivated:
-                        SetRcsEmission(state, evt, evt.value);
-                        ApplyHeatState(state, evt, HeatLevel.Hot);
-                        ParsekLog.Verbose("Flight", $"Part event applied: RCSActivated '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} power={evt.value:F2}");
-                        break;
-                    case PartEventType.RCSStopped:
-                        SetRcsEmission(state, evt, 0f);
-                        ApplyHeatState(state, evt, HeatLevel.Cold);
-                        ParsekLog.Verbose("Flight", $"Part event applied: RCSStopped '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex}");
-                        break;
-                    case PartEventType.RCSThrottle:
-                        SetRcsEmission(state, evt, evt.value);
-                        ApplyHeatState(state, evt, HeatLevel.Hot);
-                        break;
-                    case PartEventType.RoboticMotionStarted:
-                    case PartEventType.RoboticPositionSample:
-                    case PartEventType.RoboticMotionStopped:
-                        ApplyRoboticEvent(state, evt, currentUT);
-                        break;
-                    case PartEventType.InventoryPartPlaced:
-                        SetGhostPartActive(ghost, evt.partPersistentId, true);
-                        visibilityChanged = true;
-                        ParsekLog.Verbose("Flight", $"Part event applied: InventoryPartPlaced '{evt.partName}' pid={evt.partPersistentId}");
-                        break;
-                    case PartEventType.InventoryPartRemoved:
-                        SetGhostPartActive(ghost, evt.partPersistentId, false);
-                        visibilityChanged = true;
-                        ParsekLog.Verbose("Flight", $"Part event applied: InventoryPartRemoved '{evt.partName}' pid={evt.partPersistentId}");
-                        break;
-                }
-                evtIdx++;
-            }
-
-            state.partEventIndex = evtIdx;
-            if (visibilityChanged)
-                RecalculateCameraPivot(state);
-            UpdateBlinkingLights(state, currentUT);
-            UpdateActiveRobotics(state, currentUT);
-        }
-
-        /// <summary>
-        /// Spawns a small smoke puff + spark FX at a ghost part's world position.
-        /// Called before hiding the part on Decoupled/Destroyed events.
-        /// </summary>
-        internal static void SpawnPartPuffAtPart(GameObject ghost, uint persistentId)
-        {
-            if (ghost == null) return;
-            if (ShouldSuppressVisualFx(TimeWarp.CurrentRate)) return;
-            var t = ghost.transform.Find($"ghost_part_{persistentId}");
-            if (t == null)
-            {
-                ParsekLog.Verbose("PartPuffFx", $"Skipped puff for pid={persistentId} — part transform not found");
-                return;
-            }
-            if (!t.gameObject.activeSelf)
-            {
-                ParsekLog.Verbose("PartPuffFx", $"Skipped puff for pid={persistentId} — part already inactive");
-                return;
-            }
-
-            // Estimate part scale from its renderer bounds
-            float partScale = 1f;
-            var renderer = t.GetComponentInChildren<Renderer>();
-            if (renderer != null)
-                partScale = renderer.bounds.size.magnitude * 0.5f;
-
-            var pos = t.position;
-            GhostVisualBuilder.SpawnPartPuffFx(pos, partScale);
-            ParsekLog.Verbose("PartPuffFx",
-                $"Spawned puff for pid={persistentId} at ({pos.x:F1},{pos.y:F1},{pos.z:F1}) scale={partScale:F2}");
-        }
-
-        internal static void HideGhostPart(GameObject ghost, uint persistentId)
-        {
-            var t = ghost.transform.Find($"ghost_part_{persistentId}");
-            if (t != null) t.gameObject.SetActive(false);
-        }
-
-        internal static void SetGhostPartActive(GameObject ghost, uint persistentId, bool active)
-        {
-            if (ghost == null) return;
-            var t = ghost.transform.Find($"ghost_part_{persistentId}");
-            if (t != null) t.gameObject.SetActive(active);
-        }
-
-        internal static void InitializeInventoryPlacementVisibility(
-            RecordingStore.Recording rec, GhostPlaybackState state)
-        {
-            if (rec == null || rec.PartEvents == null || rec.PartEvents.Count == 0) return;
-            if (state == null || state.ghost == null) return;
-
-            // If a part's first placement-related event is "placed", start hidden so it
-            // visibly appears only when the event fires.
-            var initialized = new HashSet<uint>();
-            for (int i = 0; i < rec.PartEvents.Count; i++)
-            {
-                var evt = rec.PartEvents[i];
-                if (initialized.Contains(evt.partPersistentId)) continue;
-
-                if (evt.eventType == PartEventType.InventoryPartPlaced)
-                {
-                    SetGhostPartActive(state.ghost, evt.partPersistentId, false);
-                    initialized.Add(evt.partPersistentId);
-                }
-                else if (evt.eventType == PartEventType.InventoryPartRemoved)
-                {
-                    SetGhostPartActive(state.ghost, evt.partPersistentId, true);
-                    initialized.Add(evt.partPersistentId);
-                }
-            }
-        }
-
-        internal static void TrackFakeCanopy(GhostPlaybackState state, uint partPid, GameObject canopy)
-        {
-            if (state.fakeCanopies == null)
-                state.fakeCanopies = new Dictionary<uint, GameObject>();
-            // Destroy previous canopy for this part if one exists (prevents leak)
-            GameObject existing;
-            if (state.fakeCanopies.TryGetValue(partPid, out existing) && existing != null)
-                DestroyCanopyAndMaterial(existing);
-            state.fakeCanopies[partPid] = canopy;
-        }
-
-        internal static void DestroyFakeCanopy(GhostPlaybackState state, uint partPid)
-        {
-            if (state.fakeCanopies == null) return;
-            GameObject canopy;
-            if (state.fakeCanopies.TryGetValue(partPid, out canopy) && canopy != null)
-                DestroyCanopyAndMaterial(canopy);
-            state.fakeCanopies.Remove(partPid);
-        }
-
-        internal static void DestroyAllFakeCanopies(GhostPlaybackState state)
-        {
-            if (state.fakeCanopies == null) return;
-            foreach (var kv in state.fakeCanopies)
-                if (kv.Value != null) DestroyCanopyAndMaterial(kv.Value);
-            state.fakeCanopies = null;
-        }
-
-        internal static void DestroyCanopyAndMaterial(GameObject canopy)
-        {
-            var renderer = canopy.GetComponent<Renderer>();
-            if (renderer != null && renderer.material != null)
-                Destroy(renderer.material);
-            Destroy(canopy);
-        }
-
-        internal static string BuildEngineFxEmissionDiagnostic(
-            string partName,
-            uint partPersistentId,
-            int moduleIndex,
-            float power,
-            string particleName,
-            string parentName,
-            Vector3 localPosition,
-            Quaternion localRotation,
-            Vector3 worldPosition,
-            Vector3 worldForward,
-            Vector3 worldUp,
-            float emissionRate,
-            float startSpeed,
-            bool isPlaying)
-        {
-            string safePartName = string.IsNullOrEmpty(partName) ? "<unknown>" : partName;
-            string safeParticleName = string.IsNullOrEmpty(particleName) ? "<unknown>" : particleName;
-            string safeParentName = string.IsNullOrEmpty(parentName) ? "<none>" : parentName;
-            string localRotationRaw =
-                $"({localRotation.x.ToString("F4", CultureInfo.InvariantCulture)}," +
-                $"{localRotation.y.ToString("F4", CultureInfo.InvariantCulture)}," +
-                $"{localRotation.z.ToString("F4", CultureInfo.InvariantCulture)}," +
-                $"{localRotation.w.ToString("F4", CultureInfo.InvariantCulture)})";
-
-            return $"Engine FX emission diag: part='{safePartName}' pid={partPersistentId} midx={moduleIndex} " +
-                $"power={power.ToString("F2", CultureInfo.InvariantCulture)} " +
-                $"ps='{safeParticleName}' parent='{safeParentName}' " +
-                $"localPos={FormatVector3Invariant(localPosition)} localRot={localRotationRaw} " +
-                $"worldPos={FormatVector3Invariant(worldPosition)} " +
-                $"worldFwd={FormatVector3Invariant(worldForward)} " +
-                $"worldUp={FormatVector3Invariant(worldUp)} " +
-                $"rate={emissionRate.ToString("F2", CultureInfo.InvariantCulture)} " +
-                $"speed={startSpeed.ToString("F2", CultureInfo.InvariantCulture)} playing={isPlaying}";
-        }
-
-        internal static string FormatVector3Invariant(Vector3 value)
-        {
-            return $"({value.x.ToString("F4", CultureInfo.InvariantCulture)}," +
-                $"{value.y.ToString("F4", CultureInfo.InvariantCulture)}," +
-                $"{value.z.ToString("F4", CultureInfo.InvariantCulture)})";
-        }
-
-        internal static void SetEngineEmission(GhostPlaybackState state, PartEvent evt, float power)
-        {
-            if (state.engineInfos == null) return;
-
-            ulong key = FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex);
-            EngineGhostInfo info;
-            if (!state.engineInfos.TryGetValue(key, out info)) return;
-
-            for (int i = 0; i < info.particleSystems.Count; i++)
-            {
-                var ps = info.particleSystems[i];
-                if (ps == null) continue;
-
-                var emission = ps.emission;
-                if (power > 0f)
-                {
-                    emission.enabled = true;
-                    float emRate = info.emissionCurve != null ? info.emissionCurve.Evaluate(power) : power * 100f;
-                    emission.rateOverTimeMultiplier = emRate;
-
-                    var main = ps.main;
-                    float spd = info.speedCurve != null ? info.speedCurve.Evaluate(power) : power * 10f;
-                    main.startSpeedMultiplier = spd;
-
-                    SetParticleRenderersEnabled(ps, true);
-                    if (!ps.isPlaying) ps.Play();
-                }
-                else
-                {
-                    emission.enabled = false;
-                    emission.rateOverTimeMultiplier = 0;
-                    ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                    ps.Clear(true);
-                    SetParticleRenderersEnabled(ps, false);
-                }
-
-                if (ParsekLog.IsVerboseEnabled)
-                {
-                    Transform t = ps.transform;
-                    string parentName = t != null && t.parent != null ? t.parent.name : "<none>";
-                    var diagMain = ps.main;
-                    string diagLine = BuildEngineFxEmissionDiagnostic(
-                        evt.partName,
-                        evt.partPersistentId,
-                        evt.moduleIndex,
-                        power,
-                        ps.name,
-                        parentName,
-                        t != null ? t.localPosition : Vector3.zero,
-                        t != null ? t.localRotation : Quaternion.identity,
-                        t != null ? t.position : Vector3.zero,
-                        t != null ? t.forward : Vector3.zero,
-                        t != null ? t.up : Vector3.zero,
-                        emission.rateOverTimeMultiplier,
-                        diagMain.startSpeedMultiplier,
-                        ps.isPlaying);
-                    string diagKey = $"engine-fx-{evt.partPersistentId}-{evt.moduleIndex}-{ps.GetInstanceID()}";
-                    ParsekLog.VerboseRateLimited("Flight", diagKey, diagLine, 60.0);
-                }
-            }
-        }
-
-        /// <summary>
-        /// Stop all engine FX particle systems for a given part (by PID).
-        /// Used defensively on decouple/destroy to ensure no orphaned engine glow.
-        /// </summary>
-        internal static void StopEngineFxForPart(GhostPlaybackState state, uint partPersistentId)
-        {
-            if (state?.engineInfos == null) return;
-            foreach (var info in state.engineInfos.Values)
-            {
-                if (info.partPersistentId != partPersistentId) continue;
-                for (int i = 0; i < info.particleSystems.Count; i++)
-                {
-                    var ps = info.particleSystems[i];
-                    if (ps == null) continue;
-                    var emission = ps.emission;
-                    emission.enabled = false;
-                    emission.rateOverTimeMultiplier = 0;
-                    ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                    ps.Clear(true);
-                    SetParticleRenderersEnabled(ps, false);
-                }
-            }
-        }
-
-        /// <summary>
-        /// Stop all RCS FX particle systems for a given part (by PID).
-        /// Used defensively on decouple/destroy to ensure no orphaned RCS glow.
-        /// </summary>
-        internal static void StopRcsFxForPart(GhostPlaybackState state, uint partPersistentId)
-        {
-            if (state?.rcsInfos == null) return;
-            foreach (var info in state.rcsInfos.Values)
-            {
-                if (info.partPersistentId != partPersistentId) continue;
-                for (int i = 0; i < info.particleSystems.Count; i++)
-                {
-                    var ps = info.particleSystems[i];
-                    if (ps == null) continue;
-                    var emission = ps.emission;
-                    emission.enabled = false;
-                    emission.rateOverTimeMultiplier = 0;
-                    ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                    ps.Clear(true);
-                    SetParticleRenderersEnabled(ps, false);
-                }
-            }
-        }
-
-        internal static void SetParticleRenderersEnabled(ParticleSystem ps, bool enabled)
-        {
-            if (ps == null)
-                return;
-
-            ParticleSystemRenderer[] renderers = ps.GetComponentsInChildren<ParticleSystemRenderer>(true);
-            for (int i = 0; i < renderers.Length; i++)
-            {
-                if (renderers[i] != null)
-                    renderers[i].enabled = enabled;
-            }
-        }
-
-        internal static void SetRcsEmission(GhostPlaybackState state, PartEvent evt, float power)
-        {
-            if (state.rcsInfos == null) return;
-
-            ulong key = FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex);
-            RcsGhostInfo info;
-            if (!state.rcsInfos.TryGetValue(key, out info)) return;
-
-            int configuredSystems = 0;
-            int enabledRenderers = 0;
-            int playingSystems = 0;
-            float sampleRate = 0f;
-            float sampleSpeed = 0f;
-            float sampleSize = 0f;
-            float sampleLifetime = 0f;
-
-            for (int i = 0; i < info.particleSystems.Count; i++)
-            {
-                var ps = info.particleSystems[i];
-                if (ps == null) continue;
-
-                configuredSystems++;
-                var emission = ps.emission;
-                if (power > 0f)
-                {
-                    emission.enabled = true;
-                    float emRate = ComputeScaledRcsEmissionRate(info.emissionCurve, power, info.emissionScale);
-                    emission.rateOverTimeMultiplier = emRate;
-
-                    var main = ps.main;
-                    float spd = ComputeScaledRcsSpeed(info.speedCurve, power, info.speedScale);
-                    main.startSpeedMultiplier = spd;
-
-                    SetParticleRenderersEnabled(ps, true);
-                    if (!ps.isPlaying) ps.Play();
-
-                    if (sampleRate <= 0f)
-                    {
-                        sampleRate = emRate;
-                        sampleSpeed = spd;
-                        sampleSize = main.startSizeMultiplier;
-                        sampleLifetime = main.startLifetimeMultiplier;
-                    }
-                }
-                else
-                {
-                    emission.enabled = false;
-                    emission.rateOverTimeMultiplier = 0;
-                    ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                    ps.Clear(true);
-                    SetParticleRenderersEnabled(ps, false);
-                }
-
-                if (ps.isPlaying) playingSystems++;
-                var renderer = ps.GetComponent<ParticleSystemRenderer>();
-                if (renderer != null && renderer.enabled) enabledRenderers++;
-            }
-
-            if (info.emissionScale > 1f)
-            {
-                ParsekLog.Verbose("Flight", $"RCS showcase diagnostics: part='{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} " +
-                    $"power={power:F2} systems={configuredSystems} playing={playingSystems} renderers={enabledRenderers} " +
-                    $"rate={sampleRate:F1} speed={sampleSpeed:F1} size={sampleSize:F2} life={sampleLifetime:F2}");
-            }
-        }
-
-        internal static float ComputeScaledRcsEmissionRate(
-            FloatCurve emissionCurve, float power, float emissionScale)
-        {
-            if (power <= 0f) return 0f;
-
-            float emRate = emissionCurve != null ? emissionCurve.Evaluate(power) : power * 100f;
-            emRate *= emissionScale > 0f ? emissionScale : 1f;
-            if (emissionScale > 1f)
-                emRate = Math.Max(emRate, 60f);
-
-            return emRate;
-        }
-
-        internal static float ComputeScaledRcsSpeed(
-            FloatCurve speedCurve, float power, float speedScale)
-        {
-            if (power <= 0f) return 0f;
-
-            float spd = speedCurve != null ? speedCurve.Evaluate(power) : power * 10f;
-            spd *= speedScale > 0f ? speedScale : 1f;
-            if (speedScale > 1f)
-                spd = Math.Max(spd, 4f);
-
-            return spd;
-        }
-
-        internal static float ComputeRotorDeltaDegrees(float rpm, double deltaSeconds)
-        {
-            if (double.IsNaN(deltaSeconds) || double.IsInfinity(deltaSeconds) || deltaSeconds <= 0)
-                return 0f;
-            if (float.IsNaN(rpm) || float.IsInfinity(rpm) || Mathf.Abs(rpm) <= 0.0001f)
-                return 0f;
-
-            // RPM * 360deg / 60s
-            return rpm * 6f * (float)deltaSeconds;
-        }
-
-        private static void ApplyRoboticPose(RoboticGhostInfo info, float value)
-        {
-            if (info == null || info.servoTransform == null)
-                return;
-
-            Vector3 axis = info.axisLocal.sqrMagnitude > 0.0001f
-                ? info.axisLocal.normalized
-                : Vector3.up;
-
-            if (info.visualMode == RoboticVisualMode.Linear)
-            {
-                info.servoTransform.localPosition = info.stowedPos + (axis * value);
-            }
-            else if (info.visualMode == RoboticVisualMode.Rotational)
-            {
-                info.servoTransform.localRotation =
-                    info.stowedRot * Quaternion.AngleAxis(value, axis);
-            }
-        }
-
-        private static void ApplyRoboticEvent(
-            GhostPlaybackState state, PartEvent evt, double currentUT)
-        {
-            if (state == null || state.roboticInfos == null)
-                return;
-
-            ulong key = FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex);
-            if (!state.roboticInfos.TryGetValue(key, out RoboticGhostInfo info) || info == null)
-                return;
-
-            info.currentValue = evt.value;
-
-            if (info.visualMode == RoboticVisualMode.RotorRpm)
-            {
-                info.active = evt.eventType != PartEventType.RoboticMotionStopped &&
-                    Mathf.Abs(evt.value) > 0.0001f;
-                info.lastUpdateUT = currentUT;
-            }
-            else
-            {
-                ApplyRoboticPose(info, evt.value);
-                info.active = evt.eventType != PartEventType.RoboticMotionStopped;
-                info.lastUpdateUT = currentUT;
-            }
-        }
-
-        internal static void UpdateActiveRobotics(GhostPlaybackState state, double currentUT)
-        {
-            if (state == null || state.roboticInfos == null || state.roboticInfos.Count == 0)
-                return;
-
-            foreach (var kv in state.roboticInfos)
-            {
-                RoboticGhostInfo info = kv.Value;
-                if (info == null || info.servoTransform == null)
-                    continue;
-
-                if (double.IsNaN(info.lastUpdateUT) || double.IsInfinity(info.lastUpdateUT))
-                {
-                    info.lastUpdateUT = currentUT;
-                    continue;
-                }
-
-                double deltaSeconds = currentUT - info.lastUpdateUT;
-                if (deltaSeconds <= 0)
-                {
-                    info.lastUpdateUT = currentUT;
-                    continue;
-                }
-
-                // Timeline jumps/loop boundaries rebuild ghosts, but guard large UT gaps anyway.
-                deltaSeconds = Math.Min(deltaSeconds, 1.0);
-
-                if (info.visualMode == RoboticVisualMode.RotorRpm && info.active)
-                {
-                    float deltaDegrees = ComputeRotorDeltaDegrees(info.currentValue, deltaSeconds);
-                    if (Mathf.Abs(deltaDegrees) > 0.0001f)
-                    {
-                        Vector3 axis = info.axisLocal.sqrMagnitude > 0.0001f
-                            ? info.axisLocal.normalized
-                            : Vector3.up;
-                        info.servoTransform.localRotation =
-                            info.servoTransform.localRotation * Quaternion.AngleAxis(deltaDegrees, axis);
-                    }
-                }
-
-                info.lastUpdateUT = currentUT;
-            }
-        }
-
-        internal static bool ApplyHeatState(GhostPlaybackState state, PartEvent evt, HeatLevel level)
-        {
-            if (state == null || state.heatInfos == null) return false;
-
-            if (!state.heatInfos.TryGetValue(evt.partPersistentId, out HeatGhostInfo info) || info == null)
-                return false;
-
-            bool applied = false;
-
-            if (info.transforms != null)
-            {
-                for (int i = 0; i < info.transforms.Count; i++)
-                {
-                    var ts = info.transforms[i];
-                    if (ts.t == null) continue;
-
-                    switch (level)
-                    {
-                        case HeatLevel.Hot:
-                            ts.t.localPosition = ts.hotPos;
-                            ts.t.localRotation = ts.hotRot;
-                            ts.t.localScale = ts.hotScale;
-                            break;
-                        case HeatLevel.Medium:
-                            ts.t.localPosition = ts.mediumPos;
-                            ts.t.localRotation = ts.mediumRot;
-                            ts.t.localScale = ts.mediumScale;
-                            break;
-                        default:
-                            ts.t.localPosition = ts.coldPos;
-                            ts.t.localRotation = ts.coldRot;
-                            ts.t.localScale = ts.coldScale;
-                            break;
-                    }
-                    applied = true;
-                }
-            }
-
-            if (info.materialStates != null)
-            {
-                for (int i = 0; i < info.materialStates.Count; i++)
-                {
-                    HeatMaterialState materialState = info.materialStates[i];
-                    if (materialState.material == null) continue;
-
-                    Color color, emission;
-                    switch (level)
-                    {
-                        case HeatLevel.Hot:
-                            color = materialState.hotColor;
-                            emission = materialState.hotEmission;
-                            break;
-                        case HeatLevel.Medium:
-                            color = materialState.mediumColor;
-                            emission = materialState.mediumEmission;
-                            break;
-                        default:
-                            color = materialState.coldColor;
-                            emission = materialState.coldEmission;
-                            break;
-                    }
-
-                    if (!string.IsNullOrEmpty(materialState.colorProperty))
-                        materialState.material.SetColor(materialState.colorProperty, color);
-
-                    if (!string.IsNullOrEmpty(materialState.emissiveProperty))
-                        materialState.material.SetColor(materialState.emissiveProperty, emission);
-
-                    applied = true;
-                }
-            }
-
-            if (applied)
-                ParsekLog.Verbose("Flight", $"Part pid={evt.partPersistentId}: applied heat level {level}");
-
-            return applied;
-        }
-
         private void DriveReentryToZero(ReentryFxInfo info, int recIdx, string bodyName, double altitude, string vesselName,
             GhostPlaybackState state = null)
         {
@@ -6843,7 +5825,7 @@ namespace Parsek
             var info = state.reentryFxInfo;
             if (info == null || state.ghost == null) return;
 
-            if (ShouldSuppressVisualFx(TimeWarp.CurrentRate))
+            if (GhostPlaybackLogic.ShouldSuppressVisualFx(TimeWarp.CurrentRate))
             {
                 DriveReentryToZero(info, recIdx, state.lastInterpolatedBodyName,
                     state.lastInterpolatedAltitude, vesselName);
@@ -6980,7 +5962,7 @@ namespace Parsek
 
             // Apply ablation char to heat shield parts (Pattern B: _BurnColor)
             if (state != null)
-                ApplyColorChangerCharState(state, intensity);
+                GhostPlaybackLogic.ApplyColorChangerCharState(state, intensity);
 
             // Fire envelope particles
             if (info.fireParticles != null)
@@ -7054,283 +6036,6 @@ namespace Parsek
                 Destroy(info.generatedTexture);
             if (info.combinedEmissionMesh != null)
                 Destroy(info.combinedEmissionMesh);
-        }
-
-        private static void ResetReentryFx(GhostPlaybackState state, int recIdx)
-        {
-            var info = state.reentryFxInfo;
-            if (info == null) return;
-
-            info.lastIntensity = 0f;
-
-            if (info.fireParticles != null)
-            {
-                info.fireParticles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                info.fireParticles.Clear(true);
-            }
-
-            if (info.glowMaterials != null)
-            {
-                for (int i = 0; i < info.glowMaterials.Count; i++)
-                {
-                    HeatMaterialState ms = info.glowMaterials[i];
-                    if (ms.material == null) continue;
-                    if (!string.IsNullOrEmpty(ms.emissiveProperty))
-                        ms.material.SetColor(ms.emissiveProperty, ms.coldEmission);
-                    if (!string.IsNullOrEmpty(ms.colorProperty))
-                        ms.material.SetColor(ms.colorProperty, ms.coldColor);
-                }
-            }
-
-            ParsekLog.Verbose("Flight", $"ReentryFx: Loop reset for ghost #{recIdx} — cleared fire particles and glow");
-        }
-
-        internal static bool ApplyDeployableState(GhostPlaybackState state, PartEvent evt, bool deployed)
-        {
-            if (state.deployableInfos == null) return false;
-
-            DeployableGhostInfo info;
-            if (!state.deployableInfos.TryGetValue(evt.partPersistentId, out info)) return false;
-
-            bool applied = false;
-
-            for (int i = 0; i < info.transforms.Count; i++)
-            {
-                var ts = info.transforms[i];
-                if (ts.t == null) continue;
-                applied = true;
-                if (deployed)
-                {
-                    ts.t.localPosition = ts.deployedPos;
-                    ts.t.localRotation = ts.deployedRot;
-                    ts.t.localScale = ts.deployedScale;
-                }
-                else
-                {
-                    ts.t.localPosition = ts.stowedPos;
-                    ts.t.localRotation = ts.stowedRot;
-                    ts.t.localScale = ts.stowedScale;
-                }
-            }
-
-            return applied;
-        }
-
-        internal static bool ApplyJettisonPanelState(GhostPlaybackState state, PartEvent evt, bool jettisoned)
-        {
-            if (state.jettisonInfos == null) return false;
-
-            JettisonGhostInfo jetInfo;
-            if (!state.jettisonInfos.TryGetValue(evt.partPersistentId, out jetInfo) ||
-                jetInfo.jettisonTransforms == null ||
-                jetInfo.jettisonTransforms.Count == 0)
-                return false;
-
-            bool applied = false;
-            for (int i = 0; i < jetInfo.jettisonTransforms.Count; i++)
-            {
-                Transform jettisonTransform = jetInfo.jettisonTransforms[i];
-                if (jettisonTransform == null) continue;
-                jettisonTransform.gameObject.SetActive(!jettisoned);
-                applied = true;
-            }
-
-            return applied;
-        }
-
-        internal static LightPlaybackState GetOrCreateLightPlaybackState(
-            GhostPlaybackState state, uint partPersistentId)
-        {
-            if (state.lightPlaybackStates == null)
-                state.lightPlaybackStates = new Dictionary<uint, LightPlaybackState>();
-
-            LightPlaybackState playbackState;
-            if (!state.lightPlaybackStates.TryGetValue(partPersistentId, out playbackState))
-            {
-                playbackState = new LightPlaybackState();
-                state.lightPlaybackStates[partPersistentId] = playbackState;
-            }
-
-            return playbackState;
-        }
-
-        internal static void ApplyLightPowerEvent(GhostPlaybackState state, uint partPersistentId, bool on)
-        {
-            if (state == null) return;
-            LightPlaybackState playbackState = GetOrCreateLightPlaybackState(state, partPersistentId);
-            playbackState.isOn = on;
-            if (!on)
-                SetLightState(state, partPersistentId, false);
-            else if (!playbackState.blinkEnabled)
-                SetLightState(state, partPersistentId, true);
-        }
-
-        internal static void ApplyLightBlinkModeEvent(
-            GhostPlaybackState state, uint partPersistentId, bool enabled, float blinkRateHz)
-        {
-            if (state == null) return;
-            LightPlaybackState playbackState = GetOrCreateLightPlaybackState(state, partPersistentId);
-            playbackState.blinkEnabled = enabled;
-            if (blinkRateHz > 0f)
-                playbackState.blinkRateHz = blinkRateHz;
-        }
-
-        internal static void ApplyLightBlinkRateEvent(GhostPlaybackState state, uint partPersistentId, float blinkRateHz)
-        {
-            if (state == null) return;
-            LightPlaybackState playbackState = GetOrCreateLightPlaybackState(state, partPersistentId);
-            if (blinkRateHz > 0f)
-                playbackState.blinkRateHz = blinkRateHz;
-        }
-
-        internal static void UpdateBlinkingLights(GhostPlaybackState state, double currentUT)
-        {
-            if (state == null || state.lightPlaybackStates == null || state.lightPlaybackStates.Count == 0)
-                return;
-
-            foreach (var kv in state.lightPlaybackStates)
-            {
-                uint partPersistentId = kv.Key;
-                LightPlaybackState playbackState = kv.Value;
-                if (playbackState == null)
-                    continue;
-
-                bool shouldEnable = playbackState.isOn;
-                if (shouldEnable && playbackState.blinkEnabled)
-                {
-                    float rateHz = playbackState.blinkRateHz > 0f ? playbackState.blinkRateHz : 1f;
-                    double cycle = currentUT * rateHz;
-                    double frac = cycle - Math.Floor(cycle);
-                    shouldEnable = frac < 0.5;
-                }
-
-                SetLightState(state, partPersistentId, shouldEnable);
-            }
-        }
-
-        internal static void SetLightState(GhostPlaybackState state, uint partPersistentId, bool on)
-        {
-            // Toggle Unity Light components (existing behavior)
-            if (state.lightInfos != null)
-            {
-                LightGhostInfo info;
-                if (state.lightInfos.TryGetValue(partPersistentId, out info))
-                {
-                    for (int i = 0; i < info.lights.Count; i++)
-                    {
-                        if (info.lights[i] != null)
-                            info.lights[i].enabled = on;
-                    }
-                }
-            }
-
-            // Toggle ColorChanger emissive materials (Pattern A: cabin lights)
-            ApplyColorChangerLightState(state, partPersistentId, on);
-        }
-
-        internal static void ApplyColorChangerLightState(GhostPlaybackState state, uint partPersistentId, bool on)
-        {
-            if (state.colorChangerInfos == null) return;
-
-            List<ColorChangerGhostInfo> infos;
-            if (!state.colorChangerInfos.TryGetValue(partPersistentId, out infos)) return;
-
-            for (int c = 0; c < infos.Count; c++)
-            {
-                var ccInfo = infos[c];
-                if (!ccInfo.isCabinLight) continue; // Only Pattern A responds to light events
-
-                for (int i = 0; i < ccInfo.materials.Count; i++)
-                {
-                    if (ccInfo.materials[i].material != null)
-                    {
-                        ccInfo.materials[i].material.SetColor(
-                            ccInfo.shaderProperty,
-                            on ? ccInfo.materials[i].onColor : ccInfo.materials[i].offColor);
-                    }
-                }
-
-                ParsekLog.VerboseRateLimited("Flight", $"cc-light-{partPersistentId}",
-                    $"Part pid={partPersistentId}: applied color changer cabin light state={on}");
-            }
-        }
-
-        /// <summary>
-        /// Applies ablation char color to heat shield parts (Pattern B) based on reentry intensity.
-        /// Called from DriveReentryLayers when reentry glow is active.
-        /// </summary>
-        internal static void ApplyColorChangerCharState(GhostPlaybackState state, float intensity)
-        {
-            if (state == null || state.colorChangerInfos == null) return;
-
-            foreach (var kvp in state.colorChangerInfos)
-            {
-                var infos = kvp.Value;
-                for (int c = 0; c < infos.Count; c++)
-                {
-                    var ccInfo = infos[c];
-                    if (ccInfo.isCabinLight) continue; // Only Pattern B responds to reentry
-
-                    // Char is permanent — only increase, never fade back
-                    float fraction = Mathf.Clamp01(intensity);
-                    if (fraction <= ccInfo.peakCharIntensity) continue;
-                    ccInfo.peakCharIntensity = fraction;
-
-                    for (int i = 0; i < ccInfo.materials.Count; i++)
-                    {
-                        if (ccInfo.materials[i].material != null)
-                        {
-                            Color lerped = Color.Lerp(
-                                ccInfo.materials[i].offColor,
-                                ccInfo.materials[i].onColor,
-                                fraction);
-                            ccInfo.materials[i].material.SetColor(ccInfo.shaderProperty, lerped);
-                        }
-                    }
-                }
-            }
-        }
-
-        internal static void HidePartSubtree(GameObject ghost, uint rootPid, Dictionary<uint, List<uint>> tree)
-        {
-            var stack = new Stack<uint>();
-            stack.Push(rootPid);
-            while (stack.Count > 0)
-            {
-                uint pid = stack.Pop();
-                var t = ghost.transform.Find($"ghost_part_{pid}");
-                if (t != null) t.gameObject.SetActive(false);
-                List<uint> children;
-                if (tree.TryGetValue(pid, out children))
-                    for (int c = 0; c < children.Count; c++)
-                        stack.Push(children[c]);
-            }
-        }
-
-        /// <summary>
-        /// Recalculate cameraPivot position after a visibility change (decouple/destroy).
-        /// Sets localPosition to midpoint of remaining active parts' bounding extent.
-        /// </summary>
-        internal static void RecalculateCameraPivot(GhostPlaybackState state)
-        {
-            if (state.ghost == null || state.cameraPivot == null) return;
-            var ghostTransform = state.ghost.transform;
-            int count = 0;
-            Vector3 min = Vector3.zero, max = Vector3.zero;
-            for (int i = 0; i < ghostTransform.childCount; i++)
-            {
-                var child = ghostTransform.GetChild(i);
-                if (!child.gameObject.activeSelf || !child.name.StartsWith("ghost_part_"))
-                    continue;
-                var pos = child.localPosition;
-                if (count == 0) { min = max = pos; }
-                else { min = Vector3.Min(min, pos); max = Vector3.Max(max, pos); }
-                count++;
-            }
-            state.cameraPivot.localPosition = count > 0 ? (min + max) * 0.5f : Vector3.zero;
-            ParsekLog.Info("CameraFollow",
-                $"Camera pivot recalculated: localPos=({state.cameraPivot.localPosition.x:F2},{state.cameraPivot.localPosition.y:F2},{state.cameraPivot.localPosition.z:F2})" +
-                $" activeParts={count}");
         }
 
         /// <summary>
@@ -7476,7 +6181,7 @@ namespace Parsek
         bool IsAnyWarpActive()
         {
             // CurrentRateIndex > 0 covers both rails warp and physics warp.
-            return IsAnyWarpActive(TimeWarp.CurrentRateIndex, TimeWarp.CurrentRate);
+            return GhostPlaybackLogic.IsAnyWarpActive(TimeWarp.CurrentRateIndex, TimeWarp.CurrentRate);
         }
 
         void ExitAllWarpForPlaybackStart(string context)
@@ -7484,195 +6189,6 @@ namespace Parsek
             if (!IsAnyWarpActive()) return;
             TimeWarp.SetRate(0, true);
             Log($"Warp reset for playback start ({context})");
-        }
-
-        // KSP rails warp levels: 1, 5, 10, 50, 100, 1000, 10000, 100000.
-        // FX threshold: 10x is the last level where explosions/puffs/reentry/RCS look reasonable.
-        // Ghost threshold: 50x is the last level where ghost meshes update often enough to be useful.
-        internal const float FxSuppressWarpThreshold = 10f;
-        internal const float GhostHideWarpThreshold = 50f;
-
-        internal static bool ShouldSuppressVisualFx(float currentWarpRate)
-        {
-            return currentWarpRate > FxSuppressWarpThreshold;
-        }
-
-        internal static bool ShouldSuppressGhosts(float currentWarpRate)
-        {
-            return currentWarpRate > GhostHideWarpThreshold;
-        }
-
-        internal static void StopAllRcsEmissions(GhostPlaybackState state)
-        {
-            if (state?.rcsInfos == null) return;
-            if (state.rcsSuppressed) return;
-            state.rcsSuppressed = true;
-            foreach (var info in state.rcsInfos.Values)
-                for (int j = 0; j < info.particleSystems.Count; j++)
-                {
-                    var ps = info.particleSystems[j];
-                    if (ps != null)
-                    {
-                        var em = ps.emission;
-                        if (em.enabled) em.enabled = false;
-                    }
-                }
-        }
-
-        internal static void RestoreAllRcsEmissions(GhostPlaybackState state)
-        {
-            if (state?.rcsInfos == null) return;
-            if (!state.rcsSuppressed) return;
-            state.rcsSuppressed = false;
-            foreach (var info in state.rcsInfos.Values)
-                for (int j = 0; j < info.particleSystems.Count; j++)
-                {
-                    var ps = info.particleSystems[j];
-                    if (ps != null)
-                    {
-                        var em = ps.emission;
-                        em.enabled = true;
-                        if (!ps.isPlaying) ps.Play();
-                    }
-                }
-        }
-
-        internal static bool ShouldFlushDeferredSpawns(int pendingCount, bool isWarpActive)
-        {
-            return pendingCount > 0 && !isWarpActive;
-        }
-
-        internal static bool ShouldSkipDeferredSpawn(bool vesselSpawned, bool hasSnapshot)
-        {
-            return vesselSpawned || !hasSnapshot;
-        }
-
-        internal static bool ShouldRestoreWatchMode(string pendingWatchId, string recordingId, uint spawnedPid)
-        {
-            return pendingWatchId != null && pendingWatchId == recordingId && spawnedPid != 0;
-        }
-
-        internal static bool ShouldPauseTimelineResourceReplay(bool isRecording)
-        {
-            return isRecording;
-        }
-
-        internal static bool ShouldLoopPlayback(bool recordingLoopPlayback)
-        {
-            return recordingLoopPlayback;
-        }
-
-        internal static int ComputeTargetResourceIndex(
-            List<TrajectoryPoint> points, int lastAppliedResourceIndex, double currentUT)
-        {
-            int targetIndex = lastAppliedResourceIndex;
-            for (int j = lastAppliedResourceIndex + 1; j < points.Count; j++)
-            {
-                if (points[j].ut <= currentUT)
-                    targetIndex = j;
-                else
-                    break;
-            }
-            return targetIndex;
-        }
-
-        internal static bool TryComputeLoopPlaybackUT(
-            double currentUT, double startUT, double endUT, double intervalSeconds,
-            out double loopUT, out int cycleIndex)
-        {
-            loopUT = startUT;
-            cycleIndex = 0;
-
-            double duration = endUT - startUT;
-            if (duration <= 0 || currentUT < startUT)
-                return false;
-
-            double cycleDuration = duration + intervalSeconds;
-            if (cycleDuration <= MinCycleDuration)
-                cycleDuration = MinCycleDuration;
-
-            double elapsed = currentUT - startUT;
-            cycleIndex = (int)Math.Floor(elapsed / cycleDuration);
-            double phase = elapsed - (cycleIndex * cycleDuration);
-
-            // For positive intervals: phase > duration means we're in the pause window
-            if (intervalSeconds >= 0)
-            {
-                const double epsilon = 1e-6;
-                if (phase > duration + epsilon)
-                    return false;
-            }
-
-            if (phase < 0) phase = 0;
-            if (phase > duration) phase = duration;
-
-            loopUT = startUT + phase;
-            return true;
-        }
-
-        /// <summary>
-        /// Determines the new watchedOverlapCycleIndex when a watched loop cycle
-        /// ends and the ghost is about to be rebuilt. Returns -2 (explosion hold),
-        /// -1 (ready for immediate re-target), or unchanged if not watching.
-        /// </summary>
-        internal static int ComputeWatchCycleOnLoopRebuild(
-            int currentWatchCycle, bool isWatching, bool needsExplosion, bool inPauseWindow)
-        {
-            if (!isWatching) return currentWatchCycle;
-            // Already in a hold — don't start another one, let the current hold
-            // expire naturally. Otherwise the timer keeps resetting during time warp
-            // and the camera never re-targets.
-            if (currentWatchCycle == -2) return currentWatchCycle;
-            if (needsExplosion && !inPauseWindow) return -2; // hold at explosion site
-            return -1; // ready for immediate re-target
-        }
-
-        /// <summary>
-        /// Computes the range of active loop cycles at a given time.
-        /// For positive/zero intervals, firstActiveCycle == lastActiveCycle (no overlap).
-        /// For negative intervals, multiple cycles may be active simultaneously.
-        /// </summary>
-        internal static void GetActiveCycles(
-            double currentUT, double startUT, double endUT,
-            double intervalSeconds, int maxCycles,
-            out int firstActiveCycle, out int lastActiveCycle)
-        {
-            firstActiveCycle = 0;
-            lastActiveCycle = 0;
-
-            double duration = endUT - startUT;
-            if (duration <= 0 || currentUT < startUT)
-                return;
-
-            double cycleDuration = duration + intervalSeconds;
-            if (cycleDuration < MinCycleDuration)
-                cycleDuration = MinCycleDuration;
-
-            double elapsed = currentUT - startUT;
-            lastActiveCycle = (int)Math.Floor(elapsed / cycleDuration);
-            if (lastActiveCycle < 0) lastActiveCycle = 0;
-
-            // First cycle whose playback hasn't finished yet
-            double elapsedMinusDuration = elapsed - duration;
-            if (elapsedMinusDuration < 0)
-            {
-                firstActiveCycle = 0;
-            }
-            else
-            {
-                firstActiveCycle = (int)Math.Floor(elapsedMinusDuration / cycleDuration) + 1;
-                if (firstActiveCycle < 0) firstActiveCycle = 0;
-            }
-
-            // Cap by maxCycles
-            if (firstActiveCycle < lastActiveCycle - maxCycles + 1)
-                firstActiveCycle = lastActiveCycle - maxCycles + 1;
-            if (firstActiveCycle < 0) firstActiveCycle = 0;
-        }
-
-        internal static bool IsAnyWarpActive(int currentRateIndex, float currentRate)
-        {
-            return currentRateIndex > 0 || currentRate > 1f;
         }
 
         #endregion
@@ -7928,7 +6444,7 @@ namespace Parsek
         /// </summary>
         internal static (int newIndex, string newId) ComputeWatchIndexAfterDelete(
             int watchedIndex, string watchedId, int deletedIndex,
-            List<RecordingStore.Recording> recordings)
+            List<Recording> recordings)
         {
             if (deletedIndex == watchedIndex)
                 return (-1, null);
@@ -7963,7 +6479,7 @@ namespace Parsek
         /// Returns the committed-list index of the next recording, or -1 if none found.
         /// Only returns a target if its ghost is already active (spawned and playing).
         /// </summary>
-        int FindNextWatchTarget(int currentIndex, RecordingStore.Recording currentRec)
+        int FindNextWatchTarget(int currentIndex, Recording currentRec)
         {
             var committed = RecordingStore.CommittedRecordings;
 
@@ -8398,7 +6914,7 @@ namespace Parsek
         /// Positions a ghost using only orbit segments (no trajectory points).
         /// Used for background-only recordings (vessels that stayed on rails).
         /// </summary>
-        void PositionGhostFromOrbitOnly(GameObject ghost, RecordingStore.Recording rec, double ut, int orbitCacheBase)
+        void PositionGhostFromOrbitOnly(GameObject ghost, Recording rec, double ut, int orbitCacheBase)
         {
             for (int s = 0; s < rec.OrbitSegments.Count; s++)
             {
@@ -8503,7 +7019,7 @@ namespace Parsek
         /// <summary>
         /// Commits or shows merge dialog for the pending recording, depending on the autoMerge setting.
         /// </summary>
-        void CommitOrShowDialog(RecordingStore.Recording pending)
+        void CommitOrShowDialog(Recording pending)
         {
             if (ParsekScenario.IsAutoMerge)
             {

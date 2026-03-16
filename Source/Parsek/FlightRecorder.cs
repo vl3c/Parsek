@@ -116,7 +116,7 @@ namespace Parsek
         /// </summary>
         public bool IsBackgrounded => IsRecording && Patches.PhysicsFramePatch.ActiveRecorder != this;
 
-        public RecordingStore.Recording CaptureAtStop { get; private set; }
+        public Recording CaptureAtStop { get; private set; }
         public double PreLaunchFunds { get; private set; }
         public double PreLaunchScience { get; private set; }
         public float PreLaunchReputation { get; private set; }
@@ -1813,6 +1813,31 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Returns true if the part has a dedicated animation handler module (deployable, gear,
+        /// cargo bay, ladder, animation group, aero/control surface, robot arm, or animate heat).
+        /// Parts with dedicated handlers are skipped by CheckAnimateGenericState to avoid duplicate events.
+        /// </summary>
+        internal static bool HasDedicatedAnimateHandler(Part p)
+        {
+            if (p.FindModuleImplementing<ModuleDeployablePart>() != null) return true;
+            if (p.FindModuleImplementing<ModuleWheels.ModuleWheelDeployment>() != null) return true;
+            if (p.FindModuleImplementing<ModuleCargoBay>() != null) return true;
+
+            for (int m = 0; m < p.Modules.Count; m++)
+            {
+                PartModule module = p.Modules[m];
+                if (module == null) continue;
+                if (string.Equals(module.moduleName, "RetractableLadder", StringComparison.Ordinal)) return true;
+                if (string.Equals(module.moduleName, "ModuleAnimationGroup", StringComparison.Ordinal)) return true;
+                if (string.Equals(module.moduleName, "ModuleAeroSurface", StringComparison.Ordinal)) return true;
+                if (string.Equals(module.moduleName, "ModuleControlSurface", StringComparison.Ordinal)) return true;
+                if (string.Equals(module.moduleName, "ModuleRobotArmScanner", StringComparison.Ordinal)) return true;
+                if (string.Equals(module.moduleName, "ModuleAnimateHeat", StringComparison.Ordinal)) return true;
+            }
+            return false;
+        }
+
         private void CheckAnimateGenericState(Vessel v)
         {
             if (v == null || v.parts == null) return;
@@ -1824,39 +1849,7 @@ namespace Parsek
                 if (p == null) continue;
 
                 // Avoid duplicate events for modules already tracked via dedicated handlers.
-                bool hasDedicatedHandler =
-                    p.FindModuleImplementing<ModuleDeployablePart>() != null ||
-                    p.FindModuleImplementing<ModuleWheels.ModuleWheelDeployment>() != null ||
-                    p.FindModuleImplementing<ModuleCargoBay>() != null;
-
-                bool hasRetractableLadder = false;
-                bool hasAnimationGroup = false;
-                bool hasAeroSurface = false;
-                bool hasControlSurface = false;
-                bool hasRobotArmScanner = false;
-                bool hasAnimateHeat = false;
-                for (int m = 0; m < p.Modules.Count; m++)
-                {
-                    PartModule module = p.Modules[m];
-                    if (module == null) continue;
-                    if (string.Equals(module.moduleName, "RetractableLadder", StringComparison.Ordinal))
-                        hasRetractableLadder = true;
-                    if (string.Equals(module.moduleName, "ModuleAnimationGroup", StringComparison.Ordinal))
-                        hasAnimationGroup = true;
-                    if (string.Equals(module.moduleName, "ModuleAeroSurface", StringComparison.Ordinal))
-                        hasAeroSurface = true;
-                    if (string.Equals(module.moduleName, "ModuleControlSurface", StringComparison.Ordinal))
-                        hasControlSurface = true;
-                    if (string.Equals(module.moduleName, "ModuleRobotArmScanner", StringComparison.Ordinal))
-                        hasRobotArmScanner = true;
-                    if (string.Equals(module.moduleName, "ModuleAnimateHeat", StringComparison.Ordinal))
-                        hasAnimateHeat = true;
-                    if (hasRetractableLadder || hasAnimationGroup ||
-                        hasAeroSurface || hasControlSurface || hasRobotArmScanner || hasAnimateHeat)
-                        break;
-                }
-                if (hasDedicatedHandler || hasRetractableLadder || hasAnimationGroup ||
-                    hasAeroSurface || hasControlSurface || hasRobotArmScanner || hasAnimateHeat) continue;
+                if (HasDedicatedAnimateHandler(p)) continue;
 
                 for (int m = 0; m < p.Modules.Count; m++)
                 {
@@ -3265,6 +3258,32 @@ namespace Parsek
         /// Captures a quicksave for rewind at recording start. Saves via KSP API
         /// (which writes to root saves dir), then moves to Parsek/Saves/ subdirectory.
         /// </summary>
+        /// <summary>
+        /// Deletes any orphaned rewind save file from a previous aborted recording.
+        /// Clears RewindSaveFileName if an orphan was found.
+        /// </summary>
+        private void CleanupOrphanedRewindSave()
+        {
+            if (string.IsNullOrEmpty(RewindSaveFileName))
+                return;
+
+            try
+            {
+                string oldPath = RecordingPaths.ResolveSaveScopedPath(
+                    RecordingPaths.BuildRewindSaveRelativePath(RewindSaveFileName));
+                if (!string.IsNullOrEmpty(oldPath) && System.IO.File.Exists(oldPath))
+                    System.IO.File.Delete(oldPath);
+                ParsekLog.Info("Recorder",
+                    $"Deleted orphaned rewind save: {RewindSaveFileName}");
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("Recorder",
+                    $"Failed to delete orphaned rewind save: {ex.Message}");
+            }
+            RewindSaveFileName = null;
+        }
+
         private void CaptureRewindSave(Vessel v, bool isPromotion)
         {
             if (isPromotion)
@@ -3274,24 +3293,7 @@ namespace Parsek
             }
 
             // Clean up orphaned rewind save from a previous aborted recording
-            if (!string.IsNullOrEmpty(RewindSaveFileName))
-            {
-                try
-                {
-                    string oldPath = RecordingPaths.ResolveSaveScopedPath(
-                        RecordingPaths.BuildRewindSaveRelativePath(RewindSaveFileName));
-                    if (!string.IsNullOrEmpty(oldPath) && System.IO.File.Exists(oldPath))
-                        System.IO.File.Delete(oldPath);
-                    ParsekLog.Info("Recorder",
-                        $"Deleted orphaned rewind save: {RewindSaveFileName}");
-                }
-                catch (Exception ex)
-                {
-                    ParsekLog.Warn("Recorder",
-                        $"Failed to delete orphaned rewind save: {ex.Message}");
-                }
-                RewindSaveFileName = null;
-            }
+            CleanupOrphanedRewindSave();
 
             string shortId = Guid.NewGuid().ToString("N").Substring(0, 6);
             string saveFileName = $"parsek_rw_{shortId}";
@@ -3385,6 +3387,8 @@ namespace Parsek
                         PreLaunchReputation = Reputation.Instance.reputation;
                 }
                 catch { }
+                ParsekLog.Verbose("Recorder",
+                    $"Pre-launch resources captured: funds={PreLaunchFunds:F0}, science={PreLaunchScience:F1}, rep={PreLaunchReputation:F1}");
             }
 
             // Capture rewind save (quicksave stored in Parsek/Saves/)
@@ -3549,345 +3553,82 @@ namespace Parsek
         /// physics-frame poll when recording starts mid-flight (e.g., chain
         /// continuation after staging, or background recorder initialization).
         /// </summary>
-        // TODO: ~340 lines of per-part seeding logic duplicated in BackgroundRecorder.SeedBackgroundPartStates.
-        // Extract shared static helpers that take tracking set collections as parameters.
         internal void SeedExistingPartStates(Vessel v)
         {
-            if (v == null || v.parts == null) return;
+            PartStateSeeder.SeedPartStates(v,
+                new PartTrackingSets
+                {
+                    deployedFairings = deployedFairings,
+                    jettisonedShrouds = jettisonedShrouds,
+                    parachuteStates = parachuteStates,
+                    extendedDeployables = extendedDeployables,
+                    lightsOn = lightsOn,
+                    blinkingLights = blinkingLights,
+                    lightBlinkRates = lightBlinkRates,
+                    deployedGear = deployedGear,
+                    openCargoBays = openCargoBays,
+                    deployedLadders = deployedLadders,
+                    deployedAnimationGroups = deployedAnimationGroups,
+                    deployedAnimateGenericModules = deployedAnimateGenericModules,
+                    deployedAeroSurfaceModules = deployedAeroSurfaceModules,
+                    deployedControlSurfaceModules = deployedControlSurfaceModules,
+                    deployedRobotArmScannerModules = deployedRobotArmScannerModules,
+                    animateHeatLevels = animateHeatLevels,
+                    activeEngineKeys = activeEngineKeys,
+                    lastThrottle = lastThrottle,
+                    activeRcsKeys = activeRcsKeys,
+                    lastRcsThrottle = lastRcsThrottle,
+                },
+                cachedEngines, cachedRcsModules,
+                seedColorChangerLights: true, logTag: "Recorder");
+        }
 
-            for (int i = 0; i < v.parts.Count; i++)
+        /// <summary>
+        /// Builds the CaptureAtStop recording object from current state.
+        /// Extracted from StopRecording/StopRecordingForChainBoundary/OnPhysicsFrame to eliminate
+        /// the triple duplication of the CaptureAtStop construction block.
+        /// </summary>
+        private Recording BuildCaptureRecording(
+            string vesselName,
+            bool isDestroyed,
+            Vessel snapshotVessel = null,
+            ConfigNode destroyedFallbackSnapshot = null)
+        {
+            var capture = new Recording
             {
-                Part p = v.parts[i];
-                if (p == null) continue;
+                RecordingId = System.Guid.NewGuid().ToString("N"),
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
 
-                // --- Fairings ---
-                var fairing = p.FindModuleImplementing<ModuleProceduralFairing>();
-                if (fairing != null)
-                {
-                    try
-                    {
-                        if (fairing.GetScalar >= 0.5f)
-                        {
-                            deployedFairings.Add(p.persistentId);
-                            ParsekLog.Verbose("Recorder",
-                                $"Seeded already-deployed fairing: '{p.partInfo?.name}' pid={p.persistentId}");
-                        }
-                    }
-                    catch { }
-                }
+                VesselName = vesselName,
+                Points = new List<TrajectoryPoint>(Recording),
+                OrbitSegments = new List<OrbitSegment>(OrbitSegments),
+                PartEvents = new List<PartEvent>(PartEvents),
+                PreLaunchFunds = PreLaunchFunds,
+                PreLaunchScience = PreLaunchScience,
+                PreLaunchReputation = PreLaunchReputation,
+                RewindSaveFileName = RewindSaveFileName,
+                RewindReservedFunds = RewindReservedFunds,
+                RewindReservedScience = RewindReservedScience,
+                RewindReservedRep = RewindReservedRep
+            };
+            // Clear after first capture — prevents chain children from inheriting root's rewind save
+            RewindSaveFileName = null;
 
-                // --- Shrouds (ModuleJettison) ---
-                for (int m = 0; m < p.Modules.Count; m++)
-                {
-                    var jettison = p.Modules[m] as ModuleJettison;
-                    if (jettison == null) continue;
-
-                    if (jettison.isJettisoned)
-                    {
-                        jettisonedShrouds.Add(p.persistentId);
-                        ParsekLog.Verbose("Recorder",
-                            $"Seeded already-jettisoned shroud: '{p.partInfo?.name}' pid={p.persistentId}");
-                        break; // One jettison per part is enough for the set
-                    }
-                }
-
-                // --- Parachutes ---
-                var chute = p.FindModuleImplementing<ModuleParachute>();
-                if (chute != null)
-                {
-                    int chuteState = chute.deploymentState == ModuleParachute.deploymentStates.DEPLOYED ? 2
-                                   : chute.deploymentState == ModuleParachute.deploymentStates.SEMIDEPLOYED ? 1
-                                   : 0;
-                    if (chuteState > 0)
-                    {
-                        parachuteStates[p.persistentId] = chuteState;
-                        ParsekLog.Verbose("Recorder",
-                            $"Seeded already-deployed parachute: '{p.partInfo?.name}' pid={p.persistentId} state={chuteState}");
-                    }
-                }
-
-                // --- Deployables (solar panels, antennas, etc.) ---
-                var deployable = p.FindModuleImplementing<ModuleDeployablePart>();
-                if (deployable != null)
-                {
-                    if (deployable.deployState == ModuleDeployablePart.DeployState.EXTENDED)
-                    {
-                        extendedDeployables.Add(p.persistentId);
-                        ParsekLog.Verbose("Recorder",
-                            $"Seeded already-extended deployable: '{p.partInfo?.name}' pid={p.persistentId}");
-                    }
-                }
-
-                // --- Lights ---
-                bool hasModuleLight = false;
-                var light = p.FindModuleImplementing<ModuleLight>();
-                if (light != null)
-                {
-                    hasModuleLight = true;
-                    if (light.isOn)
-                    {
-                        lightsOn.Add(p.persistentId);
-                        ParsekLog.Verbose("Recorder",
-                            $"Seeded already-on light: '{p.partInfo?.name}' pid={p.persistentId}");
-                    }
-                    if (light.isBlinking)
-                    {
-                        blinkingLights.Add(p.persistentId);
-                        float safeBlinkRate = light.blinkRate > 0f ? light.blinkRate : 1f;
-                        lightBlinkRates[p.persistentId] = safeBlinkRate;
-                        ParsekLog.Verbose("Recorder",
-                            $"Seeded already-blinking light: '{p.partInfo?.name}' pid={p.persistentId} rate={safeBlinkRate:F2}");
-                    }
-                }
-
-                // ColorChanger-based cabin lights (only if no ModuleLight to avoid double-counting)
-                if (!hasModuleLight)
-                {
-                    for (int m = 0; m < p.Modules.Count; m++)
-                    {
-                        var cc = p.Modules[m] as ModuleColorChanger;
-                        if (cc == null || !cc.toggleInFlight) continue;
-                        if (cc.animState)
-                        {
-                            lightsOn.Add(p.persistentId);
-                            ParsekLog.Verbose("Recorder",
-                                $"Seeded already-on ColorChanger light: '{p.partInfo?.name}' pid={p.persistentId}");
-                        }
-                        break;
-                    }
-                }
-
-                // --- Landing gear ---
-                for (int m = 0; m < p.Modules.Count; m++)
-                {
-                    var wheel = p.Modules[m] as ModuleWheels.ModuleWheelDeployment;
-                    if (wheel == null) continue;
-                    ClassifyGearState(wheel.stateString, out bool isDeployed, out bool isRetracted);
-                    if (isDeployed)
-                    {
-                        deployedGear.Add(p.persistentId);
-                        ParsekLog.Verbose("Recorder",
-                            $"Seeded already-deployed gear: '{p.partInfo?.name}' pid={p.persistentId}");
-                    }
-                    break; // one deployment module per part
-                }
-
-                // --- Cargo bays ---
-                var cargo = p.FindModuleImplementing<ModuleCargoBay>();
-                if (cargo != null)
-                {
-                    int deployIdx = cargo.DeployModuleIndex;
-                    if (deployIdx >= 0 && deployIdx < p.Modules.Count)
-                    {
-                        var anim = p.Modules[deployIdx] as ModuleAnimateGeneric;
-                        if (anim != null)
-                        {
-                            ClassifyCargoBayState(anim.animTime, cargo.closedPosition, out bool isOpen, out bool isClosed);
-                            if (isOpen)
-                            {
-                                openCargoBays.Add(p.persistentId);
-                                ParsekLog.Verbose("Recorder",
-                                    $"Seeded already-open cargo bay: '{p.partInfo?.name}' pid={p.persistentId}");
-                            }
-                        }
-                    }
-                }
-
-                // --- Ladders ---
-                for (int m = 0; m < p.Modules.Count; m++)
-                {
-                    PartModule module = p.Modules[m];
-                    if (module == null) continue;
-                    if (!string.Equals(module.moduleName, "RetractableLadder", StringComparison.Ordinal))
-                        continue;
-
-                    bool ladderDeployed, ladderRetracted;
-                    if (TryClassifyRetractableLadderState(module, out ladderDeployed, out ladderRetracted) && ladderDeployed)
-                    {
-                        ulong key = EncodeEngineKey(p.persistentId, m);
-                        deployedLadders.Add(key);
-                        ParsekLog.Verbose("Recorder",
-                            $"Seeded already-deployed ladder: '{p.partInfo?.name}' pid={p.persistentId} midx={m}");
-                    }
-                    break;
-                }
-
-                // --- Animation groups, aero surfaces, control surfaces, robot arm scanners ---
-                for (int m = 0; m < p.Modules.Count; m++)
-                {
-                    PartModule module = p.Modules[m];
-                    if (module == null) continue;
-
-                    if (string.Equals(module.moduleName, "ModuleAnimationGroup", StringComparison.Ordinal))
-                    {
-                        bool agDeployed, agRetracted;
-                        if (TryClassifyAnimationGroupState(module, out agDeployed, out agRetracted) && agDeployed)
-                        {
-                            ulong key = EncodeEngineKey(p.persistentId, m);
-                            deployedAnimationGroups.Add(key);
-                            ParsekLog.Verbose("Recorder",
-                                $"Seeded already-deployed animation group: '{p.partInfo?.name}' pid={p.persistentId} midx={m}");
-                        }
-                    }
-                    else if (string.Equals(module.moduleName, "ModuleAeroSurface", StringComparison.Ordinal))
-                    {
-                        bool asDeployed, asRetracted;
-                        if (TryClassifyAeroSurfaceState(module, out asDeployed, out asRetracted) && asDeployed)
-                        {
-                            ulong key = EncodeEngineKey(p.persistentId, m);
-                            deployedAeroSurfaceModules.Add(key);
-                            ParsekLog.Verbose("Recorder",
-                                $"Seeded already-deployed aero surface: '{p.partInfo?.name}' pid={p.persistentId} midx={m}");
-                        }
-                    }
-                    else if (string.Equals(module.moduleName, "ModuleControlSurface", StringComparison.Ordinal))
-                    {
-                        bool csDeployed, csRetracted;
-                        if (TryClassifyControlSurfaceState(module, out csDeployed, out csRetracted) && csDeployed)
-                        {
-                            ulong key = EncodeEngineKey(p.persistentId, m);
-                            deployedControlSurfaceModules.Add(key);
-                            ParsekLog.Verbose("Recorder",
-                                $"Seeded already-deployed control surface: '{p.partInfo?.name}' pid={p.persistentId} midx={m}");
-                        }
-                    }
-                    else if (string.Equals(module.moduleName, "ModuleRobotArmScanner", StringComparison.Ordinal))
-                    {
-                        bool rasDeployed, rasRetracted;
-                        if (TryClassifyRobotArmScannerState(module, out rasDeployed, out rasRetracted) && rasDeployed)
-                        {
-                            ulong key = EncodeEngineKey(p.persistentId, m);
-                            deployedRobotArmScannerModules.Add(key);
-                            ParsekLog.Verbose("Recorder",
-                                $"Seeded already-deployed robot arm scanner: '{p.partInfo?.name}' pid={p.persistentId} midx={m}");
-                        }
-                    }
-                }
-
-                // --- AnimateGeneric (catch-all, same exclusion logic as CheckAnimateGenericState) ---
-                bool hasDeployablePart = p.FindModuleImplementing<ModuleDeployablePart>() != null;
-                bool hasWheelDeploy = p.FindModuleImplementing<ModuleWheels.ModuleWheelDeployment>() != null;
-                bool hasCargoBay = cargo != null;
-                bool hasLadder = false, hasAnimGroup = false, hasAeroSurf = false;
-                bool hasCtrlSurf = false, hasRobotArm = false, hasAnimHeat = false;
-                for (int m = 0; m < p.Modules.Count; m++)
-                {
-                    PartModule mod = p.Modules[m];
-                    if (mod == null) continue;
-                    if (string.Equals(mod.moduleName, "RetractableLadder", StringComparison.Ordinal)) hasLadder = true;
-                    if (string.Equals(mod.moduleName, "ModuleAnimationGroup", StringComparison.Ordinal)) hasAnimGroup = true;
-                    if (string.Equals(mod.moduleName, "ModuleAeroSurface", StringComparison.Ordinal)) hasAeroSurf = true;
-                    if (string.Equals(mod.moduleName, "ModuleControlSurface", StringComparison.Ordinal)) hasCtrlSurf = true;
-                    if (string.Equals(mod.moduleName, "ModuleRobotArmScanner", StringComparison.Ordinal)) hasRobotArm = true;
-                    if (string.Equals(mod.moduleName, "ModuleAnimateHeat", StringComparison.Ordinal)) hasAnimHeat = true;
-                }
-                if (!hasDeployablePart && !hasWheelDeploy && !hasCargoBay &&
-                    !hasLadder && !hasAnimGroup && !hasAeroSurf && !hasCtrlSurf && !hasRobotArm && !hasAnimHeat)
-                {
-                    for (int m = 0; m < p.Modules.Count; m++)
-                    {
-                        var animGeneric = p.Modules[m] as ModuleAnimateGeneric;
-                        if (animGeneric == null) continue;
-                        if (string.IsNullOrEmpty(animGeneric.animationName)) continue;
-
-                        bool agDeployed, agRetracted;
-                        if (TryClassifyAnimateGenericState(animGeneric, out agDeployed, out agRetracted) && agDeployed)
-                        {
-                            ulong key = EncodeEngineKey(p.persistentId, m);
-                            deployedAnimateGenericModules.Add(key);
-                            ParsekLog.Verbose("Recorder",
-                                $"Seeded already-deployed AnimateGeneric: '{p.partInfo?.name}' pid={p.persistentId} midx={m}");
-                        }
-                    }
-                }
-            }
-
-            // --- Engines (use cached list) ---
-            if (cachedEngines != null)
-            {
-                for (int i = 0; i < cachedEngines.Count; i++)
-                {
-                    var (part, engine, moduleIndex) = cachedEngines[i];
-                    if (part == null || engine == null) continue;
-                    if (engine.EngineIgnited && engine.isOperational)
-                    {
-                        ulong key = EncodeEngineKey(part.persistentId, moduleIndex);
-                        activeEngineKeys.Add(key);
-                        lastThrottle[key] = engine.currentThrottle;
-                        ParsekLog.Verbose("Recorder",
-                            $"Seeded already-active engine: '{part.partInfo?.name}' pid={part.persistentId} midx={moduleIndex} throttle={engine.currentThrottle:F2}");
-                    }
-                }
-            }
-
-            // --- RCS (use cached list) ---
-            if (cachedRcsModules != null)
-            {
-                for (int i = 0; i < cachedRcsModules.Count; i++)
-                {
-                    var (part, rcs, moduleIndex) = cachedRcsModules[i];
-                    if (part == null || rcs == null) continue;
-                    if (rcs.rcs_active && rcs.rcsEnabled)
-                    {
-                        ulong key = EncodeEngineKey(part.persistentId, moduleIndex);
-                        activeRcsKeys.Add(key);
-                        float power = 0f;
-                        if (rcs.thrusterPower > 0f && rcs.thrustForces != null && rcs.thrustForces.Length > 0)
-                        {
-                            float sum = 0f;
-                            for (int f = 0; f < rcs.thrustForces.Length; f++)
-                                sum += rcs.thrustForces[f];
-                            power = Mathf.Clamp01(sum / (rcs.thrusterPower * rcs.thrustForces.Length));
-                        }
-                        lastRcsThrottle[key] = power;
-                        ParsekLog.Verbose("Recorder",
-                            $"Seeded already-active RCS: '{part.partInfo?.name}' pid={part.persistentId} midx={moduleIndex} power={power:F2}");
-                    }
-                }
-            }
-
-            // --- AnimateHeat (poll-based, iterate parts) ---
-            for (int i = 0; i < v.parts.Count; i++)
-            {
-                Part p = v.parts[i];
-                if (p == null) continue;
-                for (int m = 0; m < p.Modules.Count; m++)
-                {
-                    PartModule module = p.Modules[m];
-                    if (module == null) continue;
-                    if (!string.Equals(module.moduleName, "ModuleAnimateHeat", System.StringComparison.Ordinal))
-                        continue;
-                    if (!TryClassifyAnimateHeatState(module, out float normalizedHeat, out _))
-                        continue;
-                    HeatLevel level;
-                    if (normalizedHeat >= AnimateHeatHotThreshold)
-                        level = HeatLevel.Hot;
-                    else if (normalizedHeat >= AnimateHeatMediumThreshold)
-                        level = HeatLevel.Medium;
-                    else
-                        level = HeatLevel.Cold;
-                    if (level != HeatLevel.Cold)
-                    {
-                        ulong key = EncodeEngineKey(p.persistentId, m);
-                        animateHeatLevels[key] = level;
-                        ParsekLog.Verbose("Recorder",
-                            $"Seeded AnimateHeat: '{p.partInfo?.name}' pid={p.persistentId} midx={m} level={level} heat={normalizedHeat:F3}");
-                    }
-                }
-            }
-
-            // --- Robotics ---
-            // Robotics are intentionally not seeded. Most start stationary, and the
-            // IsMoving signal is transient and expensive to read reliably. The first
-            // RoboticMotionStarted event will be emitted when movement is detected.
+            VesselSpawner.SnapshotVessel(
+                capture,
+                isDestroyed,
+                snapshotVessel,
+                destroyedFallbackSnapshot ?? lastGoodVesselSnapshot);
+            capture.GhostVisualSnapshot = initialGhostVisualSnapshot != null
+                ? initialGhostVisualSnapshot.CreateCopy()
+                : (capture.VesselSnapshot != null ? capture.VesselSnapshot.CreateCopy() : null);
 
             ParsekLog.Verbose("Recorder",
-                $"Initial state seeding complete: fairings={deployedFairings.Count} shrouds={jettisonedShrouds.Count} " +
-                $"parachutes={parachuteStates.Count} deployables={extendedDeployables.Count} lights={lightsOn.Count} " +
-                $"blinks={blinkingLights.Count} gear={deployedGear.Count} cargo={openCargoBays.Count} " +
-                $"ladders={deployedLadders.Count} animGroups={deployedAnimationGroups.Count} " +
-                $"animGeneric={deployedAnimateGenericModules.Count} heat={animateHeatLevels.Count} " +
-                $"engines={activeEngineKeys.Count} rcs={activeRcsKeys.Count}");
+                $"Built capture recording: vessel=\"{vesselName}\", points={capture.Points.Count}, " +
+                $"orbits={capture.OrbitSegments.Count}, partEvents={capture.PartEvents.Count}, " +
+                $"hasSnapshot={capture.VesselSnapshot != null}");
+
+            return capture;
         }
 
         public void StopRecording()
@@ -3914,35 +3655,11 @@ namespace Parsek
 
             // Capture persistence artifacts at stop-time so later scene changes
             // don't depend on whatever vessel is currently active.
-            CaptureAtStop = new RecordingStore.Recording
-            {
-                RecordingId = System.Guid.NewGuid().ToString("N"),
-                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
-
-                VesselName = FlightGlobals.ActiveVessel != null
+            CaptureAtStop = BuildCaptureRecording(
+                FlightGlobals.ActiveVessel != null
                     ? FlightGlobals.ActiveVessel.vesselName
                     : "Unknown Vessel",
-                Points = new List<TrajectoryPoint>(Recording),
-                OrbitSegments = new List<OrbitSegment>(OrbitSegments),
-                PartEvents = new List<PartEvent>(PartEvents),
-                PreLaunchFunds = PreLaunchFunds,
-                PreLaunchScience = PreLaunchScience,
-                PreLaunchReputation = PreLaunchReputation,
-                RewindSaveFileName = RewindSaveFileName,
-                RewindReservedFunds = RewindReservedFunds,
-                RewindReservedScience = RewindReservedScience,
-                RewindReservedRep = RewindReservedRep
-            };
-            // Clear after first capture — prevents chain children from inheriting root's rewind save
-            RewindSaveFileName = null;
-
-            VesselSpawner.SnapshotVessel(
-                CaptureAtStop,
-                VesselDestroyedDuringRecording,
-                destroyedFallbackSnapshot: lastGoodVesselSnapshot);
-            CaptureAtStop.GhostVisualSnapshot = initialGhostVisualSnapshot != null
-                ? initialGhostVisualSnapshot.CreateCopy()
-                : (CaptureAtStop.VesselSnapshot != null ? CaptureAtStop.VesselSnapshot.CreateCopy() : null);
+                VesselDestroyedDuringRecording);
 
             double duration = Recording.Count > 0
                 ? Recording[Recording.Count - 1].ut - Recording[0].ut
@@ -3975,35 +3692,11 @@ namespace Parsek
 
             PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
 
-            CaptureAtStop = new RecordingStore.Recording
-            {
-                RecordingId = System.Guid.NewGuid().ToString("N"),
-                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
-
-                VesselName = FlightGlobals.ActiveVessel != null
+            CaptureAtStop = BuildCaptureRecording(
+                FlightGlobals.ActiveVessel != null
                     ? FlightGlobals.ActiveVessel.vesselName
                     : "Unknown Vessel",
-                Points = new List<TrajectoryPoint>(Recording),
-                OrbitSegments = new List<OrbitSegment>(OrbitSegments),
-                PartEvents = new List<PartEvent>(PartEvents),
-                PreLaunchFunds = PreLaunchFunds,
-                PreLaunchScience = PreLaunchScience,
-                PreLaunchReputation = PreLaunchReputation,
-                RewindSaveFileName = RewindSaveFileName,
-                RewindReservedFunds = RewindReservedFunds,
-                RewindReservedScience = RewindReservedScience,
-                RewindReservedRep = RewindReservedRep
-            };
-            // Clear after first capture
-            RewindSaveFileName = null;
-
-            VesselSpawner.SnapshotVessel(
-                CaptureAtStop,
-                VesselDestroyedDuringRecording,
-                destroyedFallbackSnapshot: lastGoodVesselSnapshot);
-            CaptureAtStop.GhostVisualSnapshot = initialGhostVisualSnapshot != null
-                ? initialGhostVisualSnapshot.CreateCopy()
-                : (CaptureAtStop.VesselSnapshot != null ? CaptureAtStop.VesselSnapshot.CreateCopy() : null);
+                VesselDestroyedDuringRecording);
 
             double duration = Recording.Count > 0
                 ? Recording[Recording.Count - 1].ut - Recording[0].ut
@@ -4062,6 +3755,97 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Handles vessel PID change detected during OnPhysicsFrame.
+        /// Decides whether to continue (EVA), background (tree), capture+stop, or chain.
+        /// Returns true if the frame should be skipped (recording stopped/backgrounded).
+        /// </summary>
+        private bool HandleVesselSwitchDuringRecording(Vessel v)
+        {
+            // 1. Dock merge guard — must be first. DockMergePending was set by
+            //    OnPartCouple; let the existing capture+stop flow handle it below.
+            //    Do NOT enter tree decision logic for dock PID changes.
+            VesselSwitchDecision decision = DockMergePending
+                ? VesselSwitchDecision.DockMerge
+                : DecideOnVesselSwitch(
+                    RecordingVesselId, v.persistentId, v.isEVA, RecordingStartedAsEva,
+                    UndockSiblingPid, activeTree: ActiveTree);
+
+            ParsekLog.Verbose("Recorder", $"Vessel switch detected: decision={decision}, " +
+                $"oldPid={RecordingVesselId}, newPid={v.persistentId}, " +
+                $"isEva={v.isEVA}, hasTree={ActiveTree != null}");
+
+            // 2. ContinueOnEva — early return (existing, unchanged)
+            if (decision == VesselSwitchDecision.ContinueOnEva)
+            {
+                RecordingVesselId = v.persistentId;
+                SamplePosition(v);
+                RefreshBackupSnapshot(v, "eva_switch", force: true);
+                ParsekLog.Verbose("Recorder", $"Recording switched to EVA vessel (pid={v.persistentId})");
+                return true; // skip remaining OnPhysicsFrame polling for this frame
+            }
+
+            // 3. Tree decisions — early return BEFORE CaptureAtStop
+            if (decision == VesselSwitchDecision.TransitionToBackground)
+            {
+                TransitionToBackground();
+                TransitionToBackgroundPending = true;
+                ParsekLog.Verbose("Recorder", $"Tree: transition to background " +
+                    $"(was pid={RecordingVesselId}, now pid={v.persistentId})");
+                return true;
+            }
+            if (decision == VesselSwitchDecision.PromoteFromBackground)
+            {
+                // Cannot promote here — vessel may not be loaded yet.
+                // TransitionToBackground the current recorder, let onVesselSwitchComplete handle promotion.
+                TransitionToBackground();
+                TransitionToBackgroundPending = true;
+                ParsekLog.Verbose("Recorder", $"Tree: promote from background " +
+                    $"(was pid={RecordingVesselId}, now pid={v.persistentId}) — backgrounding current, promotion deferred");
+                return true;
+            }
+
+            // 4. Existing CaptureAtStop + IsRecording=false block
+            Vessel recordedVessel = FindVesselByPid(RecordingVesselId);
+
+            CaptureAtStop = BuildCaptureRecording(
+                recordedVessel != null ? recordedVessel.vesselName : v.vesselName,
+                VesselDestroyedDuringRecording || recordedVessel == null,
+                recordedVessel);
+
+            Patches.PhysicsFramePatch.ActiveRecorder = null;
+            UnsubscribePartEvents();
+            IsRecording = false;
+
+            // 5. Existing decision dispatch
+            if (decision == VesselSwitchDecision.ChainToVessel)
+            {
+                ChainToVesselPending = true;
+                ParsekLog.Verbose("Recorder", $"EVA boarded vessel (was pid={RecordingVesselId}, now pid={v.persistentId}) — chain pending");
+                return true;
+            }
+
+            if (decision == VesselSwitchDecision.DockMerge)
+            {
+                DockMergePending = true;
+                ParsekLog.Verbose("Recorder", $"Dock merge detected (was pid={RecordingVesselId}, now pid={v.persistentId}) — dock pending");
+                return true;
+            }
+
+            if (decision == VesselSwitchDecision.UndockSwitch)
+            {
+                UndockSwitchPending = true;
+                ParsekLog.Verbose("Recorder", $"Undock sibling switch (was pid={RecordingVesselId}, now pid={v.persistentId}) — undock switch pending");
+                return true;
+            }
+
+            ParsekLog.Verbose("Recorder", $"Active vessel changed during recording — auto-stopping " +
+                $"(decision={decision}, was pid={RecordingVesselId}, now pid={v.persistentId}, " +
+                $"nowIsEva={v.isEVA}, startedAsEva={RecordingStartedAsEva})");
+            ParsekLog.ScreenMessage("Recording stopped — vessel changed", 3f);
+            return true;
+        }
+
+        /// <summary>
         /// Called by the Harmony postfix on each physics frame for the active vessel.
         /// </summary>
         public void OnPhysicsFrame(Vessel v)
@@ -4071,107 +3855,8 @@ namespace Parsek
 
             if (v.persistentId != RecordingVesselId)
             {
-                // 1. Dock merge guard — must be first. DockMergePending was set by
-                //    OnPartCouple; let the existing capture+stop flow handle it below.
-                //    Do NOT enter tree decision logic for dock PID changes.
-                VesselSwitchDecision decision = DockMergePending
-                    ? VesselSwitchDecision.DockMerge
-                    : DecideOnVesselSwitch(
-                        RecordingVesselId, v.persistentId, v.isEVA, RecordingStartedAsEva,
-                        UndockSiblingPid, activeTree: ActiveTree);
-
-                // 2. ContinueOnEva — early return (existing, unchanged)
-                if (decision == VesselSwitchDecision.ContinueOnEva)
-                {
-                    RecordingVesselId = v.persistentId;
-                    SamplePosition(v);
-                    RefreshBackupSnapshot(v, "eva_switch", force: true);
-                    ParsekLog.Verbose("Recorder", $"Recording switched to EVA vessel (pid={v.persistentId})");
+                if (HandleVesselSwitchDuringRecording(v))
                     return;
-                }
-
-                // 3. Tree decisions — early return BEFORE CaptureAtStop
-                if (decision == VesselSwitchDecision.TransitionToBackground)
-                {
-                    TransitionToBackground();
-                    TransitionToBackgroundPending = true;
-                    ParsekLog.Verbose("Recorder", $"Tree: transition to background " +
-                        $"(was pid={RecordingVesselId}, now pid={v.persistentId})");
-                    return;
-                }
-                if (decision == VesselSwitchDecision.PromoteFromBackground)
-                {
-                    // Cannot promote here — vessel may not be loaded yet.
-                    // TransitionToBackground the current recorder, let onVesselSwitchComplete handle promotion.
-                    TransitionToBackground();
-                    TransitionToBackgroundPending = true;
-                    ParsekLog.Verbose("Recorder", $"Tree: promote from background " +
-                        $"(was pid={RecordingVesselId}, now pid={v.persistentId}) — backgrounding current, promotion deferred");
-                    return;
-                }
-
-                // 4. Existing CaptureAtStop + IsRecording=false block (unchanged)
-                Vessel recordedVessel = FindVesselByPid(RecordingVesselId);
-
-                CaptureAtStop = new RecordingStore.Recording
-                {
-                    RecordingId = System.Guid.NewGuid().ToString("N"),
-                    RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
-    
-                    VesselName = recordedVessel != null ? recordedVessel.vesselName : v.vesselName,
-                    Points = new List<TrajectoryPoint>(Recording),
-                    OrbitSegments = new List<OrbitSegment>(OrbitSegments),
-                    PartEvents = new List<PartEvent>(PartEvents),
-                    PreLaunchFunds = PreLaunchFunds,
-                    PreLaunchScience = PreLaunchScience,
-                    PreLaunchReputation = PreLaunchReputation,
-                    RewindSaveFileName = RewindSaveFileName,
-                    RewindReservedFunds = RewindReservedFunds,
-                    RewindReservedScience = RewindReservedScience,
-                    RewindReservedRep = RewindReservedRep
-                };
-                // Clear after first capture
-                RewindSaveFileName = null;
-                VesselSpawner.SnapshotVessel(
-                    CaptureAtStop,
-                    VesselDestroyedDuringRecording || recordedVessel == null,
-                    recordedVessel,
-                    lastGoodVesselSnapshot);
-                CaptureAtStop.GhostVisualSnapshot = initialGhostVisualSnapshot != null
-                    ? initialGhostVisualSnapshot.CreateCopy()
-                    : (CaptureAtStop.VesselSnapshot != null ? CaptureAtStop.VesselSnapshot.CreateCopy() : null);
-
-                Patches.PhysicsFramePatch.ActiveRecorder = null;
-                UnsubscribePartEvents();
-                IsRecording = false;
-
-                // 5. Existing decision dispatch (unchanged)
-                if (decision == VesselSwitchDecision.ChainToVessel)
-                {
-                    ChainToVesselPending = true;
-                    ParsekLog.Verbose("Recorder", $"EVA boarded vessel (was pid={RecordingVesselId}, now pid={v.persistentId}) — chain pending");
-                    return;
-                }
-
-                if (decision == VesselSwitchDecision.DockMerge)
-                {
-                    DockMergePending = true;
-                    ParsekLog.Verbose("Recorder", $"Dock merge detected (was pid={RecordingVesselId}, now pid={v.persistentId}) — dock pending");
-                    return;
-                }
-
-                if (decision == VesselSwitchDecision.UndockSwitch)
-                {
-                    UndockSwitchPending = true;
-                    ParsekLog.Verbose("Recorder", $"Undock sibling switch (was pid={RecordingVesselId}, now pid={v.persistentId}) — undock switch pending");
-                    return;
-                }
-
-                ParsekLog.Verbose("Recorder", $"Active vessel changed during recording — auto-stopping " +
-                    $"(decision={decision}, was pid={RecordingVesselId}, now pid={v.persistentId}, " +
-                    $"nowIsEva={v.isEVA}, startedAsEva={RecordingStartedAsEva})");
-                ParsekLog.ScreenMessage("Recording stopped — vessel changed", 3f);
-                return;
             }
 
             // Check atmosphere boundary (before part state polling)

@@ -304,7 +304,7 @@ namespace Parsek.Tests
         [Fact]
         public void AddRecordingToGroup_CreatesListIfNull()
         {
-            RecordingStore.CommittedRecordings.Add(new RecordingStore.Recording
+            RecordingStore.CommittedRecordings.Add(new Recording
             {
                 VesselName = "TestVessel",
                 RecordingGroups = null
@@ -321,7 +321,7 @@ namespace Parsek.Tests
         [Fact]
         public void AddRecordingToGroup_Idempotent_NoDuplicates()
         {
-            RecordingStore.CommittedRecordings.Add(new RecordingStore.Recording
+            RecordingStore.CommittedRecordings.Add(new Recording
             {
                 VesselName = "TestVessel",
                 RecordingGroups = null
@@ -337,7 +337,7 @@ namespace Parsek.Tests
         [Fact]
         public void RemoveRecordingFromGroup_CleansUpEmptyListToNull()
         {
-            RecordingStore.CommittedRecordings.Add(new RecordingStore.Recording
+            RecordingStore.CommittedRecordings.Add(new Recording
             {
                 VesselName = "TestVessel",
                 RecordingGroups = new List<string> { "OnlyGroup" }
@@ -353,7 +353,7 @@ namespace Parsek.Tests
         [Fact]
         public void RemoveRecordingFromGroup_Idempotent_NoErrorIfNotMember()
         {
-            RecordingStore.CommittedRecordings.Add(new RecordingStore.Recording
+            RecordingStore.CommittedRecordings.Add(new Recording
             {
                 VesselName = "TestVessel",
                 RecordingGroups = new List<string> { "GroupA" }
@@ -371,7 +371,7 @@ namespace Parsek.Tests
         [Fact]
         public void RemoveRecordingFromGroup_NullGroups_NoError()
         {
-            RecordingStore.CommittedRecordings.Add(new RecordingStore.Recording
+            RecordingStore.CommittedRecordings.Add(new Recording
             {
                 VesselName = "TestVessel",
                 RecordingGroups = null
@@ -388,15 +388,15 @@ namespace Parsek.Tests
         [Fact]
         public void AddChainToGroup_AddsToAllChainMembers()
         {
-            RecordingStore.CommittedRecordings.Add(new RecordingStore.Recording
+            RecordingStore.CommittedRecordings.Add(new Recording
             {
                 VesselName = "Seg0", ChainId = "chain-1", RecordingGroups = null
             });
-            RecordingStore.CommittedRecordings.Add(new RecordingStore.Recording
+            RecordingStore.CommittedRecordings.Add(new Recording
             {
                 VesselName = "Seg1", ChainId = "chain-1", RecordingGroups = null
             });
-            RecordingStore.CommittedRecordings.Add(new RecordingStore.Recording
+            RecordingStore.CommittedRecordings.Add(new Recording
             {
                 VesselName = "Other", ChainId = null, RecordingGroups = null
             });
@@ -412,11 +412,11 @@ namespace Parsek.Tests
         [Fact]
         public void AddChainToGroup_OnlyAffectsMatchingChain()
         {
-            RecordingStore.CommittedRecordings.Add(new RecordingStore.Recording
+            RecordingStore.CommittedRecordings.Add(new Recording
             {
                 VesselName = "A0", ChainId = "chain-a", RecordingGroups = null
             });
-            RecordingStore.CommittedRecordings.Add(new RecordingStore.Recording
+            RecordingStore.CommittedRecordings.Add(new Recording
             {
                 VesselName = "B0", ChainId = "chain-b", RecordingGroups = null
             });
@@ -430,17 +430,17 @@ namespace Parsek.Tests
         [Fact]
         public void RemoveChainFromGroup_RemovesFromAllChainMembers()
         {
-            RecordingStore.CommittedRecordings.Add(new RecordingStore.Recording
+            RecordingStore.CommittedRecordings.Add(new Recording
             {
                 VesselName = "Seg0", ChainId = "chain-1",
                 RecordingGroups = new List<string> { "Flights" }
             });
-            RecordingStore.CommittedRecordings.Add(new RecordingStore.Recording
+            RecordingStore.CommittedRecordings.Add(new Recording
             {
                 VesselName = "Seg1", ChainId = "chain-1",
                 RecordingGroups = new List<string> { "Flights" }
             });
-            RecordingStore.CommittedRecordings.Add(new RecordingStore.Recording
+            RecordingStore.CommittedRecordings.Add(new Recording
             {
                 VesselName = "Other", ChainId = null,
                 RecordingGroups = new List<string> { "Flights" }
@@ -459,12 +459,12 @@ namespace Parsek.Tests
         [Fact]
         public void RemoveChainFromGroup_OnlyAffectsMatchingChain()
         {
-            RecordingStore.CommittedRecordings.Add(new RecordingStore.Recording
+            RecordingStore.CommittedRecordings.Add(new Recording
             {
                 VesselName = "A0", ChainId = "chain-a",
                 RecordingGroups = new List<string> { "SharedGroup" }
             });
-            RecordingStore.CommittedRecordings.Add(new RecordingStore.Recording
+            RecordingStore.CommittedRecordings.Add(new Recording
             {
                 VesselName = "B0", ChainId = "chain-b",
                 RecordingGroups = new List<string> { "SharedGroup" }
@@ -481,12 +481,12 @@ namespace Parsek.Tests
         [Fact]
         public void RenameGroup_RenamesInAllRecordingGroupLists()
         {
-            RecordingStore.CommittedRecordings.Add(new RecordingStore.Recording
+            RecordingStore.CommittedRecordings.Add(new Recording
             {
                 VesselName = "Vessel1",
                 RecordingGroups = new List<string> { "OldName" }
             });
-            RecordingStore.CommittedRecordings.Add(new RecordingStore.Recording
+            RecordingStore.CommittedRecordings.Add(new Recording
             {
                 VesselName = "Vessel2",
                 RecordingGroups = new List<string> { "OldName" }
@@ -505,12 +505,12 @@ namespace Parsek.Tests
         [Fact]
         public void RenameGroup_ReturnsFalseOnCollision()
         {
-            RecordingStore.CommittedRecordings.Add(new RecordingStore.Recording
+            RecordingStore.CommittedRecordings.Add(new Recording
             {
                 VesselName = "Vessel1",
                 RecordingGroups = new List<string> { "GroupA" }
             });
-            RecordingStore.CommittedRecordings.Add(new RecordingStore.Recording
+            RecordingStore.CommittedRecordings.Add(new Recording
             {
                 VesselName = "Vessel2",
                 RecordingGroups = new List<string> { "GroupB" }
@@ -528,7 +528,7 @@ namespace Parsek.Tests
         [Fact]
         public void RenameGroup_HandlesMultipleGroups()
         {
-            RecordingStore.CommittedRecordings.Add(new RecordingStore.Recording
+            RecordingStore.CommittedRecordings.Add(new Recording
             {
                 VesselName = "Multi",
                 RecordingGroups = new List<string> { "Alpha", "Beta", "Gamma" }
@@ -557,12 +557,12 @@ namespace Parsek.Tests
         [Fact]
         public void GetGroupNames_ReturnsDistinctSortedNames()
         {
-            RecordingStore.CommittedRecordings.Add(new RecordingStore.Recording
+            RecordingStore.CommittedRecordings.Add(new Recording
             {
                 VesselName = "V1",
                 RecordingGroups = new List<string> { "Zebra", "Alpha" }
             });
-            RecordingStore.CommittedRecordings.Add(new RecordingStore.Recording
+            RecordingStore.CommittedRecordings.Add(new Recording
             {
                 VesselName = "V2",
                 RecordingGroups = new List<string> { "Alpha", "Middle" }
@@ -587,12 +587,12 @@ namespace Parsek.Tests
         [Fact]
         public void GetGroupNames_AllNullGroups_ReturnsEmptyList()
         {
-            RecordingStore.CommittedRecordings.Add(new RecordingStore.Recording
+            RecordingStore.CommittedRecordings.Add(new Recording
             {
                 VesselName = "V1",
                 RecordingGroups = null
             });
-            RecordingStore.CommittedRecordings.Add(new RecordingStore.Recording
+            RecordingStore.CommittedRecordings.Add(new Recording
             {
                 VesselName = "V2",
                 RecordingGroups = null
@@ -608,17 +608,17 @@ namespace Parsek.Tests
         [Fact]
         public void RemoveGroupFromAll_RemovesFromAllRecordings_ReturnsCount()
         {
-            RecordingStore.CommittedRecordings.Add(new RecordingStore.Recording
+            RecordingStore.CommittedRecordings.Add(new Recording
             {
                 VesselName = "V1",
                 RecordingGroups = new List<string> { "Target", "Keep" }
             });
-            RecordingStore.CommittedRecordings.Add(new RecordingStore.Recording
+            RecordingStore.CommittedRecordings.Add(new Recording
             {
                 VesselName = "V2",
                 RecordingGroups = new List<string> { "Target" }
             });
-            RecordingStore.CommittedRecordings.Add(new RecordingStore.Recording
+            RecordingStore.CommittedRecordings.Add(new Recording
             {
                 VesselName = "V3",
                 RecordingGroups = new List<string> { "Other" }
@@ -641,7 +641,7 @@ namespace Parsek.Tests
         [Fact]
         public void RemoveGroupFromAll_NoMatches_ReturnsZero()
         {
-            RecordingStore.CommittedRecordings.Add(new RecordingStore.Recording
+            RecordingStore.CommittedRecordings.Add(new Recording
             {
                 VesselName = "V1",
                 RecordingGroups = new List<string> { "GroupA" }

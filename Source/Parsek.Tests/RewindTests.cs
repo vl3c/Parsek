@@ -39,7 +39,7 @@ namespace Parsek.Tests
         [Fact]
         public void CanRewind_NoRewindSave_ReturnsFalse()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             string reason;
             Assert.False(RecordingStore.CanRewind(rec, out reason, isRecording: false));
             Assert.Equal("No rewind save available", reason);
@@ -48,7 +48,7 @@ namespace Parsek.Tests
         [Fact]
         public void CanRewind_AlreadyRewinding_ReturnsFalse()
         {
-            var rec = new RecordingStore.Recording { RewindSaveFileName = "parsek_rw_abc123" };
+            var rec = new Recording { RewindSaveFileName = "parsek_rw_abc123" };
             RecordingStore.IsRewinding = true;
             string reason;
             Assert.False(RecordingStore.CanRewind(rec, out reason, isRecording: false));
@@ -58,7 +58,7 @@ namespace Parsek.Tests
         [Fact]
         public void CanRewind_Recording_ReturnsFalse()
         {
-            var rec = new RecordingStore.Recording { RewindSaveFileName = "parsek_rw_abc123" };
+            var rec = new Recording { RewindSaveFileName = "parsek_rw_abc123" };
             string reason;
             Assert.False(RecordingStore.CanRewind(rec, out reason, isRecording: true));
             Assert.Equal("Stop recording before rewinding", reason);
@@ -67,7 +67,7 @@ namespace Parsek.Tests
         [Fact]
         public void ResetAllPlaybackState_ResetsRecordings()
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 VesselSpawned = true,
                 SpawnAttempts = 3,
@@ -95,7 +95,7 @@ namespace Parsek.Tests
         [Fact]
         public void MarkAllFullyApplied_SetsCorrectIndices()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points.Add(new TrajectoryPoint { ut = 100 });
             rec.Points.Add(new TrajectoryPoint { ut = 200 });
             rec.Points.Add(new TrajectoryPoint { ut = 300 });
@@ -111,15 +111,15 @@ namespace Parsek.Tests
         [Fact]
         public void CountFutureRecordings_CountsCorrectly()
         {
-            var rec1 = new RecordingStore.Recording();
+            var rec1 = new Recording();
             rec1.Points.Add(new TrajectoryPoint { ut = 100 });
             rec1.Points.Add(new TrajectoryPoint { ut = 200 });
 
-            var rec2 = new RecordingStore.Recording();
+            var rec2 = new Recording();
             rec2.Points.Add(new TrajectoryPoint { ut = 300 });
             rec2.Points.Add(new TrajectoryPoint { ut = 400 });
 
-            var rec3 = new RecordingStore.Recording();
+            var rec3 = new Recording();
             rec3.Points.Add(new TrajectoryPoint { ut = 500 });
             rec3.Points.Add(new TrajectoryPoint { ut = 600 });
 
@@ -136,7 +136,7 @@ namespace Parsek.Tests
         [Fact]
         public void RewindFields_InRecording_DefaultToEmpty()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             Assert.Null(rec.RewindSaveFileName);
             Assert.Equal(0.0, rec.RewindReservedFunds);
             Assert.Equal(0.0, rec.RewindReservedScience);
@@ -146,7 +146,7 @@ namespace Parsek.Tests
         [Fact]
         public void ApplyPersistenceArtifactsFrom_CopiesRewindFields()
         {
-            var source = new RecordingStore.Recording
+            var source = new Recording
             {
                 RewindSaveFileName = "parsek_rw_test01",
                 RewindReservedFunds = 1000.0,
@@ -154,7 +154,7 @@ namespace Parsek.Tests
                 RewindReservedRep = 5.0f
             };
 
-            var target = new RecordingStore.Recording();
+            var target = new Recording();
             target.ApplyPersistenceArtifactsFrom(source);
 
             Assert.Equal("parsek_rw_test01", target.RewindSaveFileName);
