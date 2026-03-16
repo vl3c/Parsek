@@ -77,6 +77,12 @@ Parsek's infrastructure - looped playback, vessel snapshots, game state tracking
 
 See the [roadmap](docs/roadmap.md) for what's planned and what's possible.
 
+## Beta Disclaimer
+
+Parsek is currently in active development and has not reached a stable release. During this period, features, recording formats, game logic, and save data structures may change without notice. While I make reasonable efforts to provide migration paths (e.g., automatic format upgrades), **no guarantees of backwards compatibility are made during the beta phase**.
+
+After the first official stable release, I will do my best to preserve backwards compatibility for existing recordings and save data, and will document any breaking changes in the release notes.
+
 ## License
 
 MIT
