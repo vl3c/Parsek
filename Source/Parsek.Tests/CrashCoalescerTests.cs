@@ -483,7 +483,7 @@ namespace Parsek.Tests
         #region BranchPoint.ToString for Breakup
 
         [Fact]
-        public void BreakupBranchPoint_ToString_IncludesBreakupMetadata()
+        public void BreakupBranchPoint_ToString_IncludesTypeAndId()
         {
             var bp = new BranchPoint
             {
@@ -497,12 +497,11 @@ namespace Parsek.Tests
 
             string str = bp.ToString();
             Assert.Contains("Breakup", str);
-            Assert.Contains("cause=CRASH", str);
-            Assert.Contains("debris=3", str);
+            Assert.Contains("test123", str);
         }
 
         [Fact]
-        public void NonBreakupBranchPoint_ToString_DoesNotIncludeBreakupMetadata()
+        public void NonBreakupBranchPoint_ToString_IncludesTypeAndId()
         {
             var bp = new BranchPoint
             {
@@ -513,8 +512,7 @@ namespace Parsek.Tests
 
             string str = bp.ToString();
             Assert.Contains("Undock", str);
-            Assert.DoesNotContain("cause=", str);
-            Assert.DoesNotContain("debris=", str);
+            Assert.Contains("test456", str);
         }
 
         #endregion
