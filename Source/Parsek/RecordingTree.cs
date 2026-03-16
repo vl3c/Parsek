@@ -571,6 +571,44 @@ namespace Parsek
 
             for (int i = 0; i < bp.ChildRecordingIds.Count; i++)
                 bpNode.AddValue("childId", bp.ChildRecordingIds[i] ?? "");
+
+            // SPLIT metadata
+            if (bp.SplitCause != null)
+                bpNode.AddValue("splitCause", bp.SplitCause);
+            if (bp.DecouplerPartId != 0)
+                bpNode.AddValue("decouplerPartId", bp.DecouplerPartId.ToString(ic));
+
+            // BREAKUP metadata
+            if (bp.BreakupCause != null)
+                bpNode.AddValue("breakupCause", bp.BreakupCause);
+            if (bp.BreakupDuration != 0)
+                bpNode.AddValue("breakupDuration", bp.BreakupDuration.ToString("R", ic));
+            if (bp.DebrisCount != 0)
+                bpNode.AddValue("debrisCount", bp.DebrisCount.ToString(ic));
+            if (bp.CoalesceWindow != 0)
+                bpNode.AddValue("coalesceWindow", bp.CoalesceWindow.ToString("R", ic));
+
+            // MERGE metadata
+            if (bp.MergeCause != null)
+                bpNode.AddValue("mergeCause", bp.MergeCause);
+            if (bp.TargetVesselPersistentId != 0)
+                bpNode.AddValue("targetVesselPid", bp.TargetVesselPersistentId.ToString(ic));
+
+            // TERMINAL metadata
+            if (bp.TerminalCause != null)
+                bpNode.AddValue("terminalCause", bp.TerminalCause);
+
+            ParsekLog.Verbose("RecordingTree",
+                $"SaveBranchPoint: id={bp.Id} type={bp.Type} ut={bp.UT.ToString("F1", ic)}" +
+                (bp.SplitCause != null ? $" splitCause={bp.SplitCause}" : "") +
+                (bp.DecouplerPartId != 0 ? $" decouplerPartId={bp.DecouplerPartId}" : "") +
+                (bp.BreakupCause != null ? $" breakupCause={bp.BreakupCause}" : "") +
+                (bp.BreakupDuration != 0 ? $" breakupDuration={bp.BreakupDuration.ToString("F3", ic)}" : "") +
+                (bp.DebrisCount != 0 ? $" debrisCount={bp.DebrisCount}" : "") +
+                (bp.CoalesceWindow != 0 ? $" coalesceWindow={bp.CoalesceWindow.ToString("F3", ic)}" : "") +
+                (bp.MergeCause != null ? $" mergeCause={bp.MergeCause}" : "") +
+                (bp.TargetVesselPersistentId != 0 ? $" targetVesselPid={bp.TargetVesselPersistentId}" : "") +
+                (bp.TerminalCause != null ? $" terminalCause={bp.TerminalCause}" : ""));
         }
 
         internal static BranchPoint LoadBranchPointFrom(ConfigNode bpNode)
@@ -583,15 +621,84 @@ namespace Parsek
             double.TryParse(bpNode.GetValue("ut"), inv, ic, out bp.UT);
 
             int typeInt;
-            if (int.TryParse(bpNode.GetValue("type"), NumberStyles.Integer, ic, out typeInt)
-                && Enum.IsDefined(typeof(BranchPointType), typeInt))
-                bp.Type = (BranchPointType)typeInt;
+            if (int.TryParse(bpNode.GetValue("type"), NumberStyles.Integer, ic, out typeInt))
+            {
+                if (Enum.IsDefined(typeof(BranchPointType), typeInt))
+                {
+                    bp.Type = (BranchPointType)typeInt;
+                }
+                else
+                {
+                    ParsekLog.Warn("RecordingTree",
+                        $"LoadBranchPoint: unknown type integer {typeInt} for id={bp.Id}, defaulting to Undock(0)");
+                    bp.Type = BranchPointType.Undock;
+                }
+            }
 
             string[] parentIds = bpNode.GetValues("parentId");
             bp.ParentRecordingIds = new List<string>(parentIds);
 
             string[] childIds = bpNode.GetValues("childId");
             bp.ChildRecordingIds = new List<string>(childIds);
+
+            // SPLIT metadata
+            bp.SplitCause = bpNode.GetValue("splitCause");
+            string decouplerPartIdStr = bpNode.GetValue("decouplerPartId");
+            if (decouplerPartIdStr != null)
+            {
+                uint decouplerPartId;
+                if (uint.TryParse(decouplerPartIdStr, NumberStyles.Integer, ic, out decouplerPartId))
+                    bp.DecouplerPartId = decouplerPartId;
+            }
+
+            // BREAKUP metadata
+            bp.BreakupCause = bpNode.GetValue("breakupCause");
+            string breakupDurationStr = bpNode.GetValue("breakupDuration");
+            if (breakupDurationStr != null)
+            {
+                double breakupDuration;
+                if (double.TryParse(breakupDurationStr, inv, ic, out breakupDuration))
+                    bp.BreakupDuration = breakupDuration;
+            }
+            string debrisCountStr = bpNode.GetValue("debrisCount");
+            if (debrisCountStr != null)
+            {
+                int debrisCount;
+                if (int.TryParse(debrisCountStr, NumberStyles.Integer, ic, out debrisCount))
+                    bp.DebrisCount = debrisCount;
+            }
+            string coalesceWindowStr = bpNode.GetValue("coalesceWindow");
+            if (coalesceWindowStr != null)
+            {
+                double coalesceWindow;
+                if (double.TryParse(coalesceWindowStr, inv, ic, out coalesceWindow))
+                    bp.CoalesceWindow = coalesceWindow;
+            }
+
+            // MERGE metadata
+            bp.MergeCause = bpNode.GetValue("mergeCause");
+            string targetVesselPidStr = bpNode.GetValue("targetVesselPid");
+            if (targetVesselPidStr != null)
+            {
+                uint targetVesselPid;
+                if (uint.TryParse(targetVesselPidStr, NumberStyles.Integer, ic, out targetVesselPid))
+                    bp.TargetVesselPersistentId = targetVesselPid;
+            }
+
+            // TERMINAL metadata
+            bp.TerminalCause = bpNode.GetValue("terminalCause");
+
+            ParsekLog.Verbose("RecordingTree",
+                $"LoadBranchPoint: id={bp.Id} type={bp.Type} ut={bp.UT.ToString("F1", ic)}" +
+                (bp.SplitCause != null ? $" splitCause={bp.SplitCause}" : "") +
+                (bp.DecouplerPartId != 0 ? $" decouplerPartId={bp.DecouplerPartId}" : "") +
+                (bp.BreakupCause != null ? $" breakupCause={bp.BreakupCause}" : "") +
+                (bp.BreakupDuration != 0 ? $" breakupDuration={bp.BreakupDuration.ToString("F3", ic)}" : "") +
+                (bp.DebrisCount != 0 ? $" debrisCount={bp.DebrisCount}" : "") +
+                (bp.CoalesceWindow != 0 ? $" coalesceWindow={bp.CoalesceWindow.ToString("F3", ic)}" : "") +
+                (bp.MergeCause != null ? $" mergeCause={bp.MergeCause}" : "") +
+                (bp.TargetVesselPersistentId != 0 ? $" targetVesselPid={bp.TargetVesselPersistentId}" : "") +
+                (bp.TerminalCause != null ? $" terminalCause={bp.TerminalCause}" : ""));
 
             return bp;
         }
