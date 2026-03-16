@@ -2518,6 +2518,11 @@ namespace Parsek
              : unit == LoopTimeUnit.Auto ? "auto"
              : "sec";
 
+        internal static string UnitSuffix(LoopTimeUnit unit)
+            => unit == LoopTimeUnit.Min ? "m"
+             : unit == LoopTimeUnit.Hour ? "h"
+             : "s";
+
         internal static LoopTimeUnit CycleRecordingUnit(LoopTimeUnit u)
             => u == LoopTimeUnit.Sec ? LoopTimeUnit.Min
              : u == LoopTimeUnit.Min ? LoopTimeUnit.Hour
@@ -2579,7 +2584,7 @@ namespace Parsek
                     double gv = settings != null
                         ? ConvertFromSeconds(settings.autoLoopIntervalSeconds, settings.AutoLoopDisplayUnit) : 10;
                     var gu = settings != null ? settings.AutoLoopDisplayUnit : LoopTimeUnit.Sec;
-                    disabledText = FormatLoopValue(gv, gu);
+                    disabledText = FormatLoopValue(gv, gu) + UnitSuffix(gu);
                 }
                 else
                 {
@@ -2600,7 +2605,7 @@ namespace Parsek
                     : 10;
                 GUI.enabled = false;
                 var globalDisplayUnit = settings != null ? settings.AutoLoopDisplayUnit : LoopTimeUnit.Sec;
-                GUILayout.TextField(FormatLoopValue(globalVal, globalDisplayUnit), GUILayout.Width(valueBtnW));
+                GUILayout.TextField(FormatLoopValue(globalVal, globalDisplayUnit) + UnitSuffix(globalDisplayUnit), GUILayout.Width(valueBtnW));
                 GUI.enabled = true;
             }
             else
