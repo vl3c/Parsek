@@ -83,12 +83,12 @@ namespace Parsek.Tests
                 RootRecordingId = "root",
                 ActiveRecordingId = "active"
             };
-            tree.Recordings["active"] = new RecordingStore.Recording
+            tree.Recordings["active"] = new Recording
             {
                 RecordingId = "active",
                 VesselName = "Active"
             };
-            tree.Recordings["bg"] = new RecordingStore.Recording
+            tree.Recordings["bg"] = new Recording
             {
                 RecordingId = "bg",
                 VesselName = "Background",
@@ -110,7 +110,7 @@ namespace Parsek.Tests
                 RootRecordingId = "root",
                 ActiveRecordingId = "active"
             };
-            tree.Recordings["active"] = new RecordingStore.Recording
+            tree.Recordings["active"] = new Recording
             {
                 RecordingId = "active",
                 VesselName = "Active"

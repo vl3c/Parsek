@@ -313,7 +313,7 @@ namespace Parsek.Tests
         [Fact]
         public void ApplyPersistenceArtifactsFrom_CopiesAllRewindFields()
         {
-            var source = new RecordingStore.Recording
+            var source = new Recording
             {
                 RewindSaveFileName = "parsek_rw_full",
                 RewindReservedFunds = 12345.6,
@@ -321,7 +321,7 @@ namespace Parsek.Tests
                 RewindReservedRep = 2.5f
             };
 
-            var target = new RecordingStore.Recording();
+            var target = new Recording();
             target.ApplyPersistenceArtifactsFrom(source);
 
             Assert.Equal("parsek_rw_full", target.RewindSaveFileName);
@@ -333,7 +333,7 @@ namespace Parsek.Tests
         [Fact]
         public void ApplyPersistenceArtifactsFrom_NullSource_DoesNotThrow()
         {
-            var target = new RecordingStore.Recording
+            var target = new Recording
             {
                 RewindSaveFileName = "existing"
             };
@@ -356,7 +356,7 @@ namespace Parsek.Tests
             };
             RecordingStore.StashPending(points, "PendingVessel");
 
-            var rec = new RecordingStore.Recording { RewindSaveFileName = "parsek_rw_test" };
+            var rec = new Recording { RewindSaveFileName = "parsek_rw_test" };
             string reason;
             Assert.False(RecordingStore.CanRewind(rec, out reason, isRecording: false));
             Assert.Equal("Merge or discard pending recording first", reason);
@@ -410,7 +410,7 @@ namespace Parsek.Tests
         /// <summary>
         /// Serialize rewind fields to ConfigNode using the same format as ParsekScenario.OnSave.
         /// </summary>
-        private static void SerializeRewindFields(ConfigNode node, RecordingStore.Recording rec)
+        private static void SerializeRewindFields(ConfigNode node, Recording rec)
         {
             var ic = CultureInfo.InvariantCulture;
             if (!string.IsNullOrEmpty(rec.RewindSaveFileName))
@@ -425,7 +425,7 @@ namespace Parsek.Tests
         /// <summary>
         /// Deserialize rewind fields from ConfigNode using the same format as ParsekScenario.OnLoad.
         /// </summary>
-        private static void DeserializeRewindFields(ConfigNode node, RecordingStore.Recording rec)
+        private static void DeserializeRewindFields(ConfigNode node, Recording rec)
         {
             var ic = CultureInfo.InvariantCulture;
             rec.RewindSaveFileName = node.GetValue("rewindSave");
@@ -456,7 +456,7 @@ namespace Parsek.Tests
         [Fact]
         public void RewindFields_SurviveSerializationRoundTrip()
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 RewindSaveFileName = "parsek_rw_roundtrip",
                 RewindReservedFunds = 9999.9,
@@ -467,7 +467,7 @@ namespace Parsek.Tests
             var node = new ConfigNode("RECORDING");
             SerializeRewindFields(node, rec);
 
-            var loaded = new RecordingStore.Recording();
+            var loaded = new Recording();
             DeserializeRewindFields(node, loaded);
 
             Assert.Equal("parsek_rw_roundtrip", loaded.RewindSaveFileName);
@@ -483,7 +483,7 @@ namespace Parsek.Tests
             var node = new ConfigNode("RECORDING");
             node.AddValue("vesselName", "OldRocket");
 
-            var loaded = new RecordingStore.Recording();
+            var loaded = new Recording();
             DeserializeRewindFields(node, loaded);
 
             Assert.Null(loaded.RewindSaveFileName);
@@ -496,7 +496,7 @@ namespace Parsek.Tests
         public void RewindFields_NullSaveName_SkipsAllFields()
         {
             // When RewindSaveFileName is null, no rewind values are serialized
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 RewindSaveFileName = null,
                 RewindReservedFunds = 1000.0 // should NOT be serialized
@@ -512,7 +512,7 @@ namespace Parsek.Tests
         [Fact]
         public void RewindFields_LocaleSafe_NoCommasInOutput()
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 RewindSaveFileName = "parsek_rw_locale",
                 RewindReservedFunds = 12345.678,
@@ -529,7 +529,7 @@ namespace Parsek.Tests
             Assert.DoesNotContain(",", node.GetValue("rewindResRep"));
 
             // Verify round-trip
-            var loaded = new RecordingStore.Recording();
+            var loaded = new Recording();
             DeserializeRewindFields(node, loaded);
             Assert.Equal(12345.678, loaded.RewindReservedFunds);
         }
@@ -542,7 +542,7 @@ namespace Parsek.Tests
         public void InitiateRewind_SetsBaselineFromPreLaunch()
         {
             // Simulate: recording with known PreLaunch values
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 RewindSaveFileName = "parsek_rw_test",
                 PreLaunchFunds = 25000.0,
@@ -581,7 +581,7 @@ namespace Parsek.Tests
         public void FullCommittedCost_SignConvention_NegativeMeansEarned()
         {
             // Verify the sign convention: negative cost = recording earned money
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 PreLaunchFunds = 25000.0,
                 PreLaunchScience = 0.0,
@@ -699,7 +699,7 @@ namespace Parsek.Tests
             // Ghost playback re-applies recording resource deltas at the correct UT.
             double baseline = 50000.0;
 
-            var rec = new RecordingStore.Recording { PreLaunchFunds = 50000 };
+            var rec = new Recording { PreLaunchFunds = 50000 };
             rec.Points.Add(new TrajectoryPoint { ut = 100, funds = 50000 });
             rec.Points.Add(new TrajectoryPoint { ut = 200, funds = 38000 });
 

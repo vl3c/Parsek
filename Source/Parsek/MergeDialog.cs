@@ -43,7 +43,7 @@ namespace Parsek
             Patches.FlightResultsPatch.ReplayFlightResults();
         }
 
-        public static void Show(RecordingStore.Recording pending)
+        public static void Show(Recording pending)
         {
             if (pending == null)
             {
@@ -53,7 +53,7 @@ namespace Parsek
 
             // Detect if this is a chain recording with committed siblings
             bool isChain = !string.IsNullOrEmpty(pending.ChainId);
-            List<RecordingStore.Recording> chainSiblings = isChain
+            List<Recording> chainSiblings = isChain
                 ? RecordingStore.GetChainRecordings(pending.ChainId)
                 : null;
             int chainSegmentCount = (chainSiblings != null ? chainSiblings.Count : 0) + 1; // +1 for pending
@@ -74,7 +74,7 @@ namespace Parsek
             ShowStandaloneDialog(pending);
         }
 
-        static void ShowStandaloneDialog(RecordingStore.Recording pending)
+        static void ShowStandaloneDialog(Recording pending)
         {
             double duration = pending.EndUT - pending.StartUT;
             var recommended = RecordingStore.GetRecommendedAction(
@@ -88,7 +88,7 @@ namespace Parsek
 
             switch (recommended)
             {
-                case RecordingStore.MergeDefault.GhostOnly:
+                case MergeDefault.GhostOnly:
                     // Vessel destroyed or no snapshot — no vessel to persist
                     buttons = new[]
                     {
@@ -115,7 +115,7 @@ namespace Parsek
                     };
                     break;
 
-                case RecordingStore.MergeDefault.Persist:
+                case MergeDefault.Persist:
                     // Vessel intact with snapshot — persist in timeline
                     buttons = new[]
                     {
@@ -167,8 +167,8 @@ namespace Parsek
             );
         }
 
-        static void ShowChainDialog(RecordingStore.Recording pending,
-            List<RecordingStore.Recording> chainSiblings, int totalSegments)
+        static void ShowChainDialog(Recording pending,
+            List<Recording> chainSiblings, int totalSegments)
         {
             string chainId = pending.ChainId;
             double duration = pending.EndUT - pending.StartUT;
@@ -274,7 +274,7 @@ namespace Parsek
         /// Unreserves crew and nulls VesselSnapshot on siblings without granting recovery funds.
         /// Used by the Merge-to-Timeline path (ghost-only, no vessel persistence).
         /// </summary>
-        static void NullChainSiblingSnapshots(List<RecordingStore.Recording> siblings)
+        static void NullChainSiblingSnapshots(List<Recording> siblings)
         {
             if (siblings == null) return;
             for (int i = 0; i < siblings.Count; i++)
@@ -288,7 +288,7 @@ namespace Parsek
             }
         }
 
-        static void DiscardChain(RecordingStore.Recording pending, string chainId)
+        static void DiscardChain(Recording pending, string chainId)
         {
             int unreservedCount = 0;
 
@@ -320,8 +320,8 @@ namespace Parsek
                 $"Discarded chain '{chainId}': unreservedSnapshots={unreservedCount}, siblingCount={siblings?.Count ?? 0}");
         }
 
-        internal static string BuildMergeMessage(RecordingStore.Recording pending, double duration,
-            RecordingStore.MergeDefault recommended)
+        internal static string BuildMergeMessage(Recording pending, double duration,
+            MergeDefault recommended)
         {
             string header = $"Vessel: {pending.VesselName}\n" +
                 $"Points: {pending.Points.Count}\n" +
@@ -330,12 +330,12 @@ namespace Parsek
 
             switch (recommended)
             {
-                case RecordingStore.MergeDefault.GhostOnly:
+                case MergeDefault.GhostOnly:
                     return header + (pending.VesselDestroyed
                         ? "Your vessel was destroyed. Recording captured."
                         : "Recording captured.");
 
-                case RecordingStore.MergeDefault.Persist:
+                case MergeDefault.Persist:
                     string situation = pending.DistanceFromLaunch < 100.0
                         ? "Your vessel returned near the launch site after traveling " +
                           pending.MaxDistanceFromLaunch.ToString("F0", CultureInfo.InvariantCulture) + "m."
@@ -450,7 +450,7 @@ namespace Parsek
                 : h.ToString(CultureInfo.InvariantCulture) + "h";
         }
 
-        internal static string GetLeafSituationText(RecordingStore.Recording leaf)
+        internal static string GetLeafSituationText(Recording leaf)
         {
             if (leaf.TerminalStateValue.HasValue)
             {
@@ -495,8 +495,8 @@ namespace Parsek
         /// </summary>
         internal static string BuildTreeDialogMessage(
             RecordingTree tree,
-            List<RecordingStore.Recording> allLeaves,
-            List<RecordingStore.Recording> spawnableLeaves,
+            List<Recording> allLeaves,
+            List<Recording> spawnableLeaves,
             out int survivingCount,
             out int destroyedCount)
         {
@@ -561,7 +561,7 @@ namespace Parsek
         /// <summary>
         /// Pure function: count how many leaves have TerminalState.Destroyed.
         /// </summary>
-        internal static int CountDestroyedLeaves(List<RecordingStore.Recording> leaves)
+        internal static int CountDestroyedLeaves(List<Recording> leaves)
         {
             if (leaves == null) return 0;
             int count = 0;

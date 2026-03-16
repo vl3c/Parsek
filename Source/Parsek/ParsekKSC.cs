@@ -199,7 +199,7 @@ namespace Parsek
         /// <summary>
         /// Single-ghost playback path (positive/zero loop interval, or non-looping).
         /// </summary>
-        void UpdateSingleGhostKsc(int recIdx, RecordingStore.Recording rec,
+        void UpdateSingleGhostKsc(int recIdx, Recording rec,
             double currentUT, double targetUT, int cycleIndex,
             bool inRange, bool inPauseWindow, bool suppressVisualFx)
         {
@@ -290,7 +290,7 @@ namespace Parsek
         /// Simplified version of ParsekFlight.UpdateOverlapLoopPlayback
         /// (no camera logic, no reentry FX).
         /// </summary>
-        void UpdateOverlapKsc(int recIdx, RecordingStore.Recording rec,
+        void UpdateOverlapKsc(int recIdx, Recording rec,
             double currentUT, double intervalSeconds, double duration, bool suppressVisualFx)
         {
             ParsekFlight.GhostPlaybackState primaryState;
@@ -430,7 +430,7 @@ namespace Parsek
         /// <summary>
         /// Filter recordings for KSC ghost display.
         /// </summary>
-        internal static bool ShouldShowInKSC(RecordingStore.Recording rec)
+        internal static bool ShouldShowInKSC(Recording rec)
         {
             if (!rec.PlaybackEnabled) return false;
             if (rec.Points == null || rec.Points.Count < 2) return false;
@@ -444,7 +444,7 @@ namespace Parsek
         /// Simplified version of ParsekFlight.SpawnTimelineGhost — no camera pivot,
         /// no reentry FX, no sphere fallback.
         /// </summary>
-        ParsekFlight.GhostPlaybackState SpawnKscGhost(RecordingStore.Recording rec, int index)
+        ParsekFlight.GhostPlaybackState SpawnKscGhost(Recording rec, int index)
         {
             // Skip if no snapshot — no sphere fallback in KSC
             var snapshot = GhostVisualBuilder.GetGhostSnapshot(rec);
@@ -725,7 +725,7 @@ namespace Parsek
         /// because the static 6-param overload doesn't return pause-window state.
         /// </summary>
         internal static bool TryComputeLoopUT(
-            RecordingStore.Recording rec,
+            Recording rec,
             double currentUT,
             out double loopUT,
             out int cycleIndex,
@@ -766,7 +766,7 @@ namespace Parsek
         /// clamped so cycleDuration is always >= MinCycleDuration.
         /// Negative intervals mean shorter cycles (overlapping launches from KSC).
         /// </summary>
-        internal static double GetLoopIntervalSeconds(RecordingStore.Recording rec)
+        internal static double GetLoopIntervalSeconds(Recording rec)
         {
             double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
                                     ?? DefaultLoopIntervalSeconds;
@@ -779,7 +779,7 @@ namespace Parsek
         /// Guards against repeat firing via state.explosionFired.
         /// </summary>
         void TriggerExplosionIfDestroyed(ParsekFlight.GhostPlaybackState state,
-            RecordingStore.Recording rec, int recIdx)
+            Recording rec, int recIdx)
         {
             if (state == null || state.ghost == null) return;
             if (state.explosionFired) return;

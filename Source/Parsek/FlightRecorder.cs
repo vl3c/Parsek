@@ -116,7 +116,7 @@ namespace Parsek
         /// </summary>
         public bool IsBackgrounded => IsRecording && Patches.PhysicsFramePatch.ActiveRecorder != this;
 
-        public RecordingStore.Recording CaptureAtStop { get; private set; }
+        public Recording CaptureAtStop { get; private set; }
         public double PreLaunchFunds { get; private set; }
         public double PreLaunchScience { get; private set; }
         public float PreLaunchReputation { get; private set; }
@@ -3588,13 +3588,13 @@ namespace Parsek
         /// Extracted from StopRecording/StopRecordingForChainBoundary/OnPhysicsFrame to eliminate
         /// the triple duplication of the CaptureAtStop construction block.
         /// </summary>
-        private RecordingStore.Recording BuildCaptureRecording(
+        private Recording BuildCaptureRecording(
             string vesselName,
             bool isDestroyed,
             Vessel snapshotVessel = null,
             ConfigNode destroyedFallbackSnapshot = null)
         {
-            var capture = new RecordingStore.Recording
+            var capture = new Recording
             {
                 RecordingId = System.Guid.NewGuid().ToString("N"),
                 RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,

@@ -29,9 +29,9 @@ namespace Parsek.Tests
 
         #region Helpers
 
-        static RecordingStore.Recording MakeLeaf(string id, string name, TerminalState? terminal)
+        static Recording MakeLeaf(string id, string name, TerminalState? terminal)
         {
-            return new RecordingStore.Recording
+            return new Recording
             {
                 RecordingId = id,
                 VesselName = name,
@@ -40,9 +40,9 @@ namespace Parsek.Tests
             };
         }
 
-        static RecordingStore.Recording MakeNonLeaf(string id, string name, string childBranchPointId)
+        static Recording MakeNonLeaf(string id, string name, string childBranchPointId)
         {
-            return new RecordingStore.Recording
+            return new Recording
             {
                 RecordingId = id,
                 VesselName = name,
@@ -51,10 +51,10 @@ namespace Parsek.Tests
             };
         }
 
-        static Dictionary<string, RecordingStore.Recording> MakeDict(
-            params RecordingStore.Recording[] recordings)
+        static Dictionary<string, Recording> MakeDict(
+            params Recording[] recordings)
         {
-            var dict = new Dictionary<string, RecordingStore.Recording>();
+            var dict = new Dictionary<string, Recording>();
             foreach (var rec in recordings)
                 dict[rec.RecordingId] = rec;
             return dict;
@@ -158,7 +158,7 @@ namespace Parsek.Tests
         [Fact]
         public void EmptyRecordings_ReturnsTrue()
         {
-            var recs = new Dictionary<string, RecordingStore.Recording>();
+            var recs = new Dictionary<string, Recording>();
 
             bool result = RecordingTree.AreAllLeavesTerminal(recs, null, true);
 

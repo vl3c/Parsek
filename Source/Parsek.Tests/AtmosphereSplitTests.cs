@@ -109,7 +109,7 @@ namespace Parsek.Tests
         [Fact]
         public void GetSegmentPhaseLabel_Formats()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             Assert.Equal("", RecordingStore.GetSegmentPhaseLabel(rec));
 
             rec.SegmentPhase = "atmo";

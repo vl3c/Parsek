@@ -39,21 +39,21 @@ namespace Parsek.Tests
         [Fact]
         public void Recording_ChainBranch_DefaultsToZero()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             Assert.Equal(0, rec.ChainBranch);
         }
 
         [Fact]
         public void ApplyPersistenceArtifacts_CopiesChainBranch()
         {
-            var source = new RecordingStore.Recording
+            var source = new Recording
             {
                 ChainId = "test-chain",
                 ChainIndex = 2,
                 ChainBranch = 1
             };
 
-            var target = new RecordingStore.Recording();
+            var target = new Recording();
             target.ApplyPersistenceArtifactsFrom(source);
 
             Assert.Equal(1, target.ChainBranch);

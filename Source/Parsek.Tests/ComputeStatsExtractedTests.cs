@@ -357,7 +357,7 @@ namespace Parsek.Tests
         {
             // Bug caught: missing log on empty recording would hide silent no-ops
             ParsekLog.ResetRateLimitsForTesting();
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             TrajectoryMath.ComputeStats(rec);
 
             Assert.Contains(logLines, l => l.Contains("empty trajectory"));
@@ -367,7 +367,7 @@ namespace Parsek.Tests
         public void ComputeStats_NonEmptyTrajectory_LogsCompletion()
         {
             // Bug caught: missing completion log would hide stats calculation results
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points.Add(new TrajectoryPoint
             {
                 ut = 100, altitude = 500, velocity = new Vector3(100, 0, 0), bodyName = "Kerbin"

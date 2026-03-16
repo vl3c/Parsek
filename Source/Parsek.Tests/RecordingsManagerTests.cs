@@ -45,9 +45,9 @@ namespace Parsek.Tests
 
     public class StatusOrderTests
     {
-        private RecordingStore.Recording MakeRecording(double startUT, double endUT)
+        private Recording MakeRecording(double startUT, double endUT)
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points.Add(new TrajectoryPoint { ut = startUT, bodyName = "Kerbin" });
             rec.Points.Add(new TrajectoryPoint { ut = endUT, bodyName = "Kerbin" });
             return rec;
@@ -100,9 +100,9 @@ namespace Parsek.Tests
             };
         }
 
-        private RecordingStore.Recording MakeRec(string name, double startUT, double endUT)
+        private Recording MakeRec(string name, double startUT, double endUT)
         {
-            var rec = new RecordingStore.Recording { VesselName = name };
+            var rec = new Recording { VesselName = name };
             rec.Points.AddRange(MakePoints(startUT, endUT));
             return rec;
         }
@@ -252,9 +252,9 @@ namespace Parsek.Tests
             };
         }
 
-        private RecordingStore.Recording MakeRec(string name, double startUT, double endUT)
+        private Recording MakeRec(string name, double startUT, double endUT)
         {
-            var rec = new RecordingStore.Recording { VesselName = name };
+            var rec = new Recording { VesselName = name };
             rec.Points.AddRange(MakePoints(startUT, endUT));
             return rec;
         }
@@ -262,7 +262,7 @@ namespace Parsek.Tests
         [Fact]
         public void IndexAscending_NaturalOrder()
         {
-            var list = new List<RecordingStore.Recording>
+            var list = new List<Recording>
             {
                 MakeRec("C", 300, 400),
                 MakeRec("A", 100, 200),
@@ -278,7 +278,7 @@ namespace Parsek.Tests
         [Fact]
         public void IndexDescending_ReversedOrder()
         {
-            var list = new List<RecordingStore.Recording>
+            var list = new List<Recording>
             {
                 MakeRec("C", 300, 400),
                 MakeRec("A", 100, 200),
@@ -294,7 +294,7 @@ namespace Parsek.Tests
         [Fact]
         public void SortByName_Ascending()
         {
-            var list = new List<RecordingStore.Recording>
+            var list = new List<Recording>
             {
                 MakeRec("Charlie", 100, 200),
                 MakeRec("Alpha", 100, 200),
@@ -311,7 +311,7 @@ namespace Parsek.Tests
         [Fact]
         public void SortByLaunchTime_Ascending()
         {
-            var list = new List<RecordingStore.Recording>
+            var list = new List<Recording>
             {
                 MakeRec("Late", 300, 400),
                 MakeRec("Early", 100, 200),
@@ -328,7 +328,7 @@ namespace Parsek.Tests
         [Fact]
         public void SortByDuration_Ascending()
         {
-            var list = new List<RecordingStore.Recording>
+            var list = new List<Recording>
             {
                 MakeRec("Medium", 100, 200),  // 100s
                 MakeRec("Short", 100, 120),   // 20s
@@ -346,7 +346,7 @@ namespace Parsek.Tests
         public void SortByStatus_FutureActivesPast()
         {
             double now = 250;
-            var list = new List<RecordingStore.Recording>
+            var list = new List<Recording>
             {
                 MakeRec("Past", 100, 200),      // past at now=250
                 MakeRec("Active", 200, 300),     // active at now=250
@@ -363,7 +363,7 @@ namespace Parsek.Tests
         [Fact]
         public void SortByName_Descending()
         {
-            var list = new List<RecordingStore.Recording>
+            var list = new List<Recording>
             {
                 MakeRec("Alpha", 100, 200),
                 MakeRec("Charlie", 100, 200),
@@ -380,7 +380,7 @@ namespace Parsek.Tests
         [Fact]
         public void EmptyList_ReturnsEmptyArray()
         {
-            var list = new List<RecordingStore.Recording>();
+            var list = new List<Recording>();
 
             var indices = ParsekUI.BuildSortedIndices(list,
                 ParsekUI.SortColumn.Name, ascending: true, now: 0);
@@ -391,7 +391,7 @@ namespace Parsek.Tests
         [Fact]
         public void SingleItem_ReturnsSingleIndex()
         {
-            var list = new List<RecordingStore.Recording>
+            var list = new List<Recording>
             {
                 MakeRec("Only", 100, 200),
             };

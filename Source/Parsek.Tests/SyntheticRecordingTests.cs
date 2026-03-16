@@ -2722,7 +2722,7 @@ namespace Parsek.Tests
             try
             {
                 // Build a recording with points, orbit segments, and part events
-                var rec = new RecordingStore.Recording();
+                var rec = new Recording();
                 rec.RecordingId = "roundtrip_test";
                 rec.Points.Add(new TrajectoryPoint
                 {
@@ -2758,7 +2758,7 @@ namespace Parsek.Tests
                 RecordingStore.SerializeTrajectoryInto(node, rec);
 
                 // Deserialize into a fresh recording
-                var rec2 = new RecordingStore.Recording();
+                var rec2 = new Recording();
                 RecordingStore.DeserializeTrajectoryFrom(node, rec2);
 
                 // Verify points
@@ -2804,7 +2804,7 @@ namespace Parsek.Tests
             try
             {
                 // Build recording with data
-                var rec = new RecordingStore.Recording { RecordingId = "filetest" };
+                var rec = new Recording { RecordingId = "filetest" };
                 rec.Points.Add(new TrajectoryPoint
                 {
                     ut = 500, latitude = 1.5, longitude = -74.0, altitude = 100,
@@ -5840,7 +5840,7 @@ namespace Parsek.Tests
             };
 
             // Root: composite vessel on pad, runs from t0 to tSplit
-            tree.Recordings[rootId] = new RecordingStore.Recording
+            tree.Recordings[rootId] = new Recording
             {
                 RecordingId = rootId,
                 TreeId = treeId,
@@ -5853,7 +5853,7 @@ namespace Parsek.Tests
             };
 
             // Active child: upper stage, continues orbiting
-            tree.Recordings[childActiveId] = new RecordingStore.Recording
+            tree.Recordings[childActiveId] = new Recording
             {
                 RecordingId = childActiveId,
                 TreeId = treeId,
@@ -5874,7 +5874,7 @@ namespace Parsek.Tests
             };
 
             // Background child: lower stage (orbit segment only, no snapshot, destroyed)
-            tree.Recordings[childBgId] = new RecordingStore.Recording
+            tree.Recordings[childBgId] = new Recording
             {
                 RecordingId = childBgId,
                 TreeId = treeId,
@@ -5927,7 +5927,7 @@ namespace Parsek.Tests
             };
 
             // Root: vessel on pad, runs from t0 to tEva
-            tree.Recordings[rootId] = new RecordingStore.Recording
+            tree.Recordings[rootId] = new Recording
             {
                 RecordingId = rootId,
                 TreeId = treeId,
@@ -5940,7 +5940,7 @@ namespace Parsek.Tests
             };
 
             // Vessel continues after EVA
-            tree.Recordings[vesselContinueId] = new RecordingStore.Recording
+            tree.Recordings[vesselContinueId] = new Recording
             {
                 RecordingId = vesselContinueId,
                 TreeId = treeId,
@@ -5964,7 +5964,7 @@ namespace Parsek.Tests
             };
 
             // EVA kerbal walks around
-            tree.Recordings[evaChildId] = new RecordingStore.Recording
+            tree.Recordings[evaChildId] = new Recording
             {
                 RecordingId = evaChildId,
                 TreeId = treeId,
@@ -6027,7 +6027,7 @@ namespace Parsek.Tests
             };
 
             // Root: vessel flies, splits at tSplit
-            tree.Recordings[rootId] = new RecordingStore.Recording
+            tree.Recordings[rootId] = new Recording
             {
                 RecordingId = rootId,
                 TreeId = treeId,
@@ -6040,7 +6040,7 @@ namespace Parsek.Tests
             };
 
             // Child A: continues orbiting (spawnable)
-            tree.Recordings[childOrbitId] = new RecordingStore.Recording
+            tree.Recordings[childOrbitId] = new Recording
             {
                 RecordingId = childOrbitId,
                 TreeId = treeId,
@@ -6061,7 +6061,7 @@ namespace Parsek.Tests
             };
 
             // Child B: destroyed at tDestroyed (not spawnable)
-            tree.Recordings[childDestroyedId] = new RecordingStore.Recording
+            tree.Recordings[childDestroyedId] = new Recording
             {
                 RecordingId = childDestroyedId,
                 TreeId = treeId,

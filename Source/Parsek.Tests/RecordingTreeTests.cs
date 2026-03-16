@@ -164,7 +164,7 @@ namespace Parsek.Tests
                 DeltaReputation = 10.25f
             };
 
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 RecordingId = "rec001",
                 VesselName = "Kerbal X",
@@ -217,7 +217,7 @@ namespace Parsek.Tests
                 ActiveRecordingId = "R2"
             };
 
-            var r1 = new RecordingStore.Recording
+            var r1 = new Recording
             {
                 RecordingId = "R1",
                 VesselName = "Parent Vessel",
@@ -226,7 +226,7 @@ namespace Parsek.Tests
                 ExplicitStartUT = 100.0,
                 ExplicitEndUT = 200.0
             };
-            var r2 = new RecordingStore.Recording
+            var r2 = new Recording
             {
                 RecordingId = "R2",
                 VesselName = "Child 1",
@@ -235,7 +235,7 @@ namespace Parsek.Tests
                 ExplicitStartUT = 200.0,
                 ExplicitEndUT = 300.0
             };
-            var r3 = new RecordingStore.Recording
+            var r3 = new Recording
             {
                 RecordingId = "R3",
                 VesselName = "Child 2",
@@ -294,7 +294,7 @@ namespace Parsek.Tests
                 ActiveRecordingId = "R4"
             };
 
-            var r1 = new RecordingStore.Recording
+            var r1 = new Recording
             {
                 RecordingId = "R1",
                 VesselName = "Root",
@@ -303,7 +303,7 @@ namespace Parsek.Tests
                 ExplicitStartUT = 100.0,
                 ExplicitEndUT = 200.0
             };
-            var r2 = new RecordingStore.Recording
+            var r2 = new Recording
             {
                 RecordingId = "R2",
                 VesselName = "Branch A",
@@ -313,7 +313,7 @@ namespace Parsek.Tests
                 ExplicitStartUT = 200.0,
                 ExplicitEndUT = 400.0
             };
-            var r3 = new RecordingStore.Recording
+            var r3 = new Recording
             {
                 RecordingId = "R3",
                 VesselName = "Branch B",
@@ -323,7 +323,7 @@ namespace Parsek.Tests
                 ExplicitStartUT = 200.0,
                 ExplicitEndUT = 400.0
             };
-            var r4 = new RecordingStore.Recording
+            var r4 = new Recording
             {
                 RecordingId = "R4",
                 VesselName = "Merged",
@@ -405,7 +405,7 @@ namespace Parsek.Tests
                 RootRecordingId = "rec_orb"
             };
 
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 RecordingId = "rec_orb",
                 VesselName = "Orbiter",
@@ -460,7 +460,7 @@ namespace Parsek.Tests
                 situation = SurfaceSituation.Landed
             };
 
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 RecordingId = "rec_land",
                 VesselName = "Lander",
@@ -500,7 +500,7 @@ namespace Parsek.Tests
                 RootRecordingId = "rec_dest"
             };
 
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 RecordingId = "rec_dest",
                 VesselName = "Doomed",
@@ -531,7 +531,7 @@ namespace Parsek.Tests
                 RootRecordingId = "rec_null"
             };
 
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 RecordingId = "rec_null",
                 VesselName = "Active",
@@ -566,7 +566,7 @@ namespace Parsek.Tests
             };
 
             // R1: terminated (Docked), should NOT be in background map
-            var r1 = new RecordingStore.Recording
+            var r1 = new Recording
             {
                 RecordingId = "R1",
                 VesselPersistentId = 100,
@@ -575,7 +575,7 @@ namespace Parsek.Tests
                 ExplicitEndUT = 200.0
             };
             // R2: still recording (null terminal), NOT active -> should be in map
-            var r2 = new RecordingStore.Recording
+            var r2 = new Recording
             {
                 RecordingId = "R2",
                 VesselPersistentId = 200,
@@ -584,7 +584,7 @@ namespace Parsek.Tests
                 ExplicitEndUT = 300.0
             };
             // R3: still recording (null terminal), IS active -> should NOT be in map
-            var r3 = new RecordingStore.Recording
+            var r3 = new Recording
             {
                 RecordingId = "R3",
                 VesselPersistentId = 300,
@@ -616,7 +616,7 @@ namespace Parsek.Tests
                 RootRecordingId = "R1"
             };
 
-            var r1 = new RecordingStore.Recording
+            var r1 = new Recording
             {
                 RecordingId = "R1",
                 VesselPersistentId = 0,
@@ -649,7 +649,7 @@ namespace Parsek.Tests
                 DeltaReputation = -10.25f
             };
 
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 RecordingId = "rec_r",
                 VesselName = "Resource Ship",
@@ -693,7 +693,7 @@ namespace Parsek.Tests
                 situation = SurfaceSituation.Landed
             };
 
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 RecordingId = "rec_sp",
                 VesselName = "Landed Base",
@@ -731,7 +731,7 @@ namespace Parsek.Tests
                 RootRecordingId = "rec_sp_null"
             };
 
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 RecordingId = "rec_sp_null",
                 VesselName = "No Surface",
@@ -756,7 +756,7 @@ namespace Parsek.Tests
         [Fact]
         public void Recording_ExplicitUT_UsedWhenNoPoints()
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 ExplicitStartUT = 100.0,
                 ExplicitEndUT = 500.0
@@ -769,7 +769,7 @@ namespace Parsek.Tests
         [Fact]
         public void Recording_PointsUT_TakesPrecedenceOverExplicit()
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 ExplicitStartUT = 100.0,
                 ExplicitEndUT = 500.0
@@ -794,7 +794,7 @@ namespace Parsek.Tests
                 ResourcesApplied = true
             };
 
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 RecordingId = "rec_ra",
                 VesselName = "Ship RA",
@@ -829,7 +829,7 @@ namespace Parsek.Tests
                 ResourcesApplied = false
             };
 
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 RecordingId = "rec_ra_f",
                 VesselName = "Ship",
@@ -859,7 +859,7 @@ namespace Parsek.Tests
                 DeltaReputation = -7.5f
             };
 
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 RecordingId = "rec_d",
                 VesselName = "Ship D",
@@ -904,7 +904,7 @@ namespace Parsek.Tests
         [Fact]
         public void RecordingTree_SaveRecordingInto_DoesNotWriteGhostGeometryFields()
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 RecordingId = "rec_no_geom",
                 VesselName = "TestShip",
@@ -948,7 +948,7 @@ namespace Parsek.Tests
             node.AddValue("ghostGeometryAvailable", "True");
             node.AddValue("ghostGeometryError", "none");
 
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             RecordingTree.LoadRecordingFrom(node, rec);
 
             // Fields should be populated from the legacy data
@@ -993,7 +993,7 @@ namespace Parsek.Tests
                 ActiveRecordingId = null
             };
 
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 RecordingId = "rec_x",
                 VesselName = "Ship",
@@ -1027,7 +1027,7 @@ namespace Parsek.Tests
             };
 
             // root (pid=1, has child) — excluded: has child branch
-            tree.Recordings["root"] = new RecordingStore.Recording
+            tree.Recordings["root"] = new Recording
             {
                 RecordingId = "root",
                 VesselPersistentId = 1,
@@ -1035,7 +1035,7 @@ namespace Parsek.Tests
                 TerminalStateValue = null
             };
             // child1 (pid=2, Destroyed) — excluded: terminated
-            tree.Recordings["child1"] = new RecordingStore.Recording
+            tree.Recordings["child1"] = new Recording
             {
                 RecordingId = "child1",
                 VesselPersistentId = 2,
@@ -1043,7 +1043,7 @@ namespace Parsek.Tests
                 ParentBranchPointId = "bp1"
             };
             // child2 (pid=3, has child bp2) — excluded: has child branch
-            tree.Recordings["child2"] = new RecordingStore.Recording
+            tree.Recordings["child2"] = new Recording
             {
                 RecordingId = "child2",
                 VesselPersistentId = 3,
@@ -1052,7 +1052,7 @@ namespace Parsek.Tests
                 ParentBranchPointId = "bp1"
             };
             // grandchild1 (pid=4, Docked) — excluded: terminated
-            tree.Recordings["grandchild1"] = new RecordingStore.Recording
+            tree.Recordings["grandchild1"] = new Recording
             {
                 RecordingId = "grandchild1",
                 VesselPersistentId = 4,
@@ -1060,7 +1060,7 @@ namespace Parsek.Tests
                 ParentBranchPointId = "bp2"
             };
             // grandchild2 (pid=5, no terminal, no child) — excluded: is ActiveRecordingId
-            tree.Recordings["grandchild2"] = new RecordingStore.Recording
+            tree.Recordings["grandchild2"] = new Recording
             {
                 RecordingId = "grandchild2",
                 VesselPersistentId = 5,
@@ -1179,7 +1179,7 @@ namespace Parsek.Tests
             };
 
             // One background-eligible recording: non-active, non-terminated, no child, pid=42
-            tree.Recordings["rec_bg"] = new RecordingStore.Recording
+            tree.Recordings["rec_bg"] = new Recording
             {
                 RecordingId = "rec_bg",
                 VesselPersistentId = 42,

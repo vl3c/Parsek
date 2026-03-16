@@ -1199,7 +1199,7 @@ namespace Parsek
         /// <summary>
         /// Draws a single recording row. Returns true if the list was modified (break iteration).
         /// </summary>
-        private bool DrawRecordingRow(int ri, List<RecordingStore.Recording> committed, double now, float indentPx)
+        private bool DrawRecordingRow(int ri, List<Recording> committed, double now, float indentPx)
         {
             var rec = committed[ri];
             GUILayout.BeginHorizontal();
@@ -1378,8 +1378,8 @@ namespace Parsek
         /// Draws the Name column cell for a recording row, handling indent,
         /// inline rename text field, double-click-to-rename, and auto-focus.
         /// </summary>
-        private void DrawRecordingNameCell(int ri, RecordingStore.Recording rec,
-            List<RecordingStore.Recording> committed, float indentPx)
+        private void DrawRecordingNameCell(int ri, Recording rec,
+            List<Recording> committed, float indentPx)
         {
             // Indent inside Name column for grouped/chained recordings
             if (indentPx > 0f) GUILayout.Space(indentPx);
@@ -1480,7 +1480,7 @@ namespace Parsek
         /// Recursively draws a group and its children. Returns true if the recording list was modified.
         /// </summary>
         private bool DrawGroupTree(string groupName, int depth,
-            List<RecordingStore.Recording> committed, double now,
+            List<Recording> committed, double now,
             Dictionary<string, List<int>> grpToRecs,
             Dictionary<string, List<int>> chainToRecs,
             Dictionary<string, List<string>> grpChildren)
@@ -1699,7 +1699,7 @@ namespace Parsek
         /// Draws a chain block (header + members). Returns true if the recording list was modified.
         /// </summary>
         private bool DrawChainBlock(string chainId, List<int> members, int depth,
-            List<RecordingStore.Recording> committed, double now)
+            List<Recording> committed, double now)
         {
             float indent = depth * 15f;
 
@@ -1780,7 +1780,7 @@ namespace Parsek
                     CollectDescendantRecordings(children[c], grpToRecs, grpChildren, result);
         }
 
-        private void CommitRecordingRename(List<RecordingStore.Recording> committed)
+        private void CommitRecordingRename(List<Recording> committed)
         {
             int ri = renamingRecordingIdx;
             renamingRecordingIdx = -1;
@@ -2232,7 +2232,7 @@ namespace Parsek
             }
         }
 
-        private void ShowRewindConfirmation(RecordingStore.Recording rec)
+        private void ShowRewindConfirmation(Recording rec)
         {
             int futureCount = RecordingStore.CountFutureRecordings(rec.StartUT);
             string futureText = futureCount > 0
@@ -2378,7 +2378,7 @@ namespace Parsek
             lastSortedCount = -1;
         }
 
-        private void RebuildSortedIndices(List<RecordingStore.Recording> committed, double now)
+        private void RebuildSortedIndices(List<Recording> committed, double now)
         {
             if (sortedIndices != null && lastSortedCount == committed.Count)
                 return;
@@ -2401,7 +2401,7 @@ namespace Parsek
                 CompareRecordings(committed[a], committed[b], col, asc, now));
         }
 
-        internal static int GetStatusOrder(RecordingStore.Recording rec, double now)
+        internal static int GetStatusOrder(Recording rec, double now)
         {
             if (now < rec.StartUT) return 0;  // future
             if (now <= rec.EndUT) return 1;    // active
@@ -2409,7 +2409,7 @@ namespace Parsek
         }
 
         internal static int CompareRecordings(
-            RecordingStore.Recording ra, RecordingStore.Recording rb,
+            Recording ra, Recording rb,
             SortColumn column, bool ascending, double now)
         {
             int cmp = 0;
@@ -2442,7 +2442,7 @@ namespace Parsek
         }
 
         internal static int[] BuildSortedIndices(
-            List<RecordingStore.Recording> committed, SortColumn column, bool ascending, double now)
+            List<Recording> committed, SortColumn column, bool ascending, double now)
         {
             var indices = new int[committed.Count];
             for (int i = 0; i < committed.Count; i++)
@@ -2489,7 +2489,7 @@ namespace Parsek
             return (meters / 1000000).ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + "Mm";
         }
 
-        private RecordingStats GetOrComputeStats(RecordingStore.Recording rec)
+        private RecordingStats GetOrComputeStats(Recording rec)
         {
             if (rec.CachedStats.HasValue && rec.CachedStatsPointCount == rec.Points.Count)
                 return rec.CachedStats.Value;
@@ -2507,7 +2507,7 @@ namespace Parsek
             return stats;
         }
 
-        private void DrawRecordingTooltip(RecordingStore.Recording rec)
+        private void DrawRecordingTooltip(Recording rec)
         {
             var stats = GetOrComputeStats(rec);
 
@@ -2549,45 +2549,45 @@ namespace Parsek
 
         // --- Loop time unit helpers (internal static for testability) ---
 
-        internal static string UnitLabel(RecordingStore.LoopTimeUnit unit)
-            => unit == RecordingStore.LoopTimeUnit.Min ? "min"
-             : unit == RecordingStore.LoopTimeUnit.Hour ? "hr"
-             : unit == RecordingStore.LoopTimeUnit.Auto ? "auto"
+        internal static string UnitLabel(LoopTimeUnit unit)
+            => unit == LoopTimeUnit.Min ? "min"
+             : unit == LoopTimeUnit.Hour ? "hr"
+             : unit == LoopTimeUnit.Auto ? "auto"
              : "sec";
 
-        internal static RecordingStore.LoopTimeUnit CycleRecordingUnit(RecordingStore.LoopTimeUnit u)
-            => u == RecordingStore.LoopTimeUnit.Sec ? RecordingStore.LoopTimeUnit.Min
-             : u == RecordingStore.LoopTimeUnit.Min ? RecordingStore.LoopTimeUnit.Hour
-             : u == RecordingStore.LoopTimeUnit.Hour ? RecordingStore.LoopTimeUnit.Auto
-             : RecordingStore.LoopTimeUnit.Sec;
+        internal static LoopTimeUnit CycleRecordingUnit(LoopTimeUnit u)
+            => u == LoopTimeUnit.Sec ? LoopTimeUnit.Min
+             : u == LoopTimeUnit.Min ? LoopTimeUnit.Hour
+             : u == LoopTimeUnit.Hour ? LoopTimeUnit.Auto
+             : LoopTimeUnit.Sec;
 
-        internal static RecordingStore.LoopTimeUnit CycleDisplayUnit(RecordingStore.LoopTimeUnit u)
-            => u == RecordingStore.LoopTimeUnit.Sec ? RecordingStore.LoopTimeUnit.Min
-             : u == RecordingStore.LoopTimeUnit.Min ? RecordingStore.LoopTimeUnit.Hour
-             : RecordingStore.LoopTimeUnit.Sec;
+        internal static LoopTimeUnit CycleDisplayUnit(LoopTimeUnit u)
+            => u == LoopTimeUnit.Sec ? LoopTimeUnit.Min
+             : u == LoopTimeUnit.Min ? LoopTimeUnit.Hour
+             : LoopTimeUnit.Sec;
 
         // Auto is resolved separately by callers; falls through to seconds if called directly.
-        internal static double ConvertFromSeconds(double seconds, RecordingStore.LoopTimeUnit unit)
-            => unit == RecordingStore.LoopTimeUnit.Min ? seconds / 60.0
-             : unit == RecordingStore.LoopTimeUnit.Hour ? seconds / 3600.0
+        internal static double ConvertFromSeconds(double seconds, LoopTimeUnit unit)
+            => unit == LoopTimeUnit.Min ? seconds / 60.0
+             : unit == LoopTimeUnit.Hour ? seconds / 3600.0
              : seconds;
 
         // Auto is resolved separately by callers; falls through to seconds if called directly.
-        internal static double ConvertToSeconds(double value, RecordingStore.LoopTimeUnit unit)
-            => unit == RecordingStore.LoopTimeUnit.Min ? value * 60.0
-             : unit == RecordingStore.LoopTimeUnit.Hour ? value * 3600.0
+        internal static double ConvertToSeconds(double value, LoopTimeUnit unit)
+            => unit == LoopTimeUnit.Min ? value * 60.0
+             : unit == LoopTimeUnit.Hour ? value * 3600.0
              : value;
 
-        internal static string FormatLoopValue(double value, RecordingStore.LoopTimeUnit unit)
+        internal static string FormatLoopValue(double value, LoopTimeUnit unit)
         {
-            if (unit == RecordingStore.LoopTimeUnit.Min || unit == RecordingStore.LoopTimeUnit.Hour)
+            if (unit == LoopTimeUnit.Min || unit == LoopTimeUnit.Hour)
                 return value.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
             return ((long)System.Math.Truncate(value)).ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
 
-        internal static bool TryParseLoopInput(string text, RecordingStore.LoopTimeUnit unit, out double value)
+        internal static bool TryParseLoopInput(string text, LoopTimeUnit unit, out double value)
         {
-            if (unit == RecordingStore.LoopTimeUnit.Min || unit == RecordingStore.LoopTimeUnit.Hour)
+            if (unit == LoopTimeUnit.Min || unit == LoopTimeUnit.Hour)
                 return double.TryParse(text, System.Globalization.NumberStyles.Float,
                     System.Globalization.CultureInfo.InvariantCulture, out value);
             int intVal;
@@ -2599,7 +2599,7 @@ namespace Parsek
 
         // --- Loop period cell ---
 
-        private void DrawLoopPeriodCell(RecordingStore.Recording rec, int ri, double dur)
+        private void DrawLoopPeriodCell(Recording rec, int ri, double dur)
         {
             // All states use same [value area][unit button] layout to keep column alignment consistent.
             const float unitBtnW = 40f;
@@ -2610,12 +2610,12 @@ namespace Parsek
                 // Disabled: gray out the same two-control layout
                 GUI.enabled = false;
                 string disabledText;
-                if (rec.LoopTimeUnit == RecordingStore.LoopTimeUnit.Auto)
+                if (rec.LoopTimeUnit == LoopTimeUnit.Auto)
                 {
                     var settings = ParsekSettings.Current;
                     double gv = settings != null
                         ? ConvertFromSeconds(settings.autoLoopIntervalSeconds, settings.AutoLoopDisplayUnit) : 10;
-                    var gu = settings != null ? settings.AutoLoopDisplayUnit : RecordingStore.LoopTimeUnit.Sec;
+                    var gu = settings != null ? settings.AutoLoopDisplayUnit : LoopTimeUnit.Sec;
                     disabledText = FormatLoopValue(gv, gu);
                 }
                 else
@@ -2628,7 +2628,7 @@ namespace Parsek
                 return;
             }
 
-            if (rec.LoopTimeUnit == RecordingStore.LoopTimeUnit.Auto)
+            if (rec.LoopTimeUnit == LoopTimeUnit.Auto)
             {
                 // Auto mode: disabled text field showing global value + "auto" unit button
                 var settings = ParsekSettings.Current;
@@ -2636,7 +2636,7 @@ namespace Parsek
                     ? ConvertFromSeconds(settings.autoLoopIntervalSeconds, settings.AutoLoopDisplayUnit)
                     : 10;
                 GUI.enabled = false;
-                var globalDisplayUnit = settings != null ? settings.AutoLoopDisplayUnit : RecordingStore.LoopTimeUnit.Sec;
+                var globalDisplayUnit = settings != null ? settings.AutoLoopDisplayUnit : LoopTimeUnit.Sec;
                 GUILayout.TextField(FormatLoopValue(globalVal, globalDisplayUnit), GUILayout.Width(valueBtnW));
                 GUI.enabled = true;
             }
@@ -2698,7 +2698,7 @@ namespace Parsek
             }
         }
 
-        private void CommitLoopPeriodEdit(System.Collections.Generic.List<RecordingStore.Recording> committed)
+        private void CommitLoopPeriodEdit(System.Collections.Generic.List<Recording> committed)
         {
             if (loopPeriodFocusedRi < 0 || loopPeriodFocusedRi >= committed.Count) { loopPeriodFocusedRi = -1; return; }
             var rec = committed[loopPeriodFocusedRi];

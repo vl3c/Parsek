@@ -147,7 +147,7 @@ namespace Parsek
                 // Update ExplicitEndUT periodically
                 if (currentUT - state.lastExplicitEndUpdate >= ExplicitEndUpdateInterval)
                 {
-                    RecordingStore.Recording treeRec;
+                    Recording treeRec;
                     if (tree.Recordings.TryGetValue(state.recordingId, out treeRec))
                     {
                         treeRec.ExplicitEndUT = currentUT;
@@ -181,7 +181,7 @@ namespace Parsek
             if (!loadedStates.TryGetValue(pid, out state)) return;
 
             // Get the tree recording
-            RecordingStore.Recording treeRec;
+            Recording treeRec;
             if (!tree.Recordings.TryGetValue(recordingId, out treeRec)) return;
 
             double ut = Planetarium.GetUniversalTime();
@@ -305,7 +305,7 @@ namespace Parsek
                 Vessel v = FlightRecorder.FindVesselByPid(vesselPid);
                 if (v != null)
                 {
-                    RecordingStore.Recording treeRec;
+                    Recording treeRec;
                     if (tree.Recordings.TryGetValue(loadedState.recordingId, out treeRec))
                     {
                         SampleBoundaryPoint(v, treeRec, ut);
@@ -336,7 +336,7 @@ namespace Parsek
             if (loadedStates.TryGetValue(pid, out loadedState))
             {
                 // Sample a final boundary point
-                RecordingStore.Recording treeRec;
+                Recording treeRec;
                 if (tree.Recordings.TryGetValue(loadedState.recordingId, out treeRec))
                 {
                     SampleBoundaryPoint(v, treeRec, ut);
@@ -382,7 +382,7 @@ namespace Parsek
                 InitializeLoadedState(v, pid, recordingId);
 
                 // Sample a boundary point
-                RecordingStore.Recording treeRec;
+                Recording treeRec;
                 if (tree.Recordings.TryGetValue(recordingId, out treeRec))
                 {
                     SampleBoundaryPoint(v, treeRec, ut);
@@ -514,7 +514,7 @@ namespace Parsek
             // Update ExplicitEndUT on all background recordings
             foreach (var kvp in tree.BackgroundMap)
             {
-                RecordingStore.Recording treeRec;
+                Recording treeRec;
                 if (tree.Recordings.TryGetValue(kvp.Value, out treeRec))
                 {
                     treeRec.ExplicitEndUT = commitUT;
@@ -549,7 +549,7 @@ namespace Parsek
                 state.hasOpenOrbitSegment = false;
 
                 // Capture SurfacePosition
-                RecordingStore.Recording treeRec;
+                Recording treeRec;
                 if (tree.Recordings.TryGetValue(recordingId, out treeRec))
                 {
                     treeRec.SurfacePos = new SurfacePosition
@@ -586,7 +586,7 @@ namespace Parsek
                 };
                 state.hasOpenOrbitSegment = true;
 
-                RecordingStore.Recording treeRec;
+                Recording treeRec;
                 if (tree.Recordings.TryGetValue(recordingId, out treeRec))
                 {
                     treeRec.ExplicitEndUT = ut;
@@ -600,7 +600,7 @@ namespace Parsek
                 // No orbit and not landed — edge case (e.g. vessel on launchpad with no orbit)
                 state.hasOpenOrbitSegment = false;
 
-                RecordingStore.Recording treeRec;
+                Recording treeRec;
                 if (tree.Recordings.TryGetValue(recordingId, out treeRec))
                 {
                     treeRec.ExplicitEndUT = ut;
@@ -675,7 +675,7 @@ namespace Parsek
 
             state.currentOrbitSegment.endUT = ut;
 
-            RecordingStore.Recording treeRec;
+            Recording treeRec;
             if (tree.Recordings.TryGetValue(state.recordingId, out treeRec))
             {
                 treeRec.OrbitSegments.Add(state.currentOrbitSegment);
@@ -688,7 +688,7 @@ namespace Parsek
                 $"UT={state.currentOrbitSegment.startUT:F1}-{ut:F1} body={state.currentOrbitSegment.bodyName}");
         }
 
-        private void SampleBoundaryPoint(Vessel v, RecordingStore.Recording treeRec, double ut)
+        private void SampleBoundaryPoint(Vessel v, Recording treeRec, double ut)
         {
             if (v == null) return;
 
@@ -727,7 +727,7 @@ namespace Parsek
         /// same Layer 1 static transition methods.
         /// </summary>
         private void PollPartEvents(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             CheckParachuteState(v, state, treeRec, ut);
             CheckJettisonState(v, state, treeRec, ut);
@@ -749,7 +749,7 @@ namespace Parsek
         }
 
         private void CheckParachuteState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (v == null || v.parts == null) return;
 
@@ -777,7 +777,7 @@ namespace Parsek
         }
 
         private void CheckJettisonState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (v == null || v.parts == null) return;
 
@@ -835,7 +835,7 @@ namespace Parsek
         }
 
         private void CheckDeployableState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (v == null || v.parts == null) return;
 
@@ -866,7 +866,7 @@ namespace Parsek
         }
 
         private void CheckLightState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (v == null || v.parts == null) return;
 
@@ -901,7 +901,7 @@ namespace Parsek
         }
 
         private void CheckGearState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (v == null || v.parts == null) return;
 
@@ -932,7 +932,7 @@ namespace Parsek
         }
 
         private void CheckCargoBayState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (v == null || v.parts == null) return;
 
@@ -993,7 +993,7 @@ namespace Parsek
         }
 
         private void CheckFairingState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (v == null || v.parts == null) return;
 
@@ -1034,7 +1034,7 @@ namespace Parsek
         }
 
         private void CheckEngineState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (state.cachedEngines == null) return;
 
@@ -1082,7 +1082,7 @@ namespace Parsek
         }
 
         private void CheckRcsState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (state.cachedRcsModules == null) return;
 
@@ -1111,7 +1111,7 @@ namespace Parsek
         }
 
         private void CheckLadderState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (v == null || v.parts == null) return;
 
@@ -1155,7 +1155,7 @@ namespace Parsek
         }
 
         private void CheckAnimationGroupState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (v == null || v.parts == null) return;
 
@@ -1199,7 +1199,7 @@ namespace Parsek
         }
 
         private void CheckAeroSurfaceState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (v == null || v.parts == null) return;
 
@@ -1243,7 +1243,7 @@ namespace Parsek
         }
 
         private void CheckControlSurfaceState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (v == null || v.parts == null) return;
 
@@ -1287,7 +1287,7 @@ namespace Parsek
         }
 
         private void CheckRobotArmScannerState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (v == null || v.parts == null) return;
 
@@ -1331,7 +1331,7 @@ namespace Parsek
         }
 
         private void CheckAnimateHeatState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (v == null || v.parts == null) return;
 
@@ -1373,7 +1373,7 @@ namespace Parsek
         }
 
         private void CheckAnimateGenericState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (v == null || v.parts == null) return;
 
@@ -1451,7 +1451,7 @@ namespace Parsek
         }
 
         private void CheckRoboticState(Vessel v, BackgroundVesselState state,
-            RecordingStore.Recording treeRec, double ut)
+            Recording treeRec, double ut)
         {
             if (state.cachedRoboticModules == null) return;
 

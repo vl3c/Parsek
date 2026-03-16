@@ -35,7 +35,7 @@ namespace Parsek
         private GameObject ghostObject;
         private List<Material> previewGhostMaterials = new List<Material>();
         private GhostPlaybackState previewGhostState;
-        private RecordingStore.Recording previewRecording;
+        private Recording previewRecording;
         internal int lastPlaybackIndex = 0;
 
         // Per-ghost playback state (bundled to prevent dict-sync bugs)
@@ -1142,7 +1142,7 @@ namespace Parsek
 
                 // Add old vessel to BackgroundMap
                 string oldRecId = activeTree.ActiveRecordingId;
-                RecordingStore.Recording oldRec;
+                Recording oldRec;
                 if (oldRecId != null && activeTree.Recordings.TryGetValue(oldRecId, out oldRec)
                     && oldRec.VesselPersistentId != 0)
                 {
@@ -1163,7 +1163,7 @@ namespace Parsek
                 FlushRecorderToTreeRecording(recorder, activeTree);
 
                 string oldRecId = activeTree.ActiveRecordingId;
-                RecordingStore.Recording oldRec;
+                Recording oldRec;
                 uint bgPid2 = 0;
                 if (oldRecId != null && activeTree.Recordings.TryGetValue(oldRecId, out oldRec)
                     && oldRec.VesselPersistentId != 0)
@@ -1204,7 +1204,7 @@ namespace Parsek
                 return;
             }
 
-            RecordingStore.Recording treeRec;
+            Recording treeRec;
             if (!tree.Recordings.TryGetValue(recId, out treeRec))
             {
                 ParsekLog.Warn("Flight", $"FlushRecorderToTreeRecording: recording id '{recId}' not found in tree");
@@ -1313,7 +1313,7 @@ namespace Parsek
         /// For EVA branches, evaVesselPid identifies which child is the kerbal (receives
         /// EvaCrewName and ParentRecordingId). If 0, defaults to activeVesselPid.
         /// </summary>
-        internal static (BranchPoint bp, RecordingStore.Recording activeChild, RecordingStore.Recording backgroundChild)
+        internal static (BranchPoint bp, Recording activeChild, Recording backgroundChild)
             BuildSplitBranchData(
                 string parentRecordingId, string treeId, double branchUT,
                 BranchPointType branchType, uint activeVesselPid, string activeVesselName,
@@ -1333,7 +1333,7 @@ namespace Parsek
                 ChildRecordingIds = new List<string> { activeChildId, backgroundChildId }
             };
 
-            var activeChild = new RecordingStore.Recording
+            var activeChild = new Recording
             {
                 RecordingId = activeChildId,
                 TreeId = treeId,
@@ -1343,7 +1343,7 @@ namespace Parsek
                 ExplicitStartUT = branchUT
             };
 
-            var backgroundChild = new RecordingStore.Recording
+            var backgroundChild = new Recording
             {
                 RecordingId = backgroundChildId,
                 TreeId = treeId,
@@ -1379,7 +1379,7 @@ namespace Parsek
         /// Takes a list of parent recording IDs (1 for foreign vessel merge, 2 for two-tree merge)
         /// and returns a single child recording for the merged vessel.
         /// </summary>
-        internal static (BranchPoint bp, RecordingStore.Recording mergedChild)
+        internal static (BranchPoint bp, Recording mergedChild)
             BuildMergeBranchData(
                 List<string> parentRecordingIds, string treeId, double mergeUT,
                 BranchPointType branchType, uint mergedVesselPid, string mergedVesselName)
@@ -1396,7 +1396,7 @@ namespace Parsek
                 ChildRecordingIds = new List<string> { childId }
             };
 
-            var mergedChild = new RecordingStore.Recording
+            var mergedChild = new Recording
             {
                 RecordingId = childId,
                 TreeId = treeId,
@@ -1450,7 +1450,7 @@ namespace Parsek
                 activeTree.PreTreeReputation = splitRecorder.PreLaunchReputation;
 
                 // Create root recording from captured data
-                var rootRec = new RecordingStore.Recording
+                var rootRec = new Recording
                 {
                     RecordingId = rootRecId,
                     TreeId = treeId,
@@ -1494,7 +1494,7 @@ namespace Parsek
                 }
 
                 // Flush captured data into the existing tree recording
-                RecordingStore.Recording parentRec;
+                Recording parentRec;
                 if (activeTree.Recordings.TryGetValue(parentRecordingId, out parentRec))
                 {
                     if (splitRecorder.CaptureAtStop != null)
@@ -1509,7 +1509,7 @@ namespace Parsek
             }
 
             // Set ChildBranchPointId on parent
-            RecordingStore.Recording parentRecording;
+            Recording parentRecording;
             if (activeTree.Recordings.TryGetValue(parentRecordingId, out parentRecording))
             {
                 // Will be set after we know the BP id
@@ -1631,7 +1631,7 @@ namespace Parsek
                 parentIds.Add(backgroundParentRecordingId);
 
             // 2. Flush captured data from stopped recorder into the active parent recording
-            RecordingStore.Recording activeParentRec = null;
+            Recording activeParentRec = null;
             if (activeTree.Recordings.TryGetValue(activeParentRecordingId, out activeParentRec))
             {
                 if (stoppedRecorder.CaptureAtStop != null)
@@ -1651,7 +1651,7 @@ namespace Parsek
             // Per Fix 3: derive background vessel PID from the recording's VesselPersistentId
             if (backgroundParentRecordingId != null)
             {
-                RecordingStore.Recording bgParentRec;
+                Recording bgParentRec;
                 if (activeTree.Recordings.TryGetValue(backgroundParentRecordingId, out bgParentRec))
                 {
                     bgParentRec.ExplicitEndUT = mergeUT;
@@ -1685,7 +1685,7 @@ namespace Parsek
                 activeParentRec.ChildBranchPointId = bp.Id;
             if (backgroundParentRecordingId != null)
             {
-                RecordingStore.Recording bgParentRec2;
+                Recording bgParentRec2;
                 if (activeTree.Recordings.TryGetValue(backgroundParentRecordingId, out bgParentRec2))
                     bgParentRec2.ChildBranchPointId = bp.Id;
             }
@@ -2104,7 +2104,7 @@ namespace Parsek
         /// Returns true if the terminal state was overridden.
         /// </summary>
         internal static bool ApplyDestroyedFallback(
-            bool wasDestroyed, RecordingStore.Recording rec)
+            bool wasDestroyed, Recording rec)
         {
             if (!wasDestroyed) return false;
             if (rec.TerminalStateValue == TerminalState.Destroyed) return false;
@@ -2123,7 +2123,7 @@ namespace Parsek
         /// </summary>
         internal static void ApplyTerminalDestruction(
             PendingDestruction pending,
-            RecordingStore.Recording rec)
+            Recording rec)
         {
             rec.TerminalStateValue = TerminalState.Destroyed;
             rec.ExplicitEndUT = pending.capturedUT;
@@ -2135,7 +2135,7 @@ namespace Parsek
         /// </summary>
         internal static void ApplyTerminalData(
             PendingDestruction data,
-            RecordingStore.Recording rec)
+            Recording rec)
         {
             if (data.hasOrbit)
             {
@@ -2240,7 +2240,7 @@ namespace Parsek
             }
 
             // Vessel is truly destroyed — apply terminal state
-            RecordingStore.Recording rec;
+            Recording rec;
             if (!activeTree.Recordings.TryGetValue(pending.recordingId, out rec))
             {
                 ParsekLog.Warn("Flight", $"DeferredDestructionCheck: recording '{pending.recordingId}' not found in tree");
@@ -2946,7 +2946,7 @@ namespace Parsek
                 bodyName = otherVessel.mainBody.name
             };
 
-            var contRec = new RecordingStore.Recording
+            var contRec = new Recording
             {
                 VesselName = otherVessel.vesselName + " (undock continuation)",
                 ChainId = activeChainId,
@@ -3626,7 +3626,7 @@ namespace Parsek
 
             // Add old vessel to BackgroundMap
             string oldRecId = activeTree.ActiveRecordingId;
-            RecordingStore.Recording oldRec;
+            Recording oldRec;
             uint bgPidUpdate = 0;
             if (oldRecId != null && activeTree.Recordings.TryGetValue(oldRecId, out oldRec)
                 && oldRec.VesselPersistentId != 0)
@@ -3919,7 +3919,7 @@ namespace Parsek
 
             // Identify the active vessel's recording
             string activeRecId = activeTree.ActiveRecordingId;
-            RecordingStore.Recording activeRec = null;
+            Recording activeRec = null;
             if (activeRecId != null)
                 activeTree.Recordings.TryGetValue(activeRecId, out activeRec);
 
@@ -4271,7 +4271,7 @@ namespace Parsek
         /// <summary>
         /// Captures terminal orbit parameters from a vessel's current orbit.
         /// </summary>
-        static void CaptureTerminalOrbit(RecordingStore.Recording rec, Vessel vessel)
+        static void CaptureTerminalOrbit(Recording rec, Vessel vessel)
         {
             if (vessel == null || vessel.orbit == null) return;
 
@@ -4294,7 +4294,7 @@ namespace Parsek
         /// <summary>
         /// Captures terminal surface position from a vessel's current state.
         /// </summary>
-        static void CaptureTerminalPosition(RecordingStore.Recording rec, Vessel vessel)
+        static void CaptureTerminalPosition(Recording rec, Vessel vessel)
         {
             if (vessel == null) return;
 
@@ -4913,14 +4913,14 @@ namespace Parsek
             }
         }
 
-        private bool ShouldLoopPlayback(RecordingStore.Recording rec)
+        private bool ShouldLoopPlayback(Recording rec)
         {
             if (rec == null || !rec.LoopPlayback || rec.Points == null || rec.Points.Count < 2)
                 return false;
             return rec.EndUT - rec.StartUT > MinLoopDurationSeconds;
         }
 
-        private double GetLoopIntervalSeconds(RecordingStore.Recording rec)
+        private double GetLoopIntervalSeconds(Recording rec)
         {
             double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
                                     ?? DefaultLoopIntervalSeconds;
@@ -4928,13 +4928,13 @@ namespace Parsek
         }
 
         internal static double ResolveLoopInterval(
-            RecordingStore.Recording rec, double globalAutoInterval,
+            Recording rec, double globalAutoInterval,
             double defaultInterval, double minCycleDuration)
         {
             if (rec == null) return defaultInterval;
 
             double interval;
-            if (rec.LoopTimeUnit == RecordingStore.LoopTimeUnit.Auto)
+            if (rec.LoopTimeUnit == LoopTimeUnit.Auto)
             {
                 interval = double.IsNaN(globalAutoInterval) || double.IsInfinity(globalAutoInterval)
                     ? defaultInterval : Math.Max(0, globalAutoInterval);
@@ -4950,7 +4950,7 @@ namespace Parsek
         }
 
         private bool TryComputeLoopPlaybackUT(
-            RecordingStore.Recording rec,
+            Recording rec,
             double currentUT,
             out double loopUT,
             out int cycleIndex,
@@ -4988,7 +4988,7 @@ namespace Parsek
 
         private void UpdateLoopingTimelinePlayback(
             int recIdx,
-            RecordingStore.Recording rec,
+            Recording rec,
             double currentUT,
             GhostPlaybackState state,
             bool ghostActive,
@@ -5171,7 +5171,7 @@ namespace Parsek
         /// </summary>
         private void UpdateOverlapLoopPlayback(
             int recIdx,
-            RecordingStore.Recording rec,
+            Recording rec,
             double currentUT,
             GhostPlaybackState primaryState,
             bool primaryActive,
@@ -5354,7 +5354,7 @@ namespace Parsek
         /// that we've passed since the last frame. Computes delta between consecutive
         /// points and adds it to the current career pools.
         /// </summary>
-        void ApplyResourceDeltas(RecordingStore.Recording rec, double currentUT)
+        void ApplyResourceDeltas(Recording rec, double currentUT)
         {
             if (ShouldPauseTimelineResourceReplay(IsRecording))
             {
@@ -5533,7 +5533,7 @@ namespace Parsek
             return null;
         }
 
-        void SpawnTimelineGhost(int index, RecordingStore.Recording rec)
+        void SpawnTimelineGhost(int index, Recording rec)
         {
             Log($"Spawning timeline ghost #{index} for {rec.VesselName}");
 
@@ -5775,7 +5775,7 @@ namespace Parsek
         /// Checks whether the recording ended with destruction and spawns an explosion FX if so.
         /// Pure decision logic is in ShouldTriggerExplosion; this method handles the side effects.
         /// </summary>
-        void TriggerExplosionIfDestroyed(GhostPlaybackState state, RecordingStore.Recording rec, int recIdx)
+        void TriggerExplosionIfDestroyed(GhostPlaybackState state, Recording rec, int recIdx)
         {
             if (state == null)
             {
@@ -6052,7 +6052,7 @@ namespace Parsek
             ParsekLog.ScreenMessage($"Recording '{rec.VesselName}' deleted", 2f);
         }
 
-        internal static void ApplyPartEvents(int recIdx, RecordingStore.Recording rec, double currentUT, GhostPlaybackState state)
+        internal static void ApplyPartEvents(int recIdx, Recording rec, double currentUT, GhostPlaybackState state)
         {
             if (rec.PartEvents == null || rec.PartEvents.Count == 0) return;
             if (state.ghost == null)
@@ -6354,7 +6354,7 @@ namespace Parsek
         }
 
         internal static void InitializeInventoryPlacementVisibility(
-            RecordingStore.Recording rec, GhostPlaybackState state)
+            Recording rec, GhostPlaybackState state)
         {
             if (rec == null || rec.PartEvents == null || rec.PartEvents.Count == 0) return;
             if (state == null || state.ghost == null) return;
@@ -7950,7 +7950,7 @@ namespace Parsek
         /// </summary>
         internal static (int newIndex, string newId) ComputeWatchIndexAfterDelete(
             int watchedIndex, string watchedId, int deletedIndex,
-            List<RecordingStore.Recording> recordings)
+            List<Recording> recordings)
         {
             if (deletedIndex == watchedIndex)
                 return (-1, null);
@@ -7985,7 +7985,7 @@ namespace Parsek
         /// Returns the committed-list index of the next recording, or -1 if none found.
         /// Only returns a target if its ghost is already active (spawned and playing).
         /// </summary>
-        int FindNextWatchTarget(int currentIndex, RecordingStore.Recording currentRec)
+        int FindNextWatchTarget(int currentIndex, Recording currentRec)
         {
             var committed = RecordingStore.CommittedRecordings;
 
@@ -8420,7 +8420,7 @@ namespace Parsek
         /// Positions a ghost using only orbit segments (no trajectory points).
         /// Used for background-only recordings (vessels that stayed on rails).
         /// </summary>
-        void PositionGhostFromOrbitOnly(GameObject ghost, RecordingStore.Recording rec, double ut, int orbitCacheBase)
+        void PositionGhostFromOrbitOnly(GameObject ghost, Recording rec, double ut, int orbitCacheBase)
         {
             for (int s = 0; s < rec.OrbitSegments.Count; s++)
             {
@@ -8525,7 +8525,7 @@ namespace Parsek
         /// <summary>
         /// Commits or shows merge dialog for the pending recording, depending on the autoMerge setting.
         /// </summary>
-        void CommitOrShowDialog(RecordingStore.Recording pending)
+        void CommitOrShowDialog(Recording pending)
         {
             if (ParsekScenario.IsAutoMerge)
             {

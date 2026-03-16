@@ -31,7 +31,7 @@ namespace Parsek.Tests
             };
 
             // Active recording (not in background)
-            tree.Recordings["rec_active"] = new RecordingStore.Recording
+            tree.Recordings["rec_active"] = new Recording
             {
                 RecordingId = "rec_active",
                 VesselName = "Active Vessel",
@@ -42,7 +42,7 @@ namespace Parsek.Tests
             for (int i = 0; i < backgroundVessels.Length; i++)
             {
                 var (pid, recId) = backgroundVessels[i];
-                tree.Recordings[recId] = new RecordingStore.Recording
+                tree.Recordings[recId] = new Recording
                 {
                     RecordingId = recId,
                     VesselName = $"Background Vessel {i}",

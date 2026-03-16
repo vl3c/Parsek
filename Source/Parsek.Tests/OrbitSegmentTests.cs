@@ -210,7 +210,7 @@ namespace Parsek.Tests
         [Fact]
         public void Recording_OnlyOrbitSegments_EmptyPoints()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.OrbitSegments.Add(MakeSegment(500, 1000));
 
             // StartUT/EndUT come from Points, which is empty
@@ -240,7 +240,7 @@ namespace Parsek.Tests
         [Fact]
         public void Recording_OrbitSegments_InitializedEmpty()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             Assert.NotNull(rec.OrbitSegments);
             Assert.Empty(rec.OrbitSegments);
         }
@@ -248,7 +248,7 @@ namespace Parsek.Tests
         [Fact]
         public void Recording_WithOrbitSegments_PreservesStartEndUT()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points = MakePoints(5, startUT: 100);
             rec.OrbitSegments.Add(MakeSegment(120, 130));
 
@@ -545,12 +545,12 @@ namespace Parsek.Tests
 
         #region Serialization Round-trips
 
-        private RecordingStore.Recording RoundTripSerialize(RecordingStore.Recording rec)
+        private Recording RoundTripSerialize(Recording rec)
         {
             var node = new ConfigNode("TRAJECTORY");
             RecordingStore.SerializeTrajectoryInto(node, rec);
 
-            var result = new RecordingStore.Recording();
+            var result = new Recording();
             RecordingStore.DeserializeTrajectoryFrom(node, result);
             return result;
         }
@@ -558,7 +558,7 @@ namespace Parsek.Tests
         [Fact]
         public void Serialization_RoundTrip_PreservesOrbitalFrameRotation()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points = MakePoints(2);
             var seg = MakeSegment(100, 200);
             seg.orbitalFrameRotation = new Quaternion(0.1f, 0.2f, 0.3f, 0.9f);
@@ -581,7 +581,7 @@ namespace Parsek.Tests
         [Fact]
         public void Serialization_RoundTrip_PreservesAngularVelocity()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points = MakePoints(2);
             var seg = MakeSegment(100, 200);
             seg.angularVelocity = new Vector3(0.1f, 0.2f, 0.3f);
@@ -603,7 +603,7 @@ namespace Parsek.Tests
         public void Serialization_MissingOfrKeys_DefaultsToZero()
         {
             // Build a segment without ofr keys (simulating old recording)
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points = MakePoints(2);
             var seg = MakeSegment(100, 200);
             // orbitalFrameRotation stays default (0,0,0,0) — won't be serialized
@@ -624,7 +624,7 @@ namespace Parsek.Tests
         public void Serialization_MissingAvKeys_DefaultsToZero()
         {
             // Build a segment without av keys (simulating no PersistentRotation)
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points = MakePoints(2);
             var seg = MakeSegment(100, 200);
             // angularVelocity stays default (0,0,0) — won't be serialized
@@ -661,7 +661,7 @@ namespace Parsek.Tests
             segNode.AddValue("ofrZ", "0.789");
             segNode.AddValue("ofrW", "0.321");
 
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             RecordingStore.DeserializeTrajectoryFrom(node, rec);
 
             Assert.Single(rec.OrbitSegments);
@@ -732,7 +732,7 @@ namespace Parsek.Tests
         public void Serialization_RoundTrip_NegativeComponents()
         {
             // Real in-game data had negative quaternion components
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points = MakePoints(2);
             var seg = MakeSegment(100, 200);
             seg.orbitalFrameRotation = new Quaternion(-0.6f, -0.3f, 0.6f, 0.3f);
@@ -755,7 +755,7 @@ namespace Parsek.Tests
         public void Serialization_RoundTrip_CombinedOfrAndAngVel()
         {
             // Both orbital-frame rotation and angular velocity on the same segment
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points = MakePoints(2);
             var seg = MakeSegment(100, 200);
             seg.orbitalFrameRotation = new Quaternion(0.1f, 0.7f, -0.1f, -0.7f);
@@ -775,7 +775,7 @@ namespace Parsek.Tests
         public void Serialization_RoundTrip_MultipleSegmentsDifferentOFR()
         {
             // Simulates real in-game session: 6 orbit segments with different orientations
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points = MakePoints(2);
 
             var rotations = new[]

@@ -214,7 +214,7 @@ namespace Parsek
             }
         }
 
-        public static void SpawnOrRecoverIfTooClose(RecordingStore.Recording rec, int index)
+        public static void SpawnOrRecoverIfTooClose(Recording rec, int index)
         {
             const int maxSpawnAttempts = 3;
             if (rec.SpawnAttempts >= maxSpawnAttempts)
@@ -363,7 +363,7 @@ namespace Parsek
             }
         }
 
-        internal static HashSet<string> BuildExcludeCrewSet(RecordingStore.Recording rec)
+        internal static HashSet<string> BuildExcludeCrewSet(Recording rec)
         {
             if (string.IsNullOrEmpty(rec.RecordingId)) return null;
 
@@ -433,7 +433,7 @@ namespace Parsek
             return excludeCrew;
         }
 
-        internal static void LogSpawnContext(RecordingStore.Recording rec, double closestDist)
+        internal static void LogSpawnContext(Recording rec, double closestDist)
         {
             string sit = rec.VesselSnapshot?.GetValue("sit") ?? "?";
             var allCrew = new List<string>();
@@ -713,7 +713,7 @@ namespace Parsek
         }
 
         public static void SnapshotVessel(
-            RecordingStore.Recording pending,
+            Recording pending,
             bool vesselDestroyed,
             Vessel vesselOverride = null,
             ConfigNode destroyedFallbackSnapshot = null)
@@ -805,7 +805,7 @@ namespace Parsek
                 $"Max distance: {pending.MaxDistanceFromLaunch:F0}m, Situation: {pending.VesselSituation}");
         }
 
-        private static void ComputeMaxDistance(RecordingStore.Recording pending, CelestialBody bodyFirst, TrajectoryPoint firstPoint)
+        private static void ComputeMaxDistance(Recording pending, CelestialBody bodyFirst, TrajectoryPoint firstPoint)
         {
             if (bodyFirst == null) return;
 
@@ -832,7 +832,7 @@ namespace Parsek
         }
 
         private static double ResolveRelocatedAltitude(
-            RecordingStore.Recording rec, CelestialBody body, double latitude, double longitude)
+            Recording rec, CelestialBody body, double latitude, double longitude)
         {
             bool landedLike = IsLandedLikeSnapshot(rec?.VesselSnapshot);
             bool hasSnapshotAlt = TryGetSnapshotDouble(rec?.VesselSnapshot, "alt", out double snapshotAlt);

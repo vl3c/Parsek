@@ -19,13 +19,13 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = true;
         }
 
-        private RecordingStore.Recording MakeRecording(
+        private Recording MakeRecording(
             double preLaunchFunds, double endFunds,
             double preLaunchScience = 0, double endScience = 0,
             float preLaunchRep = 0, float endRep = 0,
             int lastAppliedResIdx = -1)
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 PreLaunchFunds = preLaunchFunds,
                 PreLaunchScience = preLaunchScience,
@@ -111,7 +111,7 @@ namespace Parsek.Tests
             var rec1 = MakeRecording(50000, 35000); // cost = 15000
             var rec2 = MakeRecording(30000, 25000); // cost = 5000
 
-            var recordings = new List<RecordingStore.Recording> { rec1, rec2 };
+            var recordings = new List<Recording> { rec1, rec2 };
             var budget = ResourceBudget.ComputeTotal(recordings, new List<Milestone>());
 
             Assert.Equal(20000, budget.reservedFunds);
@@ -120,7 +120,7 @@ namespace Parsek.Tests
         [Fact]
         public void PartiallyReplayed_OnlyRemainingReserved()
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 PreLaunchFunds = 50000,
                 LastAppliedResourceIndex = 0 // point[0] already applied
@@ -193,14 +193,14 @@ namespace Parsek.Tests
         [Fact]
         public void CommittedFundsCost_EmptyPoints()
         {
-            var rec = new RecordingStore.Recording { PreLaunchFunds = 50000 };
+            var rec = new Recording { PreLaunchFunds = 50000 };
             Assert.Equal(0, ResourceBudget.CommittedFundsCost(rec));
         }
 
         [Fact]
         public void CommittedFundsCost_SinglePoint()
         {
-            var rec = new RecordingStore.Recording { PreLaunchFunds = 50000 };
+            var rec = new Recording { PreLaunchFunds = 50000 };
             rec.Points.Add(new TrajectoryPoint
             {
                 ut = 100, funds = 45000, bodyName = "Kerbin",
@@ -221,7 +221,7 @@ namespace Parsek.Tests
         [Fact]
         public void CommittedFundsCost_PartialReplayWithProfit()
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 PreLaunchFunds = 50000,
                 LastAppliedResourceIndex = 0
@@ -500,7 +500,7 @@ namespace Parsek.Tests
                 }
             };
 
-            var recordings = new List<RecordingStore.Recording> { rec };
+            var recordings = new List<Recording> { rec };
             var milestones = new List<Milestone> { m };
             var budget = ResourceBudget.ComputeTotal(recordings, milestones);
 
@@ -529,7 +529,7 @@ namespace Parsek.Tests
 
             var milestones = new List<Milestone> { m };
             var budget = ResourceBudget.ComputeTotal(
-                new List<RecordingStore.Recording>(), milestones);
+                new List<Recording>(), milestones);
 
             Assert.Equal(0, budget.reservedFunds);
         }
@@ -571,7 +571,7 @@ namespace Parsek.Tests
         {
             var rec = MakeRecording(50000, 35000);
             var budget = ResourceBudget.ComputeTotal(
-                new List<RecordingStore.Recording> { rec }, null);
+                new List<Recording> { rec }, null);
             Assert.Equal(15000, budget.reservedFunds);
         }
 
@@ -583,7 +583,7 @@ namespace Parsek.Tests
                 preLaunchScience: 100, endScience: 85,
                 preLaunchRep: 50, endRep: 45);
             var budget = ResourceBudget.ComputeTotal(
-                new List<RecordingStore.Recording> { rec }, new List<Milestone>());
+                new List<Recording> { rec }, new List<Milestone>());
             Assert.Equal(10000, budget.reservedFunds);
             Assert.Equal(15, budget.reservedScience);
             Assert.Equal(5, budget.reservedReputation);
@@ -595,7 +595,7 @@ namespace Parsek.Tests
             var rec1 = MakeRecording(50000, 40000); // cost 10000
             var rec2 = MakeRecording(50000, 60000); // profit -10000
             var budget = ResourceBudget.ComputeTotal(
-                new List<RecordingStore.Recording> { rec1, rec2 }, new List<Milestone>());
+                new List<Recording> { rec1, rec2 }, new List<Milestone>());
             Assert.Equal(0, budget.reservedFunds);
         }
 
@@ -676,7 +676,7 @@ namespace Parsek.Tests
         [Fact]
         public void PreLaunchFields_SurviveApplyPersistenceArtifacts()
         {
-            var source = new RecordingStore.Recording
+            var source = new Recording
             {
                 RecordingId = "src1",
                 PreLaunchFunds = 50000,
@@ -684,7 +684,7 @@ namespace Parsek.Tests
                 PreLaunchReputation = 75
             };
 
-            var target = new RecordingStore.Recording();
+            var target = new Recording();
             target.ApplyPersistenceArtifactsFrom(source);
 
             Assert.Equal(50000, target.PreLaunchFunds);
@@ -695,7 +695,7 @@ namespace Parsek.Tests
         [Fact]
         public void PreLaunchFields_DefaultToZero()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
 
             Assert.Equal(0, rec.PreLaunchFunds);
             Assert.Equal(0, rec.PreLaunchScience);
@@ -705,7 +705,7 @@ namespace Parsek.Tests
         [Fact]
         public void PreLaunchFields_MetadataRoundTrip()
         {
-            var source = new RecordingStore.Recording
+            var source = new Recording
             {
                 RecordingId = "meta1",
                 PreLaunchFunds = 45000.5,
@@ -716,7 +716,7 @@ namespace Parsek.Tests
             var node = new ConfigNode("RECORDING");
             ParsekScenario.SaveRecordingMetadata(node, source);
 
-            var loaded = new RecordingStore.Recording();
+            var loaded = new Recording();
             ParsekScenario.LoadRecordingMetadata(node, loaded);
 
             Assert.Equal(45000.5, loaded.PreLaunchFunds);
@@ -730,7 +730,7 @@ namespace Parsek.Tests
             var node = new ConfigNode("RECORDING");
             // No preLaunch keys at all
 
-            var loaded = new RecordingStore.Recording();
+            var loaded = new Recording();
             ParsekScenario.LoadRecordingMetadata(node, loaded);
 
             Assert.Equal(0, loaded.PreLaunchFunds);
@@ -764,7 +764,7 @@ namespace Parsek.Tests
                 }
             };
 
-            var recordings = new List<RecordingStore.Recording> { rec };
+            var recordings = new List<Recording> { rec };
             var milestones = new List<Milestone> { m };
 
             // Both contribute
@@ -801,7 +801,7 @@ namespace Parsek.Tests
 
             var milestones = new List<Milestone> { m };
             var budget = ResourceBudget.ComputeTotal(
-                new List<RecordingStore.Recording>(), milestones);
+                new List<Recording>(), milestones);
 
             Assert.Equal(0, budget.reservedFunds);
         }
@@ -818,7 +818,7 @@ namespace Parsek.Tests
             var rec = MakeRecording(50000, 35000); // cost = 15000
             rec.PlaybackEnabled = false;
 
-            var recordings = new List<RecordingStore.Recording> { rec };
+            var recordings = new List<Recording> { rec };
             var budget = ResourceBudget.ComputeTotal(recordings, new List<Milestone>());
 
             Assert.Equal(15000, budget.reservedFunds);
@@ -839,7 +839,7 @@ namespace Parsek.Tests
             seg1.ChainIndex = 1;
             seg1.PlaybackEnabled = false;
 
-            var recordings = new List<RecordingStore.Recording> { seg0, seg1 };
+            var recordings = new List<Recording> { seg0, seg1 };
             var budget = ResourceBudget.ComputeTotal(recordings, new List<Milestone>());
 
             Assert.Equal(8000, budget.reservedFunds); // 5000 + 3000
@@ -866,7 +866,7 @@ namespace Parsek.Tests
             seg1.ChainIndex = 1;
             seg1.SegmentPhase = "exo";
 
-            var recordings = new List<RecordingStore.Recording> { seg0, seg1 };
+            var recordings = new List<Recording> { seg0, seg1 };
             var budget = ResourceBudget.ComputeTotal(recordings, new List<Milestone>());
 
             Assert.Equal(8000, budget.reservedFunds);
@@ -885,7 +885,7 @@ namespace Parsek.Tests
             seg1.ChainId = "chain-partial";
             seg1.ChainIndex = 1;
 
-            var recordings = new List<RecordingStore.Recording> { seg0, seg1 };
+            var recordings = new List<Recording> { seg0, seg1 };
             var budget = ResourceBudget.ComputeTotal(recordings, new List<Milestone>());
 
             Assert.Equal(3000, budget.reservedFunds); // only seg1's cost
@@ -906,7 +906,7 @@ namespace Parsek.Tests
             seg1.ChainId = "chain-sci";
             seg1.ChainIndex = 1;
 
-            var recordings = new List<RecordingStore.Recording> { seg0, seg1 };
+            var recordings = new List<Recording> { seg0, seg1 };
             var budget = ResourceBudget.ComputeTotal(recordings, new List<Milestone>());
 
             Assert.Equal(8000, budget.reservedFunds);   // 5000 + 3000
@@ -993,7 +993,7 @@ namespace Parsek.Tests
             var rec = MakeRecording(50000, 35000); // cost would be 15000
             rec.TreeId = "some_tree";
 
-            var recordings = new List<RecordingStore.Recording> { rec };
+            var recordings = new List<Recording> { rec };
             var budget = ResourceBudget.ComputeTotal(recordings, new List<Milestone>());
 
             Assert.Equal(0, budget.reservedFunds); // skipped because TreeId != null
@@ -1014,7 +1014,7 @@ namespace Parsek.Tests
 
             var trees = new List<RecordingTree> { tree };
             var budget = ResourceBudget.ComputeTotal(
-                new List<RecordingStore.Recording>(),
+                new List<Recording>(),
                 new List<Milestone>(),
                 trees);
 
@@ -1041,7 +1041,7 @@ namespace Parsek.Tests
                 ResourcesApplied = false
             };
 
-            var recordings = new List<RecordingStore.Recording> { rec, treeRec };
+            var recordings = new List<Recording> { rec, treeRec };
             var trees = new List<RecordingTree> { tree };
             var budget = ResourceBudget.ComputeTotal(recordings, new List<Milestone>(), trees);
 
@@ -1060,7 +1060,7 @@ namespace Parsek.Tests
 
             var trees = new List<RecordingTree> { tree };
             var budget = ResourceBudget.ComputeTotal(
-                new List<RecordingStore.Recording>(),
+                new List<Recording>(),
                 new List<Milestone>(),
                 trees);
 
@@ -1073,7 +1073,7 @@ namespace Parsek.Tests
             // trees=null works same as before
             var rec = MakeRecording(50000, 35000);
             var budget = ResourceBudget.ComputeTotal(
-                new List<RecordingStore.Recording> { rec },
+                new List<Recording> { rec },
                 new List<Milestone>(),
                 null);
 
@@ -1118,7 +1118,7 @@ namespace Parsek.Tests
 
             var trees = new List<RecordingTree> { treeA, treeB };
             var budget = ResourceBudget.ComputeTotal(
-                new List<RecordingStore.Recording>(),
+                new List<Recording>(),
                 new List<Milestone>(),
                 trees);
 
@@ -1144,20 +1144,20 @@ namespace Parsek.Tests
             };
 
             // All recordings have terminal states that make them non-spawnable
-            tree.Recordings["root"] = new RecordingStore.Recording
+            tree.Recordings["root"] = new Recording
             {
                 RecordingId = "root",
                 VesselName = "Root",
                 ChildBranchPointId = "bp1"
             };
-            tree.Recordings["leaf1"] = new RecordingStore.Recording
+            tree.Recordings["leaf1"] = new Recording
             {
                 RecordingId = "leaf1",
                 VesselName = "Destroyed",
                 TerminalStateValue = TerminalState.Destroyed,
                 ParentBranchPointId = "bp1"
             };
-            tree.Recordings["leaf2"] = new RecordingStore.Recording
+            tree.Recordings["leaf2"] = new Recording
             {
                 RecordingId = "leaf2",
                 VesselName = "Recovered",
@@ -1170,7 +1170,7 @@ namespace Parsek.Tests
 
             var trees = new List<RecordingTree> { tree };
             var budget = ResourceBudget.ComputeTotal(
-                new List<RecordingStore.Recording>(),
+                new List<Recording>(),
                 new List<Milestone>(),
                 trees);
 
@@ -1190,7 +1190,7 @@ namespace Parsek.Tests
             var rec2 = MakeRecording(30000, 25000); // cost = 5000
             var rec3 = MakeRecording(80000, 90000); // cost = -10000 (profit)
 
-            var recordings = new List<RecordingStore.Recording> { rec1, rec2, rec3 };
+            var recordings = new List<Recording> { rec1, rec2, rec3 };
             var milestones = new List<Milestone>();
 
             var total = ResourceBudget.ComputeTotal(recordings, milestones);
@@ -1211,7 +1211,7 @@ namespace Parsek.Tests
             // ComputeTotalFullCost funds cost = 4000.
             var rec = MakeRecording(100000, 96000, lastAppliedResIdx: 1);
 
-            var recordings = new List<RecordingStore.Recording> { rec };
+            var recordings = new List<Recording> { rec };
             var milestones = new List<Milestone>();
 
             var total = ResourceBudget.ComputeTotal(recordings, milestones);
@@ -1238,7 +1238,7 @@ namespace Parsek.Tests
                 ResourcesApplied = true
             };
 
-            var recordings = new List<RecordingStore.Recording>();
+            var recordings = new List<Recording>();
             var milestones = new List<Milestone>();
             var trees = new List<RecordingTree> { tree };
 
@@ -1282,7 +1282,7 @@ namespace Parsek.Tests
                 }
             };
 
-            var recordings = new List<RecordingStore.Recording>();
+            var recordings = new List<Recording>();
             var milestones = new List<Milestone> { m };
 
             var total = ResourceBudget.ComputeTotal(recordings, milestones);
@@ -1302,7 +1302,7 @@ namespace Parsek.Tests
             // Recording A: PreLaunchFunds=80000, endpoint funds=84000 -> cost = -4000 (earned)
             // Recording B: PreLaunchFunds=74000, endpoint funds=72000 -> cost = 2000 (lost)
             // ComputeTotalFullCost with both -> reservedFunds = -4000 + 2000 = -2000
-            var recA = new RecordingStore.Recording
+            var recA = new Recording
             {
                 PreLaunchFunds = 80000,
                 LastAppliedResourceIndex = -1
@@ -1320,7 +1320,7 @@ namespace Parsek.Tests
                 velocity = UnityEngine.Vector3.zero
             });
 
-            var recB = new RecordingStore.Recording
+            var recB = new Recording
             {
                 PreLaunchFunds = 74000,
                 LastAppliedResourceIndex = -1
@@ -1338,7 +1338,7 @@ namespace Parsek.Tests
                 velocity = UnityEngine.Vector3.zero
             });
 
-            var recordings = new List<RecordingStore.Recording> { recA, recB };
+            var recordings = new List<Recording> { recA, recB };
             var milestones = new List<Milestone>();
 
             var fullCost = ResourceBudget.ComputeTotalFullCost(recordings, milestones);
