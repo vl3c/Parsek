@@ -1703,7 +1703,7 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Group popup opened for chain '{chainName}'");
             }
 
-            // Spacers for remaining columns (Loop, Period, Watch, Rewind, Delete)
+            // Spacers for remaining columns (Loop, Period, Watch, Rewind, Hide)
             GUILayout.Label("", GUILayout.Width(ColW_Loop));
             GUILayout.Label("", GUILayout.Width(ColW_Period));
             if (InFlight) GUILayout.Label("", GUILayout.Width(ColW_Watch));

@@ -221,6 +221,8 @@ namespace Parsek
             recNode.AddValue("loopIntervalSeconds", rec.LoopIntervalSeconds.ToString("R", ic));
             if (!rec.PlaybackEnabled)
                 recNode.AddValue("playbackEnabled", rec.PlaybackEnabled.ToString());
+            if (rec.Hidden)
+                recNode.AddValue("hidden", rec.Hidden.ToString());
 
             // EVA child linkage
             if (!string.IsNullOrEmpty(rec.ParentRecordingId))
@@ -413,6 +415,13 @@ namespace Parsek
                 bool playbackEnabled;
                 if (bool.TryParse(playbackEnabledStr, out playbackEnabled))
                     rec.PlaybackEnabled = playbackEnabled;
+            }
+            string hiddenStr = recNode.GetValue("hidden");
+            if (hiddenStr != null)
+            {
+                bool hidden;
+                if (bool.TryParse(hiddenStr, out hidden))
+                    rec.Hidden = hidden;
             }
 
             // EVA child linkage
