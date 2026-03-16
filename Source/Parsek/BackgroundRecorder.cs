@@ -26,6 +26,9 @@ namespace Parsek
         private Dictionary<uint, BackgroundOnRailsState> onRailsStates
             = new Dictionary<uint, BackgroundOnRailsState>();
 
+        // GameEvent subscriptions for discrete events (onPartDie, onPartJointBreak)
+        private bool partEventsSubscribed;
+
         // Interval for updating ExplicitEndUT on background recordings
         private const double ExplicitEndUpdateInterval = 30.0;
 
@@ -112,6 +115,9 @@ namespace Parsek
             public Dictionary<ulong, double> lastRoboticSampleUT = new Dictionary<ulong, double>();
             public HashSet<ulong> loggedRoboticModuleKeys = new HashSet<ulong>();
 
+            // Part destruction/decoupling tracking
+            public HashSet<uint> decoupledPartIds = new HashSet<uint>();
+
             // Diagnostic guards (prevent log spam, one per module type)
             public HashSet<ulong> loggedLadderClassificationMisses = new HashSet<ulong>();
             public HashSet<ulong> loggedAnimationGroupClassificationMisses = new HashSet<ulong>();
@@ -124,6 +130,143 @@ namespace Parsek
             public HashSet<uint> loggedCargoBayAnimationIssues = new HashSet<uint>();
             public HashSet<uint> loggedCargoBayClosedPositionIssues = new HashSet<uint>();
             public HashSet<uint> loggedFairingReadFailures = new HashSet<uint>();
+        }
+
+        #endregion
+
+        #region GameEvent Subscriptions
+
+        /// <summary>
+        /// Subscribes to GameEvents for discrete part events (onPartDie, onPartJointBreak)
+        /// that cannot be captured by per-frame polling. These events fire globally for all
+        /// vessels; the handlers check if the part belongs to a background vessel.
+        /// </summary>
+        internal void SubscribePartEvents()
+        {
+            if (partEventsSubscribed) return;
+            GameEvents.onPartDie.Add(OnBackgroundPartDie);
+            GameEvents.onPartJointBreak.Add(OnBackgroundPartJointBreak);
+            partEventsSubscribed = true;
+            ParsekLog.Verbose("BgRecorder", "Subscribed to onPartDie and onPartJointBreak for background vessels");
+        }
+
+        internal void UnsubscribePartEvents()
+        {
+            if (!partEventsSubscribed) return;
+            GameEvents.onPartDie.Remove(OnBackgroundPartDie);
+            GameEvents.onPartJointBreak.Remove(OnBackgroundPartJointBreak);
+            partEventsSubscribed = false;
+            ParsekLog.Verbose("BgRecorder", "Unsubscribed from onPartDie and onPartJointBreak");
+        }
+
+        /// <summary>
+        /// Handles part death for background vessels. Looks up the dying part's vessel
+        /// in the tree's BackgroundMap; if found and in loaded state, emits a Destroyed
+        /// or ParachuteDestroyed event.
+        /// </summary>
+        internal void OnBackgroundPartDie(Part p)
+        {
+            if (tree == null) return;
+            if (p?.vessel == null)
+            {
+                ParsekLog.VerboseRateLimited("BgRecorder", "bg-part-die-null",
+                    "OnBackgroundPartDie: part or vessel is null");
+                return;
+            }
+
+            uint vesselPid = p.vessel.persistentId;
+
+            // Only handle background vessels (not the active/focused vessel)
+            string recordingId;
+            if (!tree.BackgroundMap.TryGetValue(vesselPid, out recordingId)) return;
+
+            // Must have loaded state (part events only meaningful for loaded vessels)
+            BackgroundVesselState state;
+            if (!loadedStates.TryGetValue(vesselPid, out state)) return;
+
+            Recording treeRec;
+            if (!tree.Recordings.TryGetValue(recordingId, out treeRec)) return;
+
+            bool hasChute = p.FindModuleImplementing<ModuleParachute>() != null;
+            var evtType = FlightRecorder.ClassifyPartDeath(
+                p.persistentId, hasChute, state.parachuteStates);
+
+            treeRec.PartEvents.Add(new PartEvent
+            {
+                ut = Planetarium.GetUniversalTime(),
+                partPersistentId = p.persistentId,
+                eventType = evtType,
+                partName = p.partInfo?.name ?? "unknown"
+            });
+
+            ParsekLog.Verbose("BgRecorder",
+                $"Part death on background vessel: {evtType} '{p.partInfo?.name}' " +
+                $"pid={p.persistentId} vesselPid={vesselPid}");
+        }
+
+        /// <summary>
+        /// Handles part joint breaks for background vessels. Looks up the child part's
+        /// vessel in the tree's BackgroundMap; if found and in loaded state, emits a
+        /// Decoupled event (with structural-joint and dedup guards).
+        /// </summary>
+        internal void OnBackgroundPartJointBreak(PartJoint joint, float breakForce)
+        {
+            if (tree == null) return;
+            if (joint?.Child?.vessel == null)
+            {
+                ParsekLog.VerboseRateLimited("BgRecorder", "bg-joint-break-null",
+                    "OnBackgroundPartJointBreak: joint, child, or vessel is null");
+                return;
+            }
+
+            uint vesselPid = joint.Child.vessel.persistentId;
+
+            // Only handle background vessels
+            string recordingId;
+            if (!tree.BackgroundMap.TryGetValue(vesselPid, out recordingId)) return;
+
+            BackgroundVesselState state;
+            if (!loadedStates.TryGetValue(vesselPid, out state)) return;
+
+            Recording treeRec;
+            if (!tree.Recordings.TryGetValue(recordingId, out treeRec)) return;
+
+            // Skip non-structural joint breaks (same logic as FlightRecorder)
+            var childAttachJoint = joint.Child.attachJoint;
+            if (!FlightRecorder.IsStructuralJointBreak(joint == childAttachJoint, childAttachJoint != null))
+            {
+                ParsekLog.VerboseRateLimited("BgRecorder",
+                    $"bg-joint-break-nonstructural-{joint.Child.persistentId}",
+                    $"OnBackgroundPartJointBreak: non-structural joint break on " +
+                    $"'{joint.Child.partInfo?.name}' pid={joint.Child.persistentId} " +
+                    $"vesselPid={vesselPid} (breakForce={breakForce:F1}), skipping");
+                return;
+            }
+
+            // Skip duplicate decoupled events for the same part
+            if (state.decoupledPartIds.Contains(joint.Child.persistentId))
+            {
+                ParsekLog.VerboseRateLimited("BgRecorder",
+                    $"bg-joint-break-dup-{joint.Child.persistentId}",
+                    $"OnBackgroundPartJointBreak: duplicate for already-decoupled " +
+                    $"'{joint.Child.partInfo?.name}' pid={joint.Child.persistentId} " +
+                    $"vesselPid={vesselPid}, skipping");
+                return;
+            }
+            state.decoupledPartIds.Add(joint.Child.persistentId);
+
+            treeRec.PartEvents.Add(new PartEvent
+            {
+                ut = Planetarium.GetUniversalTime(),
+                partPersistentId = joint.Child.persistentId,
+                eventType = PartEventType.Decoupled,
+                partName = joint.Child.partInfo?.name ?? "unknown"
+            });
+
+            ParsekLog.Verbose("BgRecorder",
+                $"Part joint break on background vessel: Decoupled " +
+                $"'{joint.Child.partInfo?.name}' pid={joint.Child.persistentId} " +
+                $"vesselPid={vesselPid} breakForce={breakForce:F1}");
         }
 
         #endregion
@@ -475,6 +618,8 @@ namespace Parsek
         /// </summary>
         public void Shutdown()
         {
+            UnsubscribePartEvents();
+
             double ut = Planetarium.GetUniversalTime();
 
             // Close all open orbit segments
@@ -725,6 +870,35 @@ namespace Parsek
         /// Polls all part event types for a background vessel in loaded/physics mode.
         /// Duplicates the Layer 2 wrapper methods from FlightRecorder, calling the
         /// same Layer 1 static transition methods.
+        ///
+        /// Part Event Coverage Audit (BackgroundRecorder vs FlightRecorder):
+        ///
+        ///   POLLED (per-physics-frame, in PollPartEvents):
+        ///     [x] CheckParachuteState        - ParachuteDeployed / ParachuteCut / ParachuteSemiDeployed
+        ///     [x] CheckJettisonState          - ShroudJettisoned
+        ///     [x] CheckEngineState            - EngineIgnited / EngineShutdown / EngineThrottle
+        ///     [x] CheckRcsState               - RCSActivated / RCSStopped / RCSThrottle
+        ///     [x] CheckDeployableState        - DeployableExtended / DeployableRetracted
+        ///     [x] CheckLadderState            - DeployableExtended / DeployableRetracted (ladders)
+        ///     [x] CheckAnimationGroupState    - DeployableExtended / DeployableRetracted (anim groups)
+        ///     [x] CheckAeroSurfaceState       - DeployableExtended / DeployableRetracted (aero surfaces)
+        ///     [x] CheckControlSurfaceState    - DeployableExtended / DeployableRetracted (control surfaces)
+        ///     [x] CheckRobotArmScannerState   - DeployableExtended / DeployableRetracted (robot arms)
+        ///     [x] CheckAnimateHeatState       - ThermalAnimationHot / ThermalAnimationMedium / ThermalAnimationCold
+        ///     [x] CheckAnimateGenericState    - DeployableExtended / DeployableRetracted (generic animations)
+        ///     [x] CheckLightState             - LightOn / LightOff / LightBlinkEnabled / LightBlinkDisabled / LightBlinkRate
+        ///     [x] CheckGearState              - GearDeployed / GearRetracted
+        ///     [x] CheckCargoBayState          - CargoBayOpened / CargoBayClosed
+        ///     [x] CheckFairingState           - FairingJettisoned
+        ///     [x] CheckRoboticState           - RoboticMotionStarted / RoboticPositionSample / RoboticMotionStopped
+        ///
+        ///   GAME-EVENT DRIVEN (via SubscribePartEvents):
+        ///     [x] onPartDie                   - Destroyed / ParachuteDestroyed (OnBackgroundPartDie)
+        ///     [x] onPartJointBreak            - Decoupled (OnBackgroundPartJointBreak)
+        ///
+        ///   NOT APPLICABLE to background vessels (handled elsewhere):
+        ///     [-] Docked / Undocked           - branch management in ParsekFlight
+        ///     [-] InventoryPartPlaced/Removed  - EVA-only, active vessel only
         /// </summary>
         private void PollPartEvents(Vessel v, BackgroundVesselState state,
             Recording treeRec, double ut)
@@ -1543,6 +1717,34 @@ namespace Parsek
             if (onRailsStates.TryGetValue(pid, out state))
                 return state.lastExplicitEndUpdate;
             return -1;
+        }
+
+        internal bool IsPartEventsSubscribed => partEventsSubscribed;
+
+        /// <summary>
+        /// For testing: injects a loaded state for a vessel PID so that
+        /// OnBackgroundPartDie / OnBackgroundPartJointBreak can find it
+        /// without needing a real KSP Vessel.
+        /// </summary>
+        internal void InjectLoadedStateForTesting(uint vesselPid, string recordingId)
+        {
+            loadedStates[vesselPid] = new BackgroundVesselState
+            {
+                vesselPid = vesselPid,
+                recordingId = recordingId,
+            };
+        }
+
+        /// <summary>
+        /// For testing: gets the decoupledPartIds set for a given vessel PID.
+        /// Returns null if no loaded state exists.
+        /// </summary>
+        internal HashSet<uint> GetDecoupledPartIdsForTesting(uint vesselPid)
+        {
+            BackgroundVesselState state;
+            if (loadedStates.TryGetValue(vesselPid, out state))
+                return state.decoupledPartIds;
+            return null;
         }
 
         #endregion
