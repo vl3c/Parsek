@@ -11,7 +11,7 @@ namespace Parsek.Tests
         [Fact]
         public void EmptyRecording_AllStatsZero()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             var stats = TrajectoryMath.ComputeStats(rec);
 
             Assert.Equal(0, stats.maxAltitude);
@@ -27,7 +27,7 @@ namespace Parsek.Tests
         [Fact]
         public void PointsOnly_NoBodyLookup_AltitudeAndSpeedFromPoints()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points.Add(new TrajectoryPoint
             {
                 ut = 100, latitude = 0, longitude = 0, altitude = 100,
@@ -58,7 +58,7 @@ namespace Parsek.Tests
         [Fact]
         public void PointsWithBodyLookup_DistanceAndRangeComputed()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points.Add(new TrajectoryPoint
             {
                 ut = 100, latitude = 0, longitude = 0, altitude = 100,
@@ -90,7 +90,7 @@ namespace Parsek.Tests
         [Fact]
         public void OrbitSegment_WithBodyLookup_UpdatesAltitudeSpeedDistance()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points.Add(new TrajectoryPoint
             {
                 ut = 100, latitude = 0, longitude = 0, altitude = 80000,
@@ -138,7 +138,7 @@ namespace Parsek.Tests
         [Fact]
         public void OrbitSegment_NullBodyLookup_SkippedGracefully()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points.Add(new TrajectoryPoint
             {
                 ut = 100, altitude = 80000, bodyName = "Kerbin"
@@ -168,7 +168,7 @@ namespace Parsek.Tests
         [Fact]
         public void OrbitSegment_BodyNotFound_SkippedGracefully()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points.Add(new TrajectoryPoint
             {
                 ut = 100, altitude = 100, bodyName = "Unknown"
@@ -202,7 +202,7 @@ namespace Parsek.Tests
             var builder = SyntheticRecordingTests.FleaFlight(17000);
             var node = builder.Build();
 
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             RecordingStore.SuppressLogging = true;
             MilestoneStore.SuppressLogging = true;
             MilestoneStore.ResetForTesting();
@@ -219,7 +219,7 @@ namespace Parsek.Tests
         [Fact]
         public void PartEvents_CountIncluded()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
             rec.Points.Add(new TrajectoryPoint { ut = 200, bodyName = "Kerbin" });
             rec.PartEvents.Add(new PartEvent { ut = 110, eventType = PartEventType.Decoupled });
@@ -234,7 +234,7 @@ namespace Parsek.Tests
         [Fact]
         public void MultipleBodies_PrimaryBodyIsMostFrequent()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
             rec.Points.Add(new TrajectoryPoint { ut = 200, bodyName = "Kerbin" });
             rec.Points.Add(new TrajectoryPoint { ut = 300, bodyName = "Mun" });

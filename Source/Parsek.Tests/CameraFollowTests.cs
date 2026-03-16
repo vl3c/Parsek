@@ -170,12 +170,12 @@ namespace Parsek.Tests
 
         #region ComputeWatchIndexAfterDelete
 
-        private List<RecordingStore.Recording> MakeRecordings(params string[] ids)
+        private List<Recording> MakeRecordings(params string[] ids)
         {
-            var list = new List<RecordingStore.Recording>();
+            var list = new List<Recording>();
             foreach (var id in ids)
             {
-                var rec = new RecordingStore.Recording();
+                var rec = new Recording();
                 rec.RecordingId = id;
                 rec.VesselName = "Vessel_" + id;
                 list.Add(rec);
@@ -265,7 +265,7 @@ namespace Parsek.Tests
         public void ComputeWatchIndex_EmptyListAfterDelete_ExitsToMinusOne()
         {
             // After deletion, no recordings remain — ID not found, should exit
-            var recordings = new List<RecordingStore.Recording>();
+            var recordings = new List<Recording>();
             var result = ParsekFlight.ComputeWatchIndexAfterDelete(1, "rec_a", 0, recordings);
             Assert.Equal(-1, result.newIndex);
             Assert.Null(result.newId);

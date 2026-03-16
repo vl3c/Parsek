@@ -13,8 +13,8 @@ namespace Parsek
         public string RootRecordingId;
         public string ActiveRecordingId;            // nullable: null if all background
 
-        public Dictionary<string, RecordingStore.Recording> Recordings
-            = new Dictionary<string, RecordingStore.Recording>();
+        public Dictionary<string, Recording> Recordings
+            = new Dictionary<string, Recording>();
         public List<BranchPoint> BranchPoints = new List<BranchPoint>();
 
         // Tree-level resource tracking
@@ -104,7 +104,7 @@ namespace Parsek
             ConfigNode[] recNodes = treeNode.GetNodes("RECORDING");
             for (int i = 0; i < recNodes.Length; i++)
             {
-                var rec = new RecordingStore.Recording();
+                var rec = new Recording();
                 LoadRecordingFrom(recNodes[i], rec);
                 tree.Recordings[rec.RecordingId] = rec;
             }
@@ -150,7 +150,7 @@ namespace Parsek
 
         // --- Recording serialization helpers ---
 
-        internal static void SaveRecordingInto(ConfigNode recNode, RecordingStore.Recording rec)
+        internal static void SaveRecordingInto(ConfigNode recNode, Recording rec)
         {
             var ic = CultureInfo.InvariantCulture;
 
@@ -211,7 +211,7 @@ namespace Parsek
         /// Saves playback settings (format version, loop, playback enabled),
         /// EVA child linkage, and chain linkage into a RECORDING ConfigNode.
         /// </summary>
-        private static void SaveRecordingPlaybackAndLinkage(ConfigNode recNode, RecordingStore.Recording rec)
+        private static void SaveRecordingPlaybackAndLinkage(ConfigNode recNode, Recording rec)
         {
             var ic = CultureInfo.InvariantCulture;
 
@@ -241,7 +241,7 @@ namespace Parsek
         /// Saves atmosphere segment metadata, pre-launch resources, rewind save metadata,
         /// mutable playback state, and UI grouping tags into a RECORDING ConfigNode.
         /// </summary>
-        private static void SaveRecordingResourceAndState(ConfigNode recNode, RecordingStore.Recording rec)
+        private static void SaveRecordingResourceAndState(ConfigNode recNode, Recording rec)
         {
             var ic = CultureInfo.InvariantCulture;
 
@@ -282,7 +282,7 @@ namespace Parsek
                     recNode.AddValue("recordingGroup", rec.RecordingGroups[g]);
         }
 
-        internal static void LoadRecordingFrom(ConfigNode recNode, RecordingStore.Recording rec)
+        internal static void LoadRecordingFrom(ConfigNode recNode, Recording rec)
         {
             var inv = NumberStyles.Float;
             var ic = CultureInfo.InvariantCulture;
@@ -368,7 +368,7 @@ namespace Parsek
         /// playback enabled), EVA child linkage, and chain linkage from a RECORDING
         /// ConfigNode into the given Recording.
         /// </summary>
-        private static void LoadRecordingPlaybackAndLinkage(ConfigNode recNode, RecordingStore.Recording rec)
+        private static void LoadRecordingPlaybackAndLinkage(ConfigNode recNode, Recording rec)
         {
             var inv = NumberStyles.Float;
             var ic = CultureInfo.InvariantCulture;
@@ -442,7 +442,7 @@ namespace Parsek
         /// ghost geometry metadata, mutable playback state, and UI grouping tags from a
         /// RECORDING ConfigNode into the given Recording.
         /// </summary>
-        private static void LoadRecordingResourceAndState(ConfigNode recNode, RecordingStore.Recording rec)
+        private static void LoadRecordingResourceAndState(ConfigNode recNode, Recording rec)
         {
             var inv = NumberStyles.Float;
             var ic = CultureInfo.InvariantCulture;
@@ -593,9 +593,9 @@ namespace Parsek
         /// Identifies spawnable leaf recordings: no children, not terminal
         /// (Destroyed/Recovered/Docked/Boarded), has vessel snapshot.
         /// </summary>
-        public List<RecordingStore.Recording> GetSpawnableLeaves()
+        public List<Recording> GetSpawnableLeaves()
         {
-            var leaves = new List<RecordingStore.Recording>();
+            var leaves = new List<Recording>();
             foreach (var rec in Recordings.Values)
             {
                 if (IsSpawnableLeaf(rec))
@@ -608,9 +608,9 @@ namespace Parsek
         /// Identifies ALL leaf recordings (including destroyed/recovered).
         /// A leaf is any recording with ChildBranchPointId == null.
         /// </summary>
-        public List<RecordingStore.Recording> GetAllLeaves()
+        public List<Recording> GetAllLeaves()
         {
-            var leaves = new List<RecordingStore.Recording>();
+            var leaves = new List<Recording>();
             foreach (var rec in Recordings.Values)
             {
                 if (rec.ChildBranchPointId == null)
@@ -625,7 +625,7 @@ namespace Parsek
         /// 2. Terminal state allows spawning (not Destroyed/Recovered/Docked/Boarded)
         /// 3. Has a vessel snapshot
         /// </summary>
-        internal static bool IsSpawnableLeaf(RecordingStore.Recording rec)
+        internal static bool IsSpawnableLeaf(Recording rec)
         {
             if (rec.ChildBranchPointId != null)
                 return false;
@@ -683,7 +683,7 @@ namespace Parsek
         /// unless activeVesselDestroyed is true.
         /// </summary>
         internal static bool AreAllLeavesTerminal(
-            Dictionary<string, RecordingStore.Recording> recordings,
+            Dictionary<string, Recording> recordings,
             string activeRecordingId,
             bool activeVesselDestroyed)
         {

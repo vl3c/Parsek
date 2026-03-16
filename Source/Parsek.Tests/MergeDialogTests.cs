@@ -32,7 +32,7 @@ namespace Parsek.Tests
         [Fact]
         public void GetLeafSituationText_Orbiting_WithBody()
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 TerminalStateValue = TerminalState.Orbiting,
                 TerminalOrbitBody = "Kerbin"
@@ -43,7 +43,7 @@ namespace Parsek.Tests
         [Fact]
         public void GetLeafSituationText_Orbiting_NullBody()
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 TerminalStateValue = TerminalState.Orbiting,
                 TerminalOrbitBody = null
@@ -54,7 +54,7 @@ namespace Parsek.Tests
         [Fact]
         public void GetLeafSituationText_Landed_WithPosition()
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 TerminalStateValue = TerminalState.Landed,
                 TerminalPosition = new SurfacePosition { body = "Mun" }
@@ -65,7 +65,7 @@ namespace Parsek.Tests
         [Fact]
         public void GetLeafSituationText_Landed_NoPosition()
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 TerminalStateValue = TerminalState.Landed,
                 TerminalPosition = null
@@ -76,7 +76,7 @@ namespace Parsek.Tests
         [Fact]
         public void GetLeafSituationText_Splashed_WithPosition()
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 TerminalStateValue = TerminalState.Splashed,
                 TerminalPosition = new SurfacePosition { body = "Kerbin" }
@@ -87,7 +87,7 @@ namespace Parsek.Tests
         [Fact]
         public void GetLeafSituationText_SubOrbital_WithBody()
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 TerminalStateValue = TerminalState.SubOrbital,
                 TerminalOrbitBody = "Kerbin"
@@ -98,7 +98,7 @@ namespace Parsek.Tests
         [Fact]
         public void GetLeafSituationText_SubOrbital_NullBody()
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 TerminalStateValue = TerminalState.SubOrbital,
                 TerminalOrbitBody = null
@@ -109,7 +109,7 @@ namespace Parsek.Tests
         [Fact]
         public void GetLeafSituationText_Destroyed()
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 TerminalStateValue = TerminalState.Destroyed
             };
@@ -119,7 +119,7 @@ namespace Parsek.Tests
         [Fact]
         public void GetLeafSituationText_Recovered()
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 TerminalStateValue = TerminalState.Recovered
             };
@@ -129,7 +129,7 @@ namespace Parsek.Tests
         [Fact]
         public void GetLeafSituationText_Docked()
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 TerminalStateValue = TerminalState.Docked
             };
@@ -139,7 +139,7 @@ namespace Parsek.Tests
         [Fact]
         public void GetLeafSituationText_Boarded()
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 TerminalStateValue = TerminalState.Boarded
             };
@@ -149,7 +149,7 @@ namespace Parsek.Tests
         [Fact]
         public void GetLeafSituationText_NullTerminal_WithVesselSituation()
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 TerminalStateValue = null,
                 VesselSituation = "FLYING"
@@ -160,7 +160,7 @@ namespace Parsek.Tests
         [Fact]
         public void GetLeafSituationText_NullTerminal_NullVesselSituation()
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 TerminalStateValue = null,
                 VesselSituation = null

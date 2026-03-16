@@ -10,7 +10,7 @@ namespace Parsek.Tests
             var result = RecordingStore.GetRecommendedAction(
                 destroyed: false, hasSnapshot: true);
 
-            Assert.Equal(RecordingStore.MergeDefault.Persist, result);
+            Assert.Equal(MergeDefault.Persist, result);
         }
 
         [Fact]
@@ -19,7 +19,7 @@ namespace Parsek.Tests
             var result = RecordingStore.GetRecommendedAction(
                 destroyed: true, hasSnapshot: false);
 
-            Assert.Equal(RecordingStore.MergeDefault.GhostOnly, result);
+            Assert.Equal(MergeDefault.GhostOnly, result);
         }
 
         [Fact]
@@ -29,7 +29,7 @@ namespace Parsek.Tests
             var result = RecordingStore.GetRecommendedAction(
                 destroyed: true, hasSnapshot: true);
 
-            Assert.Equal(RecordingStore.MergeDefault.GhostOnly, result);
+            Assert.Equal(MergeDefault.GhostOnly, result);
         }
 
         [Fact]
@@ -39,7 +39,7 @@ namespace Parsek.Tests
             var result = RecordingStore.GetRecommendedAction(
                 destroyed: false, hasSnapshot: false);
 
-            Assert.Equal(RecordingStore.MergeDefault.GhostOnly, result);
+            Assert.Equal(MergeDefault.GhostOnly, result);
         }
     }
 }

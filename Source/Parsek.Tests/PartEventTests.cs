@@ -33,7 +33,7 @@ namespace Parsek.Tests
                 .Build();
 
             // Load via ParsekScenario's static loader
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 VesselName = recNode.GetValue("vesselName") ?? "Unknown"
             };
@@ -99,7 +99,7 @@ namespace Parsek.Tests
             Assert.Empty(peNodes);
 
             // A Recording starts with an empty PartEvents list
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             Assert.Empty(rec.PartEvents);
         }
 
@@ -882,7 +882,7 @@ namespace Parsek.Tests
         [Fact]
         public void PartEvents_SerializationRoundtrip_LightOn()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
             rec.Points.Add(new TrajectoryPoint { ut = 110, bodyName = "Kerbin" });
             rec.PartEvents.Add(new PartEvent
@@ -896,7 +896,7 @@ namespace Parsek.Tests
             var node = new ConfigNode("TEST");
             RecordingStore.SerializeTrajectoryInto(node, rec);
 
-            var loaded = new RecordingStore.Recording();
+            var loaded = new Recording();
             RecordingStore.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
@@ -909,7 +909,7 @@ namespace Parsek.Tests
         [Fact]
         public void PartEvents_SerializationRoundtrip_LightBlinkEnabled()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
             rec.Points.Add(new TrajectoryPoint { ut = 110, bodyName = "Kerbin" });
             rec.PartEvents.Add(new PartEvent
@@ -924,7 +924,7 @@ namespace Parsek.Tests
             var node = new ConfigNode("TEST");
             RecordingStore.SerializeTrajectoryInto(node, rec);
 
-            var loaded = new RecordingStore.Recording();
+            var loaded = new Recording();
             RecordingStore.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
@@ -1222,7 +1222,7 @@ namespace Parsek.Tests
         [Fact]
         public void PartEvents_SerializationRoundtrip_GearDeployed()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
             rec.Points.Add(new TrajectoryPoint { ut = 110, bodyName = "Kerbin" });
             rec.PartEvents.Add(new PartEvent
@@ -1236,7 +1236,7 @@ namespace Parsek.Tests
             var node = new ConfigNode("TEST");
             RecordingStore.SerializeTrajectoryInto(node, rec);
 
-            var loaded = new RecordingStore.Recording();
+            var loaded = new Recording();
             RecordingStore.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
@@ -1249,7 +1249,7 @@ namespace Parsek.Tests
         [Fact]
         public void PartEvents_SerializationRoundtrip_GearRetracted()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
             rec.Points.Add(new TrajectoryPoint { ut = 110, bodyName = "Kerbin" });
             rec.PartEvents.Add(new PartEvent
@@ -1263,7 +1263,7 @@ namespace Parsek.Tests
             var node = new ConfigNode("TEST");
             RecordingStore.SerializeTrajectoryInto(node, rec);
 
-            var loaded = new RecordingStore.Recording();
+            var loaded = new Recording();
             RecordingStore.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
@@ -1416,7 +1416,7 @@ namespace Parsek.Tests
         [Fact]
         public void PartEvents_SerializationRoundtrip_CargoBayOpened()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
             rec.Points.Add(new TrajectoryPoint { ut = 110, bodyName = "Kerbin" });
             rec.PartEvents.Add(new PartEvent
@@ -1430,7 +1430,7 @@ namespace Parsek.Tests
             var node = new ConfigNode("TEST");
             RecordingStore.SerializeTrajectoryInto(node, rec);
 
-            var loaded = new RecordingStore.Recording();
+            var loaded = new Recording();
             RecordingStore.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
@@ -1443,7 +1443,7 @@ namespace Parsek.Tests
         [Fact]
         public void PartEvents_SerializationRoundtrip_CargoBayClosed()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
             rec.Points.Add(new TrajectoryPoint { ut = 110, bodyName = "Kerbin" });
             rec.PartEvents.Add(new PartEvent
@@ -1457,7 +1457,7 @@ namespace Parsek.Tests
             var node = new ConfigNode("TEST");
             RecordingStore.SerializeTrajectoryInto(node, rec);
 
-            var loaded = new RecordingStore.Recording();
+            var loaded = new Recording();
             RecordingStore.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
@@ -1508,7 +1508,7 @@ namespace Parsek.Tests
         [Fact]
         public void FairingJettisoned_SerializationRoundtrip()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
             rec.Points.Add(new TrajectoryPoint { ut = 110, bodyName = "Kerbin" });
             rec.PartEvents.Add(new PartEvent
@@ -1522,7 +1522,7 @@ namespace Parsek.Tests
             var node = new ConfigNode("TEST");
             RecordingStore.SerializeTrajectoryInto(node, rec);
 
-            var loaded = new RecordingStore.Recording();
+            var loaded = new Recording();
             RecordingStore.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
@@ -1729,7 +1729,7 @@ namespace Parsek.Tests
         [Fact]
         public void RCSActivated_SerializationRoundtrip()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
             rec.Points.Add(new TrajectoryPoint { ut = 110, bodyName = "Kerbin" });
             rec.PartEvents.Add(new PartEvent
@@ -1745,7 +1745,7 @@ namespace Parsek.Tests
             var node = new ConfigNode("TEST");
             RecordingStore.SerializeTrajectoryInto(node, rec);
 
-            var loaded = new RecordingStore.Recording();
+            var loaded = new Recording();
             RecordingStore.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
@@ -1759,7 +1759,7 @@ namespace Parsek.Tests
         [Fact]
         public void RCSStopped_SerializationRoundtrip()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
             rec.Points.Add(new TrajectoryPoint { ut = 110, bodyName = "Kerbin" });
             rec.PartEvents.Add(new PartEvent
@@ -1774,7 +1774,7 @@ namespace Parsek.Tests
             var node = new ConfigNode("TEST");
             RecordingStore.SerializeTrajectoryInto(node, rec);
 
-            var loaded = new RecordingStore.Recording();
+            var loaded = new Recording();
             RecordingStore.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
@@ -1785,7 +1785,7 @@ namespace Parsek.Tests
         [Fact]
         public void RCSThrottle_SerializationRoundtrip()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
             rec.Points.Add(new TrajectoryPoint { ut = 120, bodyName = "Kerbin" });
             rec.PartEvents.Add(new PartEvent
@@ -1809,7 +1809,7 @@ namespace Parsek.Tests
             var node = new ConfigNode("TEST");
             RecordingStore.SerializeTrajectoryInto(node, rec);
 
-            var loaded = new RecordingStore.Recording();
+            var loaded = new Recording();
             RecordingStore.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Equal(2, loaded.PartEvents.Count);
@@ -1954,7 +1954,7 @@ namespace Parsek.Tests
         [Fact]
         public void RoboticsPositionSample_SerializationRoundtrip()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
             rec.Points.Add(new TrajectoryPoint { ut = 120, bodyName = "Kerbin" });
             rec.PartEvents.Add(new PartEvent
@@ -1970,7 +1970,7 @@ namespace Parsek.Tests
             var node = new ConfigNode("TEST");
             RecordingStore.SerializeTrajectoryInto(node, rec);
 
-            var loaded = new RecordingStore.Recording();
+            var loaded = new Recording();
             RecordingStore.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
@@ -2187,7 +2187,7 @@ namespace Parsek.Tests
         [Fact]
         public void AnimateHeatEvent_SerializationRoundtrip()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
             rec.Points.Add(new TrajectoryPoint { ut = 120, bodyName = "Kerbin" });
             rec.PartEvents.Add(new PartEvent
@@ -2203,7 +2203,7 @@ namespace Parsek.Tests
             var node = new ConfigNode("TEST");
             RecordingStore.SerializeTrajectoryInto(node, rec);
 
-            var loaded = new RecordingStore.Recording();
+            var loaded = new Recording();
             RecordingStore.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
@@ -2216,7 +2216,7 @@ namespace Parsek.Tests
         [Fact]
         public void ThermalAnimationMedium_SerializationRoundtrip()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
             rec.Points.Add(new TrajectoryPoint { ut = 120, bodyName = "Kerbin" });
             rec.PartEvents.Add(new PartEvent
@@ -2232,7 +2232,7 @@ namespace Parsek.Tests
             var node = new ConfigNode("TEST");
             RecordingStore.SerializeTrajectoryInto(node, rec);
 
-            var loaded = new RecordingStore.Recording();
+            var loaded = new Recording();
             RecordingStore.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
@@ -2245,7 +2245,7 @@ namespace Parsek.Tests
         [Fact]
         public void UnknownPartEventType_SkippedDuringDeserialization()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.RecordingId = "test-forward-compat";
             rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
             rec.Points.Add(new TrajectoryPoint { ut = 120, bodyName = "Kerbin" });
@@ -2272,7 +2272,7 @@ namespace Parsek.Tests
             unknownEvtNode.AddValue("value", "1");
             node.AddNode(unknownEvtNode);
 
-            var loaded = new RecordingStore.Recording();
+            var loaded = new Recording();
             loaded.RecordingId = "test-forward-compat";
             RecordingStore.DeserializeTrajectoryFrom(node, loaded);
 
@@ -2289,7 +2289,7 @@ namespace Parsek.Tests
         [Fact]
         public void EngineEvent_SerializationRoundtrip_ValueAndModuleIndex()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
             rec.Points.Add(new TrajectoryPoint { ut = 110, bodyName = "Kerbin" });
             rec.PartEvents.Add(new PartEvent
@@ -2305,7 +2305,7 @@ namespace Parsek.Tests
             var node = new ConfigNode("TEST");
             RecordingStore.SerializeTrajectoryInto(node, rec);
 
-            var loaded = new RecordingStore.Recording();
+            var loaded = new Recording();
             RecordingStore.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Single(loaded.PartEvents);
@@ -2328,7 +2328,7 @@ namespace Parsek.Tests
             evtNode.AddValue("part", "fuelTank");
             // No "value" or "midx" keys
 
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             RecordingStore.DeserializeTrajectoryFrom(node, rec);
 
             Assert.Single(rec.PartEvents);
@@ -2340,7 +2340,7 @@ namespace Parsek.Tests
         [Fact]
         public void EngineThrottle_SerializationRoundtrip()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.Points.Add(new TrajectoryPoint { ut = 100, bodyName = "Kerbin" });
             rec.Points.Add(new TrajectoryPoint { ut = 120, bodyName = "Kerbin" });
             rec.PartEvents.Add(new PartEvent
@@ -2365,7 +2365,7 @@ namespace Parsek.Tests
             var node = new ConfigNode("TEST");
             RecordingStore.SerializeTrajectoryInto(node, rec);
 
-            var loaded = new RecordingStore.Recording();
+            var loaded = new Recording();
             RecordingStore.DeserializeTrajectoryFrom(node, loaded);
 
             Assert.Equal(2, loaded.PartEvents.Count);

@@ -320,7 +320,7 @@ namespace Parsek.Tests
             };
 
             // Root recording (terminated)
-            tree.Recordings["root_rec"] = new RecordingStore.Recording
+            tree.Recordings["root_rec"] = new Recording
             {
                 RecordingId = "root_rec",
                 VesselPersistentId = 50,

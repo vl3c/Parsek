@@ -50,7 +50,7 @@ namespace Parsek.Tests
         public void ComputeTreeDurationRange_SingleRecording_ReturnsDuration()
         {
             var tree = new RecordingTree();
-            tree.Recordings["r1"] = new RecordingStore.Recording
+            tree.Recordings["r1"] = new Recording
             {
                 ExplicitStartUT =100,
                 ExplicitEndUT =250
@@ -63,12 +63,12 @@ namespace Parsek.Tests
         public void ComputeTreeDurationRange_MultipleRecordings_ReturnsFullSpan()
         {
             var tree = new RecordingTree();
-            tree.Recordings["r1"] = new RecordingStore.Recording
+            tree.Recordings["r1"] = new Recording
             {
                 ExplicitStartUT =100,
                 ExplicitEndUT =200
             };
-            tree.Recordings["r2"] = new RecordingStore.Recording
+            tree.Recordings["r2"] = new Recording
             {
                 ExplicitStartUT =150,
                 ExplicitEndUT =400
@@ -82,12 +82,12 @@ namespace Parsek.Tests
         public void ComputeTreeDurationRange_OverlappingRecordings_CorrectSpan()
         {
             var tree = new RecordingTree();
-            tree.Recordings["r1"] = new RecordingStore.Recording
+            tree.Recordings["r1"] = new Recording
             {
                 ExplicitStartUT =50,
                 ExplicitEndUT =200
             };
-            tree.Recordings["r2"] = new RecordingStore.Recording
+            tree.Recordings["r2"] = new Recording
             {
                 ExplicitStartUT =100,
                 ExplicitEndUT =150
@@ -111,18 +111,18 @@ namespace Parsek.Tests
         [Fact]
         public void CountDestroyedLeaves_EmptyList_ReturnsZero()
         {
-            int result = MergeDialog.CountDestroyedLeaves(new List<RecordingStore.Recording>());
+            int result = MergeDialog.CountDestroyedLeaves(new List<Recording>());
             Assert.Equal(0, result);
         }
 
         [Fact]
         public void CountDestroyedLeaves_NoDestroyed_ReturnsZero()
         {
-            var leaves = new List<RecordingStore.Recording>
+            var leaves = new List<Recording>
             {
-                new RecordingStore.Recording { TerminalStateValue = TerminalState.Landed },
-                new RecordingStore.Recording { TerminalStateValue = TerminalState.Orbiting },
-                new RecordingStore.Recording { TerminalStateValue = null }
+                new Recording { TerminalStateValue = TerminalState.Landed },
+                new Recording { TerminalStateValue = TerminalState.Orbiting },
+                new Recording { TerminalStateValue = null }
             };
             int result = MergeDialog.CountDestroyedLeaves(leaves);
             Assert.Equal(0, result);
@@ -131,12 +131,12 @@ namespace Parsek.Tests
         [Fact]
         public void CountDestroyedLeaves_SomeDestroyed_ReturnsCount()
         {
-            var leaves = new List<RecordingStore.Recording>
+            var leaves = new List<Recording>
             {
-                new RecordingStore.Recording { TerminalStateValue = TerminalState.Destroyed },
-                new RecordingStore.Recording { TerminalStateValue = TerminalState.Landed },
-                new RecordingStore.Recording { TerminalStateValue = TerminalState.Destroyed },
-                new RecordingStore.Recording { TerminalStateValue = TerminalState.Orbiting }
+                new Recording { TerminalStateValue = TerminalState.Destroyed },
+                new Recording { TerminalStateValue = TerminalState.Landed },
+                new Recording { TerminalStateValue = TerminalState.Destroyed },
+                new Recording { TerminalStateValue = TerminalState.Orbiting }
             };
             int result = MergeDialog.CountDestroyedLeaves(leaves);
             Assert.Equal(2, result);
@@ -145,10 +145,10 @@ namespace Parsek.Tests
         [Fact]
         public void CountDestroyedLeaves_AllDestroyed_ReturnsTotal()
         {
-            var leaves = new List<RecordingStore.Recording>
+            var leaves = new List<Recording>
             {
-                new RecordingStore.Recording { TerminalStateValue = TerminalState.Destroyed },
-                new RecordingStore.Recording { TerminalStateValue = TerminalState.Destroyed }
+                new Recording { TerminalStateValue = TerminalState.Destroyed },
+                new Recording { TerminalStateValue = TerminalState.Destroyed }
             };
             int result = MergeDialog.CountDestroyedLeaves(leaves);
             Assert.Equal(2, result);
@@ -157,10 +157,10 @@ namespace Parsek.Tests
         [Fact]
         public void CountDestroyedLeaves_NullTerminalState_NotCounted()
         {
-            var leaves = new List<RecordingStore.Recording>
+            var leaves = new List<Recording>
             {
-                new RecordingStore.Recording { TerminalStateValue = null },
-                new RecordingStore.Recording { TerminalStateValue = null }
+                new Recording { TerminalStateValue = null },
+                new Recording { TerminalStateValue = null }
             };
             int result = MergeDialog.CountDestroyedLeaves(leaves);
             Assert.Equal(0, result);
@@ -174,7 +174,7 @@ namespace Parsek.Tests
         public void BuildTreeDialogMessage_BasicTree_ContainsTreeName()
         {
             var tree = new RecordingTree { TreeName = "MyRocket" };
-            tree.Recordings["r1"] = new RecordingStore.Recording
+            tree.Recordings["r1"] = new Recording
             {
                 RecordingId = "r1",
                 VesselName = "MyRocket",
@@ -184,8 +184,8 @@ namespace Parsek.Tests
                 TerminalPosition = new SurfacePosition { body = "Kerbin" }
             };
 
-            var allLeaves = new List<RecordingStore.Recording> { tree.Recordings["r1"] };
-            var spawnableLeaves = new List<RecordingStore.Recording> { tree.Recordings["r1"] };
+            var allLeaves = new List<Recording> { tree.Recordings["r1"] };
+            var spawnableLeaves = new List<Recording> { tree.Recordings["r1"] };
 
             int surviving, destroyed;
             string message = MergeDialog.BuildTreeDialogMessage(
@@ -201,7 +201,7 @@ namespace Parsek.Tests
         public void BuildTreeDialogMessage_AllDestroyed_ShowsLostFooter()
         {
             var tree = new RecordingTree { TreeName = "Doomed" };
-            tree.Recordings["r1"] = new RecordingStore.Recording
+            tree.Recordings["r1"] = new Recording
             {
                 RecordingId = "r1",
                 VesselName = "Doomed",
@@ -210,8 +210,8 @@ namespace Parsek.Tests
                 TerminalStateValue = TerminalState.Destroyed
             };
 
-            var allLeaves = new List<RecordingStore.Recording> { tree.Recordings["r1"] };
-            var spawnableLeaves = new List<RecordingStore.Recording>();
+            var allLeaves = new List<Recording> { tree.Recordings["r1"] };
+            var spawnableLeaves = new List<Recording>();
 
             int surviving, destroyed;
             string message = MergeDialog.BuildTreeDialogMessage(
@@ -227,7 +227,7 @@ namespace Parsek.Tests
         public void BuildTreeDialogMessage_SurvivingVessels_ShowsAppearFooter()
         {
             var tree = new RecordingTree { TreeName = "Explorer" };
-            tree.Recordings["r1"] = new RecordingStore.Recording
+            tree.Recordings["r1"] = new Recording
             {
                 RecordingId = "r1",
                 VesselName = "Explorer",
@@ -237,8 +237,8 @@ namespace Parsek.Tests
                 TerminalOrbitBody = "Kerbin"
             };
 
-            var allLeaves = new List<RecordingStore.Recording> { tree.Recordings["r1"] };
-            var spawnableLeaves = new List<RecordingStore.Recording> { tree.Recordings["r1"] };
+            var allLeaves = new List<Recording> { tree.Recordings["r1"] };
+            var spawnableLeaves = new List<Recording> { tree.Recordings["r1"] };
 
             int surviving, destroyed;
             string message = MergeDialog.BuildTreeDialogMessage(
@@ -257,7 +257,7 @@ namespace Parsek.Tests
                 TreeName = "MultiVessel",
                 ActiveRecordingId = "r2"
             };
-            tree.Recordings["r1"] = new RecordingStore.Recording
+            tree.Recordings["r1"] = new Recording
             {
                 RecordingId = "r1",
                 VesselName = "Booster",
@@ -265,7 +265,7 @@ namespace Parsek.Tests
                 ExplicitEndUT =150,
                 TerminalStateValue = TerminalState.Destroyed
             };
-            tree.Recordings["r2"] = new RecordingStore.Recording
+            tree.Recordings["r2"] = new Recording
             {
                 RecordingId = "r2",
                 VesselName = "Capsule",
@@ -275,12 +275,12 @@ namespace Parsek.Tests
                 TerminalPosition = new SurfacePosition { body = "Kerbin" }
             };
 
-            var allLeaves = new List<RecordingStore.Recording>
+            var allLeaves = new List<Recording>
             {
                 tree.Recordings["r1"],
                 tree.Recordings["r2"]
             };
-            var spawnableLeaves = new List<RecordingStore.Recording>
+            var spawnableLeaves = new List<Recording>
             {
                 tree.Recordings["r2"]
             };
@@ -302,7 +302,7 @@ namespace Parsek.Tests
         public void BuildTreeDialogMessage_MultipleVessels_PluralText()
         {
             var tree = new RecordingTree { TreeName = "Fleet" };
-            tree.Recordings["r1"] = new RecordingStore.Recording
+            tree.Recordings["r1"] = new Recording
             {
                 RecordingId = "r1",
                 VesselName = "Ship1",
@@ -311,7 +311,7 @@ namespace Parsek.Tests
                 TerminalStateValue = TerminalState.Orbiting,
                 TerminalOrbitBody = "Kerbin"
             };
-            tree.Recordings["r2"] = new RecordingStore.Recording
+            tree.Recordings["r2"] = new Recording
             {
                 RecordingId = "r2",
                 VesselName = "Ship2",
@@ -321,12 +321,12 @@ namespace Parsek.Tests
                 TerminalOrbitBody = "Kerbin"
             };
 
-            var allLeaves = new List<RecordingStore.Recording>
+            var allLeaves = new List<Recording>
             {
                 tree.Recordings["r1"],
                 tree.Recordings["r2"]
             };
-            var spawnableLeaves = new List<RecordingStore.Recording>
+            var spawnableLeaves = new List<Recording>
             {
                 tree.Recordings["r1"],
                 tree.Recordings["r2"]
@@ -345,7 +345,7 @@ namespace Parsek.Tests
         public void BuildTreeDialogMessage_NullSpawnable_ZeroSurviving()
         {
             var tree = new RecordingTree { TreeName = "Test" };
-            tree.Recordings["r1"] = new RecordingStore.Recording
+            tree.Recordings["r1"] = new Recording
             {
                 RecordingId = "r1",
                 VesselName = "Test",
@@ -354,7 +354,7 @@ namespace Parsek.Tests
                 TerminalStateValue = TerminalState.Destroyed
             };
 
-            var allLeaves = new List<RecordingStore.Recording> { tree.Recordings["r1"] };
+            var allLeaves = new List<Recording> { tree.Recordings["r1"] };
 
             int surviving, destroyed;
             string message = MergeDialog.BuildTreeDialogMessage(
@@ -368,7 +368,7 @@ namespace Parsek.Tests
         public void BuildTreeDialogMessage_DurationFormatted()
         {
             var tree = new RecordingTree { TreeName = "LongFlight" };
-            tree.Recordings["r1"] = new RecordingStore.Recording
+            tree.Recordings["r1"] = new Recording
             {
                 RecordingId = "r1",
                 VesselName = "LongFlight",
@@ -378,8 +378,8 @@ namespace Parsek.Tests
                 TerminalOrbitBody = "Kerbin"
             };
 
-            var allLeaves = new List<RecordingStore.Recording> { tree.Recordings["r1"] };
-            var spawnableLeaves = new List<RecordingStore.Recording> { tree.Recordings["r1"] };
+            var allLeaves = new List<Recording> { tree.Recordings["r1"] };
+            var spawnableLeaves = new List<Recording> { tree.Recordings["r1"] };
 
             int surviving, destroyed;
             string message = MergeDialog.BuildTreeDialogMessage(

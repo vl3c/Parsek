@@ -1162,12 +1162,12 @@ namespace Parsek
         /// and resource application index for each recording.
         /// </summary>
         private static void LoadStandaloneRecordingsFromNodes(
-            ConfigNode[] recNodes, List<RecordingStore.Recording> recordings)
+            ConfigNode[] recNodes, List<Recording> recordings)
         {
             for (int r = 0; r < recNodes.Length; r++)
             {
                 var recNode = recNodes[r];
-                var rec = new RecordingStore.Recording
+                var rec = new Recording
                 {
                     VesselName = recNode.GetValue("vesselName") ?? "Unknown"
                 };
@@ -1259,7 +1259,7 @@ namespace Parsek
         }
 
         private static void RestoreStandaloneMutableState(
-            List<RecordingStore.Recording> recordings, ConfigNode[] savedRecNodes)
+            List<Recording> recordings, ConfigNode[] savedRecNodes)
         {
             var savedRecById = new Dictionary<string, ConfigNode>(savedRecNodes.Length);
             for (int s = 0; s < savedRecNodes.Length; s++)
@@ -1310,7 +1310,7 @@ namespace Parsek
             }
         }
 
-        private static void SaveStandaloneRecordings(ConfigNode node, List<RecordingStore.Recording> recordings)
+        private static void SaveStandaloneRecordings(ConfigNode node, List<Recording> recordings)
         {
             for (int r = 0; r < recordings.Count; r++)
             {
@@ -1366,13 +1366,13 @@ namespace Parsek
         /// Saves versioned recording metadata and ghost-geometry metadata.
         /// Extracted for testability.
         /// </summary>
-        internal static void SaveRecordingMetadata(ConfigNode recNode, RecordingStore.Recording rec)
+        internal static void SaveRecordingMetadata(ConfigNode recNode, Recording rec)
         {
             recNode.AddValue("recordingId", rec.RecordingId ?? "");
             recNode.AddValue("recordingFormatVersion", rec.RecordingFormatVersion);
             recNode.AddValue("loopPlayback", rec.LoopPlayback);
             recNode.AddValue("loopIntervalSeconds", rec.LoopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture));
-            if (rec.LoopTimeUnit != RecordingStore.LoopTimeUnit.Sec)
+            if (rec.LoopTimeUnit != LoopTimeUnit.Sec)
                 recNode.AddValue("loopTimeUnit", rec.LoopTimeUnit.ToString());
             if (rec.PreLaunchFunds != 0)
                 recNode.AddValue("preLaunchFunds", rec.PreLaunchFunds.ToString("R", CultureInfo.InvariantCulture));
@@ -1414,7 +1414,7 @@ namespace Parsek
         /// Missing fields are treated as old-format recordings.
         /// Extracted for testability.
         /// </summary>
-        internal static void LoadRecordingMetadata(ConfigNode recNode, RecordingStore.Recording rec)
+        internal static void LoadRecordingMetadata(ConfigNode recNode, Recording rec)
         {
             string id = recNode.GetValue("recordingId");
             if (!string.IsNullOrEmpty(id))
@@ -1456,7 +1456,7 @@ namespace Parsek
             string loopTimeUnitStr = recNode.GetValue("loopTimeUnit");
             if (loopTimeUnitStr != null)
             {
-                RecordingStore.LoopTimeUnit loopTimeUnit;
+                LoopTimeUnit loopTimeUnit;
                 if (System.Enum.TryParse(loopTimeUnitStr, out loopTimeUnit))
                     rec.LoopTimeUnit = loopTimeUnit;
             }
@@ -2158,7 +2158,7 @@ namespace Parsek
         /// Prepares a standalone pending recording for ghost-only commit (no vessel spawn).
         /// Nulls vessel snapshot and unreserves crew. Call RecordingStore.CommitPending() after this.
         /// </summary>
-        private static void AutoCommitGhostOnly(RecordingStore.Recording pending)
+        private static void AutoCommitGhostOnly(Recording pending)
         {
             UnreserveCrewInSnapshot(pending.VesselSnapshot);
             pending.VesselSnapshot = null;
@@ -2304,7 +2304,7 @@ namespace Parsek
         /// Checks if a recording matches the given vessel name.
         /// Uses name-based matching (ProtoVessel doesn't expose vessel persistentId directly).
         /// </summary>
-        private static bool MatchesVessel(RecordingStore.Recording rec, string vesselName)
+        private static bool MatchesVessel(Recording rec, string vesselName)
         {
             return !string.IsNullOrEmpty(rec.VesselName)
                 && string.Equals(rec.VesselName, vesselName, StringComparison.Ordinal);

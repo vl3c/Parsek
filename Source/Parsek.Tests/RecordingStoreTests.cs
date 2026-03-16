@@ -127,7 +127,7 @@ namespace Parsek.Tests
         [Fact]
         public void Recording_StartUT_EndUT_EmptyPoints()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             Assert.Equal(0, rec.StartUT);
             Assert.Equal(0, rec.EndUT);
         }
@@ -148,7 +148,7 @@ namespace Parsek.Tests
         [Fact]
         public void Recording_DistanceAndDestroyed_DefaultValues()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
 
             Assert.Equal(0, rec.DistanceFromLaunch);
             Assert.False(rec.VesselDestroyed);
@@ -159,7 +159,7 @@ namespace Parsek.Tests
         [Fact]
         public void Recording_DefaultFields()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
 
             Assert.False(rec.VesselSpawned);
             Assert.Equal(0u, rec.SpawnedVesselPersistentId);
@@ -173,7 +173,7 @@ namespace Parsek.Tests
         [Fact]
         public void Recording_DistanceFields_Roundtrip()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.DistanceFromLaunch = 12345.67;
             rec.MaxDistanceFromLaunch = 99999.99;
 
@@ -184,7 +184,7 @@ namespace Parsek.Tests
         [Fact]
         public void Recording_SpawnFields_Roundtrip()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.VesselSpawned = true;
             rec.SpawnedVesselPersistentId = 42u;
 
@@ -195,7 +195,7 @@ namespace Parsek.Tests
         [Fact]
         public void Recording_LastAppliedResourceIndex_Tracks()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.LastAppliedResourceIndex = 5;
 
             Assert.Equal(5, rec.LastAppliedResourceIndex);
@@ -255,7 +255,7 @@ namespace Parsek.Tests
             vesselSnapshot.AddValue("name", "Vessel A");
             var ghostSnapshot = new ConfigNode("VESSEL");
             ghostSnapshot.AddValue("name", "Ghost A");
-            var source = new RecordingStore.Recording
+            var source = new Recording
             {
                 RecordingId = "abc",
                 RecordingFormatVersion = 9,
@@ -269,7 +269,7 @@ namespace Parsek.Tests
             source.Points.AddRange(MakePoints(4));
             source.OrbitSegments.Add(new OrbitSegment { startUT = 1, endUT = 2, bodyName = "Kerbin" });
 
-            var target = new RecordingStore.Recording
+            var target = new Recording
             {
                 VesselName = "Target",
                 Points = MakePoints(2),
@@ -304,7 +304,7 @@ namespace Parsek.Tests
         [Fact]
         public void ApplyPersistenceArtifactsFrom_DoesNotCopyLegacyGhostGeometryFields()
         {
-            var source = new RecordingStore.Recording
+            var source = new Recording
             {
                 RecordingId = "src",
                 // Simulate a legacy recording that had ghost geometry fields populated
@@ -317,7 +317,7 @@ namespace Parsek.Tests
             };
             source.Points.AddRange(MakePoints(3));
 
-            var target = new RecordingStore.Recording { VesselName = "Target", Points = MakePoints(2) };
+            var target = new Recording { VesselName = "Target", Points = MakePoints(2) };
             target.ApplyPersistenceArtifactsFrom(source);
 
             // Ghost geometry fields must NOT transfer — they are dead legacy fields
@@ -332,7 +332,7 @@ namespace Parsek.Tests
         [Fact]
         public void RecordingMetadata_SaveLoad_RoundTrip()
         {
-            var source = new RecordingStore.Recording
+            var source = new Recording
             {
                 RecordingId = "meta123",
                 RecordingFormatVersion = 12,
@@ -343,7 +343,7 @@ namespace Parsek.Tests
             var node = new ConfigNode("RECORDING");
             ParsekScenario.SaveRecordingMetadata(node, source);
 
-            var loaded = new RecordingStore.Recording();
+            var loaded = new Recording();
             ParsekScenario.LoadRecordingMetadata(node, loaded);
 
             Assert.Equal("meta123", loaded.RecordingId);
@@ -362,7 +362,7 @@ namespace Parsek.Tests
         public void RecordingMetadata_Load_MissingFields_KeepsDefaults()
         {
             var node = new ConfigNode("RECORDING");
-            var loaded = new RecordingStore.Recording();
+            var loaded = new Recording();
 
             string defaultId = loaded.RecordingId;
             int defaultRecVer = loaded.RecordingFormatVersion;
@@ -389,7 +389,7 @@ namespace Parsek.Tests
             node.AddValue("ghostGeometryAvailable", "True");
             node.AddValue("ghostGeometryError", "none");
 
-            var loaded = new RecordingStore.Recording();
+            var loaded = new Recording();
             ParsekScenario.LoadRecordingMetadata(node, loaded);
 
             Assert.Equal("legacy-rec", loaded.RecordingId);
@@ -401,7 +401,7 @@ namespace Parsek.Tests
         [Fact]
         public void DeleteRecordingFiles_NoId_DoesNotThrow()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.RecordingId = null;
             RecordingStore.DeleteRecordingFiles(rec);
         }
@@ -409,7 +409,7 @@ namespace Parsek.Tests
         [Fact]
         public void DeleteRecordingFiles_NoSaveContext_DoesNotThrow()
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 RecordingId = "test123"
             };
@@ -490,7 +490,7 @@ namespace Parsek.Tests
         [Fact]
         public void GetGhostSnapshot_PrefersGhostVisualOverVesselSnapshot()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             var vessel = new ConfigNode("VESSEL");
             vessel.AddValue("name", "EndSnapshot");
             var ghost = new ConfigNode("VESSEL");
@@ -506,7 +506,7 @@ namespace Parsek.Tests
         [Fact]
         public void GetGhostSnapshot_ReturnsGhostWhenVesselSnapshotIsNull()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             var ghost = new ConfigNode("VESSEL");
             ghost.AddValue("name", "StartSnapshot");
             rec.VesselSnapshot = null;
@@ -521,7 +521,7 @@ namespace Parsek.Tests
         [Fact]
         public void GetGhostSnapshot_BothNull_ReturnsNull()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.VesselSnapshot = null;
             rec.GhostVisualSnapshot = null;
 
@@ -537,7 +537,7 @@ namespace Parsek.Tests
         [Fact]
         public void GetGhostSnapshot_OnlyVesselSnapshot_ReturnsFallback()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             var vessel = new ConfigNode("VESSEL");
             vessel.AddValue("name", "VesselFallback");
             rec.VesselSnapshot = vessel;
@@ -616,7 +616,7 @@ namespace Parsek.Tests
             var result = RecordingStore.GetRecommendedAction(
                 destroyed: true, hasSnapshot: true);
 
-            Assert.Equal(RecordingStore.MergeDefault.GhostOnly, result);
+            Assert.Equal(MergeDefault.GhostOnly, result);
         }
     }
 
@@ -911,12 +911,12 @@ namespace Parsek.Tests
         [Fact]
         public void BuildMergeMessage_GhostOnly_Destroyed_MentionsDestroyed()
         {
-            var rec = new RecordingStore.Recording { VesselName = "Boom" };
+            var rec = new Recording { VesselName = "Boom" };
             rec.Points.AddRange(MakePoints(5));
             rec.VesselDestroyed = true;
 
             string msg = MergeDialog.BuildMergeMessage(rec, 60,
-                RecordingStore.MergeDefault.GhostOnly);
+                MergeDefault.GhostOnly);
 
             Assert.Contains("destroyed", msg);
         }
@@ -924,12 +924,12 @@ namespace Parsek.Tests
         [Fact]
         public void BuildMergeMessage_GhostOnly_NotDestroyed_DoesNotMentionDestroyed()
         {
-            var rec = new RecordingStore.Recording { VesselName = "Phantom" };
+            var rec = new Recording { VesselName = "Phantom" };
             rec.Points.AddRange(MakePoints(5));
             rec.VesselDestroyed = false;
 
             string msg = MergeDialog.BuildMergeMessage(rec, 60,
-                RecordingStore.MergeDefault.GhostOnly);
+                MergeDefault.GhostOnly);
 
             Assert.DoesNotContain("destroyed", msg);
             Assert.Contains("Recording captured", msg);
@@ -938,13 +938,13 @@ namespace Parsek.Tests
         [Fact]
         public void BuildMergeMessage_Persist_ShortDistance_MentionsMaxDistance()
         {
-            var rec = new RecordingStore.Recording { VesselName = "Orbiter" };
+            var rec = new Recording { VesselName = "Orbiter" };
             rec.Points.AddRange(MakePoints(10));
             rec.DistanceFromLaunch = 50;
             rec.MaxDistanceFromLaunch = 500000;
 
             string msg = MergeDialog.BuildMergeMessage(rec, 300,
-                RecordingStore.MergeDefault.Persist);
+                MergeDefault.Persist);
 
             Assert.Contains("500000", msg);
             Assert.Contains("persist", msg, System.StringComparison.OrdinalIgnoreCase);
@@ -953,13 +953,13 @@ namespace Parsek.Tests
         [Fact]
         public void BuildMergeMessage_Persist_FarDistance_MentionsSituation()
         {
-            var rec = new RecordingStore.Recording { VesselName = "Explorer" };
+            var rec = new Recording { VesselName = "Explorer" };
             rec.Points.AddRange(MakePoints(10));
             rec.DistanceFromLaunch = 500;
             rec.VesselSituation = "Orbiting Kerbin";
 
             string msg = MergeDialog.BuildMergeMessage(rec, 300,
-                RecordingStore.MergeDefault.Persist);
+                MergeDefault.Persist);
 
             Assert.Contains("Orbiting Kerbin", msg);
         }
@@ -967,11 +967,11 @@ namespace Parsek.Tests
         [Fact]
         public void BuildMergeMessage_IncludesPointCount()
         {
-            var rec = new RecordingStore.Recording { VesselName = "Ship" };
+            var rec = new Recording { VesselName = "Ship" };
             rec.Points.AddRange(MakePoints(7));
 
             string msg = MergeDialog.BuildMergeMessage(rec, 60,
-                RecordingStore.MergeDefault.GhostOnly);
+                MergeDefault.GhostOnly);
 
             Assert.Contains("7", msg);
         }
@@ -979,11 +979,11 @@ namespace Parsek.Tests
         [Fact]
         public void BuildMergeMessage_IncludesDuration()
         {
-            var rec = new RecordingStore.Recording { VesselName = "Ship" };
+            var rec = new Recording { VesselName = "Ship" };
             rec.Points.AddRange(MakePoints(3));
 
             string msg = MergeDialog.BuildMergeMessage(rec, 45.3,
-                RecordingStore.MergeDefault.GhostOnly);
+                MergeDefault.GhostOnly);
 
             // Duration is locale-formatted ("45.3" or "45,3"), just check it contains "45"
             Assert.Contains("45", msg);
@@ -993,7 +993,7 @@ namespace Parsek.Tests
         [Fact]
         public void SyncVersionFromPrecFile_UpgradesStaleMetadata()
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 RecordingId = "synctest",
                 RecordingFormatVersion = 4
@@ -1010,7 +1010,7 @@ namespace Parsek.Tests
         [Fact]
         public void SyncVersionFromPrecFile_DoesNotDowngrade()
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 RecordingId = "synctest",
                 RecordingFormatVersion = 5
@@ -1027,7 +1027,7 @@ namespace Parsek.Tests
         [Fact]
         public void SyncVersionFromPrecFile_NoVersionField_NoChange()
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 RecordingId = "synctest",
                 RecordingFormatVersion = 4

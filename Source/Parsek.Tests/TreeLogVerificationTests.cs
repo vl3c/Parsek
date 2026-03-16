@@ -27,9 +27,9 @@ namespace Parsek.Tests
             MilestoneStore.SuppressLogging = true;
         }
 
-        private RecordingStore.Recording MakeTreeRecording(string id, string treeId, string vesselName = "Ship")
+        private Recording MakeTreeRecording(string id, string treeId, string vesselName = "Ship")
         {
-            return new RecordingStore.Recording
+            return new Recording
             {
                 RecordingId = id,
                 TreeId = treeId,
@@ -127,7 +127,7 @@ namespace Parsek.Tests
             var trees = new List<RecordingTree> { treeA, treeB };
 
             ResourceBudget.ComputeTotal(
-                new List<RecordingStore.Recording>(),
+                new List<Recording>(),
                 new List<Milestone>(),
                 trees);
 

@@ -210,7 +210,7 @@ namespace Parsek.Tests
         [Fact]
         public void ApplyDestroyedFallback_WasDestroyed_NullTerminal_SetsDestroyed()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.TerminalStateValue = null;
 
             bool result = ParsekFlight.ApplyDestroyedFallback(true, rec);
@@ -223,7 +223,7 @@ namespace Parsek.Tests
         [Fact]
         public void ApplyDestroyedFallback_WasDestroyed_LandedTerminal_OverridesToDestroyed()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.TerminalStateValue = TerminalState.Landed;
 
             bool result = ParsekFlight.ApplyDestroyedFallback(true, rec);
@@ -236,7 +236,7 @@ namespace Parsek.Tests
         [Fact]
         public void ApplyDestroyedFallback_WasDestroyed_AlreadyDestroyed_NoChange()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.TerminalStateValue = TerminalState.Destroyed;
 
             bool result = ParsekFlight.ApplyDestroyedFallback(true, rec);
@@ -248,7 +248,7 @@ namespace Parsek.Tests
         [Fact]
         public void ApplyDestroyedFallback_NotDestroyed_NullTerminal_NoChange()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.TerminalStateValue = null;
 
             bool result = ParsekFlight.ApplyDestroyedFallback(false, rec);
@@ -260,7 +260,7 @@ namespace Parsek.Tests
         [Fact]
         public void ApplyDestroyedFallback_NotDestroyed_LandedTerminal_NoChange()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
             rec.TerminalStateValue = TerminalState.Landed;
 
             bool result = ParsekFlight.ApplyDestroyedFallback(false, rec);

@@ -193,7 +193,7 @@ namespace Parsek
         /// bodyLookup("Kerbin") should return [radius, gravParameter] or null.
         /// </summary>
         internal static RecordingStats ComputeStats(
-            RecordingStore.Recording rec,
+            Recording rec,
             System.Func<string, double[]> bodyLookup = null)
         {
             var stats = new RecordingStats();

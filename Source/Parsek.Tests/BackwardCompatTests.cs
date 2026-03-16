@@ -23,10 +23,10 @@ namespace Parsek.Tests
         /// Helper: creates a recording with trajectory points and PreLaunchFunds set.
         /// TreeId is left null (standalone/legacy recording).
         /// </summary>
-        private RecordingStore.Recording MakeStandaloneRecording(
+        private Recording MakeStandaloneRecording(
             double preLaunchFunds, double endFunds)
         {
-            var rec = new RecordingStore.Recording
+            var rec = new Recording
             {
                 PreLaunchFunds = preLaunchFunds
             };
@@ -57,7 +57,7 @@ namespace Parsek.Tests
         [Fact]
         public void LegacyRecording_TreeFieldsDefaultToNull()
         {
-            var rec = new RecordingStore.Recording();
+            var rec = new Recording();
 
             Assert.Null(rec.TreeId);
             Assert.Null(rec.TerminalStateValue);
@@ -80,7 +80,7 @@ namespace Parsek.Tests
             var rec = MakeStandaloneRecording(50000, 35000);
             Assert.Null(rec.TreeId); // verify it is standalone
 
-            var recordings = new List<RecordingStore.Recording> { rec };
+            var recordings = new List<Recording> { rec };
             var budget = ResourceBudget.ComputeTotal(recordings, new List<Milestone>(), null);
 
             Assert.Equal(15000, budget.reservedFunds);
@@ -120,7 +120,7 @@ namespace Parsek.Tests
                 ResourcesApplied = false
             };
 
-            var recordings = new List<RecordingStore.Recording> { chain1, chain2, treeRec };
+            var recordings = new List<Recording> { chain1, chain2, treeRec };
             var trees = new List<RecordingTree> { tree };
             var budget = ResourceBudget.ComputeTotal(recordings, new List<Milestone>(), trees);
 

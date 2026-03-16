@@ -141,7 +141,7 @@ namespace Parsek.Tests
                 ActiveRecordingId = "root"
             };
 
-            tree.Recordings["root"] = new RecordingStore.Recording
+            tree.Recordings["root"] = new Recording
             {
                 RecordingId = "root",
                 TreeId = treeId,

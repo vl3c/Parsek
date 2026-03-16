@@ -224,7 +224,7 @@ namespace Parsek.Tests
             };
 
             // Docked parent recording (should be excluded)
-            tree.Recordings["docked_rec"] = new RecordingStore.Recording
+            tree.Recordings["docked_rec"] = new Recording
             {
                 RecordingId = "docked_rec",
                 VesselPersistentId = 100,
@@ -233,7 +233,7 @@ namespace Parsek.Tests
             };
 
             // Active child (should be excluded -- it's the active recording)
-            tree.Recordings["active_child"] = new RecordingStore.Recording
+            tree.Recordings["active_child"] = new Recording
             {
                 RecordingId = "active_child",
                 VesselPersistentId = 200,
@@ -258,7 +258,7 @@ namespace Parsek.Tests
             };
 
             // Boarded parent recording (should be excluded)
-            tree.Recordings["boarded_rec"] = new RecordingStore.Recording
+            tree.Recordings["boarded_rec"] = new Recording
             {
                 RecordingId = "boarded_rec",
                 VesselPersistentId = 300,
@@ -266,7 +266,7 @@ namespace Parsek.Tests
                 TreeId = tree.Id
             };
 
-            tree.Recordings["child"] = new RecordingStore.Recording
+            tree.Recordings["child"] = new Recording
             {
                 RecordingId = "child",
                 VesselPersistentId = 400,
@@ -290,7 +290,7 @@ namespace Parsek.Tests
             };
 
             // Recording that has already branched (should be excluded)
-            tree.Recordings["branched_rec"] = new RecordingStore.Recording
+            tree.Recordings["branched_rec"] = new Recording
             {
                 RecordingId = "branched_rec",
                 VesselPersistentId = 500,
@@ -298,7 +298,7 @@ namespace Parsek.Tests
                 TreeId = tree.Id
             };
 
-            tree.Recordings["active"] = new RecordingStore.Recording
+            tree.Recordings["active"] = new Recording
             {
                 RecordingId = "active",
                 VesselPersistentId = 600,
@@ -322,14 +322,14 @@ namespace Parsek.Tests
             };
 
             // Background recording: no terminal state, no child branch, not active
-            tree.Recordings["bg_rec"] = new RecordingStore.Recording
+            tree.Recordings["bg_rec"] = new Recording
             {
                 RecordingId = "bg_rec",
                 VesselPersistentId = 700,
                 TreeId = tree.Id
             };
 
-            tree.Recordings["active"] = new RecordingStore.Recording
+            tree.Recordings["active"] = new Recording
             {
                 RecordingId = "active",
                 VesselPersistentId = 800,
@@ -359,7 +359,7 @@ namespace Parsek.Tests
             };
 
             // Root recording (ended by split)
-            tree.Recordings["root"] = new RecordingStore.Recording
+            tree.Recordings["root"] = new Recording
             {
                 RecordingId = "root",
                 VesselPersistentId = 50,
@@ -440,7 +440,7 @@ namespace Parsek.Tests
             };
 
             // Root recording (ship, ended by EVA split)
-            tree.Recordings["root"] = new RecordingStore.Recording
+            tree.Recordings["root"] = new Recording
             {
                 RecordingId = "root",
                 VesselPersistentId = 50,
