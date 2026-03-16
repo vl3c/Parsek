@@ -35,7 +35,7 @@ namespace Parsek.Tests.Generators
         private float defaultRotX, defaultRotY, defaultRotZ;
         private float defaultRotW = 1;
         private bool hasDefaultRotation;
-        private int formatVersion = 5;
+        private int formatVersion = 6;
 
         public RecordingBuilder(string vesselName)
         {

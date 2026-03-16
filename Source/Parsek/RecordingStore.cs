@@ -14,7 +14,14 @@ namespace Parsek
     /// </summary>
     public static class RecordingStore
     {
-        public const int CurrentRecordingFormatVersion = 5;
+        public const int CurrentRecordingFormatVersion = 6;
+        // v6: Added SegmentEvents, TrackSections, ControllerInfo, extended BranchPoint types
+
+        /// <summary>
+        /// Minimum format version that uses TrackSections for structured trajectory data.
+        /// Recordings below this version use legacy flat Points for playback.
+        /// </summary>
+        public const int TrackSectionMinVersion = 6;
 
         // When true, suppresses logging calls (for unit testing outside Unity)
         internal static bool SuppressLogging;

@@ -2869,7 +2869,7 @@ namespace Parsek.Tests
             // Has metadata
             Assert.Equal("Test Vessel", v3Node.GetValue("vesselName"));
             Assert.Equal("abc123", v3Node.GetValue("recordingId"));
-            Assert.Equal("5", v3Node.GetValue("recordingFormatVersion"));
+            Assert.Equal("6", v3Node.GetValue("recordingFormatVersion"));
             Assert.Equal("2", v3Node.GetValue("pointCount"));
 
             // No inline bulk data
@@ -2907,7 +2907,7 @@ namespace Parsek.Tests
             var trajNode = builder.BuildTrajectoryNode();
 
             Assert.Equal("PARSEK_RECORDING", trajNode.name);
-            Assert.Equal("5", trajNode.GetValue("version"));
+            Assert.Equal("6", trajNode.GetValue("version"));
             Assert.Equal("abc123", trajNode.GetValue("recordingId"));
             Assert.Equal(2, trajNode.GetNodes("POINT").Length);
             Assert.Single(trajNode.GetNodes("ORBIT_SEGMENT"));
@@ -2939,7 +2939,7 @@ namespace Parsek.Tests
             var scenarioNode = writer.BuildScenarioNode();
             var recNode = scenarioNode.GetNodes("RECORDING")[0];
 
-            Assert.Equal("5", recNode.GetValue("recordingFormatVersion"));
+            Assert.Equal("6", recNode.GetValue("recordingFormatVersion"));
             Assert.Equal("KSC Hopper", recNode.GetValue("vesselName"));
             Assert.Empty(recNode.GetNodes("POINT"));
             Assert.Null(recNode.GetNode("VESSEL_SNAPSHOT"));
@@ -5478,7 +5478,7 @@ namespace Parsek.Tests
 
                     // v3: no inline trajectory POINT data in .sfs
                     // (BRANCH_POINT nodes in RECORDING_TREE are expected)
-                    Assert.Contains("recordingFormatVersion = 5", content);
+                    Assert.Contains("recordingFormatVersion = 6", content);
                     var scenarioSection = content.Substring(
                         content.IndexOf("name = ParsekScenario"),
                         content.IndexOf("FLIGHTSTATE") - content.IndexOf("name = ParsekScenario"));
