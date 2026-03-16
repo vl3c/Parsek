@@ -172,6 +172,16 @@ namespace Parsek.Tests
             Assert.Equal(expected, ParsekUI.UnitLabel(unit));
         }
 
+        [Theory]
+        [InlineData(LoopTimeUnit.Sec, "s")]
+        [InlineData(LoopTimeUnit.Min, "m")]
+        [InlineData(LoopTimeUnit.Hour, "h")]
+        [InlineData(LoopTimeUnit.Auto, "s")] // Auto falls through to "s" — callers resolve to concrete unit first
+        public void UnitSuffix_AllValues(LoopTimeUnit unit, string expected)
+        {
+            Assert.Equal(expected, ParsekUI.UnitSuffix(unit));
+        }
+
         [Fact]
         public void CycleRecordingUnit_FullCycle()
         {
