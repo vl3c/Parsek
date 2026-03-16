@@ -1663,6 +1663,14 @@ namespace Parsek
         private bool DrawChainBlock(string chainId, List<int> members, int depth,
             List<Recording> committed, double now)
         {
+            if (ParsekScenario.hideActive)
+            {
+                bool anyVisible = false;
+                for (int m = 0; m < members.Count; m++)
+                    if (!committed[members[m]].Hidden) { anyVisible = true; break; }
+                if (!anyVisible) return false;
+            }
+
             float indent = depth * 15f;
 
             GUILayout.BeginHorizontal();
