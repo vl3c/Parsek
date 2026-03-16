@@ -2,7 +2,7 @@
 
 ## Document Status
 **Version:** 1.1
-**Phase:** Parsek 0.4.2
+**Phase:** Parsek 0.4.3
 **Last Updated:** March 2026
 
 ---
@@ -855,4 +855,11 @@ The architecture naturally enables use cases like racing your own ghosts, but th
 
 ---
 
-*Document version: 1.1 - Parsek 0.4.2 (orbital rotation fidelity, re-entry FX, camera follow)*
+*Document version: 1.2 - Parsek 0.4.3 (code refactor: SOLID restructuring)*
+
+### New files from 0.4.3 code refactor
+- `GhostTypes.cs` — 21 ghost data types (previously at top of GhostVisualBuilder.cs)
+- `Recording.cs` — Recording class + MergeDefault/LoopTimeUnit enums (previously nested in RecordingStore)
+- `GhostPlaybackState.cs` — GhostPlaybackState, LightPlaybackState, InterpolationResult (previously nested in ParsekFlight)
+- `GhostPlaybackLogic.cs` — 54 static ghost playback methods shared by ParsekFlight and ParsekKSC (previously in ParsekFlight)
+- `PartStateSeeder.cs` — shared part-state seeding logic for FlightRecorder and BackgroundRecorder
