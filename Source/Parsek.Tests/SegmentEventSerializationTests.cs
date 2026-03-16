@@ -37,9 +37,9 @@ namespace Parsek.Tests
         {
             var events = new List<SegmentEvent>
             {
-                new SegmentEvent { ut = 1000.5, type = SegmentEventType.Split, details = "decoupled stage 1" },
-                new SegmentEvent { ut = 2000.75, type = SegmentEventType.SOIChange, details = "Kerbin -> Mun" },
-                new SegmentEvent { ut = 3000.125, type = SegmentEventType.Destroyed, details = "lithobraking" }
+                new SegmentEvent { ut = 1000.5, type = SegmentEventType.ControllerChange, details = "decoupled stage 1" },
+                new SegmentEvent { ut = 2000.75, type = SegmentEventType.PartRemoved, details = "Kerbin -> Mun" },
+                new SegmentEvent { ut = 3000.125, type = SegmentEventType.ControllerEnabled, details = "lithobraking" }
             };
 
             var node = new ConfigNode("ROOT");
@@ -51,15 +51,15 @@ namespace Parsek.Tests
             Assert.Equal(3, deserialized.Count);
 
             Assert.Equal(1000.5, deserialized[0].ut);
-            Assert.Equal(SegmentEventType.Split, deserialized[0].type);
+            Assert.Equal(SegmentEventType.ControllerChange, deserialized[0].type);
             Assert.Equal("decoupled stage 1", deserialized[0].details);
 
             Assert.Equal(2000.75, deserialized[1].ut);
-            Assert.Equal(SegmentEventType.SOIChange, deserialized[1].type);
+            Assert.Equal(SegmentEventType.PartRemoved, deserialized[1].type);
             Assert.Equal("Kerbin -> Mun", deserialized[1].details);
 
             Assert.Equal(3000.125, deserialized[2].ut);
-            Assert.Equal(SegmentEventType.Destroyed, deserialized[2].type);
+            Assert.Equal(SegmentEventType.ControllerEnabled, deserialized[2].type);
             Assert.Equal("lithobraking", deserialized[2].details);
         }
 
@@ -68,7 +68,7 @@ namespace Parsek.Tests
         {
             var events = new List<SegmentEvent>
             {
-                new SegmentEvent { ut = 500.0, type = SegmentEventType.Landed, details = null }
+                new SegmentEvent { ut = 500.0, type = SegmentEventType.CrewTransfer, details = null }
             };
 
             var node = new ConfigNode("ROOT");
@@ -84,7 +84,7 @@ namespace Parsek.Tests
 
             Assert.Single(deserialized);
             Assert.Equal(500.0, deserialized[0].ut);
-            Assert.Equal(SegmentEventType.Landed, deserialized[0].type);
+            Assert.Equal(SegmentEventType.CrewTransfer, deserialized[0].type);
             Assert.Null(deserialized[0].details);
         }
 
@@ -93,7 +93,7 @@ namespace Parsek.Tests
         {
             var events = new List<SegmentEvent>
             {
-                new SegmentEvent { ut = 600.0, type = SegmentEventType.Recovered, details = "" }
+                new SegmentEvent { ut = 600.0, type = SegmentEventType.CrewLost, details = "" }
             };
 
             var node = new ConfigNode("ROOT");
@@ -272,9 +272,9 @@ namespace Parsek.Tests
 
             Assert.Equal(2, deserialized.Count);
             Assert.Equal(100.0, deserialized[0].ut);
-            Assert.Equal(SegmentEventType.Split, deserialized[0].type);
+            Assert.Equal(SegmentEventType.ControllerChange, deserialized[0].type);
             Assert.Equal(400.0, deserialized[1].ut);
-            Assert.Equal(SegmentEventType.Recovered, deserialized[1].type);
+            Assert.Equal(SegmentEventType.CrewLost, deserialized[1].type);
         }
 
         #endregion
@@ -286,9 +286,9 @@ namespace Parsek.Tests
         {
             var events = new List<SegmentEvent>
             {
-                new SegmentEvent { ut = 300.0, type = SegmentEventType.Launched, details = "third by ut" },
-                new SegmentEvent { ut = 100.0, type = SegmentEventType.Split, details = "first by ut" },
-                new SegmentEvent { ut = 200.0, type = SegmentEventType.Docked, details = "second by ut" }
+                new SegmentEvent { ut = 300.0, type = SegmentEventType.PartDestroyed, details = "third by ut" },
+                new SegmentEvent { ut = 100.0, type = SegmentEventType.ControllerChange, details = "first by ut" },
+                new SegmentEvent { ut = 200.0, type = SegmentEventType.PartAdded, details = "second by ut" }
             };
 
             var node = new ConfigNode("ROOT");
@@ -320,8 +320,8 @@ namespace Parsek.Tests
             {
                 var events = new List<SegmentEvent>
                 {
-                    new SegmentEvent { ut = 100.0, type = SegmentEventType.Split },
-                    new SegmentEvent { ut = 200.0, type = SegmentEventType.Merge }
+                    new SegmentEvent { ut = 100.0, type = SegmentEventType.ControllerChange },
+                    new SegmentEvent { ut = 200.0, type = SegmentEventType.ControllerDisabled }
                 };
 
                 var node = new ConfigNode("ROOT");
@@ -378,7 +378,7 @@ namespace Parsek.Tests
             double preciseUT = 17042.123456789012345;
             var events = new List<SegmentEvent>
             {
-                new SegmentEvent { ut = preciseUT, type = SegmentEventType.SOIChange, details = "precision test" }
+                new SegmentEvent { ut = preciseUT, type = SegmentEventType.PartRemoved, details = "precision test" }
             };
 
             var node = new ConfigNode("ROOT");
@@ -399,7 +399,7 @@ namespace Parsek.Tests
             double negativeUT = -123.456789;
             var events = new List<SegmentEvent>
             {
-                new SegmentEvent { ut = negativeUT, type = SegmentEventType.Landed }
+                new SegmentEvent { ut = negativeUT, type = SegmentEventType.CrewTransfer }
             };
 
             var node = new ConfigNode("ROOT");
@@ -433,7 +433,7 @@ namespace Parsek.Tests
 
             var se = node.AddNode("SEGMENT_EVENT");
             se.AddValue("ut", "150.0");
-            se.AddValue("type", ((int)SegmentEventType.Split).ToString(IC));
+            se.AddValue("type", ((int)SegmentEventType.ControllerChange).ToString(IC));
             se.AddValue("details", "stage separation");
 
             var rec = new Recording();
@@ -442,7 +442,7 @@ namespace Parsek.Tests
             Assert.Single(rec.Points);
             Assert.Single(rec.SegmentEvents);
             Assert.Equal(150.0, rec.SegmentEvents[0].ut);
-            Assert.Equal(SegmentEventType.Split, rec.SegmentEvents[0].type);
+            Assert.Equal(SegmentEventType.ControllerChange, rec.SegmentEvents[0].type);
             Assert.Equal("stage separation", rec.SegmentEvents[0].details);
         }
 
@@ -453,7 +453,7 @@ namespace Parsek.Tests
             rec.SegmentEvents.Add(new SegmentEvent
             {
                 ut = 250.0,
-                type = SegmentEventType.Docked,
+                type = SegmentEventType.PartAdded,
                 details = "port A -> port B"
             });
 
