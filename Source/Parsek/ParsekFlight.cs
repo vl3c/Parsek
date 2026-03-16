@@ -1969,10 +1969,10 @@ namespace Parsek
                 // to avoid false matches with unrelated vessels (e.g., space stations).
                 uint recordedPid = pendingSplitRecorder.RecordingVesselId;
 
-                // Collect new vessel PIDs for classification
+                // Collect new vessel PIDs for classification, tracking per-vessel controller status
                 var newVesselPids = new List<uint>();
+                var newVesselHasController = new Dictionary<uint, bool>();
                 bool anyNewVesselHasController = false;
-                Vessel firstNewControlledVessel = null;
 
                 if (FlightGlobals.Vessels != null)
                 {
@@ -1992,11 +1992,10 @@ namespace Parsek
                         newVesselPids.Add(v.persistentId);
 
                         bool hasController = IsTrackableVessel(v);
+                        newVesselHasController[v.persistentId] = hasController;
                         if (hasController)
                         {
                             anyNewVesselHasController = true;
-                            if (firstNewControlledVessel == null)
-                                firstNewControlledVessel = v;
                         }
                     }
                 }
@@ -2023,17 +2022,19 @@ namespace Parsek
                 else if (classification == JointBreakResult.StructuralSplit ||
                          classification == JointBreakResult.DebrisSplit)
                 {
-                    // Vessel physically split — feed to crash coalescer for grouping
-                    bool childHasController = (classification == JointBreakResult.StructuralSplit);
-                    uint childPid = firstNewControlledVessel != null
-                        ? firstNewControlledVessel.persistentId
-                        : (newVesselPids.Count > 0 ? newVesselPids[0] : 0);
-
+                    // Vessel physically split — feed ALL new vessels to crash coalescer.
+                    // A single joint break can produce multiple new vessels (e.g., 3-way split),
+                    // and each needs to be counted individually.
                     ParsekLog.Info("CrashCoalesce",
-                        $"Feeding split to coalescer: classification={classification}, " +
-                        $"childPid={childPid}, childHasController={childHasController}");
+                        $"Feeding {newVesselPids.Count} new vessel(s) to coalescer: classification={classification}");
 
-                    crashCoalescer.OnSplitEvent(branchUT, childPid, childHasController);
+                    foreach (var newPid in newVesselPids)
+                    {
+                        bool hasController = newVesselHasController.ContainsKey(newPid) && newVesselHasController[newPid];
+                        ParsekLog.Info("CrashCoalesce",
+                            $"Feeding split to coalescer: childPid={newPid}, childHasController={hasController}");
+                        crashCoalescer.OnSplitEvent(branchUT, newPid, hasController);
+                    }
 
                     // Resume the recorder — the coalescer's Tick will emit the BREAKUP
                     // branch point after the coalescing window expires. The recorder needs
@@ -2110,6 +2111,20 @@ namespace Parsek
 
             // Set ChildBranchPointId on the active recording to link to this breakup
             activeRec.ChildBranchPointId = breakupBp.Id;
+
+            // TODO Phase 2: Create child recording segments for controlled children.
+            // Currently, controlled children survive the breakup but have no recording
+            // segments created for them. Full implementation requires the background
+            // recording infrastructure for multiple vessels (Phase 2 multi-vessel sessions).
+            var controlledChildren = crashCoalescer.LastEmittedControlledChildPids;
+            if (controlledChildren != null && controlledChildren.Count > 0)
+            {
+                for (int i = 0; i < controlledChildren.Count; i++)
+                {
+                    ParsekLog.Warn("CrashCoalesce",
+                        $"BREAKUP controlled child pid={controlledChildren[i]} — child segment creation deferred to Phase 2");
+                }
+            }
 
             ParsekLog.Info("CrashCoalesce",
                 $"ProcessBreakupEvent: BREAKUP attached to tree={activeTree.Id}, " +

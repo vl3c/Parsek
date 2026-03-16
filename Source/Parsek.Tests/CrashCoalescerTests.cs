@@ -293,22 +293,25 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region BreakupDuration correct
+        #region BreakupDuration correct (actual breakup span, not idle window)
 
         [Fact]
-        public void BreakupDuration_EqualsTickMinusFirstSplit()
+        public void BreakupDuration_SingleSplit_IsZero()
         {
+            // Single split: lastSplitUT == windowStartUT, so duration = 0
             var coalescer = new CrashCoalescer();
             coalescer.OnSplitEvent(100.0, 1000, false);
 
             var bp = coalescer.Tick(100.7);
             Assert.NotNull(bp);
-            Assert.Equal(0.7, bp.BreakupDuration, 10);
+            Assert.Equal(0.0, bp.BreakupDuration, 10);
         }
 
         [Fact]
-        public void BreakupDuration_MultipleSplits_MeasuredFromFirst()
+        public void BreakupDuration_MultipleSplits_IsLastMinusFirst()
         {
+            // Duration should be the actual breakup span (last split - first split),
+            // NOT the idle window time (tick - first split).
             var coalescer = new CrashCoalescer();
             coalescer.OnSplitEvent(100.0, 1000, false);
             coalescer.OnSplitEvent(100.2, 1001, false);
@@ -316,8 +319,24 @@ namespace Parsek.Tests
 
             var bp = coalescer.Tick(100.6);
             Assert.NotNull(bp);
-            // Duration = 100.6 - 100.0 = 0.6
-            Assert.Equal(0.6, bp.BreakupDuration, 10);
+            // Duration = 100.4 - 100.0 = 0.4 (actual breakup span)
+            Assert.Equal(0.4, bp.BreakupDuration, 10);
+        }
+
+        [Fact]
+        public void BreakupDuration_DoesNotIncludeIdleWindowTime()
+        {
+            // Even with a long idle gap after the last split,
+            // duration only measures the actual breakup span.
+            var coalescer = new CrashCoalescer(window: 2.0);
+            coalescer.OnSplitEvent(100.0, 1000, false);
+            coalescer.OnSplitEvent(100.3, 1001, false);
+
+            // Tick at 102.0 (2.0s after window start), but last split was at 100.3
+            var bp = coalescer.Tick(102.0);
+            Assert.NotNull(bp);
+            // Duration = 100.3 - 100.0 = 0.3 (not 2.0)
+            Assert.Equal(0.3, bp.BreakupDuration, 10);
         }
 
         #endregion
@@ -513,6 +532,102 @@ namespace Parsek.Tests
             string str = bp.ToString();
             Assert.Contains("Undock", str);
             Assert.Contains("test456", str);
+        }
+
+        #endregion
+
+        #region Multi-vessel split (all children counted)
+
+        [Fact]
+        public void MultiVesselSplit_AllChildrenReported()
+        {
+            // Simulate a 3-way split producing 2 debris + 1 controlled child
+            var coalescer = new CrashCoalescer();
+            coalescer.OnSplitEvent(100.0, 2000, childHasController: false);
+            coalescer.OnSplitEvent(100.0, 3000, childHasController: true);
+            coalescer.OnSplitEvent(100.0, 4000, childHasController: false);
+
+            Assert.Equal(2, coalescer.CurrentDebrisCount);
+            Assert.Single(coalescer.ControlledChildPids);
+            Assert.Equal(3000u, coalescer.ControlledChildPids[0]);
+
+            var bp = coalescer.Tick(100.5);
+            Assert.NotNull(bp);
+            Assert.Equal(2, bp.DebrisCount);
+        }
+
+        [Fact]
+        public void MultiVesselSplit_SameUT_AllCountedSeparately()
+        {
+            // All splits at the same UT (single frame) should each be counted
+            var coalescer = new CrashCoalescer();
+            coalescer.OnSplitEvent(100.0, 1000, childHasController: false);
+            coalescer.OnSplitEvent(100.0, 1001, childHasController: false);
+            coalescer.OnSplitEvent(100.0, 1002, childHasController: false);
+
+            Assert.Equal(3, coalescer.CurrentDebrisCount);
+
+            var bp = coalescer.Tick(100.5);
+            Assert.NotNull(bp);
+            Assert.Equal(3, bp.DebrisCount);
+            // Single split at UT=100.0, so duration = 0
+            Assert.Equal(0.0, bp.BreakupDuration, 10);
+        }
+
+        #endregion
+
+        #region LastEmittedControlledChildPids
+
+        [Fact]
+        public void LastEmittedControlledChildPids_AvailableAfterTick()
+        {
+            var coalescer = new CrashCoalescer();
+            coalescer.OnSplitEvent(100.0, 2000, childHasController: true);
+            coalescer.OnSplitEvent(100.1, 3000, childHasController: true);
+            coalescer.OnSplitEvent(100.2, 4000, childHasController: false);
+
+            // Before Tick, ControlledChildPids has the live data
+            Assert.Equal(2, coalescer.ControlledChildPids.Count);
+
+            var bp = coalescer.Tick(100.5);
+            Assert.NotNull(bp);
+
+            // After Tick + Reset, live ControlledChildPids is cleared
+            Assert.Empty(coalescer.ControlledChildPids);
+
+            // But LastEmittedControlledChildPids preserves the snapshot
+            Assert.Equal(2, coalescer.LastEmittedControlledChildPids.Count);
+            Assert.Equal(2000u, coalescer.LastEmittedControlledChildPids[0]);
+            Assert.Equal(3000u, coalescer.LastEmittedControlledChildPids[1]);
+        }
+
+        [Fact]
+        public void LastEmittedControlledChildPids_EmptyWhenNoControlledChildren()
+        {
+            var coalescer = new CrashCoalescer();
+            coalescer.OnSplitEvent(100.0, 1000, childHasController: false);
+
+            var bp = coalescer.Tick(100.5);
+            Assert.NotNull(bp);
+            Assert.Empty(coalescer.LastEmittedControlledChildPids);
+        }
+
+        [Fact]
+        public void LastEmittedControlledChildPids_OverwrittenByNextBreakup()
+        {
+            var coalescer = new CrashCoalescer();
+
+            // First breakup with controlled child
+            coalescer.OnSplitEvent(100.0, 2000, childHasController: true);
+            coalescer.Tick(100.5);
+            Assert.Single(coalescer.LastEmittedControlledChildPids);
+            Assert.Equal(2000u, coalescer.LastEmittedControlledChildPids[0]);
+
+            // Second breakup with different controlled child
+            coalescer.OnSplitEvent(200.0, 5000, childHasController: true);
+            coalescer.Tick(200.5);
+            Assert.Single(coalescer.LastEmittedControlledChildPids);
+            Assert.Equal(5000u, coalescer.LastEmittedControlledChildPids[0]);
         }
 
         #endregion

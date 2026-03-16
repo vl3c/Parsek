@@ -15,12 +15,17 @@ namespace Parsek
         internal const double DefaultCoalesceWindow = 0.5;  // seconds
 
         private double windowStartUT = double.NaN;
+        private double lastSplitUT = double.NaN;
         private double coalesceWindow;
 
         // Accumulated split data during the window
         private List<uint> controlledChildPids = new List<uint>();
         private int debrisCount;
         private string cause;  // "CRASH", "OVERHEAT", "STRUCTURAL_FAILURE"
+
+        // Snapshot of controlled child PIDs from the last emitted BREAKUP,
+        // preserved across Reset() so the caller can access them after Tick() returns.
+        private List<uint> lastEmittedControlledChildPids = new List<uint>();
 
         public bool HasPendingBreakup => !double.IsNaN(windowStartUT);
         public double WindowStartUT => windowStartUT;
@@ -52,6 +57,8 @@ namespace Parsek
                     "Coalescing window opened at UT=" + ut.ToString("F2", ic) + ", cause=" + splitCause);
             }
 
+            lastSplitUT = ut;
+
             if (childHasController)
             {
                 controlledChildPids.Add(childPid);
@@ -81,13 +88,15 @@ namespace Parsek
                 return null;
 
             // Window expired -- emit BREAKUP event
+            // BreakupDuration = actual breakup span (last split - first split),
+            // not the idle window time after the last split.
             var bp = new BranchPoint
             {
                 Id = Guid.NewGuid().ToString("N"),
                 UT = windowStartUT,
                 Type = BranchPointType.Breakup,
                 BreakupCause = cause,
-                BreakupDuration = currentUT - windowStartUT,
+                BreakupDuration = lastSplitUT - windowStartUT,
                 DebrisCount = debrisCount,
                 CoalesceWindow = coalesceWindow
             };
@@ -101,6 +110,11 @@ namespace Parsek
                 " controlledChildren=" + controlledChildPids.Count + " debris=" + debrisCount +
                 " duration=" + bp.BreakupDuration.ToString("F3", ic) + "s window=" + coalesceWindow.ToString("F1", ic) + "s");
 
+            // Snapshot controlled child PIDs before Reset clears them,
+            // so the caller can access them via LastEmittedControlledChildPids.
+            lastEmittedControlledChildPids.Clear();
+            lastEmittedControlledChildPids.AddRange(controlledChildPids);
+
             Reset();
             return bp;
         }
@@ -110,6 +124,12 @@ namespace Parsek
         /// the current window. Only valid while HasPendingBreakup is true.
         /// </summary>
         public IReadOnlyList<uint> ControlledChildPids => controlledChildPids;
+
+        /// <summary>
+        /// Returns the controlled child PIDs from the last emitted BREAKUP.
+        /// Valid after Tick() returns a non-null BranchPoint, until the next Reset().
+        /// </summary>
+        public IReadOnlyList<uint> LastEmittedControlledChildPids => lastEmittedControlledChildPids;
 
         /// <summary>
         /// Returns the current debris count. Only valid while HasPendingBreakup is true.
@@ -122,6 +142,7 @@ namespace Parsek
         public void Reset()
         {
             windowStartUT = double.NaN;
+            lastSplitUT = double.NaN;
             controlledChildPids.Clear();
             debrisCount = 0;
             cause = null;

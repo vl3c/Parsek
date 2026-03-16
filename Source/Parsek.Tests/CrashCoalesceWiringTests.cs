@@ -196,7 +196,8 @@ namespace Parsek.Tests
             // Verify breakup metadata
             Assert.Equal("OVERHEAT", bp.BreakupCause);
             Assert.Equal(2, bp.DebrisCount);
-            Assert.Equal(0.5, bp.BreakupDuration, 10);
+            // Duration = last split (100.2) - first split (100.0) = 0.2
+            Assert.Equal(0.2, bp.BreakupDuration, 10);
             Assert.Equal(CrashCoalescer.DefaultCoalesceWindow, bp.CoalesceWindow);
         }
 
@@ -445,6 +446,60 @@ namespace Parsek.Tests
             // Window expires
             var bp = coalescer.Tick(100.5);
             Assert.NotNull(bp);
+        }
+
+        #endregion
+
+        #region Multi-vessel split reporting
+
+        [Fact]
+        public void MultiVesselSplit_AllNewVesselsReportedToCoalescer()
+        {
+            // Simulate a 3-way split: 1 controlled + 2 debris (as ParsekFlight would loop)
+            var coalescer = new CrashCoalescer();
+
+            // Simulate the loop that ParsekFlight now does for each new vessel PID
+            var newVesselPids = new List<uint> { 2000, 3000, 4000 };
+            var hasController = new Dictionary<uint, bool>
+            {
+                { 2000, false },
+                { 3000, true },
+                { 4000, false }
+            };
+
+            double branchUT = 100.0;
+            foreach (var pid in newVesselPids)
+            {
+                coalescer.OnSplitEvent(branchUT, pid, hasController[pid]);
+            }
+
+            // All 3 vessels should be counted
+            Assert.Single(coalescer.ControlledChildPids);
+            Assert.Equal(3000u, coalescer.ControlledChildPids[0]);
+            Assert.Equal(2, coalescer.CurrentDebrisCount);
+
+            var bp = coalescer.Tick(100.5);
+            Assert.NotNull(bp);
+            Assert.Equal(2, bp.DebrisCount);
+
+            // Controlled child PID preserved in snapshot
+            Assert.Single(coalescer.LastEmittedControlledChildPids);
+            Assert.Equal(3000u, coalescer.LastEmittedControlledChildPids[0]);
+        }
+
+        [Fact]
+        public void MultiVesselSplit_BreakupDuration_ReflectsActualSpan()
+        {
+            // Multi-vessel split at different UTs — duration should be actual breakup span
+            var coalescer = new CrashCoalescer();
+            coalescer.OnSplitEvent(100.0, 2000, false);
+            coalescer.OnSplitEvent(100.15, 3000, false);
+            coalescer.OnSplitEvent(100.3, 4000, true);
+
+            var bp = coalescer.Tick(100.5);
+            Assert.NotNull(bp);
+            // Duration = 100.3 - 100.0 = 0.3 (not 0.5 which includes idle time)
+            Assert.Equal(0.3, bp.BreakupDuration, 10);
         }
 
         #endregion
