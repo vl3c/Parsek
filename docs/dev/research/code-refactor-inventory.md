@@ -11,11 +11,11 @@ See [code-refactor-plan.md](../plans/code-refactor-plan.md) for the full refacto
 | File | Lines | Tier | Status | Notes |
 |------|-------|------|--------|-------|
 | TrajectoryMath.cs | 548 | Canary | Pass1-Done | Extracted AccumulateOrbitSegmentStats, DeterminePrimaryBody; added logging to FindFirstMovingPoint + ComputeStats; 18 new tests |
-| ParsekFlight.cs | 8,493 | 1 | Pass1-Done | 28 methods extracted across 4 groups; Update() 400→35 lines; deduped PopulateGhostInfoDictionaries; coroutines untouched |
-| GhostVisualBuilder.cs | 6,268 | 1 | Pass1-Done | 11 methods extracted; deduped 7+2 copy patterns (-127 lines); 3 region markers added |
+| ParsekFlight.cs | ~7,000 | 1 | Pass3-Done | Pass1: 13 methods extracted, Update() 400→56. Pass3: GhostPlaybackState+3 types → own file, 54 methods → GhostPlaybackLogic.cs (-1500 lines) |
+| GhostVisualBuilder.cs | ~6,985 | 1 | Pass3-Done | Pass1: 10 methods extracted, deduped 7+2 patterns. Pass3: 21 data types → GhostTypes.cs |
 | FlightRecorder.cs | 4,103 | 1 | Pass1-Done | 4 methods extracted; deduped BuildCaptureRecording (3 copies); 46 new tests; OnPhysicsFrame 168→65 lines |
 | ParsekScenario.cs | 2,297 | 2A | Pending | ScenarioModule, mixed concerns |
-| RecordingStore.cs | 1,995 | 2A | Pending | Central data store, Recording class 45+ fields |
+| RecordingStore.cs | ~1,850 | 2A | Pass3-Done | Pass1: logging. Pass3: Recording + 2 enums → Recording.cs |
 | ParsekUI.cs | 2,985 | 2B | Pass1-Done | 6 methods extracted; DrawResourceLine deduped 3 copies; 18 methods rejected (sequential IMGUI) |
 | BackgroundRecorder.cs | 1,532 | 2B | Pass1-Done | 3 rate-limited logging additions; no extraction needed |
 | VesselSpawner.cs | 978 | 3A | Pass1-Done | 2 methods extracted (DetermineSituation pure); 10 tests |
