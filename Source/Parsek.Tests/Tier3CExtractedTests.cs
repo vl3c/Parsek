@@ -4,7 +4,7 @@ using Xunit;
 namespace Parsek.Tests
 {
     [Collection("Sequential")]
-    public class Tier3CExtractedTests
+    public class Tier3CExtractedTests : System.IDisposable
     {
         private readonly List<string> logLines = new List<string>();
 
@@ -20,10 +20,9 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
         }
 
-        private void Cleanup()
+        public void Dispose()
         {
-            ParsekLog.TestSinkForTesting = null;
-            ParsekLog.VerboseOverrideForTesting = null;
+            ParsekLog.ResetTestOverrides();
         }
 
         #region AccumulateReplayResult
@@ -97,7 +96,7 @@ namespace Parsek.Tests
             }
             finally
             {
-                Cleanup();
+                // cleanup handled by IDisposable.Dispose
             }
         }
 
@@ -112,7 +111,7 @@ namespace Parsek.Tests
             }
             finally
             {
-                Cleanup();
+                // cleanup handled by IDisposable.Dispose
             }
         }
 
@@ -131,7 +130,7 @@ namespace Parsek.Tests
             }
             finally
             {
-                Cleanup();
+                // cleanup handled by IDisposable.Dispose
             }
         }
 
@@ -155,7 +154,7 @@ namespace Parsek.Tests
             }
             finally
             {
-                Cleanup();
+                // cleanup handled by IDisposable.Dispose
             }
         }
 
@@ -173,7 +172,7 @@ namespace Parsek.Tests
             }
             finally
             {
-                Cleanup();
+                // cleanup handled by IDisposable.Dispose
             }
         }
 
@@ -191,7 +190,7 @@ namespace Parsek.Tests
             }
             finally
             {
-                Cleanup();
+                // cleanup handled by IDisposable.Dispose
             }
         }
 
@@ -209,7 +208,7 @@ namespace Parsek.Tests
             }
             finally
             {
-                Cleanup();
+                // cleanup handled by IDisposable.Dispose
             }
         }
 
@@ -228,7 +227,7 @@ namespace Parsek.Tests
             }
             finally
             {
-                Cleanup();
+                // cleanup handled by IDisposable.Dispose
             }
         }
 
@@ -252,7 +251,7 @@ namespace Parsek.Tests
             }
             finally
             {
-                Cleanup();
+                // cleanup handled by IDisposable.Dispose
             }
         }
 
@@ -278,7 +277,7 @@ namespace Parsek.Tests
             }
             finally
             {
-                Cleanup();
+                // cleanup handled by IDisposable.Dispose
             }
         }
 

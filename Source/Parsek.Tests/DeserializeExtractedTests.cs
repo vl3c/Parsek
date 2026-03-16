@@ -12,7 +12,7 @@ namespace Parsek.Tests
     /// testable without Unity runtime.
     /// </summary>
     [Collection("Sequential")]
-    public class DeserializeExtractedTests
+    public class DeserializeExtractedTests : System.IDisposable
     {
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
@@ -23,6 +23,11 @@ namespace Parsek.Tests
             MilestoneStore.SuppressLogging = true;
             GameStateStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.ResetTestOverrides();
         }
 
         #region DeserializePoints

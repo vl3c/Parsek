@@ -1818,7 +1818,7 @@ namespace Parsek
         /// cargo bay, ladder, animation group, aero/control surface, robot arm, or animate heat).
         /// Parts with dedicated handlers are skipped by CheckAnimateGenericState to avoid duplicate events.
         /// </summary>
-        private static bool HasDedicatedAnimateHandler(Part p)
+        internal static bool HasDedicatedAnimateHandler(Part p)
         {
             if (p.FindModuleImplementing<ModuleDeployablePart>() != null) return true;
             if (p.FindModuleImplementing<ModuleWheels.ModuleWheelDeployment>() != null) return true;

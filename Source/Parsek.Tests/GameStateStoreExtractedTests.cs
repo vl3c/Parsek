@@ -8,7 +8,7 @@ namespace Parsek.Tests
     /// BuildEventTypeDistribution (internal static pure method).
     /// </summary>
     [Collection("Sequential")]
-    public class GameStateStoreExtractedTests
+    public class GameStateStoreExtractedTests : System.IDisposable
     {
         public GameStateStoreExtractedTests()
         {
@@ -18,6 +18,11 @@ namespace Parsek.Tests
             MilestoneStore.ResetForTesting();
             RecordingStore.SuppressLogging = true;
             ParsekLog.SuppressLogging = true;
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.ResetTestOverrides();
         }
 
         #region BuildEventTypeDistribution
