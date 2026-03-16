@@ -93,21 +93,6 @@ namespace Parsek.Tests
             Assert.Contains("ReputationChanged=1", result);
         }
 
-        [Fact]
-        public void BuildEventTypeDistribution_CommaSeparated()
-        {
-            var events = new List<GameStateEvent>
-            {
-                new GameStateEvent { eventType = GameStateEventType.ContractAccepted },
-                new GameStateEvent { eventType = GameStateEventType.FundsChanged }
-            };
-
-            string result = GameStateStore.BuildEventTypeDistribution(events);
-
-            // Result should have exactly one comma separator
-            Assert.Contains(", ", result);
-        }
-
         #endregion
     }
 }

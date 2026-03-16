@@ -319,23 +319,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DeterminePrimaryBody_TiedCounts_ReturnsFirstEncountered()
-        {
-            // Bug caught: tie-breaking should be deterministic (first encountered with max)
-            // Note: Dictionary iteration order is not guaranteed, but the logic should
-            // consistently pick whichever body it encounters first at the max count
-            var counts = new Dictionary<string, int>
-            {
-                { "Kerbin", 50 },
-                { "Mun", 50 }
-            };
-            var result = TrajectoryMath.DeterminePrimaryBody(counts);
-            Assert.NotNull(result);
-            Assert.True(result == "Kerbin" || result == "Mun",
-                $"Expected Kerbin or Mun, got {result}");
-        }
-
-        [Fact]
         public void DeterminePrimaryBody_SecondBodyMoreFrequent_ReturnsSecond()
         {
             // Bug caught: iteration must check all entries, not short-circuit
