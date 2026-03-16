@@ -293,28 +293,8 @@ namespace Parsek
         private static void SeedAnimateGeneric(Part p, ModuleCargoBay cargo,
             PartTrackingSets sets, string logTag)
         {
-            // Exclusion check: same logic as HasDedicatedAnimateHandler / CheckAnimateGenericState
-            bool hasDeployablePart = p.FindModuleImplementing<ModuleDeployablePart>() != null;
-            bool hasWheelDeploy = p.FindModuleImplementing<ModuleWheels.ModuleWheelDeployment>() != null;
-            bool hasCargoBay = cargo != null;
-            bool hasLadder = false, hasAnimGroup = false, hasAeroSurf = false;
-            bool hasCtrlSurf = false, hasRobotArm = false, hasAnimHeat = false;
-            for (int m = 0; m < p.Modules.Count; m++)
-            {
-                PartModule mod = p.Modules[m];
-                if (mod == null) continue;
-                if (string.Equals(mod.moduleName, "RetractableLadder", System.StringComparison.Ordinal)) hasLadder = true;
-                if (string.Equals(mod.moduleName, "ModuleAnimationGroup", System.StringComparison.Ordinal)) hasAnimGroup = true;
-                if (string.Equals(mod.moduleName, "ModuleAeroSurface", System.StringComparison.Ordinal)) hasAeroSurf = true;
-                if (string.Equals(mod.moduleName, "ModuleControlSurface", System.StringComparison.Ordinal)) hasCtrlSurf = true;
-                if (string.Equals(mod.moduleName, "ModuleRobotArmScanner", System.StringComparison.Ordinal)) hasRobotArm = true;
-                if (string.Equals(mod.moduleName, "ModuleAnimateHeat", System.StringComparison.Ordinal)) hasAnimHeat = true;
-            }
-            if (hasDeployablePart || hasWheelDeploy || hasCargoBay ||
-                hasLadder || hasAnimGroup || hasAeroSurf || hasCtrlSurf || hasRobotArm || hasAnimHeat)
-            {
-                return;
-            }
+            // Delegate to FlightRecorder's canonical exclusion check (avoids duplication)
+            if (FlightRecorder.HasDedicatedAnimateHandler(p)) return;
 
             for (int m = 0; m < p.Modules.Count; m++)
             {
