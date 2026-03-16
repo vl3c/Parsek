@@ -282,6 +282,22 @@ namespace Parsek
             if (rec.RecordingGroups != null)
                 for (int g = 0; g < rec.RecordingGroups.Count; g++)
                     recNode.AddValue("recordingGroup", rec.RecordingGroups[g]);
+
+            // Controller info (v6+)
+            if (rec.Controllers != null)
+            {
+                for (int i = 0; i < rec.Controllers.Count; i++)
+                {
+                    ConfigNode ctrlNode = recNode.AddNode("CONTROLLER");
+                    ctrlNode.AddValue("type", rec.Controllers[i].type ?? "");
+                    ctrlNode.AddValue("part", rec.Controllers[i].partName ?? "");
+                    ctrlNode.AddValue("pid", rec.Controllers[i].partPersistentId.ToString(ic));
+                }
+                ParsekLog.Verbose("RecordingTree",
+                    $"SaveRecordingResourceAndState: saved {rec.Controllers.Count} controller(s) for recording={rec.RecordingId}");
+            }
+            if (rec.IsDebris)
+                recNode.AddValue("isDebris", rec.IsDebris.ToString());
         }
 
         internal static void LoadRecordingFrom(ConfigNode recNode, Recording rec)
@@ -552,6 +568,33 @@ namespace Parsek
             string[] recGroups = recNode.GetValues("recordingGroup");
             if (recGroups != null && recGroups.Length > 0)
                 rec.RecordingGroups = new List<string>(recGroups);
+
+            // Controller info (v6+)
+            ConfigNode[] ctrlNodes = recNode.GetNodes("CONTROLLER");
+            if (ctrlNodes.Length > 0)
+            {
+                rec.Controllers = new List<ControllerInfo>(ctrlNodes.Length);
+                for (int i = 0; i < ctrlNodes.Length; i++)
+                {
+                    var ctrl = new ControllerInfo();
+                    ctrl.type = ctrlNodes[i].GetValue("type") ?? "";
+                    ctrl.partName = ctrlNodes[i].GetValue("part") ?? "";
+                    uint pid;
+                    if (uint.TryParse(ctrlNodes[i].GetValue("pid"), NumberStyles.Integer, ic, out pid))
+                        ctrl.partPersistentId = pid;
+                    rec.Controllers.Add(ctrl);
+                }
+                ParsekLog.Verbose("RecordingTree",
+                    $"LoadRecordingResourceAndState: loaded {rec.Controllers.Count} controller(s) for recording={rec.RecordingId}");
+            }
+
+            string isDebrisStr = recNode.GetValue("isDebris");
+            if (isDebrisStr != null)
+            {
+                bool isDebris;
+                if (bool.TryParse(isDebrisStr, out isDebris))
+                    rec.IsDebris = isDebris;
+            }
         }
 
         #endregion

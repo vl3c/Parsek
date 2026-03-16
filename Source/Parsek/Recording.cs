@@ -22,6 +22,20 @@ namespace Parsek
         public List<TrajectoryPoint> Points = new List<TrajectoryPoint>();
         public List<OrbitSegment> OrbitSegments = new List<OrbitSegment>();
         public List<PartEvent> PartEvents = new List<PartEvent>();
+
+        // Segment events (within-segment state changes, no DAG branching)
+        public List<SegmentEvent> SegmentEvents = new List<SegmentEvent>();
+
+        // Track sections (environment + reference frame typed trajectory chunks)
+        // For v6+ recordings. Empty for legacy v5 recordings (use flat Points instead).
+        public List<TrackSection> Tracks = new List<TrackSection>();
+
+        // Controller parts at segment start (for identity tracking)
+        public List<ControllerInfo> Controllers;  // null = not set (legacy recording)
+
+        // True if vessel has no controller parts (debris). Minimal recording only.
+        public bool IsDebris;
+
         public bool LoopPlayback;
         public double LoopIntervalSeconds = 10.0;
         public LoopTimeUnit LoopTimeUnit = LoopTimeUnit.Sec;
@@ -183,6 +197,15 @@ namespace Parsek
             ExplicitEndUT = source.ExplicitEndUT;
             RecordingGroups = source.RecordingGroups != null
                 ? new List<string>(source.RecordingGroups) : null;
+
+            // Copy segment events and tracks if source has them
+            if (source.SegmentEvents != null && source.SegmentEvents.Count > 0)
+                SegmentEvents = new List<SegmentEvent>(source.SegmentEvents);
+            if (source.Tracks != null && source.Tracks.Count > 0)
+                Tracks = new List<TrackSection>(source.Tracks);
+            if (source.Controllers != null)
+                Controllers = new List<ControllerInfo>(source.Controllers);
+            IsDebris = source.IsDebris;
         }
     }
 }
