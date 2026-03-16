@@ -24,6 +24,12 @@ namespace Parsek
         public List<PartEvent> PartEvents = new List<PartEvent>();
         public List<SegmentEvent> SegmentEvents = new List<SegmentEvent>();
         public List<TrackSection> TrackSections = new List<TrackSection>();
+
+        // Controller parts at segment start (for identity tracking)
+        public List<ControllerInfo> Controllers;  // null = not set (legacy recording)
+
+        // True if vessel has no controller parts (debris). Minimal recording only.
+        public bool IsDebris;
         public bool LoopPlayback;
         public double LoopIntervalSeconds = 10.0;
         public LoopTimeUnit LoopTimeUnit = LoopTimeUnit.Sec;
@@ -185,6 +191,15 @@ namespace Parsek
             ExplicitEndUT = source.ExplicitEndUT;
             RecordingGroups = source.RecordingGroups != null
                 ? new List<string>(source.RecordingGroups) : null;
+
+            // Copy segment events and tracks if source has them
+            if (source.SegmentEvents != null && source.SegmentEvents.Count > 0)
+                SegmentEvents = new List<SegmentEvent>(source.SegmentEvents);
+            if (source.TrackSections != null && source.TrackSections.Count > 0)
+                TrackSections = new List<TrackSection>(source.TrackSections);
+            if (source.Controllers != null)
+                Controllers = new List<ControllerInfo>(source.Controllers);
+            IsDebris = source.IsDebris;
         }
     }
 }
