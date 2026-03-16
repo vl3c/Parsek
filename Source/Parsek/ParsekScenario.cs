@@ -1849,6 +1849,7 @@ namespace Parsek
         internal static void LoadHiddenGroups(ConfigNode node)
         {
             hiddenGroups.Clear();
+            hideActive = true;
 
             ConfigNode hiddenNode = node.GetNode("HIDDEN_GROUPS");
             if (hiddenNode == null)
