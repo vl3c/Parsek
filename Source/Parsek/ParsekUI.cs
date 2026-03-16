@@ -27,7 +27,7 @@ namespace Parsek
         private bool showRecordingsWindow;
         private Rect recordingsWindowRect;
         private Vector2 recordingsScrollPos;
-        private bool hideActive = true;
+        // ParsekScenario.hideActive is stored on ParsekScenario for persistence across scene changes and save/load
         private bool isResizingRecordingsWindow;
         private bool recordingsWindowHasInputLock;
         private const string RecordingsInputLockId = "Parsek_RecordingsWindow";
@@ -1004,13 +1004,13 @@ namespace Parsek
                 GUILayout.BeginHorizontal(GUILayout.Width(ColW_Hide));
                 GUILayout.FlexibleSpace();
                 GUILayout.Label("Hide");
-                bool newHideActive = GUILayout.Toggle(hideActive, "");
+                bool newHideActive = GUILayout.Toggle(ParsekScenario.hideActive, "");
                 GUILayout.FlexibleSpace();
                 GUILayout.EndHorizontal();
-                if (newHideActive != hideActive)
+                if (newHideActive != ParsekScenario.hideActive)
                 {
-                    hideActive = newHideActive;
-                    ParsekLog.Info("UI", $"Hide active toggled: {hideActive}");
+                    ParsekScenario.hideActive = newHideActive;
+                    ParsekLog.Info("UI", $"Hide active toggled: {ParsekScenario.hideActive}");
                 }
 
                 GUILayout.EndHorizontal();
@@ -1205,7 +1205,7 @@ namespace Parsek
         private bool DrawRecordingRow(int ri, List<Recording> committed, double now, float indentPx)
         {
             var rec = committed[ri];
-            if (rec.Hidden && hideActive) return false;
+            if (rec.Hidden && ParsekScenario.hideActive) return false;
             GUILayout.BeginHorizontal();
 
             // Enable checkbox (always at column 0)
@@ -1445,7 +1445,7 @@ namespace Parsek
             Dictionary<string, List<string>> grpChildren)
         {
             // Skip hidden groups when hide is active
-            if (hideActive && ParsekScenario.hiddenGroups.Contains(groupName))
+            if (ParsekScenario.hideActive && ParsekScenario.hiddenGroups.Contains(groupName))
                 return false;
 
             // Collect unique descendant recordings for aggregate controls
@@ -1539,13 +1539,20 @@ namespace Parsek
                 }
             }
 
-            // G button (assign parent group)
-            if (GUILayout.Button("G", GUILayout.Width(ColW_Group)))
+            // Group management buttons: G (assign parent) + X (disband)
+            GUILayout.BeginHorizontal(GUIStyle.none, GUILayout.Width(ColW_Group));
+            if (GUILayout.Button("G"))
             {
                 groupPopupPosition = GUIUtility.GUIToScreenPoint(Event.current.mousePosition);
                 OpenGroupPopupForGroup(groupName);
                 ParsekLog.Verbose("UI", $"Group popup opened for group '{groupName}'");
             }
+            if (GUILayout.Button("X"))
+            {
+                ShowDisbandGroupConfirmation(groupName, descendants, grpChildren);
+                ParsekLog.Verbose("UI", $"Disband clicked for group '{groupName}'");
+            }
+            GUILayout.EndHorizontal();
 
             // Loop checkbox (aggregate)
             int loopCount = 0;
@@ -1570,11 +1577,7 @@ namespace Parsek
             // Spacers for Watch
             if (InFlight) GUILayout.Label("", GUILayout.Width(ColW_Watch));
 
-            // Disband group button (replaces old delete-group two-stage)
-            if (GUILayout.Button(new GUIContent("D", "Disband group (move members to parent)"), GUILayout.Width(ColW_Rewind)))
-            {
-                ShowDisbandGroupConfirmation(groupName, descendants, grpChildren);
-            }
+            GUILayout.Label("", GUILayout.Width(ColW_Rewind));
 
             // Hide group checkbox
             bool groupHidden = ParsekScenario.hiddenGroups.Contains(groupName);

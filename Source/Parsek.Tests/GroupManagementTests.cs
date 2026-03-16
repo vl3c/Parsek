@@ -661,5 +661,245 @@ namespace Parsek.Tests
 
             Assert.Equal(0, count);
         }
+
+        // ─── RecordingStore.ReplaceGroupOnAll ───────────────────────────────
+
+        [Fact]
+        public void ReplaceGroupOnAll_ReplacesWithParentGroup()
+        {
+            // Bug: recording stays tagged with disbanded child group instead of being moved to parent
+            RecordingStore.CommittedRecordings.Add(new Recording
+            {
+                VesselName = "V1",
+                RecordingGroups = new List<string> { "OldGroup", "Keep" }
+            });
+            RecordingStore.CommittedRecordings.Add(new Recording
+            {
+                VesselName = "V2",
+                RecordingGroups = new List<string> { "OldGroup" }
+            });
+
+            int count = RecordingStore.ReplaceGroupOnAll("OldGroup", "ParentGroup");
+
+            Assert.Equal(2, count);
+            Assert.Contains("ParentGroup", RecordingStore.CommittedRecordings[0].RecordingGroups);
+            Assert.Contains("Keep", RecordingStore.CommittedRecordings[0].RecordingGroups);
+            Assert.DoesNotContain("OldGroup", RecordingStore.CommittedRecordings[0].RecordingGroups);
+            Assert.Contains("ParentGroup", RecordingStore.CommittedRecordings[1].RecordingGroups);
+            Assert.DoesNotContain("OldGroup", RecordingStore.CommittedRecordings[1].RecordingGroups);
+            Assert.Contains(logLines, l =>
+                l.Contains("ReplaceGroupOnAll") && l.Contains("2 recordings"));
+        }
+
+        [Fact]
+        public void ReplaceGroupOnAll_AlreadyHasParentGroup_Deduplicates()
+        {
+            // Bug: recording ends up with duplicate parent group tag if it was already a member
+            RecordingStore.CommittedRecordings.Add(new Recording
+            {
+                VesselName = "V1",
+                RecordingGroups = new List<string> { "OldGroup", "ParentGroup" }
+            });
+
+            int count = RecordingStore.ReplaceGroupOnAll("OldGroup", "ParentGroup");
+
+            Assert.Equal(1, count);
+            var groups = RecordingStore.CommittedRecordings[0].RecordingGroups;
+            Assert.Single(groups);
+            Assert.Equal("ParentGroup", groups[0]);
+        }
+
+        [Fact]
+        public void ReplaceGroupOnAll_NullParent_RemovesGroupTag()
+        {
+            // Bug: recording retains group tag when group is disbanded to standalone (null parent)
+            RecordingStore.CommittedRecordings.Add(new Recording
+            {
+                VesselName = "V1",
+                RecordingGroups = new List<string> { "Disband" }
+            });
+
+            int count = RecordingStore.ReplaceGroupOnAll("Disband", null);
+
+            Assert.Equal(1, count);
+            // List was emptied so should be nulled out
+            Assert.Null(RecordingStore.CommittedRecordings[0].RecordingGroups);
+            Assert.Contains(logLines, l =>
+                l.Contains("ReplaceGroupOnAll") && l.Contains("(standalone)"));
+        }
+
+        [Fact]
+        public void ReplaceGroupOnAll_NullRecordingGroups_SkipsWithoutCrash()
+        {
+            // Bug: NullReferenceException when recording has null RecordingGroups list
+            RecordingStore.CommittedRecordings.Add(new Recording
+            {
+                VesselName = "NullGroups",
+                RecordingGroups = null
+            });
+
+            int count = RecordingStore.ReplaceGroupOnAll("AnyGroup", "Parent");
+
+            Assert.Equal(0, count);
+            Assert.Null(RecordingStore.CommittedRecordings[0].RecordingGroups);
+        }
+
+        [Fact]
+        public void ReplaceGroupOnAll_RecordingNotInGroup_Unaffected()
+        {
+            // Bug: unrelated recordings get their groups modified by ReplaceGroupOnAll
+            RecordingStore.CommittedRecordings.Add(new Recording
+            {
+                VesselName = "Bystander",
+                RecordingGroups = new List<string> { "SomeOtherGroup" }
+            });
+
+            int count = RecordingStore.ReplaceGroupOnAll("TargetGroup", "Parent");
+
+            Assert.Equal(0, count);
+            Assert.Contains("SomeOtherGroup", RecordingStore.CommittedRecordings[0].RecordingGroups);
+            Assert.True(RecordingStore.CommittedRecordings[0].RecordingGroups.Count == 1);
+        }
+
+        [Fact]
+        public void ReplaceGroupOnAll_ReturnValueMatchesUpdatedCount()
+        {
+            // Bug: return value doesn't match actual number of modified recordings
+            RecordingStore.CommittedRecordings.Add(new Recording
+            {
+                VesselName = "V1",
+                RecordingGroups = new List<string> { "Target" }
+            });
+            RecordingStore.CommittedRecordings.Add(new Recording
+            {
+                VesselName = "V2",
+                RecordingGroups = new List<string> { "Other" }
+            });
+            RecordingStore.CommittedRecordings.Add(new Recording
+            {
+                VesselName = "V3",
+                RecordingGroups = new List<string> { "Target", "Extra" }
+            });
+
+            int count = RecordingStore.ReplaceGroupOnAll("Target", "Replacement");
+
+            Assert.Equal(2, count);
+        }
+
+        [Fact]
+        public void ReplaceGroupOnAll_EmptyGroupName_ReturnsZero()
+        {
+            // Bug: empty string group name could match empty entries in RecordingGroups
+            RecordingStore.CommittedRecordings.Add(new Recording
+            {
+                VesselName = "V1",
+                RecordingGroups = new List<string> { "Group" }
+            });
+
+            int count = RecordingStore.ReplaceGroupOnAll("", "Parent");
+
+            Assert.Equal(0, count);
+        }
+
+        // ─── hiddenGroups persistence ───────────────────────────────────────
+
+        [Fact]
+        public void HiddenGroups_OnSave_WritesHiddenGroupsNode()
+        {
+            // Bug: hidden groups not persisted — all groups reappear after save/load
+            ParsekScenario.hiddenGroups.Add("Archived");
+            ParsekScenario.hiddenGroups.Add("Deprecated");
+
+            // Simulate what OnSave does for HIDDEN_GROUPS
+            var node = new ConfigNode("SCENARIO");
+            if (ParsekScenario.hiddenGroups.Count > 0)
+            {
+                ConfigNode hiddenNode = node.AddNode("HIDDEN_GROUPS");
+                foreach (var g in ParsekScenario.hiddenGroups)
+                    hiddenNode.AddValue("group", g);
+            }
+
+            ConfigNode savedNode = node.GetNode("HIDDEN_GROUPS");
+            Assert.NotNull(savedNode);
+            string[] groups = savedNode.GetValues("group");
+            Assert.Equal(2, groups.Length);
+            Assert.Contains("Archived", groups);
+            Assert.Contains("Deprecated", groups);
+        }
+
+        [Fact]
+        public void HiddenGroups_LoadHiddenGroups_ReadsBack()
+        {
+            // Bug: LoadHiddenGroups fails to populate hiddenGroups from ConfigNode
+            var node = new ConfigNode("SCENARIO");
+            var hiddenNode = node.AddNode("HIDDEN_GROUPS");
+            hiddenNode.AddValue("group", "HiddenA");
+            hiddenNode.AddValue("group", "HiddenB");
+
+            ParsekScenario.LoadHiddenGroups(node);
+
+            Assert.Equal(2, ParsekScenario.hiddenGroups.Count);
+            Assert.Contains("HiddenA", ParsekScenario.hiddenGroups);
+            Assert.Contains("HiddenB", ParsekScenario.hiddenGroups);
+        }
+
+        [Fact]
+        public void HiddenGroups_LoadHiddenGroups_NoNode_ClearsSet()
+        {
+            // Bug: stale hidden groups survive when save file has no HIDDEN_GROUPS node
+            ParsekScenario.hiddenGroups.Add("Stale");
+
+            var node = new ConfigNode("SCENARIO");
+            // No HIDDEN_GROUPS node
+
+            ParsekScenario.LoadHiddenGroups(node);
+
+            Assert.Empty(ParsekScenario.hiddenGroups);
+        }
+
+        [Fact]
+        public void HiddenGroups_RoundTrip_SaveThenLoad()
+        {
+            // Bug: hidden groups lost across save/load cycle (end-to-end)
+            ParsekScenario.hiddenGroups.Add("Flights");
+            ParsekScenario.hiddenGroups.Add("Tests");
+
+            // Save
+            var node = new ConfigNode("SCENARIO");
+            if (ParsekScenario.hiddenGroups.Count > 0)
+            {
+                ConfigNode hiddenNode = node.AddNode("HIDDEN_GROUPS");
+                foreach (var g in ParsekScenario.hiddenGroups)
+                    hiddenNode.AddValue("group", g);
+            }
+
+            // Clear and reload
+            ParsekScenario.hiddenGroups.Clear();
+            Assert.Empty(ParsekScenario.hiddenGroups);
+
+            ParsekScenario.LoadHiddenGroups(node);
+
+            Assert.Equal(2, ParsekScenario.hiddenGroups.Count);
+            Assert.Contains("Flights", ParsekScenario.hiddenGroups);
+            Assert.Contains("Tests", ParsekScenario.hiddenGroups);
+        }
+
+        [Fact]
+        public void HiddenGroups_LoadHiddenGroups_SkipsEmptyStrings()
+        {
+            // Bug: empty string entry in HIDDEN_GROUPS node pollutes the set
+            var node = new ConfigNode("SCENARIO");
+            var hiddenNode = node.AddNode("HIDDEN_GROUPS");
+            hiddenNode.AddValue("group", "Valid");
+            hiddenNode.AddValue("group", "");
+            hiddenNode.AddValue("group", "AlsoValid");
+
+            ParsekScenario.LoadHiddenGroups(node);
+
+            Assert.Equal(2, ParsekScenario.hiddenGroups.Count);
+            Assert.Contains("Valid", ParsekScenario.hiddenGroups);
+            Assert.Contains("AlsoValid", ParsekScenario.hiddenGroups);
+            Assert.DoesNotContain("", ParsekScenario.hiddenGroups);
+        }
     }
 }

@@ -376,6 +376,64 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RecordingMetadata_Hidden_SaveLoad_RoundTrip()
+        {
+            // Bug: Hidden=true not persisted — recording reappears after save/load cycle
+            var source = new Recording
+            {
+                RecordingId = "hidden-rec",
+                Hidden = true
+            };
+
+            var node = new ConfigNode("RECORDING");
+            ParsekScenario.SaveRecordingMetadata(node, source);
+
+            // Verify the node contains the hidden value
+            Assert.Equal("True", node.GetValue("hidden"));
+
+            var loaded = new Recording();
+            ParsekScenario.LoadRecordingMetadata(node, loaded);
+
+            Assert.True(loaded.Hidden);
+        }
+
+        [Fact]
+        public void RecordingMetadata_Hidden_DefaultFalse_NotWritten()
+        {
+            // Bug: hidden=False written unnecessarily, bloating save files
+            var source = new Recording
+            {
+                RecordingId = "visible-rec",
+                Hidden = false
+            };
+
+            var node = new ConfigNode("RECORDING");
+            ParsekScenario.SaveRecordingMetadata(node, source);
+
+            // hidden=false should not be written (saves space, matches default)
+            Assert.Null(node.GetValue("hidden"));
+
+            var loaded = new Recording();
+            ParsekScenario.LoadRecordingMetadata(node, loaded);
+
+            Assert.False(loaded.Hidden);
+        }
+
+        [Fact]
+        public void RecordingMetadata_Hidden_MissingField_DefaultsFalse()
+        {
+            // Bug: legacy recordings without hidden field crash or default to true
+            var node = new ConfigNode("RECORDING");
+            node.AddValue("recordingId", "legacy-no-hidden");
+            // No "hidden" value — simulates a pre-hide-feature recording
+
+            var loaded = new Recording();
+            ParsekScenario.LoadRecordingMetadata(node, loaded);
+
+            Assert.False(loaded.Hidden);
+        }
+
+        [Fact]
         public void RecordingMetadata_BackwardCompat_LoadsLegacyGhostGeometryFields()
         {
             // Legacy save files may contain ghost geometry fields — verify they deserialize

@@ -32,8 +32,11 @@ namespace Parsek
         // Group hierarchy: child group name → parent group name
         internal static Dictionary<string, string> groupParents = new Dictionary<string, string>();
 
-        // Hidden groups (collapsed in UI by default)
+        // Hidden groups: group names hidden from the recordings list when Hide is active
         internal static HashSet<string> hiddenGroups = new HashSet<string>();
+
+        // Hide toggle state (persisted across scene changes and save/load)
+        internal static bool hideActive = true;
 
         /// <summary>
         /// Read-only access to current replacement mappings. For testing/diagnostics.
@@ -130,13 +133,15 @@ namespace Parsek
                 ScenarioLog($"[Parsek Scenario] Saved group hierarchy: {groupParents.Count} entries");
             }
 
-            // Persist hidden groups
-            if (hiddenGroups.Count > 0)
+            // Persist hidden groups and hide toggle state
+            if (hiddenGroups.Count > 0 || !hideActive)
             {
                 ConfigNode hiddenNode = node.AddNode("HIDDEN_GROUPS");
                 foreach (var g in hiddenGroups)
                     hiddenNode.AddValue("group", g);
-                ScenarioLog($"[Parsek Scenario] Saved hidden groups: {hiddenGroups.Count} entries");
+                if (!hideActive)
+                    hiddenNode.AddValue("hideActive", "False");
+                ScenarioLog($"[Parsek Scenario] Saved hidden groups: {hiddenGroups.Count} entries, hideActive={hideActive}");
             }
 
             // Save game state events to external file
@@ -1841,7 +1846,7 @@ namespace Parsek
             ScenarioLog($"[Parsek Scenario] Loaded {groupParents.Count} group hierarchy entries");
         }
 
-        private static void LoadHiddenGroups(ConfigNode node)
+        internal static void LoadHiddenGroups(ConfigNode node)
         {
             hiddenGroups.Clear();
 
@@ -1862,7 +1867,20 @@ namespace Parsek
                 }
             }
 
-            ScenarioLog($"[Parsek Scenario] Loaded {hiddenGroups.Count} hidden groups");
+            // Restore hide toggle state (defaults to true if not saved)
+            string hideActiveStr = hiddenNode.GetValue("hideActive");
+            if (hideActiveStr != null)
+            {
+                bool parsed;
+                if (bool.TryParse(hideActiveStr, out parsed))
+                    hideActive = parsed;
+            }
+            else
+            {
+                hideActive = true;
+            }
+
+            ScenarioLog($"[Parsek Scenario] Loaded {hiddenGroups.Count} hidden groups, hideActive={hideActive}");
         }
 
         /// <summary>
@@ -2203,6 +2221,7 @@ namespace Parsek
         {
             groupParents.Clear();
             hiddenGroups.Clear();
+            hideActive = true;
         }
 
         #region Vessel Lifecycle Events
