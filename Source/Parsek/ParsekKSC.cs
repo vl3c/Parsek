@@ -455,30 +455,17 @@ namespace Parsek
                 return null;
             }
 
-            List<ParachuteGhostInfo> parachuteInfoList;
-            List<JettisonGhostInfo> jettisonInfoList;
-            List<EngineGhostInfo> engineInfoList;
-            List<DeployableGhostInfo> deployableInfoList;
-            List<HeatGhostInfo> heatInfoList;
-            List<LightGhostInfo> lightInfoList;
-            List<FairingGhostInfo> fairingInfoList;
-            List<RcsGhostInfo> rcsInfoList;
-            List<RoboticGhostInfo> roboticInfoList;
-            List<ColorChangerGhostInfo> colorChangerInfoList;
+            var buildResult = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
+                rec, $"Parsek_KSC_{index}");
 
-            GameObject ghost = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
-                rec, $"Parsek_KSC_{index}",
-                out parachuteInfoList, out jettisonInfoList,
-                out engineInfoList, out deployableInfoList,
-                out heatInfoList, out lightInfoList, out fairingInfoList,
-                out rcsInfoList, out roboticInfoList, out colorChangerInfoList);
-
-            if (ghost == null)
+            if (buildResult == null)
             {
                 ParsekLog.Verbose("KSCGhost",
                     $"Ghost #{index} \"{rec.VesselName}\": BuildTimelineGhostFromSnapshot returned null");
                 return null;
             }
+
+            GameObject ghost = buildResult.root;
 
             var state = new ParsekFlight.GhostPlaybackState
             {
@@ -490,100 +477,100 @@ namespace Parsek
                 partTree = GhostVisualBuilder.BuildPartSubtreeMap(snapshot)
             };
 
-            if (parachuteInfoList != null)
+            if (buildResult.parachuteInfos != null)
             {
                 state.parachuteInfos = new Dictionary<uint, ParachuteGhostInfo>();
-                for (int i = 0; i < parachuteInfoList.Count; i++)
-                    state.parachuteInfos[parachuteInfoList[i].partPersistentId] = parachuteInfoList[i];
+                for (int i = 0; i < buildResult.parachuteInfos.Count; i++)
+                    state.parachuteInfos[buildResult.parachuteInfos[i].partPersistentId] = buildResult.parachuteInfos[i];
             }
 
-            if (jettisonInfoList != null)
+            if (buildResult.jettisonInfos != null)
             {
                 state.jettisonInfos = new Dictionary<uint, JettisonGhostInfo>();
-                for (int i = 0; i < jettisonInfoList.Count; i++)
-                    state.jettisonInfos[jettisonInfoList[i].partPersistentId] = jettisonInfoList[i];
+                for (int i = 0; i < buildResult.jettisonInfos.Count; i++)
+                    state.jettisonInfos[buildResult.jettisonInfos[i].partPersistentId] = buildResult.jettisonInfos[i];
             }
 
-            if (engineInfoList != null)
+            if (buildResult.engineInfos != null)
             {
                 state.engineInfos = new Dictionary<ulong, EngineGhostInfo>();
-                for (int i = 0; i < engineInfoList.Count; i++)
+                for (int i = 0; i < buildResult.engineInfos.Count; i++)
                 {
                     ulong key = FlightRecorder.EncodeEngineKey(
-                        engineInfoList[i].partPersistentId, engineInfoList[i].moduleIndex);
-                    state.engineInfos[key] = engineInfoList[i];
+                        buildResult.engineInfos[i].partPersistentId, buildResult.engineInfos[i].moduleIndex);
+                    state.engineInfos[key] = buildResult.engineInfos[i];
                 }
             }
 
-            if (deployableInfoList != null)
+            if (buildResult.deployableInfos != null)
             {
                 state.deployableInfos = new Dictionary<uint, DeployableGhostInfo>();
-                for (int i = 0; i < deployableInfoList.Count; i++)
-                    state.deployableInfos[deployableInfoList[i].partPersistentId] = deployableInfoList[i];
+                for (int i = 0; i < buildResult.deployableInfos.Count; i++)
+                    state.deployableInfos[buildResult.deployableInfos[i].partPersistentId] = buildResult.deployableInfos[i];
             }
 
-            if (heatInfoList != null)
+            if (buildResult.heatInfos != null)
             {
                 state.heatInfos = new Dictionary<uint, HeatGhostInfo>();
-                for (int i = 0; i < heatInfoList.Count; i++)
-                    state.heatInfos[heatInfoList[i].partPersistentId] = heatInfoList[i];
+                for (int i = 0; i < buildResult.heatInfos.Count; i++)
+                    state.heatInfos[buildResult.heatInfos[i].partPersistentId] = buildResult.heatInfos[i];
             }
 
-            if (lightInfoList != null)
+            if (buildResult.lightInfos != null)
             {
                 state.lightInfos = new Dictionary<uint, LightGhostInfo>();
                 state.lightPlaybackStates =
                     new Dictionary<uint, ParsekFlight.LightPlaybackState>();
-                for (int i = 0; i < lightInfoList.Count; i++)
+                for (int i = 0; i < buildResult.lightInfos.Count; i++)
                 {
-                    state.lightInfos[lightInfoList[i].partPersistentId] = lightInfoList[i];
-                    state.lightPlaybackStates[lightInfoList[i].partPersistentId] =
+                    state.lightInfos[buildResult.lightInfos[i].partPersistentId] = buildResult.lightInfos[i];
+                    state.lightPlaybackStates[buildResult.lightInfos[i].partPersistentId] =
                         new ParsekFlight.LightPlaybackState();
                 }
             }
 
-            if (fairingInfoList != null)
+            if (buildResult.fairingInfos != null)
             {
                 state.fairingInfos = new Dictionary<uint, FairingGhostInfo>();
-                for (int i = 0; i < fairingInfoList.Count; i++)
-                    state.fairingInfos[fairingInfoList[i].partPersistentId] = fairingInfoList[i];
+                for (int i = 0; i < buildResult.fairingInfos.Count; i++)
+                    state.fairingInfos[buildResult.fairingInfos[i].partPersistentId] = buildResult.fairingInfos[i];
             }
 
-            if (rcsInfoList != null)
+            if (buildResult.rcsInfos != null)
             {
                 state.rcsInfos = new Dictionary<ulong, RcsGhostInfo>();
-                for (int i = 0; i < rcsInfoList.Count; i++)
+                for (int i = 0; i < buildResult.rcsInfos.Count; i++)
                 {
                     ulong key = FlightRecorder.EncodeEngineKey(
-                        rcsInfoList[i].partPersistentId, rcsInfoList[i].moduleIndex);
-                    state.rcsInfos[key] = rcsInfoList[i];
+                        buildResult.rcsInfos[i].partPersistentId, buildResult.rcsInfos[i].moduleIndex);
+                    state.rcsInfos[key] = buildResult.rcsInfos[i];
                 }
             }
 
-            if (roboticInfoList != null)
+            if (buildResult.roboticInfos != null)
             {
                 state.roboticInfos = new Dictionary<ulong, RoboticGhostInfo>();
-                for (int i = 0; i < roboticInfoList.Count; i++)
+                for (int i = 0; i < buildResult.roboticInfos.Count; i++)
                 {
                     ulong key = FlightRecorder.EncodeEngineKey(
-                        roboticInfoList[i].partPersistentId, roboticInfoList[i].moduleIndex);
-                    state.roboticInfos[key] = roboticInfoList[i];
+                        buildResult.roboticInfos[i].partPersistentId, buildResult.roboticInfos[i].moduleIndex);
+                    state.roboticInfos[key] = buildResult.roboticInfos[i];
                 }
             }
 
-            if (colorChangerInfoList != null)
-                state.colorChangerInfos = GhostVisualBuilder.GroupColorChangersByPartId(colorChangerInfoList);
+            if (buildResult.colorChangerInfos != null)
+                state.colorChangerInfos = GhostVisualBuilder.GroupColorChangersByPartId(buildResult.colorChangerInfos);
 
             ParsekFlight.InitializeInventoryPlacementVisibility(rec, state);
 
             ParsekLog.Info("KSCGhost",
                 $"Ghost #{index} \"{rec.VesselName}\" spawned" +
-                $" (engines={engineInfoList?.Count ?? 0}" +
-                $" rcs={rcsInfoList?.Count ?? 0}" +
-                $" lights={lightInfoList?.Count ?? 0}" +
-                $" deployables={deployableInfoList?.Count ?? 0}" +
-                $" fairings={fairingInfoList?.Count ?? 0}" +
-                $" parachutes={parachuteInfoList?.Count ?? 0})");
+                $" (engines={buildResult.engineInfos?.Count ?? 0}" +
+                $" rcs={buildResult.rcsInfos?.Count ?? 0}" +
+                $" lights={buildResult.lightInfos?.Count ?? 0}" +
+                $" deployables={buildResult.deployableInfos?.Count ?? 0}" +
+                $" fairings={buildResult.fairingInfos?.Count ?? 0}" +
+                $" parachutes={buildResult.parachuteInfos?.Count ?? 0})");
 
             return state;
         }

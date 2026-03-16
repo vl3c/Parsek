@@ -181,6 +181,26 @@ namespace Parsek
         public List<(string key, string value)> properties;
     }
 
+    /// <summary>
+    /// Bundles all output from BuildTimelineGhostFromSnapshot: the root GameObject
+    /// plus per-module-type ghost info lists. Replaces the previous 10 out-parameters.
+    /// Null list fields mean that module type had no matching parts in the snapshot.
+    /// </summary>
+    internal class GhostBuildResult
+    {
+        public GameObject root;
+        public List<ParachuteGhostInfo> parachuteInfos;
+        public List<JettisonGhostInfo> jettisonInfos;
+        public List<EngineGhostInfo> engineInfos;
+        public List<DeployableGhostInfo> deployableInfos;
+        public List<HeatGhostInfo> heatInfos;
+        public List<LightGhostInfo> lightInfos;
+        public List<FairingGhostInfo> fairingInfos;
+        public List<RcsGhostInfo> rcsInfos;
+        public List<RoboticGhostInfo> roboticInfos;
+        public List<ColorChangerGhostInfo> colorChangerInfos;
+    }
+
     internal static class GhostVisualBuilder
     {
         private static readonly Regex trailingNumericSuffixRegex =
@@ -462,31 +482,14 @@ namespace Parsek
             fxLoadedObjectScanCompleted = false;
         }
 
-        // TODO: The out-parameter list is growing large (10 info lists). Consider
-        // bundling them into a GhostBuildResult class in a future cleanup PR.
-        internal static GameObject BuildTimelineGhostFromSnapshot(
-            RecordingStore.Recording rec, string rootName,
-            out List<ParachuteGhostInfo> parachuteInfos,
-            out List<JettisonGhostInfo> jettisonInfos,
-            out List<EngineGhostInfo> engineInfos,
-            out List<DeployableGhostInfo> deployableInfos,
-            out List<HeatGhostInfo> heatInfos,
-            out List<LightGhostInfo> lightInfos,
-            out List<FairingGhostInfo> fairingInfos,
-            out List<RcsGhostInfo> rcsInfos,
-            out List<RoboticGhostInfo> roboticInfos,
-            out List<ColorChangerGhostInfo> colorChangerInfos)
+        /// <summary>
+        /// Builds a ghost GameObject from a recording's vessel snapshot, returning
+        /// all per-module-type ghost info lists bundled in a GhostBuildResult.
+        /// Returns null if the snapshot is missing or produces zero visuals.
+        /// </summary>
+        internal static GhostBuildResult BuildTimelineGhostFromSnapshot(
+            RecordingStore.Recording rec, string rootName)
         {
-            parachuteInfos = null;
-            jettisonInfos = null;
-            engineInfos = null;
-            deployableInfos = null;
-            heatInfos = null;
-            lightInfos = null;
-            fairingInfos = null;
-            rcsInfos = null;
-            roboticInfos = null;
-            colorChangerInfos = null;
             ConfigNode snapshotNode = GetGhostSnapshot(rec);
             if (snapshotNode == null)
             {
@@ -621,92 +624,20 @@ namespace Parsek
                 return null;
             }
 
-            parachuteInfos = collectedParachuteInfos.Count > 0 ? collectedParachuteInfos : null;
-            jettisonInfos = collectedJettisonInfos.Count > 0 ? collectedJettisonInfos : null;
-            engineInfos = collectedEngineInfos.Count > 0 ? collectedEngineInfos : null;
-            deployableInfos = collectedDeployableInfos.Count > 0 ? collectedDeployableInfos : null;
-            heatInfos = collectedHeatInfos.Count > 0 ? collectedHeatInfos : null;
-            lightInfos = collectedLightInfos.Count > 0 ? collectedLightInfos : null;
-            fairingInfos = collectedFairingInfos.Count > 0 ? collectedFairingInfos : null;
-            rcsInfos = collectedRcsInfos.Count > 0 ? collectedRcsInfos : null;
-            roboticInfos = collectedRoboticInfos.Count > 0 ? collectedRoboticInfos : null;
-            colorChangerInfos = collectedColorChangerInfos.Count > 0 ? collectedColorChangerInfos : null;
-            return root;
-        }
-
-        // Backward-compat overload without rcs infos
-        internal static GameObject BuildTimelineGhostFromSnapshot(
-            RecordingStore.Recording rec, string rootName,
-            out List<ParachuteGhostInfo> parachuteInfos,
-            out List<JettisonGhostInfo> jettisonInfos,
-            out List<EngineGhostInfo> engineInfos,
-            out List<DeployableGhostInfo> deployableInfos,
-            out List<LightGhostInfo> lightInfos,
-            out List<FairingGhostInfo> fairingInfos)
-        {
-            return BuildTimelineGhostFromSnapshot(rec, rootName,
-                out parachuteInfos, out jettisonInfos, out engineInfos, out deployableInfos, out _,
-                out lightInfos, out fairingInfos, out _, out _, out _);
-        }
-
-        // Backward-compat overload without fairing/rcs infos
-        internal static GameObject BuildTimelineGhostFromSnapshot(
-            RecordingStore.Recording rec, string rootName,
-            out List<ParachuteGhostInfo> parachuteInfos,
-            out List<JettisonGhostInfo> jettisonInfos,
-            out List<EngineGhostInfo> engineInfos,
-            out List<DeployableGhostInfo> deployableInfos,
-            out List<LightGhostInfo> lightInfos)
-        {
-            return BuildTimelineGhostFromSnapshot(rec, rootName,
-                out parachuteInfos, out jettisonInfos, out engineInfos, out deployableInfos, out _,
-                out lightInfos, out _, out _, out _, out _);
-        }
-
-        // Backward-compat overload without light/fairing/rcs infos
-        internal static GameObject BuildTimelineGhostFromSnapshot(
-            RecordingStore.Recording rec, string rootName,
-            out List<ParachuteGhostInfo> parachuteInfos,
-            out List<JettisonGhostInfo> jettisonInfos,
-            out List<EngineGhostInfo> engineInfos,
-            out List<DeployableGhostInfo> deployableInfos)
-        {
-            return BuildTimelineGhostFromSnapshot(rec, rootName,
-                out parachuteInfos, out jettisonInfos, out engineInfos, out deployableInfos, out _, out _, out _, out _, out _, out _);
-        }
-
-        // Backward-compat overload without deployable/light/fairing/rcs infos
-        internal static GameObject BuildTimelineGhostFromSnapshot(
-            RecordingStore.Recording rec, string rootName,
-            out List<ParachuteGhostInfo> parachuteInfos,
-            out List<JettisonGhostInfo> jettisonInfos,
-            out List<EngineGhostInfo> engineInfos)
-        {
-            return BuildTimelineGhostFromSnapshot(rec, rootName,
-                out parachuteInfos, out jettisonInfos, out engineInfos, out _, out _, out _, out _, out _, out _, out _);
-        }
-
-        // Overload without info outputs for callers that don't need them (preview ghost)
-        internal static GameObject BuildTimelineGhostFromSnapshot(RecordingStore.Recording rec, string rootName)
-        {
-            return BuildTimelineGhostFromSnapshot(rec, rootName, out _, out _, out _, out _, out _, out _, out _, out _, out _, out _);
-        }
-
-        // Overload with parachute + jettison info (backward compat)
-        internal static GameObject BuildTimelineGhostFromSnapshot(
-            RecordingStore.Recording rec, string rootName,
-            out List<ParachuteGhostInfo> parachuteInfos,
-            out List<JettisonGhostInfo> jettisonInfos)
-        {
-            return BuildTimelineGhostFromSnapshot(rec, rootName, out parachuteInfos, out jettisonInfos, out _, out _, out _, out _, out _, out _, out _, out _);
-        }
-
-        // Overload with only parachute info for backward compat
-        internal static GameObject BuildTimelineGhostFromSnapshot(
-            RecordingStore.Recording rec, string rootName,
-            out List<ParachuteGhostInfo> parachuteInfos)
-        {
-            return BuildTimelineGhostFromSnapshot(rec, rootName, out parachuteInfos, out _, out _, out _, out _, out _, out _, out _, out _, out _);
+            return new GhostBuildResult
+            {
+                root = root,
+                parachuteInfos = collectedParachuteInfos.Count > 0 ? collectedParachuteInfos : null,
+                jettisonInfos = collectedJettisonInfos.Count > 0 ? collectedJettisonInfos : null,
+                engineInfos = collectedEngineInfos.Count > 0 ? collectedEngineInfos : null,
+                deployableInfos = collectedDeployableInfos.Count > 0 ? collectedDeployableInfos : null,
+                heatInfos = collectedHeatInfos.Count > 0 ? collectedHeatInfos : null,
+                lightInfos = collectedLightInfos.Count > 0 ? collectedLightInfos : null,
+                fairingInfos = collectedFairingInfos.Count > 0 ? collectedFairingInfos : null,
+                rcsInfos = collectedRcsInfos.Count > 0 ? collectedRcsInfos : null,
+                roboticInfos = collectedRoboticInfos.Count > 0 ? collectedRoboticInfos : null,
+                colorChangerInfos = collectedColorChangerInfos.Count > 0 ? collectedColorChangerInfos : null,
+            };
         }
 
         internal static ConfigNode GetGhostSnapshot(RecordingStore.Recording rec)
