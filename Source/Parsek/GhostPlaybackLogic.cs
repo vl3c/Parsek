@@ -1,0 +1,1498 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using UnityEngine;
+
+namespace Parsek
+{
+    /// <summary>
+    /// Pure-static helper methods for ghost visual manipulation and playback logic.
+    /// Extracted from ParsekFlight to reduce file size; all methods are stateless.
+    /// </summary>
+    internal static class GhostPlaybackLogic
+    {
+        // KSP rails warp levels: 1, 5, 10, 50, 100, 1000, 10000, 100000.
+        // FX threshold: 10x is the last level where explosions/puffs/reentry/RCS look reasonable.
+        // Ghost threshold: 50x is the last level where ghost meshes update often enough to be useful.
+        internal const float FxSuppressWarpThreshold = 10f;
+        internal const float GhostHideWarpThreshold = 50f;
+        internal const double MinCycleDuration = 1.0;
+
+        #region Warp / Loop Policy
+
+        internal static bool ShouldSuppressVisualFx(float currentWarpRate)
+        {
+            return currentWarpRate > FxSuppressWarpThreshold;
+        }
+
+        internal static bool ShouldSuppressGhosts(float currentWarpRate)
+        {
+            return currentWarpRate > GhostHideWarpThreshold;
+        }
+
+        internal static bool ShouldFlushDeferredSpawns(int pendingCount, bool isWarpActive)
+        {
+            return pendingCount > 0 && !isWarpActive;
+        }
+
+        internal static bool ShouldSkipDeferredSpawn(bool vesselSpawned, bool hasSnapshot)
+        {
+            return vesselSpawned || !hasSnapshot;
+        }
+
+        internal static bool ShouldRestoreWatchMode(string pendingWatchId, string recordingId, uint spawnedPid)
+        {
+            return pendingWatchId != null && pendingWatchId == recordingId && spawnedPid != 0;
+        }
+
+        internal static bool ShouldPauseTimelineResourceReplay(bool isRecording)
+        {
+            return isRecording;
+        }
+
+        internal static bool ShouldLoopPlayback(bool recordingLoopPlayback)
+        {
+            return recordingLoopPlayback;
+        }
+
+        internal static bool IsAnyWarpActive(int currentRateIndex, float currentRate)
+        {
+            return currentRateIndex > 0 || currentRate > 1f;
+        }
+
+        internal static int ComputeTargetResourceIndex(
+            List<TrajectoryPoint> points, int lastAppliedResourceIndex, double currentUT)
+        {
+            int targetIndex = lastAppliedResourceIndex;
+            for (int j = lastAppliedResourceIndex + 1; j < points.Count; j++)
+            {
+                if (points[j].ut <= currentUT)
+                    targetIndex = j;
+                else
+                    break;
+            }
+            return targetIndex;
+        }
+
+        internal static bool TryComputeLoopPlaybackUT(
+            double currentUT, double startUT, double endUT, double intervalSeconds,
+            out double loopUT, out int cycleIndex)
+        {
+            loopUT = startUT;
+            cycleIndex = 0;
+
+            double duration = endUT - startUT;
+            if (duration <= 0 || currentUT < startUT)
+                return false;
+
+            double cycleDuration = duration + intervalSeconds;
+            if (cycleDuration <= MinCycleDuration)
+                cycleDuration = MinCycleDuration;
+
+            double elapsed = currentUT - startUT;
+            cycleIndex = (int)Math.Floor(elapsed / cycleDuration);
+            double phase = elapsed - (cycleIndex * cycleDuration);
+
+            // For positive intervals: phase > duration means we're in the pause window
+            if (intervalSeconds >= 0)
+            {
+                const double epsilon = 1e-6;
+                if (phase > duration + epsilon)
+                    return false;
+            }
+
+            if (phase < 0) phase = 0;
+            if (phase > duration) phase = duration;
+
+            loopUT = startUT + phase;
+            return true;
+        }
+
+        /// <summary>
+        /// Determines the new watchedOverlapCycleIndex when a watched loop cycle
+        /// ends and the ghost is about to be rebuilt. Returns -2 (explosion hold),
+        /// -1 (ready for immediate re-target), or unchanged if not watching.
+        /// </summary>
+        internal static int ComputeWatchCycleOnLoopRebuild(
+            int currentWatchCycle, bool isWatching, bool needsExplosion, bool inPauseWindow)
+        {
+            if (!isWatching) return currentWatchCycle;
+            // Already in a hold — don't start another one, let the current hold
+            // expire naturally. Otherwise the timer keeps resetting during time warp
+            // and the camera never re-targets.
+            if (currentWatchCycle == -2) return currentWatchCycle;
+            if (needsExplosion && !inPauseWindow) return -2; // hold at explosion site
+            return -1; // ready for immediate re-target
+        }
+
+        /// <summary>
+        /// Computes the range of active loop cycles at a given time.
+        /// For positive/zero intervals, firstActiveCycle == lastActiveCycle (no overlap).
+        /// For negative intervals, multiple cycles may be active simultaneously.
+        /// </summary>
+        internal static void GetActiveCycles(
+            double currentUT, double startUT, double endUT,
+            double intervalSeconds, int maxCycles,
+            out int firstActiveCycle, out int lastActiveCycle)
+        {
+            firstActiveCycle = 0;
+            lastActiveCycle = 0;
+
+            double duration = endUT - startUT;
+            if (duration <= 0 || currentUT < startUT)
+                return;
+
+            double cycleDuration = duration + intervalSeconds;
+            if (cycleDuration < MinCycleDuration)
+                cycleDuration = MinCycleDuration;
+
+            double elapsed = currentUT - startUT;
+            lastActiveCycle = (int)Math.Floor(elapsed / cycleDuration);
+            if (lastActiveCycle < 0) lastActiveCycle = 0;
+
+            // First cycle whose playback hasn't finished yet
+            double elapsedMinusDuration = elapsed - duration;
+            if (elapsedMinusDuration < 0)
+            {
+                firstActiveCycle = 0;
+            }
+            else
+            {
+                firstActiveCycle = (int)Math.Floor(elapsedMinusDuration / cycleDuration) + 1;
+                if (firstActiveCycle < 0) firstActiveCycle = 0;
+            }
+
+            // Cap by maxCycles
+            if (firstActiveCycle < lastActiveCycle - maxCycles + 1)
+                firstActiveCycle = lastActiveCycle - maxCycles + 1;
+            if (firstActiveCycle < 0) firstActiveCycle = 0;
+        }
+
+        internal static double ResolveLoopInterval(
+            Recording rec, double globalAutoInterval,
+            double defaultInterval, double minCycleDuration)
+        {
+            if (rec == null) return defaultInterval;
+
+            double interval;
+            if (rec.LoopTimeUnit == LoopTimeUnit.Auto)
+            {
+                interval = double.IsNaN(globalAutoInterval) || double.IsInfinity(globalAutoInterval)
+                    ? defaultInterval : Math.Max(0, globalAutoInterval);
+            }
+            else
+            {
+                interval = double.IsNaN(rec.LoopIntervalSeconds) || double.IsInfinity(rec.LoopIntervalSeconds)
+                    ? defaultInterval : rec.LoopIntervalSeconds;
+            }
+
+            double duration = rec.EndUT - rec.StartUT;
+            return Math.Max(-duration + minCycleDuration, interval);
+        }
+
+        #endregion
+
+        #region Ghost Info Population
+
+        /// <summary>
+        /// Converts a GhostBuildResult into the per-PID dictionaries on GhostPlaybackState.
+        /// Shared between SpawnTimelineGhost and StartPlayback to eliminate code duplication.
+        /// </summary>
+        internal static void PopulateGhostInfoDictionaries(
+            GhostPlaybackState state, GhostBuildResult result)
+        {
+            if (result == null) return;
+
+            if (result.parachuteInfos != null)
+            {
+                state.parachuteInfos = new Dictionary<uint, ParachuteGhostInfo>();
+                for (int i = 0; i < result.parachuteInfos.Count; i++)
+                    state.parachuteInfos[result.parachuteInfos[i].partPersistentId] = result.parachuteInfos[i];
+            }
+
+            if (result.jettisonInfos != null)
+            {
+                state.jettisonInfos = new Dictionary<uint, JettisonGhostInfo>();
+                for (int i = 0; i < result.jettisonInfos.Count; i++)
+                    state.jettisonInfos[result.jettisonInfos[i].partPersistentId] = result.jettisonInfos[i];
+            }
+
+            if (result.engineInfos != null)
+            {
+                state.engineInfos = new Dictionary<ulong, EngineGhostInfo>();
+                for (int i = 0; i < result.engineInfos.Count; i++)
+                {
+                    ulong key = FlightRecorder.EncodeEngineKey(
+                        result.engineInfos[i].partPersistentId, result.engineInfos[i].moduleIndex);
+                    state.engineInfos[key] = result.engineInfos[i];
+                }
+            }
+
+            if (result.deployableInfos != null)
+            {
+                state.deployableInfos = new Dictionary<uint, DeployableGhostInfo>();
+                for (int i = 0; i < result.deployableInfos.Count; i++)
+                    state.deployableInfos[result.deployableInfos[i].partPersistentId] = result.deployableInfos[i];
+            }
+
+            if (result.heatInfos != null)
+            {
+                state.heatInfos = new Dictionary<uint, HeatGhostInfo>();
+                for (int i = 0; i < result.heatInfos.Count; i++)
+                    state.heatInfos[result.heatInfos[i].partPersistentId] = result.heatInfos[i];
+
+                // Initialize all heat parts to cold state at spawn — ensures FXModuleAnimateThrottle
+                // parts don't inherit the prefab's baked emissive state.
+                foreach (var kvp in state.heatInfos)
+                {
+                    var coldEvt = new PartEvent { partPersistentId = kvp.Key };
+                    ApplyHeatState(state, coldEvt, HeatLevel.Cold);
+                }
+            }
+
+            if (result.lightInfos != null)
+            {
+                state.lightInfos = new Dictionary<uint, LightGhostInfo>();
+                state.lightPlaybackStates = new Dictionary<uint, LightPlaybackState>();
+                for (int i = 0; i < result.lightInfos.Count; i++)
+                {
+                    state.lightInfos[result.lightInfos[i].partPersistentId] = result.lightInfos[i];
+                    state.lightPlaybackStates[result.lightInfos[i].partPersistentId] = new LightPlaybackState();
+                }
+            }
+
+            if (result.fairingInfos != null)
+            {
+                state.fairingInfos = new Dictionary<uint, FairingGhostInfo>();
+                for (int i = 0; i < result.fairingInfos.Count; i++)
+                    state.fairingInfos[result.fairingInfos[i].partPersistentId] = result.fairingInfos[i];
+            }
+
+            if (result.rcsInfos != null)
+            {
+                state.rcsInfos = new Dictionary<ulong, RcsGhostInfo>();
+                for (int i = 0; i < result.rcsInfos.Count; i++)
+                {
+                    ulong key = FlightRecorder.EncodeEngineKey(
+                        result.rcsInfos[i].partPersistentId, result.rcsInfos[i].moduleIndex);
+                    state.rcsInfos[key] = result.rcsInfos[i];
+                }
+            }
+
+            if (result.roboticInfos != null)
+            {
+                state.roboticInfos = new Dictionary<ulong, RoboticGhostInfo>();
+                for (int i = 0; i < result.roboticInfos.Count; i++)
+                {
+                    ulong key = FlightRecorder.EncodeEngineKey(
+                        result.roboticInfos[i].partPersistentId, result.roboticInfos[i].moduleIndex);
+                    state.roboticInfos[key] = result.roboticInfos[i];
+                }
+            }
+
+            if (result.colorChangerInfos != null)
+                state.colorChangerInfos = GhostVisualBuilder.GroupColorChangersByPartId(result.colorChangerInfos);
+        }
+
+        #endregion
+
+        #region Explosion / Visibility
+
+        /// <summary>
+        /// Pure decision logic: should we trigger an explosion for this ghost/recording pair?
+        /// Extracted for testability and logging of guard condition skips.
+        /// Parameters are primitives so this can be called from tests without GhostPlaybackState.
+        /// </summary>
+        internal static bool ShouldTriggerExplosion(bool explosionAlreadyFired, TerminalState? terminalState,
+            bool ghostExists, string vesselName, int recIdx)
+        {
+            if (explosionAlreadyFired)
+            {
+                ParsekLog.VerboseRateLimited("ExplosionFx", $"explosion_fired_{recIdx}",
+                    $"ShouldTriggerExplosion: ghost #{recIdx} — skipped (already fired)");
+                return false;
+            }
+            if (terminalState != TerminalState.Destroyed)
+            {
+                ParsekLog.VerboseRateLimited("ExplosionFx", $"not_destroyed_{recIdx}",
+                    $"ShouldTriggerExplosion: ghost #{recIdx} — skipped (terminalState={terminalState?.ToString() ?? "null"}, not Destroyed)");
+                return false;
+            }
+            if (!ghostExists)
+            {
+                ParsekLog.Verbose("ExplosionFx", $"ShouldTriggerExplosion: ghost #{recIdx} — skipped (ghost GO is null)");
+                return false;
+            }
+            ParsekLog.Verbose("ExplosionFx", $"ShouldTriggerExplosion: ghost #{recIdx} \"{vesselName}\" — will fire");
+            return true;
+        }
+
+        internal static void HideAllGhostParts(GhostPlaybackState state)
+        {
+            if (state.ghost == null) return;
+            var t = state.ghost.transform;
+            int hidden = 0;
+            // Keep cameraPivot active — FlightCamera targets it during watch-mode hold.
+            // Disabling it would make KSP snap the camera back to the active vessel.
+            var pivotT = state.cameraPivot;
+            for (int c = 0; c < t.childCount; c++)
+            {
+                var child = t.GetChild(c);
+                if (pivotT != null && child == pivotT) continue;
+                if (child.gameObject.activeSelf)
+                {
+                    child.gameObject.SetActive(false);
+                    hidden++;
+                }
+            }
+            ParsekLog.Verbose("GhostVisual", $"HideAllGhostParts: hidden {hidden}/{t.childCount} children (cameraPivot preserved)");
+        }
+
+        #endregion
+
+        #region Part Events
+
+        internal static void ApplyPartEvents(int recIdx, Recording rec, double currentUT, GhostPlaybackState state)
+        {
+            if (rec.PartEvents == null || rec.PartEvents.Count == 0) return;
+            if (state.ghost == null)
+            {
+                ParsekLog.VerboseRateLimited("Flight", $"apply-part-events-null-ghost-{recIdx}",
+                    $"ApplyPartEvents: ghost is null for recording #{recIdx}");
+                return;
+            }
+
+            int evtIdx = state.partEventIndex;
+            var tree = state.partTree;
+            var ghost = state.ghost;
+            bool visibilityChanged = false;
+
+            while (evtIdx < rec.PartEvents.Count && rec.PartEvents[evtIdx].ut <= currentUT)
+            {
+                var evt = rec.PartEvents[evtIdx];
+                switch (evt.eventType)
+                {
+                    case PartEventType.Decoupled:
+                        StopEngineFxForPart(state, evt.partPersistentId);
+                        StopRcsFxForPart(state, evt.partPersistentId);
+                        ApplyHeatState(state, evt, HeatLevel.Cold);
+                        SpawnPartPuffAtPart(ghost, evt.partPersistentId);
+                        if (tree != null)
+                            HidePartSubtree(ghost, evt.partPersistentId, tree);
+                        else
+                            HideGhostPart(ghost, evt.partPersistentId);
+                        ParsekLog.Verbose("Flight", $"Part event applied: Decoupled '{evt.partName}' pid={evt.partPersistentId}");
+                        GhostVisualBuilder.RebuildReentryMeshes(ghost, state.reentryFxInfo);
+                        visibilityChanged = true;
+                        break;
+                    case PartEventType.Destroyed:
+                        StopEngineFxForPart(state, evt.partPersistentId);
+                        StopRcsFxForPart(state, evt.partPersistentId);
+                        ApplyHeatState(state, evt, HeatLevel.Cold);
+                        SpawnPartPuffAtPart(ghost, evt.partPersistentId);
+                        HideGhostPart(ghost, evt.partPersistentId);
+                        ParsekLog.Verbose("Flight", $"Part event applied: Destroyed '{evt.partName}' pid={evt.partPersistentId}");
+                        GhostVisualBuilder.RebuildReentryMeshes(ghost, state.reentryFxInfo);
+                        visibilityChanged = true;
+                        break;
+                    case PartEventType.ParachuteCut:
+                        if (state.parachuteInfos != null)
+                        {
+                            ParachuteGhostInfo cutInfo;
+                            if (state.parachuteInfos.TryGetValue(evt.partPersistentId, out cutInfo))
+                            {
+                                if (cutInfo.canopyTransform != null)
+                                    cutInfo.canopyTransform.localScale = Vector3.zero;
+                                if (cutInfo.capTransform != null)
+                                    cutInfo.capTransform.gameObject.SetActive(false);
+                            }
+                        }
+                        DestroyFakeCanopy(state, evt.partPersistentId);
+                        ParsekLog.Verbose("Flight", $"Part event: ParachuteCut '{evt.partName}' — canopy hidden, housing remains");
+                        break;
+                    case PartEventType.ShroudJettisoned:
+                        ApplyJettisonPanelState(state, evt, jettisoned: true);
+                        ParsekLog.Verbose("Flight", $"Part event applied: ShroudJettisoned '{evt.partName}' pid={evt.partPersistentId}");
+                        break;
+                    case PartEventType.ParachuteDestroyed:
+                        // Clean up canopy visuals before hiding the part
+                        if (state.parachuteInfos != null)
+                        {
+                            ParachuteGhostInfo destroyedInfo;
+                            if (state.parachuteInfos.TryGetValue(evt.partPersistentId, out destroyedInfo))
+                            {
+                                if (destroyedInfo.canopyTransform != null)
+                                    destroyedInfo.canopyTransform.localScale = Vector3.zero;
+                            }
+                        }
+                        DestroyFakeCanopy(state, evt.partPersistentId);
+                        HideGhostPart(ghost, evt.partPersistentId);
+                        ParsekLog.Verbose("Flight", $"Part event applied: ParachuteDestroyed '{evt.partName}' pid={evt.partPersistentId}");
+                        visibilityChanged = true;
+                        break;
+                    case PartEventType.ParachuteSemiDeployed:
+                        if (state.parachuteInfos != null)
+                        {
+                            ParachuteGhostInfo semiInfo;
+                            if (state.parachuteInfos.TryGetValue(evt.partPersistentId, out semiInfo) &&
+                                semiInfo.canopyTransform != null && semiInfo.semiDeployedSampled)
+                            {
+                                semiInfo.canopyTransform.localScale = semiInfo.semiDeployedCanopyScale;
+                                semiInfo.canopyTransform.localPosition = semiInfo.semiDeployedCanopyPos;
+                                semiInfo.canopyTransform.localRotation = semiInfo.semiDeployedCanopyRot;
+                                if (semiInfo.capTransform != null)
+                                    semiInfo.capTransform.gameObject.SetActive(false);
+                                ParsekLog.Verbose("Flight", $"Part event: ParachuteSemiDeployed '{evt.partName}' — streamer canopy shown");
+                            }
+                            else
+                            {
+                                ParsekLog.Verbose("Flight", $"Part event: ParachuteSemiDeployed '{evt.partName}' — no semi-deployed state sampled, skipping");
+                            }
+                        }
+                        break;
+                    case PartEventType.ParachuteDeployed:
+                        bool usedRealCanopy = false;
+
+                        if (state.parachuteInfos != null)
+                        {
+                            ParachuteGhostInfo info;
+                            if (state.parachuteInfos.TryGetValue(evt.partPersistentId, out info) && info.canopyTransform != null)
+                            {
+                                info.canopyTransform.localScale = info.deployedCanopyScale;
+                                info.canopyTransform.localPosition = info.deployedCanopyPos;
+                                info.canopyTransform.localRotation = info.deployedCanopyRot;
+                                if (info.capTransform != null)
+                                    info.capTransform.gameObject.SetActive(false);
+                                usedRealCanopy = true;
+                                ParsekLog.Verbose("Flight", $"Part event: ParachuteDeployed '{evt.partName}' — real canopy deployed");
+                            }
+                        }
+
+                        if (!usedRealCanopy)
+                        {
+                            var canopy = GhostVisualBuilder.CreateFakeCanopy(ghost, evt.partPersistentId);
+                            if (canopy != null)
+                            {
+                                TrackFakeCanopy(state, evt.partPersistentId, canopy);
+                                ParsekLog.Verbose("Flight", $"Part event: ParachuteDeployed '{evt.partName}' — fake canopy (fallback)");
+                            }
+                            else
+                            {
+                                ParsekLog.Verbose("Flight", $"Part event: ParachuteDeployed '{evt.partName}' — could not create canopy");
+                            }
+                        }
+                        break;
+                    case PartEventType.EngineIgnited:
+                        SetEngineEmission(state, evt, evt.value);
+                        ApplyHeatState(state, evt, HeatLevel.Hot);
+                        ParsekLog.Verbose("Flight", $"Part event applied: EngineIgnited '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} throttle={evt.value:F2}");
+                        break;
+                    case PartEventType.EngineShutdown:
+                        SetEngineEmission(state, evt, 0f);
+                        // Also reset heat animation glow — engine nozzles stay emissive
+                        // after shutdown if ThermalAnimationCold hasn't fired yet.
+                        ApplyHeatState(state, evt, HeatLevel.Cold);
+                        ParsekLog.Verbose("Flight", $"Part event applied: EngineShutdown '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex}");
+                        break;
+                    case PartEventType.EngineThrottle:
+                        SetEngineEmission(state, evt, evt.value);
+                        ApplyHeatState(state, evt, HeatLevel.Hot);
+                        break;
+                    case PartEventType.DeployableExtended:
+                        ApplyDeployableState(state, evt, deployed: true);
+                        ParsekLog.Verbose("Flight", $"Part event applied: DeployableExtended '{evt.partName}' pid={evt.partPersistentId}");
+                        break;
+                    case PartEventType.DeployableRetracted:
+                        ApplyDeployableState(state, evt, deployed: false);
+                        ParsekLog.Verbose("Flight", $"Part event applied: DeployableRetracted '{evt.partName}' pid={evt.partPersistentId}");
+                        break;
+                    case PartEventType.ThermalAnimationHot:
+                        ApplyHeatState(state, evt, HeatLevel.Hot);
+                        ParsekLog.Verbose("Flight", $"Part event applied: ThermalAnimationHot '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} heat={evt.value:F2}");
+                        break;
+                    case PartEventType.ThermalAnimationMedium:
+                        ApplyHeatState(state, evt, HeatLevel.Medium);
+                        ParsekLog.Verbose("Flight", $"Part event applied: ThermalAnimationMedium '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} heat={evt.value:F2}");
+                        break;
+                    case PartEventType.ThermalAnimationCold:
+                        ApplyHeatState(state, evt, HeatLevel.Cold);
+                        ParsekLog.Verbose("Flight", $"Part event applied: ThermalAnimationCold '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} heat={evt.value:F2}");
+                        break;
+                    case PartEventType.LightOn:
+                        ApplyLightPowerEvent(state, evt.partPersistentId, true);
+                        ParsekLog.Verbose("Flight", $"Part event applied: LightOn '{evt.partName}' pid={evt.partPersistentId}");
+                        break;
+                    case PartEventType.LightOff:
+                        ApplyLightPowerEvent(state, evt.partPersistentId, false);
+                        ParsekLog.Verbose("Flight", $"Part event applied: LightOff '{evt.partName}' pid={evt.partPersistentId}");
+                        break;
+                    case PartEventType.LightBlinkEnabled:
+                        ApplyLightBlinkModeEvent(state, evt.partPersistentId, enabled: true, evt.value);
+                        ParsekLog.Verbose("Flight", $"Part event applied: LightBlinkEnabled '{evt.partName}' pid={evt.partPersistentId} rate={evt.value:F2}");
+                        break;
+                    case PartEventType.LightBlinkDisabled:
+                        ApplyLightBlinkModeEvent(state, evt.partPersistentId, enabled: false, evt.value);
+                        ParsekLog.Verbose("Flight", $"Part event applied: LightBlinkDisabled '{evt.partName}' pid={evt.partPersistentId}");
+                        break;
+                    case PartEventType.LightBlinkRate:
+                        ApplyLightBlinkRateEvent(state, evt.partPersistentId, evt.value);
+                        ParsekLog.Verbose("Flight", $"Part event applied: LightBlinkRate '{evt.partName}' pid={evt.partPersistentId} rate={evt.value:F2}");
+                        break;
+                    case PartEventType.GearDeployed:
+                        ApplyDeployableState(state, evt, deployed: true);
+                        ParsekLog.Verbose("Flight", $"Part event applied: GearDeployed '{evt.partName}' pid={evt.partPersistentId}");
+                        break;
+                    case PartEventType.GearRetracted:
+                        ApplyDeployableState(state, evt, deployed: false);
+                        ParsekLog.Verbose("Flight", $"Part event applied: GearRetracted '{evt.partName}' pid={evt.partPersistentId}");
+                        break;
+                    case PartEventType.CargoBayOpened:
+                        if (!ApplyDeployableState(state, evt, deployed: true))
+                            ApplyJettisonPanelState(state, evt, jettisoned: true);
+                        ParsekLog.Verbose("Flight", $"Part event applied: CargoBayOpened '{evt.partName}' pid={evt.partPersistentId}");
+                        break;
+                    case PartEventType.CargoBayClosed:
+                        if (!ApplyDeployableState(state, evt, deployed: false))
+                            ApplyJettisonPanelState(state, evt, jettisoned: false);
+                        ParsekLog.Verbose("Flight", $"Part event applied: CargoBayClosed '{evt.partName}' pid={evt.partPersistentId}");
+                        break;
+                    case PartEventType.FairingJettisoned:
+                        if (state.fairingInfos != null)
+                        {
+                            FairingGhostInfo fInfo;
+                            if (state.fairingInfos.TryGetValue(evt.partPersistentId, out fInfo)
+                                && fInfo.fairingMeshObject != null)
+                            {
+                                fInfo.fairingMeshObject.SetActive(false);
+                                ParsekLog.Verbose("Flight", $"Part event applied: FairingJettisoned '{evt.partName}' pid={evt.partPersistentId}");
+                            }
+                        }
+                        break;
+                    case PartEventType.RCSActivated:
+                        SetRcsEmission(state, evt, evt.value);
+                        ApplyHeatState(state, evt, HeatLevel.Hot);
+                        ParsekLog.Verbose("Flight", $"Part event applied: RCSActivated '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} power={evt.value:F2}");
+                        break;
+                    case PartEventType.RCSStopped:
+                        SetRcsEmission(state, evt, 0f);
+                        ApplyHeatState(state, evt, HeatLevel.Cold);
+                        ParsekLog.Verbose("Flight", $"Part event applied: RCSStopped '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex}");
+                        break;
+                    case PartEventType.RCSThrottle:
+                        SetRcsEmission(state, evt, evt.value);
+                        ApplyHeatState(state, evt, HeatLevel.Hot);
+                        break;
+                    case PartEventType.RoboticMotionStarted:
+                    case PartEventType.RoboticPositionSample:
+                    case PartEventType.RoboticMotionStopped:
+                        ApplyRoboticEvent(state, evt, currentUT);
+                        break;
+                    case PartEventType.InventoryPartPlaced:
+                        SetGhostPartActive(ghost, evt.partPersistentId, true);
+                        visibilityChanged = true;
+                        ParsekLog.Verbose("Flight", $"Part event applied: InventoryPartPlaced '{evt.partName}' pid={evt.partPersistentId}");
+                        break;
+                    case PartEventType.InventoryPartRemoved:
+                        SetGhostPartActive(ghost, evt.partPersistentId, false);
+                        visibilityChanged = true;
+                        ParsekLog.Verbose("Flight", $"Part event applied: InventoryPartRemoved '{evt.partName}' pid={evt.partPersistentId}");
+                        break;
+                }
+                evtIdx++;
+            }
+
+            state.partEventIndex = evtIdx;
+            if (visibilityChanged)
+                RecalculateCameraPivot(state);
+            UpdateBlinkingLights(state, currentUT);
+            UpdateActiveRobotics(state, currentUT);
+        }
+
+        /// <summary>
+        /// Spawns a small smoke puff + spark FX at a ghost part's world position.
+        /// Called before hiding the part on Decoupled/Destroyed events.
+        /// </summary>
+        internal static void SpawnPartPuffAtPart(GameObject ghost, uint persistentId)
+        {
+            if (ghost == null) return;
+            if (ShouldSuppressVisualFx(TimeWarp.CurrentRate)) return;
+            var t = ghost.transform.Find($"ghost_part_{persistentId}");
+            if (t == null)
+            {
+                ParsekLog.Verbose("PartPuffFx", $"Skipped puff for pid={persistentId} — part transform not found");
+                return;
+            }
+            if (!t.gameObject.activeSelf)
+            {
+                ParsekLog.Verbose("PartPuffFx", $"Skipped puff for pid={persistentId} — part already inactive");
+                return;
+            }
+
+            // Estimate part scale from its renderer bounds
+            float partScale = 1f;
+            var renderer = t.GetComponentInChildren<Renderer>();
+            if (renderer != null)
+                partScale = renderer.bounds.size.magnitude * 0.5f;
+
+            var pos = t.position;
+            GhostVisualBuilder.SpawnPartPuffFx(pos, partScale);
+            ParsekLog.Verbose("PartPuffFx",
+                $"Spawned puff for pid={persistentId} at ({pos.x:F1},{pos.y:F1},{pos.z:F1}) scale={partScale:F2}");
+        }
+
+        internal static void HideGhostPart(GameObject ghost, uint persistentId)
+        {
+            var t = ghost.transform.Find($"ghost_part_{persistentId}");
+            if (t != null) t.gameObject.SetActive(false);
+        }
+
+        internal static void SetGhostPartActive(GameObject ghost, uint persistentId, bool active)
+        {
+            if (ghost == null) return;
+            var t = ghost.transform.Find($"ghost_part_{persistentId}");
+            if (t != null) t.gameObject.SetActive(active);
+        }
+
+        internal static void InitializeInventoryPlacementVisibility(
+            Recording rec, GhostPlaybackState state)
+        {
+            if (rec == null || rec.PartEvents == null || rec.PartEvents.Count == 0) return;
+            if (state == null || state.ghost == null) return;
+
+            // If a part's first placement-related event is "placed", start hidden so it
+            // visibly appears only when the event fires.
+            var initialized = new HashSet<uint>();
+            for (int i = 0; i < rec.PartEvents.Count; i++)
+            {
+                var evt = rec.PartEvents[i];
+                if (initialized.Contains(evt.partPersistentId)) continue;
+
+                if (evt.eventType == PartEventType.InventoryPartPlaced)
+                {
+                    SetGhostPartActive(state.ghost, evt.partPersistentId, false);
+                    initialized.Add(evt.partPersistentId);
+                }
+                else if (evt.eventType == PartEventType.InventoryPartRemoved)
+                {
+                    SetGhostPartActive(state.ghost, evt.partPersistentId, true);
+                    initialized.Add(evt.partPersistentId);
+                }
+            }
+        }
+
+        internal static void HidePartSubtree(GameObject ghost, uint rootPid, Dictionary<uint, List<uint>> tree)
+        {
+            var stack = new Stack<uint>();
+            stack.Push(rootPid);
+            while (stack.Count > 0)
+            {
+                uint pid = stack.Pop();
+                var t = ghost.transform.Find($"ghost_part_{pid}");
+                if (t != null) t.gameObject.SetActive(false);
+                List<uint> children;
+                if (tree.TryGetValue(pid, out children))
+                    for (int c = 0; c < children.Count; c++)
+                        stack.Push(children[c]);
+            }
+        }
+
+        /// <summary>
+        /// Recalculate cameraPivot position after a visibility change (decouple/destroy).
+        /// Sets localPosition to midpoint of remaining active parts' bounding extent.
+        /// </summary>
+        internal static void RecalculateCameraPivot(GhostPlaybackState state)
+        {
+            if (state.ghost == null || state.cameraPivot == null) return;
+            var ghostTransform = state.ghost.transform;
+            int count = 0;
+            Vector3 min = Vector3.zero, max = Vector3.zero;
+            for (int i = 0; i < ghostTransform.childCount; i++)
+            {
+                var child = ghostTransform.GetChild(i);
+                if (!child.gameObject.activeSelf || !child.name.StartsWith("ghost_part_"))
+                    continue;
+                var pos = child.localPosition;
+                if (count == 0) { min = max = pos; }
+                else { min = Vector3.Min(min, pos); max = Vector3.Max(max, pos); }
+                count++;
+            }
+            state.cameraPivot.localPosition = count > 0 ? (min + max) * 0.5f : Vector3.zero;
+            ParsekLog.Info("CameraFollow",
+                $"Camera pivot recalculated: localPos=({state.cameraPivot.localPosition.x:F2},{state.cameraPivot.localPosition.y:F2},{state.cameraPivot.localPosition.z:F2})" +
+                $" activeParts={count}");
+        }
+
+        #endregion
+
+        #region Canopy Management
+
+        internal static void TrackFakeCanopy(GhostPlaybackState state, uint partPid, GameObject canopy)
+        {
+            if (state.fakeCanopies == null)
+                state.fakeCanopies = new Dictionary<uint, GameObject>();
+            // Destroy previous canopy for this part if one exists (prevents leak)
+            GameObject existing;
+            if (state.fakeCanopies.TryGetValue(partPid, out existing) && existing != null)
+                DestroyCanopyAndMaterial(existing);
+            state.fakeCanopies[partPid] = canopy;
+        }
+
+        internal static void DestroyFakeCanopy(GhostPlaybackState state, uint partPid)
+        {
+            if (state.fakeCanopies == null) return;
+            GameObject canopy;
+            if (state.fakeCanopies.TryGetValue(partPid, out canopy) && canopy != null)
+                DestroyCanopyAndMaterial(canopy);
+            state.fakeCanopies.Remove(partPid);
+        }
+
+        internal static void DestroyAllFakeCanopies(GhostPlaybackState state)
+        {
+            if (state.fakeCanopies == null) return;
+            foreach (var kv in state.fakeCanopies)
+                if (kv.Value != null) DestroyCanopyAndMaterial(kv.Value);
+            state.fakeCanopies = null;
+        }
+
+        internal static void DestroyCanopyAndMaterial(GameObject canopy)
+        {
+            var renderer = canopy.GetComponent<Renderer>();
+            if (renderer != null && renderer.material != null)
+                UnityEngine.Object.Destroy(renderer.material);
+            UnityEngine.Object.Destroy(canopy);
+        }
+
+        #endregion
+
+        #region Engine FX
+
+        internal static string BuildEngineFxEmissionDiagnostic(
+            string partName,
+            uint partPersistentId,
+            int moduleIndex,
+            float power,
+            string particleName,
+            string parentName,
+            Vector3 localPosition,
+            Quaternion localRotation,
+            Vector3 worldPosition,
+            Vector3 worldForward,
+            Vector3 worldUp,
+            float emissionRate,
+            float startSpeed,
+            bool isPlaying)
+        {
+            string safePartName = string.IsNullOrEmpty(partName) ? "<unknown>" : partName;
+            string safeParticleName = string.IsNullOrEmpty(particleName) ? "<unknown>" : particleName;
+            string safeParentName = string.IsNullOrEmpty(parentName) ? "<none>" : parentName;
+            string localRotationRaw =
+                $"({localRotation.x.ToString("F4", CultureInfo.InvariantCulture)}," +
+                $"{localRotation.y.ToString("F4", CultureInfo.InvariantCulture)}," +
+                $"{localRotation.z.ToString("F4", CultureInfo.InvariantCulture)}," +
+                $"{localRotation.w.ToString("F4", CultureInfo.InvariantCulture)})";
+
+            return $"Engine FX emission diag: part='{safePartName}' pid={partPersistentId} midx={moduleIndex} " +
+                $"power={power.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"ps='{safeParticleName}' parent='{safeParentName}' " +
+                $"localPos={FormatVector3Invariant(localPosition)} localRot={localRotationRaw} " +
+                $"worldPos={FormatVector3Invariant(worldPosition)} " +
+                $"worldFwd={FormatVector3Invariant(worldForward)} " +
+                $"worldUp={FormatVector3Invariant(worldUp)} " +
+                $"rate={emissionRate.ToString("F2", CultureInfo.InvariantCulture)} " +
+                $"speed={startSpeed.ToString("F2", CultureInfo.InvariantCulture)} playing={isPlaying}";
+        }
+
+        internal static string FormatVector3Invariant(Vector3 value)
+        {
+            return $"({value.x.ToString("F4", CultureInfo.InvariantCulture)}," +
+                $"{value.y.ToString("F4", CultureInfo.InvariantCulture)}," +
+                $"{value.z.ToString("F4", CultureInfo.InvariantCulture)})";
+        }
+
+        internal static void SetEngineEmission(GhostPlaybackState state, PartEvent evt, float power)
+        {
+            if (state.engineInfos == null) return;
+
+            ulong key = FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex);
+            EngineGhostInfo info;
+            if (!state.engineInfos.TryGetValue(key, out info)) return;
+
+            for (int i = 0; i < info.particleSystems.Count; i++)
+            {
+                var ps = info.particleSystems[i];
+                if (ps == null) continue;
+
+                var emission = ps.emission;
+                if (power > 0f)
+                {
+                    emission.enabled = true;
+                    float emRate = info.emissionCurve != null ? info.emissionCurve.Evaluate(power) : power * 100f;
+                    emission.rateOverTimeMultiplier = emRate;
+
+                    var main = ps.main;
+                    float spd = info.speedCurve != null ? info.speedCurve.Evaluate(power) : power * 10f;
+                    main.startSpeedMultiplier = spd;
+
+                    SetParticleRenderersEnabled(ps, true);
+                    if (!ps.isPlaying) ps.Play();
+                }
+                else
+                {
+                    emission.enabled = false;
+                    emission.rateOverTimeMultiplier = 0;
+                    ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                    ps.Clear(true);
+                    SetParticleRenderersEnabled(ps, false);
+                }
+
+                if (ParsekLog.IsVerboseEnabled)
+                {
+                    Transform t = ps.transform;
+                    string parentName = t != null && t.parent != null ? t.parent.name : "<none>";
+                    var diagMain = ps.main;
+                    string diagLine = BuildEngineFxEmissionDiagnostic(
+                        evt.partName,
+                        evt.partPersistentId,
+                        evt.moduleIndex,
+                        power,
+                        ps.name,
+                        parentName,
+                        t != null ? t.localPosition : Vector3.zero,
+                        t != null ? t.localRotation : Quaternion.identity,
+                        t != null ? t.position : Vector3.zero,
+                        t != null ? t.forward : Vector3.zero,
+                        t != null ? t.up : Vector3.zero,
+                        emission.rateOverTimeMultiplier,
+                        diagMain.startSpeedMultiplier,
+                        ps.isPlaying);
+                    string diagKey = $"engine-fx-{evt.partPersistentId}-{evt.moduleIndex}-{ps.GetInstanceID()}";
+                    ParsekLog.VerboseRateLimited("Flight", diagKey, diagLine, 60.0);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Stop all engine FX particle systems for a given part (by PID).
+        /// Used defensively on decouple/destroy to ensure no orphaned engine glow.
+        /// </summary>
+        internal static void StopEngineFxForPart(GhostPlaybackState state, uint partPersistentId)
+        {
+            if (state?.engineInfos == null) return;
+            foreach (var info in state.engineInfos.Values)
+            {
+                if (info.partPersistentId != partPersistentId) continue;
+                for (int i = 0; i < info.particleSystems.Count; i++)
+                {
+                    var ps = info.particleSystems[i];
+                    if (ps == null) continue;
+                    var emission = ps.emission;
+                    emission.enabled = false;
+                    emission.rateOverTimeMultiplier = 0;
+                    ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                    ps.Clear(true);
+                    SetParticleRenderersEnabled(ps, false);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Stop all RCS FX particle systems for a given part (by PID).
+        /// Used defensively on decouple/destroy to ensure no orphaned RCS glow.
+        /// </summary>
+        internal static void StopRcsFxForPart(GhostPlaybackState state, uint partPersistentId)
+        {
+            if (state?.rcsInfos == null) return;
+            foreach (var info in state.rcsInfos.Values)
+            {
+                if (info.partPersistentId != partPersistentId) continue;
+                for (int i = 0; i < info.particleSystems.Count; i++)
+                {
+                    var ps = info.particleSystems[i];
+                    if (ps == null) continue;
+                    var emission = ps.emission;
+                    emission.enabled = false;
+                    emission.rateOverTimeMultiplier = 0;
+                    ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                    ps.Clear(true);
+                    SetParticleRenderersEnabled(ps, false);
+                }
+            }
+        }
+
+        internal static void SetParticleRenderersEnabled(ParticleSystem ps, bool enabled)
+        {
+            if (ps == null)
+                return;
+
+            ParticleSystemRenderer[] renderers = ps.GetComponentsInChildren<ParticleSystemRenderer>(true);
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                if (renderers[i] != null)
+                    renderers[i].enabled = enabled;
+            }
+        }
+
+        #endregion
+
+        #region RCS FX
+
+        internal static void SetRcsEmission(GhostPlaybackState state, PartEvent evt, float power)
+        {
+            if (state.rcsInfos == null) return;
+
+            ulong key = FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex);
+            RcsGhostInfo info;
+            if (!state.rcsInfos.TryGetValue(key, out info)) return;
+
+            int configuredSystems = 0;
+            int enabledRenderers = 0;
+            int playingSystems = 0;
+            float sampleRate = 0f;
+            float sampleSpeed = 0f;
+            float sampleSize = 0f;
+            float sampleLifetime = 0f;
+
+            for (int i = 0; i < info.particleSystems.Count; i++)
+            {
+                var ps = info.particleSystems[i];
+                if (ps == null) continue;
+
+                configuredSystems++;
+                var emission = ps.emission;
+                if (power > 0f)
+                {
+                    emission.enabled = true;
+                    float emRate = ComputeScaledRcsEmissionRate(info.emissionCurve, power, info.emissionScale);
+                    emission.rateOverTimeMultiplier = emRate;
+
+                    var main = ps.main;
+                    float spd = ComputeScaledRcsSpeed(info.speedCurve, power, info.speedScale);
+                    main.startSpeedMultiplier = spd;
+
+                    SetParticleRenderersEnabled(ps, true);
+                    if (!ps.isPlaying) ps.Play();
+
+                    if (sampleRate <= 0f)
+                    {
+                        sampleRate = emRate;
+                        sampleSpeed = spd;
+                        sampleSize = main.startSizeMultiplier;
+                        sampleLifetime = main.startLifetimeMultiplier;
+                    }
+                }
+                else
+                {
+                    emission.enabled = false;
+                    emission.rateOverTimeMultiplier = 0;
+                    ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                    ps.Clear(true);
+                    SetParticleRenderersEnabled(ps, false);
+                }
+
+                if (ps.isPlaying) playingSystems++;
+                var renderer = ps.GetComponent<ParticleSystemRenderer>();
+                if (renderer != null && renderer.enabled) enabledRenderers++;
+            }
+
+            if (info.emissionScale > 1f)
+            {
+                ParsekLog.Verbose("Flight", $"RCS showcase diagnostics: part='{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} " +
+                    $"power={power:F2} systems={configuredSystems} playing={playingSystems} renderers={enabledRenderers} " +
+                    $"rate={sampleRate:F1} speed={sampleSpeed:F1} size={sampleSize:F2} life={sampleLifetime:F2}");
+            }
+        }
+
+        internal static float ComputeScaledRcsEmissionRate(
+            FloatCurve emissionCurve, float power, float emissionScale)
+        {
+            if (power <= 0f) return 0f;
+
+            float emRate = emissionCurve != null ? emissionCurve.Evaluate(power) : power * 100f;
+            emRate *= emissionScale > 0f ? emissionScale : 1f;
+            if (emissionScale > 1f)
+                emRate = Math.Max(emRate, 60f);
+
+            return emRate;
+        }
+
+        internal static float ComputeScaledRcsSpeed(
+            FloatCurve speedCurve, float power, float speedScale)
+        {
+            if (power <= 0f) return 0f;
+
+            float spd = speedCurve != null ? speedCurve.Evaluate(power) : power * 10f;
+            spd *= speedScale > 0f ? speedScale : 1f;
+            if (speedScale > 1f)
+                spd = Math.Max(spd, 4f);
+
+            return spd;
+        }
+
+        internal static void StopAllRcsEmissions(GhostPlaybackState state)
+        {
+            if (state?.rcsInfos == null) return;
+            if (state.rcsSuppressed) return;
+            state.rcsSuppressed = true;
+            foreach (var info in state.rcsInfos.Values)
+                for (int j = 0; j < info.particleSystems.Count; j++)
+                {
+                    var ps = info.particleSystems[j];
+                    if (ps != null)
+                    {
+                        var em = ps.emission;
+                        if (em.enabled) em.enabled = false;
+                    }
+                }
+        }
+
+        internal static void RestoreAllRcsEmissions(GhostPlaybackState state)
+        {
+            if (state?.rcsInfos == null) return;
+            if (!state.rcsSuppressed) return;
+            state.rcsSuppressed = false;
+            foreach (var info in state.rcsInfos.Values)
+                for (int j = 0; j < info.particleSystems.Count; j++)
+                {
+                    var ps = info.particleSystems[j];
+                    if (ps != null)
+                    {
+                        var em = ps.emission;
+                        em.enabled = true;
+                        if (!ps.isPlaying) ps.Play();
+                    }
+                }
+        }
+
+        #endregion
+
+        #region Robotic
+
+        internal static float ComputeRotorDeltaDegrees(float rpm, double deltaSeconds)
+        {
+            if (double.IsNaN(deltaSeconds) || double.IsInfinity(deltaSeconds) || deltaSeconds <= 0)
+                return 0f;
+            if (float.IsNaN(rpm) || float.IsInfinity(rpm) || Mathf.Abs(rpm) <= 0.0001f)
+                return 0f;
+
+            // RPM * 360deg / 60s
+            return rpm * 6f * (float)deltaSeconds;
+        }
+
+        private static void ApplyRoboticPose(RoboticGhostInfo info, float value)
+        {
+            if (info == null || info.servoTransform == null)
+                return;
+
+            Vector3 axis = info.axisLocal.sqrMagnitude > 0.0001f
+                ? info.axisLocal.normalized
+                : Vector3.up;
+
+            if (info.visualMode == RoboticVisualMode.Linear)
+            {
+                info.servoTransform.localPosition = info.stowedPos + (axis * value);
+            }
+            else if (info.visualMode == RoboticVisualMode.Rotational)
+            {
+                info.servoTransform.localRotation =
+                    info.stowedRot * Quaternion.AngleAxis(value, axis);
+            }
+        }
+
+        private static void ApplyRoboticEvent(
+            GhostPlaybackState state, PartEvent evt, double currentUT)
+        {
+            if (state == null || state.roboticInfos == null)
+                return;
+
+            ulong key = FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex);
+            if (!state.roboticInfos.TryGetValue(key, out RoboticGhostInfo info) || info == null)
+                return;
+
+            info.currentValue = evt.value;
+
+            if (info.visualMode == RoboticVisualMode.RotorRpm)
+            {
+                info.active = evt.eventType != PartEventType.RoboticMotionStopped &&
+                    Mathf.Abs(evt.value) > 0.0001f;
+                info.lastUpdateUT = currentUT;
+            }
+            else
+            {
+                ApplyRoboticPose(info, evt.value);
+                info.active = evt.eventType != PartEventType.RoboticMotionStopped;
+                info.lastUpdateUT = currentUT;
+            }
+        }
+
+        internal static void UpdateActiveRobotics(GhostPlaybackState state, double currentUT)
+        {
+            if (state == null || state.roboticInfos == null || state.roboticInfos.Count == 0)
+                return;
+
+            foreach (var kv in state.roboticInfos)
+            {
+                RoboticGhostInfo info = kv.Value;
+                if (info == null || info.servoTransform == null)
+                    continue;
+
+                if (double.IsNaN(info.lastUpdateUT) || double.IsInfinity(info.lastUpdateUT))
+                {
+                    info.lastUpdateUT = currentUT;
+                    continue;
+                }
+
+                double deltaSeconds = currentUT - info.lastUpdateUT;
+                if (deltaSeconds <= 0)
+                {
+                    info.lastUpdateUT = currentUT;
+                    continue;
+                }
+
+                // Timeline jumps/loop boundaries rebuild ghosts, but guard large UT gaps anyway.
+                deltaSeconds = Math.Min(deltaSeconds, 1.0);
+
+                if (info.visualMode == RoboticVisualMode.RotorRpm && info.active)
+                {
+                    float deltaDegrees = ComputeRotorDeltaDegrees(info.currentValue, deltaSeconds);
+                    if (Mathf.Abs(deltaDegrees) > 0.0001f)
+                    {
+                        Vector3 axis = info.axisLocal.sqrMagnitude > 0.0001f
+                            ? info.axisLocal.normalized
+                            : Vector3.up;
+                        info.servoTransform.localRotation =
+                            info.servoTransform.localRotation * Quaternion.AngleAxis(deltaDegrees, axis);
+                    }
+                }
+
+                info.lastUpdateUT = currentUT;
+            }
+        }
+
+        #endregion
+
+        #region Heat / Reentry
+
+        internal static bool ApplyHeatState(GhostPlaybackState state, PartEvent evt, HeatLevel level)
+        {
+            if (state == null || state.heatInfos == null) return false;
+
+            if (!state.heatInfos.TryGetValue(evt.partPersistentId, out HeatGhostInfo info) || info == null)
+                return false;
+
+            bool applied = false;
+
+            if (info.transforms != null)
+            {
+                for (int i = 0; i < info.transforms.Count; i++)
+                {
+                    var ts = info.transforms[i];
+                    if (ts.t == null) continue;
+
+                    switch (level)
+                    {
+                        case HeatLevel.Hot:
+                            ts.t.localPosition = ts.hotPos;
+                            ts.t.localRotation = ts.hotRot;
+                            ts.t.localScale = ts.hotScale;
+                            break;
+                        case HeatLevel.Medium:
+                            ts.t.localPosition = ts.mediumPos;
+                            ts.t.localRotation = ts.mediumRot;
+                            ts.t.localScale = ts.mediumScale;
+                            break;
+                        default:
+                            ts.t.localPosition = ts.coldPos;
+                            ts.t.localRotation = ts.coldRot;
+                            ts.t.localScale = ts.coldScale;
+                            break;
+                    }
+                    applied = true;
+                }
+            }
+
+            if (info.materialStates != null)
+            {
+                for (int i = 0; i < info.materialStates.Count; i++)
+                {
+                    HeatMaterialState materialState = info.materialStates[i];
+                    if (materialState.material == null) continue;
+
+                    Color color, emission;
+                    switch (level)
+                    {
+                        case HeatLevel.Hot:
+                            color = materialState.hotColor;
+                            emission = materialState.hotEmission;
+                            break;
+                        case HeatLevel.Medium:
+                            color = materialState.mediumColor;
+                            emission = materialState.mediumEmission;
+                            break;
+                        default:
+                            color = materialState.coldColor;
+                            emission = materialState.coldEmission;
+                            break;
+                    }
+
+                    if (!string.IsNullOrEmpty(materialState.colorProperty))
+                        materialState.material.SetColor(materialState.colorProperty, color);
+
+                    if (!string.IsNullOrEmpty(materialState.emissiveProperty))
+                        materialState.material.SetColor(materialState.emissiveProperty, emission);
+
+                    applied = true;
+                }
+            }
+
+            if (applied)
+                ParsekLog.Verbose("Flight", $"Part pid={evt.partPersistentId}: applied heat level {level}");
+
+            return applied;
+        }
+
+        internal static void ResetReentryFx(GhostPlaybackState state, int recIdx)
+        {
+            var info = state.reentryFxInfo;
+            if (info == null) return;
+
+            info.lastIntensity = 0f;
+
+            if (info.fireParticles != null)
+            {
+                info.fireParticles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                info.fireParticles.Clear(true);
+            }
+
+            if (info.glowMaterials != null)
+            {
+                for (int i = 0; i < info.glowMaterials.Count; i++)
+                {
+                    HeatMaterialState ms = info.glowMaterials[i];
+                    if (ms.material == null) continue;
+                    if (!string.IsNullOrEmpty(ms.emissiveProperty))
+                        ms.material.SetColor(ms.emissiveProperty, ms.coldEmission);
+                    if (!string.IsNullOrEmpty(ms.colorProperty))
+                        ms.material.SetColor(ms.colorProperty, ms.coldColor);
+                }
+            }
+
+            ParsekLog.Verbose("Flight", $"ReentryFx: Loop reset for ghost #{recIdx} — cleared fire particles and glow");
+        }
+
+        #endregion
+
+        #region Deployables / Jettison
+
+        internal static bool ApplyDeployableState(GhostPlaybackState state, PartEvent evt, bool deployed)
+        {
+            if (state.deployableInfos == null) return false;
+
+            DeployableGhostInfo info;
+            if (!state.deployableInfos.TryGetValue(evt.partPersistentId, out info)) return false;
+
+            bool applied = false;
+
+            for (int i = 0; i < info.transforms.Count; i++)
+            {
+                var ts = info.transforms[i];
+                if (ts.t == null) continue;
+                applied = true;
+                if (deployed)
+                {
+                    ts.t.localPosition = ts.deployedPos;
+                    ts.t.localRotation = ts.deployedRot;
+                    ts.t.localScale = ts.deployedScale;
+                }
+                else
+                {
+                    ts.t.localPosition = ts.stowedPos;
+                    ts.t.localRotation = ts.stowedRot;
+                    ts.t.localScale = ts.stowedScale;
+                }
+            }
+
+            return applied;
+        }
+
+        internal static bool ApplyJettisonPanelState(GhostPlaybackState state, PartEvent evt, bool jettisoned)
+        {
+            if (state.jettisonInfos == null) return false;
+
+            JettisonGhostInfo jetInfo;
+            if (!state.jettisonInfos.TryGetValue(evt.partPersistentId, out jetInfo) ||
+                jetInfo.jettisonTransforms == null ||
+                jetInfo.jettisonTransforms.Count == 0)
+                return false;
+
+            bool applied = false;
+            for (int i = 0; i < jetInfo.jettisonTransforms.Count; i++)
+            {
+                Transform jettisonTransform = jetInfo.jettisonTransforms[i];
+                if (jettisonTransform == null) continue;
+                jettisonTransform.gameObject.SetActive(!jettisoned);
+                applied = true;
+            }
+
+            return applied;
+        }
+
+        #endregion
+
+        #region Lights
+
+        internal static LightPlaybackState GetOrCreateLightPlaybackState(
+            GhostPlaybackState state, uint partPersistentId)
+        {
+            if (state.lightPlaybackStates == null)
+                state.lightPlaybackStates = new Dictionary<uint, LightPlaybackState>();
+
+            LightPlaybackState playbackState;
+            if (!state.lightPlaybackStates.TryGetValue(partPersistentId, out playbackState))
+            {
+                playbackState = new LightPlaybackState();
+                state.lightPlaybackStates[partPersistentId] = playbackState;
+            }
+
+            return playbackState;
+        }
+
+        internal static void ApplyLightPowerEvent(GhostPlaybackState state, uint partPersistentId, bool on)
+        {
+            if (state == null) return;
+            LightPlaybackState playbackState = GetOrCreateLightPlaybackState(state, partPersistentId);
+            playbackState.isOn = on;
+            if (!on)
+                SetLightState(state, partPersistentId, false);
+            else if (!playbackState.blinkEnabled)
+                SetLightState(state, partPersistentId, true);
+        }
+
+        internal static void ApplyLightBlinkModeEvent(
+            GhostPlaybackState state, uint partPersistentId, bool enabled, float blinkRateHz)
+        {
+            if (state == null) return;
+            LightPlaybackState playbackState = GetOrCreateLightPlaybackState(state, partPersistentId);
+            playbackState.blinkEnabled = enabled;
+            if (blinkRateHz > 0f)
+                playbackState.blinkRateHz = blinkRateHz;
+        }
+
+        internal static void ApplyLightBlinkRateEvent(GhostPlaybackState state, uint partPersistentId, float blinkRateHz)
+        {
+            if (state == null) return;
+            LightPlaybackState playbackState = GetOrCreateLightPlaybackState(state, partPersistentId);
+            if (blinkRateHz > 0f)
+                playbackState.blinkRateHz = blinkRateHz;
+        }
+
+        internal static void UpdateBlinkingLights(GhostPlaybackState state, double currentUT)
+        {
+            if (state == null || state.lightPlaybackStates == null || state.lightPlaybackStates.Count == 0)
+                return;
+
+            foreach (var kv in state.lightPlaybackStates)
+            {
+                uint partPersistentId = kv.Key;
+                LightPlaybackState playbackState = kv.Value;
+                if (playbackState == null)
+                    continue;
+
+                bool shouldEnable = playbackState.isOn;
+                if (shouldEnable && playbackState.blinkEnabled)
+                {
+                    float rateHz = playbackState.blinkRateHz > 0f ? playbackState.blinkRateHz : 1f;
+                    double cycle = currentUT * rateHz;
+                    double frac = cycle - Math.Floor(cycle);
+                    shouldEnable = frac < 0.5;
+                }
+
+                SetLightState(state, partPersistentId, shouldEnable);
+            }
+        }
+
+        internal static void SetLightState(GhostPlaybackState state, uint partPersistentId, bool on)
+        {
+            // Toggle Unity Light components (existing behavior)
+            if (state.lightInfos != null)
+            {
+                LightGhostInfo info;
+                if (state.lightInfos.TryGetValue(partPersistentId, out info))
+                {
+                    for (int i = 0; i < info.lights.Count; i++)
+                    {
+                        if (info.lights[i] != null)
+                            info.lights[i].enabled = on;
+                    }
+                }
+            }
+
+            // Toggle ColorChanger emissive materials (Pattern A: cabin lights)
+            ApplyColorChangerLightState(state, partPersistentId, on);
+        }
+
+        internal static void ApplyColorChangerLightState(GhostPlaybackState state, uint partPersistentId, bool on)
+        {
+            if (state.colorChangerInfos == null) return;
+
+            List<ColorChangerGhostInfo> infos;
+            if (!state.colorChangerInfos.TryGetValue(partPersistentId, out infos)) return;
+
+            for (int c = 0; c < infos.Count; c++)
+            {
+                var ccInfo = infos[c];
+                if (!ccInfo.isCabinLight) continue; // Only Pattern A responds to light events
+
+                for (int i = 0; i < ccInfo.materials.Count; i++)
+                {
+                    if (ccInfo.materials[i].material != null)
+                    {
+                        ccInfo.materials[i].material.SetColor(
+                            ccInfo.shaderProperty,
+                            on ? ccInfo.materials[i].onColor : ccInfo.materials[i].offColor);
+                    }
+                }
+
+                ParsekLog.VerboseRateLimited("Flight", $"cc-light-{partPersistentId}",
+                    $"Part pid={partPersistentId}: applied color changer cabin light state={on}");
+            }
+        }
+
+        /// <summary>
+        /// Applies ablation char color to heat shield parts (Pattern B) based on reentry intensity.
+        /// Called from DriveReentryLayers when reentry glow is active.
+        /// </summary>
+        internal static void ApplyColorChangerCharState(GhostPlaybackState state, float intensity)
+        {
+            if (state == null || state.colorChangerInfos == null) return;
+
+            foreach (var kvp in state.colorChangerInfos)
+            {
+                var infos = kvp.Value;
+                for (int c = 0; c < infos.Count; c++)
+                {
+                    var ccInfo = infos[c];
+                    if (ccInfo.isCabinLight) continue; // Only Pattern B responds to reentry
+
+                    // Char is permanent — only increase, never fade back
+                    float fraction = Mathf.Clamp01(intensity);
+                    if (fraction <= ccInfo.peakCharIntensity) continue;
+                    ccInfo.peakCharIntensity = fraction;
+
+                    for (int i = 0; i < ccInfo.materials.Count; i++)
+                    {
+                        if (ccInfo.materials[i].material != null)
+                        {
+                            Color lerped = Color.Lerp(
+                                ccInfo.materials[i].offColor,
+                                ccInfo.materials[i].onColor,
+                                fraction);
+                            ccInfo.materials[i].material.SetColor(ccInfo.shaderProperty, lerped);
+                        }
+                    }
+                }
+            }
+        }
+
+        #endregion
+    }
+}

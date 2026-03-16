@@ -52,7 +52,7 @@ namespace Parsek.Tests
         [Fact]
         public void BuildEngineFxEmissionDiagnostic_IncludesCoreFields()
         {
-            string line = ParsekFlight.BuildEngineFxEmissionDiagnostic(
+            string line = GhostPlaybackLogic.BuildEngineFxEmissionDiagnostic(
                 partName: "MassiveBooster",
                 partPersistentId: 123u,
                 moduleIndex: 2,

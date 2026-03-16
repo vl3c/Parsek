@@ -116,7 +116,7 @@ namespace Parsek.Tests
         public void ResolveLoopInterval_AutoMode_ReturnsGlobalValue()
         {
             var rec = MakeRec(unit: LoopTimeUnit.Auto, loopInterval: 999);
-            double result = ParsekFlight.ResolveLoopInterval(rec, 42.0, 10.0, 1.0);
+            double result = GhostPlaybackLogic.ResolveLoopInterval(rec, 42.0, 10.0, 1.0);
             Assert.Equal(42.0, result);
         }
 
@@ -124,7 +124,7 @@ namespace Parsek.Tests
         public void ResolveLoopInterval_AutoMode_ClampsNonNegative()
         {
             var rec = MakeRec(unit: LoopTimeUnit.Auto);
-            double result = ParsekFlight.ResolveLoopInterval(rec, -5.0, 10.0, 1.0);
+            double result = GhostPlaybackLogic.ResolveLoopInterval(rec, -5.0, 10.0, 1.0);
             Assert.Equal(0.0, result);
         }
 
@@ -132,7 +132,7 @@ namespace Parsek.Tests
         public void ResolveLoopInterval_AutoMode_NaN_ReturnsDefault()
         {
             var rec = MakeRec(unit: LoopTimeUnit.Auto);
-            double result = ParsekFlight.ResolveLoopInterval(rec, double.NaN, 10.0, 1.0);
+            double result = GhostPlaybackLogic.ResolveLoopInterval(rec, double.NaN, 10.0, 1.0);
             Assert.Equal(10.0, result);
         }
 
@@ -140,7 +140,7 @@ namespace Parsek.Tests
         public void ResolveLoopInterval_ManualMode_ReturnsRecordingValue()
         {
             var rec = MakeRec(unit: LoopTimeUnit.Sec, loopInterval: 25.0);
-            double result = ParsekFlight.ResolveLoopInterval(rec, 42.0, 10.0, 1.0);
+            double result = GhostPlaybackLogic.ResolveLoopInterval(rec, 42.0, 10.0, 1.0);
             Assert.Equal(25.0, result);
         }
 
@@ -149,14 +149,14 @@ namespace Parsek.Tests
         {
             var rec = MakeRec(unit: LoopTimeUnit.Min, loopInterval: -30.0);
             // duration=100, so clamp is Max(-100+0.001, -30) = -30
-            double result = ParsekFlight.ResolveLoopInterval(rec, 42.0, 10.0, 1.0);
+            double result = GhostPlaybackLogic.ResolveLoopInterval(rec, 42.0, 10.0, 1.0);
             Assert.Equal(-30.0, result);
         }
 
         [Fact]
         public void ResolveLoopInterval_NullRec_ReturnsDefault()
         {
-            double result = ParsekFlight.ResolveLoopInterval(null, 42.0, 10.0, 1.0);
+            double result = GhostPlaybackLogic.ResolveLoopInterval(null, 42.0, 10.0, 1.0);
             Assert.Equal(10.0, result);
         }
 
@@ -268,7 +268,7 @@ namespace Parsek.Tests
         {
             // Recording only 5s long, global interval is 0 → clamp to -duration + minCycleDuration
             var rec = MakeRec(startUT: 100, endUT: 105, unit: LoopTimeUnit.Auto);
-            double result = ParsekFlight.ResolveLoopInterval(rec, 0.0, 10.0, 1.0);
+            double result = GhostPlaybackLogic.ResolveLoopInterval(rec, 0.0, 10.0, 1.0);
             Assert.Equal(0.0, result); // auto always >= 0
         }
 
@@ -278,7 +278,7 @@ namespace Parsek.Tests
             // 5s recording, -10s interval → clamp to -(5 - 1.0) = -4.0
             var rec = MakeRec(startUT: 100, endUT: 105, loopInterval: -10.0,
                 unit: LoopTimeUnit.Sec);
-            double result = ParsekFlight.ResolveLoopInterval(rec, 42.0, 10.0, 1.0);
+            double result = GhostPlaybackLogic.ResolveLoopInterval(rec, 42.0, 10.0, 1.0);
             Assert.Equal(-4.0, result, 6);
         }
 
@@ -286,7 +286,7 @@ namespace Parsek.Tests
         public void ResolveLoopInterval_AutoMode_Infinity_ReturnsDefault()
         {
             var rec = MakeRec(unit: LoopTimeUnit.Auto);
-            double result = ParsekFlight.ResolveLoopInterval(rec, double.PositiveInfinity, 10.0, 1.0);
+            double result = GhostPlaybackLogic.ResolveLoopInterval(rec, double.PositiveInfinity, 10.0, 1.0);
             Assert.Equal(10.0, result);
         }
 
@@ -295,7 +295,7 @@ namespace Parsek.Tests
         {
             var rec = MakeRec(unit: LoopTimeUnit.Sec);
             rec.LoopIntervalSeconds = double.NaN;
-            double result = ParsekFlight.ResolveLoopInterval(rec, 42.0, 10.0, 1.0);
+            double result = GhostPlaybackLogic.ResolveLoopInterval(rec, 42.0, 10.0, 1.0);
             Assert.Equal(10.0, result);
         }
 
@@ -304,7 +304,7 @@ namespace Parsek.Tests
         {
             var rec = MakeRec(unit: LoopTimeUnit.Min);
             rec.LoopIntervalSeconds = double.PositiveInfinity;
-            double result = ParsekFlight.ResolveLoopInterval(rec, 42.0, 10.0, 1.0);
+            double result = GhostPlaybackLogic.ResolveLoopInterval(rec, 42.0, 10.0, 1.0);
             Assert.Equal(10.0, result);
         }
     }
