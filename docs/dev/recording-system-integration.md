@@ -353,29 +353,32 @@ internal class RenderingZoneManager
 
 ### 3.1 FlightRecorder.cs — The Heart of Recording
 
-**Current behavior:** Records one vessel. Subscribes to `onPartDie`, `onPartJointBreak`, polls parachutes/engines/RCS/deployables every physics frame.
+**Phase 1 status:** Extended with segment boundary rule, environment tracking, reference frame tracking, crash coalescing.
 
-**Changes needed:**
-1. **Segment boundary rule (Design 3.3):** Currently, `onPartJointBreak` creates a BranchPoint (JointBreak type). The redesign says: only create a TreeEvent if the vessel **physically separates into independent assemblies**. If parts break off but the vessel stays connected, record SegmentEvents instead. This requires checking whether the joint break actually split the vessel into separate vessels (KSP fires `onVesselWasModified` after a split — check vessel count).
+**Done (Phase 1):**
+1. Segment boundary rule — `SegmentBoundaryLogic.ClassifyJointBreakResult()` classifies joint breaks; `WithinSegment` emits SegmentEvents via `EmitBreakageSegmentEvents()`, structural splits go to CrashCoalescer
+2. Environment tracking — `EnvironmentHysteresis` + `EnvironmentDetector.Classify()` using cached engines; creates TrackSections on transitions
+3. Reference frame tracking — ABSOLUTE ↔ ORBITAL_CHECKPOINT on rails transitions
+4. Crash coalescing — `CrashCoalescer` wired into `ParsekFlight.DeferredJointBreakCheck`
 
-2. **Environment tracking:** Add `currentEnvironment` field. Call `EnvironmentDetector.Classify()` each frame. When environment changes, close current TrackSection and open new one.
-
-3. **Reference frame tracking:** Add `currentReferenceFrame` field. When entering physics bubble of a pre-existing vessel, switch to RELATIVE. When leaving, switch back to ABSOLUTE.
-
-4. **Crash coalescing:** Replace direct BranchPoint creation on joint break with CrashCoalescer.
-
-5. **Controller monitoring:** New polling each frame: check if any controller parts were destroyed/disabled/enabled. Emit SegmentEvents.
+**Remaining (Phase 2+):**
+5. **RELATIVE frame activation (Phase 3):** Detect proximity to pre-existing vessels, switch to RELATIVE frame
+6. **Controller monitoring per-frame (Phase 2):** Poll for controller disabled/enabled (power loss, hibernation). Currently only destruction-path is handled via joint break classification
 
 ### 3.2 BackgroundRecorder.cs — Already Exists!
 
-**Current behavior:** Already records background vessels in a RecordingTree. Supports on-rails (OrbitSegment/SurfacePosition snapshots) and loaded/physics (full trajectory points, part events, adaptive sampling).
+**Phase 1 status:** Extended with orbital checkpointing and full part event coverage.
 
-**Changes needed:**
-1. **Proximity-based sample rate (Design 6.2):** Currently samples at a fixed rate. Need to vary based on distance to focused vessel (<200m: 5Hz, 200-1km: 2Hz, 1-2.3km: 0.5Hz).
+**Done (Phase 1):**
+1. `CheckpointAllVessels()` at time warp and scene change boundaries
+2. `onPartDie` and `onPartJointBreak` subscriptions for background vessels (was missing — only had 17 polled events)
+3. Coverage audit documented in PollPartEvents comment block (19 event types total)
 
-2. **Structural events for background vessels (Design 6.4):** Need to capture split/merge events for background vessels, not just the focused vessel. Subscribe to `onVesselWasModified`, `GameEvents.onPartCouple`, etc. for all physics-bubble vessels.
-
-3. **TrackSection wrapping:** Background trajectory data should be wrapped in TrackSections with `isFromBackground = true`.
+**Remaining (Phase 2+):**
+4. **Proximity-based sample rate (Phase 2):** Variable rate based on distance (<200m: 5Hz, 200-1km: 2Hz, 1-2.3km: 0.5Hz)
+5. **Background structural events wired to tree (Phase 2):** Background joint breaks currently emit Decoupled PartEvents but don't create BranchPoints in the tree
+6. **TrackSection wrapping for background data (Phase 2):** Background trajectory data should use `isFromBackground = true`
+7. **Periodic safety-net checkpoints (low priority):** Every 3-5 orbits for long coasts
 
 ### 3.3 ParsekFlight.cs — The Playback Controller
 
