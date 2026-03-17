@@ -355,6 +355,29 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// Pure-static gating check: determines whether a looped recording with an anchor
+        /// should have its ghost active right now. Returns true if:
+        /// - The recording has no anchor (anchorPid == 0) — unanchored loops always run
+        /// - The anchor vessel PID is in the loadedAnchors set
+        /// Returns false if the recording has an anchor and it is not loaded.
+        /// </summary>
+        internal static bool IsAnchorLoaded(uint anchorPid, HashSet<uint> loadedAnchors)
+        {
+            if (anchorPid == 0)
+                return true; // No anchor configured — always allow
+
+            if (loadedAnchors == null)
+            {
+                ParsekLog.Verbose("Loop", $"IsAnchorLoaded: loadedAnchors set is null, anchorPid={anchorPid} — returning false");
+                return false;
+            }
+
+            bool loaded = loadedAnchors.Contains(anchorPid);
+            ParsekLog.Verbose("Loop", $"IsAnchorLoaded: anchorPid={anchorPid}, loaded={loaded}");
+            return loaded;
+        }
+
         #endregion
 
         #region External Vessel Ghost Policy

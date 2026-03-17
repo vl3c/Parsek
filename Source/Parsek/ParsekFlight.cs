@@ -211,6 +211,9 @@ namespace Parsek
         private HashSet<int> loggedOrbitSegments = new HashSet<int>();
         private HashSet<int> loggedOrbitRotationSegments = new HashSet<int>();
 
+        // Anchor vessel tracking: which anchor vessels are currently loaded (for looped ghost lifecycle)
+        private readonly HashSet<uint> loadedAnchorVessels = new HashSet<uint>();
+
         // Deferred spawn queue: recording IDs queued during warp, flushed when warp ends
         private HashSet<string> pendingSpawnRecordingIds = new HashSet<string>();
         private string pendingWatchRecordingId = null;  // recording ID that was in watch mode when deferred
@@ -286,6 +289,8 @@ namespace Parsek
             GameEvents.onCrewBoardVessel.Add(OnCrewBoardVessel);
             GameEvents.onVesselGoOnRails.Add(OnVesselGoOnRails);
             GameEvents.onVesselGoOffRails.Add(OnVesselGoOffRails);
+            GameEvents.onVesselLoaded.Add(OnVesselLoaded);
+            GameEvents.onVesselUnloaded.Add(OnVesselUnloaded);
             GameEvents.onVesselSOIChanged.Add(OnVesselSOIChanged);
             GameEvents.onPartCouple.Add(OnPartCouple);
             GameEvents.onPartUndock.Add(OnPartUndock);
@@ -567,6 +572,8 @@ namespace Parsek
             GameEvents.onCrewBoardVessel.Remove(OnCrewBoardVessel);
             GameEvents.onVesselGoOnRails.Remove(OnVesselGoOnRails);
             GameEvents.onVesselGoOffRails.Remove(OnVesselGoOffRails);
+            GameEvents.onVesselLoaded.Remove(OnVesselLoaded);
+            GameEvents.onVesselUnloaded.Remove(OnVesselUnloaded);
             GameEvents.onVesselSOIChanged.Remove(OnVesselSOIChanged);
             GameEvents.onPartCouple.Remove(OnPartCouple);
             GameEvents.onPartUndock.Remove(OnPartUndock);
@@ -2718,6 +2725,61 @@ namespace Parsek
             backgroundRecorder?.OnBackgroundVesselGoOffRails(v);
         }
 
+        void OnVesselLoaded(Vessel v)
+        {
+            if (v == null) return;
+            uint pid = v.persistentId;
+            loadedAnchorVessels.Add(pid);
+
+            var committed = RecordingStore.CommittedRecordings;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                if (rec.LoopAnchorVesselId != pid || !rec.LoopPlayback)
+                    continue;
+
+                string anchorBody = v.mainBody?.name;
+                if (!GhostPlaybackLogic.ShouldSpawnLoopedGhost(rec, true, anchorBody, rec.LoopAnchorBodyName))
+                    continue;
+
+                double currentUT = Planetarium.GetUniversalTime();
+                double interval = GetLoopIntervalSeconds(rec);
+                var (loopUT, cycleIndex, isInPause) = GhostPlaybackLogic.ComputeLoopPhaseFromUT(
+                    currentUT, rec.StartUT, rec.EndUT, interval);
+
+                ParsekLog.Info("Loop",
+                    $"Anchor vessel loaded: pid={pid}, rec #{i} '{rec.VesselName}' " +
+                    $"phase cycle={cycleIndex} loopUT={loopUT:F2} paused={isInPause}");
+
+                // The loop playback system in UpdateLoopingTimelinePlayback will pick up
+                // this recording on the next Update frame and spawn the ghost at the
+                // computed phase — no direct spawn here avoids duplicate spawning.
+            }
+        }
+
+        void OnVesselUnloaded(Vessel v)
+        {
+            if (v == null) return;
+            uint pid = v.persistentId;
+            loadedAnchorVessels.Remove(pid);
+
+            var committed = RecordingStore.CommittedRecordings;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                if (rec.LoopAnchorVesselId != pid || !rec.LoopPlayback)
+                    continue;
+
+                if (ghostStates.ContainsKey(i))
+                {
+                    ParsekLog.Info("Loop",
+                        $"Anchor vessel unloaded: pid={pid}, destroying looped ghost #{i} '{rec.VesselName}'");
+                    DestroyAllOverlapGhosts(i);
+                    DestroyTimelineGhost(i);
+                }
+            }
+        }
+
         void OnVesselSOIChanged(GameEvents.HostedFromToAction<Vessel, CelestialBody> data)
         {
             recorder?.OnVesselSOIChanged(data);
@@ -4756,6 +4818,21 @@ namespace Parsek
 
                 if (ShouldLoopPlayback(rec))
                 {
+                    // Anchor gating: looped recordings with an anchor vessel only play
+                    // when the anchor is loaded. Unanchored loops (anchorPid=0) always play.
+                    if (!GhostPlaybackLogic.IsAnchorLoaded(rec.LoopAnchorVesselId, loadedAnchorVessels))
+                    {
+                        if (ghostActive)
+                        {
+                            ParsekLog.Info("Loop",
+                                $"Anchor not loaded: pid={rec.LoopAnchorVesselId}, " +
+                                $"destroying ghost #{i} '{rec.VesselName}'");
+                            DestroyAllOverlapGhosts(i);
+                            DestroyTimelineGhost(i);
+                        }
+                        continue;
+                    }
+
                     UpdateLoopingTimelinePlayback(i, rec, currentUT, state, ghostActive,
                         suppressGhosts, suppressVisualFx);
                     continue;
@@ -5879,6 +5956,7 @@ namespace Parsek
             loggedOrbitRotationSegments.Clear();
             pendingSpawnRecordingIds.Clear();
             pendingWatchRecordingId = null;
+            loadedAnchorVessels.Clear();
             CleanupActiveExplosions();
         }
 
