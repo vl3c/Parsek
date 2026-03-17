@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using KSP.UI.Screens;
 using UnityEngine;
 
@@ -143,6 +144,12 @@ namespace Parsek
             public Dictionary<ulong, float> lastRoboticPosition = new Dictionary<ulong, float>();
             public Dictionary<ulong, double> lastRoboticSampleUT = new Dictionary<ulong, double>();
             public HashSet<ulong> loggedRoboticModuleKeys = new HashSet<ulong>();
+
+            // Environment tracking (TrackSection management)
+            public EnvironmentHysteresis environmentHysteresis;
+            public TrackSection currentTrackSection;
+            public bool trackSectionActive;
+            public List<TrackSection> trackSections = new List<TrackSection>();
 
             // Part destruction/decoupling tracking
             public HashSet<uint> decoupledPartIds = new HashSet<uint>();
@@ -752,6 +759,25 @@ namespace Parsek
             // Poll part events (always, regardless of sampling rate)
             PollPartEvents(bgVessel, state, treeRec, ut);
 
+            // Check for environment transitions (always, regardless of sampling rate)
+            if (state.environmentHysteresis != null)
+            {
+                bool hasAtmo = bgVessel.mainBody != null && bgVessel.mainBody.atmosphere;
+                double atmoDepth = hasAtmo ? bgVessel.mainBody.atmosphereDepth : 0;
+                var rawEnv = ClassifyBackgroundEnvironment(
+                    hasAtmo, bgVessel.altitude, atmoDepth,
+                    (int)bgVessel.situation, bgVessel.srfSpeed, state.cachedEngines);
+                if (state.environmentHysteresis.Update(rawEnv, ut))
+                {
+                    var newEnv = state.environmentHysteresis.CurrentEnvironment;
+                    ParsekLog.Info("BgRecorder",
+                        $"Environment transition: pid={pid} -> {newEnv} " +
+                        $"at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+                    CloseBackgroundTrackSection(state, ut);
+                    StartBackgroundTrackSection(state, newEnv, ReferenceFrame.Absolute, ut);
+                }
+            }
+
             // Compute distance to focused vessel and determine proximity-based sample interval
             double distance = ComputeDistanceToFocusedVessel(bgVessel);
             double proximityInterval = ProximityRateSelector.GetSampleInterval(distance);
@@ -811,6 +837,12 @@ namespace Parsek
             state.lastRecordedUT = point.ut;
             state.lastRecordedVelocity = point.velocity;
             state.lastSampleUT = ut;
+
+            // Dual-write: also add to current TrackSection's frames list
+            if (state.trackSectionActive && state.currentTrackSection.frames != null)
+            {
+                state.currentTrackSection.frames.Add(point);
+            }
 
             // Update ExplicitEndUT
             treeRec.ExplicitEndUT = ut;
@@ -891,17 +923,22 @@ namespace Parsek
                 onRailsStates.Remove(vesselPid);
             }
 
-            // Sample a final boundary point if loaded
+            // Close TrackSection and flush if loaded
             BackgroundVesselState loadedState;
             if (loadedStates.TryGetValue(vesselPid, out loadedState))
             {
-                Vessel v = FlightRecorder.FindVesselByPid(vesselPid);
-                if (v != null)
+                CloseBackgroundTrackSection(loadedState, ut);
+
+                Recording flushRec;
+                if (tree.Recordings.TryGetValue(loadedState.recordingId, out flushRec))
                 {
-                    Recording treeRec;
-                    if (tree.Recordings.TryGetValue(loadedState.recordingId, out treeRec))
+                    FlushTrackSectionsToRecording(loadedState, flushRec);
+
+                    // Sample a final boundary point
+                    Vessel v = FlightRecorder.FindVesselByPid(vesselPid);
+                    if (v != null)
                     {
-                        SampleBoundaryPoint(v, treeRec, ut);
+                        SampleBoundaryPoint(v, flushRec, ut);
                     }
                 }
                 loadedStates.Remove(vesselPid);
@@ -928,11 +965,20 @@ namespace Parsek
             BackgroundVesselState loadedState;
             if (loadedStates.TryGetValue(pid, out loadedState))
             {
-                // Sample a final boundary point
-                Recording treeRec;
-                if (tree.Recordings.TryGetValue(loadedState.recordingId, out treeRec))
+                // Close the active ABSOLUTE/Background TrackSection
+                CloseBackgroundTrackSection(loadedState, ut);
+
+                // Open an ORBITAL_CHECKPOINT/Checkpoint section for the on-rails phase
+                StartCheckpointTrackSection(loadedState, ut);
+
+                // Flush accumulated TrackSections to the recording
+                Recording flushRec;
+                if (tree.Recordings.TryGetValue(loadedState.recordingId, out flushRec))
                 {
-                    SampleBoundaryPoint(v, treeRec, ut);
+                    FlushTrackSectionsToRecording(loadedState, flushRec);
+
+                    // Sample a final boundary point
+                    SampleBoundaryPoint(v, flushRec, ut);
                 }
 
                 loadedStates.Remove(pid);
@@ -1051,8 +1097,16 @@ namespace Parsek
                 onRailsStates.Remove(pid);
             }
 
-            if (loadedStates.ContainsKey(pid))
+            BackgroundVesselState loadedState;
+            if (loadedStates.TryGetValue(pid, out loadedState))
             {
+                CloseBackgroundTrackSection(loadedState, ut);
+
+                Recording flushRec;
+                if (tree.Recordings.TryGetValue(loadedState.recordingId, out flushRec))
+                {
+                    FlushTrackSectionsToRecording(loadedState, flushRec);
+                }
                 loadedStates.Remove(pid);
             }
 
@@ -1082,6 +1136,19 @@ namespace Parsek
                 }
             }
 
+            // Close and flush TrackSections for all loaded vessels
+            foreach (var kvp in loadedStates)
+            {
+                var state = kvp.Value;
+                CloseBackgroundTrackSection(state, ut);
+
+                Recording flushRec;
+                if (tree.Recordings.TryGetValue(state.recordingId, out flushRec))
+                {
+                    FlushTrackSectionsToRecording(state, flushRec);
+                }
+            }
+
             onRailsStates.Clear();
             loadedStates.Clear();
 
@@ -1103,6 +1170,19 @@ namespace Parsek
                 if (state.hasOpenOrbitSegment)
                 {
                     CloseOrbitSegment(state, commitUT);
+                }
+            }
+
+            // Close and flush TrackSections for all loaded vessels
+            foreach (var kvp in loadedStates)
+            {
+                var state = kvp.Value;
+                CloseBackgroundTrackSection(state, commitUT);
+
+                Recording flushRec;
+                if (tree.Recordings.TryGetValue(state.recordingId, out flushRec))
+                {
+                    FlushTrackSectionsToRecording(state, flushRec);
                 }
             }
 
@@ -1312,9 +1392,19 @@ namespace Parsek
             // Seed all tracking sets with current part state (mirrors FlightRecorder.SeedExistingPartStates)
             SeedBackgroundPartStates(v, state);
 
+            // Initialize environment tracking and open first TrackSection
+            double ut = Planetarium.GetUniversalTime();
+            bool hasAtmo = v.mainBody != null && v.mainBody.atmosphere;
+            double atmoDepth = hasAtmo ? v.mainBody.atmosphereDepth : 0;
+            var initialEnv = ClassifyBackgroundEnvironment(
+                hasAtmo, v.altitude, atmoDepth,
+                (int)v.situation, v.srfSpeed, state.cachedEngines);
+            state.environmentHysteresis = new EnvironmentHysteresis(initialEnv);
+            StartBackgroundTrackSection(state, initialEnv, ReferenceFrame.Absolute, ut);
+
             ParsekLog.Verbose("BgRecorder", $"Loaded state initialized: pid={vesselPid} " +
                 $"engines={state.cachedEngines?.Count ?? 0} rcs={state.cachedRcsModules?.Count ?? 0} " +
-                $"robotics={state.cachedRoboticModules?.Count ?? 0}");
+                $"robotics={state.cachedRoboticModules?.Count ?? 0} initialEnv={initialEnv}");
 
             loadedStates[vesselPid] = state;
         }
@@ -1436,6 +1526,137 @@ namespace Parsek
             if (interval >= ProximityRateSelector.OutOfRangeInterval || double.IsInfinity(interval))
                 return "none";
             return interval.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + "s";
+        }
+
+        #endregion
+
+        #region Background Environment Classification & TrackSection Management
+
+        /// <summary>
+        /// Classifies the environment for a background vessel using its cached engine list.
+        /// Similar to FlightRecorder.ClassifyCurrentEnvironment but works with
+        /// BackgroundVesselState's cached engines instead of FlightRecorder instance fields.
+        /// Pure enough to be internal static for testability.
+        /// </summary>
+        internal static SegmentEnvironment ClassifyBackgroundEnvironment(
+            bool hasAtmosphere, double altitude, double atmosphereDepth,
+            int situation, double srfSpeed,
+            List<(Part part, ModuleEngines engine, int moduleIndex)> cachedEngines)
+        {
+            bool hasActiveThrust = false;
+            if (cachedEngines != null)
+            {
+                for (int i = 0; i < cachedEngines.Count; i++)
+                {
+                    if (cachedEngines[i].engine != null &&
+                        cachedEngines[i].engine.EngineIgnited &&
+                        cachedEngines[i].engine.finalThrust > 0)
+                    {
+                        hasActiveThrust = true;
+                        break;
+                    }
+                }
+            }
+
+            return EnvironmentDetector.Classify(
+                hasAtmosphere, altitude, atmosphereDepth,
+                situation, srfSpeed, hasActiveThrust);
+        }
+
+        /// <summary>
+        /// Opens a new TrackSection for a background vessel.
+        /// Sets source = Background, isFromBackground = true.
+        /// </summary>
+        private void StartBackgroundTrackSection(
+            BackgroundVesselState state, SegmentEnvironment env, ReferenceFrame refFrame, double ut)
+        {
+            state.currentTrackSection = new TrackSection
+            {
+                environment = env,
+                referenceFrame = refFrame,
+                startUT = ut,
+                source = TrackSectionSource.Background,
+                isFromBackground = true,
+                frames = new List<TrajectoryPoint>(),
+                checkpoints = new List<OrbitSegment>()
+            };
+            state.trackSectionActive = true;
+            ParsekLog.Info("BgRecorder",
+                $"TrackSection started: env={env} ref={refFrame} source=Background " +
+                $"pid={state.vesselPid} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+        }
+
+        /// <summary>
+        /// Opens an OrbitalCheckpoint TrackSection for a background vessel transitioning to on-rails.
+        /// Sets source = Checkpoint, isFromBackground = true.
+        /// </summary>
+        private void StartCheckpointTrackSection(BackgroundVesselState state, double ut)
+        {
+            state.currentTrackSection = new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = ut,
+                source = TrackSectionSource.Checkpoint,
+                isFromBackground = true,
+                frames = new List<TrajectoryPoint>(),
+                checkpoints = new List<OrbitSegment>()
+            };
+            state.trackSectionActive = true;
+            ParsekLog.Info("BgRecorder",
+                $"TrackSection started: env=ExoBallistic ref=OrbitalCheckpoint source=Checkpoint " +
+                $"pid={state.vesselPid} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+        }
+
+        /// <summary>
+        /// Closes the current TrackSection for a background vessel and appends it
+        /// to the per-vessel trackSections list.
+        /// </summary>
+        private void CloseBackgroundTrackSection(BackgroundVesselState state, double ut)
+        {
+            if (!state.trackSectionActive) return;
+
+            state.currentTrackSection.endUT = ut;
+
+            // Compute approximate sample rate
+            if (state.currentTrackSection.frames != null && state.currentTrackSection.frames.Count > 1)
+            {
+                double duration = state.currentTrackSection.endUT - state.currentTrackSection.startUT;
+                if (duration > 0)
+                    state.currentTrackSection.sampleRateHz =
+                        (float)(state.currentTrackSection.frames.Count / duration);
+            }
+
+            state.trackSections.Add(state.currentTrackSection);
+            state.trackSectionActive = false;
+
+            int frameCount = state.currentTrackSection.frames?.Count ?? 0;
+            int checkpointCount = state.currentTrackSection.checkpoints?.Count ?? 0;
+            double sectionDuration = ut - state.currentTrackSection.startUT;
+            ParsekLog.Info("BgRecorder",
+                $"TrackSection closed: env={state.currentTrackSection.environment} " +
+                $"ref={state.currentTrackSection.referenceFrame} " +
+                $"frames={frameCount} checkpoints={checkpointCount} " +
+                $"duration={sectionDuration.ToString("F2", CultureInfo.InvariantCulture)}s " +
+                $"pid={state.vesselPid}");
+        }
+
+        /// <summary>
+        /// Copies all accumulated TrackSections from a BackgroundVesselState to the
+        /// recording's TrackSections list.
+        /// </summary>
+        private static void FlushTrackSectionsToRecording(BackgroundVesselState state, Recording treeRec)
+        {
+            if (state.trackSections.Count == 0) return;
+
+            for (int i = 0; i < state.trackSections.Count; i++)
+            {
+                treeRec.TrackSections.Add(state.trackSections[i]);
+            }
+
+            ParsekLog.Info("BgRecorder",
+                $"Flushed {state.trackSections.Count} TrackSections to recording: " +
+                $"pid={state.vesselPid} recId={state.recordingId}");
         }
 
         #endregion
@@ -2408,6 +2629,59 @@ namespace Parsek
         /// For testing: gets the count of debris TTL entries.
         /// </summary>
         internal int DebrisTTLCount => debrisTTLExpiry.Count;
+
+        /// <summary>
+        /// For testing: gets the accumulated TrackSections for a loaded vessel.
+        /// Returns null if no loaded state exists.
+        /// </summary>
+        internal List<TrackSection> GetTrackSectionsForTesting(uint vesselPid)
+        {
+            BackgroundVesselState state;
+            if (loadedStates.TryGetValue(vesselPid, out state))
+                return state.trackSections;
+            return null;
+        }
+
+        /// <summary>
+        /// For testing: checks if a loaded vessel has an active TrackSection.
+        /// Returns false if no loaded state exists.
+        /// </summary>
+        internal bool GetTrackSectionActiveForTesting(uint vesselPid)
+        {
+            BackgroundVesselState state;
+            if (loadedStates.TryGetValue(vesselPid, out state))
+                return state.trackSectionActive;
+            return false;
+        }
+
+        /// <summary>
+        /// For testing: gets the current TrackSection for a loaded vessel.
+        /// Returns null/default if no loaded state exists.
+        /// </summary>
+        internal TrackSection? GetCurrentTrackSectionForTesting(uint vesselPid)
+        {
+            BackgroundVesselState state;
+            if (loadedStates.TryGetValue(vesselPid, out state))
+                return state.currentTrackSection;
+            return null;
+        }
+
+        /// <summary>
+        /// For testing: injects a loaded state with environment tracking initialized.
+        /// Creates the state, sets up EnvironmentHysteresis, and opens the first TrackSection.
+        /// </summary>
+        internal void InjectLoadedStateWithEnvironmentForTesting(
+            uint vesselPid, string recordingId, SegmentEnvironment initialEnv, double ut)
+        {
+            var state = new BackgroundVesselState
+            {
+                vesselPid = vesselPid,
+                recordingId = recordingId,
+            };
+            state.environmentHysteresis = new EnvironmentHysteresis(initialEnv);
+            StartBackgroundTrackSection(state, initialEnv, ReferenceFrame.Absolute, ut);
+            loadedStates[vesselPid] = state;
+        }
 
         #endregion
     }
