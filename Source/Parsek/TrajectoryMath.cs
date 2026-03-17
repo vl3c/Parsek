@@ -580,5 +580,35 @@ namespace Parsek
         {
             return focusedPosition - anchorPosition;
         }
+
+        /// <summary>
+        /// Computes world position from anchor position and relative offset.
+        /// Pure static for testability.
+        /// </summary>
+        internal static Vector3d ApplyRelativeOffset(Vector3d anchorWorldPos, double dx, double dy, double dz)
+        {
+            return new Vector3d(anchorWorldPos.x + dx, anchorWorldPos.y + dy, anchorWorldPos.z + dz);
+        }
+
+        /// <summary>
+        /// Finds the TrackSection covering the given UT.
+        /// Returns the index into the sections list, or -1 if none found.
+        /// Linear scan — the list is typically small (a handful of sections per recording).
+        /// Pure static for testability.
+        /// </summary>
+        internal static int FindTrackSectionForUT(List<TrackSection> sections, double ut)
+        {
+            if (sections == null) return -1;
+            for (int i = 0; i < sections.Count; i++)
+            {
+                // Last section uses inclusive end; others use exclusive end
+                bool inRange = (i == sections.Count - 1)
+                    ? (ut >= sections[i].startUT && ut <= sections[i].endUT)
+                    : (ut >= sections[i].startUT && ut < sections[i].endUT);
+                if (inRange)
+                    return i;
+            }
+            return -1;
+        }
     }
 }

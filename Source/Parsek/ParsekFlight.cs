@@ -53,7 +53,7 @@ namespace Parsek
         // We store each ghost's last positioning inputs and re-apply in LateUpdate()
         // so the position is correct in the post-shift frame that actually renders.
 
-        private enum GhostPosMode { PointInterp, SinglePoint, Orbit, Surface }
+        private enum GhostPosMode { PointInterp, SinglePoint, Orbit, Surface, Relative }
 
         private struct GhostPosEntry
         {
@@ -91,6 +91,12 @@ namespace Parsek
 
             // Surface fields
             public Quaternion surfaceRot; // body-relative rotation
+
+            // Relative fields
+            public uint anchorVesselId;           // anchor vessel PID for re-lookup in LateUpdate
+            public double relDx, relDy, relDz;    // interpolated offset (meters)
+            public Quaternion relativeRot;         // interpolated relative rotation
+            public string relativeBodyName;        // body name for altitude computation
         }
 
         private readonly List<GhostPosEntry> ghostPosEntries = new List<GhostPosEntry>();
@@ -486,6 +492,29 @@ namespace Parsek
                         e.ghost.transform.position = e.bodyBefore.GetWorldSurfacePosition(
                             e.latBefore, e.lonBefore, e.altBefore);
                         e.ghost.transform.rotation = e.bodyBefore.bodyTransform.rotation * e.surfaceRot;
+                        break;
+                    }
+                    case GhostPosMode.Relative:
+                    {
+                        // Re-compute ghost position from anchor's current world position + stored offset.
+                        // This handles FloatingOrigin shifts because anchor vessel positions are
+                        // already corrected by KSP before LateUpdate.
+                        Vessel anchor = FlightRecorder.FindVesselByPid(e.anchorVesselId);
+                        if (anchor != null)
+                        {
+                            Vector3d anchorPos = anchor.GetWorldPos3D();
+                            Vector3d ghostPos = TrajectoryMath.ApplyRelativeOffset(anchorPos, e.relDx, e.relDy, e.relDz);
+                            e.ghost.transform.position = ghostPos;
+                            // Rotation: apply anchor's current rotation * relative rotation
+                            e.ghost.transform.rotation = anchor.transform.rotation * e.relativeRot;
+                        }
+                        else if (e.bodyBefore != null)
+                        {
+                            // Fallback: treat offset as body-fixed absolute coords
+                            e.ghost.transform.position = e.bodyBefore.GetWorldSurfacePosition(
+                                e.latBefore, e.lonBefore, e.altBefore);
+                            e.ghost.transform.rotation = e.bodyBefore.bodyTransform.rotation * e.relativeRot;
+                        }
                         break;
                     }
                 }
@@ -4841,11 +4870,41 @@ namespace Parsek
 
                         int playbackIdx = state.playbackIndex;
 
-                        InterpolationResult interpResult;
+                        InterpolationResult interpResult = InterpolationResult.Zero;
                         bool srfRel = rec.RecordingFormatVersion >= 5;
-                        InterpolateAndPosition(state.ghost, rec.Points, rec.OrbitSegments,
-                            ref playbackIdx, currentUT, i * 10000, out interpResult,
-                            surfaceRelativeRotation: srfRel);
+
+                        // Check if current UT falls within a RELATIVE TrackSection
+                        bool usedRelative = false;
+                        if (rec.TrackSections != null && rec.TrackSections.Count > 0)
+                        {
+                            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(rec.TrackSections, currentUT);
+                            if (sectionIdx >= 0 && rec.TrackSections[sectionIdx].referenceFrame == ReferenceFrame.Relative)
+                            {
+                                var section = rec.TrackSections[sectionIdx];
+                                var sectionFrames = section.frames ?? rec.Points;
+
+                                // Log relative playback start (once per recording+anchor combo)
+                                long relKey = ((long)i << 32) | section.anchorVesselId;
+                                if (loggedRelativeStart.Add(relKey))
+                                    ParsekLog.Info("Anchor",
+                                        $"RELATIVE playback started: recording #{i} \"{rec.VesselName}\" " +
+                                        $"anchorPid={section.anchorVesselId} " +
+                                        $"sectionUT=[{section.startUT:F1},{section.endUT:F1}]");
+
+                                InterpolateAndPositionRelative(
+                                    state.ghost, sectionFrames, ref playbackIdx, currentUT,
+                                    section.anchorVesselId, out interpResult);
+                                usedRelative = true;
+                            }
+                        }
+
+                        if (!usedRelative)
+                        {
+                            InterpolateAndPosition(state.ghost, rec.Points, rec.OrbitSegments,
+                                ref playbackIdx, currentUT, i * 10000, out interpResult,
+                                surfaceRelativeRotation: srfRel);
+                        }
+
                         state.SetInterpolated(interpResult);
                         state.playbackIndex = playbackIdx;
 
@@ -7181,6 +7240,211 @@ namespace Parsek
 
             ParsekLog.VerboseRateLimited("Flight", "surface-ghost-positioned",
                 $"PositionGhostAtSurface: body={surfPos.body} lat={surfPos.latitude:F4} lon={surfPos.longitude:F4} alt={surfPos.altitude:F1}");
+        }
+
+        // Tracks which (recording index, anchor PID) combos have been logged for relative playback start
+        private readonly HashSet<long> loggedRelativeStart = new HashSet<long>();
+        // Tracks which anchor-not-found warnings have been logged
+        private readonly HashSet<long> loggedAnchorNotFound = new HashSet<long>();
+
+        /// <summary>
+        /// Positions a ghost using RELATIVE reference frame data.
+        /// Ghost position = anchor vessel's current world position + stored offset.
+        /// Falls back to body-fixed absolute positioning if anchor not found.
+        /// </summary>
+        void InterpolateAndPositionRelative(
+            GameObject ghost,
+            List<TrajectoryPoint> frames,
+            ref int cachedIndex,
+            double targetUT,
+            uint anchorVesselId,
+            out InterpolationResult interpResult)
+        {
+            if (frames == null || frames.Count == 0)
+            {
+                interpResult = InterpolationResult.Zero;
+                ghost.SetActive(false);
+                return;
+            }
+
+            int indexBefore = TrajectoryMath.FindWaypointIndex(frames, ref cachedIndex, targetUT);
+
+            if (indexBefore < 0)
+            {
+                // Before first frame — position at first frame's offset
+                PositionGhostRelativeAt(ghost, frames[0], anchorVesselId);
+                interpResult = new InterpolationResult(frames[0].velocity, frames[0].bodyName, 0);
+                return;
+            }
+
+            TrajectoryPoint before = frames[indexBefore];
+            TrajectoryPoint after = frames[indexBefore + 1];
+
+            double segmentDuration = after.ut - before.ut;
+            if (segmentDuration <= 0.0001)
+            {
+                PositionGhostRelativeAt(ghost, before, anchorVesselId);
+                interpResult = new InterpolationResult(before.velocity, before.bodyName, 0);
+                return;
+            }
+
+            float t = (float)((targetUT - before.ut) / segmentDuration);
+            t = Mathf.Clamp01(t);
+
+            // Interpolate offset (dx, dy, dz stored in lat/lon/alt)
+            double dx = before.latitude + (after.latitude - before.latitude) * t;
+            double dy = before.longitude + (after.longitude - before.longitude) * t;
+            double dz = before.altitude + (after.altitude - before.altitude) * t;
+
+            // Interpolate rotation (stored as relative rotation)
+            Quaternion interpolatedRot = Quaternion.Slerp(before.rotation, after.rotation, t);
+            interpolatedRot = SanitizeQuaternion(interpolatedRot);
+
+            if (!ghost.activeSelf) ghost.SetActive(true);
+
+            // Find anchor vessel
+            Vessel anchor = FlightRecorder.FindVesselByPid(anchorVesselId);
+            string bodyName = before.bodyName ?? "Kerbin";
+
+            if (anchor != null)
+            {
+                // Primary path: ghost position = anchor world position + interpolated offset
+                Vector3d anchorPos = anchor.GetWorldPos3D();
+                Vector3d ghostPos = TrajectoryMath.ApplyRelativeOffset(anchorPos, dx, dy, dz);
+
+                if (double.IsNaN(ghostPos.x) || double.IsNaN(ghostPos.y) || double.IsNaN(ghostPos.z))
+                {
+                    ParsekLog.Warn("Flight", "InterpolateAndPositionRelative: NaN in ghost position, using anchor position");
+                    ghostPos = anchorPos;
+                }
+
+                ghost.transform.position = ghostPos;
+                ghost.transform.rotation = anchor.transform.rotation * interpolatedRot;
+
+                ParsekLog.VerboseRateLimited("Flight", "relative-offset-applied",
+                    $"RELATIVE playback: dx={dx:F2} dy={dy:F2} dz={dz:F2} |offset|={System.Math.Sqrt(dx*dx+dy*dy+dz*dz):F2}m anchor={anchorVesselId}", 2.0);
+
+                // Compute altitude for InterpolationResult
+                CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+                double alt = body != null ? body.GetAltitude(ghostPos) : 0;
+
+                // Register for LateUpdate re-positioning after FloatingOrigin shift
+                ghostPosEntries.Add(new GhostPosEntry
+                {
+                    ghost = ghost,
+                    mode = GhostPosMode.Relative,
+                    anchorVesselId = anchorVesselId,
+                    relDx = dx, relDy = dy, relDz = dz,
+                    relativeRot = interpolatedRot,
+                    relativeBodyName = bodyName,
+                    bodyBefore = body, // for fallback in LateUpdate
+                    latBefore = before.latitude, lonBefore = before.longitude, altBefore = before.altitude
+                });
+
+                interpResult = new InterpolationResult(
+                    Vector3.Lerp(before.velocity, after.velocity, t),
+                    bodyName, alt);
+            }
+            else
+            {
+                // Fallback: anchor not found — treat dx/dy/dz as absolute body-fixed coords (best-effort)
+                long key = ((long)anchorVesselId << 32);
+                if (loggedAnchorNotFound.Add(key))
+                    ParsekLog.Warn("Anchor",
+                        $"RELATIVE playback fallback: anchor vessel pid={anchorVesselId} not found, " +
+                        $"using body-fixed absolute positioning");
+
+                CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+                if (body == null)
+                {
+                    ParsekLog.Warn("Flight", $"InterpolateAndPositionRelative: body '{bodyName}' not found");
+                    interpResult = InterpolationResult.Zero;
+                    ghost.SetActive(false);
+                    return;
+                }
+
+                // Use the offset values as lat/lon/alt for absolute positioning (best-effort)
+                Vector3d posBefore = body.GetWorldSurfacePosition(before.latitude, before.longitude, before.altitude);
+                Vector3d posAfter = body.GetWorldSurfacePosition(after.latitude, after.longitude, after.altitude);
+                Vector3d pos = Vector3d.Lerp(posBefore, posAfter, t);
+                ghost.transform.position = pos;
+                ghost.transform.rotation = body.bodyTransform.rotation * interpolatedRot;
+
+                ghostPosEntries.Add(new GhostPosEntry
+                {
+                    ghost = ghost,
+                    mode = GhostPosMode.PointInterp,
+                    bodyBefore = body, bodyAfter = body,
+                    latBefore = before.latitude, lonBefore = before.longitude, altBefore = before.altitude,
+                    latAfter = after.latitude, lonAfter = after.longitude, altAfter = after.altitude,
+                    t = t,
+                    pointUT = targetUT,
+                    interpolatedRot = interpolatedRot,
+                    surfaceRelativeRotation = true
+                });
+
+                interpResult = new InterpolationResult(
+                    Vector3.Lerp(before.velocity, after.velocity, t),
+                    bodyName,
+                    TrajectoryMath.InterpolateAltitude(before.altitude, after.altitude, t));
+            }
+        }
+
+        /// <summary>
+        /// Positions a ghost at a single RELATIVE frame point (no interpolation).
+        /// Used for edge cases (before first frame, zero-duration segments).
+        /// </summary>
+        void PositionGhostRelativeAt(GameObject ghost, TrajectoryPoint point, uint anchorVesselId)
+        {
+            if (!ghost.activeSelf) ghost.SetActive(true);
+
+            Quaternion sanitized = SanitizeQuaternion(point.rotation);
+            double dx = point.latitude;
+            double dy = point.longitude;
+            double dz = point.altitude;
+            string bodyName = point.bodyName ?? "Kerbin";
+
+            Vessel anchor = FlightRecorder.FindVesselByPid(anchorVesselId);
+            if (anchor != null)
+            {
+                Vector3d anchorPos = anchor.GetWorldPos3D();
+                Vector3d ghostPos = TrajectoryMath.ApplyRelativeOffset(anchorPos, dx, dy, dz);
+                ghost.transform.position = ghostPos;
+                ghost.transform.rotation = anchor.transform.rotation * sanitized;
+
+                CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+                ghostPosEntries.Add(new GhostPosEntry
+                {
+                    ghost = ghost,
+                    mode = GhostPosMode.Relative,
+                    anchorVesselId = anchorVesselId,
+                    relDx = dx, relDy = dy, relDz = dz,
+                    relativeRot = sanitized,
+                    relativeBodyName = bodyName,
+                    bodyBefore = body,
+                    latBefore = dx, lonBefore = dy, altBefore = dz
+                });
+            }
+            else
+            {
+                // Fallback: absolute body-fixed
+                CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+                if (body == null) return;
+                Vector3d pos = body.GetWorldSurfacePosition(dx, dy, dz);
+                ghost.transform.position = pos;
+                ghost.transform.rotation = body.bodyTransform.rotation * sanitized;
+
+                ghostPosEntries.Add(new GhostPosEntry
+                {
+                    ghost = ghost,
+                    mode = GhostPosMode.SinglePoint,
+                    bodyBefore = body,
+                    latBefore = dx, lonBefore = dy, altBefore = dz,
+                    pointUT = point.ut,
+                    interpolatedRot = sanitized,
+                    surfaceRelativeRotation = true
+                });
+            }
         }
 
         void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points,
