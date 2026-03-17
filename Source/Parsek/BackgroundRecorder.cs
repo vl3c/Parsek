@@ -1657,6 +1657,10 @@ namespace Parsek
             ParsekLog.Info("BgRecorder",
                 $"Flushed {state.trackSections.Count} TrackSections to recording: " +
                 $"pid={state.vesselPid} recId={state.recordingId}");
+
+            // Clear after flush to prevent duplicate sections if flushed again
+            // (e.g., FinalizeAllForCommit followed by Shutdown)
+            state.trackSections.Clear();
         }
 
         #endregion
