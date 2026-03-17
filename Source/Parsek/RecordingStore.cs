@@ -94,7 +94,9 @@ namespace Parsek
             List<OrbitSegment> orbitSegments = null,
             string recordingId = null,
             int? recordingFormatVersion = null,
-            List<PartEvent> partEvents = null)
+            List<PartEvent> partEvents = null,
+            List<SegmentEvent> segmentEvents = null,
+            List<TrackSection> trackSections = null)
         {
             if (points == null || points.Count < 2)
             {
@@ -157,6 +159,12 @@ namespace Parsek
                 PartEvents = partEvents != null
                     ? new List<PartEvent>(partEvents)
                     : new List<PartEvent>(),
+                SegmentEvents = segmentEvents != null
+                    ? new List<SegmentEvent>(segmentEvents)
+                    : new List<SegmentEvent>(),
+                TrackSections = trackSections != null
+                    ? new List<TrackSection>(trackSections)
+                    : new List<TrackSection>(),
                 VesselName = vesselName
             };
 

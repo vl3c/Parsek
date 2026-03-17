@@ -2011,12 +2011,32 @@ namespace Parsek
 
                 if (classification == JointBreakResult.WithinSegment)
                 {
-                    // No vessel split occurred — emit segment events and resume recording
+                    // No vessel split occurred — emit segment events and resume recording.
+                    // The Decoupled PartEvent was already recorded by FlightRecorder.OnPartJointBreak.
+                    // Now emit a SegmentEvent to mark this as within-segment breakage (not a DAG branch).
                     ParsekLog.Info("Coalescer",
-                        "Within-segment breakage — emitting segment events and resuming recording");
-                    // SegmentEvents will be emitted on the active recording when it resumes.
-                    // The detailed per-part breakage events are handled by FlightRecorder's
-                    // onPartDie subscription, which already emits PartEvent entries.
+                        "Within-segment breakage — emitting SegmentEvents and resuming recording");
+
+                    // Emit SegmentEvent.PartDestroyed for parts that broke off but didn't split
+                    // the vessel. Scan recent Decoupled PartEvents to find the broken parts.
+                    if (pendingSplitRecorder != null)
+                    {
+                        var recentDecoupled = pendingSplitRecorder.PartEvents;
+                        for (int i = recentDecoupled.Count - 1; i >= 0 && i >= recentDecoupled.Count - 5; i--)
+                        {
+                            if (recentDecoupled[i].eventType == PartEventType.Decoupled)
+                            {
+                                SegmentBoundaryLogic.EmitBreakageSegmentEvents(
+                                    pendingSplitRecorder.SegmentEvents,
+                                    branchUT,
+                                    recentDecoupled[i].partName,
+                                    recentDecoupled[i].partPersistentId,
+                                    false, // wasController — full controller monitoring is Phase 1 low-priority
+                                    null);
+                            }
+                        }
+                    }
+
                     ResumeSplitRecorder(pendingSplitRecorder, "joint break was within-segment (no vessel split)");
                 }
                 else if (classification == JointBreakResult.StructuralSplit ||

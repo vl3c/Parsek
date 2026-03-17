@@ -29,6 +29,7 @@ namespace Parsek
         public List<TrajectoryPoint> Recording { get; } = new List<TrajectoryPoint>();
         public List<OrbitSegment> OrbitSegments { get; } = new List<OrbitSegment>();
         public List<PartEvent> PartEvents { get; } = new List<PartEvent>();
+        public List<SegmentEvent> SegmentEvents { get; } = new List<SegmentEvent>();
         public List<TrackSection> TrackSections { get; } = new List<TrackSection>();
 
         // Environment tracking (v6+)
@@ -3467,6 +3468,7 @@ namespace Parsek
             Recording.Clear();
             OrbitSegments.Clear();
             PartEvents.Clear();
+            SegmentEvents.Clear();
             ResetPartEventTrackingState(v);
 
             LogVisualRecordingCoverage(v);
@@ -3718,6 +3720,7 @@ namespace Parsek
                 Points = new List<TrajectoryPoint>(Recording),
                 OrbitSegments = new List<OrbitSegment>(OrbitSegments),
                 PartEvents = new List<PartEvent>(PartEvents),
+                SegmentEvents = new List<SegmentEvent>(SegmentEvents),
                 PreLaunchFunds = PreLaunchFunds,
                 PreLaunchScience = PreLaunchScience,
                 PreLaunchReputation = PreLaunchReputation,
