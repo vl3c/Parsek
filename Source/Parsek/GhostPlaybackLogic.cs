@@ -190,6 +190,58 @@ namespace Parsek
             return Math.Max(-duration + minCycleDuration, interval);
         }
 
+        /// <summary>
+        /// Validates that a loop anchor vessel exists. Returns true if the anchor PID
+        /// corresponds to a real vessel in the game world. Returns false if the anchor
+        /// vessel is missing (loop should be broken / fall back to absolute positioning).
+        /// Pure-static decision method using the existing vesselExistsOverride mechanism
+        /// for testability.
+        /// </summary>
+        internal static bool ValidateLoopAnchor(uint anchorPid)
+        {
+            if (anchorPid == 0)
+            {
+                ParsekLog.Verbose("Loop", "ValidateLoopAnchor: anchorPid=0, no anchor configured");
+                return false;
+            }
+
+            bool exists = RealVesselExists(anchorPid);
+            if (exists)
+            {
+                ParsekLog.Verbose("Loop", $"ValidateLoopAnchor: anchor pid={anchorPid} found");
+            }
+            else
+            {
+                ParsekLog.Warn("Loop", $"ValidateLoopAnchor: anchor pid={anchorPid} NOT found — loop anchor broken");
+            }
+            return exists;
+        }
+
+        /// <summary>
+        /// Determines whether a looping recording should use anchor-relative positioning.
+        /// Returns true if the recording has a LoopAnchorVesselId set AND has RELATIVE
+        /// TrackSections that contain the offset data needed for relative playback.
+        /// Pure static for testability.
+        /// </summary>
+        internal static bool ShouldUseLoopAnchor(Recording rec)
+        {
+            if (rec == null || rec.LoopAnchorVesselId == 0)
+                return false;
+
+            // Only use anchor-relative mode if the recording has RELATIVE TrackSections.
+            // Legacy recordings with absolute positions don't have offset data, so the
+            // anchor has no effect on them.
+            if (rec.TrackSections == null || rec.TrackSections.Count == 0)
+                return false;
+
+            for (int i = 0; i < rec.TrackSections.Count; i++)
+            {
+                if (rec.TrackSections[i].referenceFrame == ReferenceFrame.Relative)
+                    return true;
+            }
+            return false;
+        }
+
         #endregion
 
         #region External Vessel Ghost Policy

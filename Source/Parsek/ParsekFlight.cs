@@ -5339,9 +5339,22 @@ namespace Parsek
             int playbackIdx = state.playbackIndex;
             InterpolationResult interpResult;
             bool srfRel = rec.RecordingFormatVersion >= 5;
-            InterpolateAndPosition(state.ghost, rec.Points, rec.OrbitSegments,
-                ref playbackIdx, loopUT, recIdx * 10000, out interpResult,
-                surfaceRelativeRotation: srfRel);
+
+            // Anchor-relative loop playback: use InterpolateAndPositionRelative
+            // when the recording has a loop anchor and RELATIVE TrackSections.
+            bool useAnchor = GhostPlaybackLogic.ShouldUseLoopAnchor(rec);
+            if (useAnchor && !GhostPlaybackLogic.ValidateLoopAnchor(rec.LoopAnchorVesselId))
+            {
+                long anchorKey = ((long)recIdx << 32) | rec.LoopAnchorVesselId;
+                if (loggedAnchorNotFound.Add(anchorKey))
+                    ParsekLog.Warn("Loop",
+                        $"Loop anchor vessel pid={rec.LoopAnchorVesselId} not found for " +
+                        $"recording #{recIdx} \"{rec.VesselName}\" — falling back to absolute positioning");
+                useAnchor = false;
+            }
+
+            PositionLoopGhost(state.ghost, rec, ref playbackIdx, loopUT,
+                recIdx, recIdx * 10000, srfRel, useAnchor, out interpResult);
             state.SetInterpolated(interpResult);
             state.playbackIndex = playbackIdx;
 
@@ -5437,6 +5450,18 @@ namespace Parsek
                 }
             }
 
+            // Determine if anchor-relative positioning should be used
+            bool useAnchor = GhostPlaybackLogic.ShouldUseLoopAnchor(rec);
+            if (useAnchor && !GhostPlaybackLogic.ValidateLoopAnchor(rec.LoopAnchorVesselId))
+            {
+                long anchorKey = ((long)recIdx << 32) | rec.LoopAnchorVesselId;
+                if (loggedAnchorNotFound.Add(anchorKey))
+                    ParsekLog.Warn("Loop",
+                        $"Loop anchor vessel pid={rec.LoopAnchorVesselId} not found for " +
+                        $"recording #{recIdx} \"{rec.VesselName}\" (overlap) — falling back to absolute");
+                useAnchor = false;
+            }
+
             // Update primary ghost position
             if (primaryState != null && primaryState.ghost != null)
             {
@@ -5448,9 +5473,8 @@ namespace Parsek
 
                 int playbackIdx = primaryState.playbackIndex;
                 InterpolationResult interpResult;
-                InterpolateAndPosition(primaryState.ghost, rec.Points, rec.OrbitSegments,
-                    ref playbackIdx, loopUT, recIdx * 10000, out interpResult,
-                    surfaceRelativeRotation: srfRel);
+                PositionLoopGhost(primaryState.ghost, rec, ref playbackIdx, loopUT,
+                    recIdx, recIdx * 10000, srfRel, useAnchor, out interpResult);
                 primaryState.SetInterpolated(interpResult);
                 primaryState.playbackIndex = playbackIdx;
 
@@ -5522,9 +5546,8 @@ namespace Parsek
 
                 int playbackIdx = ovState.playbackIndex;
                 InterpolationResult interpResult;
-                InterpolateAndPosition(ovState.ghost, rec.Points, rec.OrbitSegments,
-                    ref playbackIdx, loopUT, recIdx * 10000 + (cycle + 1) * 100, out interpResult,
-                    surfaceRelativeRotation: srfRel);
+                PositionLoopGhost(ovState.ghost, rec, ref playbackIdx, loopUT,
+                    recIdx, recIdx * 10000 + (cycle + 1) * 100, srfRel, useAnchor, out interpResult);
                 ovState.SetInterpolated(interpResult);
                 ovState.playbackIndex = playbackIdx;
 
@@ -7246,6 +7269,50 @@ namespace Parsek
         private readonly HashSet<long> loggedRelativeStart = new HashSet<long>();
         // Tracks which anchor-not-found warnings have been logged
         private readonly HashSet<long> loggedAnchorNotFound = new HashSet<long>();
+
+        /// <summary>
+        /// Unified positioning method for loop ghosts. Selects between anchor-relative
+        /// (InterpolateAndPositionRelative) and absolute (InterpolateAndPosition) based
+        /// on the useAnchor flag and the TrackSection at the given loopUT.
+        /// </summary>
+        void PositionLoopGhost(
+            GameObject ghost,
+            Recording rec,
+            ref int playbackIdx,
+            double loopUT,
+            int recIdx,
+            int ghostIdSalt,
+            bool srfRel,
+            bool useAnchor,
+            out InterpolationResult interpResult)
+        {
+            if (useAnchor)
+            {
+                int sectionIdx = TrajectoryMath.FindTrackSectionForUT(rec.TrackSections, loopUT);
+                if (sectionIdx >= 0 && rec.TrackSections[sectionIdx].referenceFrame == ReferenceFrame.Relative)
+                {
+                    var section = rec.TrackSections[sectionIdx];
+                    var sectionFrames = section.frames ?? rec.Points;
+
+                    long relKey = ((long)recIdx << 32) | rec.LoopAnchorVesselId;
+                    if (loggedRelativeStart.Add(relKey))
+                        ParsekLog.Info("Loop",
+                            $"Anchor-relative loop playback started: recording #{recIdx} " +
+                            $"\"{rec.VesselName}\" anchorPid={rec.LoopAnchorVesselId} " +
+                            $"sectionUT=[{section.startUT:F1},{section.endUT:F1}]");
+
+                    InterpolateAndPositionRelative(
+                        ghost, sectionFrames, ref playbackIdx, loopUT,
+                        rec.LoopAnchorVesselId, out interpResult);
+                    return;
+                }
+            }
+
+            // Absolute positioning fallback
+            InterpolateAndPosition(ghost, rec.Points, rec.OrbitSegments,
+                ref playbackIdx, loopUT, ghostIdSalt, out interpResult,
+                surfaceRelativeRotation: srfRel);
+        }
 
         /// <summary>
         /// Positions a ghost using RELATIVE reference frame data.
