@@ -34,7 +34,7 @@ namespace Parsek
                     ? SegmentEnvironment.SurfaceMobile
                     : SegmentEnvironment.SurfaceStationary;
 
-                ParsekLog.Verbose("EnvironmentDetector",
+                ParsekLog.Verbose("Environment",
                     $"Classify: situation={situation} srfSpeed={srfSpeed.ToString("F3", CultureInfo.InvariantCulture)} " +
                     $"-> {surfaceResult}");
 
@@ -44,7 +44,7 @@ namespace Parsek
             // Atmospheric -> below atmosphere ceiling on a body with atmosphere
             if (hasAtmosphere && altitude < atmosphereDepth)
             {
-                ParsekLog.Verbose("EnvironmentDetector",
+                ParsekLog.Verbose("Environment",
                     $"Classify: hasAtmo=true alt={altitude.ToString("F1", CultureInfo.InvariantCulture)} " +
                     $"atmoDepth={atmosphereDepth.ToString("F1", CultureInfo.InvariantCulture)} " +
                     $"situation={situation} -> Atmospheric");
@@ -55,7 +55,7 @@ namespace Parsek
             // Exo -> above atmosphere (or no atmosphere)
             if (hasActiveThrust)
             {
-                ParsekLog.Verbose("EnvironmentDetector",
+                ParsekLog.Verbose("Environment",
                     $"Classify: hasAtmo={hasAtmosphere} alt={altitude.ToString("F1", CultureInfo.InvariantCulture)} " +
                     $"atmoDepth={atmosphereDepth.ToString("F1", CultureInfo.InvariantCulture)} " +
                     $"thrust=active situation={situation} -> ExoPropulsive");
@@ -63,7 +63,7 @@ namespace Parsek
                 return SegmentEnvironment.ExoPropulsive;
             }
 
-            ParsekLog.Verbose("EnvironmentDetector",
+            ParsekLog.Verbose("Environment",
                 $"Classify: hasAtmo={hasAtmosphere} alt={altitude.ToString("F1", CultureInfo.InvariantCulture)} " +
                 $"atmoDepth={atmosphereDepth.ToString("F1", CultureInfo.InvariantCulture)} " +
                 $"thrust=none situation={situation} -> ExoBallistic");
@@ -91,7 +91,7 @@ namespace Parsek
         internal EnvironmentHysteresis(SegmentEnvironment initial)
         {
             lastConfirmedEnvironment = initial;
-            ParsekLog.Verbose("EnvironmentDetector",
+            ParsekLog.Verbose("Environment",
                 $"Hysteresis initialized: initial={initial}");
         }
 
@@ -106,7 +106,7 @@ namespace Parsek
                 // Cancel any pending transition
                 if (hasPending)
                 {
-                    ParsekLog.Verbose("EnvironmentDetector",
+                    ParsekLog.Verbose("Environment",
                         $"Hysteresis: pending {lastConfirmedEnvironment}->{pendingEnvironment} " +
                         $"cancelled (raw reverted to {rawClassification} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)})");
                     hasPending = false;
@@ -123,7 +123,7 @@ namespace Parsek
                 pendingStartUT = ut;
                 hasPending = true;
 
-                ParsekLog.Verbose("EnvironmentDetector",
+                ParsekLog.Verbose("Environment",
                     $"Hysteresis: pending {lastConfirmedEnvironment}->{rawClassification} " +
                     $"started at UT={ut.ToString("F2", CultureInfo.InvariantCulture)} " +
                     $"(debounce={requiredDebounce.ToString("F1", CultureInfo.InvariantCulture)}s)");
@@ -134,7 +134,7 @@ namespace Parsek
                     var old = lastConfirmedEnvironment;
                     lastConfirmedEnvironment = rawClassification;
                     hasPending = false;
-                    ParsekLog.Info("EnvironmentDetector",
+                    ParsekLog.Info("Environment",
                         $"Environment transition: {old} -> {rawClassification} " +
                         $"at UT={ut.ToString("F2", CultureInfo.InvariantCulture)} (immediate, debounce=0.0s)");
                     return true;
@@ -149,7 +149,7 @@ namespace Parsek
                 var old = lastConfirmedEnvironment;
                 lastConfirmedEnvironment = rawClassification;
                 hasPending = false;
-                ParsekLog.Info("EnvironmentDetector",
+                ParsekLog.Info("Environment",
                     $"Environment transition: {old} -> {rawClassification} " +
                     $"at UT={ut.ToString("F2", CultureInfo.InvariantCulture)} " +
                     $"(debounce={requiredDebounce.ToString("F1", CultureInfo.InvariantCulture)}s)");

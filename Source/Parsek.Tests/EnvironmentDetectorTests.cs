@@ -290,7 +290,7 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l =>
                 l.Contains("[VERBOSE]") &&
-                l.Contains("[EnvironmentDetector]") &&
+                l.Contains("[Environment]") &&
                 l.Contains("Atmospheric"));
         }
 
@@ -307,7 +307,7 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l =>
                 l.Contains("[VERBOSE]") &&
-                l.Contains("[EnvironmentDetector]") &&
+                l.Contains("[Environment]") &&
                 l.Contains("situation=1") &&
                 l.Contains("SurfaceMobile"));
         }
@@ -568,7 +568,7 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l =>
                 l.Contains("[INFO]") &&
-                l.Contains("[EnvironmentDetector]") &&
+                l.Contains("[Environment]") &&
                 l.Contains("Environment transition") &&
                 l.Contains("ExoPropulsive") &&
                 l.Contains("ExoBallistic") &&
@@ -584,7 +584,7 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l =>
                 l.Contains("[INFO]") &&
-                l.Contains("[EnvironmentDetector]") &&
+                l.Contains("[Environment]") &&
                 l.Contains("Environment transition") &&
                 l.Contains("Atmospheric") &&
                 l.Contains("SurfaceStationary") &&
@@ -600,7 +600,7 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l =>
                 l.Contains("[VERBOSE]") &&
-                l.Contains("[EnvironmentDetector]") &&
+                l.Contains("[Environment]") &&
                 l.Contains("pending") &&
                 l.Contains("ExoPropulsive") &&
                 l.Contains("ExoBallistic") &&
@@ -617,7 +617,7 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l =>
                 l.Contains("[VERBOSE]") &&
-                l.Contains("[EnvironmentDetector]") &&
+                l.Contains("[Environment]") &&
                 l.Contains("cancelled"));
         }
 
@@ -629,7 +629,7 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l =>
                 l.Contains("[VERBOSE]") &&
-                l.Contains("[EnvironmentDetector]") &&
+                l.Contains("[Environment]") &&
                 l.Contains("initialized") &&
                 l.Contains("ExoBallistic"));
         }

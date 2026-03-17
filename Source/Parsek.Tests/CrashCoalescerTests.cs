@@ -398,7 +398,7 @@ namespace Parsek.Tests
             coalescer.OnSplitEvent(100.0, 1000, false, "CRASH");
 
             Assert.Contains(logLines, l =>
-                l.Contains("[CrashCoalescer]") && l.Contains("Coalescing window opened") &&
+                l.Contains("[Coalescer]") && l.Contains("Coalescing window opened") &&
                 l.Contains("cause=CRASH"));
         }
 
@@ -437,7 +437,7 @@ namespace Parsek.Tests
             coalescer.Tick(100.5);
 
             Assert.Contains(logLines, l =>
-                l.Contains("[CrashCoalescer]") && l.Contains("BREAKUP emitted") &&
+                l.Contains("[Coalescer]") && l.Contains("BREAKUP emitted") &&
                 l.Contains("controlledChildren=1") && l.Contains("debris=2"));
         }
 
@@ -452,7 +452,7 @@ namespace Parsek.Tests
             coalescer.OnSplitEvent(100.0, 5555, childHasController: true);
 
             Assert.Contains(logLines, l =>
-                l.Contains("[CrashCoalescer]") && l.Contains("Controlled child added") &&
+                l.Contains("[Coalescer]") && l.Contains("Controlled child added") &&
                 l.Contains("pid=5555"));
         }
 
@@ -467,7 +467,7 @@ namespace Parsek.Tests
             coalescer.OnSplitEvent(100.0, 6666, childHasController: false);
 
             Assert.Contains(logLines, l =>
-                l.Contains("[CrashCoalescer]") && l.Contains("Debris fragment added"));
+                l.Contains("[Coalescer]") && l.Contains("Debris fragment added"));
         }
 
         #endregion
@@ -482,7 +482,7 @@ namespace Parsek.Tests
             coalescer.Reset();
 
             Assert.Contains(logLines, l =>
-                l.Contains("[CrashCoalescer]") && l.Contains("Reset"));
+                l.Contains("[Coalescer]") && l.Contains("Reset"));
         }
 
         [Fact]
@@ -494,7 +494,7 @@ namespace Parsek.Tests
 
             // Reset is called internally when window expires
             Assert.Contains(logLines, l =>
-                l.Contains("[CrashCoalescer]") && l.Contains("Reset"));
+                l.Contains("[Coalescer]") && l.Contains("Reset"));
         }
 
         #endregion

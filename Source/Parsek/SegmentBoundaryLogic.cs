@@ -30,17 +30,17 @@ namespace Parsek
         /// </summary>
         /// <param name="originalVesselPid">The persistentId of the vessel being recorded before the break.</param>
         /// <param name="postBreakVesselPids">PersistentIds of all vessels present after the break event.</param>
-        /// <param name="newVesselHasController">Whether any newly-created vessel has a command module.</param>
+        /// <param name="anyNewVesselHasController">Whether any newly-created vessel has a command module.</param>
         /// <returns>Classification of the joint break outcome.</returns>
         internal static JointBreakResult ClassifyJointBreakResult(
             uint originalVesselPid,
             List<uint> postBreakVesselPids,
-            bool newVesselHasController)
+            bool anyNewVesselHasController)
         {
             // No new vessel appeared -- parts broke but vessel stayed connected
             if (postBreakVesselPids == null || postBreakVesselPids.Count == 0)
             {
-                ParsekLog.Info("SegmentBoundary",
+                ParsekLog.Info("Boundary",
                     $"ClassifyJointBreakResult: no new vessels detected after break " +
                     $"(originalPid={originalVesselPid}) => WithinSegment");
                 return JointBreakResult.WithinSegment;
@@ -49,23 +49,23 @@ namespace Parsek
             // Only the original vessel is in the list -- no split occurred
             if (postBreakVesselPids.Count == 1 && postBreakVesselPids[0] == originalVesselPid)
             {
-                ParsekLog.Info("SegmentBoundary",
+                ParsekLog.Info("Boundary",
                     $"ClassifyJointBreakResult: only original vessel pid={originalVesselPid} " +
                     $"remains after break => WithinSegment");
                 return JointBreakResult.WithinSegment;
             }
 
             // New vessel appeared -- classify by controller presence
-            if (newVesselHasController)
+            if (anyNewVesselHasController)
             {
-                ParsekLog.Info("SegmentBoundary",
+                ParsekLog.Info("Boundary",
                     $"ClassifyJointBreakResult: new controlled vessel detected after break " +
                     $"(originalPid={originalVesselPid}, postBreakCount={postBreakVesselPids.Count}) " +
                     $"=> StructuralSplit");
                 return JointBreakResult.StructuralSplit;
             }
 
-            ParsekLog.Info("SegmentBoundary",
+            ParsekLog.Info("Boundary",
                 $"ClassifyJointBreakResult: new debris vessel detected after break " +
                 $"(originalPid={originalVesselPid}, postBreakCount={postBreakVesselPids.Count}) " +
                 $"=> DebrisSplit");
@@ -92,7 +92,7 @@ namespace Parsek
         {
             if (segmentEvents == null)
             {
-                ParsekLog.Warn("SegmentBoundary",
+                ParsekLog.Warn("Boundary",
                     $"EmitBreakageSegmentEvents: segmentEvents list is null, cannot emit events " +
                     $"for part={destroyedPartName} pid={destroyedPartPid}");
                 return;
@@ -105,7 +105,7 @@ namespace Parsek
                 details = $"part={destroyedPartName} pid={destroyedPartPid}"
             });
 
-            ParsekLog.Info("SegmentBoundary",
+            ParsekLog.Info("Boundary",
                 $"Emitted PartDestroyed segment event: part={destroyedPartName} " +
                 $"pid={destroyedPartPid} at UT={ut:F2}");
 
@@ -118,12 +118,12 @@ namespace Parsek
                     details = controllerDetails ?? ""
                 });
 
-                ParsekLog.Info("SegmentBoundary",
+                ParsekLog.Info("Boundary",
                     $"Emitted ControllerChange segment event: part={destroyedPartName} " +
                     $"pid={destroyedPartPid} details={controllerDetails ?? "(none)"} at UT={ut:F2}");
             }
 
-            ParsekLog.Info("SegmentBoundary",
+            ParsekLog.Info("Boundary",
                 $"Within-segment breakage: part={destroyedPartName} pid={destroyedPartPid} " +
                 $"wasController={wasController} at UT={ut:F2}");
         }
@@ -139,14 +139,14 @@ namespace Parsek
         {
             if (moduleNames == null)
             {
-                ParsekLog.Verbose("SegmentBoundary",
+                ParsekLog.Verbose("Boundary",
                     $"IsControllerPart: null module list for part={partName ?? "(null)"} => false");
                 return false;
             }
 
             bool hasCommand = moduleNames.Contains("ModuleCommand");
 
-            ParsekLog.Verbose("SegmentBoundary",
+            ParsekLog.Verbose("Boundary",
                 $"IsControllerPart: part={partName ?? "(null)"} " +
                 $"moduleCount={moduleNames.Count} hasModuleCommand={hasCommand}");
 

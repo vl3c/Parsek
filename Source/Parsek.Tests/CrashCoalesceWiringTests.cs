@@ -44,7 +44,7 @@ namespace Parsek.Tests
             var classification = SegmentBoundaryLogic.ClassifyJointBreakResult(
                 originalVesselPid: 1000,
                 postBreakVesselPids: new List<uint> { 1000, 2000 },
-                newVesselHasController: true);
+                anyNewVesselHasController: true);
 
             Assert.Equal(JointBreakResult.StructuralSplit, classification);
 
@@ -67,7 +67,7 @@ namespace Parsek.Tests
             var classification = SegmentBoundaryLogic.ClassifyJointBreakResult(
                 originalVesselPid: 1000,
                 postBreakVesselPids: new List<uint> { 1000, 3000 },
-                newVesselHasController: false);
+                anyNewVesselHasController: false);
 
             Assert.Equal(JointBreakResult.DebrisSplit, classification);
 
@@ -88,7 +88,7 @@ namespace Parsek.Tests
             var classification = SegmentBoundaryLogic.ClassifyJointBreakResult(
                 originalVesselPid: 1000,
                 postBreakVesselPids: new List<uint>(),
-                newVesselHasController: false);
+                anyNewVesselHasController: false);
 
             Assert.Equal(JointBreakResult.WithinSegment, classification);
 
@@ -109,19 +109,19 @@ namespace Parsek.Tests
 
             // First split: structural (controlled child)
             var c1 = SegmentBoundaryLogic.ClassifyJointBreakResult(
-                1000, new List<uint> { 1000, 2000 }, newVesselHasController: true);
+                1000, new List<uint> { 1000, 2000 }, anyNewVesselHasController: true);
             Assert.Equal(JointBreakResult.StructuralSplit, c1);
             coalescer.OnSplitEvent(100.0, 2000, childHasController: true);
 
             // Second split: debris
             var c2 = SegmentBoundaryLogic.ClassifyJointBreakResult(
-                1000, new List<uint> { 1000, 3000 }, newVesselHasController: false);
+                1000, new List<uint> { 1000, 3000 }, anyNewVesselHasController: false);
             Assert.Equal(JointBreakResult.DebrisSplit, c2);
             coalescer.OnSplitEvent(100.1, 3000, childHasController: false);
 
             // Third split: another debris
             var c3 = SegmentBoundaryLogic.ClassifyJointBreakResult(
-                1000, new List<uint> { 1000, 4000 }, newVesselHasController: false);
+                1000, new List<uint> { 1000, 4000 }, anyNewVesselHasController: false);
             Assert.Equal(JointBreakResult.DebrisSplit, c3);
             coalescer.OnSplitEvent(100.2, 4000, childHasController: false);
 
@@ -297,7 +297,7 @@ namespace Parsek.Tests
 
             // Verify classification was logged
             Assert.Contains(logLines, l =>
-                l.Contains("[SegmentBoundary]") &&
+                l.Contains("[Boundary]") &&
                 l.Contains("StructuralSplit"));
         }
 
@@ -307,12 +307,12 @@ namespace Parsek.Tests
             var classification = SegmentBoundaryLogic.ClassifyJointBreakResult(
                 originalVesselPid: 1000,
                 postBreakVesselPids: new List<uint> { 1000, 3000 },
-                newVesselHasController: false);
+                anyNewVesselHasController: false);
 
             Assert.Equal(JointBreakResult.DebrisSplit, classification);
 
             Assert.Contains(logLines, l =>
-                l.Contains("[SegmentBoundary]") &&
+                l.Contains("[Boundary]") &&
                 l.Contains("DebrisSplit"));
         }
 
@@ -322,12 +322,12 @@ namespace Parsek.Tests
             var classification = SegmentBoundaryLogic.ClassifyJointBreakResult(
                 originalVesselPid: 1000,
                 postBreakVesselPids: new List<uint>(),
-                newVesselHasController: false);
+                anyNewVesselHasController: false);
 
             Assert.Equal(JointBreakResult.WithinSegment, classification);
 
             Assert.Contains(logLines, l =>
-                l.Contains("[SegmentBoundary]") &&
+                l.Contains("[Boundary]") &&
                 l.Contains("WithinSegment"));
         }
 
@@ -338,13 +338,13 @@ namespace Parsek.Tests
 
             // Classify and feed
             var classification = SegmentBoundaryLogic.ClassifyJointBreakResult(
-                1000, new List<uint> { 1000, 2000 }, newVesselHasController: false);
+                1000, new List<uint> { 1000, 2000 }, anyNewVesselHasController: false);
             Assert.Equal(JointBreakResult.DebrisSplit, classification);
 
             coalescer.OnSplitEvent(100.0, 2000, childHasController: false);
 
             Assert.Contains(logLines, l =>
-                l.Contains("[CrashCoalescer]") &&
+                l.Contains("[Coalescer]") &&
                 l.Contains("Coalescing window opened"));
         }
 
@@ -358,7 +358,7 @@ namespace Parsek.Tests
             coalescer.Tick(100.5);
 
             Assert.Contains(logLines, l =>
-                l.Contains("[CrashCoalescer]") &&
+                l.Contains("[Coalescer]") &&
                 l.Contains("BREAKUP emitted") &&
                 l.Contains("controlledChildren=1") &&
                 l.Contains("debris=1"));
@@ -374,7 +374,7 @@ namespace Parsek.Tests
             coalescer.Reset();
 
             Assert.Contains(logLines, l =>
-                l.Contains("[CrashCoalescer]") &&
+                l.Contains("[Coalescer]") &&
                 l.Contains("Reset"));
         }
 
@@ -391,7 +391,7 @@ namespace Parsek.Tests
             var classification = SegmentBoundaryLogic.ClassifyJointBreakResult(
                 originalVesselPid: 1000,
                 postBreakVesselPids: null,
-                newVesselHasController: false);
+                anyNewVesselHasController: false);
 
             Assert.Equal(JointBreakResult.WithinSegment, classification);
             Assert.False(coalescer.HasPendingBreakup);

@@ -18,7 +18,7 @@ namespace Parsek
     {
         public double ut;
         public SegmentEventType type;
-        public string details;  // type-specific data (serialized as string)
+        public string details;  // Type-specific data. Null means no details (not empty string).
 
         public override string ToString()
         {

@@ -53,7 +53,7 @@ namespace Parsek
                 controlledChildPids.Clear();
                 debrisCount = 0;
                 var ic = CultureInfo.InvariantCulture;
-                ParsekLog.Info("CrashCoalescer",
+                ParsekLog.Info("Coalescer",
                     "Coalescing window opened at UT=" + ut.ToString("F2", ic) + ", cause=" + splitCause);
             }
 
@@ -62,14 +62,14 @@ namespace Parsek
             if (childHasController)
             {
                 controlledChildPids.Add(childPid);
-                ParsekLog.Verbose("CrashCoalescer",
+                ParsekLog.Verbose("Coalescer",
                     "Controlled child added: pid=" + childPid + " at UT=" + ut.ToString("F2", CultureInfo.InvariantCulture) +
                     " (total controlled=" + controlledChildPids.Count + ")");
             }
             else
             {
                 debrisCount++;
-                ParsekLog.Verbose("CrashCoalescer",
+                ParsekLog.Verbose("Coalescer",
                     "Debris fragment added at UT=" + ut.ToString("F2", CultureInfo.InvariantCulture) +
                     " (total debris=" + debrisCount + ")");
             }
@@ -105,7 +105,7 @@ namespace Parsek
             // since the coalescer doesn't know recording IDs
 
             var ic = CultureInfo.InvariantCulture;
-            ParsekLog.Info("CrashCoalescer",
+            ParsekLog.Info("Coalescer",
                 "BREAKUP emitted: ut=" + windowStartUT.ToString("F2", ic) + " cause=" + cause +
                 " controlledChildren=" + controlledChildPids.Count + " debris=" + debrisCount +
                 " duration=" + bp.BreakupDuration.ToString("F3", ic) + "s window=" + coalesceWindow.ToString("F1", ic) + "s");
@@ -148,7 +148,7 @@ namespace Parsek
             controlledChildPids.Clear();
             debrisCount = 0;
             cause = null;
-            ParsekLog.Verbose("CrashCoalescer", "Reset -- window cleared");
+            ParsekLog.Verbose("Coalescer", "Reset -- window cleared");
         }
     }
 }

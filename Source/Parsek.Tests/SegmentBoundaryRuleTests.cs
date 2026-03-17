@@ -39,7 +39,7 @@ namespace Parsek.Tests
             var result = SegmentBoundaryLogic.ClassifyJointBreakResult(
                 originalVesselPid: 1000,
                 postBreakVesselPids: new List<uint>(),
-                newVesselHasController: false);
+                anyNewVesselHasController: false);
 
             Assert.Equal(JointBreakResult.WithinSegment, result);
         }
@@ -50,7 +50,7 @@ namespace Parsek.Tests
             var result = SegmentBoundaryLogic.ClassifyJointBreakResult(
                 originalVesselPid: 1000,
                 postBreakVesselPids: null,
-                newVesselHasController: false);
+                anyNewVesselHasController: false);
 
             Assert.Equal(JointBreakResult.WithinSegment, result);
         }
@@ -61,7 +61,7 @@ namespace Parsek.Tests
             var result = SegmentBoundaryLogic.ClassifyJointBreakResult(
                 originalVesselPid: 42,
                 postBreakVesselPids: new List<uint> { 42 },
-                newVesselHasController: false);
+                anyNewVesselHasController: false);
 
             Assert.Equal(JointBreakResult.WithinSegment, result);
         }
@@ -72,7 +72,7 @@ namespace Parsek.Tests
             var result = SegmentBoundaryLogic.ClassifyJointBreakResult(
                 originalVesselPid: 1000,
                 postBreakVesselPids: new List<uint> { 1000, 2000 },
-                newVesselHasController: true);
+                anyNewVesselHasController: true);
 
             Assert.Equal(JointBreakResult.StructuralSplit, result);
         }
@@ -83,7 +83,7 @@ namespace Parsek.Tests
             var result = SegmentBoundaryLogic.ClassifyJointBreakResult(
                 originalVesselPid: 1000,
                 postBreakVesselPids: new List<uint> { 1000, 2000 },
-                newVesselHasController: false);
+                anyNewVesselHasController: false);
 
             Assert.Equal(JointBreakResult.DebrisSplit, result);
         }
@@ -95,7 +95,7 @@ namespace Parsek.Tests
             var result = SegmentBoundaryLogic.ClassifyJointBreakResult(
                 originalVesselPid: 100,
                 postBreakVesselPids: new List<uint> { 100, 200, 300 },
-                newVesselHasController: true);
+                anyNewVesselHasController: true);
 
             Assert.Equal(JointBreakResult.StructuralSplit, result);
         }
@@ -107,7 +107,7 @@ namespace Parsek.Tests
             var result = SegmentBoundaryLogic.ClassifyJointBreakResult(
                 originalVesselPid: 100,
                 postBreakVesselPids: new List<uint> { 100, 200, 300 },
-                newVesselHasController: false);
+                anyNewVesselHasController: false);
 
             Assert.Equal(JointBreakResult.DebrisSplit, result);
         }
@@ -119,7 +119,7 @@ namespace Parsek.Tests
             var result = SegmentBoundaryLogic.ClassifyJointBreakResult(
                 originalVesselPid: 1000,
                 postBreakVesselPids: new List<uint> { 2000 },
-                newVesselHasController: true);
+                anyNewVesselHasController: true);
 
             Assert.Equal(JointBreakResult.StructuralSplit, result);
         }
@@ -131,7 +131,7 @@ namespace Parsek.Tests
             var result = SegmentBoundaryLogic.ClassifyJointBreakResult(
                 originalVesselPid: 1000,
                 postBreakVesselPids: new List<uint> { 2000 },
-                newVesselHasController: false);
+                anyNewVesselHasController: false);
 
             Assert.Equal(JointBreakResult.DebrisSplit, result);
         }
@@ -146,10 +146,10 @@ namespace Parsek.Tests
             SegmentBoundaryLogic.ClassifyJointBreakResult(
                 originalVesselPid: 5555,
                 postBreakVesselPids: new List<uint>(),
-                newVesselHasController: false);
+                anyNewVesselHasController: false);
 
             Assert.Contains(logLines, l =>
-                l.Contains("[SegmentBoundary]") &&
+                l.Contains("[Boundary]") &&
                 l.Contains("5555") &&
                 l.Contains("WithinSegment"));
         }
@@ -160,10 +160,10 @@ namespace Parsek.Tests
             SegmentBoundaryLogic.ClassifyJointBreakResult(
                 originalVesselPid: 7777,
                 postBreakVesselPids: new List<uint> { 7777, 8888 },
-                newVesselHasController: true);
+                anyNewVesselHasController: true);
 
             Assert.Contains(logLines, l =>
-                l.Contains("[SegmentBoundary]") &&
+                l.Contains("[Boundary]") &&
                 l.Contains("7777") &&
                 l.Contains("StructuralSplit"));
         }
@@ -174,10 +174,10 @@ namespace Parsek.Tests
             SegmentBoundaryLogic.ClassifyJointBreakResult(
                 originalVesselPid: 3333,
                 postBreakVesselPids: new List<uint> { 3333, 4444 },
-                newVesselHasController: false);
+                anyNewVesselHasController: false);
 
             Assert.Contains(logLines, l =>
-                l.Contains("[SegmentBoundary]") &&
+                l.Contains("[Boundary]") &&
                 l.Contains("3333") &&
                 l.Contains("DebrisSplit"));
         }
@@ -291,7 +291,7 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l =>
                 l.Contains("[WARN]") &&
-                l.Contains("[SegmentBoundary]") &&
+                l.Contains("[Boundary]") &&
                 l.Contains("null"));
         }
 
@@ -334,7 +334,7 @@ namespace Parsek.Tests
                 controllerDetails: null);
 
             Assert.Contains(logLines, l =>
-                l.Contains("[SegmentBoundary]") &&
+                l.Contains("[Boundary]") &&
                 l.Contains("decoupler1-2") &&
                 l.Contains("77777") &&
                 l.Contains("wasController=False"));
@@ -354,7 +354,7 @@ namespace Parsek.Tests
                 controllerDetails: "lost=mk1pod");
 
             Assert.Contains(logLines, l =>
-                l.Contains("[SegmentBoundary]") &&
+                l.Contains("[Boundary]") &&
                 l.Contains("mk1pod") &&
                 l.Contains("88888") &&
                 l.Contains("wasController=True"));
@@ -374,7 +374,7 @@ namespace Parsek.Tests
                 controllerDetails: null);
 
             Assert.Contains(logLines, l =>
-                l.Contains("[SegmentBoundary]") &&
+                l.Contains("[Boundary]") &&
                 l.Contains("Emitted PartDestroyed") &&
                 l.Contains("solarPanel") &&
                 l.Contains("66666"));
@@ -394,7 +394,7 @@ namespace Parsek.Tests
                 controllerDetails: "lost=probeCoreSphere remaining=mk1-3pod");
 
             Assert.Contains(logLines, l =>
-                l.Contains("[SegmentBoundary]") &&
+                l.Contains("[Boundary]") &&
                 l.Contains("Emitted ControllerChange") &&
                 l.Contains("probeCoreSphere") &&
                 l.Contains("55555"));
@@ -483,7 +483,7 @@ namespace Parsek.Tests
             SegmentBoundaryLogic.IsControllerPart("fuelTank", null);
 
             Assert.Contains(logLines, l =>
-                l.Contains("[SegmentBoundary]") &&
+                l.Contains("[Boundary]") &&
                 l.Contains("null module list") &&
                 l.Contains("fuelTank"));
         }
@@ -497,7 +497,7 @@ namespace Parsek.Tests
             SegmentBoundaryLogic.IsControllerPart("mk1pod", modules);
 
             Assert.Contains(logLines, l =>
-                l.Contains("[SegmentBoundary]") &&
+                l.Contains("[Boundary]") &&
                 l.Contains("moduleCount=2") &&
                 l.Contains("hasModuleCommand=True"));
         }
