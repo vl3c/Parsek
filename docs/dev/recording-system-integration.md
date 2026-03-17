@@ -501,27 +501,34 @@ All design items 8-11 implemented plus background vessel split detection with TT
 - Double-flush bug fixed (trackSections cleared after flush)
 - Dialog text corrected (removed nonexistent toggle promise)
 
-### Phase 3: Relative Frames and Anchoring (Design items 12-15)
+### Phase 3a — COMPLETE (PR #59)
 
-**Goal:** Relative-frame recording near anchor vessels, looped ghost anchoring.
+Relative-frame recording and anchor-relative loop playback. Design items 12-13 + loop anchor extension.
 
-#### Task 3.1: Relative-frame recording
-- **Modify:** `FlightRecorder.cs` — record positions relative to anchor vessel
-- **Modify:** `TrajectoryMath.cs` — relative position computation
-- **Scope:** ~150 lines modified
+**New source files:**
+- `AnchorDetector.cs` — pure static anchor detection with 2300m entry / 2500m exit hysteresis, 200m docking approach detection
 
-#### Task 3.2: RELATIVE ↔ ABSOLUTE transition
-- **Modify:** `FlightRecorder.cs` — auto-detect physics bubble entry/exit
-- **Scope:** ~80 lines modified
+**Modified source files:**
+- `FlightRecorder.cs` — anchor detection wired into physics frame loop, RELATIVE mode enter/exit, offset computation via `ComputeRelativeOffset`, tree vessel PID exclusion
+- `TrajectoryMath.cs` — `ComputeRelativeOffset` (recording), `ApplyRelativeOffset` (playback), `FindTrackSectionForUT`
+- `ParsekFlight.cs` — `InterpolateAndPositionRelative` method, `GhostPosMode.Relative` in LateUpdate, RELATIVE TrackSection routing in timeline playback, `PositionLoopGhost` with anchor-relative support
+- `GhostPlaybackLogic.cs` — `ValidateLoopAnchor`, `ShouldUseLoopAnchor`
+- `Recording.cs` — `LoopAnchorVesselId` field (uint, 0=no anchor, backward compatible)
+- `RecordingTree.cs` + `ParsekScenario.cs` — `loopAnchorPid` serialization (sparse)
 
-#### Task 3.3: Looped ghost spawning anchored to real vessels
-- **Modify:** `ParsekFlight.cs` — anchor-relative position computation for looped ghosts
-- **Scope:** ~150 lines modified
+**Log subsystem tags:**
+- `Anchor` — anchor detection, RELATIVE mode transitions, docking approach
+- `Loop` — anchor validation, anchor-relative loop playback
 
-#### Task 3.4: Loop phase tracking across vessel load/unload
-- **Modify:** `ParsekFlight.cs` — track loop phase, restore on vessel load
-- **Modify:** `ParsekScenario.cs` — persist loop phase
-- **Scope:** ~100 lines modified
+**Test files (4 new):**
+- `AnchorDetectorTests.cs` (37 tests)
+- `RelativeRecordingTests.cs` (24 tests)
+- `RelativePlaybackTests.cs` (23 tests)
+- `LoopAnchorTests.cs` (22 tests)
+
+### Phase 3b — PENDING
+
+Loop phase tracking across vessel load/unload (design items 14-15). To be implemented when needed.
 
 ### Phase 4: Rewind and Timeline (Design items 16-20)
 
@@ -698,7 +705,7 @@ For each phase:
 
 ---
 
-*Document version: 1.2*
+*Document version: 1.3*
 *Created: 2026-03-17*
-*Updated: 2026-03-17 — Phase 1+2 complete*
-*Status: Phase 1+2 complete (PR #59). 2261 tests pass. Phases 3-5 pending.*
+*Updated: 2026-03-18 — Phase 1+2+3a complete*
+*Status: Phase 1+2+3a complete (PR #59). 2367 tests pass. Phase 3b+4+5 pending.*
