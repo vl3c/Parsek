@@ -360,6 +360,14 @@ namespace Parsek
             }
 
             var allLeaves = tree.GetAllLeaves();
+
+            // Multi-vessel trees get the per-vessel row dialog
+            if (allLeaves.Count > 1)
+            {
+                ShowMultiVesselTreeDialog(tree);
+                return;
+            }
+
             var spawnableLeaves = tree.GetSpawnableLeaves();
 
             int survivingCount;
@@ -575,5 +583,227 @@ namespace Parsek
         }
 
         #endregion
+
+        // ================================================================
+        // Per-vessel persist/ghost-only decisions
+        // ================================================================
+
+        /// <summary>
+        /// Determines whether a recording's vessel can be persisted (spawned as real vessel).
+        /// Returns false for destroyed, recovered, docked, or boarded vessels,
+        /// and for recordings with no vessel snapshot.
+        /// Pure static for testability.
+        /// </summary>
+        internal static bool CanPersistVessel(Recording rec)
+        {
+            if (rec == null)
+                return false;
+
+            if (rec.VesselSnapshot == null)
+                return false;
+
+            if (rec.TerminalStateValue.HasValue)
+            {
+                var ts = rec.TerminalStateValue.Value;
+                if (ts == TerminalState.Destroyed || ts == TerminalState.Recovered
+                    || ts == TerminalState.Docked || ts == TerminalState.Boarded)
+                    return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Builds default persist/ghost-only decisions for all leaf recordings in a tree.
+        /// Surviving vessels default to persist (true), destroyed/recovered default to ghost-only (false).
+        /// Keys are RecordingId. Pure static for testability.
+        /// </summary>
+        internal static Dictionary<string, bool> BuildDefaultVesselDecisions(RecordingTree tree)
+        {
+            var decisions = new Dictionary<string, bool>();
+            if (tree == null)
+                return decisions;
+
+            var leaves = tree.GetAllLeaves();
+            for (int i = 0; i < leaves.Count; i++)
+            {
+                var leaf = leaves[i];
+                bool canPersist = CanPersistVessel(leaf);
+                decisions[leaf.RecordingId] = canPersist;
+                ParsekLog.Verbose("MergeDialog",
+                    $"BuildDefaultVesselDecisions: leaf='{leaf.RecordingId}' vessel='{leaf.VesselName}' " +
+                    $"terminal={leaf.TerminalStateValue?.ToString() ?? "null"} " +
+                    $"hasSnapshot={leaf.VesselSnapshot != null} canPersist={canPersist}");
+            }
+
+            return decisions;
+        }
+
+        /// <summary>
+        /// Builds the per-vessel summary text for the tree dialog, including
+        /// persist/ghost-only status indicators per vessel row.
+        /// Pure static for testability.
+        /// </summary>
+        internal static string BuildVesselRowsText(
+            List<Recording> allLeaves,
+            Dictionary<string, bool> decisions,
+            string activeRecordingId)
+        {
+            if (allLeaves == null || allLeaves.Count == 0)
+                return "";
+
+            var sb = new StringBuilder();
+            for (int i = 0; i < allLeaves.Count; i++)
+            {
+                var leaf = allLeaves[i];
+                string situationText = GetLeafSituationText(leaf);
+                string marker = (leaf.RecordingId == activeRecordingId) ? "  <-- you are here" : "";
+
+                bool persist = false;
+                if (decisions != null && decisions.ContainsKey(leaf.RecordingId))
+                    persist = decisions[leaf.RecordingId];
+
+                bool canToggle = CanPersistVessel(leaf);
+                string persistLabel = persist ? "[Persist]" : "[Ghost-only]";
+                if (!canToggle)
+                    persistLabel += " (locked)";
+
+                sb.AppendLine($"  {leaf.VesselName} \u2014 {situationText} {persistLabel}{marker}");
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Applies vessel decisions to the tree: nulls VesselSnapshot on recordings
+        /// that are marked ghost-only (false in decisions dict).
+        /// </summary>
+        static void ApplyVesselDecisions(RecordingTree tree, Dictionary<string, bool> decisions)
+        {
+            if (tree == null || decisions == null)
+                return;
+
+            foreach (var kvp in decisions)
+            {
+                if (!kvp.Value) // ghost-only
+                {
+                    Recording rec;
+                    if (tree.Recordings.TryGetValue(kvp.Key, out rec))
+                    {
+                        if (rec.VesselSnapshot != null)
+                        {
+                            ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
+                            rec.VesselSnapshot = null;
+                            ParsekLog.Info("MergeDialog",
+                                $"ApplyVesselDecisions: ghost-only for '{rec.VesselName}' (id={kvp.Key}), snapshot nulled");
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Shows the tree merge dialog with per-vessel rows when the tree has
+        /// multiple leaf recordings. Each row shows vessel name, status, and
+        /// persist/ghost-only decision. Single-leaf trees use the simpler dialog.
+        /// </summary>
+        internal static void ShowMultiVesselTreeDialog(RecordingTree tree)
+        {
+            var allLeaves = tree.GetAllLeaves();
+            var spawnableLeaves = tree.GetSpawnableLeaves();
+            var decisions = BuildDefaultVesselDecisions(tree);
+
+            int survivingCount;
+            int destroyedCount;
+            string headerMessage = BuildTreeDialogMessage(
+                tree, allLeaves, spawnableLeaves,
+                out survivingCount, out destroyedCount);
+
+            // Replace the per-leaf summary with the richer per-vessel rows
+            string vesselRows = BuildVesselRowsText(allLeaves, decisions, tree.ActiveRecordingId);
+
+            // Build the composite message: header (up to first leaf line) + vessel rows + footer
+            double duration = ComputeTreeDurationRange(tree);
+            string vesselCountText;
+            if (destroyedCount > 0)
+                vesselCountText = $"{survivingCount} vessel{(survivingCount != 1 ? "s" : "")} ({destroyedCount} destroyed)";
+            else
+                vesselCountText = $"{survivingCount} vessel{(survivingCount != 1 ? "s" : "")}";
+
+            string footer;
+            if (survivingCount > 0)
+                footer = "\nSurviving vessels marked [Persist] will appear after ghost playback.\n" +
+                         "Toggle any vessel to [Ghost-only] to skip spawning it.";
+            else
+                footer = "\nAll vessels were lost. Ghosts will replay the mission.";
+
+            string message = $"\"{tree.TreeName}\" \u2014 {vesselCountText}, {FormatDuration(duration)}\n\n" +
+                             vesselRows + footer;
+
+            ParsekLog.Info("MergeDialog",
+                $"Multi-vessel tree dialog: tree='{tree.TreeName}', leaves={allLeaves.Count}, " +
+                $"surviving={survivingCount}, destroyed={destroyedCount}");
+
+            // Capture for lambda closures
+            var capturedDecisions = decisions;
+            var capturedTree = tree;
+            int spawnCount = survivingCount;
+
+            DialogGUIButton[] buttons = new[]
+            {
+                new DialogGUIButton("Commit All", () =>
+                {
+                    ApplyVesselDecisions(capturedTree, capturedDecisions);
+                    RecordingStore.CommitPendingTree();
+                    ParsekScenario.ReserveSnapshotCrew();
+                    ParsekScenario.SwapReservedCrewInFlight();
+                    ClearPendingFlag();
+                    ReplayFlightResultsIfPending();
+
+                    int persistCount = 0;
+                    foreach (var val in capturedDecisions.Values)
+                        if (val) persistCount++;
+
+                    if (persistCount > 0)
+                        ParsekLog.ScreenMessage(
+                            $"Tree merged \u2014 {persistCount} vessel(s) will appear after ghost playback", 3f);
+                    else
+                        ParsekLog.ScreenMessage("Tree merged to timeline!", 3f);
+                    ParsekLog.Info("MergeDialog",
+                        $"User chose: Commit All (tree='{capturedTree.TreeName}', " +
+                        $"persist={persistCount}, total={capturedDecisions.Count})");
+                }),
+                new DialogGUIButton("Discard", () =>
+                {
+                    foreach (var rec in capturedTree.Recordings.Values)
+                    {
+                        if (rec.VesselSnapshot != null)
+                            ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
+                    }
+                    RecordingStore.DiscardPendingTree();
+                    ClearPendingFlag();
+                    ReplayFlightResultsIfPending();
+                    ParsekLog.ScreenMessage("Recording tree discarded", 2f);
+                    ParsekLog.Info("MergeDialog",
+                        $"User chose: Tree Discard (tree='{capturedTree.TreeName}', " +
+                        $"recordings={capturedTree.Recordings.Count})");
+                })
+            };
+
+            LockInput();
+            PopupDialog.DismissPopup("ParsekMerge");
+            PopupDialog.SpawnPopupDialog(
+                new Vector2(0.5f, 0.5f),
+                new Vector2(0.5f, 0.5f),
+                new MultiOptionDialog(
+                    "ParsekMerge",
+                    message,
+                    "Parsek \u2014 Merge Recording Tree",
+                    HighLogic.UISkin,
+                    buttons
+                ),
+                false,
+                HighLogic.UISkin
+            );
+        }
     }
 }
