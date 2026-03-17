@@ -221,6 +221,8 @@ namespace Parsek
             recNode.AddValue("loopIntervalSeconds", rec.LoopIntervalSeconds.ToString("R", ic));
             if (rec.LoopAnchorVesselId != 0)
                 recNode.AddValue("loopAnchorPid", rec.LoopAnchorVesselId.ToString(ic));
+            if (!string.IsNullOrEmpty(rec.LoopAnchorBodyName))
+                recNode.AddValue("loopAnchorBodyName", rec.LoopAnchorBodyName);
             if (!rec.PlaybackEnabled)
                 recNode.AddValue("playbackEnabled", rec.PlaybackEnabled.ToString());
             if (rec.Hidden)
@@ -434,6 +436,10 @@ namespace Parsek
                 if (uint.TryParse(loopAnchorPidStr, NumberStyles.Integer, ic, out loopAnchorPid))
                     rec.LoopAnchorVesselId = loopAnchorPid;
             }
+
+            string loopAnchorBodyNameStr = recNode.GetValue("loopAnchorBodyName");
+            if (!string.IsNullOrEmpty(loopAnchorBodyNameStr))
+                rec.LoopAnchorBodyName = loopAnchorBodyNameStr;
 
             string playbackEnabledStr = recNode.GetValue("playbackEnabled");
             if (playbackEnabledStr != null)

@@ -34,6 +34,7 @@ namespace Parsek
         public double LoopIntervalSeconds = 10.0;
         public LoopTimeUnit LoopTimeUnit = LoopTimeUnit.Sec;
         public uint LoopAnchorVesselId;  // Anchor vessel for relative loop playback (0 = no anchor, use absolute positioning)
+        public string LoopAnchorBodyName;  // Body the anchor was on when loop was configured (null = not set)
 
         // UI grouping tags (e.g. "Synthetic", "Part Showcase") — multi-group membership
         public List<string> RecordingGroups;
@@ -163,6 +164,7 @@ namespace Parsek
             LoopIntervalSeconds = source.LoopIntervalSeconds;
             LoopTimeUnit = source.LoopTimeUnit;
             LoopAnchorVesselId = source.LoopAnchorVesselId;
+            LoopAnchorBodyName = source.LoopAnchorBodyName;
             PreLaunchFunds = source.PreLaunchFunds;
             PreLaunchScience = source.PreLaunchScience;
             PreLaunchReputation = source.PreLaunchReputation;

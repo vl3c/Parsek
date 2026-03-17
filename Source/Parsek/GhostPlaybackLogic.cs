@@ -242,6 +242,119 @@ namespace Parsek
             return false;
         }
 
+        /// <summary>
+        /// Computes where a looped recording should be in its cycle at a given UT.
+        /// Returns the "loop UT" -- the position within the recording's timeline that
+        /// the ghost should be at right now.
+        ///
+        /// The loop cycles continuously: recording plays from StartUT to EndUT,
+        /// then pauses for intervalSeconds, then repeats. Given any currentUT,
+        /// this method returns which point in the recording the ghost should show.
+        ///
+        /// Returns (loopUT, cycleIndex, isInPause):
+        ///   loopUT: the UT within [StartUT, EndUT] to position the ghost at
+        ///   cycleIndex: which cycle we're in (0-based)
+        ///   isInPause: true if currentUT falls in the pause interval between cycles
+        /// </summary>
+        internal static (double loopUT, int cycleIndex, bool isInPause) ComputeLoopPhaseFromUT(
+            double currentUT,
+            double recordingStartUT,
+            double recordingEndUT,
+            double intervalSeconds)
+        {
+            double duration = recordingEndUT - recordingStartUT;
+            if (duration <= 0)
+            {
+                ParsekLog.Verbose("Loop", $"ComputeLoopPhaseFromUT: zero/negative duration={duration:R}, returning startUT");
+                return (recordingStartUT, 0, false);
+            }
+
+            double cycleDuration = duration + Math.Max(0, intervalSeconds);
+            if (cycleDuration <= 0)
+            {
+                ParsekLog.Verbose("Loop", $"ComputeLoopPhaseFromUT: zero/negative cycleDuration={cycleDuration:R}, returning startUT");
+                return (recordingStartUT, 0, false);
+            }
+
+            double elapsed = currentUT - recordingStartUT;
+            if (elapsed < 0)
+            {
+                ParsekLog.Verbose("Loop", $"ComputeLoopPhaseFromUT: currentUT={currentUT:R} before recordingStartUT={recordingStartUT:R}, returning startUT");
+                return (recordingStartUT, 0, false);
+            }
+
+            int cycleIndex = (int)(elapsed / cycleDuration);
+            double phaseInCycle = elapsed - (cycleIndex * cycleDuration);
+
+            if (phaseInCycle < duration)
+            {
+                // In the playback portion
+                double loopUT = recordingStartUT + phaseInCycle;
+                ParsekLog.Verbose("Loop", $"ComputeLoopPhaseFromUT: cycleIndex={cycleIndex}, loopUT={loopUT:R}, isInPause=false (phase={phaseInCycle:R}/{duration:R})");
+                return (loopUT, cycleIndex, false);
+            }
+            else
+            {
+                // In the pause interval between cycles
+                // Ghost should be at the end position (or hidden)
+                ParsekLog.Verbose("Loop", $"ComputeLoopPhaseFromUT: cycleIndex={cycleIndex}, loopUT={recordingEndUT:R}, isInPause=true (phase={phaseInCycle:R}/{duration:R})");
+                return (recordingEndUT, cycleIndex, true);
+            }
+        }
+
+        /// <summary>
+        /// Determines whether a looped ghost should be spawned for a recording
+        /// whose anchor vessel just loaded. Returns false if:
+        /// - Recording is not looping
+        /// - No anchor vessel ID set
+        /// - Anchor vessel doesn't exist
+        /// - Anchor vessel body mismatch (wrong celestial body)
+        /// </summary>
+        internal static bool ShouldSpawnLoopedGhost(
+            Recording rec,
+            bool anchorVesselExists,
+            string anchorBodyName,
+            string recordingBodyName)
+        {
+            if (rec == null)
+            {
+                ParsekLog.Verbose("Loop", "ShouldSpawnLoopedGhost: rec is null, returning false");
+                return false;
+            }
+
+            if (!rec.LoopPlayback)
+            {
+                ParsekLog.Verbose("Loop", $"ShouldSpawnLoopedGhost: rec '{rec.VesselName}' not looping, returning false");
+                return false;
+            }
+
+            if (rec.LoopAnchorVesselId == 0)
+            {
+                ParsekLog.Verbose("Loop", $"ShouldSpawnLoopedGhost: rec '{rec.VesselName}' has no anchor vessel, returning false");
+                return false;
+            }
+
+            if (!anchorVesselExists)
+            {
+                ParsekLog.Verbose("Loop", $"ShouldSpawnLoopedGhost: rec '{rec.VesselName}' anchor pid={rec.LoopAnchorVesselId} not found, returning false");
+                return false;
+            }
+
+            // Body validation: anchor must be on the same body as when recorded
+            if (!string.IsNullOrEmpty(recordingBodyName) &&
+                !string.IsNullOrEmpty(anchorBodyName) &&
+                anchorBodyName != recordingBodyName)
+            {
+                ParsekLog.Warn("Loop",
+                    $"ShouldSpawnLoopedGhost: rec '{rec.VesselName}' anchor vessel body mismatch: " +
+                    $"expected={recordingBodyName}, actual={anchorBodyName} — loop broken");
+                return false;
+            }
+
+            ParsekLog.Verbose("Loop", $"ShouldSpawnLoopedGhost: rec '{rec.VesselName}' anchor pid={rec.LoopAnchorVesselId} valid, returning true");
+            return true;
+        }
+
         #endregion
 
         #region External Vessel Ghost Policy

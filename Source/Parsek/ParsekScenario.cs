@@ -1390,6 +1390,8 @@ namespace Parsek
             recNode.AddValue("loopIntervalSeconds", rec.LoopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture));
             if (rec.LoopAnchorVesselId != 0)
                 recNode.AddValue("loopAnchorPid", rec.LoopAnchorVesselId.ToString(CultureInfo.InvariantCulture));
+            if (!string.IsNullOrEmpty(rec.LoopAnchorBodyName))
+                recNode.AddValue("loopAnchorBodyName", rec.LoopAnchorBodyName);
             if (rec.LoopTimeUnit != LoopTimeUnit.Sec)
                 recNode.AddValue("loopTimeUnit", rec.LoopTimeUnit.ToString());
             if (rec.PreLaunchFunds != 0)
@@ -1488,6 +1490,10 @@ namespace Parsek
                 if (uint.TryParse(loopAnchorPidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out loopAnchorPid))
                     rec.LoopAnchorVesselId = loopAnchorPid;
             }
+
+            string loopAnchorBodyNameStr = recNode.GetValue("loopAnchorBodyName");
+            if (!string.IsNullOrEmpty(loopAnchorBodyNameStr))
+                rec.LoopAnchorBodyName = loopAnchorBodyNameStr;
 
             rec.GhostGeometryRelativePath = recNode.GetValue("ghostGeometryPath");
             string strategy = recNode.GetValue("ghostGeometryStrategy");
