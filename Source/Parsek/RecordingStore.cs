@@ -1731,6 +1731,18 @@ namespace Parsek
                 if (track.isFromBackground)
                     tsNode.AddValue("isBg", "True");
 
+                // Source: sparse — only write when not Active (default)
+                if (track.source != TrackSectionSource.Active)
+                {
+                    tsNode.AddValue("src", ((int)track.source).ToString(ic));
+                    ParsekLog.Verbose("RecordingStore",
+                        $"SerializeTrackSections: [{t}] writing source={track.source} (non-default)");
+                }
+
+                // Boundary discontinuity: sparse — only write when > 0
+                if (track.boundaryDiscontinuityMeters > 0f)
+                    tsNode.AddValue("bdisc", track.boundaryDiscontinuityMeters.ToString("R", ic));
+
                 if (track.anchorVesselId != 0)
                     tsNode.AddValue("anchorPid", track.anchorVesselId.ToString(ic));
 
@@ -1876,6 +1888,22 @@ namespace Parsek
                     if (bool.TryParse(isBgStr, out isBg))
                         section.isFromBackground = isBg;
                 }
+
+                // Source: defaults to Active (0) when absent — backward compatible
+                int srcInt;
+                if (int.TryParse(tsNode.GetValue("src"), NumberStyles.Integer, ic, out srcInt)
+                    && Enum.IsDefined(typeof(TrackSectionSource), srcInt))
+                {
+                    section.source = (TrackSectionSource)srcInt;
+                    ParsekLog.Verbose("RecordingStore",
+                        $"DeserializeTrackSections: [{t}] loaded source={section.source}");
+                }
+                // else: defaults to Active (struct default = 0)
+
+                // Boundary discontinuity: defaults to 0 when absent — backward compatible
+                float bdisc;
+                if (float.TryParse(tsNode.GetValue("bdisc"), inv, ic, out bdisc))
+                    section.boundaryDiscontinuityMeters = bdisc;
 
                 uint anchorPid;
                 if (uint.TryParse(tsNode.GetValue("anchorPid"), NumberStyles.Integer, ic, out anchorPid))

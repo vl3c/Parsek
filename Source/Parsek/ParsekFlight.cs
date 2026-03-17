@@ -333,10 +333,13 @@ namespace Parsek
             HandleSoiChangeSplit();
             HandleTreeBackgroundFlush();
 
-            // Background recorder: update on-rails background vessels
+            // Background recorder: update on-rails background vessels, split checks, TTL
             if (backgroundRecorder != null)
             {
-                backgroundRecorder.UpdateOnRails(Planetarium.GetUniversalTime());
+                double bgUT = Planetarium.GetUniversalTime();
+                backgroundRecorder.UpdateOnRails(bgUT);
+                backgroundRecorder.ProcessPendingSplitChecks();
+                backgroundRecorder.CheckDebrisTTL(bgUT);
             }
 
             HandleJointBreakDeferredCheck();

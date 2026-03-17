@@ -4,6 +4,17 @@ using System.Globalization;
 namespace Parsek
 {
     /// <summary>
+    /// Data provenance for a track section — indicates which subsystem produced it.
+    /// Used for diagnostics and to distinguish active recording from background/checkpoint data.
+    /// </summary>
+    public enum TrackSectionSource
+    {
+        Active = 0,          // From focused vessel's FlightRecorder
+        Background = 1,      // From BackgroundRecorder (physics bubble)
+        Checkpoint = 2       // From orbital checkpoint propagation
+    }
+
+    /// <summary>
     /// Physical environment classification for a trajectory segment.
     /// Determines sampling strategy and playback behavior.
     /// </summary>
@@ -46,6 +57,8 @@ namespace Parsek
         public List<OrbitSegment> checkpoints;  // For OrbitalCheckpoint (null until initialized)
         public float sampleRateHz;              // Actual recording sample rate
         public bool isFromBackground;           // True if from background recording
+        public TrackSectionSource source;       // Data provenance (for diagnostics)
+        public float boundaryDiscontinuityMeters; // Position gap at section start vs previous section end (0 = no gap)
 
         public override string ToString()
         {
@@ -54,7 +67,8 @@ namespace Parsek
             int checkpointCount = checkpoints?.Count ?? 0;
             return $"TrackSection env={environment} ref={referenceFrame} " +
                    $"ut=[{startUT.ToString("F2", ic)},{endUT.ToString("F2", ic)}] frames={frameCount} " +
-                   $"checkpoints={checkpointCount} bg={isFromBackground}";
+                   $"checkpoints={checkpointCount} bg={isFromBackground} " +
+                   $"src={source} bdisc={boundaryDiscontinuityMeters.ToString("F2", ic)}";
         }
     }
 }

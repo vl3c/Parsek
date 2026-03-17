@@ -3392,18 +3392,22 @@ namespace Parsek
         /// <summary>
         /// Opens a new TrackSection with the given environment and reference frame.
         /// </summary>
-        internal void StartNewTrackSection(SegmentEnvironment env, ReferenceFrame refFrame, double ut)
+        internal void StartNewTrackSection(SegmentEnvironment env, ReferenceFrame refFrame, double ut,
+            TrackSectionSource source = TrackSectionSource.Active)
         {
             currentTrackSection = new TrackSection
             {
                 environment = env,
                 referenceFrame = refFrame,
                 startUT = ut,
+                source = source,
                 frames = new List<TrajectoryPoint>(),
                 checkpoints = new List<OrbitSegment>()
             };
             trackSectionActive = true;
-            ParsekLog.Info("Recorder", $"TrackSection started: env={env} ref={refFrame} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+            ParsekLog.Info("Recorder",
+                $"TrackSection started: env={env} ref={refFrame} source={source} " +
+                $"at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
         }
 
         /// <summary>
@@ -3586,7 +3590,8 @@ namespace Parsek
                 // Recording started on rails — switch initial ABSOLUTE section to ORBITAL_CHECKPOINT
                 double packedUT = Planetarium.GetUniversalTime();
                 CloseCurrentTrackSection(packedUT);
-                StartNewTrackSection(initialEnv, ReferenceFrame.OrbitalCheckpoint, packedUT);
+                StartNewTrackSection(initialEnv, ReferenceFrame.OrbitalCheckpoint, packedUT,
+                    TrackSectionSource.Checkpoint);
                 ParsekLog.Info("Recorder",
                     $"Reference frame transition: Absolute -> OrbitalCheckpoint (started on rails) at UT={packedUT.ToString("F2", CultureInfo.InvariantCulture)}");
 
@@ -4163,7 +4168,8 @@ namespace Parsek
                 ? environmentHysteresis.CurrentEnvironment
                 : SegmentEnvironment.ExoBallistic;
             CloseCurrentTrackSection(onRailsUT);
-            StartNewTrackSection(currentEnv, ReferenceFrame.OrbitalCheckpoint, onRailsUT);
+            StartNewTrackSection(currentEnv, ReferenceFrame.OrbitalCheckpoint, onRailsUT,
+                TrackSectionSource.Checkpoint);
             ParsekLog.Info("Recorder",
                 $"Reference frame transition: Absolute -> OrbitalCheckpoint at UT={onRailsUT.ToString("F2", CultureInfo.InvariantCulture)}");
 
