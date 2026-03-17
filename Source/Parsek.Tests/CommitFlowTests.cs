@@ -424,7 +424,7 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l =>
                 l.Contains("[Merger]") &&
-                l.Contains("CommitTree: replaced recording") &&
+                l.Contains("CommitTree: merged recording") &&
                 l.Contains("rec-verb"));
         }
 

@@ -259,67 +259,27 @@ namespace Parsek
                 }
             }
 
-            // Merge overlapping data sources before committing
+            // Merge overlapping data sources before committing.
+            // Strategy: start from the original recording (preserves ALL fields by default),
+            // then overwrite only the merge-produced fields. This ensures new Recording fields
+            // added in the future are preserved without requiring an explicit copy here.
             var mergedRecordings = SessionMerger.MergeTree(tree);
             foreach (var kvp in mergedRecordings)
             {
                 Recording original;
                 if (tree.Recordings.TryGetValue(kvp.Key, out original))
                 {
-                    // Preserve transient fields that MergeTree doesn't copy
-                    kvp.Value.VesselSnapshot = original.VesselSnapshot;
-                    kvp.Value.GhostVisualSnapshot = original.GhostVisualSnapshot;
-                    kvp.Value.VesselSpawned = original.VesselSpawned;
-                    kvp.Value.SpawnedVesselPersistentId = original.SpawnedVesselPersistentId;
-                    kvp.Value.DistanceFromLaunch = original.DistanceFromLaunch;
-                    kvp.Value.MaxDistanceFromLaunch = original.MaxDistanceFromLaunch;
-                    kvp.Value.VesselDestroyed = original.VesselDestroyed;
-                    kvp.Value.VesselSituation = original.VesselSituation;
-                    kvp.Value.LastAppliedResourceIndex = original.LastAppliedResourceIndex;
-                    kvp.Value.SceneExitSituation = original.SceneExitSituation;
-                    kvp.Value.SpawnAttempts = original.SpawnAttempts;
-                    kvp.Value.PlaybackEnabled = original.PlaybackEnabled;
-                    kvp.Value.Hidden = original.Hidden;
-                    kvp.Value.LoopPlayback = original.LoopPlayback;
-                    kvp.Value.LoopIntervalSeconds = original.LoopIntervalSeconds;
-                    kvp.Value.LoopTimeUnit = original.LoopTimeUnit;
-                    kvp.Value.RecordingGroups = original.RecordingGroups;
-                    kvp.Value.RewindSaveFileName = original.RewindSaveFileName;
-                    kvp.Value.RewindReservedFunds = original.RewindReservedFunds;
-                    kvp.Value.RewindReservedScience = original.RewindReservedScience;
-                    kvp.Value.RewindReservedRep = original.RewindReservedRep;
-                    kvp.Value.PreLaunchFunds = original.PreLaunchFunds;
-                    kvp.Value.PreLaunchScience = original.PreLaunchScience;
-                    kvp.Value.PreLaunchReputation = original.PreLaunchReputation;
-                    kvp.Value.GhostGeometryRelativePath = original.GhostGeometryRelativePath;
-                    kvp.Value.GhostGeometryAvailable = original.GhostGeometryAvailable;
-                    kvp.Value.GhostGeometryCaptureError = original.GhostGeometryCaptureError;
+                    Recording merged = kvp.Value;
 
-                    // Terminal orbit/position (missing from MergeTree's structural copy)
-                    kvp.Value.TerminalOrbitInclination = original.TerminalOrbitInclination;
-                    kvp.Value.TerminalOrbitEccentricity = original.TerminalOrbitEccentricity;
-                    kvp.Value.TerminalOrbitSemiMajorAxis = original.TerminalOrbitSemiMajorAxis;
-                    kvp.Value.TerminalOrbitLAN = original.TerminalOrbitLAN;
-                    kvp.Value.TerminalOrbitArgumentOfPeriapsis = original.TerminalOrbitArgumentOfPeriapsis;
-                    kvp.Value.TerminalOrbitMeanAnomalyAtEpoch = original.TerminalOrbitMeanAnomalyAtEpoch;
-                    kvp.Value.TerminalOrbitEpoch = original.TerminalOrbitEpoch;
-                    kvp.Value.TerminalOrbitBody = original.TerminalOrbitBody;
-                    kvp.Value.TerminalPosition = original.TerminalPosition;
-                    kvp.Value.SurfacePos = original.SurfacePos;
-
-                    // Chain/EVA linkage
-                    kvp.Value.ChainId = original.ChainId;
-                    kvp.Value.ChainIndex = original.ChainIndex;
-                    kvp.Value.ChainBranch = original.ChainBranch;
-                    kvp.Value.ParentRecordingId = original.ParentRecordingId;
-                    kvp.Value.EvaCrewName = original.EvaCrewName;
-                    kvp.Value.SegmentPhase = original.SegmentPhase;
-                    kvp.Value.SegmentBodyName = original.SegmentBodyName;
-
-                    tree.Recordings[kvp.Key] = kvp.Value;
+                    // Overwrite only the merge-produced fields on the original
+                    original.TrackSections = merged.TrackSections;
+                    original.PartEvents = merged.PartEvents;
+                    original.SegmentEvents = merged.SegmentEvents;
+                    original.Points = merged.Points;
+                    original.OrbitSegments = merged.OrbitSegments;
                     ParsekLog.Verbose("Merger",
-                        $"CommitTree: replaced recording '{kvp.Key}' with merged version " +
-                        $"(sections={kvp.Value.TrackSections?.Count ?? 0} events={kvp.Value.PartEvents?.Count ?? 0})");
+                        $"CommitTree: merged recording '{kvp.Key}' in-place " +
+                        $"(sections={original.TrackSections?.Count ?? 0} events={original.PartEvents?.Count ?? 0})");
                 }
             }
 

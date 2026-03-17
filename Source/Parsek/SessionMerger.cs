@@ -386,7 +386,9 @@ namespace Parsek
                 string key = string.Concat(
                     e.ut.ToString("R", ic), "|",
                     e.partPersistentId.ToString(ic), "|",
-                    ((int)e.eventType).ToString(ic));
+                    ((int)e.eventType).ToString(ic), "|",
+                    e.moduleIndex.ToString(ic), "|",
+                    e.value.ToString("R", ic));
 
                 if (seen.Add(key))
                     merged.Add(e);
