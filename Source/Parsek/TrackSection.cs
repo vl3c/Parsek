@@ -30,6 +30,10 @@ namespace Parsek
     /// A typed chunk of trajectory data within a recording.
     /// Replaces the flat list of trajectory points with environment-tagged sections
     /// that carry their own reference frame and sampling metadata.
+    ///
+    /// IMPORTANT: This is a struct. The 'frames' and 'checkpoints' lists default to null.
+    /// Always initialize them via StartNewTrackSection (recording) or DeserializeTrackSections
+    /// (loading). Do not create TrackSection manually without initializing the lists.
     /// </summary>
     public struct TrackSection
     {
@@ -38,8 +42,8 @@ namespace Parsek
         public double startUT;
         public double endUT;
         public uint anchorVesselId;             // For Relative frame only (0 = not set)
-        public List<TrajectoryPoint> frames;    // For Absolute/Relative
-        public List<OrbitSegment> checkpoints;  // For OrbitalCheckpoint
+        public List<TrajectoryPoint> frames;    // For Absolute/Relative (null until initialized)
+        public List<OrbitSegment> checkpoints;  // For OrbitalCheckpoint (null until initialized)
         public float sampleRateHz;              // Actual recording sample rate
         public bool isFromBackground;           // True if from background recording
 

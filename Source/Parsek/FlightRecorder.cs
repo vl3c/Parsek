@@ -3359,25 +3359,28 @@ namespace Parsek
         /// Extracts vessel state into primitive parameters and calls EnvironmentDetector.Classify.
         /// This indirection keeps EnvironmentDetector pure-static and testable.
         /// </summary>
-        private static SegmentEnvironment ClassifyCurrentEnvironment(Vessel v)
+        /// <summary>
+        /// Classifies vessel environment using the cached engine list to avoid
+        /// per-frame FindModulesImplementing allocations on every part.
+        /// </summary>
+        private SegmentEnvironment ClassifyCurrentEnvironment(Vessel v)
         {
             bool hasAtmosphere = v.mainBody != null && v.mainBody.atmosphere;
             double atmosphereDepth = hasAtmosphere ? v.mainBody.atmosphereDepth : 0;
             bool hasActiveThrust = false;
 
-            // Check for active thrust on any engine
-            for (int i = 0; i < v.parts.Count; i++)
+            // Use cached engine list (built in CacheEngineModules at recording start)
+            // instead of iterating all parts with FindModulesImplementing every frame
+            if (cachedEngines != null)
             {
-                var engines = v.parts[i].FindModulesImplementing<ModuleEngines>();
-                for (int j = 0; j < engines.Count; j++)
+                for (int i = 0; i < cachedEngines.Count; i++)
                 {
-                    if (engines[j].EngineIgnited && engines[j].finalThrust > 0)
+                    if (cachedEngines[i].engine.EngineIgnited && cachedEngines[i].engine.finalThrust > 0)
                     {
                         hasActiveThrust = true;
                         break;
                     }
                 }
-                if (hasActiveThrust) break;
             }
 
             return EnvironmentDetector.Classify(

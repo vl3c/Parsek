@@ -41,8 +41,17 @@ namespace Parsek
 
         public override string ToString()
         {
-            return $"BP id={Id ?? "?"} type={Type} ut={UT:F1} " +
-                   $"parents={ParentRecordingIds.Count} children={ChildRecordingIds.Count}";
+            var s = $"BP id={Id ?? "?"} type={Type} ut={UT:F1} " +
+                    $"parents={ParentRecordingIds.Count} children={ChildRecordingIds.Count}";
+            if (Type == BranchPointType.Breakup)
+                s += $" cause={BreakupCause ?? "?"} debris={DebrisCount} duration={BreakupDuration:F3}s";
+            else if (Type == BranchPointType.Terminal && TerminalCause != null)
+                s += $" terminal={TerminalCause}";
+            else if (SplitCause != null)
+                s += $" splitCause={SplitCause}";
+            else if (MergeCause != null)
+                s += $" mergeCause={MergeCause}";
+            return s;
         }
     }
 }

@@ -127,7 +127,9 @@ namespace Parsek
 
         /// <summary>
         /// Returns the controlled child PIDs from the last emitted BREAKUP.
-        /// Valid after Tick() returns a non-null BranchPoint, until the next Reset().
+        /// Valid immediately after Tick() returns a non-null BranchPoint.
+        /// Overwritten on the next Tick() emission. Not cleared by Reset()
+        /// (Reset only clears the active window; this snapshot persists for the caller).
         /// </summary>
         public IReadOnlyList<uint> LastEmittedControlledChildPids => lastEmittedControlledChildPids;
 

@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace Parsek
 {
     /// <summary>
@@ -12,7 +14,8 @@ namespace Parsek
 
         public override string ToString()
         {
-            return $"Controller type={type} part={partName} pid={partPersistentId}";
+            return string.Format(CultureInfo.InvariantCulture,
+                "Controller type={0} part={1} pid={2}", type, partName, partPersistentId);
         }
     }
 }
