@@ -350,55 +350,63 @@ KSP gameplay frequently involves multiple vessels that are simultaneously releva
 
 ### 4.2 Recording Session Definition
 
-A **recording session** starts when the player enters a recordable state (launch, or explicitly starting a session) and ends when the player merges or discards.
+A **recording session** is scoped to a single RecordingTree. The session starts when recording starts or joins a tree, and ends on revert/commit. There is no separate `RecordingSession` object — the RecordingTree already tracks all vessels and their relationships.
 
 During a session, the recorder maintains:
 
-1. **The focus track**: Full recording of whichever vessel the player is currently controlling.
-2. **Background physics tracks**: Reduced-rate trajectory sampling + all discrete part events for all other vessels within the physics bubble (~2.3km).
-3. **Orbital checkpoints**: Keplerian element snapshots for any on-rails vessel the player switches to and modifies.
-4. **Focus-switch events**: Explicit markers noting when focus moves between vessels.
+1. **The focus track**: Full recording (source=Active) of whichever vessel the player is currently controlling.
+2. **Background physics tracks**: Reduced-rate trajectory sampling (source=Background) + all discrete part events for all other vessels within the physics bubble (~2.3km). Sample rate varies by proximity: <200m → 5Hz, 200m-1km → 2Hz, 1km-2.3km → 0.5Hz.
+3. **Orbital checkpoints**: Keplerian element snapshots (source=Checkpoint) captured automatically at on-rails transitions, time warp boundaries, and scene changes.
+
+**Implementation note (decided during Phase 2 planning):** The `RecordingSession` class from the original design is NOT implemented. The RecordingTree serves as the session scope. Focus history is derived from the tree's `ActiveRecordingId` changes over time — it is a transient input to the merge algorithm, not a persisted data structure. Scene-change gaps are handled implicitly: when the player leaves flight, vessels go on rails → orbital checkpoints are captured → when the player returns, new checkpoints are captured. The absence of trajectory points between checkpoints IS the gap, and playback propagates from checkpoints during these intervals.
 
 ### 4.3 Data Model
 
-```
-RecordingSession
-  id:                 unique session identifier
-  startUT:            session start time
-  endUT:              session end time
-  trees:              list of RecordingTree (usually one, can be multiple
-                      for independent vessel groups)
-  focusLog:           ordered list of {ut, vesselSegmentId}
-  vesselTracks:       dict of {vesselId: VesselTrackData}
-  relativeSegments:   list of relative-frame approach recordings
-  events:             all TreeEvents across all trees in this session
+Each vessel's data lives in a `Recording` within the `RecordingTree.Recordings` dict. Each Recording's `TrackSections` list contains typed trajectory chunks tagged with a `TrackSectionSource` (Active, Background, or Checkpoint) for diagnostics. The merge algorithm produces a single merged Recording per vessel with non-overlapping TrackSections selected by highest-fidelity-wins.
 
-VesselTrackData
-  activeSegments:     [{startUT, endUT, trackSections[]}]
-  backgroundSegments: [{startUT, endUT, frames[], sourceVesselId}]
-  orbitalCheckpoints: [{ut, body, sma, ecc, inc, lan, argPe, meanAnomaly}]
+```
+RecordingTree (serves as session scope)
+  Recordings:         dict of {recordingId: Recording}
+  BranchPoints:       list of BranchPoint (DAG events)
+  ActiveRecordingId:  currently focused recording (changes on focus switch)
+  BackgroundMap:      dict of {vesselPid: recordingId} for background vessels
+
+Recording (per vessel)
+  TrackSections:      list of TrackSection (each tagged with source + environment + reference frame)
+  SegmentEvents:      list of SegmentEvent (within-segment state changes)
+  Points:             flat list of TrajectoryPoint (v5 backward compat, dual-written)
+  OrbitSegments:      flat list of OrbitSegment (v5 backward compat)
+  PartEvents:         list of PartEvent (discrete visual events)
+
+TrackSection
+  environment:        ATMOSPHERIC | EXO_PROPULSIVE | EXO_BALLISTIC | SURFACE_MOBILE | SURFACE_STATIONARY
+  referenceFrame:     ABSOLUTE | RELATIVE | ORBITAL_CHECKPOINT
+  source:             ACTIVE | BACKGROUND | CHECKPOINT (provenance for diagnostics)
+  frames:             list of TrajectoryPoint (for ABSOLUTE/RELATIVE)
+  checkpoints:        list of OrbitSegment (for ORBITAL_CHECKPOINT)
+  boundaryDiscontinuityMeters:  position gap at section start vs previous section end
 ```
 
 ### 4.4 Focus Switching Behavior
 
 When the player switches focus from vessel A to vessel B:
 
-1. Vessel A's active recording segment ends at the switch UT.
-2. Vessel A begins background recording (from B's physics bubble, if in range) or gets an orbital checkpoint (if going on rails).
-3. Vessel B's background recording (if any) ends at the switch UT.
-4. Vessel B's active recording segment begins.
-5. A focus-switch event is logged: `{ut, fromVessel: A, toVessel: B}`.
+1. Vessel A's active recording transitions to background (or orbital checkpoint if going on rails).
+2. Vessel B's background recording transitions to active.
+3. The tree's `ActiveRecordingId` changes from A's recording to B's recording.
+
+The focus history is implicit in the sequence of `ActiveRecordingId` changes on the tree — no explicit focus log is stored. The merge algorithm reconstructs which vessel was active at each UT by scanning recording metadata.
 
 ### 4.5 Scene Changes (KSC, Tracking Station, Buildings)
 
 When the player leaves the flight scene:
 
-1. ALL vessels in the session get orbital/surface checkpoints at the scene-change UT.
-2. All active and background recording stops (no physics simulation is running).
-3. The gap is recorded as a checkpoint-only interval.
-4. When the player returns to flight and selects a vessel, active recording resumes with a new checkpoint capturing the post-gap state.
+1. ALL vessels go on rails → `onVesselGoOnRails` fires → orbital/surface checkpoints captured automatically.
+2. `CheckpointAllVessels` fires for all background vessels at the scene-change boundary.
+3. No explicit "gap" is recorded — the absence of trajectory points between checkpoints IS the gap.
+4. When the player returns to flight, vessels come off rails → new checkpoints captured → physics sampling resumes.
 
-During playback of a gap interval: all ghosts use orbital propagation or hold surface position. No physics-bubble fidelity is available.
+During playback of a gap interval: ghosts propagate from orbital checkpoints or hold surface position. The checkpoint system handles this identically to any other on-rails interval — scene changes are not a special case.
 
 **Warning:** If a vessel was mid-flight (e.g., descending to a surface) when the player left the scene, KSP's on-rails handling may destroy or misplace it. Parsek records whatever outcome KSP produces — this is a game-behavior consequence, not a Parsek bug.
 
@@ -559,6 +567,8 @@ Implementation: KSP fires GameEvents globally for all loaded vessels. Parsek sub
 ### 6.4 Structural Events for All Physics-Bubble Vessels
 
 Events that affect the DAG structure (staging, decoupling, docking, undocking) MUST be captured for all vessels in the physics bubble, not just the focused vessel. A background vessel that stages while the player is focused elsewhere must still produce a SPLIT event in the recording tree, or the DAG will be incorrect.
+
+**Implementation note (decided during Phase 2 planning):** Background vessel splits create proper tree structure — BranchPoint + child recordings for ALL new vessels from intentional separations, including spent stages and boosters (not just controlled vessels). This enables cinematic booster-separation ghost playback. Debris children from intentional splits (staging, fairing jettison) get a TTL: recording stops after 30 seconds, or on crash/destruction, or when leaving the physics bubble. This captures the visually interesting separation moment without storing long-lived debris trajectories. Rapid-fire crash fragments are still coalesced into BREAKUP events via the CrashCoalescer (Phase 1) and not individually tracked.
 
 ---
 
@@ -735,24 +745,26 @@ Priority 3: Orbital checkpoint propagation
 ### 10.3 Merge Procedure
 
 ```
-For each vessel V in the recording session:
+For each vessel V in the RecordingTree:
 
-  1. Collect all data sources:
-     - Active segments (time intervals when V was the focus)
-     - Background segments (from each other vessel's physics bubble)
-     - Orbital checkpoints (from scene changes, warp boundaries)
+  1. Collect all data sources from V's Recording:
+     - TrackSections with source=Active (time intervals when V was the focus)
+     - TrackSections with source=Background (from physics bubble recording)
+     - TrackSections with source=Checkpoint (orbital checkpoint propagation)
 
-  2. For each UT in the session, select source by priority:
-     - If V has active data at this UT → use active data
-     - Else if V has background data → use track from whichever focused
-       vessel was nearest to V at this UT
-     - Else if V has checkpoint data → propagate from nearest checkpoint
+  2. For each UT interval, select source by priority:
+     - If V has Active data at this UT → use Active TrackSection
+     - Else if V has Background data → use Background TrackSection
+     - Else if V has Checkpoint data → propagate from nearest checkpoint
      - Else → V wasn't in range, no track needed for this interval
 
   3. Stitch selected sources into one continuous track.
-     At source-switch boundaries, interpolate over ~0.5 seconds
-     of game time to smooth any position discrepancy.
+     At source-switch boundaries, snap-switch (no interpolation).
+     Log the position discontinuity magnitude at each boundary
+     (stored as boundaryDiscontinuityMeters on the TrackSection).
 ```
+
+**Implementation note (decided during Phase 2 planning):** Source-switch boundaries use snap-switch, not crossfade. A 0.5s crossfade at orbital velocities (2200 m/s in LKO) would create 1100m of fake trajectory. The discontinuity from snap-switch is typically sub-meter for in-bubble switches. The logged magnitude enables future analysis of whether smoothing is ever needed in practice.
 
 ### 10.4 No Circular References
 
@@ -762,15 +774,18 @@ If a gap exists where no vessel has active recording (scene change to KSC), all 
 
 ### 10.5 Committed Timeline Output
 
-After merge, each vessel has a single clean track:
+After merge, each vessel has a single clean Recording:
 
 ```
-CommittedVesselTrack
-  vesselId:       unique identifier
-  trackSections:  list of TrackSection (non-overlapping, covering full session)
-  partEvents:     all discrete events, merged from active + background sources
-  treeEvents:     all DAG events (splits, merges, terminals) for this vessel
+Recording (merged, per vessel)
+  TrackSections:  list of TrackSection (non-overlapping, covering full session,
+                  each tagged with source=Active/Background/Checkpoint)
+  PartEvents:     all discrete events, merged from active + background sources
+  Points:         flat trajectory (v5 backward compat, populated from merged TrackSections)
+  OrbitSegments:  flat orbit segments (v5 backward compat)
 ```
+
+**Implementation note (decided during Phase 2 planning):** There is no separate `CommittedVesselTrack` type. The merge output is a regular `Recording` object with its TrackSections stitched from the best sources. Each TrackSection's `source` field preserves provenance for diagnostics. The existing playback code works unchanged — it already knows how to play a Recording with TrackSections.
 
 This is what gets stored in the timeline and used for all subsequent playback, including full-timeline replay and looped segment extraction.
 
@@ -784,14 +799,15 @@ Parsek NEVER modifies any parameter of a real persistent vessel. Parsek is read-
 
 ### 11.2 Background Tracks of Existing Vessels
 
-When a pre-existing vessel (from a previous recording or from the game start) appears in a recording session as a background vessel, Parsek records its trajectory as an offset from the focused vessel, or as absolute body-fixed coordinates.
+When a pre-existing vessel (from a previous recording or from the game start) appears in the physics bubble during recording, Parsek records its trajectory as background data (source=Background). This applies to external vessels not connected to the recording tree (e.g., a station the player passes near but doesn't dock with).
 
 This background track serves as:
 
-- **Playback data** for the ghost, IF the real vessel is not present during playback (e.g., the player is replaying in a different context where the vessel doesn't exist).
-- **Validation data** to check that the real vessel is approximately where the recording expected it. If the real vessel has drifted significantly (>10m for docking scenarios, >1km for general proximity), Parsek can log a warning.
+- **Anchor reference data** for Phase 3's relative-frame positioning (computing ghost position relative to the real vessel for pixel-perfect docking replay).
+- **Fallback ghost data** if the real vessel no longer exists at playback time (Section 11.4).
+- **Validation data** to check that the real vessel is approximately where the recording expected it.
 
-If the real vessel IS present during playback, Parsek does NOT spawn a ghost for it. The real vessel serves as its own visual presence. The background track is unused for rendering — only for validation.
+If the real vessel IS present during playback, Parsek does NOT spawn a ghost for it. The real vessel serves as its own visual presence. External vessel background data is NOT committed to the playback timeline — it is stored as reference data only. Ghosts are only spawned for tree-connected vessels (those linked by split/merge/EVA events).
 
 ### 11.3 Merge Events with Existing Vessels
 
@@ -1193,6 +1209,7 @@ All errors are logged to KSP.log with a `[Parsek]` prefix for debugging.
 
 ---
 
-*Document version: 2.4*
+*Document version: 2.5*
+*Updated: 2026-03-17 — Phase 2 implementation decisions integrated (no RecordingSession class, snap-switch merge boundaries, background split TTL, external vessel handling, source-tagged TrackSections)*
 *Parsek Recording System Design — Vessel recordings only.*
 *Covers: Recording tree (DAG), segment boundary rule, SegmentEvents, breakup coalescing, identity persistence, multi-vessel sessions, segment taxonomy, rendering zones, looped playback anchoring, rewind (vessel scope), ghost constraints, file format, performance budget, error recovery.*
