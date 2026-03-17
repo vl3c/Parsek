@@ -192,6 +192,78 @@ namespace Parsek
 
         #endregion
 
+        #region External Vessel Ghost Policy
+
+        /// <summary>
+        /// Injectable override for vessel existence checks (null = use FlightGlobals).
+        /// Set via SetVesselExistsOverrideForTesting for unit tests.
+        /// </summary>
+        private static Func<uint, bool> vesselExistsOverride;
+
+        /// <summary>
+        /// Sets an injectable override for RealVesselExists, enabling unit testing
+        /// without FlightGlobals. Pass null to restore default behavior.
+        /// </summary>
+        internal static void SetVesselExistsOverrideForTesting(Func<uint, bool> finder)
+        {
+            vesselExistsOverride = finder;
+        }
+
+        /// <summary>
+        /// Checks if a real vessel with the given persistentId currently exists in the game.
+        /// If it exists, no ghost should be spawned (the real vessel serves as its own visual).
+        /// If it doesn't exist, a fallback ghost should be spawned from stored background data.
+        /// Uses injectable override when set (for testing).
+        /// </summary>
+        internal static bool RealVesselExists(uint vesselPersistentId)
+        {
+            if (vesselPersistentId == 0) return false;
+
+            if (vesselExistsOverride != null)
+                return vesselExistsOverride(vesselPersistentId);
+
+            if (FlightGlobals.Vessels == null) return false;
+            for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
+            {
+                if (FlightGlobals.Vessels[i] != null &&
+                    FlightGlobals.Vessels[i].persistentId == vesselPersistentId)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Pure decision method: determines whether a ghost should be skipped for an
+        /// external background vessel whose real vessel still exists in the game world.
+        /// An "external vessel" is a tree recording that was tracked via BackgroundMap
+        /// (not the active vessel) and whose VesselPersistentId matches a live vessel.
+        /// Returns true if the ghost should be skipped.
+        /// </summary>
+        internal static bool ShouldSkipExternalVesselGhost(
+            string treeId, uint vesselPersistentId, bool isActiveRecording)
+        {
+            // Only applies to tree recordings (standalone recordings don't have BackgroundMap)
+            if (string.IsNullOrEmpty(treeId)) return false;
+
+            // Active recording is the player's own vessel — always spawn its ghost
+            if (isActiveRecording) return false;
+
+            // PID 0 means we don't know the vessel — can't check existence
+            if (vesselPersistentId == 0) return false;
+
+            return RealVesselExists(vesselPersistentId);
+        }
+
+        /// <summary>
+        /// Resets the injectable vessel-exists override. Call from test Dispose.
+        /// </summary>
+        internal static void ResetVesselExistsOverride()
+        {
+            vesselExistsOverride = null;
+        }
+
+        #endregion
+
         #region Ghost Info Population
 
         /// <summary>

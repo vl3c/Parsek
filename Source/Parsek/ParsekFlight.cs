@@ -4710,6 +4710,21 @@ namespace Parsek
                     continue;
                 }
 
+                // External vessel ghost skip: if this is a background tree recording
+                // whose real vessel still exists in the game world, skip ghost spawning.
+                if (GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
+                    rec.TreeId, rec.VesselPersistentId, IsActiveTreeRecording(rec)))
+                {
+                    if (ghostActive)
+                    {
+                        DestroyTimelineGhost(i);
+                        ParsekLog.Verbose("Flight",
+                            $"Ghost #{i} destroyed — external vessel '{rec.VesselName}' " +
+                            $"pid={rec.VesselPersistentId} real vessel present");
+                    }
+                    continue;
+                }
+
                 if (ShouldLoopPlayback(rec))
                 {
                     UpdateLoopingTimelinePlayback(i, rec, currentUT, state, ghostActive,
@@ -5036,6 +5051,24 @@ namespace Parsek
             if (rec == null || !rec.LoopPlayback || rec.Points == null || rec.Points.Count < 2)
                 return false;
             return rec.EndUT - rec.StartUT > MinLoopDurationSeconds;
+        }
+
+        /// <summary>
+        /// Checks whether a recording is the active (player-controlled) recording within
+        /// its tree. Returns false for non-tree recordings. Used to determine whether
+        /// the external vessel ghost skip should apply (active recording is never skipped).
+        /// </summary>
+        private bool IsActiveTreeRecording(Recording rec)
+        {
+            if (string.IsNullOrEmpty(rec.TreeId)) return false;
+            var trees = RecordingStore.CommittedTrees;
+            for (int i = 0; i < trees.Count; i++)
+            {
+                if (trees[i].Id == rec.TreeId)
+                    return trees[i].ActiveRecordingId != null
+                        && trees[i].ActiveRecordingId == rec.RecordingId;
+            }
+            return false;
         }
 
         private double GetLoopIntervalSeconds(Recording rec)

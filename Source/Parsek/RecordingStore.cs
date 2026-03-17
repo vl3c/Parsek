@@ -259,6 +259,49 @@ namespace Parsek
                 }
             }
 
+            // Merge overlapping data sources before committing
+            var mergedRecordings = SessionMerger.MergeTree(tree);
+            foreach (var kvp in mergedRecordings)
+            {
+                Recording original;
+                if (tree.Recordings.TryGetValue(kvp.Key, out original))
+                {
+                    // Preserve transient fields that MergeTree doesn't copy
+                    kvp.Value.VesselSnapshot = original.VesselSnapshot;
+                    kvp.Value.GhostVisualSnapshot = original.GhostVisualSnapshot;
+                    kvp.Value.VesselSpawned = original.VesselSpawned;
+                    kvp.Value.SpawnedVesselPersistentId = original.SpawnedVesselPersistentId;
+                    kvp.Value.DistanceFromLaunch = original.DistanceFromLaunch;
+                    kvp.Value.MaxDistanceFromLaunch = original.MaxDistanceFromLaunch;
+                    kvp.Value.VesselDestroyed = original.VesselDestroyed;
+                    kvp.Value.VesselSituation = original.VesselSituation;
+                    kvp.Value.LastAppliedResourceIndex = original.LastAppliedResourceIndex;
+                    kvp.Value.SceneExitSituation = original.SceneExitSituation;
+                    kvp.Value.SpawnAttempts = original.SpawnAttempts;
+                    kvp.Value.PlaybackEnabled = original.PlaybackEnabled;
+                    kvp.Value.Hidden = original.Hidden;
+                    kvp.Value.LoopPlayback = original.LoopPlayback;
+                    kvp.Value.LoopIntervalSeconds = original.LoopIntervalSeconds;
+                    kvp.Value.LoopTimeUnit = original.LoopTimeUnit;
+                    kvp.Value.RecordingGroups = original.RecordingGroups;
+                    kvp.Value.RewindSaveFileName = original.RewindSaveFileName;
+                    kvp.Value.RewindReservedFunds = original.RewindReservedFunds;
+                    kvp.Value.RewindReservedScience = original.RewindReservedScience;
+                    kvp.Value.RewindReservedRep = original.RewindReservedRep;
+                    kvp.Value.PreLaunchFunds = original.PreLaunchFunds;
+                    kvp.Value.PreLaunchScience = original.PreLaunchScience;
+                    kvp.Value.PreLaunchReputation = original.PreLaunchReputation;
+                    kvp.Value.GhostGeometryRelativePath = original.GhostGeometryRelativePath;
+                    kvp.Value.GhostGeometryAvailable = original.GhostGeometryAvailable;
+                    kvp.Value.GhostGeometryCaptureError = original.GhostGeometryCaptureError;
+
+                    tree.Recordings[kvp.Key] = kvp.Value;
+                    ParsekLog.Verbose("Merger",
+                        $"CommitTree: replaced recording '{kvp.Key}' with merged version " +
+                        $"(sections={kvp.Value.TrackSections?.Count ?? 0} events={kvp.Value.PartEvents?.Count ?? 0})");
+                }
+            }
+
             // Add all tree recordings to committedRecordings (enables ghost playback)
             foreach (var rec in tree.Recordings.Values)
             {
