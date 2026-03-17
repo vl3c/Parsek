@@ -526,9 +526,19 @@ Relative-frame recording and anchor-relative loop playback. Design items 12-13 +
 - `RelativePlaybackTests.cs` (23 tests)
 - `LoopAnchorTests.cs` (22 tests)
 
-### Phase 3b — PENDING
+### Phase 3b — COMPLETE (PR #59)
 
-Loop phase tracking across vessel load/unload (design items 14-15). To be implemented when needed.
+Loop phase tracking across vessel load/unload. Design items 14-15.
+
+**Modified source files:**
+- `GhostPlaybackLogic.cs` — `ComputeLoopPhaseFromUT` (phase from elapsed UT with cycle/pause detection), `ShouldSpawnLoopedGhost` (anchor validation with body check), `IsAnchorLoaded` (gating for anchor load state)
+- `ParsekFlight.cs` — `onVesselLoaded`/`onVesselUnloaded` subscriptions, `loadedAnchorVessels` tracking, anchor gating in loop playback path, ghost destroy on anchor unload
+- `Recording.cs` — `LoopAnchorBodyName` field (body validation for anchor drift)
+- `RecordingTree.cs` + `ParsekScenario.cs` — `loopAnchorBodyName` serialization (sparse)
+
+**Test files (2 new):**
+- `LoopPhaseTests.cs` (30 tests) — phase computation, spawn decisions, body validation, serialization
+- `AnchorLifecycleTests.cs` (22 tests) — anchor gating, load/unload tracking, phase recomputation
 
 ### Phase 4: Rewind and Timeline (Design items 16-20)
 
@@ -705,7 +715,7 @@ For each phase:
 
 ---
 
-*Document version: 1.3*
+*Document version: 1.4*
 *Created: 2026-03-17*
-*Updated: 2026-03-18 — Phase 1+2+3a complete*
-*Status: Phase 1+2+3a complete (PR #59). 2367 tests pass. Phase 3b+4+5 pending.*
+*Updated: 2026-03-18 — Phases 1-3 complete*
+*Status: Phases 1-3 complete (PR #59). 2419 tests pass. Phases 4+5 pending.*
