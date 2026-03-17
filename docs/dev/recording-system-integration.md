@@ -80,34 +80,31 @@ Key structures:
 
 ### 1.4 What Changes
 
-| Component | Change Type | Details |
-|-----------|------------|---------|
-| `Recording` class | **Evolve → VesselSegment** | Add `controllers`, `segmentEvents`, `tracks` (TrackSections). Keep existing fields for backward compat during migration. |
-| `BranchPoint` | **Evolve → TreeEvent** | Add LAUNCH, BREAKUP, TERMINAL types. Add richer metadata per type. Keep existing types (Undock, EVA, Dock, Board, JointBreak). |
-| `RecordingTree` | **Evolve** | Add session-level fields. Recordings dict becomes segments dict. |
-| `FlightRecorder` | **Extend** | Add environment detection, reference frame tracking, segment boundary rule enforcement. Crash coalescing. |
-| `BackgroundRecorder` | **Extend** | Already exists! Add proximity-based sample rate, structural event capture for background vessels. |
-| `ParsekFlight` | **Extend** | Add zone-based rendering, multi-vessel playback coordination, looped playback anchoring. |
-| `RecordingStore` | **Extend** | New serialization for TrackSections, SegmentEvents, TreeEvent metadata. Version bump. |
-| `ParsekScenario` | **Extend** | New serialization for sessions, committed tracks, loop configs. |
+| Component | Change Type | Phase 1 Status | Details |
+|-----------|------------|----------------|---------|
+| `Recording` class | **Evolve** | **Done** | Added `SegmentEvents`, `TrackSections`, `Controllers`, `IsDebris`. Kept existing fields. |
+| `BranchPoint` | **Evolve** | **Done** | Added Launch=5, Breakup=6, Terminal=7 + type-specific metadata fields. |
+| `RecordingTree` | **Evolve** | **Done** | BranchPoint metadata serialization + ControllerInfo serialization. |
+| `FlightRecorder` | **Extend** | **Done** | Environment detection, reference frame tracking, segment boundary rule, crash coalescing via CrashCoalescer. |
+| `BackgroundRecorder` | **Extend** | **Done** | `CheckpointAllVessels()` at warp/scene boundaries, `onPartDie`/`onPartJointBreak` for background vessels. |
+| `ParsekFlight` | **Extend** | **Partial** | CrashCoalescer wiring, time warp/scene checkpoints done. Zone-based rendering, multi-vessel playback, looped anchoring deferred to Phases 2-5. |
+| `RecordingStore` | **Extend** | **Done** | SegmentEvent + TrackSection serialization. Version bump 5→6. |
+| `ParsekScenario` | **Extend** | Pending | Session persistence, loop config, quicksave management (Phases 2-4). |
 
 ### 1.5 What's New
 
-| Component | Purpose |
-|-----------|---------|
-| `VesselSegment.cs` | New class (or evolve Recording) — segment with controllers, tracks, segmentEvents |
-| `TreeEvent.cs` | New class (or evolve BranchPoint) — richer DAG event with type-specific metadata |
-| `SegmentEvent.cs` | New struct — within-segment state changes |
-| `TrackSection.cs` | New struct — environment+reference frame typed trajectory chunk |
-| `RecordingSession.cs` | New class — multi-vessel session coordination |
-| `CommittedVesselTrack.cs` | New class — merged per-vessel output |
-| `OrbitalCheckpoint.cs` | New struct — Keplerian snapshot (or reuse OrbitSegment with minor extension) |
-| `SurfaceCheckpoint.cs` | New struct — surface position snapshot (SurfacePosition already exists, extend) |
-| `EnvironmentDetector.cs` | New static class — environment taxonomy detection logic |
-| `ReferenceFrameTracker.cs` | New class — tracks ABSOLUTE/RELATIVE/ORBITAL transitions |
-| `CrashCoalescer.cs` | New class — breakup event coalescing (0.5s window) |
-| `SessionMerger.cs` | New static class — highest-fidelity-wins merge logic |
-| `RenderingZoneManager.cs` | New class — distance-based ghost rendering zone management |
+| Component | Status | Purpose |
+|-----------|--------|---------|
+| `SegmentEvent.cs` | **Done (Phase 1)** | Struct — within-segment state changes (8 types) |
+| `TrackSection.cs` | **Done (Phase 1)** | Struct — environment+reference frame typed trajectory chunk |
+| `ControllerInfo.cs` | **Done (Phase 1)** | Struct — controller part descriptor |
+| `EnvironmentDetector.cs` | **Done (Phase 1)** | Static class — 5-state environment classification + hysteresis |
+| `CrashCoalescer.cs` | **Done (Phase 1)** | Class — breakup event coalescing (0.5s window) |
+| `SegmentBoundaryLogic.cs` | **Done (Phase 1)** | Static class — joint break classification (split vs within-segment) |
+| `RecordingSession.cs` | Phase 2 | Class — multi-vessel session coordination |
+| `CommittedVesselTrack.cs` | Phase 2 | Class — merged per-vessel output |
+| `SessionMerger.cs` | Phase 2 | Static class — highest-fidelity-wins merge logic |
+| `RenderingZoneManager.cs` | Phase 5 | Class — distance-based ghost rendering zone management |
 
 ---
 
@@ -127,7 +124,7 @@ public bool IsDebris;                          // true if no controllers
 public List<SegmentEvent> SegmentEvents;       // within-segment state changes
 
 // Track sections (Section 5.3) — replaces flat Points list for new recordings
-public List<TrackSection> Tracks;              // environment+reference typed chunks
+public List<TrackSection> TrackSections;        // environment+reference typed chunks
 
 // Origin info (Section 3.2) — only for root segments
 public LaunchOrigin Origin;                    // body, lat, lon, alt, site name
@@ -141,7 +138,7 @@ public LaunchOrigin Origin;                    // body, lat, lon, alt, site name
 - `TerminalStateValue` → maps to TreeEvent.TERMINAL.cause
 - `VesselPersistentId` → unchanged
 
-**Backward compatibility:** Old recordings (v5) have flat `Points` lists with no `Tracks`. The playback code should check: if `Tracks` is populated, use track-based playback; else fall back to flat `Points` list (legacy mode). No migration needed — old recordings play as before.
+**Backward compatibility:** Old recordings (v5) have flat `Points` lists with no `TrackSections`. The playback code checks `rec.TrackSections.Count > 0` for track-based playback; else falls back to flat `Points` list (legacy mode). No migration needed — old recordings play as before.
 
 ### 2.2 TreeEvent ← BranchPoint
 
@@ -421,55 +418,50 @@ Based on the design document's Section 13 (Implementation Priorities), mapped to
 
 **Why first:** These are structural changes to the recording data model. Everything else builds on them.
 
-#### Task 1.1: SegmentEvent struct + serialization
-- **New file:** `SegmentEvent.cs` — struct with SegmentEventType enum
-- **Modify:** `RecordingStore.cs` — serialize/deserialize SEGMENT_EVENT ConfigNodes in .prec files
-- **Modify:** `Recording.cs` — add `List<SegmentEvent> SegmentEvents` field
-- **Tests:** Round-trip serialization, backward compat (old files without SEGMENT_EVENT nodes)
-- **Scope:** ~100 lines new code, ~50 lines modified
+#### Phase 1 — COMPLETE (PR #59)
 
-#### Task 1.2: Segment boundary rule enforcement
-- **Modify:** `FlightRecorder.cs` — change `onPartJointBreak` handler to check whether vessel actually split (not just parts broke off). Use `onVesselWasModified` to detect actual vessel splits.
-- **Modify:** `FlightRecorder.cs` — when controller part destroyed but vessel stays connected, emit CONTROLLER_CHANGE SegmentEvent instead of creating BranchPoint.
-- **Tests:** Unit test for `CheckControllerState()` static method, test that single-vessel breakage produces SegmentEvent not BranchPoint
-- **Scope:** ~150 lines modified
+All 7 design items implemented, tested, reviewed. 32 files changed, ~10k lines added, 2086 tests pass.
 
-#### Task 1.3: Crash breakup coalescing
-- **New file:** `CrashCoalescer.cs` — coalescing logic with 0.5s window
-- **Modify:** `FlightRecorder.cs` — feed joint break events to coalescer instead of direct BranchPoint creation
-- **Modify:** `BranchPoint.cs` — add `Breakup` type and metadata fields
-- **Tests:** Coalescer unit tests (rapid splits → single breakup, controlled child identification)
-- **Scope:** ~200 lines new, ~50 lines modified
+**New source files:**
+- `SegmentEvent.cs` — 8-type enum (ControllerChange..PartAdded) + struct (ut, type, details)
+- `TrackSection.cs` — SegmentEnvironment (5 states), ReferenceFrame (3 frames), TrackSection struct
+- `ControllerInfo.cs` — controller part descriptor (type, partName, partPersistentId)
+- `EnvironmentDetector.cs` — pure static `Classify()` + `EnvironmentHysteresis` (1s thrust, 3s speed debounce)
+- `CrashCoalescer.cs` — 0.5s window coalescing, emits BREAKUP BranchPoints
+- `SegmentBoundaryLogic.cs` — `ClassifyJointBreakResult()`, `EmitBreakageSegmentEvents()`, `IsControllerPart()`
 
-#### Task 1.4: Environment taxonomy + TrackSection
-- **New file:** `TrackSection.cs` — struct with environment + reference frame enums
-- **New file:** `EnvironmentDetector.cs` — static classification logic
-- **Modify:** `FlightRecorder.cs` — track current environment, create TrackSections
-- **Modify:** `RecordingStore.cs` — serialize/deserialize TRACK_SECTION ConfigNodes
-- **Tests:** EnvironmentDetector unit tests, TrackSection serialization round-trip
-- **Scope:** ~250 lines new, ~100 lines modified
+**Modified source files:**
+- `BranchPoint.cs` — added Launch=5, Breakup=6, Terminal=7 + metadata (SplitCause, BreakupCause, DebrisCount, MergeCause, TerminalCause, etc.)
+- `Recording.cs` — added SegmentEvents, TrackSections, Controllers, IsDebris fields
+- `RecordingStore.cs` — version 5→6, `SerializeSegmentEvents`/`DeserializeSegmentEvents`, `SerializeTrackSections`/`DeserializeTrackSections`, `TrackSectionMinVersion` constant
+- `RecordingTree.cs` — BranchPoint metadata serialization, ControllerInfo serialization
+- `FlightRecorder.cs` — environment tracking (TrackSections created on transitions), reference frame tracking (ABSOLUTE↔ORBITAL_CHECKPOINT on rails transitions), dual-write to flat Points + TrackSection.frames, uses cached engines for environment detection
+- `ParsekFlight.cs` — CrashCoalescer wired into DeferredJointBreakCheck, SegmentBoundaryLogic classification, time warp checkpoint handler, scene change checkpoint call
+- `BackgroundRecorder.cs` — `CheckpointAllVessels()` for warp/scene boundaries, `onPartDie`/`onPartJointBreak` subscriptions for background vessels
 
-#### Task 1.5: Reference frame axis (ABSOLUTE/RELATIVE/ORBITAL_CHECKPOINT)
-- Already defined in `TrackSection.cs` from Task 1.4
-- **Modify:** `FlightRecorder.cs` — detect RELATIVE frame entry/exit (physics bubble of pre-existing vessel)
-- **Modify:** `TrajectoryMath.cs` — relative-frame position computation
-- **Scope:** ~100 lines modified
+**Log subsystem tags (standardized):**
+- `Recorder` — FlightRecorder (environment tracking, TrackSection lifecycle)
+- `BgRecorder` — BackgroundRecorder (background vessel events, checkpoints)
+- `Coalescer` — CrashCoalescer + ParsekFlight crash wiring
+- `Environment` — EnvironmentDetector + EnvironmentHysteresis
+- `Boundary` — SegmentBoundaryLogic (joint break classification)
+- `Checkpoint` — orbital checkpoint operations
 
-#### Task 1.6: Orbital checkpoint capture at time warp and scene change
-- **Modify:** `FlightRecorder.cs` — subscribe to time warp events, scene change events
-- **Modify:** `BackgroundRecorder.cs` — checkpoint all session vessels at scene boundaries
-- **Scope:** ~80 lines modified (BackgroundRecorder already captures orbital data for on-rails vessels)
+**Deferred to later phases:**
+- RELATIVE reference frame activation (Phase 3 — requires proximity detection)
+- Background vessel SegmentEvents (Phase 2 — requires multi-vessel session infrastructure)
+- Child recording creation after BREAKUP (Phase 2 — requires multi-vessel recording)
 
-#### Task 1.7: Extend part event recording to all physics-bubble vessels
-- **Modify:** `BackgroundRecorder.cs` — already records part events for background vessels
-- **Verify:** All 35 PartEventTypes are captured for background vessels (may need to extend)
-- **Scope:** Mostly verification + ~50 lines if gaps found
-
-#### Task 1.8: Version bump + backward compat
-- **Modify:** `RecordingStore.cs` — bump `CurrentRecordingFormatVersion` to 6
-- **Modify:** Playback code — check for Tracks vs flat Points, use appropriate path
-- **Tests:** Load v5 recording, verify playback still works
-- **Scope:** ~50 lines modified
+**Test files (17 new):**
+- `SegmentEventTests.cs` (16 tests), `SegmentEventSerializationTests.cs` (14 tests)
+- `TrackSectionTests.cs` (20 tests), `TrackSectionSerializationTests.cs` (15 tests)
+- `BranchPointExtensionTests.cs` (18 tests), `RecordingFieldExtensionTests.cs` (11 tests)
+- `FormatVersionTests.cs` (10 tests)
+- `EnvironmentDetectorTests.cs` (40 tests), `EnvironmentTrackingIntegrationTests.cs` (21 tests)
+- `CrashCoalescerTests.cs` (32 tests), `CrashCoalesceWiringTests.cs` (19 tests)
+- `SegmentBoundaryRuleTests.cs` (37 tests)
+- `ReferenceFrameTrackingTests.cs` (20 tests)
+- `BackgroundRecorderTests.cs` (extended), `BackgroundPartEventAuditTests.cs` (19 tests)
 
 ### Phase 2: Multi-Vessel Sessions (Design items 8-11)
 
@@ -597,7 +589,7 @@ All Phase 1 changes go into v6. The format is additive: v6 readers ignore unknow
 
 **Decision: TrackSections serialized as TRACK_SECTION ConfigNodes in .prec files, alongside existing POINT/ORBIT_SEGMENT/PART_EVENT nodes.**
 
-For v6+ recordings: TRACK_SECTION nodes contain their own POINT sub-nodes. The flat top-level POINT nodes are omitted. For v5 recordings: flat POINT nodes remain (no TrackSections). Playback code checks: if `rec.Tracks.Count > 0`, use track-based playback; else use legacy flat Points.
+For v6+ recordings: TRACK_SECTION nodes contain their own POINT sub-nodes. The flat top-level POINT nodes are also written (dual-write for backward compat). For v5 recordings: flat POINT nodes only (no TrackSections). Playback code checks: if `rec.TrackSections.Count > 0`, use track-based playback; else use legacy flat Points. Gate constant: `RecordingStore.TrackSectionMinVersion = 6`.
 
 ---
 
@@ -639,12 +631,12 @@ For v6+ recordings: TRACK_SECTION nodes contain their own POINT sub-nodes. The f
 
 ### 7.1 Existing Test Infrastructure
 
-The project already has extensive test infrastructure:
-- `RecordingBuilder` — fluent API for building Recording ConfigNodes
+The project has extensive test infrastructure:
+- `RecordingBuilder` — fluent API for building Recording ConfigNodes (default format v6)
 - `VesselSnapshotBuilder` — fluent API for building vessel snapshots
 - `ScenarioWriter` — injects recordings into .sfs save files
 - `ParsekLog.TestSinkForTesting` — captures log output for assertions
-- 1250 existing tests, all passing
+- 2086 tests pass after Phase 1 (up from ~1770 on main)
 
 ### 7.2 New Test Fixtures Needed
 
@@ -692,6 +684,7 @@ For each phase:
 
 ---
 
-*Document version: 1.0*
+*Document version: 1.1*
 *Created: 2026-03-17*
-*Status: Ready for review and refinement*
+*Updated: 2026-03-17 — Phase 1 complete, standardized log tags, actual file/field names*
+*Status: Phase 1 complete (PR #59). Phases 2-5 pending.*
