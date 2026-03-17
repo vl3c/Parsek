@@ -240,6 +240,19 @@ namespace Parsek
                             $"ResolveOverlaps: {existing.source} retains over {current.source} " +
                             $"at [{existing.startUT.ToString("F2", ic)},{existing.endUT.ToString("F2", ic)}]");
 
+                        // Emit the portion of current BEFORE existing (if any) —
+                        // this prevents losing gap portions when current spans multiple
+                        // disjoint higher-priority sections.
+                        if (current.startUT < existing.startUT)
+                        {
+                            TrackSection before = current;
+                            before.endUT = existing.startUT;
+                            before.frames = TrimFrames(current.frames, current.startUT, existing.startUT);
+                            before.checkpoints = TrimCheckpoints(current.checkpoints, current.startUT, existing.startUT);
+                            if (before.endUT > before.startUT)
+                                newOutput.Add(before);
+                        }
+
                         // Trim current to only the non-overlapping portion after existing
                         if (current.endUT > existing.endUT)
                         {

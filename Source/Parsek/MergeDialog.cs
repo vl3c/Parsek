@@ -731,8 +731,8 @@ namespace Parsek
 
             string footer;
             if (survivingCount > 0)
-                footer = "\nSurviving vessels marked [Persist] will appear after ghost playback.\n" +
-                         "Toggle any vessel to [Ghost-only] to skip spawning it.";
+                footer = "\nSurviving vessels marked [Persist] will be spawned after ghost playback.\n" +
+                         "Destroyed or recovered vessels are ghost-only (visual replay only).";
             else
                 footer = "\nAll vessels were lost. Ghosts will replay the mission.";
 

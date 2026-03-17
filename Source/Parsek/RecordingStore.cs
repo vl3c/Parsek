@@ -295,6 +295,27 @@ namespace Parsek
                     kvp.Value.GhostGeometryAvailable = original.GhostGeometryAvailable;
                     kvp.Value.GhostGeometryCaptureError = original.GhostGeometryCaptureError;
 
+                    // Terminal orbit/position (missing from MergeTree's structural copy)
+                    kvp.Value.TerminalOrbitInclination = original.TerminalOrbitInclination;
+                    kvp.Value.TerminalOrbitEccentricity = original.TerminalOrbitEccentricity;
+                    kvp.Value.TerminalOrbitSemiMajorAxis = original.TerminalOrbitSemiMajorAxis;
+                    kvp.Value.TerminalOrbitLAN = original.TerminalOrbitLAN;
+                    kvp.Value.TerminalOrbitArgumentOfPeriapsis = original.TerminalOrbitArgumentOfPeriapsis;
+                    kvp.Value.TerminalOrbitMeanAnomalyAtEpoch = original.TerminalOrbitMeanAnomalyAtEpoch;
+                    kvp.Value.TerminalOrbitEpoch = original.TerminalOrbitEpoch;
+                    kvp.Value.TerminalOrbitBody = original.TerminalOrbitBody;
+                    kvp.Value.TerminalPosition = original.TerminalPosition;
+                    kvp.Value.SurfacePos = original.SurfacePos;
+
+                    // Chain/EVA linkage
+                    kvp.Value.ChainId = original.ChainId;
+                    kvp.Value.ChainIndex = original.ChainIndex;
+                    kvp.Value.ChainBranch = original.ChainBranch;
+                    kvp.Value.ParentRecordingId = original.ParentRecordingId;
+                    kvp.Value.EvaCrewName = original.EvaCrewName;
+                    kvp.Value.SegmentPhase = original.SegmentPhase;
+                    kvp.Value.SegmentBodyName = original.SegmentBodyName;
+
                     tree.Recordings[kvp.Key] = kvp.Value;
                     ParsekLog.Verbose("Merger",
                         $"CommitTree: replaced recording '{kvp.Key}' with merged version " +
