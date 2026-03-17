@@ -4,6 +4,12 @@ using Xunit;
 
 namespace Parsek.Tests
 {
+    /// <summary>
+    /// Pure logic tests for AnchorDetector — no log capture.
+    /// This class runs in parallel (no Collection attribute). It does NOT
+    /// touch ParsekLog.SuppressLogging to avoid racing with Sequential tests.
+    /// AnchorDetector methods log internally but we don't assert on logs here.
+    /// </summary>
     public class AnchorDetectorTests
     {
         #region FindNearestAnchor -- No candidates

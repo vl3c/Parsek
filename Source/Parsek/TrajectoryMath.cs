@@ -564,5 +564,21 @@ namespace Parsek
                 v.y + qw * ty + (qz * tx - qx * tz),
                 v.z + qw * tz + (qx * ty - qy * tx));
         }
+
+        /// <summary>
+        /// Computes the position offset from an anchor vessel to the focused vessel
+        /// in world-space coordinates. Both positions come from
+        /// body.GetWorldSurfacePosition(lat, lon, alt), so the offset is stable
+        /// within a physics frame (FloatingOrigin shifts cancel because both
+        /// positions shift equally).
+        ///
+        /// The returned (dx, dy, dz) vector is stored in the TrajectoryPoint's
+        /// latitude/longitude/altitude fields when recording in RELATIVE frame.
+        /// Pure static method for testability.
+        /// </summary>
+        internal static Vector3d ComputeRelativeOffset(Vector3d focusedPosition, Vector3d anchorPosition)
+        {
+            return focusedPosition - anchorPosition;
+        }
     }
 }
