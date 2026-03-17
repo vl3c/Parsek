@@ -513,12 +513,10 @@ namespace Parsek
                             // Rotation: apply anchor's current rotation * relative rotation
                             e.ghost.transform.rotation = anchor.transform.rotation * e.relativeRot;
                         }
-                        else if (e.bodyBefore != null)
+                        else
                         {
-                            // Fallback: treat offset as body-fixed absolute coords
-                            e.ghost.transform.position = e.bodyBefore.GetWorldSurfacePosition(
-                                e.latBefore, e.lonBefore, e.altBefore);
-                            e.ghost.transform.rotation = e.bodyBefore.bodyTransform.rotation * e.relativeRot;
+                            // Anchor not loaded — hide ghost (offsets are meters, not lat/lon/alt)
+                            e.ghost.SetActive(false);
                         }
                         break;
                     }
@@ -5957,6 +5955,8 @@ namespace Parsek
             pendingSpawnRecordingIds.Clear();
             pendingWatchRecordingId = null;
             loadedAnchorVessels.Clear();
+            loggedRelativeStart.Clear();
+            loggedAnchorNotFound.Clear();
             CleanupActiveExplosions();
         }
 
@@ -7492,46 +7492,18 @@ namespace Parsek
             }
             else
             {
-                // Fallback: anchor not found — treat dx/dy/dz as absolute body-fixed coords (best-effort)
+                // Anchor not found — hide ghost entirely.
+                // RELATIVE frames store dx/dy/dz meter offsets in lat/lon/alt fields,
+                // so interpreting them as geographic coordinates would place the ghost
+                // at completely wrong positions. Hiding is the safe fallback.
                 long key = ((long)anchorVesselId << 32);
                 if (loggedAnchorNotFound.Add(key))
                     ParsekLog.Warn("Anchor",
-                        $"RELATIVE playback fallback: anchor vessel pid={anchorVesselId} not found, " +
-                        $"using body-fixed absolute positioning");
+                        $"RELATIVE playback: anchor vessel pid={anchorVesselId} not found, " +
+                        $"hiding ghost until anchor loads");
 
-                CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
-                if (body == null)
-                {
-                    ParsekLog.Warn("Flight", $"InterpolateAndPositionRelative: body '{bodyName}' not found");
-                    interpResult = InterpolationResult.Zero;
-                    ghost.SetActive(false);
-                    return;
-                }
-
-                // Use the offset values as lat/lon/alt for absolute positioning (best-effort)
-                Vector3d posBefore = body.GetWorldSurfacePosition(before.latitude, before.longitude, before.altitude);
-                Vector3d posAfter = body.GetWorldSurfacePosition(after.latitude, after.longitude, after.altitude);
-                Vector3d pos = Vector3d.Lerp(posBefore, posAfter, t);
-                ghost.transform.position = pos;
-                ghost.transform.rotation = body.bodyTransform.rotation * interpolatedRot;
-
-                ghostPosEntries.Add(new GhostPosEntry
-                {
-                    ghost = ghost,
-                    mode = GhostPosMode.PointInterp,
-                    bodyBefore = body, bodyAfter = body,
-                    latBefore = before.latitude, lonBefore = before.longitude, altBefore = before.altitude,
-                    latAfter = after.latitude, lonAfter = after.longitude, altAfter = after.altitude,
-                    t = t,
-                    pointUT = targetUT,
-                    interpolatedRot = interpolatedRot,
-                    surfaceRelativeRotation = true
-                });
-
-                interpResult = new InterpolationResult(
-                    Vector3.Lerp(before.velocity, after.velocity, t),
-                    bodyName,
-                    TrajectoryMath.InterpolateAltitude(before.altitude, after.altitude, t));
+                interpResult = InterpolationResult.Zero;
+                ghost.SetActive(false);
             }
         }
 
