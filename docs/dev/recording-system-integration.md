@@ -466,29 +466,40 @@ All 7 design items implemented, tested, reviewed. 32 files changed, ~10k lines a
 - `ReferenceFrameTrackingTests.cs` (20 tests)
 - `BackgroundRecorderTests.cs` (extended), `BackgroundPartEventAuditTests.cs` (19 tests)
 
-### Phase 2: Multi-Vessel Sessions (Design items 8-11)
+### Phase 2 — COMPLETE (PR #59)
 
-**Goal:** Multi-vessel recording sessions with focus switching, background recording, and merge.
+All design items 8-11 implemented plus background vessel split detection with TTL.
 
-#### Task 2.1: RecordingSession + focus switching
-- **New file:** `RecordingSession.cs` — session data model
-- **Modify:** `ParsekFlight.cs` — track focus switches, create FocusSwitchEvent entries
-- **Modify:** `ParsekScenario.cs` — persist session data
-- **Scope:** ~200 lines new, ~100 lines modified
+**Decision: No RecordingSession class.** Merge operates directly on RecordingTree. Focus history derived from ActiveRecordingId. Scene-change gaps implicit via orbital checkpoints.
 
-#### Task 2.2: Background trajectory recording with proximity-based rate
-- **Modify:** `BackgroundRecorder.cs` — variable sample rate based on distance
-- **Scope:** ~50 lines modified
+**New source files:**
+- `ProximityRateSelector.cs` — distance-based background sample rate (<200m: 5Hz, 200-1km: 2Hz, 1-2.3km: 0.5Hz)
+- `SessionMerger.cs` — highest-fidelity-wins merge (Active > Background > Checkpoint), overlap resolution with gap preservation, snap-switch boundaries with logged discontinuity, PartEvent deduplication by (ut, pid, type, moduleIndex, value)
 
-#### Task 2.3: Session merge (highest-fidelity-wins)
-- **New file:** `SessionMerger.cs` — merge logic
-- **Tests:** Merge scenarios (overlapping active+background, gaps, checkpoint fallback)
-- **Scope:** ~300 lines new
+**Modified source files:**
+- `TrackSection.cs` — added `TrackSectionSource` enum (Active/Background/Checkpoint), `source` field, `boundaryDiscontinuityMeters` field
+- `BackgroundRecorder.cs` — proximity-based sample rate wired in, background vessel split detection via `HandleBackgroundVesselSplit`, debris TTL (30s / crash / out-of-bubble), background TrackSection creation with environment tracking and source=Background tagging, flush on all exit paths
+- `MergeDialog.cs` — per-vessel rows via `ShowMultiVesselTreeDialog`, `CanPersistVessel` / `BuildDefaultVesselDecisions` pure logic, `ApplyVesselDecisions` for ghost-only nulling
+- `RecordingStore.cs` — `SessionMerger.MergeTree` wired into `CommitTree`, merge-in-place preserving all original fields by default
+- `GhostPlaybackLogic.cs` — `RealVesselExists` + `ShouldSkipExternalVesselGhost` for external vessel fallback
+- `ParsekFlight.cs` — external vessel ghost skip in timeline playback, background split/TTL tick calls
 
-#### Task 2.4: Scene-change gaps
-- **Modify:** `BackgroundRecorder.cs` — checkpoint all vessels at scene change
-- **Modify:** `ParsekFlight.cs` — handle gaps during playback (orbital propagation)
-- **Scope:** ~80 lines modified
+**Log subsystem tags:**
+- `Merger` — SessionMerger overlap resolution, commit-time merge
+- `BgRecorder` — background splits, TTL, TrackSection lifecycle (existing tag, extended)
+
+**Test files (7 new):**
+- `TrackSectionSourceTests.cs` (17 tests), `ProximityRateSelectorTests.cs` (19 tests)
+- `BackgroundSplitTests.cs` (37 tests), `BackgroundTrackSectionTests.cs` (30 tests)
+- `SessionMergerTests.cs` (32 tests), `MergeDialogVesselTests.cs` (19 tests)
+- `CommitFlowTests.cs` (21 tests)
+
+**Review fixes applied:**
+- Part event dedup key includes moduleIndex + value (multi-engine correctness)
+- CommitTree merge uses in-place field overwrite (new fields preserved by default)
+- Overlap gap loss bug fixed (lower-priority section between two higher-priority preserved)
+- Double-flush bug fixed (trackSections cleared after flush)
+- Dialog text corrected (removed nonexistent toggle promise)
 
 ### Phase 3: Relative Frames and Anchoring (Design items 12-15)
 
@@ -687,7 +698,7 @@ For each phase:
 
 ---
 
-*Document version: 1.1*
+*Document version: 1.2*
 *Created: 2026-03-17*
-*Updated: 2026-03-17 — Phase 1 complete, standardized log tags, actual file/field names*
-*Status: Phase 1 complete (PR #59). Phases 2-5 pending.*
+*Updated: 2026-03-17 — Phase 1+2 complete*
+*Status: Phase 1+2 complete (PR #59). 2261 tests pass. Phases 3-5 pending.*
