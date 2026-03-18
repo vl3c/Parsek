@@ -43,7 +43,8 @@ namespace Parsek
         public float autoLoopIntervalSeconds = 10.0f;
         public int autoLoopTimeUnit = 0; // 0=Sec, 1=Min, 2=Hour
 
-        // Ghost soft cap thresholds
+        // Ghost soft cap — disabled by default until profiled with real-world ghost counts
+        public bool ghostCapEnabled = false;
         public int ghostCapZone1Reduce = 8;
         public int ghostCapZone1Despawn = 15;
         public int ghostCapZone2Simplify = 20;

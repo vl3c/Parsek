@@ -20,6 +20,9 @@ namespace Parsek
 
     internal static class GhostSoftCapManager
     {
+        // Enabled toggle — off by default until profiled with real-world ghost counts
+        internal static bool Enabled = false;
+
         // Default thresholds (configurable via settings)
         internal static int Zone1ReduceThreshold = 8;
         internal static int Zone1DespawnThreshold = 15;
@@ -66,6 +69,7 @@ namespace Parsek
             List<(int recordingIndex, GhostPriority priority)> zone2Ghosts)
         {
             var actions = new Dictionary<int, GhostCapAction>();
+            if (!Enabled) return actions; // caps disabled — no actions
 
             // Zone 2 simplification
             if (zone2Count > Zone2SimplifyThreshold)
@@ -144,6 +148,7 @@ namespace Parsek
         /// </summary>
         internal static void ResetThresholds()
         {
+            Enabled = false;
             Zone1ReduceThreshold = 8;
             Zone1DespawnThreshold = 15;
             Zone2SimplifyThreshold = 20;

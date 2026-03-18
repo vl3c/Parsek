@@ -16,13 +16,14 @@ namespace Parsek.Tests
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             GhostSoftCapManager.ResetThresholds();
+            GhostSoftCapManager.Enabled = true; // tests assume caps are active
         }
 
         public void Dispose()
         {
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
-            GhostSoftCapManager.ResetThresholds();
+            GhostSoftCapManager.ResetThresholds(); // resets Enabled to false
         }
 
         #region ApplySettings — Threshold Flow

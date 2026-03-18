@@ -2842,9 +2842,11 @@ namespace Parsek
                 s.speedChangeThreshold = 5.0f;
                 s.autoLoopIntervalSeconds = 10.0f;
                 s.autoLoopTimeUnit = 0;
+                s.ghostCapEnabled = false;
                 s.ghostCapZone1Reduce = 8;
                 s.ghostCapZone1Despawn = 15;
                 s.ghostCapZone2Simplify = 20;
+                GhostSoftCapManager.Enabled = false;
                 GhostSoftCapManager.ApplySettings(8, 15, 20);
                 settingsAutoLoopEditing = false;
                 ParsekLog.Info("UI", "Settings reset to defaults");
@@ -3000,6 +3002,20 @@ namespace Parsek
         private void DrawGhostCapSettings(ParsekSettings s)
         {
             GUILayout.Label("Ghost Soft Caps", GUI.skin.box);
+
+            bool enabled = GUILayout.Toggle(s.ghostCapEnabled, "Enable ghost soft caps");
+            if (enabled != s.ghostCapEnabled)
+            {
+                s.ghostCapEnabled = enabled;
+                GhostSoftCapManager.Enabled = enabled;
+                ParsekLog.Info("UI", $"Ghost soft caps {(enabled ? "enabled" : "disabled")}");
+            }
+
+            if (!s.ghostCapEnabled)
+            {
+                GUILayout.Label("  (caps disabled — all ghosts rendered)", GUI.skin.label);
+                return;
+            }
 
             GUILayout.BeginHorizontal();
             GUILayout.Label(

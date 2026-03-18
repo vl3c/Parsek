@@ -229,6 +229,9 @@ namespace Parsek
         private readonly List<(int recordingIndex, GhostPriority priority)> cachedZone2Ghosts =
             new List<(int, GhostPriority)>();
         private bool softCapTriggeredThisFrame; // rate-limit logging
+        // Ghosts despawned by soft cap are suppressed until ghost count drops below threshold
+        // to prevent spawn-despawn-spawn loops every frame
+        private readonly HashSet<int> softCapSuppressed = new HashSet<int>();
 
         // Camera follow (watch mode) — transient, never serialized
         private const string WatchModeLockId = "ParsekWatch";
@@ -3308,6 +3311,7 @@ namespace Parsek
             var capSettings = ParsekSettings.Current;
             if (capSettings != null)
             {
+                GhostSoftCapManager.Enabled = capSettings.ghostCapEnabled;
                 GhostSoftCapManager.ApplySettings(
                     capSettings.ghostCapZone1Reduce,
                     capSettings.ghostCapZone1Despawn,
@@ -4910,6 +4914,7 @@ namespace Parsek
                         // Normal ghost playback (point-based, with optional orbit segments)
                         if (!ghostActive)
                         {
+                            if (softCapSuppressed.Contains(i)) continue; // suppressed by soft cap
                             SpawnTimelineGhost(i, rec);
                             state = ghostStates[i];
                             if (loggedGhostEnter.Add(i))
@@ -4998,6 +5003,7 @@ namespace Parsek
                         // Background-only recording: orbit or surface positioning
                         if (!ghostActive)
                         {
+                            if (softCapSuppressed.Contains(i)) continue; // suppressed by soft cap
                             SpawnTimelineGhost(i, rec);
                             state = ghostStates[i];
                         }
@@ -5209,6 +5215,7 @@ namespace Parsek
             if (cachedZone1Ghosts.Count > GhostSoftCapManager.Zone1ReduceThreshold ||
                 cachedZone2Ghosts.Count > GhostSoftCapManager.Zone2SimplifyThreshold)
             {
+                // Caps still active — keep suppression set
                 var capActions = GhostSoftCapManager.EvaluateCaps(
                     cachedZone1Ghosts.Count, cachedZone2Ghosts.Count,
                     cachedZone1Ghosts, cachedZone2Ghosts);
@@ -5234,6 +5241,7 @@ namespace Parsek
                                 ParsekLog.Info("SoftCap",
                                     $"Despawning ghost #{capIdx} \"{committed[capIdx].VesselName}\"");
                                 DestroyTimelineGhost(capIdx);
+                                softCapSuppressed.Add(capIdx); // prevent re-spawn next frame
                                 break;
                             case GhostCapAction.SimplifyToOrbitLine:
                                 GhostPlaybackState simplifyState;
@@ -5258,6 +5266,13 @@ namespace Parsek
             else
             {
                 softCapTriggeredThisFrame = false;
+                // Caps no longer active — clear suppression so ghosts can spawn again
+                if (softCapSuppressed.Count > 0)
+                {
+                    ParsekLog.Verbose("SoftCap",
+                        $"Caps resolved, clearing {softCapSuppressed.Count} suppressed ghosts");
+                    softCapSuppressed.Clear();
+                }
             }
 
             // Apply tree-level resource deltas (lump sum when UT passes tree EndUT)
@@ -6121,6 +6136,7 @@ namespace Parsek
             pendingSpawnRecordingIds.Clear();
             pendingWatchRecordingId = null;
             loadedAnchorVessels.Clear();
+            softCapSuppressed.Clear();
             loggedRelativeStart.Clear();
             loggedAnchorNotFound.Clear();
             CleanupActiveExplosions();
