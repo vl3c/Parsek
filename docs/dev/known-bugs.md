@@ -507,3 +507,35 @@ Technical debt from the part-audit PR (#46). Two `// TODO:` items in source code
 2. **BuildTimelineGhostFromSnapshot out-parameters (10 info lists):** Replaced with `GhostBuildResult` class that bundles the root `GameObject` and all 10 info lists. Method now returns `GhostBuildResult` (null on failure). All backward-compat overloads removed. Call sites in `ParsekFlight.cs` and `ParsekKSC.cs` updated. `PopulateGhostInfoDictionaries` now takes `GhostBuildResult` instead of 10 individual list parameters.
 
 **Status:** Fixed
+
+## 45. Suborbital vessel spawn causes explosion
+
+When a recording's final position is SUB_ORBITAL (e.g., the vessel was on a suborbital trajectory when the recording ended due to crash), the spawned vessel appears mid-air and immediately falls/explodes on contact with terrain or water. The spawn snapshot captures the vessel at its last recorded flight position, not on a surface.
+
+**Observed in:** Mun flight test session (2026-03-18). Vessel spawned as `sit=SUB_ORBITAL` at chain end, then crashed.
+
+**Root cause:** `VesselSpawner.RespawnVessel` spawns the vessel at whatever situation was recorded. If the final situation is SUB_ORBITAL, the vessel materializes in mid-air with no support.
+
+**Impact:** Medium — spawned vessel explodes, player loses the vessel they expected to persist after ghost playback.
+
+**Possible fix:**
+1. Don't spawn vessels with SUB_ORBITAL terminal state — treat like Destroyed (ghost-only)
+2. Propagate the orbit forward to find where it lands, spawn at that position
+3. Add a "safe spawn" check: if situation is SUB_ORBITAL and altitude is low, defer spawn until vessel reaches surface
+
+**Status:** Open
+
+## 46. EVA kerbals disappear in water after spawn
+
+Player landed in water, EVA'd 3 kerbals from the pad vessel, but 2 of them disappeared. May be KSP's known behavior of destroying EVA kerbals in certain water situations, or a Parsek crew reservation/dedup conflict.
+
+**Observed in:** Same session as #45. After vessel spawn with crew dedup (3 crew removed from spawn snapshot because they were already on the pad vessel from revert), the pad vessel retained the real crew. Player EVA'd from pad vessel; 2 of 3 kerbals vanished shortly after EVA.
+
+**Root cause:** Needs investigation. Possible causes:
+1. KSP destroys EVA kerbals that land in water (known vanilla behavior in some situations)
+2. Parsek `crewReplacements` dict interfered with EVA kerbal persistence
+3. Crew dedup removed crew from the wrong vessel
+
+**Impact:** Medium — crew members lost unexpectedly.
+
+**Status:** Open — needs investigation
