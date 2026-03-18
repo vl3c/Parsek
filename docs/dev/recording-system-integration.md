@@ -540,27 +540,24 @@ Loop phase tracking across vessel load/unload. Design items 14-15.
 - `LoopPhaseTests.cs` (30 tests) — phase computation, spawn decisions, body validation, serialization
 - `AnchorLifecycleTests.cs` (22 tests) — anchor gating, load/unload tracking, phase recomputation
 
-### Phase 4: Rewind and Timeline (Design items 16-20)
+### Phase 4 — COMPLETE (PR #59)
 
-**Goal:** Quicksave at commit, vessel list reconstruction on rewind, fast-forward with ghosts.
+Rewind and timeline operations. Design items 16-20. Already implemented in mainline — Phase 4 verified, tested, and documented.
 
-#### Task 4.1: Quicksave capture at recording commit
-- **Modify:** `ParsekFlight.cs` — capture quicksave when recording is committed
-- Already partially implemented (`RewindSaveFileName` exists on Recording)
-- **Scope:** ~50 lines modified
+**Key finding:** Items 16-18 were already fully implemented in the mainline code:
+- Quicksave capture via `CaptureRewindSave` at recording start
+- `CanRewind` + `InitiateRewind` with 6 guard conditions
+- Spawn-at-recording-end via `ShouldSpawnAtRecordingEnd` (extracted to GhostPlaybackLogic as pure static)
+- Warp spawn queue (`pendingSpawnRecordingIds`) flushed on warp exit
+- PID-based dedup (`SpawnedVesselPersistentId`) resets on revert for re-spawn
 
-#### Task 4.2: Vessel list reconstruction on rewind
-- **New method in** `RecordingStore.cs` or `ParsekFlight.cs` — reconstruct vessel list from committed recordings at target UT
-- **Scope:** ~200 lines new
+**Phase 4 work done:**
+- Extracted `ShouldSpawnAtRecordingEnd` from inline ParsekFlight logic to `GhostPlaybackLogic.cs` (pure static, testable)
+- Fixed: looping recordings spawn on first play, PID dedup prevents re-spawn on subsequent loops
+- Added timeline immutability policy comment to `RecordingStore.cs`
+- 38 new tests in `RewindTimelineTests.cs` covering all spawn guards, CanRewind validation, InitiateRewind flags, revert scenarios
 
-#### Task 4.3: Fast-forward with ghost playback
-- **Modify:** `ParsekFlight.cs` — during time warp, play committed ghosts at recorded UTs
-- **Scope:** ~100 lines modified
-
-#### Task 4.4: Quicksave pruning
-- **Modify:** `ParsekUI.cs` — UI for rewind-protected vs archive recordings
-- **Modify:** `ParsekScenario.cs` — pruning logic
-- **Scope:** ~150 lines new
+**Deferred:** Quicksave pruning (item 19), infrastructure patches (item 20)
 
 ### Phase 5: Rendering and Polish (Design items 21-25)
 
@@ -715,7 +712,7 @@ For each phase:
 
 ---
 
-*Document version: 1.4*
+*Document version: 1.5*
 *Created: 2026-03-17*
-*Updated: 2026-03-18 — Phases 1-3 complete*
-*Status: Phases 1-3 complete (PR #59). 2419 tests pass. Phases 4+5 pending.*
+*Updated: 2026-03-18 — Phases 1-4 complete*
+*Status: Phases 1-4 complete (PR #59). 2457 tests pass. Phase 5 pending.*
