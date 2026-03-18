@@ -1820,5 +1820,87 @@ namespace Parsek
         }
 
         #endregion
+
+        #region Zone-Based Rendering
+
+        /// <summary>
+        /// Determines whether a ghost mesh should be hidden because it entered Zone 3 (Beyond).
+        /// Returns true if the ghost is active and in Beyond zone, meaning it should be hidden.
+        /// </summary>
+        internal static bool ShouldHideGhostForZone(bool ghostIsActive, RenderingZone zone)
+        {
+            return ghostIsActive && zone == RenderingZone.Beyond;
+        }
+
+        /// <summary>
+        /// Determines whether watch mode should be exited because the watched ghost entered Zone 3.
+        /// Returns true if the ghost being watched moved beyond visual range.
+        /// </summary>
+        internal static bool ShouldExitWatchModeForZone(
+            int watchedRecordingIndex, int currentRecordingIndex, RenderingZone zone)
+        {
+            return watchedRecordingIndex == currentRecordingIndex && zone == RenderingZone.Beyond;
+        }
+
+        /// <summary>
+        /// Determines whether part events should be applied for the given zone.
+        /// Part events only fire in the Physics zone (within 2.3 km).
+        /// </summary>
+        internal static bool ShouldApplyPartEventsForZone(RenderingZone zone)
+        {
+            return zone == RenderingZone.Physics;
+        }
+
+        /// <summary>
+        /// Determines the rendering actions to take when a ghost transitions between zones.
+        /// Returns (shouldHideMesh, shouldExitWatch, shouldSkipPartEvents, shouldSkipPositioning).
+        /// </summary>
+        internal static (bool shouldHideMesh, bool shouldSkipPartEvents, bool shouldSkipPositioning)
+            GetZoneRenderingPolicy(RenderingZone zone)
+        {
+            switch (zone)
+            {
+                case RenderingZone.Beyond:
+                    return (true, true, true);
+                case RenderingZone.Visual:
+                    return (false, true, false);
+                case RenderingZone.Physics:
+                default:
+                    return (false, false, false);
+            }
+        }
+
+        /// <summary>
+        /// Detects a zone transition and returns whether the zone changed.
+        /// Pure decision method — does not mutate state or log.
+        /// </summary>
+        internal static bool DetectZoneTransition(
+            RenderingZone previousZone, RenderingZone newZone,
+            out string transitionDescription)
+        {
+            if (previousZone == newZone)
+            {
+                transitionDescription = null;
+                return false;
+            }
+
+            // Describe the transition direction
+            bool movingOutward = (int)newZone > (int)previousZone;
+            transitionDescription = movingOutward ? "outward" : "inward";
+            return true;
+        }
+
+        /// <summary>
+        /// Determines whether a looped ghost should be spawned at the given distance,
+        /// and whether it should use simplified rendering (no part events).
+        /// Wraps RenderingZoneManager.ShouldSpawnLoopedGhostAtDistance for consistency.
+        /// </summary>
+        internal static (bool shouldSpawn, bool simplified) EvaluateLoopedGhostSpawn(
+            double distanceMeters)
+        {
+            return RenderingZoneManager.ShouldSpawnLoopedGhostAtDistance(distanceMeters);
+        }
+
+        #endregion
     }
 }
