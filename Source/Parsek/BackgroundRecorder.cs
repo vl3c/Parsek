@@ -489,10 +489,31 @@ namespace Parsek
                     $"expiry={branchUT + DebrisTTLSeconds:F1}");
             }
 
-            // Add each child recording to tree and BackgroundMap
+            // Add each child recording to tree and BackgroundMap.
+            // Capture vessel snapshots so ghosts can be built during playback
+            // (without snapshots, GhostVisualBuilder returns null → no ghost appears).
             for (int i = 0; i < childRecordings.Count; i++)
             {
                 var child = childRecordings[i];
+
+                // Capture snapshot for ghost building — the vessel is still loaded at this point
+                Vessel childVessel = FlightRecorder.FindVesselByPid(child.VesselPersistentId);
+                if (childVessel != null)
+                {
+                    child.VesselSnapshot = VesselSpawner.TryBackupSnapshot(childVessel);
+                    child.GhostVisualSnapshot = child.VesselSnapshot != null
+                        ? child.VesselSnapshot.CreateCopy() : null;
+                    ParsekLog.Verbose("BgRecorder",
+                        $"Captured snapshot for child vessel: pid={child.VesselPersistentId} " +
+                        $"name='{child.VesselName}' hasSnapshot={child.VesselSnapshot != null}");
+                }
+                else
+                {
+                    ParsekLog.Warn("BgRecorder",
+                        $"Could not capture snapshot for child vessel: pid={child.VesselPersistentId} " +
+                        $"name='{child.VesselName}' — vessel not found, ghost will not render");
+                }
+
                 tree.Recordings[child.RecordingId] = child;
                 tree.BackgroundMap[child.VesselPersistentId] = child.RecordingId;
 
