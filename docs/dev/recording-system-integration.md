@@ -620,7 +620,7 @@ All Phase 1 changes go into v6. The format is additive: v6 readers ignore unknow
 
 **Decision: TrackSections serialized as TRACK_SECTION ConfigNodes in .prec files, alongside existing POINT/ORBIT_SEGMENT/PART_EVENT nodes.**
 
-For v6+ recordings: TRACK_SECTION nodes contain their own POINT sub-nodes. The flat top-level POINT nodes are also written (dual-write for backward compat). For v5 recordings: flat POINT nodes only (no TrackSections). Playback code checks: if `rec.TrackSections.Count > 0`, use track-based playback; else use legacy flat Points. Gate constant: `RecordingStore.TrackSectionMinVersion = 6`.
+For v6+ recordings: TRACK_SECTION nodes contain their own POINT sub-nodes. The flat top-level POINT nodes are also written (dual-write for backward compat). For v5 recordings: flat POINT nodes only (no TrackSections). Playback code checks: if `rec.TrackSections.Count > 0`, use track-based playback; else use legacy flat Points.
 
 ---
 
@@ -642,7 +642,7 @@ For v6+ recordings: TRACK_SECTION nodes contain their own POINT sub-nodes. The f
 
 **Risk:** Switching between ABSOLUTE and RELATIVE frames at the physics bubble boundary may cause position discontinuities.
 
-**Mitigation:** Design specifies 0.5s interpolation at source-switch boundaries. Implement as a crossfade between old and new frame positions.
+**Mitigation:** Snap-switch at boundaries (no crossfade — crossfade at orbital velocities creates fake trajectory). At 2300m the position difference between frames is negligible. When anchor unloads during RELATIVE recording, FlightRecorder force-transitions to ABSOLUTE. During playback, ghost is hidden when anchor not found (not mispositioned).
 
 ### 6.4 Backward Compatibility with Existing Saves
 
@@ -654,7 +654,7 @@ For v6+ recordings: TRACK_SECTION nodes contain their own POINT sub-nodes. The f
 
 **Risk:** Multi-vessel sessions + looped recordings could spawn many ghosts.
 
-**Mitigation:** Zone-based rendering (Phase 5) limits visual cost. Soft caps degrade gracefully. Phase 5 is deliberately last — get the system working first, then optimize.
+**Mitigation (implemented):** Zone-based rendering limits visual cost (Beyond zone = no mesh). Soft caps degrade gracefully (disabled by default, player-configurable via settings toggle). Suppression set prevents spawn-despawn loops when many ghosts compete for limited cap slots.
 
 ---
 
@@ -663,11 +663,11 @@ For v6+ recordings: TRACK_SECTION nodes contain their own POINT sub-nodes. The f
 ### 7.1 Existing Test Infrastructure
 
 The project has extensive test infrastructure:
-- `RecordingBuilder` — fluent API for building Recording ConfigNodes (default format v6)
+- `RecordingBuilder` — fluent API for building Recording ConfigNodes (default format v6, supports TrackSections, SegmentEvents, ControllerInfo, AsDebris)
 - `VesselSnapshotBuilder` — fluent API for building vessel snapshots
 - `ScenarioWriter` — injects recordings into .sfs save files
 - `ParsekLog.TestSinkForTesting` — captures log output for assertions
-- 2086 tests pass after Phase 1 (up from ~1770 on main)
+- 2608 tests pass across all phases (up from ~1770 on main)
 
 ### 7.2 New Test Fixtures Needed
 
@@ -711,7 +711,7 @@ For each phase:
   5. Update this document with implementation notes
 ```
 
-**Phase 1 is the critical path.** It changes the data model that everything else builds on. Get this right first.
+**All phases complete.** The implementation followed this workflow across 5 phases with parallel agents, clean-context reviews, and iterative fixes.
 
 ---
 
