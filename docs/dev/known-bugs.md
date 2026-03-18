@@ -567,3 +567,53 @@ xUnit eagerly instantiates test classes, so one class's constructor can overwrit
 Recording subgroups in the UI don't have enable (playback toggle) or loop checkboxes. Only top-level recordings show these controls. Subgroup recordings can't be individually toggled for playback or loop mode from the UI.
 
 **Status:** Open
+
+## 51. Chain ID lost on vessel-switch auto-stop (CRITICAL)
+
+When a vessel switch triggers auto-stop during an active chain recording, the stash/commit path drops the chain assignment. The exo/orbital segment gets committed as a standalone recording with `chain=(none)/-1` instead of being linked to the chain.
+
+**Root cause:** The vessel-switch auto-stop → BuildCaptureRecording → StashPending → deferred merge path does not carry forward the active chainId and chainIndex from the recording session.
+
+**Impact:** Critical — entire chain segments become disconnected. Player sees only one recording instead of the full chain.
+
+**Status:** Open — critical priority
+
+## 52. CanRewind log spam — 485K lines per session
+
+`RecordingStore.CanRewind` logs at VERBOSE every call, but is called per-recording per-frame from the UI. With 11+ rewind-eligible recordings at 60fps, this produces ~660 log lines/second (80% of total log output).
+
+**Fix:** Use `VerboseRateLimited` or suppress entirely — CanRewind is a read-only check that doesn't need per-frame logging.
+
+**Status:** Open — high priority
+
+## 53. "re-shown after warp-down" log spam — 16K lines per session
+
+Ghosts toggled SetActive(false)/SetActive(true) every frame in KSC and Flight scenes produce continuous log spam. The re-show logic was designed for one-time warp transitions, not continuous toggling.
+
+**Fix:** Only log the re-show message once (use a `loggedReshow` HashSet), or rate-limit the message.
+
+**Status:** Open — high priority
+
+## 54. Watch mode follows ghost beyond terrain loading range
+
+Watch mode keeps the ghost visible at any distance (per the earlier fix to skip zone hiding for watched ghosts). But when the ghost exceeds ~120km from the active vessel, KSP's terrain is not loaded around the ghost's position, causing terrain disappearance and floating-point jitter.
+
+**Fix:** Watch mode should exit when the watched ghost exceeds 120km from the active vessel. The scene origin stays near the active vessel, so terrain is only loaded there.
+
+**Status:** Open — high priority
+
+## 55. RELATIVE anchor triggers on debris and launch pad structures
+
+The AnchorDetector's 2300m threshold triggers on any nearby vessel, including: launch pad infrastructure, jettisoned fairings, decoupled stages, and debris from staging. These create RELATIVE TrackSections bound to persistent IDs that don't survive revert, causing the ghost to be hidden during playback.
+
+**Root cause:** No filtering on vessel type. The surface-vessel check added earlier (skip LANDED/SPLASHED/PRELAUNCH) only filters the focused vessel, not the anchor candidates.
+
+**Fix:** Filter anchor candidates: exclude debris (vesselType == Debris), exclude SpaceObjects, exclude vessels with the same launch ID as the focused vessel (same mission = not a docking target). Only anchor to vessels that are a genuine docking/rendezvous target.
+
+**Status:** Open — high priority
+
+## 56. EVA recordings only created from launch pad
+
+`OnCrewOnEva` ignores EVAs when the vessel situation is not "on pad." In-flight EVAs (suborbital, flying, orbiting) are not recorded.
+
+**Status:** Open — medium priority (design limitation)
