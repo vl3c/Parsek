@@ -539,3 +539,25 @@ Player landed in water, EVA'd 3 kerbals from the pad vessel, but 2 of them disap
 **Impact:** Medium — crew members lost unexpectedly.
 
 **Status:** Open — needs investigation
+
+## 47. ParsekLog.TestSinkForTesting race condition (test infrastructure)
+
+xUnit eagerly instantiates test classes, so one class's constructor can overwrite `TestSinkForTesting` while another class's test method is running. Causes log assertion tests to be flaky.
+
+**Workaround applied:** ActionReplayTests converted most log assertions to behavioral assertions. Three remaining use a "local sink" pattern.
+
+**Proper fix:** Make the test sink thread-local (`[ThreadStatic]`) or instance-scoped (`AsyncLocal<Action<string>>`). Apply in ParsekLog.cs, not individual test files.
+
+**Status:** Open — workaround in place
+
+## 48. ComputeBoundaryDiscontinuity hardcodes Kerbin radius
+
+`SessionMerger.ComputeBoundaryDiscontinuity` uses `const double bodyRadius = 600000.0` (Kerbin). Wrong for Mun (200km), Eve (700km), etc. Diagnostic-only — logged magnitude is inaccurate on non-Kerbin bodies, doesn't affect playback.
+
+**Status:** Open — low priority
+
+## 49. RealVesselExists O(n) per frame
+
+`GhostPlaybackLogic.RealVesselExists` iterates `FlightGlobals.Vessels` linearly. Called per background recording per frame. Negligible with typical vessel counts (10-50), would matter with 100+. Fix: cache PIDs in HashSet, rebuild on vessel add/remove events.
+
+**Status:** Open — low priority

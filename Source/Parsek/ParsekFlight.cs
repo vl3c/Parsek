@@ -5517,19 +5517,13 @@ namespace Parsek
                 loopSimplified = loopSpawnCheck.simplified;
             }
 
-            // Suppress ghost beyond looped ghost spawn threshold
-            if (!loopShouldSpawn && ghostActive)
+            // Suppress ghost beyond looped ghost spawn threshold (but not if player is watching it)
+            if (!loopShouldSpawn && ghostActive && watchedRecordingIndex != recIdx)
             {
                 RenderingZoneManager.LogLoopedGhostSpawnDecision(
                     $"#{recIdx} \"{rec.VesselName}\"", loopGhostDistance, false, false);
                 if (state.ghost.activeSelf)
                     state.ghost.SetActive(false);
-                if (watchedRecordingIndex == recIdx)
-                {
-                    ParsekLog.Info("Zone",
-                        $"Exiting watch mode: looped ghost #{recIdx} \"{rec.VesselName}\" beyond spawn threshold");
-                    ExitWatchMode();
-                }
                 return;
             }
 
@@ -7285,6 +7279,7 @@ namespace Parsek
         ZoneRenderingResult ApplyZoneRendering(int recIdx, GhostPlaybackState state, Recording rec, double ghostDistance)
         {
             var zone = RenderingZoneManager.ClassifyDistance(ghostDistance);
+            bool isWatchedGhost = watchedRecordingIndex == recIdx;
 
             // Detect zone transition
             if (state != null)
@@ -7301,21 +7296,29 @@ namespace Parsek
             var (shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning) =
                 GhostPlaybackLogic.GetZoneRenderingPolicy(zone);
 
-            // Beyond zone: hide mesh, exit watch mode
+            // Beyond zone: hide mesh for non-watched ghosts.
+            // Watched ghost is exempt: the player explicitly chose to follow it, and
+            // during watch mode the scene origin moves with the ghost so the ghost-to-
+            // player-vessel distance is irrelevant (jitter is ghost-to-camera, ~50m).
             if (shouldHideMesh)
             {
+                if (isWatchedGhost)
+                {
+                    // Don't hide or exit watch — let the player keep watching.
+                    // Still track zone state but treat as visible for rendering purposes.
+                    ParsekLog.VerboseRateLimited("Zone", $"watched-zone-{recIdx}",
+                        $"Ghost #{recIdx} \"{rec.VesselName}\" beyond visual range " +
+                        $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m) but watched — keeping visible",
+                        5.0);
+                    return new ZoneRenderingResult { hiddenByZone = false, skipPartEvents = shouldSkipPartEvents };
+                }
+
                 if (state != null && state.ghost != null && state.ghost.activeSelf)
                 {
                     state.ghost.SetActive(false);
                     ParsekLog.Info("Zone",
                         $"Ghost #{recIdx} \"{rec.VesselName}\" hidden: beyond visual range " +
                         $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m)");
-                }
-                if (GhostPlaybackLogic.ShouldExitWatchModeForZone(watchedRecordingIndex, recIdx, zone))
-                {
-                    ParsekLog.Info("Zone",
-                        $"Exiting watch mode: ghost #{recIdx} \"{rec.VesselName}\" entered Beyond zone");
-                    ExitWatchMode();
                 }
                 return new ZoneRenderingResult { hiddenByZone = true, skipPartEvents = true };
             }
