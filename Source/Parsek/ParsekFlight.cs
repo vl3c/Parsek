@@ -4842,55 +4842,18 @@ namespace Parsek
                 bool isMidChain = RecordingStore.IsChainMidSegment(rec);
                 double chainEndUT = isMidChain ? RecordingStore.GetChainEndUT(rec) : rec.EndUT;
                 bool pastChainEnd = currentUT > chainEndUT;
-                bool needsSpawn = rec.VesselSnapshot != null && !rec.VesselSpawned && !rec.VesselDestroyed;
+                // Compute spawn-decision inputs that depend on external state
+                bool isActiveChainMember = activeChainId != null && rec.ChainId == activeChainId;
+                bool isChainLoopingOrDisabled = !string.IsNullOrEmpty(rec.ChainId) &&
+                    (RecordingStore.IsChainLooping(rec.ChainId) ||
+                     RecordingStore.IsChainFullyDisabled(rec.ChainId));
 
-                // Branch > 0 recordings are ghost-only (undock continuations) — never spawn
-                if (needsSpawn && rec.ChainBranch > 0)
-                {
-                    needsSpawn = false;
-                    if (loggedGhostEnter.Add(i + 200000))
-                        ParsekLog.Verbose("Flight", $"Spawn suppressed for #{i} ({rec.VesselName}): branch > 0 (ghost-only)");
-                }
+                var (needsSpawn, spawnReason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                    rec, isActiveChainMember, isChainLoopingOrDisabled);
 
-                // Suppress spawning for recordings belonging to a chain currently being built.
-                // Without this guard, CommitChainSegment commits the vessel segment mid-flight,
-                // and UpdateTimelinePlayback would spawn it immediately (on top of the real vessel).
-                if (needsSpawn && activeChainId != null && rec.ChainId == activeChainId)
-                {
-                    needsSpawn = false;
-                    if (loggedGhostEnter.Add(i + 300000))
-                        ParsekLog.Verbose("Flight", $"Spawn suppressed for #{i} ({rec.VesselName}): active chain being built");
-                }
-
-                // Suppress spawn for looping or fully-disabled chains
-                if (needsSpawn && !string.IsNullOrEmpty(rec.ChainId))
-                {
-                    if (RecordingStore.IsChainLooping(rec.ChainId) ||
-                        RecordingStore.IsChainFullyDisabled(rec.ChainId))
-                        needsSpawn = false;
-                }
-
-                // Non-leaf tree recordings should never spawn (they branched into children)
-                if (needsSpawn && rec.ChildBranchPointId != null)
-                {
-                    needsSpawn = false;
-                    if (loggedGhostEnter.Add(i + 400000))
-                        ParsekLog.Verbose("Flight", $"Spawn suppressed for #{i} ({rec.VesselName}): non-leaf tree recording");
-                }
-
-                // Terminal tree recordings (destroyed/recovered/docked/boarded) should not spawn.
-                // This is the guard for bug #38: prevents spawning vessels from all-destroyed trees.
-                if (needsSpawn && rec.TerminalStateValue.HasValue)
-                {
-                    var ts = rec.TerminalStateValue.Value;
-                    if (ts == TerminalState.Destroyed || ts == TerminalState.Recovered
-                        || ts == TerminalState.Docked || ts == TerminalState.Boarded)
-                    {
-                        needsSpawn = false;
-                        if (loggedGhostEnter.Add(i + 500000))
-                            ParsekLog.Verbose("Flight", $"Spawn suppressed for #{i} ({rec.VesselName}): terminal state {ts}");
-                    }
-                }
+                // One-time suppression logging (keyed per recording index + reason category)
+                if (!needsSpawn && !string.IsNullOrEmpty(spawnReason) && loggedGhostEnter.Add(i + 200000))
+                    ParsekLog.Verbose("Flight", $"Spawn suppressed for #{i} ({rec.VesselName}): {spawnReason}");
 
                 // One-time chain spawn diagnostics when entering the spawn window
                 if (pastChainEnd && !string.IsNullOrEmpty(rec.ChainId) && loggedGhostEnter.Add(i + 100000))
@@ -4898,14 +4861,13 @@ namespace Parsek
                         $"isMidChain={isMidChain}, hasSnapshot={rec.VesselSnapshot != null}, needsSpawn={needsSpawn}, " +
                         $"chainEndUT={chainEndUT:F1}, currentUT={currentUT:F1}");
 
-                // Guard: if vessel was already spawned (PID recorded), never re-spawn.
-                // On revert, SpawnedVesselPersistentId resets to 0 from quicksave so reverts still work.
-                // Recovery/destruction sets TerminalState which blocks needsSpawn at the earlier check.
-                if (needsSpawn && rec.SpawnedVesselPersistentId != 0)
+                // Side effect: mark VesselSpawned=true when PID is set but VesselSpawned was false
+                // (e.g., save/load restored PID but not the flag). This prevents re-evaluating
+                // ShouldSpawnAtRecordingEnd every frame for this recording.
+                if (!needsSpawn && !rec.VesselSpawned && rec.SpawnedVesselPersistentId != 0)
                 {
                     rec.VesselSpawned = true;
-                    needsSpawn = false;
-                    Log($"Vessel already spawned (pid={rec.SpawnedVesselPersistentId}) — skipping duplicate spawn for recording #{i}");
+                    Log($"Vessel already spawned (pid={rec.SpawnedVesselPersistentId}) — marked VesselSpawned=true for recording #{i}");
                 }
 
                 if (inRange)

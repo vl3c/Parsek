@@ -74,7 +74,14 @@ namespace Parsek
         // Just-finished recording awaiting user decision (merge or discard)
         private static Recording pendingRecording;
 
-        // Merged to timeline — these auto-playback during flight
+        // Merged to timeline — these auto-playback during flight.
+        //
+        // POLICY: Individual recording deletion is not supported.
+        // Recordings can only be committed (at merge dialog) or discarded (before commit).
+        // The entire timeline can be wiped, but individual recordings cannot be removed
+        // after commit. This prevents time paradoxes (orphaned vessels, broken chains,
+        // inconsistent ghost playback).
+        // Future: timeline wipe from current UT forward (clear future, keep past).
         private static List<Recording> committedRecordings = new List<Recording>();
 
         // Committed recording trees (parallel storage — tree recordings also appear in committedRecordings)

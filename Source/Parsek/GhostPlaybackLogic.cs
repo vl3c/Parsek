@@ -1754,5 +1754,70 @@ namespace Parsek
         }
 
         #endregion
+
+        #region Spawn-at-Recording-End Decision
+
+        /// <summary>
+        /// Pure decision logic for whether a recording's vessel should be spawned
+        /// at the end of its ghost playback (the "spawn-at-recording-end" feature).
+        /// Extracted from ParsekFlight.UpdateTimelinePlayback for testability.
+        ///
+        /// Returns (needsSpawn, reason) where reason explains why spawn was suppressed.
+        /// Empty reason means spawn is allowed.
+        /// </summary>
+        /// <param name="rec">The recording to evaluate.</param>
+        /// <param name="isActiveChainMember">True if the recording belongs to the chain currently being built.</param>
+        /// <param name="isChainLoopingOrDisabled">True if the recording's chain is looping or fully disabled.</param>
+        internal static (bool needsSpawn, string reason) ShouldSpawnAtRecordingEnd(
+            Recording rec,
+            bool isActiveChainMember,
+            bool isChainLoopingOrDisabled)
+        {
+            // Base condition: must have a snapshot, not already spawned, not destroyed
+            if (rec.VesselSnapshot == null)
+                return (false, "no vessel snapshot");
+            if (rec.VesselSpawned)
+                return (false, "already spawned (VesselSpawned=true)");
+            if (rec.VesselDestroyed)
+                return (false, "vessel destroyed");
+
+            // Branch > 0 recordings are ghost-only (undock continuations) — never spawn
+            if (rec.ChainBranch > 0)
+                return (false, "branch > 0 (ghost-only)");
+
+            // Suppress spawning for recordings belonging to a chain currently being built
+            if (isActiveChainMember)
+                return (false, "active chain being built");
+
+            // Looping recordings cycle forever — they never "end" in the spawn sense
+            if (rec.LoopPlayback)
+                return (false, "loop playback enabled");
+
+            // Suppress spawn for looping or fully-disabled chains
+            if (isChainLoopingOrDisabled)
+                return (false, "chain looping or fully disabled");
+
+            // Non-leaf tree recordings should never spawn (they branched into children)
+            if (rec.ChildBranchPointId != null)
+                return (false, "non-leaf tree recording");
+
+            // Terminal states: destroyed/recovered/docked/boarded should not spawn
+            if (rec.TerminalStateValue.HasValue)
+            {
+                var ts = rec.TerminalStateValue.Value;
+                if (ts == TerminalState.Destroyed || ts == TerminalState.Recovered
+                    || ts == TerminalState.Docked || ts == TerminalState.Boarded)
+                    return (false, $"terminal state {ts}");
+            }
+
+            // PID dedup: if vessel was already spawned (PID recorded), never re-spawn.
+            // On revert, SpawnedVesselPersistentId resets to 0 from quicksave so reverts still work.
+            if (rec.SpawnedVesselPersistentId != 0)
+                return (false, $"already spawned (pid={rec.SpawnedVesselPersistentId})");
+
+            return (true, "");
+        }
+
+        #endregion
     }
 }
