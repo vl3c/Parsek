@@ -929,36 +929,51 @@ Committed recordings are permanent — they survive rewind. Rewinding moves the 
 
 Each committed recording has an associated quicksave taken at its launch UT. This quicksave captures the game state needed to resume from that point.
 
+**Timeline immutability policy (decided during Phase 4 planning):** Individual recordings cannot be deleted after commit. The player's only decision point is at recording end: commit to timeline or discard. The entire timeline can be wiped, but individual recordings cannot be removed. This prevents time paradoxes — deleting a recording mid-timeline could orphan spawned vessels, break chain continuity, or create inconsistent ghost playback.
+
+**Future:** Timeline wipe from current UT forward — clear all future recordings while keeping everything that exists, is ongoing, or was already added to the timeline up to the current UT.
+
 ### 14.2 Rewind Procedure (Vessel Recording Scope)
 
 The player is at UT=6000 and rewinds to Recording B's launch at UT=2000:
 
 ```
 1. Load quicksave at UT=2000.
+   The quicksave captures the game state at recording start. Vessels that
+   were spawned by earlier completed recordings ARE in the quicksave
+   (they existed when the quicksave was taken).
 
-2. Reconstruct vessel list from committed recordings:
-   - Recordings completed before UT=2000: vessels at final recorded positions.
-   - Recordings in flight at UT=2000: ghosts at their UT=2000 trajectory positions.
-   - Non-recorded persistent vessels (static bases, debris): from quicksave.
+2. Ghost playback resumes from committed recordings:
+   - Recordings completed before UT=2000: their spawned vessels are already
+     in the quicksave — no action needed.
+   - Recordings in flight at UT=2000: ghosts play at their trajectory positions.
+   - Recordings not yet started at UT=2000: no ghosts yet, they will appear
+     when currentUT reaches their StartUT.
 
 3. Player resumes at UT=2000 with correct state.
 ```
 
-Step 2 is the vessel recording system's responsibility. The vessel list at any rewind point is fully determined by the committed recordings plus any non-recorded persistent vessels in the quicksave.
+**Implementation note (decided during Phase 4 planning):** There is no explicit "vessel list reconstruction" algorithm. The quicksave is the source of truth for which real vessels exist. Ghosts handle the visual replay. At each recording's end UT, the spawn-at-end logic checks: if the vessel doesn't exist in the game world (`SpawnedVesselPersistentId == 0`), spawn it from the recording's snapshot. If it already exists (from the quicksave), skip — the ghost just despawns. On revert, `SpawnedVesselPersistentId` resets to 0 from the quicksave, so spawns re-trigger naturally when the ghost replays and reaches the end.
 
 ### 14.3 Fast-Forward (Time Warp with Ghost Playback)
 
 After rewinding to UT=2000, the player can time warp forward. During fast-forward:
 
 - All committed recording ghosts play at their recorded UTs.
-- Recording A (launched UT=100, completed UT=1500): already complete, vessel persisted.
+- Recording A (launched UT=100, completed UT=1500): already complete, vessel persisted in quicksave.
 - Recording C (launched UT=4000): ghosts spawn at UT=4000 and play through.
 
 The player can drop out of time warp at any point and start flying. Ghosts continue playing around them. The player can launch new missions that coexist with committed ghosts on the timeline.
 
+**Implementation note (decided during Phase 4 planning):** The existing timeline playback system handles fast-forward naturally — ghosts are positioned by comparing `currentUT` to each recording's `StartUT`/`EndUT` every frame. During time warp, `currentUT` advances and ghosts appear/play/despawn at the correct UTs without special fast-forward code.
+
+**Warp safety:** During time warp, vessel spawning is deferred to a spawn queue (`pendingSpawnRecordingIds`). When a recording "completes" during warp (ghost reaches end UT), the spawn is queued rather than executed immediately. The queue is flushed when the player exits time warp (`ShouldFlushDeferredSpawns`). This prevents physics instability from spawning vessels during warp. Visual FX are suppressed above 10x warp, ghost meshes hidden above 50x warp for performance.
+
 ### 14.4 Quicksave Pruning
 
-Each committed recording has an associated quicksave. Over a long career, quicksave storage grows. Parsek should offer:
+**Deferred (decided during Phase 4 planning).** All quicksaves are kept. Pruning is purely storage management with no architectural impact — it can be added later without changing the rewind or timeline systems.
+
+When implemented, the plan is:
 
 - **Manual control:** Player can mark specific recordings as "rewind-protected" (keep quicksave) or "archive" (allow quicksave deletion, recording data preserved but no rewind-to-launch).
 - **Auto-pruning policy (optional):** Keep the N most recent quicksaves. Older recordings lose rewind-to-launch capability but their ghost playback and timeline deltas are preserved.
@@ -1209,7 +1224,7 @@ All errors are logged to KSP.log with a `[Parsek]` prefix for debugging.
 
 ---
 
-*Document version: 2.5*
-*Updated: 2026-03-17 — Phase 2 implementation decisions integrated (no RecordingSession class, snap-switch merge boundaries, background split TTL, external vessel handling, source-tagged TrackSections)*
+*Document version: 2.6*
+*Updated: 2026-03-18 — Phase 2-4 implementation decisions integrated (no RecordingSession, snap-switch merge, background split TTL, external vessel handling, source-tagged TrackSections, loop anchor extension, timeline immutability policy, spawn-at-end logic, warp safety queue, pruning deferred)*
 *Parsek Recording System Design — Vessel recordings only.*
 *Covers: Recording tree (DAG), segment boundary rule, SegmentEvents, breakup coalescing, identity persistence, multi-vessel sessions, segment taxonomy, rendering zones, looped playback anchoring, rewind (vessel scope), ghost constraints, file format, performance budget, error recovery.*
