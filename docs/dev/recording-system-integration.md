@@ -559,31 +559,34 @@ Rewind and timeline operations. Design items 16-20. Already implemented in mainl
 
 **Deferred:** Quicksave pruning (item 19), infrastructure patches (item 20)
 
-### Phase 5: Rendering and Polish (Design items 21-25)
+### Phase 5 — COMPLETE (PR #59)
 
-**Goal:** Distance-based rendering zones, fade effects, ghost count management.
+Distance-based rendering zones, ghost soft caps with priority-based despawning. Design items 21-25.
 
-#### Task 5.1: Distance-based rendering zones
-- **New file:** `RenderingZoneManager.cs` — zone classification and transition logic
-- **Modify:** `ParsekFlight.cs` — apply zone rules during playback
-- **Scope:** ~150 lines new, ~100 lines modified
+**Items 23 (looped spawn thresholds) and 24 (anchor validation) already done in Phase 3b.**
 
-#### Task 5.2: Ghost fade-in/fade-out at zone boundaries
-- **Modify:** `ParsekFlight.cs` — alpha interpolation during zone transitions
-- **Scope:** ~80 lines modified
+**Item 22 (fade effects): decided as pop-in/pop-out (no alpha fade).** Shader swap to transparent mode adds complexity with minimal visual benefit at zone boundaries. Simple show/hide at transitions.
 
-#### Task 5.3: Looped ghost spawn thresholds
-- **Modify:** `ParsekFlight.cs` — distance-based spawn rules for looped vs full-timeline
-- **Scope:** ~50 lines modified
+**New source files:**
+- `RenderingZoneManager.cs` — `RenderingZone` enum (Physics/Visual/Beyond), `ClassifyDistance`, `ShouldSpawnLoopedGhostAtDistance`, `ShouldRenderPartEvents`, `ShouldRenderMesh`. Constants: Physics=2.3km, Visual=120km, LoopSimplified=50km.
+- `GhostSoftCapManager.cs` — `GhostCapAction` enum (None/ReduceFidelity/SimplifyToOrbitLine/Despawn), `GhostPriority` enum (LoopedOldest/LoopedRecent/BackgroundDebris/FullTimeline), `ClassifyPriority`, `EvaluateCaps`, `ApplySettings`. Default thresholds: Zone1Reduce=8, Zone1Despawn=15, Zone2Simplify=20.
 
-#### Task 5.4: Anchor vessel validation
-- **Modify:** `ParsekFlight.cs` — validate anchor vessel existence, body, port availability
-- **Scope:** ~80 lines new
+**Modified source files:**
+- `GhostPlaybackLogic.cs` — zone-based rendering policy methods (`GetZoneRenderingPolicy`, `DetectZoneTransition`, `ShouldHideGhostForZone`, `ShouldExitWatchModeForZone`, `EvaluateLoopedGhostSpawn`)
+- `GhostPlaybackState.cs` — `currentZone` field for per-ghost zone tracking
+- `ParsekFlight.cs` — distance computation per ghost, zone classification with transition detection, zone-based part event gating, Beyond zone mesh hiding + watch mode exit, soft cap evaluation with cached lists, cap action application (despawn/simplify/reduce)
+- `ParsekSettings.cs` — `ghostCapZone1Reduce`, `ghostCapZone1Despawn`, `ghostCapZone2Simplify` settings
+- `ParsekUI.cs` — ghost cap threshold sliders in settings window with live apply
 
-#### Task 5.5: Soft cap system
-- **New:** ghost count tracking and degradation logic
-- **Modify:** `ParsekFlight.cs` — apply soft caps during ghost spawning
-- **Scope:** ~150 lines new
+**Log subsystem tags:**
+- `Zone` — zone transitions, looped ghost spawn decisions
+- `SoftCap` — threshold breaches, per-ghost cap actions, settings changes
+
+**Test files (3 new):**
+- `RenderingZoneTests.cs` (28 tests) — zone classification, looped spawn, part events, mesh visibility, constants, logging
+- `GhostSoftCapTests.cs` (31 tests) — priority classification, cap evaluation at all tiers, custom thresholds, logging
+- `ZoneRenderingTests.cs` (48 tests) — zone transition detection, rendering policies, integration cross-checks
+- `SoftCapWiringTests.cs` (15 tests) — settings flow, cap application, combined zones
 
 ---
 
@@ -712,7 +715,7 @@ For each phase:
 
 ---
 
-*Document version: 1.5*
+*Document version: 2.0*
 *Created: 2026-03-17*
-*Updated: 2026-03-18 — Phases 1-4 complete*
-*Status: Phases 1-4 complete (PR #59). 2457 tests pass. Phase 5 pending.*
+*Updated: 2026-03-18 — All phases complete*
+*Status: All 5 phases complete (PR #59). 2579 tests pass. Implementation finished.*
