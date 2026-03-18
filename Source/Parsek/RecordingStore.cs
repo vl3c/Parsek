@@ -17,12 +17,6 @@ namespace Parsek
         public const int CurrentRecordingFormatVersion = 6;
         // v6: Added SegmentEvents, TrackSections, ControllerInfo, extended BranchPoint types
 
-        /// <summary>
-        /// Minimum format version that uses TrackSections for structured trajectory data.
-        /// Recordings below this version use legacy flat Points for playback.
-        /// </summary>
-        public const int TrackSectionMinVersion = 6;
-
         // When true, suppresses logging calls (for unit testing outside Unity)
         internal static bool SuppressLogging;
 
@@ -1759,9 +1753,6 @@ namespace Parsek
                 tsNode.AddValue("endUT", track.endUT.ToString("R", ic));
                 tsNode.AddValue("sampleRate", track.sampleRateHz.ToString("R", ic));
 
-                if (track.isFromBackground)
-                    tsNode.AddValue("isBg", "True");
-
                 // Source: sparse — only write when not Active (default)
                 if (track.source != TrackSectionSource.Active)
                 {
@@ -1912,24 +1903,27 @@ namespace Parsek
                 double.TryParse(tsNode.GetValue("endUT"), inv, ic, out section.endUT);
                 float.TryParse(tsNode.GetValue("sampleRate"), inv, ic, out section.sampleRateHz);
 
-                string isBgStr = tsNode.GetValue("isBg");
-                if (isBgStr != null)
-                {
-                    bool isBg;
-                    if (bool.TryParse(isBgStr, out isBg))
-                        section.isFromBackground = isBg;
-                }
-
                 // Source: defaults to Active (0) when absent — backward compatible
-                int srcInt;
-                if (int.TryParse(tsNode.GetValue("src"), NumberStyles.Integer, ic, out srcInt)
-                    && Enum.IsDefined(typeof(TrackSectionSource), srcInt))
+                string srcStr = tsNode.GetValue("src");
+                if (srcStr != null)
                 {
-                    section.source = (TrackSectionSource)srcInt;
-                    ParsekLog.Verbose("RecordingStore",
-                        $"DeserializeTrackSections: [{t}] loaded source={section.source}");
+                    int srcInt;
+                    if (int.TryParse(srcStr, NumberStyles.Integer, ic, out srcInt))
+                    {
+                        if (Enum.IsDefined(typeof(TrackSectionSource), srcInt))
+                        {
+                            section.source = (TrackSectionSource)srcInt;
+                            ParsekLog.Verbose("RecordingStore",
+                                $"DeserializeTrackSections: [{t}] loaded source={section.source}");
+                        }
+                        else
+                        {
+                            ParsekLog.Warn("RecordingStore",
+                                $"DeserializeTrackSections: [{t}] unknown TrackSectionSource value={srcInt}, defaulting to Active");
+                        }
+                    }
                 }
-                // else: defaults to Active (struct default = 0)
+                // else: absent key — defaults to Active (struct default = 0)
 
                 // Boundary discontinuity: defaults to 0 when absent — backward compatible
                 float bdisc;

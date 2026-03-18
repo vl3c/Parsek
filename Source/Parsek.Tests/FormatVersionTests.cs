@@ -31,12 +31,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TrackSectionMinVersion_Is6()
-        {
-            Assert.Equal(6, RecordingStore.TrackSectionMinVersion);
-        }
-
-        [Fact]
         public void NewRecording_DefaultsToCurrentVersion()
         {
             var rec = new Recording();
@@ -187,13 +181,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void PlaybackGate_VersionCheck_MatchesTrackSectionMinVersion()
+        public void PlaybackGate_V5HasNoTrackSections_V6Has()
         {
-            // Verify that the version-based gate and the data-based gate agree
+            // Verify that v5 recordings have no TrackSections, v6 recordings do
             var v5Rec = new Recording();
             v5Rec.RecordingFormatVersion = 5;
-            // v5 has no TrackSections by default
-            Assert.True(v5Rec.RecordingFormatVersion < RecordingStore.TrackSectionMinVersion);
             Assert.Empty(v5Rec.TrackSections);
 
             var v6Rec = new Recording();
@@ -207,7 +199,6 @@ namespace Parsek.Tests
                 frames = new List<TrajectoryPoint>(),
                 checkpoints = new List<OrbitSegment>()
             });
-            Assert.True(v6Rec.RecordingFormatVersion >= RecordingStore.TrackSectionMinVersion);
             Assert.True(v6Rec.TrackSections.Count > 0);
         }
 

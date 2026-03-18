@@ -142,7 +142,7 @@ namespace Parsek.Tests
             Assert.Equal(17000.0, result.startUT);
             Assert.Equal(17050.0, result.endUT);
             Assert.Equal(10.0f, result.sampleRateHz);
-            Assert.False(result.isFromBackground);
+            Assert.Equal(TrackSectionSource.Active, result.source);
             Assert.Equal(0u, result.anchorVesselId);
             Assert.Equal(5, result.frames.Count);
             Assert.Empty(result.checkpoints);
@@ -424,7 +424,7 @@ namespace Parsek.Tests
                 startUT = 14000.0,
                 endUT = 16000.0,
                 sampleRateHz = 0.5f,
-                isFromBackground = true,
+                source = TrackSectionSource.Background,
                 frames = new List<TrajectoryPoint>
                 {
                     MakePoint(14000.0, -0.1, -74.5, 70),
@@ -440,13 +440,13 @@ namespace Parsek.Tests
             RecordingStore.DeserializeTrackSections(parent, loaded);
 
             Assert.Single(loaded);
-            Assert.True(loaded[0].isFromBackground);
+            Assert.Equal(TrackSectionSource.Background, loaded[0].source);
         }
 
         [Fact]
-        public void RoundTrip_BackgroundFlagFalse_NotSerialized()
+        public void RoundTrip_SourceActive_SrcKeyNotSerialized()
         {
-            // When isFromBackground is false, the isBg key should not be written
+            // When source is Active (default), the src key should not be written
             var original = new TrackSection
             {
                 environment = SegmentEnvironment.Atmospheric,
@@ -454,7 +454,7 @@ namespace Parsek.Tests
                 startUT = 17000.0,
                 endUT = 17100.0,
                 sampleRateHz = 10.0f,
-                isFromBackground = false,
+                source = TrackSectionSource.Active,
                 frames = new List<TrajectoryPoint>(),
                 checkpoints = new List<OrbitSegment>()
             };
@@ -462,15 +462,15 @@ namespace Parsek.Tests
             var parent = new ConfigNode("TEST");
             RecordingStore.SerializeTrackSections(parent, new List<TrackSection> { original });
 
-            // Verify the isBg key was not written
+            // Verify the src key was not written
             var tsNode = parent.GetNodes("TRACK_SECTION")[0];
-            Assert.Null(tsNode.GetValue("isBg"));
+            Assert.Null(tsNode.GetValue("src"));
 
-            // Still round-trips correctly (defaults to false)
+            // Still round-trips correctly (defaults to Active)
             var loaded = new List<TrackSection>();
             RecordingStore.DeserializeTrackSections(parent, loaded);
             Assert.Single(loaded);
-            Assert.False(loaded[0].isFromBackground);
+            Assert.Equal(TrackSectionSource.Active, loaded[0].source);
         }
 
         #endregion

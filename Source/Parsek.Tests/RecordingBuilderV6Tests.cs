@@ -87,14 +87,13 @@ namespace Parsek.Tests
                 .AddTrackSection(
                     SegmentEnvironment.SurfaceStationary, ReferenceFrame.Absolute, TrackSectionSource.Background,
                     15000.0, 16000.0,
-                    isFromBackground: true, sampleRateHz: 0.5f);
+                    sampleRateHz: 0.5f);
 
             var trajNode = builder.BuildTrajectoryNode();
             var rec = new Recording();
             RecordingStore.DeserializeTrajectoryFrom(trajNode, rec);
 
             Assert.Single(rec.TrackSections);
-            Assert.True(rec.TrackSections[0].isFromBackground);
             Assert.Equal(TrackSectionSource.Background, rec.TrackSections[0].source);
         }
 

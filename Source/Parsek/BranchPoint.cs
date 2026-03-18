@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Parsek
 {
@@ -41,10 +42,11 @@ namespace Parsek
 
         public override string ToString()
         {
-            var s = $"BP id={Id ?? "?"} type={Type} ut={UT:F1} " +
+            var ic = CultureInfo.InvariantCulture;
+            var s = $"BP id={Id ?? "?"} type={Type} ut={UT.ToString("F1", ic)} " +
                     $"parents={ParentRecordingIds.Count} children={ChildRecordingIds.Count}";
             if (Type == BranchPointType.Breakup)
-                s += $" cause={BreakupCause ?? "?"} debris={DebrisCount} duration={BreakupDuration:F3}s";
+                s += $" cause={BreakupCause ?? "?"} debris={DebrisCount} duration={BreakupDuration.ToString("F3", ic)}s";
             else if (Type == BranchPointType.Terminal && TerminalCause != null)
                 s += $" terminal={TerminalCause}";
             else if (SplitCause != null)

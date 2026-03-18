@@ -3051,6 +3051,17 @@ namespace Parsek
                     $"Setting changed: ghostCapZone2Simplify={s.ghostCapZone2Simplify}", 1.0);
             }
             GUILayout.EndHorizontal();
+
+            // Enforce constraint: reduce must be less than despawn
+            if (s.ghostCapZone1Reduce >= s.ghostCapZone1Despawn)
+            {
+                s.ghostCapZone1Reduce = System.Math.Max(2, s.ghostCapZone1Despawn - 1);
+                GhostSoftCapManager.ApplySettings(
+                    s.ghostCapZone1Reduce, s.ghostCapZone1Despawn, s.ghostCapZone2Simplify);
+                ParsekLog.Info("UI",
+                    $"Clamped ghostCapZone1Reduce={s.ghostCapZone1Reduce} to stay below " +
+                    $"ghostCapZone1Despawn={s.ghostCapZone1Despawn}");
+            }
         }
 
         private void DrawDataManagementSettings(ParsekSettings s)

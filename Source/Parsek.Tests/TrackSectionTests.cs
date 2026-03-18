@@ -130,10 +130,10 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TrackSection_Default_IsFromBackgroundIsFalse()
+        public void TrackSection_Default_SourceIsActive()
         {
             var section = new TrackSection();
-            Assert.False(section.isFromBackground);
+            Assert.Equal(TrackSectionSource.Active, section.source);
         }
 
         #endregion
@@ -155,7 +155,7 @@ namespace Parsek.Tests
                     new TrajectoryPoint { ut = 1500.0 },
                     new TrajectoryPoint { ut = 2000.75 }
                 },
-                isFromBackground = true
+                source = TrackSectionSource.Background
             };
 
             var result = section.ToString();
@@ -166,7 +166,7 @@ namespace Parsek.Tests
             Assert.Contains("2000.75", result);
             Assert.Contains("frames=3", result);
             Assert.Contains("checkpoints=0", result);
-            Assert.Contains("bg=True", result);
+            Assert.Contains("src=Background", result);
         }
 
         [Fact]

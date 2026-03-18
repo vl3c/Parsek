@@ -4210,11 +4210,24 @@ namespace Parsek
                 }
                 else
                 {
-                    // Anchor vessel no longer loaded — fall back to absolute coordinates.
-                    // The point keeps lat/lon/alt from the vessel. Log the anomaly.
+                    // Anchor vessel no longer loaded — force transition out of RELATIVE mode.
+                    // The point keeps its absolute lat/lon/alt from the vessel (correct for ABSOLUTE).
+                    // Close the RELATIVE section and start a new ABSOLUTE section so the frame
+                    // tag matches the data.
                     ParsekLog.Warn("Anchor",
                         $"Anchor vessel pid={currentAnchorPid} not found in loaded vessels — " +
-                        $"recording absolute position as fallback at UT={Planetarium.GetUniversalTime():F2}");
+                        $"forcing transition to ABSOLUTE at UT={Planetarium.GetUniversalTime():F2}");
+                    var oldAnchor = currentAnchorPid;
+                    isRelativeMode = false;
+                    currentAnchorPid = 0;
+                    CloseCurrentTrackSection(Planetarium.GetUniversalTime());
+                    var env = environmentHysteresis != null
+                        ? environmentHysteresis.CurrentEnvironment
+                        : SegmentEnvironment.Atmospheric;
+                    StartNewTrackSection(env, ReferenceFrame.Absolute, Planetarium.GetUniversalTime());
+                    ParsekLog.Info("Anchor",
+                        $"RELATIVE mode force-exited: anchor pid={oldAnchor} unloaded, " +
+                        $"new ABSOLUTE section started");
                 }
             }
 

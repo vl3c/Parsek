@@ -4930,53 +4930,15 @@ namespace Parsek
                                 state.ghost.transform.position,
                                 FlightGlobals.ActiveVessel.transform.position);
                         }
-                        var zone = RenderingZoneManager.ClassifyDistance(ghostDistance);
-
-                        // Detect zone transition
-                        if (state != null)
+                        var zoneResult = ApplyZoneRendering(i, state, rec, ghostDistance);
+                        if (zoneResult.hiddenByZone)
                         {
-                            string transDesc;
-                            if (GhostPlaybackLogic.DetectZoneTransition(state.currentZone, zone, out transDesc))
-                            {
-                                RenderingZoneManager.LogZoneTransition(
-                                    $"#{i} \"{rec.VesselName}\"", state.currentZone, zone, ghostDistance);
-                                state.currentZone = zone;
-                            }
-                        }
-
-                        var (shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning) =
-                            GhostPlaybackLogic.GetZoneRenderingPolicy(zone);
-
-                        // Zone 3 (Beyond): hide mesh, exit watch mode if watching this ghost
-                        if (shouldHideMesh)
-                        {
-                            if (state != null && state.ghost != null && state.ghost.activeSelf)
-                            {
-                                state.ghost.SetActive(false);
-                                ParsekLog.Info("Zone",
-                                    $"Ghost #{i} \"{rec.VesselName}\" hidden: beyond visual range " +
-                                    $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m)");
-                            }
-                            if (GhostPlaybackLogic.ShouldExitWatchModeForZone(watchedRecordingIndex, i, zone))
-                            {
-                                ParsekLog.Info("Zone",
-                                    $"Exiting watch mode: ghost #{i} \"{rec.VesselName}\" entered Beyond zone");
-                                ExitWatchMode();
-                            }
                             // Still apply resource deltas even when mesh is hidden
                             if (rec.TreeId == null)
                                 ApplyResourceDeltas(rec, currentUT);
                             continue;
                         }
-
-                        // Zone 1 or 2: ensure ghost is visible
-                        if (state != null && state.ghost != null && !state.ghost.activeSelf)
-                        {
-                            state.ghost.SetActive(true);
-                            ParsekLog.Info("Zone",
-                                $"Ghost #{i} \"{rec.VesselName}\" re-shown: entered visual range " +
-                                $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m)");
-                        }
+                        bool shouldSkipPartEvents = zoneResult.skipPartEvents;
 
                         int playbackIdx = state.playbackIndex;
 
@@ -5054,48 +5016,14 @@ namespace Parsek
                                 state.ghost.transform.position,
                                 FlightGlobals.ActiveVessel.transform.position);
                         }
-                        var bgZone = RenderingZoneManager.ClassifyDistance(bgGhostDistance);
-
-                        if (state != null)
+                        var bgZoneResult = ApplyZoneRendering(i, state, rec, bgGhostDistance);
+                        if (bgZoneResult.hiddenByZone)
                         {
-                            string bgTransDesc;
-                            if (GhostPlaybackLogic.DetectZoneTransition(state.currentZone, bgZone, out bgTransDesc))
-                            {
-                                RenderingZoneManager.LogZoneTransition(
-                                    $"#{i} \"{rec.VesselName}\" (background)", state.currentZone, bgZone, bgGhostDistance);
-                                state.currentZone = bgZone;
-                            }
-                        }
-
-                        var (bgShouldHide, bgSkipPartEvents, _) =
-                            GhostPlaybackLogic.GetZoneRenderingPolicy(bgZone);
-
-                        if (bgShouldHide)
-                        {
-                            if (state != null && state.ghost != null && state.ghost.activeSelf)
-                            {
-                                state.ghost.SetActive(false);
-                                ParsekLog.Info("Zone",
-                                    $"Ghost #{i} \"{rec.VesselName}\" (background) hidden: beyond visual range");
-                            }
-                            if (GhostPlaybackLogic.ShouldExitWatchModeForZone(watchedRecordingIndex, i, bgZone))
-                            {
-                                ParsekLog.Info("Zone",
-                                    $"Exiting watch mode: ghost #{i} \"{rec.VesselName}\" (background) entered Beyond zone");
-                                ExitWatchMode();
-                            }
                             if (rec.TreeId == null)
                                 ApplyResourceDeltas(rec, currentUT);
                             continue;
                         }
-
-                        // Ensure visible in Zone 1/2
-                        if (state != null && state.ghost != null && !state.ghost.activeSelf)
-                        {
-                            state.ghost.SetActive(true);
-                            ParsekLog.Info("Zone",
-                                $"Ghost #{i} \"{rec.VesselName}\" (background) re-shown: entered visual range");
-                        }
+                        bool bgSkipPartEvents = bgZoneResult.skipPartEvents;
 
                         if (state != null && state.ghost != null)
                         {
@@ -5610,43 +5538,12 @@ namespace Parsek
                     state.ghost.transform.position,
                     FlightGlobals.ActiveVessel.transform.position);
             }
-            var loopZone = RenderingZoneManager.ClassifyDistance(loopZoneDistance);
-
-            // Detect zone transition
-            {
-                string loopTransDesc;
-                if (GhostPlaybackLogic.DetectZoneTransition(state.currentZone, loopZone, out loopTransDesc))
-                {
-                    RenderingZoneManager.LogZoneTransition(
-                        $"#{recIdx} \"{rec.VesselName}\" (loop)", state.currentZone, loopZone, loopZoneDistance);
-                    state.currentZone = loopZone;
-                }
-            }
-
-            var (loopHideMesh, loopSkipPartEvents, loopSkipPositioning) =
-                GhostPlaybackLogic.GetZoneRenderingPolicy(loopZone);
-
-            // Beyond zone: hide and exit watch
-            if (loopHideMesh)
-            {
-                if (state.ghost.activeSelf)
-                {
-                    state.ghost.SetActive(false);
-                    ParsekLog.Info("Zone",
-                        $"Ghost #{recIdx} \"{rec.VesselName}\" (loop) hidden: beyond visual range " +
-                        $"({loopZoneDistance.ToString("F0", CultureInfo.InvariantCulture)}m)");
-                }
-                if (GhostPlaybackLogic.ShouldExitWatchModeForZone(watchedRecordingIndex, recIdx, loopZone))
-                {
-                    ParsekLog.Info("Zone",
-                        $"Exiting watch mode: looped ghost #{recIdx} \"{rec.VesselName}\" entered Beyond zone");
-                    ExitWatchMode();
-                }
+            var loopZoneResult = ApplyZoneRendering(recIdx, state, rec, loopZoneDistance);
+            if (loopZoneResult.hiddenByZone)
                 return;
-            }
 
             // Simplified looped ghost: skip part events even in Physics zone
-            bool skipLoopPartEvents = loopSkipPartEvents || loopSimplified;
+            bool skipLoopPartEvents = loopZoneResult.skipPartEvents || loopSimplified;
 
             if (inPauseWindow)
             {
@@ -7273,6 +7170,74 @@ namespace Parsek
             Log($"WARNING: Could not activate vessel pid={pid} within 10 frames");
         }
 
+        #region Zone Rendering (shared by normal, background, and looped ghosts)
+
+        /// <summary>
+        /// Result of zone rendering evaluation for a ghost.
+        /// </summary>
+        struct ZoneRenderingResult
+        {
+            public bool hiddenByZone;       // Ghost was hidden (Beyond zone) — caller should skip/continue
+            public bool skipPartEvents;     // Part events should not be applied this frame
+        }
+
+        /// <summary>
+        /// Evaluates zone-based rendering for a ghost: computes distance, classifies zone,
+        /// detects transitions, hides/shows mesh, exits watch mode if needed.
+        /// Shared by normal, background, and looped ghost update paths.
+        /// </summary>
+        ZoneRenderingResult ApplyZoneRendering(int recIdx, GhostPlaybackState state, Recording rec, double ghostDistance)
+        {
+            var zone = RenderingZoneManager.ClassifyDistance(ghostDistance);
+
+            // Detect zone transition
+            if (state != null)
+            {
+                string transDesc;
+                if (GhostPlaybackLogic.DetectZoneTransition(state.currentZone, zone, out transDesc))
+                {
+                    RenderingZoneManager.LogZoneTransition(
+                        $"#{recIdx} \"{rec.VesselName}\"", state.currentZone, zone, ghostDistance);
+                    state.currentZone = zone;
+                }
+            }
+
+            var (shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning) =
+                GhostPlaybackLogic.GetZoneRenderingPolicy(zone);
+
+            // Beyond zone: hide mesh, exit watch mode
+            if (shouldHideMesh)
+            {
+                if (state != null && state.ghost != null && state.ghost.activeSelf)
+                {
+                    state.ghost.SetActive(false);
+                    ParsekLog.Info("Zone",
+                        $"Ghost #{recIdx} \"{rec.VesselName}\" hidden: beyond visual range " +
+                        $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m)");
+                }
+                if (GhostPlaybackLogic.ShouldExitWatchModeForZone(watchedRecordingIndex, recIdx, zone))
+                {
+                    ParsekLog.Info("Zone",
+                        $"Exiting watch mode: ghost #{recIdx} \"{rec.VesselName}\" entered Beyond zone");
+                    ExitWatchMode();
+                }
+                return new ZoneRenderingResult { hiddenByZone = true, skipPartEvents = true };
+            }
+
+            // Zone 1 or 2: ensure ghost is visible
+            if (state != null && state.ghost != null && !state.ghost.activeSelf)
+            {
+                state.ghost.SetActive(true);
+                ParsekLog.Info("Zone",
+                    $"Ghost #{recIdx} \"{rec.VesselName}\" re-shown: entered visual range " +
+                    $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m)");
+            }
+
+            return new ZoneRenderingResult { hiddenByZone = false, skipPartEvents = shouldSkipPartEvents };
+        }
+
+        #endregion
+
         #region Ghost Positioning (shared by manual + timeline playback)
 
         GameObject CreateGhostSphere(string name, Color color)
@@ -7813,23 +7778,16 @@ namespace Parsek
             }
             else
             {
-                // Fallback: absolute body-fixed
-                CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
-                if (body == null) return;
-                Vector3d pos = body.GetWorldSurfacePosition(dx, dy, dz);
-                ghost.transform.position = pos;
-                ghost.transform.rotation = body.bodyTransform.rotation * sanitized;
-
-                ghostPosEntries.Add(new GhostPosEntry
-                {
-                    ghost = ghost,
-                    mode = GhostPosMode.SinglePoint,
-                    bodyBefore = body,
-                    latBefore = dx, lonBefore = dy, altBefore = dz,
-                    pointUT = point.ut,
-                    interpolatedRot = sanitized,
-                    surfaceRelativeRotation = true
-                });
+                // Anchor not found — hide ghost entirely.
+                // RELATIVE frames store dx/dy/dz meter offsets in lat/lon/alt fields,
+                // so interpreting them as geographic coordinates would place the ghost
+                // at completely wrong positions. Hiding is the safe fallback.
+                long key = ((long)anchorVesselId << 32);
+                if (loggedAnchorNotFound.Add(key))
+                    ParsekLog.Warn("Anchor",
+                        $"PositionGhostRelativeAt: anchor vessel pid={anchorVesselId} not found, " +
+                        $"hiding ghost until anchor loads");
+                ghost.SetActive(false);
             }
         }
 

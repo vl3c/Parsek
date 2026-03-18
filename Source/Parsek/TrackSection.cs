@@ -56,7 +56,6 @@ namespace Parsek
         public List<TrajectoryPoint> frames;    // For Absolute/Relative (null until initialized)
         public List<OrbitSegment> checkpoints;  // For OrbitalCheckpoint (null until initialized)
         public float sampleRateHz;              // Actual recording sample rate
-        public bool isFromBackground;           // True if from background recording
         public TrackSectionSource source;       // Data provenance (for diagnostics)
         public float boundaryDiscontinuityMeters; // Position gap at section start vs previous section end (0 = no gap)
 
@@ -67,7 +66,7 @@ namespace Parsek
             int checkpointCount = checkpoints?.Count ?? 0;
             return $"TrackSection env={environment} ref={referenceFrame} " +
                    $"ut=[{startUT.ToString("F2", ic)},{endUT.ToString("F2", ic)}] frames={frameCount} " +
-                   $"checkpoints={checkpointCount} bg={isFromBackground} " +
+                   $"checkpoints={checkpointCount} " +
                    $"src={source} bdisc={boundaryDiscontinuityMeters.ToString("F2", ic)}";
         }
     }

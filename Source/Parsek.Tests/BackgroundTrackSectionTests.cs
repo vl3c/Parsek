@@ -6,7 +6,7 @@ namespace Parsek.Tests
     /// <summary>
     /// Tests for TrackSection creation and lifecycle in BackgroundRecorder.
     /// Verifies that background vessels correctly create, transition, and flush
-    /// TrackSections with source=Background and isFromBackground=true.
+    /// TrackSections with source=Background.
     /// </summary>
     [Collection("Sequential")]
     public class BackgroundTrackSectionTests : System.IDisposable
@@ -69,7 +69,7 @@ namespace Parsek.Tests
             return tree;
         }
 
-        #region TrackSection creation: source and isFromBackground
+        #region TrackSection creation: source
 
         [Fact]
         public void InitLoadedState_CreatesTrackSection_WithSourceBackground()
@@ -100,7 +100,7 @@ namespace Parsek.Tests
 
             var section = bgRecorder.GetCurrentTrackSectionForTesting(pid);
             Assert.NotNull(section);
-            Assert.True(section.Value.isFromBackground);
+            Assert.Equal(TrackSectionSource.Background, section.Value.source);
         }
 
         [Fact]
@@ -344,7 +344,7 @@ namespace Parsek.Tests
             var flushed = rec.TrackSections[0];
             Assert.Equal(SegmentEnvironment.Atmospheric, flushed.environment);
             Assert.Equal(TrackSectionSource.Background, flushed.source);
-            Assert.True(flushed.isFromBackground);
+            Assert.NotEqual(TrackSectionSource.Active, flushed.source);
             Assert.Equal(1000.0, flushed.startUT);
             Assert.Equal(1050.0, flushed.endUT);
         }
@@ -400,7 +400,7 @@ namespace Parsek.Tests
             var rec = tree.Recordings[recId];
             Assert.NotEmpty(rec.TrackSections);
             Assert.Equal(TrackSectionSource.Background, rec.TrackSections[0].source);
-            Assert.True(rec.TrackSections[0].isFromBackground);
+            Assert.NotEqual(TrackSectionSource.Active, rec.TrackSections[0].source);
         }
 
         [Fact]

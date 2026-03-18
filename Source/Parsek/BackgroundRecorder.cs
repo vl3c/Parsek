@@ -1528,18 +1528,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Reverse-maps a proximity interval to a representative distance for logging.
-        /// Only used for rate-change log messages when the previous interval is known.
-        /// </summary>
-        private static double IntervalToDistance(double interval)
-        {
-            if (interval <= ProximityRateSelector.DockingInterval) return 0;
-            if (interval <= ProximityRateSelector.MidInterval) return ProximityRateSelector.DockingRange;
-            if (interval <= ProximityRateSelector.FarInterval) return ProximityRateSelector.MidRange;
-            return ProximityRateSelector.PhysicsBubble;
-        }
-
-        /// <summary>
         /// Formats a sample interval for log messages.
         /// </summary>
         private static string FormatInterval(double interval)
@@ -1586,7 +1574,7 @@ namespace Parsek
 
         /// <summary>
         /// Opens a new TrackSection for a background vessel.
-        /// Sets source = Background, isFromBackground = true.
+        /// Sets source = Background.
         /// </summary>
         private void StartBackgroundTrackSection(
             BackgroundVesselState state, SegmentEnvironment env, ReferenceFrame refFrame, double ut)
@@ -1597,7 +1585,6 @@ namespace Parsek
                 referenceFrame = refFrame,
                 startUT = ut,
                 source = TrackSectionSource.Background,
-                isFromBackground = true,
                 frames = new List<TrajectoryPoint>(),
                 checkpoints = new List<OrbitSegment>()
             };
@@ -1609,7 +1596,7 @@ namespace Parsek
 
         /// <summary>
         /// Opens an OrbitalCheckpoint TrackSection for a background vessel transitioning to on-rails.
-        /// Sets source = Checkpoint, isFromBackground = true.
+        /// Sets source = Checkpoint.
         /// </summary>
         private void StartCheckpointTrackSection(BackgroundVesselState state, double ut)
         {
@@ -1619,7 +1606,6 @@ namespace Parsek
                 referenceFrame = ReferenceFrame.OrbitalCheckpoint,
                 startUT = ut,
                 source = TrackSectionSource.Checkpoint,
-                isFromBackground = true,
                 frames = new List<TrajectoryPoint>(),
                 checkpoints = new List<OrbitSegment>()
             };
