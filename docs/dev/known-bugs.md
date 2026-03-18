@@ -617,3 +617,13 @@ The AnchorDetector's 2300m threshold triggers on any nearby vessel, including: l
 `OnCrewOnEva` ignores EVAs when the vessel situation is not "on pad." In-flight EVAs (suborbital, flying, orbiting) are not recorded.
 
 **Status:** Open — medium priority (design limitation)
+
+## 57. Boarding confirmation expired on vessel switch
+
+After a vessel switch, a boarding event was detected but the confirmation timer expired before boarding was confirmed. The boarding was not recorded.
+
+**Root cause:** The boarding confirmation window may be too short, or the boarding was interrupted/cancelled by the player or by another event (EVA, destruction).
+
+**Impact:** Low — boarding not recorded, but kerbal not lost.
+
+**Status:** Open — low priority

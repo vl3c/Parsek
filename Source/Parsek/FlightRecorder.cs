@@ -3432,11 +3432,27 @@ namespace Parsek
                     currentTrackSection.sampleRateHz = (float)(currentTrackSection.frames.Count / duration);
             }
 
+            int frameCount = currentTrackSection.frames?.Count ?? 0;
+            int checkpointCount = currentTrackSection.checkpoints?.Count ?? 0;
+
+            // Skip degenerate zero-frame sections from brief RELATIVE/environment flickers
+            // (e.g., debris triggers anchor for one frame then leaves). Only discard if
+            // the section was very short — longer empty sections may be intentional (tests, checkpoints).
+            double sectionDuration = ut - currentTrackSection.startUT;
+            if (frameCount == 0 && checkpointCount == 0 && sectionDuration < 1.0)
+            {
+                trackSectionActive = false;
+                ParsekLog.Verbose("Recorder",
+                    $"TrackSection discarded (zero frames, {sectionDuration.ToString("F3", CultureInfo.InvariantCulture)}s): " +
+                    $"env={currentTrackSection.environment} ref={currentTrackSection.referenceFrame}");
+                return;
+            }
+
             TrackSections.Add(currentTrackSection);
             trackSectionActive = false;
             ParsekLog.Info("Recorder",
                 $"TrackSection closed: env={currentTrackSection.environment} ref={currentTrackSection.referenceFrame} " +
-                $"frames={currentTrackSection.frames?.Count ?? 0} checkpoints={currentTrackSection.checkpoints?.Count ?? 0} " +
+                $"frames={frameCount} checkpoints={checkpointCount} " +
                 $"duration={(ut - currentTrackSection.startUT).ToString("F2", CultureInfo.InvariantCulture)}s");
         }
 
