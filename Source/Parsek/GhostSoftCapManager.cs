@@ -126,6 +126,20 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Applies threshold settings from ParsekSettings to static fields.
+        /// Called at scene load to sync persisted settings with runtime thresholds.
+        /// Pure static for testability.
+        /// </summary>
+        internal static void ApplySettings(int zone1Reduce, int zone1Despawn, int zone2Simplify)
+        {
+            Zone1ReduceThreshold = zone1Reduce;
+            Zone1DespawnThreshold = zone1Despawn;
+            Zone2SimplifyThreshold = zone2Simplify;
+            ParsekLog.Info("SoftCap",
+                $"Thresholds applied: zone1Reduce={zone1Reduce} zone1Despawn={zone1Despawn} zone2Simplify={zone2Simplify}");
+        }
+
+        /// <summary>
         /// Resets thresholds to defaults. For testing.
         /// </summary>
         internal static void ResetThresholds()

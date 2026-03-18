@@ -2823,6 +2823,8 @@ namespace Parsek
             GUILayout.Space(SpacingSmall);
             DrawSamplingSettings(s);
             GUILayout.Space(SpacingSmall);
+            DrawGhostCapSettings(s);
+            GUILayout.Space(SpacingSmall);
             DrawDataManagementSettings(s);
             #endregion
 
@@ -2840,6 +2842,10 @@ namespace Parsek
                 s.speedChangeThreshold = 5.0f;
                 s.autoLoopIntervalSeconds = 10.0f;
                 s.autoLoopTimeUnit = 0;
+                s.ghostCapZone1Reduce = 8;
+                s.ghostCapZone1Despawn = 15;
+                s.ghostCapZone2Simplify = 20;
+                GhostSoftCapManager.ApplySettings(8, 15, 20);
                 settingsAutoLoopEditing = false;
                 ParsekLog.Info("UI", "Settings reset to defaults");
             }
@@ -2987,6 +2993,62 @@ namespace Parsek
                 s.speedChangeThreshold = speedChangeThreshold;
                 ParsekLog.VerboseRateLimited("UI", "sampling.speedChangeThreshold",
                     $"Setting changed: speedChangeThreshold={s.speedChangeThreshold:F0}%", 1.0);
+            }
+            GUILayout.EndHorizontal();
+        }
+
+        private void DrawGhostCapSettings(ParsekSettings s)
+        {
+            GUILayout.Label("Ghost Soft Caps", GUI.skin.box);
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(
+                new GUIContent($"Zone 1 reduce: {s.ghostCapZone1Reduce}",
+                    "Nearby ghosts above this count get reduced fidelity"),
+                GUILayout.Width(140));
+            int zone1Reduce = Mathf.RoundToInt(
+                GUILayout.HorizontalSlider(s.ghostCapZone1Reduce, 2, 30));
+            if (zone1Reduce != s.ghostCapZone1Reduce)
+            {
+                s.ghostCapZone1Reduce = zone1Reduce;
+                GhostSoftCapManager.ApplySettings(
+                    s.ghostCapZone1Reduce, s.ghostCapZone1Despawn, s.ghostCapZone2Simplify);
+                ParsekLog.VerboseRateLimited("UI", "ghostCap.zone1Reduce",
+                    $"Setting changed: ghostCapZone1Reduce={s.ghostCapZone1Reduce}", 1.0);
+            }
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(
+                new GUIContent($"Zone 1 despawn: {s.ghostCapZone1Despawn}",
+                    "Nearby ghosts above this count get despawned (lowest priority first)"),
+                GUILayout.Width(140));
+            int zone1Despawn = Mathf.RoundToInt(
+                GUILayout.HorizontalSlider(s.ghostCapZone1Despawn, 5, 50));
+            if (zone1Despawn != s.ghostCapZone1Despawn)
+            {
+                s.ghostCapZone1Despawn = zone1Despawn;
+                GhostSoftCapManager.ApplySettings(
+                    s.ghostCapZone1Reduce, s.ghostCapZone1Despawn, s.ghostCapZone2Simplify);
+                ParsekLog.VerboseRateLimited("UI", "ghostCap.zone1Despawn",
+                    $"Setting changed: ghostCapZone1Despawn={s.ghostCapZone1Despawn}", 1.0);
+            }
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(
+                new GUIContent($"Zone 2 simplify: {s.ghostCapZone2Simplify}",
+                    "Distant ghosts above this count get simplified to orbit lines"),
+                GUILayout.Width(140));
+            int zone2Simplify = Mathf.RoundToInt(
+                GUILayout.HorizontalSlider(s.ghostCapZone2Simplify, 5, 60));
+            if (zone2Simplify != s.ghostCapZone2Simplify)
+            {
+                s.ghostCapZone2Simplify = zone2Simplify;
+                GhostSoftCapManager.ApplySettings(
+                    s.ghostCapZone1Reduce, s.ghostCapZone1Despawn, s.ghostCapZone2Simplify);
+                ParsekLog.VerboseRateLimited("UI", "ghostCap.zone2Simplify",
+                    $"Setting changed: ghostCapZone2Simplify={s.ghostCapZone2Simplify}", 1.0);
             }
             GUILayout.EndHorizontal();
         }

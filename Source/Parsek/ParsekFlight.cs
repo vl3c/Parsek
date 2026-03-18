@@ -223,6 +223,13 @@ namespace Parsek
         // MinCycleDuration is now in GhostPlaybackLogic
         private const double OverlapExplosionHoldSeconds = 3.0;
 
+        // Soft cap evaluation — cached lists to avoid per-frame allocation
+        private readonly List<(int recordingIndex, GhostPriority priority)> cachedZone1Ghosts =
+            new List<(int, GhostPriority)>();
+        private readonly List<(int recordingIndex, GhostPriority priority)> cachedZone2Ghosts =
+            new List<(int, GhostPriority)>();
+        private bool softCapTriggeredThisFrame; // rate-limit logging
+
         // Camera follow (watch mode) — transient, never serialized
         private const string WatchModeLockId = "ParsekWatch";
         private const ControlTypes WatchModeLockMask =
@@ -3297,6 +3304,16 @@ namespace Parsek
 
             ResetFlightReadyState();
 
+            // Apply ghost soft cap settings from persisted game parameters
+            var capSettings = ParsekSettings.Current;
+            if (capSettings != null)
+            {
+                GhostSoftCapManager.ApplySettings(
+                    capSettings.ghostCapZone1Reduce,
+                    capSettings.ghostCapZone1Despawn,
+                    capSettings.ghostCapZone2Simplify);
+            }
+
             // Handle pending tree: show tree merge dialog.
             // On non-revert scene changes, pending trees are auto-committed by ParsekScenario.
             // Reaching here means either a revert or a fallback (auto-commit missed).
@@ -5237,6 +5254,82 @@ namespace Parsek
                     if (pastEnd && rec.TreeId == null)
                         ApplyResourceDeltas(rec, currentUT);
                 }
+            }
+
+            // --- Ghost soft cap evaluation ---
+            // Collect per-zone ghost counts and priorities, then evaluate caps.
+            // Uses cached lists to avoid per-frame allocation.
+            cachedZone1Ghosts.Clear();
+            cachedZone2Ghosts.Clear();
+
+            foreach (var kvp in ghostStates)
+            {
+                int idx = kvp.Key;
+                var capState = kvp.Value;
+                if (capState == null || capState.ghost == null) continue;
+                if (idx < 0 || idx >= committed.Count) continue;
+
+                var capRec = committed[idx];
+                var priority = GhostSoftCapManager.ClassifyPriority(capRec, capState.loopCycleIndex);
+
+                if (capState.currentZone == RenderingZone.Physics)
+                    cachedZone1Ghosts.Add((idx, priority));
+                else if (capState.currentZone == RenderingZone.Visual)
+                    cachedZone2Ghosts.Add((idx, priority));
+            }
+
+            if (cachedZone1Ghosts.Count > GhostSoftCapManager.Zone1ReduceThreshold ||
+                cachedZone2Ghosts.Count > GhostSoftCapManager.Zone2SimplifyThreshold)
+            {
+                var capActions = GhostSoftCapManager.EvaluateCaps(
+                    cachedZone1Ghosts.Count, cachedZone2Ghosts.Count,
+                    cachedZone1Ghosts, cachedZone2Ghosts);
+
+                if (capActions.Count > 0)
+                {
+                    if (!softCapTriggeredThisFrame)
+                    {
+                        ParsekLog.Info("SoftCap",
+                            $"Cap triggered: zone1={cachedZone1Ghosts.Count} zone2={cachedZone2Ghosts.Count} " +
+                            $"actions={capActions.Count}");
+                        softCapTriggeredThisFrame = true;
+                    }
+
+                    foreach (var capKvp in capActions)
+                    {
+                        int capIdx = capKvp.Key;
+                        GhostCapAction action = capKvp.Value;
+
+                        switch (action)
+                        {
+                            case GhostCapAction.Despawn:
+                                ParsekLog.Info("SoftCap",
+                                    $"Despawning ghost #{capIdx} \"{committed[capIdx].VesselName}\"");
+                                DestroyTimelineGhost(capIdx);
+                                break;
+                            case GhostCapAction.SimplifyToOrbitLine:
+                                GhostPlaybackState simplifyState;
+                                if (ghostStates.TryGetValue(capIdx, out simplifyState) &&
+                                    simplifyState?.ghost != null && simplifyState.ghost.activeSelf)
+                                {
+                                    simplifyState.ghost.SetActive(false);
+                                    ParsekLog.Verbose("SoftCap",
+                                        $"Simplified ghost #{capIdx} \"{committed[capIdx].VesselName}\" — mesh hidden");
+                                }
+                                break;
+                            case GhostCapAction.ReduceFidelity:
+                                // Placeholder — real fidelity reduction requires mesh part culling.
+                                // For now, just suppress FX (which is already handled by zone policies).
+                                ParsekLog.Verbose("SoftCap",
+                                    $"ReduceFidelity ghost #{capIdx} \"{committed[capIdx].VesselName}\" (no-op placeholder)");
+                                break;
+                        }
+                    }
+                }
+            }
+            else
+            {
+                softCapTriggeredThisFrame = false;
             }
 
             // Apply tree-level resource deltas (lump sum when UT passes tree EndUT)
