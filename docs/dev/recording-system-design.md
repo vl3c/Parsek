@@ -955,7 +955,7 @@ The player is at UT=6000 and rewinds to Recording B's launch at UT=2000:
 
 **Implementation note (decided during Phase 4 planning):** There is no explicit "vessel list reconstruction" algorithm. The quicksave is the source of truth for which real vessels exist. Ghosts handle the visual replay. At each recording's end UT, the spawn-at-end logic checks: if the vessel doesn't exist in the game world (`SpawnedVesselPersistentId == 0`), spawn it from the recording's snapshot. If it already exists (from the quicksave), skip — the ghost just despawns. On revert, `SpawnedVesselPersistentId` resets to 0 from the quicksave, so spawns re-trigger naturally when the ghost replays and reaches the end.
 
-**Looping recordings never spawn.** Recordings with `LoopPlayback = true` cycle indefinitely — they have no "end" in the spawn sense. The `ShouldSpawnAtRecordingEnd` logic suppresses spawning for any recording with loop playback enabled, regardless of whether it's a standalone recording or part of a chain.
+**Looping recordings spawn once.** Recordings with `LoopPlayback = true` spawn their vessel at the end of the **first** playthrough (so the vessel exists in the world — the player expects the station/base to be there). Subsequent loop cycles are visual-only ghosts — the vessel already exists, so `SpawnedVesselPersistentId != 0` prevents re-spawning. The existing PID-based deduplication handles this naturally without special loop logic.
 
 ### 14.3 Fast-Forward (Time Warp with Ghost Playback)
 

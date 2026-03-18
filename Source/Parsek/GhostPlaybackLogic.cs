@@ -1789,9 +1789,10 @@ namespace Parsek
             if (isActiveChainMember)
                 return (false, "active chain being built");
 
-            // Looping recordings cycle forever — they never "end" in the spawn sense
-            if (rec.LoopPlayback)
-                return (false, "loop playback enabled");
+            // Looping recordings: first playthrough spawns the vessel (so it exists in the world),
+            // subsequent loops are visual-only. The VesselSpawned/SpawnedVesselPersistentId checks
+            // above handle this — after first spawn, VesselSpawned=true prevents re-spawning.
+            // No blanket LoopPlayback suppression needed here.
 
             // Suppress spawn for looping or fully-disabled chains
             if (isChainLoopingOrDisabled)
