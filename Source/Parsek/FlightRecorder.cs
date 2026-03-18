@@ -4115,6 +4115,31 @@ namespace Parsek
             // Runs every physics frame to detect proximity to pre-existing vessels.
             // treeVesselPids is null when no recording tree is active — anchor detection
             // still works but excludes nothing (solo recording can anchor to any vessel).
+            //
+            // Skip anchor detection while on the surface — RELATIVE mode is for orbital
+            // docking approaches, not pad neighbors. Surface vessels are pinned to the
+            // ground and don't need relative positioning. Also handles the case where a
+            // vessel lands near a base — exits RELATIVE mode on landing.
+            bool onSurface = v.situation == Vessel.Situations.LANDED
+                          || v.situation == Vessel.Situations.SPLASHED
+                          || v.situation == Vessel.Situations.PRELAUNCH;
+            if (onSurface && isRelativeMode)
+            {
+                // Was flying in RELATIVE mode, just landed — exit RELATIVE
+                var ic = CultureInfo.InvariantCulture;
+                var oldAnchor = currentAnchorPid;
+                isRelativeMode = false;
+                currentAnchorPid = 0;
+                CloseCurrentTrackSection(Planetarium.GetUniversalTime());
+                var env = environmentHysteresis != null
+                    ? environmentHysteresis.CurrentEnvironment
+                    : SegmentEnvironment.Atmospheric;
+                StartNewTrackSection(env, ReferenceFrame.Absolute, Planetarium.GetUniversalTime());
+                ParsekLog.Info("Anchor",
+                    $"RELATIVE mode exited on landing: previousAnchorPid={oldAnchor} " +
+                    $"situation={v.situation} vesselPid={RecordingVesselId}");
+            }
+            else if (!onSurface)
             {
                 var vesselInfos = BuildVesselInfoList();
                 var (anchorPid, anchorDist) = AnchorDetector.FindNearestAnchor(

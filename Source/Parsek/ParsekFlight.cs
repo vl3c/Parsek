@@ -46,6 +46,11 @@ namespace Parsek
         private Dictionary<int, List<GhostPlaybackState>> overlapGhosts = new Dictionary<int, List<GhostPlaybackState>>();
         private const int MaxOverlapGhostsPerRecording = 5;
 
+        // Loop phase offsets: when Watch mode starts on a ghost that's currently beyond
+        // visual range, we shift the loop phase so the ghost starts from the beginning
+        // of its recording (at the pad). This avoids targeting a ghost 300km away.
+        private Dictionary<int, double> loopPhaseOffsets = new Dictionary<int, double>();
+
         // --- Floating-origin correction ---
         // Ghosts are plain GameObjects not registered with KSP's FloatingOrigin.
         // FloatingOrigin shifts all registered objects in LateUpdate(), but ghosts
@@ -4922,9 +4927,13 @@ namespace Parsek
                         }
                         else if (!state.ghost.activeSelf)
                         {
-                            state.ghost.SetActive(true);
-                            ParsekLog.Info("Flight",
-                                $"Ghost #{i} \"{rec.VesselName}\" re-shown after warp-down");
+                            // Don't re-show if ghost is beyond visual range (zone system will handle it)
+                            if (state.currentZone != RenderingZone.Beyond)
+                            {
+                                state.ghost.SetActive(true);
+                                ParsekLog.Info("Flight",
+                                    $"Ghost #{i} \"{rec.VesselName}\" re-shown after warp-down");
+                            }
                         }
 
                         // --- Zone-based rendering ---
@@ -5009,9 +5018,13 @@ namespace Parsek
                         }
                         else if (!state.ghost.activeSelf)
                         {
-                            state.ghost.SetActive(true);
-                            ParsekLog.Info("Flight",
-                                $"Ghost #{i} \"{rec.VesselName}\" (background) re-shown after warp-down");
+                            // Don't re-show if ghost is beyond visual range (zone system will handle it)
+                            if (state.currentZone != RenderingZone.Beyond)
+                            {
+                                state.ghost.SetActive(true);
+                                ParsekLog.Info("Flight",
+                                    $"Ghost #{i} \"{rec.VesselName}\" (background) re-shown after warp-down");
+                            }
                         }
 
                         // --- Zone-based rendering for background ghosts ---
@@ -5331,7 +5344,8 @@ namespace Parsek
             double currentUT,
             out double loopUT,
             out int cycleIndex,
-            out bool inPauseWindow)
+            out bool inPauseWindow,
+            int recIdx = -1)
         {
             loopUT = rec != null ? rec.StartUT : 0;
             cycleIndex = 0;
@@ -5348,6 +5362,12 @@ namespace Parsek
                 cycleDuration = duration;
 
             double elapsed = currentUT - rec.StartUT;
+
+            // Apply loop phase offset (set by Watch mode to reset ghost to recording start)
+            double phaseOffset;
+            if (recIdx >= 0 && loopPhaseOffsets.TryGetValue(recIdx, out phaseOffset))
+                elapsed += phaseOffset;
+
             cycleIndex = (int)Math.Floor(elapsed / cycleDuration);
             if (cycleIndex < 0) cycleIndex = 0;
 
@@ -5404,7 +5424,7 @@ namespace Parsek
             double loopUT;
             int cycleIndex;
             bool inPauseWindow;
-            if (!TryComputeLoopPlaybackUT(rec, currentUT, out loopUT, out cycleIndex, out inPauseWindow))
+            if (!TryComputeLoopPlaybackUT(rec, currentUT, out loopUT, out cycleIndex, out inPauseWindow, recIdx))
             {
                 if (ghostActive)
                     DestroyTimelineGhost(recIdx);
@@ -5537,9 +5557,13 @@ namespace Parsek
             }
             else if (ghostActive && !state.ghost.activeSelf)
             {
-                state.ghost.SetActive(true);
-                ParsekLog.Info("Flight",
-                    $"Ghost #{recIdx} \"{rec.VesselName}\" (loop) re-shown after warp-down");
+                // Don't re-show if ghost is beyond visual range (zone system will handle it)
+                if (state.currentZone != RenderingZone.Beyond)
+                {
+                    state.ghost.SetActive(true);
+                    ParsekLog.Info("Flight",
+                        $"Ghost #{recIdx} \"{rec.VesselName}\" (loop) re-shown after warp-down");
+                }
             }
 
             if (state == null || state.ghost == null)
@@ -6110,6 +6134,7 @@ namespace Parsek
 
             GhostPlaybackLogic.DestroyAllFakeCanopies(state);
             ghostStates.Remove(index);
+            loopPhaseOffsets.Remove(index);
         }
 
         public void DestroyAllTimelineGhosts()
@@ -6130,6 +6155,7 @@ namespace Parsek
             overlapGhosts.Clear();
 
             orbitCache.Clear();
+            loopPhaseOffsets.Clear();
             loggedGhostEnter.Clear();
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
@@ -6358,6 +6384,17 @@ namespace Parsek
                 else if (kvp.Key > index)
                     overlapGhosts[kvp.Key - 1] = kvp.Value;
                 // kvp.Key == index was already destroyed by DestroyAllOverlapGhosts
+            }
+
+            // Reindex loop phase offsets the same way
+            var oldPhaseOffsets = new Dictionary<int, double>(loopPhaseOffsets);
+            loopPhaseOffsets.Clear();
+            foreach (var kvp in oldPhaseOffsets)
+            {
+                if (kvp.Key < index)
+                    loopPhaseOffsets[kvp.Key] = kvp.Value;
+                else if (kvp.Key > index)
+                    loopPhaseOffsets[kvp.Key - 1] = kvp.Value;
             }
 
             // Clear orbit cache — keys are index-derived (i * 10000 + segIdx),
@@ -6873,6 +6910,49 @@ namespace Parsek
 
             watchedRecordingIndex = index;
             watchedRecordingId = committed[index].RecordingId;
+
+            // If the ghost is currently beyond visual range and the recording loops,
+            // reset the loop phase so the ghost starts from the beginning of the recording
+            // (at the pad) instead of wherever it is mid-flight (e.g. near the Mun).
+            var rec = committed[index];
+            if (gs.currentZone == RenderingZone.Beyond && ShouldLoopPlayback(rec))
+            {
+                double currentUT = Planetarium.GetUniversalTime();
+                double duration = rec.EndUT - rec.StartUT;
+                double intervalSeconds = GetLoopIntervalSeconds(rec);
+                double cycleDuration = duration + intervalSeconds;
+                if (cycleDuration <= MinLoopDurationSeconds)
+                    cycleDuration = duration;
+
+                // Current elapsed time (with any existing offset)
+                double elapsed = currentUT - rec.StartUT;
+                double existingOffset;
+                if (loopPhaseOffsets.TryGetValue(index, out existingOffset))
+                    elapsed += existingOffset;
+
+                // Compute where we are in the current cycle
+                int curCycle = (int)Math.Floor(elapsed / cycleDuration);
+                if (curCycle < 0) curCycle = 0;
+                double cycleTime = elapsed - (curCycle * cycleDuration);
+
+                // Shift elapsed so cycleTime becomes 0 (= recording start)
+                double newOffset = (existingOffset) - cycleTime;
+                loopPhaseOffsets[index] = newOffset;
+
+                // Re-show the ghost so the camera has something to target
+                gs.ghost.SetActive(true);
+                gs.currentZone = RenderingZone.Physics;
+                gs.playbackIndex = 0;
+
+                // Position ghost at first trajectory point so camera targets the pad
+                if (rec.Points != null && rec.Points.Count > 0)
+                    PositionGhostAt(gs.ghost, rec.Points[0], rec.RecordingFormatVersion >= 5);
+
+                ParsekLog.Info("CameraFollow",
+                    $"Watch mode loop reset: ghost #{index} \"{rec.VesselName}\" " +
+                    $"cycleTime={cycleTime:F1}s -> offset={newOffset:F1}s " +
+                    $"(ghost repositioned to recording start)");
+            }
 
             // Save camera state only when entering fresh (not switching between ghosts)
             if (!switching)
