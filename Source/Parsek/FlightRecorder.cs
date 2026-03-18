@@ -3492,6 +3492,8 @@ namespace Parsek
         /// <summary>
         /// Collects (pid, worldPosition) for all loaded vessels in the physics scene.
         /// Reuses vesselInfoBuffer to avoid per-frame allocation.
+        /// Filters out vessel types that are not valid anchor candidates for RELATIVE mode:
+        /// debris, EVA kerbals, space objects, and flags.
         /// </summary>
         private List<(uint pid, Vector3d position)> BuildVesselInfoList()
         {
@@ -3500,8 +3502,19 @@ namespace Parsek
             for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
             {
                 var vessel = FlightGlobals.Vessels[i];
-                if (vessel != null && vessel.loaded)
-                    vesselInfoBuffer.Add((vessel.persistentId, (Vector3d)vessel.transform.position));
+                if (vessel == null || !vessel.loaded) continue;
+
+                // Filter out non-docking-target vessel types: debris from staging,
+                // EVA kerbals, space objects, and flags are not valid anchor candidates.
+                if (vessel.vesselType == VesselType.Debris ||
+                    vessel.vesselType == VesselType.EVA ||
+                    vessel.vesselType == VesselType.SpaceObject ||
+                    vessel.vesselType == VesselType.Flag)
+                {
+                    continue;
+                }
+
+                vesselInfoBuffer.Add((vessel.persistentId, (Vector3d)vessel.transform.position));
             }
             return vesselInfoBuffer;
         }

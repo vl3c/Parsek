@@ -1204,7 +1204,6 @@ namespace Parsek
             }
 
             reason = "";
-            ParsekLog.Verbose("Store", $"CanRewind: allowed for '{rec.VesselName}' (save={rec.RewindSaveFileName})");
             return true;
         }
 

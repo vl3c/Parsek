@@ -215,6 +215,7 @@ namespace Parsek
         private HashSet<int> loggedGhostEnter = new HashSet<int>();
         private HashSet<int> loggedOrbitSegments = new HashSet<int>();
         private HashSet<int> loggedOrbitRotationSegments = new HashSet<int>();
+        private HashSet<int> loggedReshow = new HashSet<int>();
 
         // Anchor vessel tracking: which anchor vessels are currently loaded (for looped ghost lifecycle)
         private readonly HashSet<uint> loadedAnchorVessels = new HashSet<uint>();
@@ -246,6 +247,7 @@ namespace Parsek
             ControlTypes.CAMERAMODES;
         int watchedRecordingIndex = -1;       // -1 = not watching
         string watchedRecordingId = null;     // stable across index shifts
+        float watchStartTime;                 // Time.time when watch mode was entered
         int watchedOverlapCycleIndex = -1;    // which overlap cycle the camera is following (-1 = ready for next, -2 = holding after explosion)
         double overlapRetargetAfterUT = -1;   // delay re-target after watched cycle explodes
         GameObject overlapCameraAnchor;       // temp anchor so FlightCamera doesn't reference destroyed ghost
@@ -355,6 +357,26 @@ namespace Parsek
 
             HandleTreeBoardMerge();
             HandleChainBoardingTransition();
+
+            // Bug #51: vessel-switch auto-stop loses chain ID.
+            // HandleVesselSwitchDuringRecording (in FlightRecorder) builds CaptureAtStop
+            // but cannot access ParsekFlight's chain fields. Tag chain metadata here
+            // before OnSceneChangeRequested or CommitFlight consumes the capture.
+            if (recorder != null && !recorder.IsRecording && recorder.CaptureAtStop != null
+                && activeChainId != null
+                && string.IsNullOrEmpty(recorder.CaptureAtStop.ChainId)
+                && !recorder.ChainToVesselPending
+                && !recorder.DockMergePending
+                && !recorder.UndockSwitchPending)
+            {
+                recorder.CaptureAtStop.ChainId = activeChainId;
+                recorder.CaptureAtStop.ChainIndex = activeChainNextIndex;
+                recorder.CaptureAtStop.ParentRecordingId = activeChainPrevId;
+                recorder.CaptureAtStop.EvaCrewName = activeChainCrewName;
+                Log($"Tagged auto-stopped CaptureAtStop with chain metadata: " +
+                    $"chain={activeChainId}, idx={activeChainNextIndex}");
+            }
+
             HandleAtmosphereBoundarySplit();
             HandleSoiChangeSplit();
             HandleTreeBackgroundFlush();
@@ -4796,6 +4818,11 @@ namespace Parsek
             bool suppressGhosts = GhostPlaybackLogic.ShouldSuppressGhosts(warpRate);
             bool suppressVisualFx = GhostPlaybackLogic.ShouldSuppressVisualFx(warpRate);
 
+            // Reset reshow dedup when entering warp suppression so the next warp-down
+            // re-show gets logged once per ghost.
+            if (suppressGhosts)
+                loggedReshow.Clear();
+
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
@@ -4931,8 +4958,9 @@ namespace Parsek
                             if (state.currentZone != RenderingZone.Beyond)
                             {
                                 state.ghost.SetActive(true);
-                                ParsekLog.Info("Flight",
-                                    $"Ghost #{i} \"{rec.VesselName}\" re-shown after warp-down");
+                                if (loggedReshow.Add(i))
+                                    ParsekLog.Info("Flight",
+                                        $"Ghost #{i} \"{rec.VesselName}\" re-shown after warp-down");
                             }
                         }
 
@@ -5022,8 +5050,9 @@ namespace Parsek
                             if (state.currentZone != RenderingZone.Beyond)
                             {
                                 state.ghost.SetActive(true);
-                                ParsekLog.Info("Flight",
-                                    $"Ghost #{i} \"{rec.VesselName}\" (background) re-shown after warp-down");
+                                if (loggedReshow.Add(i))
+                                    ParsekLog.Info("Flight",
+                                        $"Ghost #{i} \"{rec.VesselName}\" (background) re-shown after warp-down");
                             }
                         }
 
@@ -5555,8 +5584,9 @@ namespace Parsek
                 if (state.currentZone != RenderingZone.Beyond)
                 {
                     state.ghost.SetActive(true);
-                    ParsekLog.Info("Flight",
-                        $"Ghost #{recIdx} \"{rec.VesselName}\" (loop) re-shown after warp-down");
+                    if (loggedReshow.Add(recIdx))
+                        ParsekLog.Info("Flight",
+                            $"Ghost #{recIdx} \"{rec.VesselName}\" (loop) re-shown after warp-down");
                 }
             }
 
@@ -6153,6 +6183,7 @@ namespace Parsek
             loggedGhostEnter.Clear();
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
+            loggedReshow.Clear();
             pendingSpawnRecordingIds.Clear();
             pendingWatchRecordingId = null;
             loadedAnchorVessels.Clear();
@@ -6399,6 +6430,7 @@ namespace Parsek
             loggedGhostEnter.Clear();
             loggedOrbitSegments.Clear();
             loggedOrbitRotationSegments.Clear();
+            loggedReshow.Clear();
             pendingSpawnRecordingIds.Remove(rec.RecordingId);
 
             ParsekLog.ScreenMessage($"Recording '{rec.VesselName}' deleted", 2f);
@@ -6904,6 +6936,7 @@ namespace Parsek
 
             watchedRecordingIndex = index;
             watchedRecordingId = committed[index].RecordingId;
+            watchStartTime = Time.time;
 
             // If the ghost is currently beyond visual range and the recording loops,
             // reset the loop phase so the ghost starts from the beginning of the recording
@@ -7297,20 +7330,33 @@ namespace Parsek
                 GhostPlaybackLogic.GetZoneRenderingPolicy(zone);
 
             // Beyond zone: hide mesh for non-watched ghosts.
-            // Watched ghost is exempt: the player explicitly chose to follow it, and
-            // during watch mode the scene origin moves with the ghost so the ghost-to-
-            // player-vessel distance is irrelevant (jitter is ghost-to-camera, ~50m).
+            // Watched ghost gets a grace period: when Watch starts, the ghost may be near
+            // the player. As it flies away and crosses ~120km from the active vessel,
+            // terrain unloads and jitter occurs. Exit Watch after a 2s grace period so
+            // the camera has time to lock on before zone checks kick in. This also avoids
+            // the original bug where Watch on a chain segment already beyond 120km would
+            // exit instantly before the player saw anything.
             if (shouldHideMesh)
             {
                 if (isWatchedGhost)
                 {
-                    // Don't hide or exit watch — let the player keep watching.
-                    // Still track zone state but treat as visible for rendering purposes.
-                    ParsekLog.VerboseRateLimited("Zone", $"watched-zone-{recIdx}",
-                        $"Ghost #{recIdx} \"{rec.VesselName}\" beyond visual range " +
-                        $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m) but watched — keeping visible",
-                        5.0);
-                    return new ZoneRenderingResult { hiddenByZone = false, skipPartEvents = shouldSkipPartEvents };
+                    if (Time.time - watchStartTime > 2.0f)
+                    {
+                        ExitWatchMode();
+                        ParsekLog.Info("Zone",
+                            $"Watch exited: ghost #{recIdx} exceeded visual range " +
+                            $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m)");
+                        // Fall through to hide the ghost normally
+                    }
+                    else
+                    {
+                        // Grace period: keep watching, don't hide
+                        ParsekLog.VerboseRateLimited("Zone", $"watched-zone-{recIdx}",
+                            $"Ghost #{recIdx} \"{rec.VesselName}\" beyond visual range " +
+                            $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m) but watched (grace period) — keeping visible",
+                            5.0);
+                        return new ZoneRenderingResult { hiddenByZone = false, skipPartEvents = shouldSkipPartEvents };
+                    }
                 }
 
                 if (state != null && state.ghost != null && state.ghost.activeSelf)
