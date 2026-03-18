@@ -561,3 +561,9 @@ xUnit eagerly instantiates test classes, so one class's constructor can overwrit
 `GhostPlaybackLogic.RealVesselExists` iterates `FlightGlobals.Vessels` linearly. Called per background recording per frame. Negligible with typical vessel counts (10-50), would matter with 100+. Fix: cache PIDs in HashSet, rebuild on vessel add/remove events.
 
 **Status:** Open — low priority
+
+## 50. UI: subgroups missing enable and loop checkboxes
+
+Recording subgroups in the UI don't have enable (playback toggle) or loop checkboxes. Only top-level recordings show these controls. Subgroup recordings can't be individually toggled for playback or loop mode from the UI.
+
+**Status:** Open
