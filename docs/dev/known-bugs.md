@@ -627,3 +627,27 @@ After a vessel switch, a boarding event was detected but the confirmation timer 
 **Impact:** Low — boarding not recorded, but kerbal not lost.
 
 **Status:** Open — low priority
+
+## 58. Background vessel recording requires KSP debris persistence enabled
+
+When the player stages/decouples parts, KSP may instantly destroy the separated parts if debris persistence is off or the debris count limit is reached. Parsek's background recording system correctly waits for new vessels to appear in `FlightGlobals.Vessels`, but if KSP destroys them before the deferred check (one frame later), no background recording is created.
+
+**Observed in:** Multiple test sessions (2026-03-18). All staging events classified as `WithinSegment` because no new vessel PIDs appeared after the split.
+
+**Impact:** Booster separation ghosts, detached crew pod ghosts, and any staged-part trajectory recording depends on KSP keeping the separated vessel alive for at least 1-2 frames.
+
+**Possible mitigations:**
+1. **Pre-split snapshot:** Before the deferred joint break check, capture a snapshot of the separating part subtree. If the vessel is destroyed before the check, use the snapshot to create a minimal "debris trajectory" recording (position at separation point, ballistic propagation for visual).
+2. **Immediate vessel scan:** Instead of deferring one frame, scan `FlightGlobals.Vessels` immediately in `OnPartJointBreak` to catch vessels that exist briefly before KSP destroys them.
+3. **User guidance:** Document in mod settings/FAQ that debris persistence should be enabled for full recording fidelity. Add a setting check that warns the user if debris persistence is off.
+4. **Synthetic debris trajectory:** When a `PartEvent.Decoupled` fires but no new vessel appears, Parsek could compute an approximate ballistic trajectory for the separated mass (using the vessel's velocity + a separation impulse) and create a visual-only ghost that shows the booster tumbling away. This wouldn't be a real recording but would look correct visually.
+
+**Status:** Open — enhancement opportunity
+
+## 59. SoftCap ClassifyPriority logs per-frame per-ghost at VERBOSE (log spam)
+
+`GhostSoftCapManager.ClassifyPriority` logs at VERBOSE on every call. Called per-ghost per-frame during cap evaluation. With 20+ ghosts at 60fps, produces ~1200 log lines/second.
+
+**Fix:** Remove the per-call logging or use `VerboseRateLimited`. ClassifyPriority is a pure function — its inputs/outputs are already visible in the EvaluateCaps summary log.
+
+**Status:** Open — low priority
