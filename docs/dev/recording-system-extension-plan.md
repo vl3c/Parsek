@@ -954,11 +954,15 @@ The time jump epoch-shifts orbital elements so that Keplerian propagation at the
 
 **Mitigation:** Research KSP's time-setting API. May need to use `Planetarium.fetch.time` directly or call through the proper warp API with a zero-duration warp. Test thoroughly for side effects.
 
-### 8.9 CommNet Registration Without Full Vessel (Low-Medium Impact)
+### 8.9 CommNet Registration — RESOLVED
 
-KSP's CommNet API expects `Vessel` objects with `Connection` and `CommNetVessel` components. Registering a ghost (raw GameObject) as a CommNet node may require hooking into the CommNet graph at a lower level than the public API exposes.
+**Investigation complete** (see `docs/dev/reference/` architecture analyses). Stock CommNet API `CommNetNetwork.Instance.CommNet.Add(CommNode)` works directly for ghost nodes. No Harmony needed, no ProtoVessel needed. The `CommNode` is a plain object with `precisePosition`, `antennaRelay.power`, and `antennaTransmit.power` fields. CommNetManager is transparent (ghost node maps to null vessel in `commNodesVessels` dict, harmless).
 
-**Mitigation:** Research `CommNetNetwork.Instance` and `CommNetBody`/`CommNetVessel` internals. May need Harmony patches to inject ghost nodes into the CommNet graph. Alternatively, create a minimal dummy Vessel with only CommNet components (lighter than full Vessel but uses KSP's own CommNet code).
+**Mod compatibility (from architecture analyses):**
+- **Stock + CommNetManager:** Direct `CommNode` API. Works now.
+- **RealAntennas:** Requires `RACommNode` type + 9 RF fields per antenna. Deferred to dedicated RA compat phase.
+- **CommNetConstellation:** Requires Harmony prefix on `CNCCommNetwork.SetNodeConnection` for frequency matching. Deferred.
+- **RemoteTech:** Completely disables CommNet, runs parallel network. Graceful skip: detect RT assembly, log warning, skip registration.
 
 ---
 
