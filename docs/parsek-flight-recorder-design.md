@@ -68,11 +68,13 @@ These principles govern every design decision in the flight recorder. They are l
 
 ### 2.3 Time Jump
 
-13. **Nothing moves, the clock jumps.** The entire physics bubble stays frozen in place. Only UT changes. Orbital epochs are adjusted to maintain Keplerian consistency. This eliminates drift by construction — there is no propagation to accumulate error.
+The time jump is a specialized mechanism for **multi-vessel rendezvous configurations** where the player has set up an approach to a ghosted vessel and needs to skip past its chain tip without losing the alignment. Normal time warp (Section 14.4) remains the default way to advance time — the timeline plays out, ghosts appear and despawn, vessels spawn at their endpoints. The time jump exists only because normal warp destroys carefully aligned approach geometry through differential Keplerian drift.
+
+13. **Nothing moves, the clock jumps.** During a time jump, the entire physics bubble stays frozen in place. Only UT changes. Orbital epochs are adjusted to maintain Keplerian consistency. This eliminates drift by construction.
 
 14. **Selective spawning, chronological constraint.** The player picks which chain tip to jump to. Earlier independent tips are auto-spawned (ghosts cannot exist past their tip). Later tips stay ghost.
 
-15. **Discrete jump, not warp.** No intermediate physics frames. No drift. No propagation. The clock teleports; the vessels don't.
+15. **Time jump complements warp, does not replace it.** Fast-forward via normal time warp is always available and plays out the timeline naturally. The time jump is an additional tool specifically for preserving bubble geometry when the player needs to interact with a vessel that is currently ghost.
 
 16. **Visual honesty.** Planet rotation, sun angle, and star field change to reflect the new UT. The player sees that time passed. Only the local bubble geometry is preserved.
 
@@ -1077,6 +1079,10 @@ At each recording's end UT: if the vessel doesn't exist in the game world, spawn
 After rewinding, the player can time warp forward. All committed recording ghosts play at their recorded UTs. The player can drop out of time warp at any point and start flying. Ghosts continue playing around them.
 
 ### 14.5 Relative-State Time Jump
+
+Normal time warp (Section 14.4) is the default way to advance time. The timeline plays out: ghosts appear, play their trajectories, despawn or spawn vessels at their endpoints. The player can fast-forward to any point in the future at any time. For most gameplay, this is sufficient.
+
+The time jump is a specialized mechanism for a specific scenario: **the player has set up a multi-vessel rendezvous approach to a ghosted vessel and needs to skip past its chain tip without losing the alignment.**
 
 **The Problem:** The player rewinds to T0. Ghost-S is in the physics bubble, chain tip at T1. The player maneuvers vessel A into a rendezvous approach — 80m from ghost-S, velocities matched, docking alignment set up. To interact with S, the player must advance UT past T1. Normal time warp propagates A and ghost-S on their independent Keplerian orbits. Since they are 80m apart, their orbital elements differ slightly. Over the warp interval, differential drift separates them — potentially by hundreds of meters. The carefully set up rendezvous is destroyed.
 
