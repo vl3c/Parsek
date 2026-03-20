@@ -4412,6 +4412,20 @@ namespace Parsek
                         recorder.ForceStop();
                 }
                 FlushRecorderToTreeRecording(recorder, tree);
+
+                // Copy rewind save filename to the tree's root recording
+                // so CanRewind can find it after commit
+                if (!string.IsNullOrEmpty(recorder.RewindSaveFileName)
+                    && !string.IsNullOrEmpty(tree.RootRecordingId))
+                {
+                    Recording rootRec;
+                    if (tree.Recordings.TryGetValue(tree.RootRecordingId, out rootRec))
+                    {
+                        rootRec.RewindSaveFileName = recorder.RewindSaveFileName;
+                        ParsekLog.Info("Flight",
+                            $"FinalizeTreeRecordings: copied rewind save '{recorder.RewindSaveFileName}' to root recording '{tree.RootRecordingId}'");
+                    }
+                }
             }
 
             // 2. Finalize background recorder (close orbit segments, flush data)
