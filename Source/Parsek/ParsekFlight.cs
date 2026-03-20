@@ -4855,6 +4855,55 @@ namespace Parsek
 
         #region Timeline Auto-Playback
 
+        /// <summary>
+        /// Returns the GhostChain if this recording is a chain tip that should spawn via VesselGhoster.
+        /// Returns null for non-chain recordings, intermediate links, or terminated chains.
+        /// </summary>
+        internal static GhostChain FindChainTipForRecording(
+            Dictionary<uint, GhostChain> chains, Recording rec)
+        {
+            if (chains == null || chains.Count == 0)
+                return null;
+
+            foreach (var kvp in chains)
+            {
+                if (kvp.Value.TipRecordingId == rec.RecordingId && !kvp.Value.IsTerminated)
+                    return kvp.Value;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Routes spawn through VesselGhoster for chain tips, or existing
+        /// SpawnOrRecoverIfTooClose for normal recordings.
+        /// </summary>
+        private void SpawnVesselOrChainTip(Recording rec, int index)
+        {
+            GhostChain chain = FindChainTipForRecording(activeGhostChains, rec);
+            if (chain != null && vesselGhoster != null)
+            {
+                uint spawnedPid = vesselGhoster.SpawnAtChainTip(chain);
+                if (spawnedPid != 0)
+                {
+                    rec.SpawnedVesselPersistentId = spawnedPid;
+                    rec.VesselSpawned = true;
+                    activeGhostChains.Remove(chain.OriginalVesselPid);
+                    ParsekLog.Info("Flight",
+                        $"Chain tip spawn complete: #{index} \"{rec.VesselName}\" pid={spawnedPid}");
+                }
+                else
+                {
+                    ParsekLog.Warn("Flight",
+                        $"Chain tip spawn failed: #{index} \"{rec.VesselName}\"");
+                }
+            }
+            else
+            {
+                VesselSpawner.SpawnOrRecoverIfTooClose(rec, index);
+            }
+        }
+
         void UpdateTimelinePlayback()
         {
             var committed = RecordingStore.CommittedRecordings;
@@ -4874,7 +4923,7 @@ namespace Parsek
                         continue;
                     }
                     ParsekLog.Info("Flight", $"Deferred spawn executing: #{i} \"{rec.VesselName}\" id={rec.RecordingId}");
-                    VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
+                    SpawnVesselOrChainTip(rec, i);
                     spawnedCount++;
 
                     // Restore camera follow if this recording was being watched when deferred
@@ -4973,6 +5022,24 @@ namespace Parsek
                 bool isMidChain = RecordingStore.IsChainMidSegment(rec);
                 double chainEndUT = isMidChain ? RecordingStore.GetChainEndUT(rec) : rec.EndUT;
                 bool pastChainEnd = currentUT > chainEndUT;
+
+                // Phase 6b: Ghost chain spawn suppression — intermediate links and terminated
+                // chains skip all spawn logic (both immediate and deferred).
+                if (activeGhostChains != null && activeGhostChains.Count > 0)
+                {
+                    var (chainSuppressed, chainReason) = GhostPlaybackLogic.ShouldSuppressSpawnForChain(
+                        activeGhostChains, rec);
+                    if (chainSuppressed)
+                    {
+                        if (loggedGhostEnter.Add(i + 300000))
+                            ParsekLog.Info("Flight",
+                                $"Chain spawn suppressed: #{i} \"{rec.VesselName}\" — {chainReason}");
+                        if (rec.TreeId == null)
+                            ApplyResourceDeltas(rec, currentUT);
+                        continue;
+                    }
+                }
+
                 // Compute spawn-decision inputs that depend on external state
                 bool isActiveChainMember = activeChainId != null && rec.ChainId == activeChainId;
                 bool isChainLoopingOrDisabled = !string.IsNullOrEmpty(rec.ChainId) &&
@@ -5203,7 +5270,7 @@ namespace Parsek
                         if (watchedRecordingIndex == i)
                         {
                             ExitWatchMode();
-                            VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
+                            SpawnVesselOrChainTip(rec, i);
                             DestroyTimelineGhost(i);
                             if (rec.SpawnedVesselPersistentId != 0)
                             {
@@ -5214,7 +5281,7 @@ namespace Parsek
                         }
                         else
                         {
-                            VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
+                            SpawnVesselOrChainTip(rec, i);
                             DestroyTimelineGhost(i);
                         }
                     }
@@ -5234,7 +5301,7 @@ namespace Parsek
                         // UT already past chain EndUT on scene load — spawn immediately, no ghost
                         Log($"Ghost SKIPPED (UT already past EndUT): #{i} \"{rec.VesselName}\" at UT {currentUT:F1} " +
                             $"(EndUT={rec.EndUT:F1}) — spawning vessel immediately");
-                        VesselSpawner.SpawnOrRecoverIfTooClose(rec, i);
+                        SpawnVesselOrChainTip(rec, i);
                     }
                     if (rec.TreeId == null)
                         ApplyResourceDeltas(rec, currentUT);
