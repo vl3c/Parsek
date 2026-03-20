@@ -1257,6 +1257,45 @@ namespace Parsek
                         rec.TerrainHeightAtEnd = tht;
                 }
 
+                // Restore antenna specs for CommNet ghost relay (Phase 6f)
+                ConfigNode[] antennaNodes = recNode.GetNodes("ANTENNA_SPEC");
+                if (antennaNodes != null && antennaNodes.Length > 0)
+                {
+                    rec.AntennaSpecs = new List<AntennaSpec>();
+                    for (int a = 0; a < antennaNodes.Length; a++)
+                    {
+                        var spec = new AntennaSpec();
+                        spec.partName = antennaNodes[a].GetValue("part") ?? "";
+
+                        string powerStr = antennaNodes[a].GetValue("power");
+                        if (powerStr != null)
+                        {
+                            double power;
+                            if (double.TryParse(powerStr, NumberStyles.Float, CultureInfo.InvariantCulture, out power))
+                                spec.antennaPower = power;
+                        }
+
+                        string combinableStr = antennaNodes[a].GetValue("combinable");
+                        if (combinableStr != null)
+                        {
+                            bool combinable;
+                            if (bool.TryParse(combinableStr, out combinable))
+                                spec.antennaCombinable = combinable;
+                        }
+
+                        string exponentStr = antennaNodes[a].GetValue("exponent");
+                        if (exponentStr != null)
+                        {
+                            double exponent;
+                            if (double.TryParse(exponentStr, NumberStyles.Float, CultureInfo.InvariantCulture, out exponent))
+                                spec.antennaCombinableExponent = exponent;
+                        }
+
+                        rec.AntennaSpecs.Add(spec);
+                    }
+                    ScenarioLog($"[Parsek Scenario] Loaded {rec.AntennaSpecs.Count} antenna spec(s) for '{rec.VesselName}'");
+                }
+
                 // Restore resource application index
                 string resIdxStr = recNode.GetValue("lastResIdx");
                 if (resIdxStr != null)
@@ -1385,6 +1424,20 @@ namespace Parsek
                 // Persist terrain height at recording end (v7+)
                 if (!double.IsNaN(rec.TerrainHeightAtEnd))
                     recNode.AddValue("terrainHeightAtEnd", rec.TerrainHeightAtEnd.ToString("R", CultureInfo.InvariantCulture));
+
+                // Persist antenna specs for CommNet ghost relay (Phase 6f)
+                if (rec.AntennaSpecs != null)
+                {
+                    for (int a = 0; a < rec.AntennaSpecs.Count; a++)
+                    {
+                        var spec = rec.AntennaSpecs[a];
+                        var specNode = recNode.AddNode("ANTENNA_SPEC");
+                        specNode.AddValue("part", spec.partName ?? "");
+                        specNode.AddValue("power", spec.antennaPower.ToString("R", CultureInfo.InvariantCulture));
+                        specNode.AddValue("combinable", spec.antennaCombinable.ToString());
+                        specNode.AddValue("exponent", spec.antennaCombinableExponent.ToString("R", CultureInfo.InvariantCulture));
+                    }
+                }
 
                 // Persist resource index so quickload doesn't re-apply deltas
                 recNode.AddValue("lastResIdx", rec.LastAppliedResourceIndex);

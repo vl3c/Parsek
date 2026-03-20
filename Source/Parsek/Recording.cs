@@ -85,6 +85,11 @@ namespace Parsek
         // NaN = not set (pre-v7 recording or non-surface terminal state)
         public double TerrainHeightAtEnd = double.NaN;
 
+        // Antenna specifications for CommNet ghost relay registration (Phase 6f)
+        // Extracted from ModuleDataTransmitter modules in vessel snapshot at commit time.
+        // null = not extracted (legacy recording or no antennas).
+        public List<AntennaSpec> AntennaSpecs;
+
         // Background recording: surface position for landed/splashed vessels
         public SurfacePosition? SurfacePos;            // null if not a background landed vessel
 
@@ -200,6 +205,8 @@ namespace Parsek
             ExplicitEndUT = source.ExplicitEndUT;
             RecordingGroups = source.RecordingGroups != null
                 ? new List<string>(source.RecordingGroups) : null;
+            AntennaSpecs = source.AntennaSpecs != null
+                ? new List<AntennaSpec>(source.AntennaSpecs) : null;
 
             // Copy segment events and tracks if source has them
             if (source.SegmentEvents != null && source.SegmentEvents.Count > 0)
