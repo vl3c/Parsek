@@ -1758,6 +1758,41 @@ namespace Parsek
         #region Spawn-at-Recording-End Decision
 
         /// <summary>
+        /// Determines whether spawn should be suppressed because the recording
+        /// is an intermediate link in a ghost chain (not the chain tip), or
+        /// because the chain is terminated (vessel destroyed/recovered).
+        /// Returns (suppressed, reason). Called BEFORE ShouldSpawnAtRecordingEnd
+        /// by the playback controller (Phase 6b).
+        /// </summary>
+        internal static (bool suppressed, string reason) ShouldSuppressSpawnForChain(
+            Dictionary<uint, GhostChain> chains, Recording rec)
+        {
+            if (chains == null || chains.Count == 0)
+                return (false, "");
+
+            if (GhostChainWalker.IsIntermediateChainLink(chains, rec))
+            {
+                ParsekLog.Info("ChainWalker",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Intermediate spawn suppressed: rec={0} vessel={1}",
+                        rec.RecordingId, rec.VesselName));
+                return (true, "intermediate ghost chain link");
+            }
+
+            var chain = GhostChainWalker.FindChainForVessel(chains, rec.VesselPersistentId);
+            if (chain != null && chain.IsTerminated && chain.TipRecordingId == rec.RecordingId)
+            {
+                ParsekLog.Info("ChainWalker",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Terminated chain spawn suppressed: rec={0} vessel={1} vesselPid={2}",
+                        rec.RecordingId, rec.VesselName, rec.VesselPersistentId));
+                return (true, "terminated ghost chain");
+            }
+
+            return (false, "");
+        }
+
+        /// <summary>
         /// Pure decision logic for whether a recording's vessel should be spawned
         /// at the end of its ghost playback (the "spawn-at-recording-end" feature).
         /// Extracted from ParsekFlight.UpdateTimelinePlayback for testability.
