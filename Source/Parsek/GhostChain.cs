@@ -29,6 +29,10 @@ namespace Parsek
         public string TipTreeId;
         public bool IsTerminated;
 
+        // Runtime state: spawn blocked by collision (not serialized)
+        public bool SpawnBlocked;
+        public double BlockedSinceUT;
+
         public GhostChain()
         {
             Links = new List<ChainLink>();

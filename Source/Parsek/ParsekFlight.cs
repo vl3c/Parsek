@@ -4908,10 +4908,61 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Physics-bubble scoping for deferred spawns: returns true if the recording's
+        /// endpoint is more than 2300m from the active vessel (outside physics bubble).
+        /// Pure decision method for testability.
+        /// </summary>
+        internal static bool ShouldDeferSpawnOutsideBubble(Recording rec, Vector3d activeVesselPos)
+        {
+            if (rec == null) return false;
+
+            // Compute endpoint position from recording
+            Vector3d endpointPos = ComputeEndpointWorldPosition(rec);
+            if (endpointPos == Vector3d.zero) return false; // No position data — allow spawn
+
+            double distance = Vector3d.Distance(activeVesselPos, endpointPos);
+            return distance > PhysicsBubbleSpawnRadius;
+        }
+
+        /// <summary>Physics bubble radius for spawn scoping (meters).</summary>
+        internal const double PhysicsBubbleSpawnRadius = 2300.0;
+
+        /// <summary>
+        /// Computes world position for a recording's endpoint using last trajectory point
+        /// or terminal position. Requires KSP runtime (CelestialBody lookups).
+        /// Returns Vector3d.zero if no position data is available.
+        /// </summary>
+        private static Vector3d ComputeEndpointWorldPosition(Recording rec)
+        {
+            // Terminal surface position
+            if (rec.TerminalPosition.HasValue)
+            {
+                var tp = rec.TerminalPosition.Value;
+                CelestialBody body = FlightGlobals.GetBodyByName(tp.body);
+                if (body != null)
+                    return body.GetWorldSurfacePosition(tp.latitude, tp.longitude, tp.altitude);
+            }
+
+            // Last trajectory point
+            if (rec.Points != null && rec.Points.Count > 0)
+            {
+                var last = rec.Points[rec.Points.Count - 1];
+                string bodyName = last.bodyName;
+                if (string.IsNullOrEmpty(bodyName)) bodyName = "Kerbin";
+                CelestialBody body = FlightGlobals.GetBodyByName(bodyName);
+                if (body != null)
+                    return body.GetWorldSurfacePosition(last.latitude, last.longitude, last.altitude);
+            }
+
+            return Vector3d.zero;
+        }
+
+        /// <summary>
         /// Positions all chain ghosts each frame using background recording trajectory data.
         /// For UTs outside recorded range, falls back to orbital propagation or surface hold.
-        /// Ghost GOs are currently null (6b-1 deferred ghost GO creation), so this method
-        /// will skip all ghosts until ghost GO creation is implemented in a follow-up task.
+        /// For spawn-blocked chains, the ghost continues at its propagated position
+        /// (ghost GO creation deferred to 6b-4 — currently a no-op for visual positioning,
+        /// but the blocked chain retry logic runs in SpawnVesselOrChainTip).
         /// </summary>
         private void PositionChainGhosts(double currentUT)
         {
@@ -4921,6 +4972,22 @@ namespace Parsek
             foreach (var kvp in activeGhostChains)
             {
                 GhostChain chain = kvp.Value;
+
+                // Spawn-blocked chains: ghost should continue to be visible at propagated position.
+                // Ghost GO is currently null (deferred to 6b-4), so visual positioning is a no-op.
+                // The blocked chain spawn retry happens in SpawnVesselOrChainTip during the
+                // per-recording iteration. Here we just log the blocked state for diagnostics.
+                if (chain.SpawnBlocked)
+                {
+                    ParsekLog.VerboseRateLimited("Flight", "chain-ghost-blocked-" + chain.OriginalVesselPid,
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Chain ghost spawn-blocked: pid={0} blockedSince={1:F1} UT={2:F1}",
+                            chain.OriginalVesselPid, chain.BlockedSinceUT, currentUT));
+                    // When ghost GO creation is implemented (6b-4), position the ghost GO
+                    // at the propagated position here using GhostExtender.
+                    continue;
+                }
+
                 var info = vesselGhoster.GetGhostedInfo(chain.OriginalVesselPid);
                 if (info == null || info.ghostGO == null) continue;
 
@@ -4998,25 +5065,51 @@ namespace Parsek
         /// <summary>
         /// Routes spawn through VesselGhoster for chain tips, or existing
         /// SpawnOrRecoverIfTooClose for normal recordings.
+        /// Handles collision-blocked chains: if spawn is blocked, chain stays active.
+        /// If chain was previously blocked, tries to spawn at propagated position.
         /// </summary>
         private void SpawnVesselOrChainTip(Recording rec, int index)
         {
             GhostChain chain = FindChainTipForRecording(activeGhostChains, rec);
             if (chain != null && vesselGhoster != null)
             {
-                uint spawnedPid = vesselGhoster.SpawnAtChainTip(chain);
-                if (spawnedPid != 0)
+                if (chain.SpawnBlocked)
                 {
-                    rec.SpawnedVesselPersistentId = spawnedPid;
-                    rec.VesselSpawned = true;
-                    activeGhostChains.Remove(chain.OriginalVesselPid);
-                    ParsekLog.Info("Flight",
-                        $"Chain tip spawn complete: #{index} \"{rec.VesselName}\" pid={spawnedPid}");
+                    // Chain was previously blocked — retry at propagated position
+                    double currentUT = Planetarium.GetUniversalTime();
+                    uint spawnedPid = vesselGhoster.TrySpawnBlockedChain(chain, currentUT);
+                    if (spawnedPid != 0)
+                    {
+                        rec.SpawnedVesselPersistentId = spawnedPid;
+                        rec.VesselSpawned = true;
+                        activeGhostChains.Remove(chain.OriginalVesselPid);
+                        ParsekLog.Info("Flight",
+                            $"Blocked chain tip spawn resolved: #{index} \"{rec.VesselName}\" pid={spawnedPid}");
+                    }
+                    // If still blocked: chain stays in activeGhostChains, no spawn
                 }
                 else
                 {
-                    ParsekLog.Warn("Flight",
-                        $"Chain tip spawn failed: #{index} \"{rec.VesselName}\"");
+                    uint spawnedPid = vesselGhoster.SpawnAtChainTip(chain);
+                    if (spawnedPid != 0)
+                    {
+                        rec.SpawnedVesselPersistentId = spawnedPid;
+                        rec.VesselSpawned = true;
+                        activeGhostChains.Remove(chain.OriginalVesselPid);
+                        ParsekLog.Info("Flight",
+                            $"Chain tip spawn complete: #{index} \"{rec.VesselName}\" pid={spawnedPid}");
+                    }
+                    else if (chain.SpawnBlocked)
+                    {
+                        // SpawnAtChainTip detected overlap — chain stays active, not removed
+                        ParsekLog.Info("Flight",
+                            $"Chain tip spawn blocked by collision: #{index} \"{rec.VesselName}\" — chain stays active");
+                    }
+                    else
+                    {
+                        ParsekLog.Warn("Flight",
+                            $"Chain tip spawn failed: #{index} \"{rec.VesselName}\"");
+                    }
                 }
             }
             else
@@ -5033,10 +5126,16 @@ namespace Parsek
             // Phase 6b: Position chain ghosts (independent of per-recording iteration)
             PositionChainGhosts(currentUT);
 
-            // Flush deferred spawns when warp ends
+            // Flush deferred spawns when warp ends — only flush in-bubble spawns
             if (GhostPlaybackLogic.ShouldFlushDeferredSpawns(pendingSpawnRecordingIds.Count, IsAnyWarpActive()))
             {
                 int spawnedCount = 0;
+                int deferredOutOfBubble = 0;
+                var flushedIds = new List<string>();
+                Vector3d activeVesselPos = FlightGlobals.ActiveVessel != null
+                    ? FlightGlobals.ActiveVessel.GetWorldPos3D()
+                    : Vector3d.zero;
+
                 for (int i = 0; i < committed.Count; i++)
                 {
                     var rec = committed[i];
@@ -5044,11 +5143,24 @@ namespace Parsek
                     if (GhostPlaybackLogic.ShouldSkipDeferredSpawn(rec.VesselSpawned, rec.VesselSnapshot != null))
                     {
                         ParsekLog.Verbose("Flight", $"Deferred spawn skipped — #{i} \"{rec.VesselName}\" already spawned or no snapshot");
+                        flushedIds.Add(rec.RecordingId);
                         continue;
                     }
+
+                    // Physics-bubble scoping: skip out-of-bubble spawns (keep in queue)
+                    if (FlightGlobals.ActiveVessel != null &&
+                        ShouldDeferSpawnOutsideBubble(rec, activeVesselPos))
+                    {
+                        deferredOutOfBubble++;
+                        ParsekLog.Verbose("Flight",
+                            $"Deferred spawn kept in queue (outside physics bubble): #{i} \"{rec.VesselName}\"");
+                        continue;
+                    }
+
                     ParsekLog.Info("Flight", $"Deferred spawn executing: #{i} \"{rec.VesselName}\" id={rec.RecordingId}");
                     SpawnVesselOrChainTip(rec, i);
                     spawnedCount++;
+                    flushedIds.Add(rec.RecordingId);
 
                     // Restore camera follow if this recording was being watched when deferred
                     if (GhostPlaybackLogic.ShouldRestoreWatchMode(pendingWatchRecordingId, rec.RecordingId, rec.SpawnedVesselPersistentId))
@@ -5058,9 +5170,24 @@ namespace Parsek
                         StartCoroutine(DeferredActivateVessel(rec.SpawnedVesselPersistentId));
                     }
                 }
-                ParsekLog.Info("Flight", $"Warp ended — flushed {spawnedCount}/{pendingSpawnRecordingIds.Count} deferred spawn(s)");
-                pendingSpawnRecordingIds.Clear();
-                pendingWatchRecordingId = null;
+
+                // Remove flushed IDs, keep out-of-bubble spawns in queue
+                for (int j = 0; j < flushedIds.Count; j++)
+                    pendingSpawnRecordingIds.Remove(flushedIds[j]);
+
+                if (deferredOutOfBubble > 0)
+                {
+                    ParsekLog.Info("Flight",
+                        $"Warp ended — flushed {spawnedCount} deferred spawn(s), {deferredOutOfBubble} kept (outside bubble), {pendingSpawnRecordingIds.Count} remaining");
+                }
+                else
+                {
+                    ParsekLog.Info("Flight", $"Warp ended — flushed {spawnedCount}/{spawnedCount + flushedIds.Count - spawnedCount} deferred spawn(s)");
+                    pendingSpawnRecordingIds.Clear();
+                }
+
+                if (pendingSpawnRecordingIds.Count == 0)
+                    pendingWatchRecordingId = null;
             }
 
             if (committed.Count == 0) return;

@@ -14,6 +14,9 @@ namespace Parsek
         private const string Tag = "Ghoster";
         private static readonly CultureInfo ic = CultureInfo.InvariantCulture;
 
+        /// <summary>Padding in meters added to each side of spawn AABB for collision check.</summary>
+        internal const float SpawnCollisionPadding = 5f;
+
         private Dictionary<uint, GhostedVesselInfo> ghostedVessels =
             new Dictionary<uint, GhostedVesselInfo>();
 
@@ -150,6 +153,7 @@ namespace Parsek
         /// <summary>
         /// Spawn the final-form vessel at chain tip, destroy ghost GO.
         /// Returns the spawned vessel's PID (0 on failure).
+        /// If spawn is blocked by collision, sets chain.SpawnBlocked and returns 0.
         /// </summary>
         internal uint SpawnAtChainTip(GhostChain chain)
         {
@@ -161,19 +165,9 @@ namespace Parsek
 
             // Find the tip recording from committed recordings
             string tipId = chain.TipRecordingId;
-            ConfigNode vesselSnapshot = null;
-            string vesselName = null;
-
-            var committedRecordings = RecordingStore.CommittedRecordings;
-            for (int i = 0; i < committedRecordings.Count; i++)
-            {
-                if (committedRecordings[i].RecordingId == tipId)
-                {
-                    vesselSnapshot = committedRecordings[i].VesselSnapshot;
-                    vesselName = committedRecordings[i].VesselName;
-                    break;
-                }
-            }
+            Recording tipRecording = FindTipRecording(tipId);
+            ConfigNode vesselSnapshot = tipRecording?.VesselSnapshot;
+            string vesselName = tipRecording?.VesselName;
 
             if (vesselSnapshot == null)
             {
@@ -182,6 +176,33 @@ namespace Parsek
                         "SpawnAtChainTip: tip recording '{0}' has no VesselSnapshot — cannot spawn",
                         tipId));
                 return 0;
+            }
+
+            // Collision check: compute bounds and check overlap against loaded vessels
+            Bounds spawnBounds = SpawnCollisionDetector.ComputeVesselBounds(vesselSnapshot);
+            Vector3d spawnPos = ComputeSpawnWorldPosition(tipRecording);
+            var (overlap, distance, blockerName) =
+                SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(spawnPos, spawnBounds, SpawnCollisionPadding);
+
+            if (overlap)
+            {
+                double currentUT = Planetarium.GetUniversalTime();
+                chain.SpawnBlocked = true;
+                chain.BlockedSinceUT = currentUT;
+                ParsekLog.Info("SpawnCollision",
+                    string.Format(ic,
+                        "Spawn blocked: vessel={0} overlaps with {1} at {2}m",
+                        vesselName ?? "(unknown)", blockerName ?? "(unknown)",
+                        distance.ToString("F1", ic)));
+                return 0;
+            }
+
+            // Terrain correction for surface terminal state
+            if (tipRecording != null &&
+                TerrainCorrector.ShouldCorrectTerrain(
+                    tipRecording.TerminalStateValue, tipRecording.TerrainHeightAtEnd))
+            {
+                ApplyTerrainCorrection(tipRecording, vesselSnapshot);
             }
 
             // Spawn with PID preservation for chain continuity
@@ -202,7 +223,272 @@ namespace Parsek
             }
 
             // Destroy ghost GO if it exists, and remove tracking entry
-            uint originalPid = chain.OriginalVesselPid;
+            CleanupGhostedVessel(chain.OriginalVesselPid);
+
+            return spawnedPid;
+        }
+
+        /// <summary>
+        /// Called each frame for chains where SpawnBlocked == true.
+        /// Propagates ghost position via GhostExtender, rechecks overlap.
+        /// If clear: spawns at propagated position, clears SpawnBlocked, returns PID.
+        /// If still blocked: returns 0.
+        /// </summary>
+        internal uint TrySpawnBlockedChain(GhostChain chain, double currentUT)
+        {
+            if (chain == null || !chain.SpawnBlocked)
+            {
+                ParsekLog.Verbose(Tag, "TrySpawnBlockedChain: chain is null or not blocked");
+                return 0;
+            }
+
+            string tipId = chain.TipRecordingId;
+            Recording tipRecording = FindTipRecording(tipId);
+            if (tipRecording == null)
+            {
+                ParsekLog.Warn(Tag,
+                    string.Format(ic, "TrySpawnBlockedChain: tip recording '{0}' not found", tipId));
+                return 0;
+            }
+
+            ConfigNode vesselSnapshot = tipRecording.VesselSnapshot;
+            if (vesselSnapshot == null)
+            {
+                ParsekLog.Warn(Tag,
+                    string.Format(ic, "TrySpawnBlockedChain: tip '{0}' has no VesselSnapshot", tipId));
+                return 0;
+            }
+
+            // Propagate ghost position using GhostExtender
+            Vector3d propagatedPos = ComputePropagatedPosition(tipRecording, currentUT);
+
+            // Recheck overlap at propagated position
+            Bounds spawnBounds = SpawnCollisionDetector.ComputeVesselBounds(vesselSnapshot);
+            var (overlap, distance, blockerName) =
+                SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(propagatedPos, spawnBounds, SpawnCollisionPadding);
+
+            if (overlap)
+            {
+                double blockedDuration = currentUT - chain.BlockedSinceUT;
+                ParsekLog.VerboseRateLimited("SpawnCollision", "blocked-recheck-" + chain.OriginalVesselPid,
+                    string.Format(ic,
+                        "Spawn still blocked: vessel={0} overlaps with {1} at {2}m (blocked {3}s)",
+                        tipRecording.VesselName ?? "(unknown)", blockerName ?? "(unknown)",
+                        distance.ToString("F1", ic), blockedDuration.ToString("F1", ic)));
+                return 0;
+            }
+
+            // Overlap cleared — spawn at propagated position
+            double clearDuration = currentUT - chain.BlockedSinceUT;
+            ParsekLog.Info("SpawnCollision",
+                string.Format(ic,
+                    "Spawn cleared: vessel={0} — overlap resolved after {1}s",
+                    tipRecording.VesselName ?? "(unknown)", clearDuration.ToString("F1", ic)));
+
+            // Terrain correction for surface spawns
+            if (TerrainCorrector.ShouldCorrectTerrain(
+                    tipRecording.TerminalStateValue, tipRecording.TerrainHeightAtEnd))
+            {
+                ApplyTerrainCorrection(tipRecording, vesselSnapshot);
+            }
+
+            // Spawn with PID preservation
+            uint spawnedPid = VesselSpawner.RespawnVessel(vesselSnapshot, preserveIdentity: true);
+
+            ParsekLog.Info(Tag,
+                string.Format(ic,
+                    "Blocked chain tip spawn: pid={0} vessel={1} preserveIdentity=true — spawned after collision cleared",
+                    spawnedPid, tipRecording.VesselName ?? "(unknown)"));
+
+            if (spawnedPid == 0)
+            {
+                ParsekLog.Error(Tag,
+                    string.Format(ic,
+                        "TrySpawnBlockedChain: RespawnVessel returned pid=0 for tip '{0}' — spawn failed",
+                        tipId));
+                return 0;
+            }
+
+            chain.SpawnBlocked = false;
+            CleanupGhostedVessel(chain.OriginalVesselPid);
+
+            return spawnedPid;
+        }
+
+        // --- Private helpers ---
+
+        /// <summary>
+        /// Find the tip recording by ID from committed recordings.
+        /// </summary>
+        private static Recording FindTipRecording(string tipId)
+        {
+            var committedRecordings = RecordingStore.CommittedRecordings;
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                if (committedRecordings[i].RecordingId == tipId)
+                    return committedRecordings[i];
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Compute world-space spawn position from a recording's endpoint.
+        /// Uses terminal position, last trajectory point, or terminal orbit.
+        /// </summary>
+        private static Vector3d ComputeSpawnWorldPosition(Recording rec)
+        {
+            if (rec == null)
+                return Vector3d.zero;
+
+            // Surface terminal position
+            if (rec.TerminalPosition.HasValue)
+            {
+                var tp = rec.TerminalPosition.Value;
+                CelestialBody body = FlightGlobals.GetBodyByName(tp.body);
+                if (body != null)
+                {
+                    Vector3d pos = body.GetWorldSurfacePosition(tp.latitude, tp.longitude, tp.altitude);
+                    ParsekLog.Verbose(Tag,
+                        string.Format(ic, "ComputeSpawnWorldPosition: from terminal surface pos " +
+                            "lat={0} lon={1} alt={2}", tp.latitude.ToString("F4", ic),
+                            tp.longitude.ToString("F4", ic), tp.altitude.ToString("F1", ic)));
+                    return pos;
+                }
+            }
+
+            // Last trajectory point
+            if (rec.Points != null && rec.Points.Count > 0)
+            {
+                var last = rec.Points[rec.Points.Count - 1];
+                string bodyName = last.bodyName;
+                if (string.IsNullOrEmpty(bodyName)) bodyName = "Kerbin";
+                CelestialBody body = FlightGlobals.GetBodyByName(bodyName);
+                if (body != null)
+                {
+                    Vector3d pos = body.GetWorldSurfacePosition(last.latitude, last.longitude, last.altitude);
+                    ParsekLog.Verbose(Tag,
+                        string.Format(ic, "ComputeSpawnWorldPosition: from last trajectory point " +
+                            "UT={0}", last.ut.ToString("F1", ic)));
+                    return pos;
+                }
+            }
+
+            ParsekLog.Verbose(Tag, "ComputeSpawnWorldPosition: no position data — returning zero");
+            return Vector3d.zero;
+        }
+
+        /// <summary>
+        /// Compute propagated world position using GhostExtender strategy.
+        /// For orbital recordings, propagates using Keplerian elements.
+        /// For surface recordings, returns terminal surface position.
+        /// Falls back to last recorded position.
+        /// </summary>
+        private static Vector3d ComputePropagatedPosition(Recording rec, double currentUT)
+        {
+            if (rec == null)
+                return Vector3d.zero;
+
+            GhostExtensionStrategy strategy = GhostExtender.ChooseStrategy(rec);
+
+            switch (strategy)
+            {
+                case GhostExtensionStrategy.Orbital:
+                {
+                    CelestialBody body = FlightGlobals.GetBodyByName(rec.TerminalOrbitBody);
+                    if (body == null)
+                    {
+                        ParsekLog.Warn(Tag,
+                            string.Format(ic, "ComputePropagatedPosition: body '{0}' not found",
+                                rec.TerminalOrbitBody));
+                        return ComputeSpawnWorldPosition(rec);
+                    }
+
+                    var (lat, lon, alt) = GhostExtender.PropagateOrbital(
+                        rec.TerminalOrbitInclination,
+                        rec.TerminalOrbitEccentricity,
+                        rec.TerminalOrbitSemiMajorAxis,
+                        rec.TerminalOrbitLAN,
+                        rec.TerminalOrbitArgumentOfPeriapsis,
+                        rec.TerminalOrbitMeanAnomalyAtEpoch,
+                        rec.TerminalOrbitEpoch,
+                        body.Radius, body.gravParameter,
+                        currentUT);
+
+                    Vector3d pos = body.GetWorldSurfacePosition(lat, lon, alt);
+                    ParsekLog.Verbose(Tag,
+                        string.Format(ic,
+                            "ComputePropagatedPosition: orbital propagation lat={0} lon={1} alt={2}",
+                            lat.ToString("F4", ic), lon.ToString("F4", ic), alt.ToString("F0", ic)));
+                    return pos;
+                }
+
+                case GhostExtensionStrategy.Surface:
+                {
+                    var (lat, lon, alt) = GhostExtender.PropagateSurface(rec);
+                    string bodyName = rec.TerminalPosition.HasValue
+                        ? rec.TerminalPosition.Value.body
+                        : "Kerbin";
+                    CelestialBody body = FlightGlobals.GetBodyByName(bodyName);
+                    if (body == null)
+                    {
+                        ParsekLog.Warn(Tag,
+                            string.Format(ic, "ComputePropagatedPosition: body '{0}' not found", bodyName));
+                        return Vector3d.zero;
+                    }
+                    return body.GetWorldSurfacePosition(lat, lon, alt);
+                }
+
+                case GhostExtensionStrategy.LastRecordedPosition:
+                {
+                    return ComputeSpawnWorldPosition(rec);
+                }
+
+                default:
+                    return ComputeSpawnWorldPosition(rec);
+            }
+        }
+
+        /// <summary>
+        /// Apply terrain correction to a vessel snapshot's altitude.
+        /// Queries current terrain height at the recording's terminal position
+        /// and adjusts the snapshot altitude to preserve clearance.
+        /// </summary>
+        private static void ApplyTerrainCorrection(Recording rec, ConfigNode vesselSnapshot)
+        {
+            if (rec.TerminalPosition == null) return;
+            var tp = rec.TerminalPosition.Value;
+
+            CelestialBody body = FlightGlobals.GetBodyByName(tp.body);
+            if (body == null)
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic, "ApplyTerrainCorrection: body '{0}' not found — skipping", tp.body));
+                return;
+            }
+
+            double currentTerrainHeight = body.TerrainAltitude(tp.latitude, tp.longitude);
+            double correctedAlt = TerrainCorrector.ComputeCorrectedAltitude(
+                currentTerrainHeight, tp.altitude, rec.TerrainHeightAtEnd);
+
+            // Update the snapshot's altitude value if present
+            string altStr = vesselSnapshot.GetValue("alt");
+            if (!string.IsNullOrEmpty(altStr))
+            {
+                vesselSnapshot.SetValue("alt", correctedAlt.ToString("R", ic));
+                ParsekLog.Info("TerrainCorrect",
+                    string.Format(ic,
+                        "Applied terrain correction: recorded={0} current={1} corrected={2}",
+                        tp.altitude.ToString("F1", ic),
+                        currentTerrainHeight.ToString("F1", ic),
+                        correctedAlt.ToString("F1", ic)));
+            }
+        }
+
+        /// <summary>
+        /// Destroy ghost GO and remove tracking entry for a ghosted vessel.
+        /// </summary>
+        private void CleanupGhostedVessel(uint originalPid)
+        {
             GhostedVesselInfo info;
             if (ghostedVessels.TryGetValue(originalPid, out info))
             {
@@ -214,8 +500,6 @@ namespace Parsek
                 }
                 ghostedVessels.Remove(originalPid);
             }
-
-            return spawnedPid;
         }
 
         /// <summary>
