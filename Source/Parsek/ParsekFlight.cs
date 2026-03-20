@@ -220,6 +220,10 @@ namespace Parsek
         // Anchor vessel tracking: which anchor vessels are currently loaded (for looped ghost lifecycle)
         private readonly HashSet<uint> loadedAnchorVessels = new HashSet<uint>();
 
+        // Phase 6b: Ghost chain evaluation + vessel ghosting
+        private VesselGhoster vesselGhoster;
+        private Dictionary<uint, GhostChain> activeGhostChains;
+
         // Deferred spawn queue: recording IDs queued during warp, flushed when warp ends
         private HashSet<string> pendingSpawnRecordingIds = new HashSet<string>();
         private string pendingWatchRecordingId = null;  // recording ID that was in watch mode when deferred
@@ -636,6 +640,11 @@ namespace Parsek
             ExitWatchMode();
             InputLockManager.RemoveControlLock(WatchModeLockId); // safety net
             DestroyAllTimelineGhosts();
+
+            // Phase 6b: Clean up ghost chain state
+            vesselGhoster?.CleanupAll();
+            vesselGhoster = null;
+            activeGhostChains = null;
 
             ui?.Cleanup();
         }
@@ -3345,6 +3354,9 @@ namespace Parsek
                     capSettings.ghostCapZone2Simplify);
             }
 
+            // Phase 6b: Evaluate ghost chains and ghost claimed vessels
+            EvaluateAndApplyGhostChains();
+
             // Handle pending tree: show tree merge dialog.
             // On non-revert scene changes, pending trees are auto-committed by ParsekScenario.
             // Reaching here means either a revert or a fallback (auto-commit missed).
@@ -3479,6 +3491,11 @@ namespace Parsek
         /// </summary>
         private void ResetFlightReadyState()
         {
+            // Phase 6b: Clean up ghost chain state from previous flight scene
+            vesselGhoster?.CleanupAll();
+            vesselGhoster = null;
+            activeGhostChains = null;
+
             // Shutdown background recorder before clearing tree
             if (backgroundRecorder != null)
             {
@@ -3526,6 +3543,63 @@ namespace Parsek
             pendingBoardingTargetInTree = false;
             dockingInProgress.Clear();
             treeDestructionDialogPending = false;
+        }
+
+        /// <summary>
+        /// Evaluates ghost chains from committed trees and ghosts claimed vessels.
+        /// Called during OnFlightReady after initialization/migration but before
+        /// pending tree dialog. Ghost chain state is NOT persisted — it is re-derived
+        /// from committed recordings on every scene load.
+        /// </summary>
+        private void EvaluateAndApplyGhostChains()
+        {
+            var trees = RecordingStore.CommittedTrees;
+            if (trees == null || trees.Count == 0)
+            {
+                activeGhostChains = null;
+                ParsekLog.Verbose("Ghoster", "EvaluateAndApplyGhostChains: no committed trees");
+                return;
+            }
+
+            double currentUT = Planetarium.GetUniversalTime();
+            var chains = GhostChainWalker.ComputeAllGhostChains(trees, currentUT);
+
+            if (chains == null || chains.Count == 0)
+            {
+                activeGhostChains = null;
+                ParsekLog.Verbose("Ghoster", "EvaluateAndApplyGhostChains: no ghost chains found");
+                return;
+            }
+
+            if (vesselGhoster == null)
+                vesselGhoster = new VesselGhoster();
+
+            int ghostedCount = 0;
+            foreach (var kvp in chains)
+            {
+                uint pid = kvp.Key;
+                GhostChain chain = kvp.Value;
+
+                // Only ghost if current UT is before the chain tip (vessel should still be ghost)
+                if (currentUT >= chain.SpawnUT)
+                {
+                    ParsekLog.Verbose("Ghoster",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Skipping chain for pid={0}: currentUT={1:F1} >= spawnUT={2:F1}",
+                            pid, currentUT, chain.SpawnUT));
+                    continue;
+                }
+
+                if (vesselGhoster.GhostVessel(pid))
+                    ghostedCount++;
+            }
+
+            activeGhostChains = chains;
+
+            ParsekLog.Info("Ghoster",
+                string.Format(CultureInfo.InvariantCulture,
+                    "Ghost chains evaluated: {0} chain(s), {1} vessel(s) ghosted",
+                    chains.Count, ghostedCount));
         }
 
         #endregion
