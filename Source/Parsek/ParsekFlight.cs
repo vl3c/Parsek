@@ -4875,6 +4875,114 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Finds a committed recording that covers the given UT for a vessel PID.
+        /// Used to find background recording trajectory data for chain ghosts.
+        /// Returns null if no recording covers this UT for this vessel.
+        /// </summary>
+        internal static Recording FindBackgroundRecordingForVessel(
+            List<Recording> committedRecordings, uint vesselPid, double currentUT)
+        {
+            if (committedRecordings == null) return null;
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                var rec = committedRecordings[i];
+                if (rec.VesselPersistentId == vesselPid &&
+                    rec.Points != null && rec.Points.Count > 0 &&
+                    currentUT >= rec.StartUT && currentUT <= rec.EndUT)
+                    return rec;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Positions all chain ghosts each frame using background recording trajectory data.
+        /// For UTs outside recorded range, falls back to orbital propagation or surface hold.
+        /// Ghost GOs are currently null (6b-1 deferred ghost GO creation), so this method
+        /// will skip all ghosts until ghost GO creation is implemented in a follow-up task.
+        /// </summary>
+        private void PositionChainGhosts(double currentUT)
+        {
+            if (vesselGhoster == null || activeGhostChains == null || activeGhostChains.Count == 0)
+                return;
+
+            foreach (var kvp in activeGhostChains)
+            {
+                GhostChain chain = kvp.Value;
+                var info = vesselGhoster.GetGhostedInfo(chain.OriginalVesselPid);
+                if (info == null || info.ghostGO == null) continue;
+
+                // Find background recording covering current UT
+                Recording bgRec = FindBackgroundRecordingForVessel(
+                    RecordingStore.CommittedRecordings, chain.OriginalVesselPid, currentUT);
+
+                if (bgRec != null && bgRec.Points.Count > 0)
+                {
+                    // Position from trajectory points (same interpolation as existing ghost positioning)
+                    bool srfRel = bgRec.RecordingFormatVersion >= 5;
+                    int cachedIdx = 0;
+                    InterpolateAndPosition(info.ghostGO, bgRec.Points, bgRec.OrbitSegments,
+                        ref cachedIdx, currentUT, (int)(chain.OriginalVesselPid * 10000),
+                        out _, surfaceRelativeRotation: srfRel);
+
+                    ParsekLog.VerboseRateLimited("Flight", "chain-ghost-trajectory-" + chain.OriginalVesselPid,
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Chain ghost positioned from trajectory: pid={0} rec={1} UT={2:F1}",
+                            chain.OriginalVesselPid, bgRec.RecordingId, currentUT));
+                }
+                else
+                {
+                    // Fallback: check for orbit segments or surface position on any committed recording
+                    // for this vessel that has orbital/surface data
+                    bool positioned = false;
+                    var committed = RecordingStore.CommittedRecordings;
+                    if (committed != null)
+                    {
+                        for (int i = 0; i < committed.Count; i++)
+                        {
+                            var rec = committed[i];
+                            if (rec.VesselPersistentId != chain.OriginalVesselPid) continue;
+
+                            if (rec.OrbitSegments != null && rec.OrbitSegments.Count > 0)
+                            {
+                                PositionGhostFromOrbitOnly(info.ghostGO, rec, currentUT,
+                                    (int)(chain.OriginalVesselPid * 10000));
+                                positioned = true;
+                                ParsekLog.VerboseRateLimited("Flight",
+                                    "chain-ghost-orbit-" + chain.OriginalVesselPid,
+                                    string.Format(CultureInfo.InvariantCulture,
+                                        "Chain ghost positioned from orbit: pid={0} rec={1} UT={2:F1}",
+                                        chain.OriginalVesselPid, rec.RecordingId, currentUT));
+                                break;
+                            }
+
+                            if (rec.SurfacePos.HasValue)
+                            {
+                                PositionGhostAtSurface(info.ghostGO, rec.SurfacePos.Value);
+                                positioned = true;
+                                ParsekLog.VerboseRateLimited("Flight",
+                                    "chain-ghost-surface-" + chain.OriginalVesselPid,
+                                    string.Format(CultureInfo.InvariantCulture,
+                                        "Chain ghost positioned at surface: pid={0} rec={1} body={2}",
+                                        chain.OriginalVesselPid, rec.RecordingId,
+                                        rec.SurfacePos.Value.body));
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!positioned)
+                    {
+                        ParsekLog.VerboseRateLimited("Flight",
+                            "chain-ghost-no-data-" + chain.OriginalVesselPid,
+                            string.Format(CultureInfo.InvariantCulture,
+                                "Chain ghost has no positioning data: pid={0} UT={1:F1}",
+                                chain.OriginalVesselPid, currentUT));
+                    }
+                }
+            }
+        }
+
+        /// <summary>
         /// Routes spawn through VesselGhoster for chain tips, or existing
         /// SpawnOrRecoverIfTooClose for normal recordings.
         /// </summary>
@@ -4908,6 +5016,9 @@ namespace Parsek
         {
             var committed = RecordingStore.CommittedRecordings;
             double currentUT = Planetarium.GetUniversalTime();
+
+            // Phase 6b: Position chain ghosts (independent of per-recording iteration)
+            PositionChainGhosts(currentUT);
 
             // Flush deferred spawns when warp ends
             if (GhostPlaybackLogic.ShouldFlushDeferredSpawns(pendingSpawnRecordingIds.Count, IsAnyWarpActive()))
