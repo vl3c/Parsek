@@ -646,8 +646,8 @@ When the player stages/decouples parts, KSP may instantly destroy the separated 
 
 ## 59. SoftCap ClassifyPriority logs per-frame per-ghost at VERBOSE (log spam)
 
-`GhostSoftCapManager.ClassifyPriority` logs at VERBOSE on every call. Called per-ghost per-frame during cap evaluation. With 20+ ghosts at 60fps, produces ~1200 log lines/second.
+`GhostSoftCapManager.ClassifyPriority` logs at VERBOSE on every call. Called per-ghost per-frame during cap evaluation. With 20+ ghosts at 60fps, produces ~1200 log lines/second. Measured at 1.09M lines / 71% of total Parsek log output in a test session.
 
-**Fix:** Remove the per-call logging or use `VerboseRateLimited`. ClassifyPriority is a pure function — its inputs/outputs are already visible in the EvaluateCaps summary log.
+**Fix:** Removed the per-call VERBOSE logs from `ClassifyPriority` entirely — inputs/outputs are already visible in the EvaluateCaps summary log. Also rate-limited related spam in the same commit: looped ghost spawn suppression (INFO → VerboseRateLimited 30s per ghost, was 61K lines), heat state changes (VERBOSE → VerboseRateLimited 5s per part PID, was ~20K lines during reentry).
 
-**Status:** Open — low priority
+**Status:** Fixed
