@@ -1501,6 +1501,10 @@ namespace Parsek
                     rootRec.PartEvents = new List<PartEvent>(splitRecorder.CaptureAtStop.PartEvents);
                     rootRec.GhostVisualSnapshot = splitRecorder.CaptureAtStop.GhostVisualSnapshot;
                     rootRec.VesselSnapshot = splitRecorder.CaptureAtStop.VesselSnapshot;
+                    rootRec.RewindSaveFileName = splitRecorder.CaptureAtStop.RewindSaveFileName;
+                    rootRec.RewindReservedFunds = splitRecorder.CaptureAtStop.RewindReservedFunds;
+                    rootRec.RewindReservedScience = splitRecorder.CaptureAtStop.RewindReservedScience;
+                    rootRec.RewindReservedRep = splitRecorder.CaptureAtStop.RewindReservedRep;
                     if (rootRec.Points.Count > 0)
                         rootRec.ExplicitStartUT = rootRec.Points[0].ut;
                 }
