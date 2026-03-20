@@ -3574,13 +3574,16 @@ namespace Parsek
             if (vesselGhoster == null)
                 vesselGhoster = new VesselGhoster();
 
+            // Only store and ghost chains whose spawn UT is in the future.
+            // Past-UT chains are already resolved — storing them would cause
+            // spurious spawn suppression and duplicate chain-tip spawn attempts.
+            var activeChains = new Dictionary<uint, GhostChain>();
             int ghostedCount = 0;
             foreach (var kvp in chains)
             {
                 uint pid = kvp.Key;
                 GhostChain chain = kvp.Value;
 
-                // Only ghost if current UT is before the chain tip (vessel should still be ghost)
                 if (currentUT >= chain.SpawnUT)
                 {
                     ParsekLog.Verbose("Ghoster",
@@ -3590,11 +3593,12 @@ namespace Parsek
                     continue;
                 }
 
+                activeChains[pid] = chain;
                 if (vesselGhoster.GhostVessel(pid))
                     ghostedCount++;
             }
 
-            activeGhostChains = chains;
+            activeGhostChains = activeChains;
 
             // Wire the ghosted-vessel check for ShouldSkipExternalVesselGhost (Task 6b-3b)
             GhostPlaybackLogic.SetIsGhostedOverride(

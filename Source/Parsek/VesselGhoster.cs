@@ -77,8 +77,21 @@ namespace Parsek
             {
                 ParsekLog.Error(Tag,
                     string.Format(ic,
-                        "Ghost conversion FAILED: pid={0} name={1} — despawn exception: {2}. Vessel may be in inconsistent state.",
+                        "Ghost conversion FAILED: pid={0} name={1} — despawn exception: {2}. Attempting restore from snapshot.",
                         vesselPid, vesselName, ex.Message));
+                try
+                {
+                    VesselSpawner.RespawnVessel(snapshot, preserveIdentity: true);
+                    ParsekLog.Info(Tag,
+                        string.Format(ic, "Vessel restored from snapshot after despawn failure: pid={0}", vesselPid));
+                }
+                catch (Exception restoreEx)
+                {
+                    ParsekLog.Error(Tag,
+                        string.Format(ic,
+                            "Vessel restore ALSO FAILED: pid={0} — {1}. Player should reload quicksave.",
+                            vesselPid, restoreEx.Message));
+                }
                 return false;
             }
 
