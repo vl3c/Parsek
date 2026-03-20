@@ -27,7 +27,7 @@ namespace Parsek.Tests
 
         /// <summary>
         /// AntennaSpec.ToString includes all fields for diagnostic logging.
-        /// Guards: log output contains part name, power, combinable, exponent.
+        /// Guards: log output contains part name, power, combinable, exponent, type.
         /// </summary>
         [Fact]
         public void AntennaSpec_ToString_ContainsAllFields()
@@ -37,7 +37,8 @@ namespace Parsek.Tests
                 partName = "longAntenna",
                 antennaPower = 500000,
                 antennaCombinable = true,
-                antennaCombinableExponent = 0.75
+                antennaCombinableExponent = 0.75,
+                antennaType = "RELAY"
             };
 
             string result = spec.ToString();
@@ -46,6 +47,7 @@ namespace Parsek.Tests
             Assert.Contains("500000", result);
             Assert.Contains("True", result);
             Assert.Contains("0.75", result);
+            Assert.Contains("RELAY", result);
         }
 
         /// <summary>
@@ -260,6 +262,53 @@ namespace Parsek.Tests
             Assert.Single(specs);
             Assert.Equal("probeCoreOcto", specs[0].partName);
             Assert.Equal(5000.0, specs[0].antennaPower);
+        }
+
+        /// <summary>
+        /// Extracting from a snapshot with antennaType present extracts the type field.
+        /// Guards: antennaType is read from the ModuleDataTransmitter node.
+        /// </summary>
+        [Fact]
+        public void ExtractFromSnapshot_WithAntennaType_ExtractsType()
+        {
+            var vessel = new ConfigNode("VESSEL");
+            var part = vessel.AddNode("PART");
+            part.AddValue("name", "RelayAntenna100");
+            var module = part.AddNode("MODULE");
+            module.AddValue("name", "ModuleDataTransmitter");
+            module.AddValue("antennaPower", "100000000000");
+            module.AddValue("antennaCombinable", "True");
+            module.AddValue("antennaCombinableExponent", "0.75");
+            module.AddValue("antennaType", "RELAY");
+
+            var specs = AntennaSpecExtractor.ExtractFromSnapshot(vessel);
+
+            Assert.Single(specs);
+            Assert.Equal("RELAY", specs[0].antennaType);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[GhostCommNet]") && l.Contains("type=RELAY"));
+        }
+
+        /// <summary>
+        /// Extracting from a snapshot without antennaType defaults to empty string.
+        /// Guards: legacy snapshots without type field get backward-compatible default.
+        /// </summary>
+        [Fact]
+        public void ExtractFromSnapshot_MissingAntennaType_DefaultsEmpty()
+        {
+            var vessel = new ConfigNode("VESSEL");
+            var part = vessel.AddNode("PART");
+            part.AddValue("name", "longAntenna");
+            var module = part.AddNode("MODULE");
+            module.AddValue("name", "ModuleDataTransmitter");
+            module.AddValue("antennaPower", "500000");
+            // No antennaType field
+
+            var specs = AntennaSpecExtractor.ExtractFromSnapshot(vessel);
+
+            Assert.Single(specs);
+            Assert.Equal("", specs[0].antennaType);
         }
 
         #endregion

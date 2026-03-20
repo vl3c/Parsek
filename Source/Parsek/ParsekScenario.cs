@@ -1291,6 +1291,8 @@ namespace Parsek
                                 spec.antennaCombinableExponent = exponent;
                         }
 
+                        spec.antennaType = antennaNodes[a].GetValue("type") ?? "";
+
                         rec.AntennaSpecs.Add(spec);
                     }
                     ScenarioLog($"[Parsek Scenario] Loaded {rec.AntennaSpecs.Count} antenna spec(s) for '{rec.VesselName}'");
@@ -1436,6 +1438,8 @@ namespace Parsek
                         specNode.AddValue("power", spec.antennaPower.ToString("R", CultureInfo.InvariantCulture));
                         specNode.AddValue("combinable", spec.antennaCombinable.ToString());
                         specNode.AddValue("exponent", spec.antennaCombinableExponent.ToString("R", CultureInfo.InvariantCulture));
+                        if (!string.IsNullOrEmpty(spec.antennaType))
+                            specNode.AddValue("type", spec.antennaType);
                     }
                 }
 

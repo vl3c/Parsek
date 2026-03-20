@@ -14,12 +14,17 @@ namespace Parsek
         public bool antennaCombinable;
         public double antennaCombinableExponent;
 
+        /// <summary>
+        /// Antenna type from ModuleDataTransmitter: "RELAY", "DIRECT", "INTERNAL", or "" (unknown/legacy).
+        /// </summary>
+        public string antennaType;
+
         public override string ToString()
         {
             return string.Format(CultureInfo.InvariantCulture,
-                "AntennaSpec part={0} power={1} combinable={2} exponent={3}",
+                "AntennaSpec part={0} power={1} combinable={2} exponent={3} type={4}",
                 partName ?? "(null)", antennaPower, antennaCombinable,
-                antennaCombinableExponent);
+                antennaCombinableExponent, antennaType ?? "");
         }
     }
 
@@ -99,12 +104,15 @@ namespace Parsek
                             spec.antennaCombinableExponent = exponent;
                     }
 
+                    // Parse antennaType (string: RELAY, DIRECT, INTERNAL, or empty)
+                    spec.antennaType = moduleNodes[m].GetValue("antennaType") ?? "";
+
                     specs.Add(spec);
 
                     ParsekLog.Verbose(Tag,
                         string.Format(ic,
-                            "ExtractFromSnapshot: found antenna on part '{0}': power={1} combinable={2} exponent={3}",
-                            partName, spec.antennaPower, spec.antennaCombinable, spec.antennaCombinableExponent));
+                            "ExtractFromSnapshot: found antenna on part '{0}': power={1} combinable={2} exponent={3} type={4}",
+                            partName, spec.antennaPower, spec.antennaCombinable, spec.antennaCombinableExponent, spec.antennaType));
                 }
             }
 
