@@ -718,8 +718,8 @@ For each phase:
 ## 9. Phase 6: Vessel Interaction Paradox Extension
 
 *Extension design: `parsek-vessel-interaction-paradox.md` v1.5*
-*Extension plan: `recording-system-extension-plan.md` v0.1*
-*Status: Design resolved. Ready for implementation.*
+*Extension plan: `recording-system-extension-plan.md` v1.2*
+*Status: Implementation complete. 2989 tests pass. In-game testing pending.*
 
 ### 9.1 What This Extends
 
@@ -731,19 +731,19 @@ This is Parsek's first modification of real game state — hiding existing vesse
 
 | Phase | Scope | Key Files | Status |
 |-------|-------|-----------|--------|
-| 6a — Ghost Chain Infrastructure | Chain walker, claiming logic, intermediate spawn suppression | New: `GhostChainWalker.cs`, `GhostChain.cs`, `GhostingTriggerClassifier.cs`. Modify: `GhostPlaybackLogic.cs`, `VesselSpawner.cs` | Not started |
-| 6b — Ghost Conversion + Chain-Aware Spawn | Real→ghost conversion, chain-aware spawn-at-end, save/load re-evaluation | New: `VesselGhoster.cs`. Modify: `ParsekFlight.cs`, `ParsekScenario.cs` | Not started |
-| 6c — Spawn Safety | Bounding box collision, ghost extension, terrain correction, trajectory walkback | New: `SpawnCollisionDetector.cs`, `GhostExtender.cs`, `TerrainCorrector.cs`. Modify: `Recording.cs`, `FlightRecorder.cs`, `RecordingStore.cs` | Not started |
-| 6d — UI | Spawn warnings, chain status display | New: `SpawnWarningUI.cs`. Modify: `ParsekUI.cs` | Not started |
-| 6e — Relative-State Time Jump | Discrete UT skip preserving bubble geometry, selective spawning UI, TIME_JUMP event | New: `TimeJumpManager.cs`, `SelectiveSpawnUI.cs`. Modify: `SegmentEvent.cs`, `FlightRecorder.cs`, `RecordingStore.cs` | Not started |
-| 6f — Ghost World Presence | Map view, tracking station, CommNet relay, unloaded ghost lifecycle | New: `GhostMapPresence.cs`, `GhostCommNetRelay.cs`. Modify: `Recording.cs`, `VesselGhoster.cs` | Not started |
+| 6a — Ghost Chain Infrastructure | Chain walker, claiming logic, intermediate spawn suppression | New: `GhostChainWalker.cs`, `GhostChain.cs`, `GhostingTriggerClassifier.cs`. Modify: `GhostPlaybackLogic.cs`, `VesselSpawner.cs` | **Done** (105 tests) |
+| 6b — Ghost Conversion + Chain-Aware Spawn | Real→ghost conversion, chain-aware spawn-at-end, save/load re-evaluation | New: `VesselGhoster.cs`. Modify: `ParsekFlight.cs`, `ParsekScenario.cs` | **Done** (79 tests) |
+| 6c — Spawn Safety | Bounding box collision, ghost extension, terrain correction, trajectory walkback | New: `SpawnCollisionDetector.cs`, `GhostExtender.cs`, `TerrainCorrector.cs`. Modify: `Recording.cs`, `RecordingStore.cs`, `GhostChain.cs`, `VesselGhoster.cs`, `ParsekFlight.cs` | **Done** (93 tests) |
+| 6d — UI | Spawn warnings, ghost labels, chain status display | New: `SpawnWarningUI.cs`. Modify: `ParsekUI.cs`, `ParsekFlight.cs` | **Done** (27 tests) |
+| 6e — Relative-State Time Jump | Discrete UT skip preserving bubble geometry, TIME_JUMP event | New: `TimeJumpManager.cs`. Modify: `SegmentEvent.cs` | **Done** (27 tests) |
+| 6f — Ghost World Presence | Map view, tracking station, CommNet relay, antenna specs | New: `GhostMapPresence.cs`, `GhostCommNetRelay.cs`, `AntennaSpec.cs`. Modify: `Recording.cs`, `ParsekScenario.cs` | **Done** (47 tests) |
 
 ### 9.3 Resolved Design Decisions
 
 1. **Ghost conversion mechanism** — Option A: Despawn + Ghost Replacement. Quicksave is full backup.
 2. **Claiming metadata** — Derive at runtime from committed tree DAG traversal. No new serialization.
 3. **Resource transfers** — Non-issue: stock KSP resource transfers require docking (already a MERGE trigger).
-4. **Ghost visual identity** — Deferred. No visual distinction at this time.
+4. **Ghost visual identity** — Minimal: floating text labels on ghosts ("Ghost — spawns at UT=X"). Full visual treatment (transparency, outlines) deferred.
 5. **Cross-perspective attribution** — Already handled by existing BackgroundRecorder. Verified in code: `onPartDie` + `PollPartEvents` capture events on background vessels, committed with tree.
 6. **PID preservation** — Chain-tip spawns skip `RegenerateVesselIdentity` to preserve snapshot PID. Enables cross-tree chain linking.
 
@@ -761,8 +761,8 @@ This is Parsek's first modification of real game state — hiding existing vesse
 
 ---
 
-*Document version: 2.1*
+*Document version: 2.2*
 *Created: 2026-03-17*
-*Updated: 2026-03-20 — Phase 6 expanded: time jump addendum integrated (6e, 6f), design decisions resolved, 24 tasks total*
+*Updated: 2026-03-20 — Phase 6 implementation complete (6 sub-phases, 26 tasks, 381 new tests, 2989 total). CommNet resolved via stock API. In-game testing pending.*
 *Updated: 2026-03-19 — Phase 6 (vessel interaction paradox extension) section added*
-*Status: Phases 1-5 complete (PR #59). Phase 6 design resolved (6 sub-phases, 24 tasks), ready for implementation.*
+*Status: Phases 1-5 complete (PR #59). Phase 6 implementation complete. 2989 tests pass. In-game testing pending.*
