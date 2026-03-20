@@ -389,12 +389,35 @@ namespace Parsek
         private static Func<uint, bool> vesselExistsOverride;
 
         /// <summary>
+        /// Injectable override for chain-ghosted vessel checks (null = assume not ghosted).
+        /// Set via SetIsGhostedOverride for unit tests; in production, wired to VesselGhoster.IsGhosted.
+        /// </summary>
+        private static Func<uint, bool> isGhostedOverride;
+
+        /// <summary>
         /// Sets an injectable override for RealVesselExists, enabling unit testing
         /// without FlightGlobals. Pass null to restore default behavior.
         /// </summary>
         internal static void SetVesselExistsOverrideForTesting(Func<uint, bool> finder)
         {
             vesselExistsOverride = finder;
+        }
+
+        /// <summary>
+        /// Sets an injectable override for IsGhostedByChain, enabling unit testing
+        /// without VesselGhoster. Pass null to restore default behavior (not ghosted).
+        /// </summary>
+        internal static void SetIsGhostedOverride(Func<uint, bool> checker)
+        {
+            isGhostedOverride = checker;
+        }
+
+        /// <summary>
+        /// Resets the injectable is-ghosted override. Call from test Dispose.
+        /// </summary>
+        internal static void ResetIsGhostedOverride()
+        {
+            isGhostedOverride = null;
         }
 
         /// <summary>
@@ -421,6 +444,18 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Checks if a vessel is ghosted by a chain (despawned by VesselGhoster).
+        /// Uses injectable override when set (for testing); defaults to false when
+        /// no override is configured (no chain system active).
+        /// </summary>
+        private static bool IsGhostedByChain(uint vesselPersistentId)
+        {
+            if (isGhostedOverride != null)
+                return isGhostedOverride(vesselPersistentId);
+            return false;
+        }
+
+        /// <summary>
         /// Pure decision method: determines whether a ghost should be skipped for an
         /// external background vessel whose real vessel still exists in the game world.
         /// An "external vessel" is a tree recording that was tracked via BackgroundMap
@@ -438,6 +473,17 @@ namespace Parsek
 
             // PID 0 means we don't know the vessel — can't check existence
             if (vesselPersistentId == 0) return false;
+
+            // Phase 6b: If vessel is ghosted by a chain, do NOT skip.
+            // The real vessel has been despawned — the background recording
+            // data must produce a ghost for the chain.
+            if (IsGhostedByChain(vesselPersistentId))
+            {
+                ParsekLog.Verbose("Ghoster",
+                    $"ShouldSkipExternalVesselGhost: vessel pid={vesselPersistentId} " +
+                    "is ghosted by chain — NOT skipping");
+                return false;
+            }
 
             return RealVesselExists(vesselPersistentId);
         }
