@@ -17,6 +17,9 @@ namespace Parsek
         internal const float FxSuppressWarpThreshold = 10f;
         internal const float GhostHideWarpThreshold = 50f;
         internal const double MinCycleDuration = 1.0;
+        // Grace period before zone-based watch mode exit (wall-clock seconds).
+        // Prevents immediate exit when a ghost briefly crosses a zone boundary at watch-mode start.
+        internal const float WatchModeZoneGraceSeconds = 2.0f;
 
         #region Warp / Loop Policy
 

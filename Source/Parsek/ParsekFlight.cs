@@ -7375,9 +7375,9 @@ namespace Parsek
                     PositionGhostAt(gs.ghost, rec.Points[0], rec.RecordingFormatVersion >= 5);
 
                 ParsekLog.Info("CameraFollow",
-                    $"Watch mode loop reset: ghost #{index} \"{rec.VesselName}\" " +
-                    $"cycleTime={cycleTime:F1}s -> offset={newOffset:F1}s " +
-                    $"(ghost repositioned to recording start)");
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Watch mode loop reset: ghost #{0} \"{1}\" cycleTime={2:F1}s -> offset={3:F1}s (ghost repositioned to recording start)",
+                        index, rec.VesselName, cycleTime, newOffset));
             }
 
             // Save camera state only when entering fresh (not switching between ghosts)
@@ -7739,7 +7739,7 @@ namespace Parsek
             {
                 if (isWatchedGhost)
                 {
-                    if (Time.time - watchStartTime > 2.0f)
+                    if (Time.time - watchStartTime > GhostPlaybackLogic.WatchModeZoneGraceSeconds)
                     {
                         ExitWatchMode();
                         ParsekLog.Info("Zone",
