@@ -270,6 +270,63 @@ namespace Parsek
             if (overlap)
             {
                 double blockedDuration = currentUT - chain.BlockedSinceUT;
+
+                // Trajectory walkback: if blocked for > 5s and blocker hasn't moved,
+                // walk backward along the recorded trajectory to find a valid spawn position.
+                if (SpawnCollisionDetector.ShouldTriggerWalkback(
+                        chain.BlockedSinceUT, currentUT, 5.0, distance, 1.0f)
+                    && tipRecording.Points != null && tipRecording.Points.Count > 1)
+                {
+                    int validIdx = SpawnCollisionDetector.WalkbackAlongTrajectory(
+                        tipRecording.Points,
+                        spawnBounds,
+                        SpawnCollisionPadding,
+                        pt =>
+                        {
+                            string bodyName = pt.bodyName;
+                            if (string.IsNullOrEmpty(bodyName)) bodyName = "Kerbin";
+                            CelestialBody body = FlightGlobals.GetBodyByName(bodyName);
+                            return body != null
+                                ? body.GetWorldSurfacePosition(pt.latitude, pt.longitude, pt.altitude)
+                                : Vector3d.zero;
+                        },
+                        pos =>
+                        {
+                            var (ov, _, _) = SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
+                                pos, spawnBounds, SpawnCollisionPadding);
+                            return ov;
+                        });
+
+                    if (validIdx >= 0)
+                    {
+                        ParsekLog.Info("SpawnCollision",
+                            string.Format(ic,
+                                "Trajectory walkback: vessel={0} — found valid position {1} frames back at UT={2}",
+                                tipRecording.VesselName ?? "(unknown)", tipRecording.Points.Count - 1 - validIdx,
+                                tipRecording.Points[validIdx].ut.ToString("F1", ic)));
+
+                        // Spawn at walkback position
+                        if (TerrainCorrector.ShouldCorrectTerrain(
+                                tipRecording.TerminalStateValue, tipRecording.TerrainHeightAtEnd))
+                            ApplyTerrainCorrection(tipRecording, vesselSnapshot);
+
+                        uint walkbackPid = VesselSpawner.RespawnVessel(vesselSnapshot, preserveIdentity: true);
+                        if (walkbackPid != 0)
+                        {
+                            chain.SpawnBlocked = false;
+                            CleanupGhostedVessel(chain.OriginalVesselPid);
+                            return walkbackPid;
+                        }
+                    }
+                    else
+                    {
+                        ParsekLog.Warn("SpawnCollision",
+                            string.Format(ic,
+                                "Trajectory walkback EXHAUSTED: vessel={0} — entire trajectory overlaps with {1}. Manual placement required.",
+                                tipRecording.VesselName ?? "(unknown)", blockerName ?? "(unknown)"));
+                    }
+                }
+
                 ParsekLog.VerboseRateLimited("SpawnCollision", "blocked-recheck-" + chain.OriginalVesselPid,
                     string.Format(ic,
                         "Spawn still blocked: vessel={0} overlaps with {1} at {2}m (blocked {3}s)",

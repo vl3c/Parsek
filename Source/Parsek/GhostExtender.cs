@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 
 namespace Parsek
 {
@@ -80,6 +81,17 @@ namespace Parsek
                 double bodyRadius, double bodyGravParam,
                 double currentUT)
         {
+            // Guard: hyperbolic orbits (ecc >= 1.0) are not supported by this propagator.
+            // Return last recorded position as fallback.
+            if (ecc >= 1.0 || sma <= 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(CultureInfo.InvariantCulture,
+                        "PropagateOrbital: unsupported orbit (ecc={0}, sma={1}) — returning epoch position",
+                        ecc, sma));
+                return (0, 0, sma > 0 ? sma - bodyRadius : 0);
+            }
+
             // Step 1: Mean motion n = sqrt(GM / a^3)
             double sma3 = sma * sma * sma;
             double n = Math.Sqrt(bodyGravParam / sma3);
