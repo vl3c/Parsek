@@ -1,10 +1,11 @@
+using System;
 using System.Collections.Generic;
 using Xunit;
 
 namespace Parsek.Tests
 {
     [Collection("Sequential")]
-    public class GhostingTriggerClassifierTests
+    public class GhostingTriggerClassifierTests : IDisposable
     {
         private readonly List<string> logLines = new List<string>();
 
@@ -15,7 +16,7 @@ namespace Parsek.Tests
             ParsekLog.VerboseOverrideForTesting = true;
         }
 
-        ~GhostingTriggerClassifierTests()
+        public void Dispose()
         {
             ParsekLog.ResetTestOverrides();
         }

@@ -17,6 +17,7 @@ namespace Parsek.Tests
             GameStateStore.SuppressLogging = true;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
         }
 
@@ -229,6 +230,40 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// R1 records combined vessel S+A(PID=100) undocking. Undock BP has target=100.
+        /// SPLIT path uses ChildRecordingIds[0] as the claiming recording.
+        /// Guards: SPLIT branch point chain construction.
+        /// </summary>
+        [Fact]
+        public void SingleTree_UndockSplit_ClaimsVessel()
+        {
+            // R1 is the parent recording (vessel combined S+A, PID=50)
+            // After undock, S (PID=100) splits off as a separate vessel
+            var r1 = MakeRecording("R1", 50, 1000, 1060, childBpId: "bp-undock");
+            var r1Child = MakeRecording("R1-child", 100, 1060, 1120,
+                parentBpId: "bp-undock");
+
+            var undockBp = MakeBranchPoint("bp-undock", BranchPointType.Undock,
+                1060, 100, new[] { "R1" }, new[] { "R1-child" });
+
+            var tree = MakeTree("tree-1", new[] { r1, r1Child },
+                new[] { undockBp });
+
+            var chains = GhostChainWalker.ComputeAllGhostChains(
+                new List<RecordingTree> { tree }, 900);
+
+            Assert.Single(chains);
+            Assert.True(chains.ContainsKey(100));
+            var chain = chains[100];
+            Assert.Equal((uint)100, chain.OriginalVesselPid);
+            Assert.Single(chain.Links);
+            Assert.Equal("SPLIT", chain.Links[0].interactionType);
+            Assert.Equal("R1-child", chain.Links[0].recordingId);
+            Assert.Equal("tree-1", chain.Links[0].treeId);
+            Assert.False(chain.IsTerminated);
+        }
+
+        /// <summary>
         /// S's background recording has a Destroyed PartEvent. Chain via BACKGROUND_EVENT.
         /// Guards: non-BranchPoint claiming.
         /// </summary>
@@ -265,6 +300,45 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// Background recording with only cosmetic events (LightOn/LightOff) does NOT
+        /// create a chain claim. Only ghosting-trigger events qualify.
+        /// Guards: cosmetic-only background recordings don't ghost.
+        /// </summary>
+        [Fact]
+        public void BackgroundRecording_CosmeticOnlyEvents_NoClaim()
+        {
+            // Root recording (vessel A, PID=50)
+            var r1 = MakeRecording("R1", 50, 1000, 1120);
+
+            // Background recording for station S (PID=100), only cosmetic events
+            var bgRec = MakeRecording("BG-S", 100, 1000, 1120);
+            bgRec.PartEvents = new List<PartEvent>
+            {
+                new PartEvent
+                {
+                    ut = 1020,
+                    partPersistentId = 999,
+                    eventType = PartEventType.LightOn,
+                    partName = "spotLight"
+                },
+                new PartEvent
+                {
+                    ut = 1080,
+                    partPersistentId = 999,
+                    eventType = PartEventType.LightOff,
+                    partName = "spotLight"
+                }
+            };
+
+            var tree = MakeTree("tree-1", new[] { r1, bgRec }, null);
+
+            var chains = GhostChainWalker.ComputeAllGhostChains(
+                new List<RecordingTree> { tree }, 900);
+
+            Assert.Empty(chains);
+        }
+
+        /// <summary>
         /// Tree with Launch BP only, no target PIDs. Empty dict.
         /// Guards: normal recordings don't ghost.
         /// </summary>
@@ -282,6 +356,30 @@ namespace Parsek.Tests
                 new List<RecordingTree> { tree }, 900);
 
             Assert.Empty(chains);
+        }
+
+        /// <summary>
+        /// Tip has TerminalState.Docked. NOT terminated — only Destroyed/Recovered terminate.
+        /// Guards: Docked state does not terminate chain.
+        /// </summary>
+        [Fact]
+        public void DockedTerminalState_DoesNotTerminateChain()
+        {
+            var r1 = MakeRecording("R1", 50, 1000, 1060, childBpId: "bp-dock");
+            var r1Leaf = MakeRecording("R1-leaf", 100, 1060, 1120,
+                terminal: TerminalState.Docked, parentBpId: "bp-dock");
+
+            var dockBp = MakeBranchPoint("bp-dock", BranchPointType.Dock,
+                1060, 100, new[] { "R1" }, new[] { "R1-leaf" });
+
+            var tree = MakeTree("tree-1", new[] { r1, r1Leaf },
+                new[] { dockBp });
+
+            var chains = GhostChainWalker.ComputeAllGhostChains(
+                new List<RecordingTree> { tree }, 900);
+
+            Assert.Single(chains);
+            Assert.False(chains[100].IsTerminated);
         }
 
         /// <summary>

@@ -194,6 +194,24 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// A looped recording at the chain tip should NOT be suppressed by chain logic.
+        /// Loop dedup is handled separately by ShouldSpawnAtRecordingEnd via SpawnedVesselPersistentId.
+        /// </summary>
+        [Fact]
+        public void LoopedRecordingAtChainTip_SpawnAllowed()
+        {
+            var (chains, chain) = MakeTwoLinkChain();
+            var tipRec = MakeRecording("tip-rec", 100, 1500, 2000, "LoopedTipVessel");
+            tipRec.LoopPlayback = true;
+
+            var (suppressed, reason) = GhostPlaybackLogic.ShouldSuppressSpawnForChain(
+                chains, tipRec);
+
+            Assert.False(suppressed);
+            Assert.Equal("", reason);
+        }
+
+        /// <summary>
         /// Verify that ShouldSpawnAtRecordingEnd still exists and works correctly
         /// with a simple recording — we did NOT accidentally modify the existing method.
         /// </summary>
