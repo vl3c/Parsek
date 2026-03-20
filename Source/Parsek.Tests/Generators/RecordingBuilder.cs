@@ -35,6 +35,7 @@ namespace Parsek.Tests.Generators
         private double rewindReservedScience;
         private float rewindReservedRep;
         private int? terminalState;
+        private double terrainHeightAtEnd = double.NaN;
 
         // Default rotation for points that don't specify one explicitly
         private float defaultRotX, defaultRotY, defaultRotZ;
@@ -271,6 +272,12 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
+        public RecordingBuilder WithTerrainHeightAtEnd(double height)
+        {
+            terrainHeightAtEnd = height;
+            return this;
+        }
+
         // --- v6 TrackSection builder methods ---
 
         /// <summary>
@@ -488,6 +495,9 @@ namespace Parsek.Tests.Generators
             if (terminalState.HasValue)
                 node.AddValue("terminalState", terminalState.Value.ToString(CultureInfo.InvariantCulture));
 
+            if (!double.IsNaN(terrainHeightAtEnd))
+                node.AddValue("terrainHeightAtEnd", terrainHeightAtEnd.ToString("R", CultureInfo.InvariantCulture));
+
             // v6: Controller info
             if (controllers != null)
             {
@@ -582,6 +592,9 @@ namespace Parsek.Tests.Generators
 
             if (terminalState.HasValue)
                 node.AddValue("terminalState", terminalState.Value.ToString(CultureInfo.InvariantCulture));
+
+            if (!double.IsNaN(terrainHeightAtEnd))
+                node.AddValue("terrainHeightAtEnd", terrainHeightAtEnd.ToString("R", CultureInfo.InvariantCulture));
 
             // v6: Controller info
             if (controllers != null)

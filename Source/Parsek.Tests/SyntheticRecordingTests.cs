@@ -214,6 +214,7 @@ namespace Parsek.Tests
             b.WithVesselSnapshot(
                 VesselSnapshotBuilder.FleaRocket("Flea Flight", "Bob Kerman", pid: 22222222)
                     .AsLanded(baseLat, baseLon + 0.0175, 77));
+            b.WithTerrainHeightAtEnd(65.0);
 
             return b;
         }
@@ -358,6 +359,7 @@ namespace Parsek.Tests
             b.WithVesselSnapshot(
                 VesselSnapshotBuilder.FleaRocket("Close Spawn Conflict", "Jebediah Kerman", pid: 44444444)
                     .AsLanded(lat + 0.00003, lon + 0.00003, 70));
+            b.WithTerrainHeightAtEnd(65.0);
 
             return b;
         }
@@ -396,6 +398,7 @@ namespace Parsek.Tests
             b.WithVesselSnapshot(
                 VesselSnapshotBuilder.FleaRocket("Island Probe", "Valentina Kerman", pid: 87654321)
                     .AsLanded(endLat, endLon, 40));
+            b.WithTerrainHeightAtEnd(35.0);
 
             return b;
         }
@@ -472,6 +475,7 @@ namespace Parsek.Tests
             seg2.WithVesselSnapshot(
                 VesselSnapshotBuilder.FleaRocket("Flea Chain", "Jebediah Kerman", pid: 66666666)
                     .AsLanded(baseLat, resumeLon + 0.0015, 100));
+            seg2.WithTerrainHeightAtEnd(65.0);
 
             return new[] { seg0, seg1, seg2 };
         }
@@ -532,6 +536,7 @@ namespace Parsek.Tests
             seg0.WithGhostVisualSnapshot(
                 VesselSnapshotBuilder.FleaRocket("Landing Craft", "Bill Kerman", pid: 88888888)
                     .AsLanded(landLat, landLon, 69));
+            seg0.WithTerrainHeightAtEnd(65.0);
 
             // Segment 1: EVA walk — Bill walks ~25m from landing point (25s)
             var seg1 = new RecordingBuilder("Bill Kerman")
@@ -638,6 +643,7 @@ namespace Parsek.Tests
             seg2.WithGhostVisualSnapshot(
                 VesselSnapshotBuilder.FleaRocket("Kerbin Ascent", "Valentina Kerman", pid: 77000000)
                     .AsLanded(baseLat, baseLon, 77));
+            seg2.WithTerrainHeightAtEnd(55.0);
 
             return new[] { seg0, seg1, seg2 };
         }
@@ -5221,6 +5227,15 @@ namespace Parsek.Tests
             writer.AddTree(EvaTree(baseUT));
             writer.AddTree(DestructionTree(baseUT));
 
+            // Ghost chain test recordings (Phase 6)
+            writer.AddTree(StationR0Tree(baseUT));
+            writer.AddTree(StationDockingChainTree(baseUT));
+            writer.AddTree(CrossTreeDockingChainTree(baseUT));
+            writer.AddTree(PadRigR0Tree(baseUT));
+            writer.AddTree(SpawnCollisionChainTree(baseUT));
+            writer.AddTree(SurfaceBaseR0Tree(baseUT));
+            writer.AddTree(SurfaceGhostChainTree(baseUT));
+
             // Add real recordings from the default career (if available)
             string kspRoot = ResolveKspRoot();
             var realRecordingNodes = AddRealCareerRecordings(writer, kspRoot);
@@ -6082,6 +6097,447 @@ namespace Parsek.Tests
                 Type = BranchPointType.Undock,
                 ParentRecordingIds = new List<string> { rootId },
                 ChildRecordingIds = new List<string> { childOrbitId, childDestroyedId }
+            });
+
+            var node = new ConfigNode("RECORDING_TREE");
+            tree.Save(node);
+            return node;
+        }
+
+        #endregion
+
+        #region Ghost Chain Tree Builders (Phase 6)
+
+        /// <summary>
+        /// Scenario A (R0): Station Alpha — pre-existing orbiting station (PID=8001).
+        /// Provides the target vessel for docking chain tests.
+        /// Time: baseUT+600 to baseUT+620.
+        /// </summary>
+        internal static ConfigNode StationR0Tree(double baseUT = 0)
+        {
+            double t0 = baseUT + 600;
+            double tEnd = baseUT + 620;
+            string treeId = "tree-station-r0";
+            string rootId = "gc-station-r0";
+
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = "Station Alpha",
+                RootRecordingId = rootId
+            };
+
+            tree.Recordings[rootId] = new Recording
+            {
+                RecordingId = rootId,
+                TreeId = treeId,
+                VesselName = "Station Alpha",
+                VesselPersistentId = 8001,
+                ExplicitStartUT = t0,
+                ExplicitEndUT = tEnd,
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalOrbitEccentricity = 0.001,
+                TerminalOrbitInclination = 0,
+                TerminalOrbitLAN = 0,
+                TerminalOrbitArgumentOfPeriapsis = 0,
+                TerminalOrbitMeanAnomalyAtEpoch = 0,
+                TerminalOrbitEpoch = tEnd,
+                RecordingGroups = new List<string> { "Ghost Chain Tests" },
+                VesselSnapshot = VesselSnapshotBuilder.ProbeShip("Station Alpha", pid: 8001)
+                    .AsOrbiting(700000, 0.001, 0, epoch: tEnd)
+                    .Build()
+            };
+
+            var node = new ConfigNode("RECORDING_TREE");
+            tree.Save(node);
+            return node;
+        }
+
+        /// <summary>
+        /// Scenario A (R1): Docking Vessel A (PID=8002) launches and docks to Station Alpha (PID=8001).
+        /// The Dock branch point with TargetVesselPersistentId=8001 triggers the ghost chain walker.
+        /// Time: baseUT+660 to baseUT+780.
+        /// </summary>
+        internal static ConfigNode StationDockingChainTree(double baseUT = 0)
+        {
+            double t0 = baseUT + 660;
+            double tDock = baseUT + 720;
+            double tEnd = baseUT + 780;
+            string treeId = "tree-dock-r1";
+            string rootId = "dock-r1-root";
+            string mergedId = "dock-r1-merged";
+
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = "Station Docking Chain",
+                RootRecordingId = rootId
+            };
+
+            // Root: docking vessel approaches station
+            tree.Recordings[rootId] = new Recording
+            {
+                RecordingId = rootId,
+                TreeId = treeId,
+                VesselName = "Docking Vessel A",
+                VesselPersistentId = 8002,
+                ChildBranchPointId = "dock-r1-bp1",
+                ExplicitStartUT = t0,
+                ExplicitEndUT = tDock,
+                RecordingGroups = new List<string> { "Ghost Chain Tests" }
+            };
+
+            // Merged: combined vessel continues orbiting as Station Alpha (PID=8001)
+            tree.Recordings[mergedId] = new Recording
+            {
+                RecordingId = mergedId,
+                TreeId = treeId,
+                VesselName = "Station Alpha",
+                VesselPersistentId = 8001,
+                ParentBranchPointId = "dock-r1-bp1",
+                ExplicitStartUT = tDock,
+                ExplicitEndUT = tEnd,
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalOrbitEccentricity = 0.001,
+                TerminalOrbitInclination = 0,
+                TerminalOrbitLAN = 0,
+                TerminalOrbitArgumentOfPeriapsis = 0,
+                TerminalOrbitMeanAnomalyAtEpoch = 0,
+                TerminalOrbitEpoch = tEnd,
+                RecordingGroups = new List<string> { "Ghost Chain Tests" },
+                VesselSnapshot = VesselSnapshotBuilder.ProbeShip("Station Alpha", pid: 8001)
+                    .AsOrbiting(700000, 0.001, 0, epoch: tEnd)
+                    .Build()
+            };
+
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "dock-r1-bp1",
+                UT = tDock,
+                Type = BranchPointType.Dock,
+                TargetVesselPersistentId = 8001,
+                MergeCause = "DOCK",
+                ParentRecordingIds = new List<string> { rootId },
+                ChildRecordingIds = new List<string> { mergedId }
+            });
+
+            var node = new ConfigNode("RECORDING_TREE");
+            tree.Save(node);
+            return node;
+        }
+
+        /// <summary>
+        /// Scenario B: Docking Vessel B (PID=8003) docks to the R1 merged product (PID=8001).
+        /// Cross-tree chain: both R1's merged and R2's target share PID=8001.
+        /// Time: baseUT+800 to baseUT+960.
+        /// </summary>
+        internal static ConfigNode CrossTreeDockingChainTree(double baseUT = 0)
+        {
+            double t0 = baseUT + 800;
+            double tDock = baseUT + 880;
+            double tEnd = baseUT + 960;
+            string treeId = "tree-dock-r2";
+            string rootId = "dock-r2-root";
+            string mergedId = "dock-r2-merged";
+
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = "Cross-Tree Docking Chain",
+                RootRecordingId = rootId
+            };
+
+            tree.Recordings[rootId] = new Recording
+            {
+                RecordingId = rootId,
+                TreeId = treeId,
+                VesselName = "Docking Vessel B",
+                VesselPersistentId = 8003,
+                ChildBranchPointId = "dock-r2-bp1",
+                ExplicitStartUT = t0,
+                ExplicitEndUT = tDock,
+                RecordingGroups = new List<string> { "Ghost Chain Tests" }
+            };
+
+            tree.Recordings[mergedId] = new Recording
+            {
+                RecordingId = mergedId,
+                TreeId = treeId,
+                VesselName = "Station Alpha",
+                VesselPersistentId = 8001,
+                ParentBranchPointId = "dock-r2-bp1",
+                ExplicitStartUT = tDock,
+                ExplicitEndUT = tEnd,
+                TerminalStateValue = TerminalState.Orbiting,
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalOrbitEccentricity = 0.001,
+                TerminalOrbitInclination = 0,
+                TerminalOrbitLAN = 0,
+                TerminalOrbitArgumentOfPeriapsis = 0,
+                TerminalOrbitMeanAnomalyAtEpoch = 0,
+                TerminalOrbitEpoch = tEnd,
+                RecordingGroups = new List<string> { "Ghost Chain Tests" },
+                VesselSnapshot = VesselSnapshotBuilder.ProbeShip("Station Alpha", pid: 8001)
+                    .AsOrbiting(700000, 0.001, 0, epoch: tEnd)
+                    .Build()
+            };
+
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "dock-r2-bp1",
+                UT = tDock,
+                Type = BranchPointType.Dock,
+                TargetVesselPersistentId = 8001,
+                MergeCause = "DOCK",
+                ParentRecordingIds = new List<string> { rootId },
+                ChildRecordingIds = new List<string> { mergedId }
+            });
+
+            var node = new ConfigNode("RECORDING_TREE");
+            tree.Save(node);
+            return node;
+        }
+
+        /// <summary>
+        /// Scenario C (R0): Pad Service Rig — pre-existing vessel landed at KSC pad area (PID=8005).
+        /// Time: baseUT+980 to baseUT+1000.
+        /// </summary>
+        internal static ConfigNode PadRigR0Tree(double baseUT = 0)
+        {
+            double t0 = baseUT + 980;
+            double tEnd = baseUT + 1000;
+            string treeId = "tree-pad-rig-r0";
+            string rootId = "gc-pad-rig-r0";
+
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = "Pad Service Rig",
+                RootRecordingId = rootId
+            };
+
+            tree.Recordings[rootId] = new Recording
+            {
+                RecordingId = rootId,
+                TreeId = treeId,
+                VesselName = "Pad Service Rig",
+                VesselPersistentId = 8005,
+                ExplicitStartUT = t0,
+                ExplicitEndUT = tEnd,
+                TerminalStateValue = TerminalState.Landed,
+                TerminalPosition = new SurfacePosition
+                {
+                    body = "Kerbin",
+                    latitude = -0.0972,
+                    longitude = -74.5576,
+                    altitude = 70.0,
+                    situation = SurfaceSituation.Landed
+                },
+                TerrainHeightAtEnd = 65.0,
+                RecordingGroups = new List<string> { "Ghost Chain Tests" },
+                VesselSnapshot = VesselSnapshotBuilder.ProbeShip("Pad Service Rig", pid: 8005)
+                    .AsLanded(-0.0972, -74.5576, 70.0)
+                    .Build()
+            };
+
+            var node = new ConfigNode("RECORDING_TREE");
+            tree.Save(node);
+            return node;
+        }
+
+        /// <summary>
+        /// Scenario C (R1): Collision Probe (PID=8004) docks to Pad Service Rig (PID=8005).
+        /// Tests ghost chain spawn near the KSC pad with potential collision.
+        /// Time: baseUT+1000 to baseUT+1080.
+        /// </summary>
+        internal static ConfigNode SpawnCollisionChainTree(double baseUT = 0)
+        {
+            double t0 = baseUT + 1000;
+            double tDock = baseUT + 1020;
+            double tEnd = baseUT + 1080;
+            string treeId = "tree-collision-r1";
+            string rootId = "collision-r1-root";
+            string mergedId = "collision-r1-merged";
+
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = "Collision Dock Chain",
+                RootRecordingId = rootId
+            };
+
+            tree.Recordings[rootId] = new Recording
+            {
+                RecordingId = rootId,
+                TreeId = treeId,
+                VesselName = "Collision Probe",
+                VesselPersistentId = 8004,
+                ChildBranchPointId = "collision-r1-bp1",
+                ExplicitStartUT = t0,
+                ExplicitEndUT = tDock,
+                RecordingGroups = new List<string> { "Ghost Chain Tests" }
+            };
+
+            tree.Recordings[mergedId] = new Recording
+            {
+                RecordingId = mergedId,
+                TreeId = treeId,
+                VesselName = "Pad Service Rig",
+                VesselPersistentId = 8005,
+                ParentBranchPointId = "collision-r1-bp1",
+                ExplicitStartUT = tDock,
+                ExplicitEndUT = tEnd,
+                TerminalStateValue = TerminalState.Landed,
+                TerminalPosition = new SurfacePosition
+                {
+                    body = "Kerbin",
+                    latitude = -0.0972,
+                    longitude = -74.5576,
+                    altitude = 70.0,
+                    situation = SurfaceSituation.Landed
+                },
+                TerrainHeightAtEnd = 65.0,
+                RecordingGroups = new List<string> { "Ghost Chain Tests" },
+                VesselSnapshot = VesselSnapshotBuilder.ProbeShip("Pad Service Rig", pid: 8005)
+                    .AsLanded(-0.0972, -74.5576, 70.0)
+                    .Build()
+            };
+
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "collision-r1-bp1",
+                UT = tDock,
+                Type = BranchPointType.Dock,
+                TargetVesselPersistentId = 8005,
+                MergeCause = "DOCK",
+                ParentRecordingIds = new List<string> { rootId },
+                ChildRecordingIds = new List<string> { mergedId }
+            });
+
+            var node = new ConfigNode("RECORDING_TREE");
+            tree.Save(node);
+            return node;
+        }
+
+        /// <summary>
+        /// Scenario D (R0): KSC Surface Base — pre-existing vessel landed at flat area near VAB (PID=8006).
+        /// Time: baseUT+1100 to baseUT+1120.
+        /// </summary>
+        internal static ConfigNode SurfaceBaseR0Tree(double baseUT = 0)
+        {
+            double t0 = baseUT + 1100;
+            double tEnd = baseUT + 1120;
+            string treeId = "tree-surface-base-r0";
+            string rootId = "gc-surface-base-r0";
+
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = "KSC Surface Base",
+                RootRecordingId = rootId
+            };
+
+            tree.Recordings[rootId] = new Recording
+            {
+                RecordingId = rootId,
+                TreeId = treeId,
+                VesselName = "KSC Surface Base",
+                VesselPersistentId = 8006,
+                ExplicitStartUT = t0,
+                ExplicitEndUT = tEnd,
+                TerminalStateValue = TerminalState.Landed,
+                TerminalPosition = new SurfacePosition
+                {
+                    body = "Kerbin",
+                    latitude = -0.0465,
+                    longitude = -74.6100,
+                    altitude = 69.0,
+                    situation = SurfaceSituation.Landed
+                },
+                TerrainHeightAtEnd = 65.0,
+                RecordingGroups = new List<string> { "Ghost Chain Tests" },
+                VesselSnapshot = VesselSnapshotBuilder.ProbeShip("KSC Surface Base", pid: 8006)
+                    .AsLanded(-0.0465, -74.6100, 69.0)
+                    .Build()
+            };
+
+            var node = new ConfigNode("RECORDING_TREE");
+            tree.Save(node);
+            return node;
+        }
+
+        /// <summary>
+        /// Scenario D (R1): Service Rover (PID=8007) docks to KSC Surface Base (PID=8006).
+        /// Tests surface ghost chain with terrain height correction.
+        /// Time: baseUT+1140 to baseUT+1240.
+        /// </summary>
+        internal static ConfigNode SurfaceGhostChainTree(double baseUT = 0)
+        {
+            double t0 = baseUT + 1140;
+            double tDock = baseUT + 1180;
+            double tEnd = baseUT + 1240;
+            string treeId = "tree-surface-dock-r1";
+            string rootId = "surface-dock-r1-root";
+            string mergedId = "surface-dock-r1-merged";
+
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = "Surface Ghost Chain",
+                RootRecordingId = rootId
+            };
+
+            tree.Recordings[rootId] = new Recording
+            {
+                RecordingId = rootId,
+                TreeId = treeId,
+                VesselName = "Service Rover",
+                VesselPersistentId = 8007,
+                ChildBranchPointId = "surface-dock-r1-bp1",
+                ExplicitStartUT = t0,
+                ExplicitEndUT = tDock,
+                RecordingGroups = new List<string> { "Ghost Chain Tests" }
+            };
+
+            tree.Recordings[mergedId] = new Recording
+            {
+                RecordingId = mergedId,
+                TreeId = treeId,
+                VesselName = "KSC Surface Base",
+                VesselPersistentId = 8006,
+                ParentBranchPointId = "surface-dock-r1-bp1",
+                ExplicitStartUT = tDock,
+                ExplicitEndUT = tEnd,
+                TerminalStateValue = TerminalState.Landed,
+                TerminalPosition = new SurfacePosition
+                {
+                    body = "Kerbin",
+                    latitude = -0.0465,
+                    longitude = -74.6100,
+                    altitude = 69.0,
+                    situation = SurfaceSituation.Landed
+                },
+                TerrainHeightAtEnd = 65.0,
+                RecordingGroups = new List<string> { "Ghost Chain Tests" },
+                VesselSnapshot = VesselSnapshotBuilder.ProbeShip("KSC Surface Base", pid: 8006)
+                    .AsLanded(-0.0465, -74.6100, 69.0)
+                    .Build()
+            };
+
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "surface-dock-r1-bp1",
+                UT = tDock,
+                Type = BranchPointType.Dock,
+                TargetVesselPersistentId = 8006,
+                MergeCause = "DOCK",
+                ParentRecordingIds = new List<string> { rootId },
+                ChildRecordingIds = new List<string> { mergedId }
             });
 
             var node = new ConfigNode("RECORDING_TREE");
