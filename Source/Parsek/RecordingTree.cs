@@ -193,6 +193,10 @@ namespace Parsek
                 SurfacePosition.SaveInto(tpNode, rec.TerminalPosition.Value);
             }
 
+            // Terrain height at recording end (v7+)
+            if (!double.IsNaN(rec.TerrainHeightAtEnd))
+                recNode.AddValue("terrainHeightAtEnd", rec.TerrainHeightAtEnd.ToString("R", ic));
+
             // Background surface position
             if (rec.SurfacePos.HasValue)
             {
@@ -365,6 +369,15 @@ namespace Parsek
             ConfigNode tpNode = recNode.GetNode("TERMINAL_POSITION");
             if (tpNode != null)
                 rec.TerminalPosition = SurfacePosition.LoadFrom(tpNode);
+
+            // Terrain height at recording end (v7+)
+            string thtStr = recNode.GetValue("terrainHeightAtEnd");
+            if (thtStr != null)
+            {
+                double tht;
+                if (double.TryParse(thtStr, inv, ic, out tht))
+                    rec.TerrainHeightAtEnd = tht;
+            }
 
             // Background surface position
             ConfigNode spNode = recNode.GetNode("SURFACE_POSITION");

@@ -4650,6 +4650,15 @@ namespace Parsek
                         ? SurfaceSituation.Splashed
                         : SurfaceSituation.Landed
                 };
+
+                // Capture terrain height for terrain correction on spawn (v7+)
+                if (vessel.mainBody != null)
+                {
+                    rec.TerrainHeightAtEnd = vessel.mainBody.TerrainAltitude(vessel.latitude, vessel.longitude);
+                    ParsekLog.Verbose("TerrainCorrect",
+                        $"Captured terrain height at recording end: {rec.TerrainHeightAtEnd:F1}m " +
+                        $"(vessel alt={vessel.altitude:F1}m, clearance={vessel.altitude - rec.TerrainHeightAtEnd:F1}m)");
+                }
             }
         }
 

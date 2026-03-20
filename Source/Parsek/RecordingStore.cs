@@ -14,7 +14,8 @@ namespace Parsek
     /// </summary>
     public static class RecordingStore
     {
-        public const int CurrentRecordingFormatVersion = 6;
+        public const int CurrentRecordingFormatVersion = 7;
+        // v7: Added TerrainHeightAtEnd for surface spawn terrain correction
         // v6: Added SegmentEvents, TrackSections, ControllerInfo, extended BranchPoint types
 
         // When true, suppresses logging calls (for unit testing outside Unity)

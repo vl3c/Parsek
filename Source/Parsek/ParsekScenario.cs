@@ -1248,6 +1248,15 @@ namespace Parsek
                         rec.VesselPersistentId = vpid;
                 }
 
+                // Restore terrain height at recording end (v7+)
+                string thtStr = recNode.GetValue("terrainHeightAtEnd");
+                if (thtStr != null)
+                {
+                    double tht;
+                    if (double.TryParse(thtStr, NumberStyles.Float, CultureInfo.InvariantCulture, out tht))
+                        rec.TerrainHeightAtEnd = tht;
+                }
+
                 // Restore resource application index
                 string resIdxStr = recNode.GetValue("lastResIdx");
                 if (resIdxStr != null)
@@ -1372,6 +1381,10 @@ namespace Parsek
                     recNode.AddValue("terminalState", ((int)rec.TerminalStateValue.Value).ToString(CultureInfo.InvariantCulture));
                 if (rec.VesselPersistentId != 0)
                     recNode.AddValue("vesselPersistentId", rec.VesselPersistentId.ToString(CultureInfo.InvariantCulture));
+
+                // Persist terrain height at recording end (v7+)
+                if (!double.IsNaN(rec.TerrainHeightAtEnd))
+                    recNode.AddValue("terrainHeightAtEnd", rec.TerrainHeightAtEnd.ToString("R", CultureInfo.InvariantCulture));
 
                 // Persist resource index so quickload doesn't re-apply deltas
                 recNode.AddValue("lastResIdx", rec.LastAppliedResourceIndex);

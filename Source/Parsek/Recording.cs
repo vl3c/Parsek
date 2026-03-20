@@ -81,6 +81,10 @@ namespace Parsek
         // Terminal surface position (for Landed/Splashed terminal state)
         public SurfacePosition? TerminalPosition;      // null if not landed/splashed
 
+        // Terrain height at recording end (for terrain correction on spawn)
+        // NaN = not set (pre-v7 recording or non-surface terminal state)
+        public double TerrainHeightAtEnd = double.NaN;
+
         // Background recording: surface position for landed/splashed vessels
         public SurfacePosition? SurfacePos;            // null if not a background landed vessel
 
@@ -188,6 +192,7 @@ namespace Parsek
             TerminalOrbitEpoch = source.TerminalOrbitEpoch;
             TerminalOrbitBody = source.TerminalOrbitBody;
             TerminalPosition = source.TerminalPosition;
+            TerrainHeightAtEnd = source.TerrainHeightAtEnd;
             SurfacePos = source.SurfacePos;
             ParentBranchPointId = source.ParentBranchPointId;
             ChildBranchPointId = source.ChildBranchPointId;

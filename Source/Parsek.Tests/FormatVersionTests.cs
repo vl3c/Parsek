@@ -25,9 +25,9 @@ namespace Parsek.Tests
         #region Version constants
 
         [Fact]
-        public void CurrentRecordingFormatVersion_Is6()
+        public void CurrentRecordingFormatVersion_Is7()
         {
-            Assert.Equal(6, RecordingStore.CurrentRecordingFormatVersion);
+            Assert.Equal(7, RecordingStore.CurrentRecordingFormatVersion);
         }
 
         [Fact]
@@ -207,7 +207,7 @@ namespace Parsek.Tests
         #region RecordingBuilder version default
 
         [Fact]
-        public void RecordingBuilder_DefaultVersion_Is6()
+        public void RecordingBuilder_DefaultVersion_Is7()
         {
             var builder = new Parsek.Tests.Generators.RecordingBuilder("TestVessel");
             builder.AddPoint(17000, 0, 0, 100);
@@ -215,7 +215,7 @@ namespace Parsek.Tests
 
             var trajectoryNode = builder.BuildTrajectoryNode();
             string version = trajectoryNode.GetValue("version");
-            Assert.Equal("6", version);
+            Assert.Equal("7", version);
         }
 
         [Fact]
