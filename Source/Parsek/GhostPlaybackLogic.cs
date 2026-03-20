@@ -1554,7 +1554,8 @@ namespace Parsek
             }
 
             if (applied)
-                ParsekLog.Verbose("Flight", $"Part pid={evt.partPersistentId}: applied heat level {level}");
+                ParsekLog.VerboseRateLimited("Flight", $"heat-{evt.partPersistentId}",
+                    $"Part pid={evt.partPersistentId}: applied heat level {level}", 5.0);
 
             return applied;
         }

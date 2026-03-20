@@ -16,6 +16,7 @@ namespace Parsek.Tests
         {
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
         }
 

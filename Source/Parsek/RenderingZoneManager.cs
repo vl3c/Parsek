@@ -80,20 +80,21 @@ namespace Parsek
         internal static void LogLoopedGhostSpawnDecision(string ghostId, double distanceMeters, bool shouldSpawn, bool simplified)
         {
             string distStr = distanceMeters.ToString("F0", CultureInfo.InvariantCulture);
+            string rateLimitKey = "loop-suppress-" + ghostId;
             if (!shouldSpawn)
             {
-                ParsekLog.Info("Zone",
-                    $"Looped ghost suppressed: ghost={ghostId} dist={distStr}m (beyond {LoopSimplifiedRadius.ToString("F0", CultureInfo.InvariantCulture)}m threshold)");
+                ParsekLog.VerboseRateLimited("Zone", rateLimitKey,
+                    $"Looped ghost suppressed: ghost={ghostId} dist={distStr}m (beyond {LoopSimplifiedRadius.ToString("F0", CultureInfo.InvariantCulture)}m threshold)", 30.0);
             }
             else if (simplified)
             {
-                ParsekLog.Info("Zone",
-                    $"Looped ghost spawned simplified: ghost={ghostId} dist={distStr}m (no part events)");
+                ParsekLog.VerboseRateLimited("Zone", rateLimitKey,
+                    $"Looped ghost spawned simplified: ghost={ghostId} dist={distStr}m (no part events)", 30.0);
             }
             else
             {
-                ParsekLog.Info("Zone",
-                    $"Looped ghost spawned full fidelity: ghost={ghostId} dist={distStr}m");
+                ParsekLog.VerboseRateLimited("Zone", rateLimitKey,
+                    $"Looped ghost spawned full fidelity: ghost={ghostId} dist={distStr}m", 30.0);
             }
         }
     }

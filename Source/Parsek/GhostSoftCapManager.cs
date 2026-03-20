@@ -36,21 +36,14 @@ namespace Parsek
         {
             if (rec.LoopPlayback)
             {
-                var priority = loopCycleIndex > 5
+                return loopCycleIndex > 5
                     ? GhostPriority.LoopedOldest
                     : GhostPriority.LoopedRecent;
-                ParsekLog.Verbose("SoftCap",
-                    $"ClassifyPriority: looped recording '{rec.VesselName}' cycleIndex={loopCycleIndex} → {priority}");
-                return priority;
             }
             if (rec.IsDebris)
             {
-                ParsekLog.Verbose("SoftCap",
-                    $"ClassifyPriority: debris recording '{rec.VesselName}' → BackgroundDebris");
                 return GhostPriority.BackgroundDebris;
             }
-            ParsekLog.Verbose("SoftCap",
-                $"ClassifyPriority: recording '{rec.VesselName}' → FullTimeline");
             return GhostPriority.FullTimeline;
         }
 

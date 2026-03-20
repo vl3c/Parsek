@@ -100,30 +100,6 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region ClassifyPriority — Logging
-
-        [Fact]
-        public void ClassifyPriority_LogsClassification()
-        {
-            var rec = new Recording { VesselName = "TestVessel" };
-            GhostSoftCapManager.ClassifyPriority(rec, 0);
-            Assert.Contains(logLines, l =>
-                l.Contains("[SoftCap]") && l.Contains("ClassifyPriority") &&
-                l.Contains("TestVessel") && l.Contains("FullTimeline"));
-        }
-
-        [Fact]
-        public void ClassifyPriority_Looped_LogsCycleIndex()
-        {
-            var rec = new Recording { LoopPlayback = true, VesselName = "Looper" };
-            GhostSoftCapManager.ClassifyPriority(rec, 7);
-            Assert.Contains(logLines, l =>
-                l.Contains("[SoftCap]") && l.Contains("cycleIndex=7") &&
-                l.Contains("LoopedOldest"));
-        }
-
-        #endregion
-
         #region EvaluateCaps — Below Thresholds
 
         [Fact]
