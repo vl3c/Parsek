@@ -19,6 +19,7 @@ namespace Parsek
     internal static class GhostExtender
     {
         private const string Tag = "GhostExtend";
+        private static readonly CultureInfo ic = CultureInfo.InvariantCulture;
 
         /// <summary>
         /// Pure decision: which propagation strategy to use based on recording terminal state.
@@ -36,9 +37,9 @@ namespace Parsek
                 rec.TerminalOrbitSemiMajorAxis > 0)
             {
                 ParsekLog.Verbose(Tag,
-                    $"ChooseStrategy: Orbital (body={rec.TerminalOrbitBody} " +
-                    $"sma={rec.TerminalOrbitSemiMajorAxis:F0} " +
-                    $"ecc={rec.TerminalOrbitEccentricity:F4})");
+                    string.Format(ic,
+                        "ChooseStrategy: Orbital (body={0} sma={1:F0} ecc={2:F4})",
+                        rec.TerminalOrbitBody, rec.TerminalOrbitSemiMajorAxis, rec.TerminalOrbitEccentricity));
                 return GhostExtensionStrategy.Orbital;
             }
 
@@ -47,8 +48,9 @@ namespace Parsek
             {
                 var tp = rec.TerminalPosition.Value;
                 ParsekLog.Verbose(Tag,
-                    $"ChooseStrategy: Surface (body={tp.body} " +
-                    $"lat={tp.latitude:F4} lon={tp.longitude:F4} alt={tp.altitude:F1})");
+                    string.Format(ic,
+                        "ChooseStrategy: Surface (body={0} lat={1:F4} lon={2:F4} alt={3:F1})",
+                        tp.body, tp.latitude, tp.longitude, tp.altitude));
                 return GhostExtensionStrategy.Surface;
             }
 
@@ -57,15 +59,17 @@ namespace Parsek
             {
                 var last = rec.Points[rec.Points.Count - 1];
                 ParsekLog.Verbose(Tag,
-                    $"ChooseStrategy: LastRecordedPosition (last point UT={last.ut:F1} " +
-                    $"lat={last.latitude:F4} lon={last.longitude:F4} alt={last.altitude:F1})");
+                    string.Format(ic,
+                        "ChooseStrategy: LastRecordedPosition (last point UT={0:F1} lat={1:F4} lon={2:F4} alt={3:F1})",
+                        last.ut, last.latitude, last.longitude, last.altitude));
                 return GhostExtensionStrategy.LastRecordedPosition;
             }
 
             // 4. None
             ParsekLog.Verbose(Tag,
-                $"ChooseStrategy: None (no terminal orbit, no surface position, " +
-                $"no trajectory points for rec={rec.RecordingId})");
+                string.Format(ic,
+                    "ChooseStrategy: None (no terminal orbit, no surface position, no trajectory points for rec={0})",
+                    rec.RecordingId));
             return GhostExtensionStrategy.None;
         }
 
@@ -162,9 +166,9 @@ namespace Parsek
             double lon = Math.Atan2(y, x) * (180.0 / Math.PI);
 
             ParsekLog.VerboseRateLimited(Tag, "propagate-orbital",
-                $"PropagateOrbital: UT={currentUT:F1} dt={dt:F1} " +
-                $"M={M:F4} E={E:F4} nu={nu:F4} r={r:F0} " +
-                $"lat={lat:F4} lon={lon:F4} alt={alt:F0}");
+                string.Format(ic,
+                    "PropagateOrbital: UT={0:F1} dt={1:F1} M={2:F4} E={3:F4} nu={4:F4} r={5:F0} lat={6:F4} lon={7:F4} alt={8:F0}",
+                    currentUT, dt, M, E, nu, r, lat, lon, alt));
 
             return (lat, lon, alt);
         }
@@ -186,8 +190,9 @@ namespace Parsek
             {
                 var tp = rec.TerminalPosition.Value;
                 ParsekLog.Verbose(Tag,
-                    $"PropagateSurface: returning terminal position " +
-                    $"lat={tp.latitude:F4} lon={tp.longitude:F4} alt={tp.altitude:F1}");
+                    string.Format(ic,
+                        "PropagateSurface: returning terminal position lat={0:F4} lon={1:F4} alt={2:F1}",
+                        tp.latitude, tp.longitude, tp.altitude));
                 return (tp.latitude, tp.longitude, tp.altitude);
             }
 
@@ -212,8 +217,9 @@ namespace Parsek
 
             var last = rec.Points[rec.Points.Count - 1];
             ParsekLog.Verbose(Tag,
-                $"LastRecordedPosition: UT={last.ut:F1} " +
-                $"lat={last.latitude:F4} lon={last.longitude:F4} alt={last.altitude:F1}");
+                string.Format(ic,
+                    "LastRecordedPosition: UT={0:F1} lat={1:F4} lon={2:F4} alt={3:F1}",
+                    last.ut, last.latitude, last.longitude, last.altitude));
             return (last.latitude, last.longitude, last.altitude);
         }
 

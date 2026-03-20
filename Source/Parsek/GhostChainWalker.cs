@@ -481,9 +481,27 @@ namespace Parsek
                 if (bp == null || bp.ChildRecordingIds.Count == 0)
                     break;
 
-                // Follow first child recording
+                // Prefer the child whose VesselPersistentId matches the current recording's PID.
+                // This ensures we follow the same vessel through splits rather than arbitrarily
+                // picking the first child, which may be a detached stage or debris piece.
+                // Fall back to child[0] if no PID match is found (e.g. EVA, or PID not set).
+                string bestChildId = bp.ChildRecordingIds[0];
+                if (current.VesselPersistentId != 0)
+                {
+                    for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
+                    {
+                        Recording candidate;
+                        if (tree.Recordings.TryGetValue(bp.ChildRecordingIds[c], out candidate)
+                            && candidate.VesselPersistentId == current.VesselPersistentId)
+                        {
+                            bestChildId = bp.ChildRecordingIds[c];
+                            break;
+                        }
+                    }
+                }
+
                 Recording child;
-                if (tree.Recordings.TryGetValue(bp.ChildRecordingIds[0], out child))
+                if (tree.Recordings.TryGetValue(bestChildId, out child))
                     current = child;
                 else
                     break;

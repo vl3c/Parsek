@@ -7,7 +7,7 @@ namespace Parsek
     /// Stores antenna specification data extracted from a ModuleDataTransmitter module.
     /// Used for ghost CommNet relay registration without requiring a full KSP Vessel.
     /// </summary>
-    public struct AntennaSpec
+    internal struct AntennaSpec
     {
         public string partName;
         public double antennaPower;
@@ -35,7 +35,7 @@ namespace Parsek
     /// </summary>
     internal static class AntennaSpecExtractor
     {
-        private const string Tag = "GhostCommNet";
+        private const string Tag = "AntennaSpec";
         private static readonly CultureInfo ic = CultureInfo.InvariantCulture;
 
         /// <summary>

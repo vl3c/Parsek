@@ -94,9 +94,9 @@ namespace Parsek.Tests
             Assert.Equal(0.75, specs[0].antennaCombinableExponent);
 
             Assert.Contains(logLines, l =>
-                l.Contains("[GhostCommNet]") && l.Contains("longAntenna") && l.Contains("500000"));
+                l.Contains("[AntennaSpec]") && l.Contains("longAntenna") && l.Contains("500000"));
             Assert.Contains(logLines, l =>
-                l.Contains("[GhostCommNet]") && l.Contains("extracted 1 antenna spec"));
+                l.Contains("[AntennaSpec]") && l.Contains("extracted 1 antenna spec"));
         }
 
         /// <summary>
@@ -116,7 +116,7 @@ namespace Parsek.Tests
 
             Assert.Empty(specs);
             Assert.Contains(logLines, l =>
-                l.Contains("[GhostCommNet]") && l.Contains("extracted 0 antenna spec"));
+                l.Contains("[AntennaSpec]") && l.Contains("extracted 0 antenna spec"));
         }
 
         /// <summary>
@@ -161,7 +161,7 @@ namespace Parsek.Tests
             Assert.Equal(100000000000.0, specs[1].antennaPower);
 
             Assert.Contains(logLines, l =>
-                l.Contains("[GhostCommNet]") && l.Contains("extracted 2 antenna spec"));
+                l.Contains("[AntennaSpec]") && l.Contains("extracted 2 antenna spec"));
         }
 
         /// <summary>
@@ -175,7 +175,7 @@ namespace Parsek.Tests
 
             Assert.Empty(specs);
             Assert.Contains(logLines, l =>
-                l.Contains("[GhostCommNet]") && l.Contains("null snapshot"));
+                l.Contains("[AntennaSpec]") && l.Contains("null snapshot"));
         }
 
         /// <summary>
@@ -232,7 +232,7 @@ namespace Parsek.Tests
 
             Assert.Empty(specs);
             Assert.Contains(logLines, l =>
-                l.Contains("[GhostCommNet]") && l.Contains("no PART nodes"));
+                l.Contains("[AntennaSpec]") && l.Contains("no PART nodes"));
         }
 
         /// <summary>
@@ -287,7 +287,7 @@ namespace Parsek.Tests
             Assert.Equal("RELAY", specs[0].antennaType);
 
             Assert.Contains(logLines, l =>
-                l.Contains("[GhostCommNet]") && l.Contains("type=RELAY"));
+                l.Contains("[AntennaSpec]") && l.Contains("type=RELAY"));
         }
 
         /// <summary>

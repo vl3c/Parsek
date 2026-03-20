@@ -24,6 +24,7 @@ namespace Parsek
         /// where n = sqrt(GM / a^3)
         /// Result is normalized to [0, 2*pi].
         /// </summary>
+        // Used for diagnostic logging of epoch shift magnitude
         internal static double ComputeEpochShiftedMeanAnomaly(
             double oldMeanAnomalyAtEpoch, double oldEpoch,
             double sma, double gravParam,
@@ -183,16 +184,10 @@ namespace Parsek
                     "Time jump initiated: T0={0:F1} target={1:F1} delta={2:F1}s objects={3}",
                     t0, targetUT, jumpDelta, objectCount));
 
-            // Step 1: Set game clock to target UT
-            Planetarium.SetUniversalTime(targetUT);
-
-            ParsekLog.Verbose(Tag,
-                string.Format(ic, "UT set to {0:F1}", targetUT));
-
-            // Step 2: Epoch-shift all loaded vessel orbits.
-            // Keep position/velocity unchanged; recompute orbital elements at the new epoch.
-            // KSP's Orbit.UpdateFromStateVectors recomputes elements from state vectors
-            // at the given UT, which is numerically more stable than delta-shifting mean anomaly.
+            // Step 1: Capture state vectors for all loaded vessels BEFORE changing UT.
+            // If UT is set first, KSP's orbit propagation runs at the new UT with old epochs,
+            // moving vessels before we can freeze them.
+            var capturedStates = new List<(Vessel v, Vector3d pos, Vector3d vel, CelestialBody body, double oldMeanAnomaly)>();
             if (FlightGlobals.VesselsLoaded != null)
             {
                 foreach (Vessel v in FlightGlobals.VesselsLoaded)
@@ -211,33 +206,51 @@ namespace Parsek
                         continue;
                     }
 
-                    try
+                    // Atmospheric warning
+                    if (v.mainBody != null && v.mainBody.atmosphere &&
+                        v.altitude < v.mainBody.atmosphereDepth)
                     {
-                        // Capture current state vectors before epoch shift
-                        Vector3d pos = v.orbit.pos;
-                        Vector3d vel = v.orbit.vel;
-                        CelestialBody body = v.orbit.referenceBody;
-                        double oldMeanAnomaly = v.orbit.meanAnomalyAtEpoch;
-
-                        // Recompute orbital elements at new UT from same state vectors
-                        v.orbit.UpdateFromStateVectors(pos, vel, body, targetUT);
-
-                        double shift = v.orbit.meanAnomalyAtEpoch - oldMeanAnomaly;
-
-                        ParsekLog.Verbose(Tag,
+                        ParsekLog.Warn(Tag,
                             string.Format(ic,
-                                "Epoch-shifted vessel: pid={0} name={1} body={2} dMeanAnomaly={3:F6}",
-                                v.persistentId, v.vesselName,
-                                body != null ? body.bodyName : "null",
-                                shift));
+                                "WARNING: vessel '{0}' is in atmosphere — epoch shift is approximate",
+                                v.vesselName));
                     }
-                    catch (Exception ex)
-                    {
-                        ParsekLog.Error(Tag,
-                            string.Format(ic,
-                                "Epoch shift failed: pid={0} name={1} error={2}",
-                                v.persistentId, v.vesselName, ex.Message));
-                    }
+
+                    capturedStates.Add((v, v.orbit.pos, v.orbit.vel, v.orbit.referenceBody, v.orbit.meanAnomalyAtEpoch));
+                }
+            }
+
+            // Step 2: Set game clock to target UT
+            Planetarium.SetUniversalTime(targetUT);
+
+            ParsekLog.Verbose(Tag,
+                string.Format(ic, "UT set to {0:F1}", targetUT));
+
+            // Step 3: Epoch-shift all captured vessel orbits.
+            // Recompute orbital elements at the new epoch from the pre-jump state vectors.
+            for (int i = 0; i < capturedStates.Count; i++)
+            {
+                var (v, pos, vel, body, oldMeanAnomaly) = capturedStates[i];
+                try
+                {
+                    // Recompute orbital elements at new UT from same state vectors
+                    v.orbit.UpdateFromStateVectors(pos, vel, body, targetUT);
+
+                    double shift = v.orbit.meanAnomalyAtEpoch - oldMeanAnomaly;
+
+                    ParsekLog.Verbose(Tag,
+                        string.Format(ic,
+                            "Epoch-shifted vessel: pid={0} name={1} body={2} dMeanAnomaly={3:F6}",
+                            v.persistentId, v.vesselName,
+                            body != null ? body.bodyName : "null",
+                            shift));
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Error(Tag,
+                        string.Format(ic,
+                            "Epoch shift failed: pid={0} name={1} error={2}",
+                            v.persistentId, v.vesselName, ex.Message));
                 }
             }
 

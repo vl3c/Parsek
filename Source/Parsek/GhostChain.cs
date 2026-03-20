@@ -32,6 +32,7 @@ namespace Parsek
         // Runtime state: spawn blocked by collision (not serialized)
         public bool SpawnBlocked;
         public double BlockedSinceUT;
+        public float BlockedInitialDistance;  // distance to blocker when first blocked
 
         public GhostChain()
         {

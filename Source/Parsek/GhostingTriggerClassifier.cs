@@ -120,6 +120,7 @@ namespace Parsek
                 case SegmentEventType.ControllerEnabled:
                 case SegmentEventType.CrewLost:
                 case SegmentEventType.CrewTransfer:
+                case SegmentEventType.TimeJump:  // recording discontinuity marker, not a physical state change
                     return false;
 
                 default:

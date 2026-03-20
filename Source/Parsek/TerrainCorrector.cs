@@ -29,6 +29,15 @@ namespace Parsek
             double clearance = recordedAltitude - recordedTerrainHeight;
             double corrected = currentTerrainHeight + clearance;
 
+            // Never spawn below terrain + 0.5m safety margin
+            double minAlt = currentTerrainHeight + 0.5;
+            if (corrected < minAlt)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"ComputeCorrectedAltitude: clamped from {corrected:F1} to {minAlt:F1} (terrain+0.5m floor)");
+                corrected = minAlt;
+            }
+
             ParsekLog.Verbose(Tag,
                 $"ComputeCorrectedAltitude: currentTerrain={currentTerrainHeight:F1} " +
                 $"recordedAlt={recordedAltitude:F1} recordedTerrain={recordedTerrainHeight:F1} " +

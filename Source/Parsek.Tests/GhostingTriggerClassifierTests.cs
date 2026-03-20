@@ -366,6 +366,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsGhostingSegmentEvent_TimeJump_ReturnsFalse()
+        {
+            Assert.False(GhostingTriggerClassifier.IsGhostingSegmentEvent(SegmentEventType.TimeJump));
+        }
+
+        [Fact]
         public void IsGhostingSegmentEvent_UnknownValue_ReturnsTrueAndLogs()
         {
             var unknown = (SegmentEventType)999;

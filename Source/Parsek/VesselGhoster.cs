@@ -189,6 +189,7 @@ namespace Parsek
                 double currentUT = Planetarium.GetUniversalTime();
                 chain.SpawnBlocked = true;
                 chain.BlockedSinceUT = currentUT;
+                chain.BlockedInitialDistance = distance;
                 ParsekLog.Info("SpawnCollision",
                     string.Format(ic,
                         "Spawn blocked: vessel={0} overlaps with {1} at {2}m",
@@ -273,8 +274,9 @@ namespace Parsek
 
                 // Trajectory walkback: if blocked for > 5s and blocker hasn't moved,
                 // walk backward along the recorded trajectory to find a valid spawn position.
+                float distanceChange = Math.Abs(distance - chain.BlockedInitialDistance);
                 if (SpawnCollisionDetector.ShouldTriggerWalkback(
-                        chain.BlockedSinceUT, currentUT, 5.0, distance, 1.0f)
+                        chain.BlockedSinceUT, currentUT, 5.0, distanceChange, 1.0f)
                     && tipRecording.Points != null && tipRecording.Points.Count > 1)
                 {
                     int validIdx = SpawnCollisionDetector.WalkbackAlongTrajectory(
@@ -304,6 +306,12 @@ namespace Parsek
                                 "Trajectory walkback: vessel={0} — found valid position {1} frames back at UT={2}",
                                 tipRecording.VesselName ?? "(unknown)", tipRecording.Points.Count - 1 - validIdx,
                                 tipRecording.Points[validIdx].ut.ToString("F1", ic)));
+
+                        // Update snapshot position to walkback point coordinates
+                        var walkPt = tipRecording.Points[validIdx];
+                        vesselSnapshot.SetValue("lat", walkPt.latitude.ToString("R", ic));
+                        vesselSnapshot.SetValue("lon", walkPt.longitude.ToString("R", ic));
+                        vesselSnapshot.SetValue("alt", walkPt.altitude.ToString("R", ic));
 
                         // Spawn at walkback position
                         if (TerrainCorrector.ShouldCorrectTerrain(

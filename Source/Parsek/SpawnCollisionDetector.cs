@@ -111,6 +111,8 @@ namespace Parsek
         /// Pure AABB overlap test with world-space offsets and padding.
         /// Offsets bounds a/b to world positions aCenter/bCenter, expands each
         /// by padding on all sides, then checks axis-aligned overlap on all three axes.
+        /// NOTE: padding is applied to BOTH bounds, so effective clearance is 2*padding.
+        /// This is intentional for safety margin.
         /// </summary>
         internal static bool BoundsOverlap(Bounds a, Vector3d aCenter, Bounds b, Vector3d bCenter, float padding)
         {
@@ -280,6 +282,21 @@ namespace Parsek
             {
                 Vessel other = FlightGlobals.Vessels[i];
                 if (!other.loaded) continue;
+
+                // Skip player's own vessel — shouldn't block spawns
+                if (other == FlightGlobals.ActiveVessel) continue;
+
+                // Skip non-significant vessel types that shouldn't block spawns
+                if (other.vesselType == VesselType.Debris ||
+                    other.vesselType == VesselType.EVA ||
+                    other.vesselType == VesselType.Flag ||
+                    other.vesselType == VesselType.SpaceObject)
+                {
+                    ParsekLog.Verbose(Tag,
+                        string.Format(IC, "Skipping {0} vessel {1} in overlap check",
+                            other.vesselType, other.vesselName));
+                    continue;
+                }
 
                 Vector3d otherPos = other.GetWorldPos3D();
                 float dist = (float)Vector3d.Distance(spawnWorldPos, otherPos);

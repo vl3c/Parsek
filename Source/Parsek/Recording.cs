@@ -88,7 +88,7 @@ namespace Parsek
         // Antenna specifications for CommNet ghost relay registration (Phase 6f)
         // Extracted from ModuleDataTransmitter modules in vessel snapshot at commit time.
         // null = not extracted (legacy recording or no antennas).
-        public List<AntennaSpec> AntennaSpecs;
+        internal List<AntennaSpec> AntennaSpecs;
 
         // Background recording: surface position for landed/splashed vessels
         public SurfacePosition? SurfacePos;            // null if not a background landed vessel
