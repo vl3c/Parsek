@@ -138,6 +138,129 @@ namespace Parsek
         }
 
         // ────────────────────────────────────────────────────────────
+        //  Trajectory walkback (pure, unit-testable)
+        // ────────────────────────────────────────────────────────────
+
+        /// <summary>Default timeout in seconds before walkback triggers.</summary>
+        internal const double DefaultWalkbackTimeoutSeconds = 5.0;
+
+        /// <summary>Default movement threshold in meters — blocker must move less than this for walkback.</summary>
+        internal const float DefaultMovementThresholdMeters = 1.0f;
+
+        /// <summary>
+        /// Pure decision: should we trigger trajectory walkback?
+        /// Returns true when the spawn has been blocked for at least <paramref name="timeoutSeconds"/>
+        /// AND the blocking vessel has moved less than <paramref name="movementThreshold"/> meters,
+        /// indicating an immovable vessel deadlock.
+        /// </summary>
+        internal static bool ShouldTriggerWalkback(
+            double blockedSinceUT,
+            double currentUT,
+            double timeoutSeconds,
+            float blockerDistanceChangeMeters,
+            float movementThreshold)
+        {
+            double elapsed = currentUT - blockedSinceUT;
+            bool timeoutReached = elapsed >= timeoutSeconds;
+            bool blockerStationary = blockerDistanceChangeMeters < movementThreshold;
+
+            ParsekLog.Verbose(Tag,
+                string.Format(IC,
+                    "ShouldTriggerWalkback: elapsed={0}s timeout={1}s blockerMoved={2}m threshold={3}m → timeout={4} stationary={5} → {6}",
+                    elapsed.ToString("F2", IC),
+                    timeoutSeconds.ToString("F1", IC),
+                    blockerDistanceChangeMeters.ToString("F2", IC),
+                    movementThreshold.ToString("F2", IC),
+                    timeoutReached, blockerStationary,
+                    timeoutReached && blockerStationary));
+
+            return timeoutReached && blockerStationary;
+        }
+
+        /// <summary>
+        /// Walk backward along a trajectory to find the latest point where the spawn
+        /// bounding box does NOT overlap with any blocker. Used to resolve immovable
+        /// vessel deadlocks by spawning at an earlier trajectory position.
+        /// </summary>
+        /// <param name="points">Trajectory points to walk backward through.</param>
+        /// <param name="spawnBounds">Bounding box of the vessel to spawn (local-space).</param>
+        /// <param name="padding">Padding in meters added to each side of the AABB.</param>
+        /// <param name="pointToWorldPos">Converts a TrajectoryPoint to world-space position.
+        /// At runtime: CelestialBody.GetWorldSurfacePosition. In tests: SimplePointToWorldPos.</param>
+        /// <param name="isOverlapping">Returns true if a vessel at the given world position overlaps
+        /// with any blocker. At runtime: CheckOverlapAgainstLoadedVessels. In tests: geometric check.</param>
+        /// <returns>Index of the latest non-overlapping point, or -1 if the entire trajectory overlaps
+        /// (or if the trajectory is null/empty).</returns>
+        internal static int WalkbackAlongTrajectory(
+            List<TrajectoryPoint> points,
+            Bounds spawnBounds,
+            float padding,
+            Func<TrajectoryPoint, Vector3d> pointToWorldPos,
+            Func<Vector3d, bool> isOverlapping)
+        {
+            if (points == null || points.Count == 0)
+            {
+                ParsekLog.Verbose(Tag, "WalkbackAlongTrajectory: null or empty trajectory — returning -1");
+                return -1;
+            }
+
+            ParsekLog.Verbose(Tag,
+                string.Format(IC,
+                    "WalkbackAlongTrajectory: walking back from index {0} (UT={1})",
+                    (points.Count - 1),
+                    points[points.Count - 1].ut.ToString("F2", IC)));
+
+            for (int i = points.Count - 1; i >= 0; i--)
+            {
+                Vector3d worldPos = pointToWorldPos(points[i]);
+                bool overlaps = isOverlapping(worldPos);
+
+                ParsekLog.Verbose(Tag,
+                    string.Format(IC,
+                        "WalkbackAlongTrajectory: index={0} UT={1} pos=({2},{3},{4}) overlaps={5}",
+                        i,
+                        points[i].ut.ToString("F2", IC),
+                        worldPos.x.ToString("F1", IC),
+                        worldPos.y.ToString("F1", IC),
+                        worldPos.z.ToString("F1", IC),
+                        overlaps));
+
+                if (!overlaps)
+                {
+                    ParsekLog.Info(Tag,
+                        string.Format(IC,
+                            "WalkbackAlongTrajectory: found valid position at index {0} (UT={1})",
+                            i, points[i].ut.ToString("F2", IC)));
+                    return i;
+                }
+            }
+
+            ParsekLog.Warn(Tag,
+                "WalkbackAlongTrajectory: entire trajectory overlaps — returning -1 (manual placement fallback)");
+            return -1;
+        }
+
+        /// <summary>
+        /// Pure helper for testing: converts a TrajectoryPoint's lat/lon/alt to a simple
+        /// Cartesian position on a sphere of the given radius. Uses standard geographic
+        /// to Cartesian conversion: x = (R+alt)*cos(lat)*cos(lon), y = (R+alt)*sin(lat),
+        /// z = (R+alt)*cos(lat)*sin(lon).
+        /// At runtime, the actual conversion uses CelestialBody.GetWorldSurfacePosition.
+        /// </summary>
+        internal static Vector3d SimplePointToWorldPos(TrajectoryPoint pt, double bodyRadius)
+        {
+            double r = bodyRadius + pt.altitude;
+            double latRad = pt.latitude * Math.PI / 180.0;
+            double lonRad = pt.longitude * Math.PI / 180.0;
+
+            double x = r * Math.Cos(latRad) * Math.Cos(lonRad);
+            double y = r * Math.Sin(latRad);
+            double z = r * Math.Cos(latRad) * Math.Sin(lonRad);
+
+            return new Vector3d(x, y, z);
+        }
+
+        // ────────────────────────────────────────────────────────────
         //  KSP-runtime methods (not unit-testable)
         // ────────────────────────────────────────────────────────────
 
