@@ -1276,7 +1276,18 @@ namespace Parsek
                 statusStyle = statusStylePast;
                 statusText = "past";
             }
-            GUILayout.Label(statusText, statusStyle, GUILayout.Width(ColW_Status));
+
+            // Phase 6d-3: Chain status tooltip — show ghost chain info on hover
+            string chainStatusTooltip = "";
+            if (InFlight && flight != null)
+            {
+                string chainStatus = ParsekFlight.GetChainStatusForRecording(
+                    flight.ActiveGhostChains, rec);
+                if (chainStatus != null)
+                    chainStatusTooltip = chainStatus;
+            }
+            var statusContent = new GUIContent(statusText, chainStatusTooltip);
+            GUILayout.Label(statusContent, statusStyle, GUILayout.Width(ColW_Status));
 
             // Group assignment button
             if (GUILayout.Button("G", GUILayout.Width(ColW_Group)))
@@ -2478,6 +2489,15 @@ namespace Parsek
                           $"Max Speed: {FormatSpeed(stats.maxSpeed)}\n" +
                           $"Distance: {FormatDistance(stats.distanceTravelled)}\n" +
                           $"Points: {stats.pointCount}";
+
+            // Phase 6d-3: Chain status in recording tooltip
+            if (InFlight && flight != null)
+            {
+                string chainStatus = ParsekFlight.GetChainStatusForRecording(
+                    flight.ActiveGhostChains, rec);
+                if (chainStatus != null)
+                    text += $"\n{chainStatus}";
+            }
 
             if (stats.orbitSegmentCount > 0)
                 text += $"\nOrbit Segments: {stats.orbitSegmentCount}";

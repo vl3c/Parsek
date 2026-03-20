@@ -576,6 +576,9 @@ namespace Parsek
             if (watchedRecordingIndex >= 0)
                 DrawWatchModeOverlay();
 
+            // Phase 6d: Ghost labels on chain ghost GOs (no-op when ghost GOs are null)
+            DrawGhostLabels();
+
             if (showUI)
             {
                 windowRect = ClickThruBlocker.GUILayoutWindow(
@@ -8418,6 +8421,116 @@ namespace Parsek
             Log($"Showing deferred split merge dialog for {RecordingStore.Pending.VesselName}");
             MergeDialog.Show(RecordingStore.Pending);
         }
+
+        // ────────────────────────────────────────────────────────────
+        //  Phase 6d: Ghost labels, spawn warnings, chain status
+        // ────────────────────────────────────────────────────────────
+
+        private GUIStyle ghostLabelStyle;
+
+        /// <summary>
+        /// Draws floating labels on all ghost GOs from active ghost chains.
+        /// Called from OnGUI. If ghost GOs are null (deferred from 6b-4), this is a no-op.
+        /// </summary>
+        private void DrawGhostLabels()
+        {
+            if (activeGhostChains == null || activeGhostChains.Count == 0)
+                return;
+
+            if (Camera.current == null)
+                return;
+
+            if (ghostLabelStyle == null)
+            {
+                ghostLabelStyle = new GUIStyle(GUI.skin.label)
+                {
+                    fontSize = 12,
+                    fontStyle = FontStyle.Bold,
+                    alignment = TextAnchor.UpperCenter,
+                    normal = { textColor = new Color(1f, 0.9f, 0.5f, 0.9f) }
+                };
+            }
+
+            foreach (var kvp in activeGhostChains)
+            {
+                GhostChain chain = kvp.Value;
+                if (vesselGhoster == null) continue;
+
+                GameObject ghostGO = vesselGhoster.GetGhostGO(chain.OriginalVesselPid);
+                if (ghostGO == null) continue;
+
+                // Convert ghost world position to screen position
+                Vector3 screenPos = Camera.current.WorldToScreenPoint(ghostGO.transform.position);
+
+                // Behind camera check
+                if (screenPos.z < 0) continue;
+
+                // Off-screen check
+                if (screenPos.x < 0 || screenPos.x > Screen.width ||
+                    screenPos.y < 0 || screenPos.y > Screen.height)
+                    continue;
+
+                // Get vessel name from ghosted info
+                var info = vesselGhoster.GetGhostedInfo(chain.OriginalVesselPid);
+                string vesselName = info != null ? info.vesselName : "(unknown)";
+
+                string labelText = SpawnWarningUI.ComputeGhostLabelText(
+                    vesselName, chain.SpawnUT, chain.IsTerminated, chain.SpawnBlocked);
+
+                // Unity screen coordinates have Y=0 at bottom; GUI has Y=0 at top
+                float guiY = Screen.height - screenPos.y;
+                float labelWidth = 250f;
+                float labelHeight = 40f;
+                Rect labelRect = new Rect(
+                    screenPos.x - labelWidth / 2f,
+                    guiY - labelHeight,
+                    labelWidth,
+                    labelHeight);
+
+                GUI.Label(labelRect, labelText, ghostLabelStyle);
+            }
+        }
+
+        /// <summary>
+        /// Static query: returns chain status text for a recording, or null if not in a chain.
+        /// Checks whether the recording's vessel PID matches any active ghost chain,
+        /// or whether the recording is the tip recording for any chain.
+        /// Callable from ParsekUI without needing an instance reference.
+        /// </summary>
+        internal static string GetChainStatusForRecording(
+            Dictionary<uint, GhostChain> chains, Recording rec)
+        {
+            if (chains == null || chains.Count == 0 || rec == null)
+                return null;
+
+            // Check if this recording's vessel is ghosted (vessel PID match)
+            GhostChain vesselChain;
+            if (rec.VesselPersistentId != 0 &&
+                chains.TryGetValue(rec.VesselPersistentId, out vesselChain))
+            {
+                var info = vesselChain;
+                return SpawnWarningUI.FormatChainStatus(info, rec.VesselName);
+            }
+
+            // Check if this recording is the tip recording for any chain
+            foreach (var kvp in chains)
+            {
+                if (kvp.Value.TipRecordingId == rec.RecordingId)
+                {
+                    return string.Format(CultureInfo.InvariantCulture,
+                        "Chain tip -- will spawn vessel at UT={0}",
+                        kvp.Value.SpawnUT.ToString("F0", CultureInfo.InvariantCulture));
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Accessor for active ghost chains — used by ParsekUI for chain status display.
+        /// Returns null when no chains are active.
+        /// </summary>
+        internal Dictionary<uint, GhostChain> ActiveGhostChains => activeGhostChains;
 
         void Log(string message) => ParsekLog.Verbose("Flight", message);
         void ScreenMessage(string message, float duration) => ParsekLog.ScreenMessage(message, duration);
