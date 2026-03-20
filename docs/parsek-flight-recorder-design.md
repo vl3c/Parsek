@@ -127,65 +127,205 @@ If a vessel loses all controllers (crew removed, probe core out of EC with no re
 
 A recording tree is a **directed acyclic graph (DAG)** of vessel segments connected by lifecycle events. It is not a simple tree because merge events (docking, boarding) join branches back together.
 
-### 4.2 Primitives
+### 4.2 Terminology
 
-**VesselSegment**: A continuous stretch of time during which a physically connected assembly of parts exists as one vessel with at least one controller part present (whether or not that controller is currently functional).
+This document uses two layers of naming. The **design model** uses conceptual names (VesselSegment, TreeEvent) to describe what the DAG represents. The **implementation** uses concrete class names (Recording, BranchPoint) that appear in code. The mapping:
 
-```
-VesselSegment
-  id:                unique segment identifier
-  controllers:       list of controller parts at segment start
-  isDebris:          bool (true if no controllers — minimal recording only)
-  startEvent:        TreeEvent that created this segment
-  endEvent:          TreeEvent that ended this segment (null if ongoing)
-  tracks:            list of TrackSection (see Section 6 - Segment Taxonomy)
-  partEvents:        recorded discrete part events
-  segmentEvents:     recorded within-segment state changes (see Section 4.7)
-  resourceSnapshot:  {start: {resourceName: amount}, end: {resourceName: amount}}
-  origin:            LaunchOrigin (only for root segments — body, lat, lon, alt, site name)
-```
+| Design concept | Implementation class | Meaning |
+|---|---|---|
+| VesselSegment | `Recording` | One vessel's continuous trajectory + events |
+| TreeEvent | `BranchPoint` | A DAG node where vessels split, merge, launch, or terminate |
+| RecordingTree | `RecordingTree` | The complete DAG for one mission |
 
-**TreeEvent**: A point where the DAG branches or merges. These ONLY occur when the vessel physically separates into independent assemblies or merges with another assembly.
+Throughout this document, "Recording" (capitalized) refers to the per-vessel data object. "Committed tree" or "mission recording" refers to a RecordingTree that has been committed to the timeline. The word "recording" (lowercase) refers to the act of recording.
 
-```
-TreeEvent
-  type:              LAUNCH | SPLIT | BREAKUP | MERGE | TERMINAL
-  ut:                universal time
-  parentSegments:    list of segments that ended here (empty for LAUNCH)
-  childSegments:     list of segments that began here (empty for TERMINAL)
-  metadata:          type-specific data (see below)
-  resourceDelta:     any funds/science/rep changes at this moment
+### 4.3 Authoritative Data Model
 
-  SPLIT metadata:
-    cause:           DECOUPLE | UNDOCK | EVA
-    decouplerPartId: the part that triggered separation
+These are the actual data structures. All types referenced elsewhere in this document are defined here.
 
-  BREAKUP metadata:
-    cause:           CRASH | OVERHEAT | STRUCTURAL_FAILURE
-    duration:        time window of the breakup (typically < 1 second)
-    controlledChildren: list of child segments that have controllers
-    debrisCount:     number of debris fragments (not individually tracked)
-    coalesceWindow:  time threshold used for grouping rapid splits (default 0.5s)
-
-  MERGE metadata:
-    cause:           DOCK | BOARD | CONSTRUCT | CLAW
-    targetVesselId:  if merging with a pre-existing persistent vessel,
-                     its persistentId (links recording tree to game state)
-
-  TERMINAL metadata:
-    cause:           RECOVERED | DESTROYED | RECYCLED | DESPAWNED
-```
-
-**SegmentEvent**: A significant state change within a continuing segment that does NOT create new DAG branches. See Section 4.7.
-
-**RecordingTree**: The complete DAG for a mission.
+**RecordingTree** — the complete DAG for one mission. Committed trees are stored in a flat list (`RecordingStore.CommittedTrees`) that survives scene changes. The ghost chain walker iterates this list on every rewind and save load.
 
 ```
 RecordingTree
-  id:             unique identifier for this mission/tree
-  rootSegment:    the first segment (launch)
-  segments:       list of all VesselSegments
-  events:         list of all TreeEvents connecting segments
+  Id:                 string — unique identifier
+  TreeName:           string
+  RootRecordingId:    string — the first Recording (launch)
+  ActiveRecordingId:  string — currently focused Recording (changes on focus switch)
+  Recordings:         dict of {recordingId: Recording} — all vessel recordings in this tree
+  BranchPoints:       list of BranchPoint — DAG events connecting Recordings
+  BackgroundMap:      dict of {vesselPid: recordingId} — background vessel mappings (runtime only)
+  PreTreeFunds:       double — game state at tree start (for delta computation)
+  PreTreeScience:     double
+  PreTreeReputation:  float
+  DeltaFunds:         double — net resource change from this tree
+  DeltaScience:       double
+  DeltaReputation:    float
+  ResourcesApplied:   bool
+```
+
+**Recording** — one vessel's continuous trajectory, events, and state. This is the VesselSegment of the design model. A Recording covers the lifetime of one command-capable assembly from creation to termination (or ongoing).
+
+```
+Recording
+  RecordingId:              string — unique identifier
+  TreeId:                   string — which RecordingTree this belongs to
+  VesselName:               string
+  VesselPersistentId:       uint — KSP's vessel PID at recording time
+  RecordingFormatVersion:   int — sidecar file version (currently 6, 7 with ghost chain fields)
+
+  // Trajectory data (new format)
+  TrackSections:            list of TrackSection — typed trajectory chunks (Section 6)
+  // Trajectory data (legacy format — dual-written for backward compat with pre-TrackSection v5 recordings)
+  Points:                   list of TrajectoryPoint — flat trajectory
+  OrbitSegments:            list of OrbitSegment — flat orbit segments
+
+  // Events
+  PartEvents:               list of PartEvent — discrete visual state changes (35 event types)
+  SegmentEvents:            list of SegmentEvent — within-segment state changes (Section 4.8)
+  Controllers:              list of ControllerInfo — controller parts at segment start
+  IsDebris:                 bool — true if no controllers
+
+  // DAG linkage
+  ParentBranchPointId:      string — BranchPoint that created this Recording
+  ChildBranchPointId:       string — BranchPoint that ended this Recording
+  ParentRecordingId:        string — parent in the tree
+
+  // Terminal state (how/where the vessel ended)
+  TerminalStateValue:       RECOVERED | DESTROYED | RECYCLED | DESPAWNED | null
+  TerminalOrbit*:           Keplerian elements at segment end (inc, ecc, sma, lan, argPe, mAe, epoch, body)
+  TerminalPosition:         SurfacePosition — lat/lon/alt if surface-landed at end
+  TerrainHeightAtEnd:       double — terrain height at final position (NaN if not surface; for spawn correction)
+
+  // Vessel snapshots (ConfigNode from KSP's vessel.BackupVessel() — complete vessel state)
+  VesselSnapshot:           ConfigNode — full vessel state: part tree, resources, crew, orbit, action groups
+  GhostVisualSnapshot:      ConfigNode — visual-only snapshot for ghost mesh building
+
+  // Loop configuration
+  LoopPlayback:             bool
+  LoopIntervalSeconds:      double
+  LoopAnchorVesselId:       uint — anchor vessel for relative loop positioning
+  LoopAnchorBodyName:       string — expected body (for drift validation)
+
+  // Spawn tracking
+  VesselSpawned:            bool — has this Recording's vessel been spawned into the game?
+  SpawnedVesselPersistentId: uint — PID of the spawned vessel (0 = not spawned)
+
+  // Antenna data (for CommNet ghost registration)
+  AntennaSpecs:             list of AntennaSpec
+```
+
+**VesselSnapshot explained:** A snapshot is a KSP `ConfigNode` produced by `vessel.BackupVessel()`. It contains the complete serialized vessel state: the entire part tree with every module's persistent data, crew assignments, resource levels, orbital elements, vessel situation, action group states, and discovery info. Snapshots are captured at two points: (1) at recording commit time (stored on the Recording), and (2) at ghost conversion time (captured from the live vessel before despawn). For chain-tip spawning, the snapshot from the tip Recording is used — for a chain bare-S -> S+A -> S+A+B, the S+A+B snapshot comes from R2's Recording of the merged vessel at its endpoint.
+
+**BranchPoint** — a DAG node where the tree branches or merges. This is the TreeEvent of the design model.
+
+```
+BranchPoint
+  Id:                       string — unique identifier
+  UT:                       double — universal time
+  Type:                     BranchPointType enum:
+                              Undock=0, EVA=1, Dock=2, Board=3, JointBreak=4,
+                              Launch=5, Breakup=6, Terminal=7
+  ParentRecordingIds:       list of string — Recordings that ended here
+  ChildRecordingIds:        list of string — Recordings that began here
+
+  // Type-specific metadata (nullable, set based on Type)
+  SplitCause:               DECOUPLE | UNDOCK | EVA
+  DecouplerPartId:          uint — part that triggered separation
+  BreakupCause:             CRASH | OVERHEAT | STRUCTURAL_FAILURE
+  BreakupDuration:          double — time window of the breakup
+  DebrisCount:              int — non-tracked fragment count
+  CoalesceWindow:           double — threshold used (default 0.5s)
+  MergeCause:               DOCK | BOARD | CONSTRUCT | CLAW
+  TargetVesselPersistentId: uint — pre-existing vessel's PID (links to game state; used by chain walker)
+  TerminalCause:            RECOVERED | DESTROYED | RECYCLED | DESPAWNED
+```
+
+**TrajectoryPoint** — position sample. Recorded at up to 50 Hz in atmospheric flight, down to 0.1 Hz for surface-stationary. The most-sampled data structure in the system.
+
+```
+TrajectoryPoint
+  ut:         double — universal time
+  latitude:   double — body-relative
+  longitude:  double — body-relative
+  altitude:   double — above sea level
+  rotation:   Quaternion — vessel attitude
+  velocity:   Vector3 — vessel velocity
+  bodyName:   string — reference body
+  funds:      double — game state at this moment (for resource delta tracking)
+  science:    float
+  reputation: float
+```
+
+**OrbitSegment** — Keplerian orbital elements for on-rails coasting. Used within ORBITAL_CHECKPOINT TrackSections and as the legacy flat orbit list.
+
+```
+OrbitSegment
+  startUT:                    double
+  endUT:                      double
+  inclination:                double
+  eccentricity:               double
+  semiMajorAxis:              double
+  longitudeOfAscendingNode:   double
+  argumentOfPeriapsis:        double
+  meanAnomalyAtEpoch:         double
+  epoch:                      double
+  bodyName:                   string
+  orbitalFrameRotation:       Quaternion
+  angularVelocity:            Vector3
+```
+
+**TrackSection** — a typed trajectory chunk with a single environment + reference frame combination.
+
+```
+TrackSection
+  environment:                SegmentEnvironment (ATMOSPHERIC | EXO_PROPULSIVE | EXO_BALLISTIC |
+                                SURFACE_MOBILE | SURFACE_STATIONARY)
+  referenceFrame:             ReferenceFrame (ABSOLUTE | RELATIVE | ORBITAL_CHECKPOINT)
+  source:                     TrackSectionSource (ACTIVE | BACKGROUND | CHECKPOINT)
+  startUT:                    double
+  endUT:                      double
+  anchorVesselId:             uint — set only for RELATIVE frame
+  frames:                     list of TrajectoryPoint — for ABSOLUTE and RELATIVE
+  checkpoints:                list of OrbitSegment — for ORBITAL_CHECKPOINT
+  sampleRateHz:               float — actual recording sample rate
+  boundaryDiscontinuityMeters: float — position gap vs previous section end
+```
+
+**PartEvent** — a discrete visual state change on a specific part. 35 event types covering engines, parachutes, solar panels, antennas, lights, landing gear, cargo bays, fairings, RCS, robotics, thermal animations, inventory deployables.
+
+```
+PartEvent
+  ut:               double
+  partPersistentId: uint — which part
+  eventType:        PartEventType (EngineIgnited, EngineShutdown, EngineThrottle,
+                      DeployableExtended, DeployableRetracted, LightOn, LightOff,
+                      GearDeployed, GearRetracted, ParachuteDeployed, ParachuteCut,
+                      CargoBayOpened, CargoBayClosed, FairingJettisoned, RCSActivated,
+                      RCSStopped, Decoupled, Destroyed, Docked, Undocked, ... 35 total)
+  partName:         string
+  value:            float — event-specific (e.g., throttle percentage)
+  moduleIndex:      int — which module on the part (for multi-module parts)
+```
+
+**SegmentEvent** — see Section 4.8.
+
+**ControllerInfo** — descriptor for a controller part.
+
+```
+ControllerInfo
+  type:             ControllerType (CrewedPod | ExternalSeat | ProbeCore | EVAKerbal)
+  partName:         string
+  partPersistentId: uint
+```
+
+**AntennaSpec** — antenna data for CommNet ghost registration.
+
+```
+AntennaSpec
+  partName:                   string
+  antennaPower:               double — from ModuleDataTransmitter
+  antennaCombinable:          bool
+  antennaCombinableExponent:  double
 ```
 
 ### 4.3 The Segment Boundary Rule
@@ -323,38 +463,7 @@ A recording session is scoped to a single RecordingTree. During a session, the r
 
 ### 5.3 Data Model
 
-Each vessel's data lives in a Recording within the RecordingTree. Each Recording's TrackSections list contains typed trajectory chunks tagged with a source (Active, Background, or Checkpoint) for diagnostics.
-
-```
-RecordingTree (serves as session scope)
-  Recordings:         dict of {recordingId: Recording}
-  BranchPoints:       list of BranchPoint (DAG events)
-  ActiveRecordingId:  currently focused recording (changes on focus switch)
-  BackgroundMap:      dict of {vesselPid: recordingId} for background vessels
-
-Recording (per vessel)
-  TrackSections:      list of TrackSection (each tagged with source + environment + reference frame)
-  SegmentEvents:      list of SegmentEvent (within-segment state changes)
-  Points:             flat list of TrajectoryPoint (backward compat, dual-written)
-  OrbitSegments:      flat list of OrbitSegment (backward compat)
-  PartEvents:         list of PartEvent (discrete visual events)
-  TerrainHeightAtEnd: double (NaN if not surface-stationary; terrain height at final position)
-  AntennaSpecs:       list of AntennaSpec (antenna data for CommNet ghost registration)
-
-AntennaSpec
-  partName:           string
-  antennaPower:       double (from ModuleDataTransmitter)
-  antennaCombinable:  bool
-  antennaCombinableExponent: double
-
-TrackSection
-  environment:        ATMOSPHERIC | EXO_PROPULSIVE | EXO_BALLISTIC | SURFACE_MOBILE | SURFACE_STATIONARY
-  referenceFrame:     ABSOLUTE | RELATIVE | ORBITAL_CHECKPOINT
-  source:             ACTIVE | BACKGROUND | CHECKPOINT (provenance for diagnostics)
-  frames:             list of TrajectoryPoint (for ABSOLUTE/RELATIVE)
-  checkpoints:        list of OrbitSegment (for ORBITAL_CHECKPOINT)
-  boundaryDiscontinuityMeters:  position gap at section start vs previous section end
-```
+The recording session uses the data structures defined in Section 4.3. In summary: the RecordingTree holds a dictionary of Recordings (one per vessel), connected by BranchPoints. Each Recording's TrackSections list contains typed trajectory chunks tagged with a source (Active, Background, or Checkpoint) for diagnostics. The merge algorithm (Section 9) produces a single merged Recording per vessel with non-overlapping TrackSections selected by highest-fidelity-wins.
 
 ### 5.4 Focus Switching
 
@@ -404,22 +513,22 @@ Transitions use hysteresis: 1 second for thrust toggle (prevents rapid toggling 
 
 **Docking approach rule:** Any approach within docking range (~200m) of a pre-existing vessel uses RELATIVE reference frame to ensure positional accuracy for visually correct docking playback.
 
-### 6.3 Combined Segment Example
+### 6.3 Combined Example
 
-A cargo delivery to a Mun base:
+A cargo delivery to a Mun base — one VesselSegment (no staging or docking), nine TrackSections:
 
 ```
-Recording: "Cargo Run Alpha"
+Recording: "Cargo Run Alpha" (single VesselSegment, 9 TrackSections)
 
-Segment 1: [ATMOSPHERIC + ABSOLUTE]         Kerbin launch through atmosphere. ~50 Hz.
-Segment 2: [EXO_PROPULSIVE + ABSOLUTE]      Gravity turn completion and orbital insertion.
-Segment 3: [EXO_BALLISTIC + ORBITAL_CKPT]   Kerbin parking orbit coast. Checkpoint per orbit.
-Segment 4: [EXO_PROPULSIVE + ABSOLUTE]      Transfer burn to Mun.
-Segment 5: [EXO_BALLISTIC + ORBITAL_CKPT]   Transfer coast.
-Segment 6: [EXO_PROPULSIVE + ABSOLUTE]      Munar orbit insertion and deorbit.
-Segment 7: [EXO_PROPULSIVE + ABSOLUTE]      Powered descent. ~50 Hz.
-Segment 8: [EXO_PROPULSIVE + RELATIVE]      Final approach within physics bubble of base.
-Segment 9: [SURFACE_STATIONARY + RELATIVE]  Landed near base. Minimal sampling.
+Track 1: [ATMOSPHERIC + ABSOLUTE]         Kerbin launch through atmosphere. ~50 Hz.
+Track 2: [EXO_PROPULSIVE + ABSOLUTE]      Gravity turn completion and orbital insertion.
+Track 3: [EXO_BALLISTIC + ORBITAL_CKPT]   Kerbin parking orbit coast. Checkpoint per orbit.
+Track 4: [EXO_PROPULSIVE + ABSOLUTE]      Transfer burn to Mun.
+Track 5: [EXO_BALLISTIC + ORBITAL_CKPT]   Transfer coast.
+Track 6: [EXO_PROPULSIVE + ABSOLUTE]      Munar orbit insertion and deorbit.
+Track 7: [EXO_PROPULSIVE + ABSOLUTE]      Powered descent. ~50 Hz.
+Track 8: [EXO_PROPULSIVE + RELATIVE]      Final approach within physics bubble of base.
+Track 9: [SURFACE_STATIONARY + RELATIVE]  Landed near base. Minimal sampling.
 ```
 
 ---
@@ -660,6 +769,67 @@ If multiple committed recordings interact with the same vessel lineage, the ghos
 
 The real vessel materializes only at the tip of the chain — after the last committed recording that touches the vessel lineage completes. Parsek walks the full chain of committed recordings that reference a vessel's lineage to determine the spawn point.
 
+**Chain walker algorithm:**
+
+```
+function ComputeAllGhostChains(committedTrees, rewindUT):
+  claims = {}   // map of vesselPID -> list of {treeId, recordingId, branchPointId, ut, type}
+
+  // Step 1: Scan all committed trees for vessel-claiming events
+  for each tree in committedTrees:
+    for each branchPoint in tree.BranchPoints:
+      if branchPoint.Type in {Dock, Board, Undock, EVA, JointBreak}
+         and branchPoint.TargetVesselPersistentId != 0:
+        claims[branchPoint.TargetVesselPersistentId].add({
+          treeId: tree.Id, ut: branchPoint.UT, type: "BRANCH_POINT"
+        })
+    // Also scan background recordings for ghosting-trigger PartEvents
+    for each recording in tree.Recordings where recording is background:
+      if recording has any PartEvent with ghosting-trigger type (not LightOn/LightOff):
+        claims[recording.VesselPersistentId].add({
+          treeId: tree.Id, ut: event.ut, type: "BACKGROUND_EVENT"
+        })
+
+  // Step 2: Build chains, sorted by UT
+  chains = {}   // map of vesselPID -> GhostChain
+  for each (vesselPID, claimList) in claims:
+    sort claimList by UT ascending
+    chain = new GhostChain(originalVesselPid: vesselPID, ghostStartUT: rewindUT)
+    chain.links = claimList
+    chain.tipRecording = find the Recording at the last claim's endpoint
+    chain.spawnUT = chain.tipRecording.EndUT
+    chain.isTerminated = chain.tipRecording.TerminalStateValue in {DESTROYED, RECOVERED}
+    chains[vesselPID] = chain
+
+  // Step 3: Cross-tree linking — extend chains across trees
+  for each chain in chains:
+    tipRecording = chain.tipRecording
+    tipVesselPID = tipRecording.VesselPersistentId  // PID of vessel at chain tip
+    // Check if any OTHER chain claims this PID
+    if tipVesselPID in claims and tipVesselPID != chain.originalVesselPid:
+      // Merge into the existing chain for tipVesselPID
+      extend that chain with this chain's links
+    // Also check: does any BranchPoint in another tree have
+    // TargetVesselPersistentId == tipVesselPID?
+    // If yes, this chain extends through that tree.
+
+  // Step 4: Compute final spawn points
+  for each chain in chains:
+    walk to the furthest link -> that Recording's endpoint is the spawn point
+    chain.spawnUT = furthest link's Recording EndUT
+    chain.tipRecording = furthest link's Recording
+
+  return chains
+
+function IsIntermediateChainLink(chains, recording):
+  // True if this recording's EndUT matches a non-final link in any chain
+  for each chain in chains:
+    if recording's EndUT matches a link that is NOT the chain tip: return true
+  return false
+```
+
+**Output:** A map of `{vesselPID -> GhostChain}` where each GhostChain contains: the original vessel PID, the ghost start UT, the ordered list of chain links, the tip Recording (which provides the spawn snapshot), the spawn UT, and whether the chain terminates (no spawn). This map is recomputed on every rewind and save load from the committed trees — it is never persisted.
+
 ### 12.6 Ghosting Trigger Taxonomy
 
 **A committed recording forces ghosting on a pre-existing vessel if and only if the recording contains a recorded event that changes that vessel's physical state.**
@@ -677,7 +847,6 @@ The real vessel materializes only at the tip of the chain — after the last com
 *Orbital / positional:*
 - Engine burns (changes orbit)
 - RCS translation (changes position/orbit)
-- Staging
 
 *Part state:*
 - Deploying/retracting parts (solar panels, radiators, antennas, landing gear)
@@ -725,7 +894,9 @@ Undocking follows the same ghost logic as docking. If R1 involves undocking a mo
 
 **12.9.4 — Recording scope and vessel claiming.** A recording is tied to its vessel controller. A recording does NOT claim a pre-existing vessel merely by switching focus to it. Each vessel has its own separate recording timeline. When the player switches control to a different vessel during a recording session, they are switching to that vessel's own recording chain. A recording can only claim a pre-existing vessel through physical interaction (Section 12.6). If the player only observed a vessel without physical interaction, that vessel remains real after rewind.
 
-**12.9.5 — Intermediate spawn suppression.** When a ghost chain has multiple links (bare-S -> S+A -> S+A+B), Parsek suppresses the spawn at intermediate points. At UT 1600, R1 completes and would normally spawn real S+A, but R2 claims S+A's controller (docking B at UT 2000). Parsek detects this: the controller that would spawn is referenced by a later committed recording. The spawn is suppressed, S+A continues as a ghost, and only S+A+B spawns at UT 2000. Rule: before spawning a real vessel at a chain link, check whether any committed recording further down the chain claims that vessel's controller. Parsek must walk the full chain at rewind time and pre-compute the spawn point for each vessel lineage.
+**12.9.5 — Intermediate spawn suppression and ghost visual transition.** When a ghost chain has multiple links (bare-S -> S+A -> S+A+B), Parsek suppresses the spawn at intermediate points. At UT 1600, R1 completes and would normally spawn real S+A, but R2 claims S+A's controller (docking B at UT 2000). Parsek detects this: the controller that would spawn is referenced by a later committed recording. The spawn is suppressed, S+A continues as a ghost, and only S+A+B spawns at UT 2000. Rule: before spawning a real vessel at a chain link, check whether any committed recording further down the chain claims that vessel's controller.
+
+**Ghost mesh transition at intermediate links:** When ghost-S reaches R1's completion UT and the spawn is suppressed, the ghost's visual must change from bare-S to S+A (the post-merge form). The mechanism: destroy the current ghost GameObject (bare-S mesh), create a new ghost GameObject from R1's endpoint VesselSnapshot (which contains the S+A part layout). This is a visual transition only — the ghost remains a ghost. The new ghost continues on the chain using R2's trajectory data.
 
 **12.9.6 — Cross-perspective interaction attribution.** A recording is of vessel B. During that recording, B collides with station S and breaks off S's solar panel. The multi-vessel merge algorithm already walks background recordings of all vessels in the physics bubble, detects the part destruction event on S, and attributes it to S's own recording timeline. S's timeline now contains a ghosting-trigger event. No special mechanism is needed.
 
@@ -739,7 +910,7 @@ Undocking follows the same ghost logic as docking. If R1 involves undocking a mo
 
 **12.9.11 — Asteroids, comets, and debris.** Asteroids and comets have no controller — they are debris under Parsek's identity model. However, background recording captures trajectories of all objects in the physics bubble. When a committed recording grabs an asteroid with the AGU (claw), the merge algorithm finds the CLAW merge event and attributes it to the asteroid's timeline. The asteroid is ghosted from rewind until the chain tip. Background recording provides trajectory data; orbital propagation from last known state fills any gaps when the asteroid was outside the physics bubble.
 
-**12.9.12 — Surface base position drift.** KSP's procedural terrain can produce slightly different terrain heights at the same coordinates between sessions — varying by up to a few meters. Resolution: the recording stores both the vessel altitude and the terrain height at surface-stationary endpoints as separate values, allowing ground clearance calculation: `recordedClearance = recordedAlt - recordedTerrainHeight`. At spawn time, a terrain raycast determines current terrain height, and the vessel spawns at `currentTerrainHeight + recordedClearance`. A brief physics settling period handles sub-meter errors. See Section 13.6.
+**12.9.12 — Surface base position drift.** KSP's procedural terrain can shift by a few meters between sessions. The terrain correction system (Section 13.6) handles this via recorded ground clearance, terrain raycast at spawn time, and physics settling.
 
 **12.9.13 — KSP load vs Parsek rewind.** On any save load, Parsek re-evaluates all ghost chains using the loaded save's committed recording set and current UT. If the loaded save predates a recording's commit, no ghost chain exists. If it postdates the chain tip, the vessel is already real.
 
@@ -807,6 +978,8 @@ When spawn is blocked, the ghost continues past the recording's end time. The re
 Each physics frame while blocked, Parsek rechecks bounding box overlap at the ghost's current propagated position. When overlap clears (the player moves their vessel away), the real vessel spawns at the ghost's current propagated position at the current UT. This is physically correct: the spawned vessel is exactly where a real vessel on that orbit would be at the current time.
 
 **Surface case:** Same logic but simpler. Ghost stays at surface coordinates. No orbital propagation needed. Player drives their rover away from the base's footprint, spawn fires.
+
+**SOI transitions:** If the ghost's recorded trajectory crosses SOI boundaries (e.g., Kerbin orbit to Mun orbit), the orbital propagation must switch reference bodies at recorded SOI checkpoint boundaries. The checkpoint system (Section 8.3) captures SOI transitions, providing the orbital elements in the new reference body's frame.
 
 If the player never moves, the ghost persists indefinitely. The warning stays on screen. During time warp both ghost and real vessel are non-physical so no conflict exists, but on warp exit the check runs again.
 
@@ -928,7 +1101,7 @@ BubbleSnapshot
 
 2. **Jump UT.** Set the game clock to the target UT. No physics frames are simulated between T0 and the target UT.
 
-3. **Adjust orbital epochs.** For every vessel in the bubble (including the player's): keep position and velocity vectors unchanged, but recompute orbital elements consistent with the new UT. Shift each orbit's mean anomaly at epoch by the jump delta. Orbit shapes (SMA, eccentricity, inclination, LAN, argument of periapsis) remain identical. Only the phase reference changes so that Keplerian propagation produces the correct position at the new UT. Epoch shift should be computed from position/velocity vectors directly (state vector to elements at new epoch), not from delta-shifting the mean anomaly, for numerical stability.
+3. **Adjust orbital epochs.** For every vessel in the bubble (including the player's): keep position and velocity vectors unchanged, but recompute orbital elements consistent with the new UT. Compute the new elements from the unchanged state vectors at the new epoch (state vector to elements conversion), not by delta-shifting the mean anomaly — the state-vector approach is numerically stable even for long jump deltas. Orbit shapes (SMA, eccentricity, inclination, LAN, argument of periapsis) remain identical; only the epoch changes so that Keplerian propagation produces the correct position at the new UT.
 
 4. **Process spawn queue.** For every ghost whose chain tip was crossed during the jump: destroy the ghost, spawn the real vessel at the ghost's current position (which has not moved), apply bounding box overlap check. If overlap, ghost extension or trajectory walkback applies.
 
@@ -1174,23 +1347,33 @@ New fields are added, old fields are never renamed or removed. A reader encounte
 ### 17.3 Separation of Concerns
 
 ```
-Save file (ScenarioModule):
-  - Recording IDs and metadata
-  - Committed timeline structure
-  - Loop configurations
-  - Resource reservations
-  - Quicksave references
+Save file (ScenarioModule — persisted in .sfs):
+  RecordingTree metadata:
+    - Id, TreeName, RootRecordingId, ActiveRecordingId
+    - BranchPoints (full serialization including type-specific metadata)
+    - Resource deltas (PreTreeFunds/Science/Rep, DeltaFunds/Science/Rep)
+  Per-Recording metadata:
+    - RecordingId, TreeId, VesselName, VesselPersistentId
+    - DAG linkage (ParentRecordingId, ParentBranchPointId, ChildBranchPointId)
+    - Loop config (LoopPlayback, LoopInterval, LoopAnchorVesselId, LoopAnchorBodyName)
+    - Spawn state (VesselSpawned, SpawnedVesselPersistentId)
+    - Terminal state, rewind save references
+    - Sidecar file path reference
+  Committed tree list (ordered by commit time)
+  NOT persisted: ghost chain state (re-derived on every load from committed trees)
+  NOT persisted: BackgroundMap (runtime only)
 
-Sidecar files (one per recording):
-  - Version header
-  - Recording tree (DAG) structure
-  - Vessel segment data
-  - Track sections with trajectory frames
-  - Part events
-  - Orbital checkpoints
-  - Background tracks
-  - Antenna specs (for CommNet ghost registration)
-  - Terrain height at surface endpoints
+Sidecar files (one .prec file per RecordingTree):
+  - Format version header
+  - TrajectoryPoints (per Recording, per TrackSection)
+  - OrbitSegments (per TrackSection, plus legacy flat list)
+  - PartEvents (per Recording)
+  - SegmentEvents (per Recording)
+  - TrackSections (environment, reference frame, source, boundaries)
+  - VesselSnapshot and GhostVisualSnapshot (ConfigNode blobs)
+  - AntennaSpecs (per Recording)
+  - TerrainHeightAtEnd (per Recording)
+  - ControllerInfo list (per Recording)
 ```
 
 This separation keeps saves lightweight and makes file-sharing natural — you share sidecar files, not save games.
