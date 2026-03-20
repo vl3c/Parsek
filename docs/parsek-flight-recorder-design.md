@@ -632,7 +632,7 @@ After merge, each vessel has a single clean Recording with non-overlapping Track
 
 ### 10.1 Principle
 
-Looped recording segments are anchored to a real persistent vessel (station, base, etc.). The ghost only exists when that real vessel is loaded. Parsek never modifies the real vessel's state — it only reads its position to compute ghost placement.
+Looped recording segments are anchored to a real persistent vessel (station, base, etc.). Parsek never modifies the real vessel's state — it only reads its position to compute ghost placement.
 
 ### 10.2 Lifecycle
 
@@ -853,6 +853,7 @@ function IsIntermediateChainLink(chains, recording):
 *Orbital / positional:*
 - Engine burns (changes orbit)
 - RCS translation (changes position/orbit)
+- Staging (fires decouplers, changes mass distribution and trajectory)
 
 *Part state:*
 - Deploying/retracting parts (solar panels, radiators, antennas, landing gear)
@@ -1111,7 +1112,7 @@ BubbleSnapshot
 
 2. **Jump UT.** Set the game clock to the target UT. No physics frames are simulated between T0 and the target UT.
 
-3. **Adjust orbital epochs.** For every vessel in the bubble (including the player's): keep position and velocity vectors unchanged, but recompute orbital elements consistent with the new UT. Compute the new elements from the unchanged state vectors at the new epoch (state vector to elements conversion), not by delta-shifting the mean anomaly — the state-vector approach is numerically stable even for long jump deltas. Orbit shapes (SMA, eccentricity, inclination, LAN, argument of periapsis) remain identical; only the epoch changes so that Keplerian propagation produces the correct position at the new UT.
+3. **Adjust orbital epochs.** For every vessel in the bubble (including the player's): keep position and velocity vectors unchanged, but recompute orbital elements to be consistent with the new UT at that position. In practice, this means shifting each orbit's mean anomaly at epoch by the jump delta (targetUT - T0). The orbit shapes (SMA, eccentricity, inclination, LAN, argument of periapsis) remain identical. Only the phase reference changes so that Keplerian propagation produces the correct position at the new UT.
 
 4. **Process spawn queue.** For every ghost whose chain tip was crossed during the jump: destroy the ghost, spawn the real vessel at the ghost's current position (which has not moved), apply bounding box overlap check. If overlap, ghost extension or trajectory walkback applies.
 
