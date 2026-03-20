@@ -715,7 +715,54 @@ For each phase:
 
 ---
 
-*Document version: 2.0*
+## 9. Phase 6: Vessel Interaction Paradox Extension
+
+*Extension design: `parsek-vessel-interaction-paradox.md` v1.5*
+*Extension plan: `recording-system-extension-plan.md` v0.1*
+*Status: Design resolved. Ready for implementation.*
+
+### 9.1 What This Extends
+
+When a committed recording physically interacts with a pre-existing vessel (docking, undocking, collision, crew transfer), the player cannot freely interact with that vessel after rewinding. The extension introduces **ghost chains**: claimed vessels become ghosts from rewind until the recording chain completes, at which point a final-form real vessel spawns.
+
+This is Parsek's first modification of real game state — hiding existing vessels and spawning replacements. All prior phases are read-only.
+
+### 9.2 Phase Breakdown
+
+| Phase | Scope | Key Files | Status |
+|-------|-------|-----------|--------|
+| 6a — Ghost Chain Infrastructure | Chain walker, claiming logic, intermediate spawn suppression | New: `GhostChainWalker.cs`, `GhostChain.cs`, `GhostingTriggerClassifier.cs`. Modify: `GhostPlaybackLogic.cs`, `VesselSpawner.cs` | Not started |
+| 6b — Ghost Conversion + Chain-Aware Spawn | Real→ghost conversion, chain-aware spawn-at-end, save/load re-evaluation | New: `VesselGhoster.cs`. Modify: `ParsekFlight.cs`, `ParsekScenario.cs` | Not started |
+| 6c — Spawn Safety | Bounding box collision, ghost extension, terrain correction, trajectory walkback | New: `SpawnCollisionDetector.cs`, `GhostExtender.cs`, `TerrainCorrector.cs`. Modify: `Recording.cs`, `FlightRecorder.cs`, `RecordingStore.cs` | Not started |
+| 6d — UI | Spawn warnings, chain status display | New: `SpawnWarningUI.cs`. Modify: `ParsekUI.cs` | Not started |
+| 6e — Relative-State Time Jump | Discrete UT skip preserving bubble geometry, selective spawning UI, TIME_JUMP event | New: `TimeJumpManager.cs`, `SelectiveSpawnUI.cs`. Modify: `SegmentEvent.cs`, `FlightRecorder.cs`, `RecordingStore.cs` | Not started |
+| 6f — Ghost World Presence | Map view, tracking station, CommNet relay, unloaded ghost lifecycle | New: `GhostMapPresence.cs`, `GhostCommNetRelay.cs`. Modify: `Recording.cs`, `VesselGhoster.cs` | Not started |
+
+### 9.3 Resolved Design Decisions
+
+1. **Ghost conversion mechanism** — Option A: Despawn + Ghost Replacement. Quicksave is full backup.
+2. **Claiming metadata** — Derive at runtime from committed tree DAG traversal. No new serialization.
+3. **Resource transfers** — Non-issue: stock KSP resource transfers require docking (already a MERGE trigger).
+4. **Ghost visual identity** — Deferred. No visual distinction at this time.
+5. **Cross-perspective attribution** — Already handled by existing BackgroundRecorder. Verified in code: `onPartDie` + `PollPartEvents` capture events on background vessels, committed with tree.
+6. **PID preservation** — Chain-tip spawns skip `RegenerateVesselIdentity` to preserve snapshot PID. Enables cross-tree chain linking.
+
+### 9.4 Prerequisites
+
+- Bug #49 fix (RealVesselExists PID cache) — chain walker performance
+- Bug #55 fix (RELATIVE anchor filtering) — anchor + ghost interaction
+
+### 9.5 Related Documents
+
+- `parsek-vessel-interaction-paradox.md` — extension design (ghost chain rule, 14 edge cases)
+- `parsek-vessel-interaction-paradox-addendum-time-jump.md` — time jump mechanism, selective spawning, ghost world presence, trajectory walkback, CommNet relay
+- `recording-system-extension-plan.md` — implementation plan (code mapping, 24 tasks across 6 phases, risks)
+- `recording-system-design.md` Sections 11, 14, 15 — updated with cross-references
+
+---
+
+*Document version: 2.1*
 *Created: 2026-03-17*
-*Updated: 2026-03-18 — All phases complete*
-*Status: All 5 phases complete (PR #59). 2579 tests pass. Implementation finished.*
+*Updated: 2026-03-20 — Phase 6 expanded: time jump addendum integrated (6e, 6f), design decisions resolved, 24 tasks total*
+*Updated: 2026-03-19 — Phase 6 (vessel interaction paradox extension) section added*
+*Status: Phases 1-5 complete (PR #59). Phase 6 design resolved (6 sub-phases, 24 tasks), ready for implementation.*

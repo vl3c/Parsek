@@ -797,6 +797,8 @@ This is what gets stored in the timeline and used for all subsequent playback, i
 
 Parsek NEVER modifies any parameter of a real persistent vessel. Parsek is read-only with respect to game-state vessels. The only objects Parsek creates and controls are ghost vessels for playback.
 
+> **See also:** `parsek-vessel-interaction-paradox.md` Section 4 (Ghost Chain Rule) refines this principle. When a committed recording physically interacts with a pre-existing vessel, Parsek hides the real vessel (converting it to a ghost) and spawns a replacement real vessel at the chain tip. Parsek still never modifies a real vessel's state directly — it replaces them entirely. See `recording-system-extension-plan.md` for the implementation plan.
+
 ### 11.2 Background Tracks of Existing Vessels
 
 When a pre-existing vessel (from a previous recording or from the game start) appears in the physics bubble during recording, Parsek records its trajectory as background data (source=Background). This applies to external vessels not connected to the recording tree (e.g., a station the player passes near but doesn't dock with).
@@ -813,6 +815,8 @@ If the real vessel IS present during playback, Parsek does NOT spawn a ghost for
 
 When a recording's vessel docks to a pre-existing vessel, the recording tree notes: `MERGE {targetVesselId: X}`. During playback, the ghost approaches the real vessel. At the merge UT, the ghost despawns (it has "docked" to the real vessel). The real vessel is unaffected.
 
+> **See also:** `parsek-vessel-interaction-paradox.md` Sections 2-4 describe the paradox that arises when the player rewinds and tries to interact with the same pre-existing vessel before the committed merge event. The ghost chain model (Section 4) replaces the simple "ghost approaches and despawns" behavior with a full chain resolution: the pre-existing vessel becomes a ghost from rewind until the chain tip, where the final-form combined vessel spawns as real. See also Section 5 (ghosting trigger taxonomy), Section 7 (undocking scenarios), and Section 8.5 (intermediate spawn suppression).
+
 ### 11.4 Fallback: Real Vessel Missing
 
 If a recording references a pre-existing vessel that no longer exists (destroyed, recovered, deorbited since the recording was made):
@@ -820,6 +824,8 @@ If a recording references a pre-existing vessel that no longer exists (destroyed
 - For background tracks: spawn a ghost from the background track data as a visual placeholder.
 - For merge events: the ghost reaches the merge point and despawns. The merge target's absence is logged.
 - For looped recordings: the loop is marked as broken (see Section 9.5).
+
+> **See also:** `parsek-vessel-interaction-paradox.md` Section 8.1 (destruction terminates chain), Section 8.8 (recovery terminates chain), Section 8.11 (asteroids/comets/debris — background recording as trajectory source with orbital propagation fallback).
 
 ---
 
@@ -851,7 +857,7 @@ RecordingSession
   ├─ Smooth transitions at source-switch boundaries
   └─ Collect DAG events into recording tree
   
-Output: CommittedVesselTrack per vessel + RecordingTree (DAG)
+Output: Merged Recording per vessel + RecordingTree (DAG)
 ```
 
 ### 12.3 Playback Phase
@@ -957,6 +963,8 @@ The player is at UT=6000 and rewinds to Recording B's launch at UT=2000:
 
 **Looping recordings spawn once.** Recordings with `LoopPlayback = true` spawn their vessel at the end of the **first** playthrough (so the vessel exists in the world — the player expects the station/base to be there). Subsequent loop cycles are visual-only ghosts — the vessel already exists, so `SpawnedVesselPersistentId != 0` prevents re-spawning. The existing PID-based deduplication handles this naturally without special loop logic.
 
+> **See also:** `parsek-vessel-interaction-paradox.md` Section 6 (Looped Recordings) extends this rule for looped recordings that interact with pre-existing vessels. The first loop iteration follows full ghost chain logic (vessel ghosted until chain tip). Subsequent loops are visual-only — no spawning, no ghost chain extension. This prevents a looped docking recording from permanently ghosting a station.
+
 ### 14.3 Fast-Forward (Time Warp with Ghost Playback)
 
 After rewinding to UT=2000, the player can time warp forward. During fast-forward:
@@ -970,6 +978,8 @@ The player can drop out of time warp at any point and start flying. Ghosts conti
 **Implementation note (decided during Phase 4 planning):** The existing timeline playback system handles fast-forward naturally — ghosts are positioned by comparing `currentUT` to each recording's `StartUT`/`EndUT` every frame. During time warp, `currentUT` advances and ghosts appear/play/despawn at the correct UTs without special fast-forward code.
 
 **Warp safety:** During time warp, vessel spawning is deferred to a spawn queue (`pendingSpawnRecordingIds`). When a recording "completes" during warp (ghost reaches end UT), the spawn is queued rather than executed immediately. The queue is flushed when the player exits time warp (`ShouldFlushDeferredSpawns`). This prevents physics instability from spawning vessels during warp. Visual FX are suppressed above 10x warp, ghost meshes hidden above 50x warp for performance.
+
+> **See also:** `parsek-vessel-interaction-paradox-addendum-time-jump.md` Section 3 introduces the **relative-state time jump** — a discrete UT skip (not warp) that preserves physics bubble geometry. This solves the rendezvous-drift problem where normal time warp separates carefully-aligned vessels through differential Keplerian drift. Section 4 describes the **selective spawning UI** for choosing which ghost chain tip to jump to. Section 7.1 corrects the spawn queue behavior: unloaded spawns (outside physics bubble) create a ProtoVessel immediately at chain tip UT, not queued until the player enters the bubble.
 
 ### 14.4 Quicksave Pruning
 
@@ -1006,6 +1016,8 @@ Ghosts are implemented as raw Unity GameObjects with meshes cloned from part pre
 
 **Performance implication:** Since ghosts are not KSP Vessels, the ghost count limit is driven purely by Unity rendering cost (draw calls, polygon count), not by KSP's vessel management overhead. This is favorable for the multi-ghost scenarios described in this document.
 
+> **See also:** `parsek-vessel-interaction-paradox-addendum-time-jump.md` Section 7.2-7.3 extends the ghost model with selective game system participation while keeping ghosts as raw GameObjects. Ghosts gain CommNet relay registration (antenna nodes at ghost positions), tracking station entries with distinct icons, and map view orbit display. These are implemented via selective API registration, not by promoting ghosts to full KSP Vessels. Section 7.3 explains the rationale: the full-vessel approach trades a clean guaranteed boundary for convenience, risking active effects leaking through. Section 7.4 clarifies that passive resource generation during ghost windows is handled by the game actions timeline, not by ghost-level simulation.
+
 ### 15.3 Mod Compatibility for Ghost Visuals
 
 Ghosts load part meshes from whatever parts the original vessel used, including modded parts. Base mesh rendering works for any part. Custom visual effects from mods (animated modules, shader effects, particle systems) may require explicit support to replay on ghosts. Unsupported modded visuals degrade gracefully — the mesh is in the right place but the custom animation doesn't play.
@@ -1019,6 +1031,8 @@ Ghosts do not physically interact with anything:
 - The player cannot click on or select ghosts for vessel control.
 
 Ghosts are visible scenery. They make the world feel alive but do not participate in game mechanics.
+
+> **See also:** `parsek-vessel-interaction-paradox.md` Section 8.10 (self-protecting property) — the ghost interaction rule is the foundation of paradox prevention. Because ghosts have no colliders or docking ports, the player cannot create conflicting recordings against a ghosted vessel. Section 8.14 (ghost visual identity) — ghosts must be visually distinguishable from real vessels so the player doesn't attempt to dock with them.
 
 ---
 
@@ -1105,6 +1119,8 @@ These thresholds are estimates. The coding agent should implement basic ghost sp
 ### 18.1 General Principle
 
 Parsek never crashes or corrupts a save due to bad recording data. The player's actual game state is never at risk because Parsek only creates ghosts (raw Unity GameObjects) — it never modifies real vessels or real game state. Recording failures degrade gracefully: ghosts may be missing or visually imperfect, but gameplay continues.
+
+> **See also:** `parsek-vessel-interaction-paradox.md` Section 4 and `recording-system-extension-plan.md` Section 8.1 introduce ghost chain vessel conversion, where Parsek despawns real vessels and spawns replacements at chain tips. This modifies real game state for the first time. Error recovery for ghost chain failures: VesselGhoster is wrapped in try/catch — if conversion fails, the vessel is left untouched and current behavior applies (no paradox prevention, but no data loss). The quicksave captured at recording start is always available as a full backup. See extension plan Section 8 for the full risk analysis.
 
 All errors are logged to KSP.log with a `[Parsek]` prefix for debugging.
 
@@ -1226,7 +1242,10 @@ All errors are logged to KSP.log with a `[Parsek]` prefix for debugging.
 
 ---
 
-*Document version: 2.6*
+*Document version: 2.9*
+*Updated: 2026-03-20 — Fixed stale CommittedVesselTrack reference in Section 12.2, added ghost chain error recovery cross-reference in Section 18.1*
+*Updated: 2026-03-20 — Added cross-references to time jump addendum (parsek-vessel-interaction-paradox-addendum-time-jump.md) in Sections 14.3 and 15.2*
+*Updated: 2026-03-19 — Added cross-references to vessel interaction paradox extension (parsek-vessel-interaction-paradox.md) in Sections 11, 14, and 15*
 *Updated: 2026-03-18 — Phase 2-4 implementation decisions integrated (no RecordingSession, snap-switch merge, background split TTL, external vessel handling, source-tagged TrackSections, loop anchor extension, timeline immutability policy, spawn-at-end logic, warp safety queue, pruning deferred)*
 *Parsek Recording System Design — Vessel recordings only.*
 *Covers: Recording tree (DAG), segment boundary rule, SegmentEvents, breakup coalescing, identity persistence, multi-vessel sessions, segment taxonomy, rendering zones, looped playback anchoring, rewind (vessel scope), ghost constraints, file format, performance budget, error recovery.*
