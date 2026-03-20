@@ -143,7 +143,7 @@ Throughout this document, "Recording" (capitalized) refers to the per-vessel dat
 
 These are the actual data structures. All types referenced elsewhere in this document are defined here.
 
-**RecordingTree** — the complete DAG for one mission. Committed trees are stored in a flat list (`RecordingStore.CommittedTrees`) that survives scene changes. The ghost chain walker iterates this list on every rewind and save load.
+**RecordingTree** — the complete DAG for one mission. Committed trees are stored in a flat list (`RecordingStore.CommittedTrees`) that survives scene changes via static field persistence and is serialized/deserialized by the ScenarioModule (`ParsekScenario`). The ghost chain walker iterates this list on every rewind and save load.
 
 ```
 RecordingTree
@@ -328,7 +328,7 @@ AntennaSpec
   antennaCombinableExponent:  double
 ```
 
-### 4.3 The Segment Boundary Rule
+### 4.4 The Segment Boundary Rule
 
 **CRITICAL: Only physical structural separation creates new segments. Controller changes never create segment boundaries.**
 
@@ -347,9 +347,9 @@ A segment boundary does NOT occur when:
 - Crew transfers between parts within the same vessel
 - Parts are destroyed, added, or removed without splitting the vessel
 
-These non-structural changes are recorded as SegmentEvents (Section 4.7) within the continuing segment.
+These non-structural changes are recorded as SegmentEvents (Section 4.8) within the continuing segment.
 
-### 4.4 Identity Persistence Rule
+### 4.5 Identity Persistence Rule
 
 A vessel segment persists as long as at least one controller part **physically exists** on the vessel, regardless of whether that controller is currently **functional**.
 
@@ -360,11 +360,11 @@ A vessel segment persists as long as at least one controller part **physically e
 
 Only physical destruction or removal of ALL controller parts ends the segment.
 
-### 4.5 Split Events
+### 4.6 Split Events
 
 When a vessel physically separates into independent assemblies (staging, undocking, EVA), the parent segment ends and two or more child segments begin. Each child inherits whatever controller parts end up on its side. Children without any controller are tagged as debris and receive minimal recording (position only until destruction/despawn).
 
-### 4.6 Breakup Events (Crash Coalescing)
+### 4.7 Breakup Events (Crash Coalescing)
 
 Crashes, overheating, and structural failures can produce many fragments across multiple physics frames. Rather than recording 20 individual SPLIT events in rapid succession, Parsek coalesces all separation events within a short time window (default 0.5 seconds) into a single BREAKUP tree event.
 
@@ -385,7 +385,7 @@ Parsek records:
     debrisCount: 14
 ```
 
-### 4.7 Within-Segment Events (SegmentEvents)
+### 4.8 Within-Segment Events (SegmentEvents)
 
 SegmentEvents record significant state changes that do NOT create DAG branches. They are annotations on a continuing segment, important for crew tracking, ghost visual fidelity, and vessel state history.
 
@@ -410,13 +410,13 @@ Types:
 - **PART_ADDED** — Part added via construction without creating a new vessel. Ghost starts rendering this part mesh after this UT.
 - **TIME_JUMP** — Discontinuity from a relative-state time jump (see Section 14.5). Stores pre-jump and post-jump state vectors (position, velocity, UT) so playback can handle the gap as a visual cut.
 
-### 4.8 Merge Events
+### 4.9 Merge Events
 
 When two vessels merge (docking, boarding, claw attachment), both parent segments end and one child segment begins. The child inherits all controllers from both parents.
 
 **Merging with a pre-existing persistent vessel** (e.g., docking to a station from a previous recording): The current recording's segment ends with a merge event. The `targetVesselId` field links the recording tree to the persistent game state. The combined vessel is a new segment in the current recording's tree. The historical recording tree of the station is NOT modified — it is immutable.
 
-### 4.9 Example DAG
+### 4.10 Example DAG
 
 A crewed lander with a probe-controlled transfer stage:
 
@@ -569,9 +569,13 @@ For vessels on rails (outside the physics bubble, during time warp, or across sc
 
 ### 8.2 Checkpoint Data
 
+Checkpoint data is stored as `OrbitSegment` and `SurfacePosition` values (defined in Section 4.3). In summary:
+
 ```
-OrbitalCheckpoint
-  ut, body, sma, ecc, inc, lan, argPe, meanAnomaly, epoch
+OrbitSegment (used for orbital checkpoints)
+  startUT, endUT, inclination, eccentricity, semiMajorAxis,
+  longitudeOfAscendingNode, argumentOfPeriapsis, meanAnomalyAtEpoch,
+  epoch, bodyName, orbitalFrameRotation, angularVelocity
 
 SurfaceCheckpoint
   ut, body, latitude, longitude, altitude, heading
