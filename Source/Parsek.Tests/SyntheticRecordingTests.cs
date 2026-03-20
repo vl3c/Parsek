@@ -6111,12 +6111,12 @@ namespace Parsek.Tests
         /// <summary>
         /// Scenario A (R0): Station Alpha — pre-existing orbiting station (PID=8001).
         /// Provides the target vessel for docking chain tests.
-        /// Time: baseUT+600 to baseUT+620.
+        /// Time: baseUT+2 to baseUT+4 (early, so station exists before docking recordings start).
         /// </summary>
         internal static ConfigNode StationR0Tree(double baseUT = 0)
         {
-            double t0 = baseUT + 600;
-            double tEnd = baseUT + 620;
+            double t0 = baseUT + 2;
+            double tEnd = baseUT + 4;
             string treeId = "tree-station-r0";
             string rootId = "gc-station-r0";
 
@@ -6158,13 +6158,13 @@ namespace Parsek.Tests
         /// <summary>
         /// Scenario A (R1): Docking Vessel A (PID=8002) launches and docks to Station Alpha (PID=8001).
         /// The Dock branch point with TargetVesselPersistentId=8001 triggers the ghost chain walker.
-        /// Time: baseUT+660 to baseUT+780.
+        /// Time: baseUT+5 to baseUT+15 (starts shortly after save load).
         /// </summary>
         internal static ConfigNode StationDockingChainTree(double baseUT = 0)
         {
-            double t0 = baseUT + 660;
-            double tDock = baseUT + 720;
-            double tEnd = baseUT + 780;
+            double t0 = baseUT + 5;
+            double tDock = baseUT + 10;
+            double tEnd = baseUT + 15;
             string treeId = "tree-dock-r1";
             string rootId = "dock-r1-root";
             string mergedId = "dock-r1-merged";
@@ -6233,13 +6233,13 @@ namespace Parsek.Tests
         /// <summary>
         /// Scenario B: Docking Vessel B (PID=8003) docks to the R1 merged product (PID=8001).
         /// Cross-tree chain: both R1's merged and R2's target share PID=8001.
-        /// Time: baseUT+800 to baseUT+960.
+        /// Time: baseUT+16 to baseUT+25 (follows Scenario A).
         /// </summary>
         internal static ConfigNode CrossTreeDockingChainTree(double baseUT = 0)
         {
-            double t0 = baseUT + 800;
-            double tDock = baseUT + 880;
-            double tEnd = baseUT + 960;
+            double t0 = baseUT + 16;
+            double tDock = baseUT + 20;
+            double tEnd = baseUT + 25;
             string treeId = "tree-dock-r2";
             string rootId = "dock-r2-root";
             string mergedId = "dock-r2-merged";
@@ -6305,12 +6305,12 @@ namespace Parsek.Tests
 
         /// <summary>
         /// Scenario C (R0): Pad Service Rig — pre-existing vessel landed at KSC pad area (PID=8005).
-        /// Time: baseUT+980 to baseUT+1000.
+        /// Time: baseUT+2 to baseUT+4 (early, so pad rig exists before collision recording).
         /// </summary>
         internal static ConfigNode PadRigR0Tree(double baseUT = 0)
         {
-            double t0 = baseUT + 980;
-            double tEnd = baseUT + 1000;
+            double t0 = baseUT + 2;
+            double tEnd = baseUT + 4;
             string treeId = "tree-pad-rig-r0";
             string rootId = "gc-pad-rig-r0";
 
@@ -6353,13 +6353,13 @@ namespace Parsek.Tests
         /// <summary>
         /// Scenario C (R1): Collision Probe (PID=8004) docks to Pad Service Rig (PID=8005).
         /// Tests ghost chain spawn near the KSC pad with potential collision.
-        /// Time: baseUT+1000 to baseUT+1080.
+        /// Time: baseUT+26 to baseUT+35 (follows Scenario B).
         /// </summary>
         internal static ConfigNode SpawnCollisionChainTree(double baseUT = 0)
         {
-            double t0 = baseUT + 1000;
-            double tDock = baseUT + 1020;
-            double tEnd = baseUT + 1080;
+            double t0 = baseUT + 26;
+            double tDock = baseUT + 30;
+            double tEnd = baseUT + 35;
             string treeId = "tree-collision-r1";
             string rootId = "collision-r1-root";
             string mergedId = "collision-r1-merged";
@@ -6426,12 +6426,12 @@ namespace Parsek.Tests
 
         /// <summary>
         /// Scenario D (R0): KSC Surface Base — pre-existing vessel landed at flat area near VAB (PID=8006).
-        /// Time: baseUT+1100 to baseUT+1120.
+        /// Time: baseUT+2 to baseUT+4 (early, so base exists before rover recording).
         /// </summary>
         internal static ConfigNode SurfaceBaseR0Tree(double baseUT = 0)
         {
-            double t0 = baseUT + 1100;
-            double tEnd = baseUT + 1120;
+            double t0 = baseUT + 2;
+            double tEnd = baseUT + 4;
             string treeId = "tree-surface-base-r0";
             string rootId = "gc-surface-base-r0";
 
@@ -6474,13 +6474,13 @@ namespace Parsek.Tests
         /// <summary>
         /// Scenario D (R1): Service Rover (PID=8007) docks to KSC Surface Base (PID=8006).
         /// Tests surface ghost chain with terrain height correction.
-        /// Time: baseUT+1140 to baseUT+1240.
+        /// Time: baseUT+36 to baseUT+45 (follows Scenario C).
         /// </summary>
         internal static ConfigNode SurfaceGhostChainTree(double baseUT = 0)
         {
-            double t0 = baseUT + 1140;
-            double tDock = baseUT + 1180;
-            double tEnd = baseUT + 1240;
+            double t0 = baseUT + 36;
+            double tDock = baseUT + 40;
+            double tEnd = baseUT + 45;
             string treeId = "tree-surface-dock-r1";
             string rootId = "surface-dock-r1-root";
             string mergedId = "surface-dock-r1-merged";
