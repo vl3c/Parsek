@@ -42,18 +42,19 @@ namespace Parsek.Tests
         [InlineData(SegmentEventType.PartDestroyed, 5)]
         [InlineData(SegmentEventType.PartRemoved, 6)]
         [InlineData(SegmentEventType.PartAdded, 7)]
+        [InlineData(SegmentEventType.TimeJump, 8)]
         public void SegmentEventType_HasExpectedIntValue(SegmentEventType type, int expected)
         {
             Assert.Equal(expected, (int)type);
         }
 
         [Fact]
-        public void SegmentEventType_AllValues_Contiguous_0_To_7()
+        public void SegmentEventType_AllValues_Contiguous_0_To_8()
         {
             var values = (SegmentEventType[])Enum.GetValues(typeof(SegmentEventType));
-            Assert.Equal(8, values.Length);
+            Assert.Equal(9, values.Length);
 
-            for (int i = 0; i < 8; i++)
+            for (int i = 0; i < 9; i++)
             {
                 Assert.True(Enum.IsDefined(typeof(SegmentEventType), i),
                     $"Expected SegmentEventType to have a value for integer {i}");

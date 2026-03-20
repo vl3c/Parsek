@@ -11,7 +11,8 @@ namespace Parsek
         CrewTransfer      = 4,  // crew member moved between parts
         PartDestroyed     = 5,  // part destroyed while vessel stays connected
         PartRemoved       = 6,  // part removed (e.g. inventory removal) without split
-        PartAdded         = 7   // part added (e.g. inventory placement) without merge
+        PartAdded         = 7,  // part added (e.g. inventory placement) without merge
+        TimeJump          = 8   // discrete UT skip preserving physics bubble geometry
     }
 
     public struct SegmentEvent
