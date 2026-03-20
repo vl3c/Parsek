@@ -257,6 +257,10 @@ namespace Parsek
             }
 
             node.precisePosition = position;
+            ParsekLog.VerboseRateLimited(Tag, "node-pos-" + vesselPid,
+                string.Format(ic,
+                    "UpdateNodePosition: pid={0} pos=({1:F0},{2:F0},{3:F0})",
+                    vesselPid, position.x, position.y, position.z));
         }
 
         /// <summary>

@@ -217,15 +217,19 @@ namespace Parsek
                         Vector3d pos = v.orbit.pos;
                         Vector3d vel = v.orbit.vel;
                         CelestialBody body = v.orbit.referenceBody;
+                        double oldMeanAnomaly = v.orbit.meanAnomalyAtEpoch;
 
                         // Recompute orbital elements at new UT from same state vectors
                         v.orbit.UpdateFromStateVectors(pos, vel, body, targetUT);
 
+                        double shift = v.orbit.meanAnomalyAtEpoch - oldMeanAnomaly;
+
                         ParsekLog.Verbose(Tag,
                             string.Format(ic,
-                                "Epoch-shifted vessel: pid={0} name={1} body={2}",
+                                "Epoch-shifted vessel: pid={0} name={1} body={2} dMeanAnomaly={3:F6}",
                                 v.persistentId, v.vesselName,
-                                body != null ? body.bodyName : "null"));
+                                body != null ? body.bodyName : "null",
+                                shift));
                     }
                     catch (Exception ex)
                     {

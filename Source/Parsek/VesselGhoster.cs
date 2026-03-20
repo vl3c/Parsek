@@ -208,11 +208,6 @@ namespace Parsek
             // Spawn with PID preservation for chain continuity
             uint spawnedPid = VesselSpawner.RespawnVessel(vesselSnapshot, preserveIdentity: true);
 
-            ParsekLog.Info(Tag,
-                string.Format(ic,
-                    "Chain tip spawn: pid={0} vessel={1} preserveIdentity=true — real vessel created",
-                    spawnedPid, vesselName ?? "(unknown)"));
-
             if (spawnedPid == 0)
             {
                 ParsekLog.Error(Tag,
@@ -221,6 +216,11 @@ namespace Parsek
                         tipId));
                 return 0;
             }
+
+            ParsekLog.Info(Tag,
+                string.Format(ic,
+                    "Chain tip spawn: pid={0} vessel={1} preserveIdentity=true — real vessel created",
+                    spawnedPid, vesselName ?? "(unknown)"));
 
             // Destroy ghost GO if it exists, and remove tracking entry
             CleanupGhostedVessel(chain.OriginalVesselPid);
@@ -492,6 +492,10 @@ namespace Parsek
                             string.Format(ic, "ComputePropagatedPosition: body '{0}' not found", bodyName));
                         return Vector3d.zero;
                     }
+                    ParsekLog.Verbose(Tag,
+                        string.Format(ic,
+                            "ComputePropagatedPosition: surface hold lat={0} lon={1} alt={2}",
+                            lat, lon, alt));
                     return body.GetWorldSurfacePosition(lat, lon, alt);
                 }
 

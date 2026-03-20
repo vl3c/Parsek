@@ -3599,6 +3599,11 @@ namespace Parsek
                 activeChains[pid] = chain;
                 if (vesselGhoster.GhostVessel(pid))
                     ghostedCount++;
+                else
+                {
+                    ParsekLog.Warn("Ghoster", string.Format(CultureInfo.InvariantCulture,
+                        "Failed to ghost vessel pid={0} for chain — vessel may remain real", pid));
+                }
             }
 
             activeGhostChains = activeChains;

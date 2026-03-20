@@ -415,6 +415,41 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// Hyperbolic orbit (ecc=1.5, sma=800000) triggers the guard at the top
+        /// of PropagateOrbital and returns the fallback position with valid (non-NaN) values.
+        /// Guards: hyperbolic orbit guard added in 6c review fix.
+        /// </summary>
+        [Fact]
+        public void PropagateOrbital_HyperbolicOrbit_ReturnsFallback()
+        {
+            double ecc = 1.5;
+            double sma = 800000.0;
+            double inc = 0.5;
+            double lan = 0.5;
+            double argPe = 1.0;
+            double mAe = 0.0;
+            double epoch = 1000.0;
+
+            var pos = GhostExtender.PropagateOrbital(
+                inc, ecc, sma, lan, argPe, mAe, epoch,
+                KerbinRadius, KerbinGM, epoch + 500.0);
+
+            // Should return fallback values, not NaN
+            Assert.False(double.IsNaN(pos.lat), "Latitude is NaN for hyperbolic orbit");
+            Assert.False(double.IsNaN(pos.lon), "Longitude is NaN for hyperbolic orbit");
+            Assert.False(double.IsNaN(pos.alt), "Altitude is NaN for hyperbolic orbit");
+
+            // Fallback: lat=0, lon=0, alt=sma-bodyRadius
+            Assert.Equal(0.0, pos.lat);
+            Assert.Equal(0.0, pos.lon);
+            Assert.Equal(sma - KerbinRadius, pos.alt);
+
+            // Verify the guard logged
+            Assert.Contains(logLines, l =>
+                l.Contains("[GhostExtend]") && l.Contains("unsupported orbit"));
+        }
+
+        /// <summary>
         /// Backward propagation (currentUT before epoch) also works.
         /// Guards: negative dt does not produce NaN or crash.
         /// </summary>

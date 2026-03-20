@@ -212,6 +212,28 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// A Recording with VesselPersistentId=100 and EndUT=1500 (before chain tip SpawnUT=2000)
+        /// whose RecordingId is NOT in the chain's Links list — but its vessel PID IS claimed.
+        /// ShouldSuppressSpawnForChain should return (true, "intermediate ghost chain link")
+        /// because IsIntermediateChainLink uses the PID-based path.
+        /// </summary>
+        [Fact]
+        public void PidBasedIntermediate_SpawnSuppressed()
+        {
+            var (chains, _) = MakeTwoLinkChain();
+
+            // Recording with PID=100 (same as chain's OriginalVesselPid) and
+            // EndUT=1500 (before chain.SpawnUT=2000), but RecordingId NOT in chain links
+            var pidMatchRec = MakeRecording("pid-match-rec", 100, 1400, 1500, "PidMatchVessel");
+
+            var (suppressed, reason) = GhostPlaybackLogic.ShouldSuppressSpawnForChain(
+                chains, pidMatchRec);
+
+            Assert.True(suppressed);
+            Assert.Equal("intermediate ghost chain link", reason);
+        }
+
+        /// <summary>
         /// Verify that ShouldSpawnAtRecordingEnd still exists and works correctly
         /// with a simple recording — we did NOT accidentally modify the existing method.
         /// </summary>

@@ -92,6 +92,8 @@ namespace Parsek
                     return false;
 
                 default:
+                    ParsekLog.Verbose("ChainWalker",
+                        $"IsClaimingBranchPoint: unknown BranchPointType {(int)type}, returning false");
                     return false;
             }
         }
