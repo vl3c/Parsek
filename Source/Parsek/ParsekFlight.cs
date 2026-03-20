@@ -3596,6 +3596,10 @@ namespace Parsek
 
             activeGhostChains = chains;
 
+            // Wire the ghosted-vessel check for ShouldSkipExternalVesselGhost (Task 6b-3b)
+            GhostPlaybackLogic.SetIsGhostedOverride(
+                pid => vesselGhoster != null && vesselGhoster.IsGhosted(pid));
+
             ParsekLog.Info("Ghoster",
                 string.Format(CultureInfo.InvariantCulture,
                     "Ghost chains evaluated: {0} chain(s), {1} vessel(s) ghosted",
