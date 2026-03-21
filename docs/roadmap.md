@@ -179,6 +179,7 @@ Comprehensive redesign of the recording and playback systems, built on the `reco
 - **KSC ghost playback** — ghosts visible in KSC scene with distance-based part event culling
 - **Ghost soft cap manager** — zone-based priority despawn (partial, see Phase 4)
 - **Log spam mitigation** — rate-limited high-volume diagnostics (SoftCap, GhostVisual, ShouldTriggerExplosion, CanRewind)
+- **Real Spawn Control** — proximity-based UI (500m range) for warping to when nearby ghost craft become real vessels. Per-craft warp buttons, sortable columns, countdown display, screen notifications. Countdown column also added to Recordings Manager.
 - **59 bugs documented** — 44 fixed, see `docs/dev/todo-and-known-bugs.md`
 
 ### What remains
