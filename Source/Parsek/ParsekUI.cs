@@ -3051,22 +3051,24 @@ namespace Parsek
             // Bottom section
             GUILayout.Space(SpacingLarge);
 
+            GUILayout.BeginHorizontal();
             var next = SelectiveSpawnUI.FindNextSpawnCandidate(candidates, currentUT);
-            if (next != null)
+            GUI.enabled = next != null;
+            string tooltip = next != null
+                ? SelectiveSpawnUI.FormatNextSpawnTooltip(next, currentUT) : "";
+            if (GUILayout.Button(new GUIContent("Warp to Next Real Spawn", tooltip),
+                GUILayout.ExpandWidth(true)))
             {
-                string tooltip = SelectiveSpawnUI.FormatNextSpawnTooltip(next, currentUT);
-                if (GUILayout.Button(new GUIContent("Warp to Next Real Spawn", tooltip)))
-                {
-                    ParsekLog.Info("UI", "Real Spawn Control: Warp to Next Real Spawn clicked");
-                    flight.WarpToNextCraftSpawn();
-                }
+                ParsekLog.Info("UI", "Real Spawn Control: Warp to Next Real Spawn clicked");
+                flight.WarpToNextCraftSpawn();
             }
-
-            if (GUILayout.Button("Close"))
+            GUI.enabled = true;
+            if (GUILayout.Button("Close", GUILayout.Width(132)))
             {
                 showSpawnControlWindow = false;
                 ParsekLog.Verbose("UI", "Real Spawn Control window closed");
             }
+            GUILayout.EndHorizontal();
 
             if (!string.IsNullOrEmpty(GUI.tooltip))
             {
