@@ -101,6 +101,7 @@ Parsek was inspired by and learned from the KSP modding community. The following
 - **[ClickThroughBlocker](https://github.com/linuxgurugamer/ClickThroughBlocker)** (linuxgurugamer) - UI click-through prevention
 - **[ToolbarControl](https://github.com/linuxgurugamer/ToolbarControl)** (linuxgurugamer) - toolbar integration
 - **[Camera Focus Changer](https://github.com/linuxgurugamer/camerafocuschanger)** (linuxgurugamer) - camera pivot techniques for ghost vessel tracking
+- **[Dark Multiplayer](https://github.com/godarklight/DarkMultiPlayer)** (godarklight) - subspace selection patterns for selective vessel spawn UI
 - **[CommNetManager](https://github.com/DBooots/CommNetManager)** (DBooots / KSP-TaxiService) - understanding CommNet internals for ghost relay node registration
 - **[RemoteTech](https://github.com/RemoteTechnologiesGroup/RemoteTech)** (RemoteTechnologiesGroup) - CommNet replacement detection, graceful degradation patterns
 - **[Module Manager](https://github.com/sarbian/ModuleManager)** (sarbian) - essential config patching
