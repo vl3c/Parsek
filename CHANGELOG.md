@@ -4,6 +4,15 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.5.1
+
+### Bug Fixes
+
+- **#93**: Surface vehicle ghost slides away during on-rails playback — orbit segments with sub-surface SMA now skipped for LANDED/SPLASHED/PRELAUNCH vessels at recording time; playback uses `IsSurfaceAtUT` to suppress orbit interpolation for surface TrackSections; SMA < 90% body radius rejected as safety net
+- **Terrain clamp** — ghost positions clamped above terrain in LateUpdate, preventing any ghost from appearing underground regardless of interpolation source
+
+---
+
 ## 0.5.0
 
 Recording system redesign: multi-vessel sessions, ghost chain paradox prevention, spawn safety, time jump, and rendering zones. Recording format v5 → v7 (backward compatible).

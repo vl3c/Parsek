@@ -863,5 +863,85 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region IsSurfaceAtUT
+
+        [Fact]
+        public void IsSurfaceAtUT_SurfaceMobile_ReturnsTrue()
+        {
+            var sections = new List<TrackSection>
+            {
+                new TrackSection { environment = SegmentEnvironment.SurfaceMobile, startUT = 100, endUT = 200 }
+            };
+            Assert.True(TrajectoryMath.IsSurfaceAtUT(sections, 150));
+        }
+
+        [Fact]
+        public void IsSurfaceAtUT_SurfaceStationary_ReturnsTrue()
+        {
+            var sections = new List<TrackSection>
+            {
+                new TrackSection { environment = SegmentEnvironment.SurfaceStationary, startUT = 100, endUT = 200 }
+            };
+            Assert.True(TrajectoryMath.IsSurfaceAtUT(sections, 150));
+        }
+
+        [Fact]
+        public void IsSurfaceAtUT_Atmospheric_ReturnsFalse()
+        {
+            var sections = new List<TrackSection>
+            {
+                new TrackSection { environment = SegmentEnvironment.Atmospheric, startUT = 100, endUT = 200 }
+            };
+            Assert.False(TrajectoryMath.IsSurfaceAtUT(sections, 150));
+        }
+
+        [Fact]
+        public void IsSurfaceAtUT_ExoBallistic_ReturnsFalse()
+        {
+            var sections = new List<TrackSection>
+            {
+                new TrackSection { environment = SegmentEnvironment.ExoBallistic, startUT = 100, endUT = 200 }
+            };
+            Assert.False(TrajectoryMath.IsSurfaceAtUT(sections, 150));
+        }
+
+        [Fact]
+        public void IsSurfaceAtUT_NullSections_ReturnsFalse()
+        {
+            Assert.False(TrajectoryMath.IsSurfaceAtUT(null, 150));
+        }
+
+        [Fact]
+        public void IsSurfaceAtUT_EmptySections_ReturnsFalse()
+        {
+            Assert.False(TrajectoryMath.IsSurfaceAtUT(new List<TrackSection>(), 150));
+        }
+
+        [Fact]
+        public void IsSurfaceAtUT_UTOutsideRange_ReturnsFalse()
+        {
+            var sections = new List<TrackSection>
+            {
+                new TrackSection { environment = SegmentEnvironment.SurfaceMobile, startUT = 100, endUT = 200 }
+            };
+            Assert.False(TrajectoryMath.IsSurfaceAtUT(sections, 300));
+        }
+
+        [Fact]
+        public void IsSurfaceAtUT_MixedSections_CorrectlyIdentifiesSurface()
+        {
+            var sections = new List<TrackSection>
+            {
+                new TrackSection { environment = SegmentEnvironment.Atmospheric, startUT = 100, endUT = 200 },
+                new TrackSection { environment = SegmentEnvironment.SurfaceMobile, startUT = 200, endUT = 300 },
+                new TrackSection { environment = SegmentEnvironment.ExoBallistic, startUT = 300, endUT = 400 }
+            };
+            Assert.False(TrajectoryMath.IsSurfaceAtUT(sections, 150));
+            Assert.True(TrajectoryMath.IsSurfaceAtUT(sections, 250));
+            Assert.False(TrajectoryMath.IsSurfaceAtUT(sections, 350));
+        }
+
+        #endregion
     }
 }
