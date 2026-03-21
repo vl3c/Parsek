@@ -5343,6 +5343,8 @@ namespace Parsek
 
                 // External vessel ghost skip: if this is a background tree recording
                 // whose real vessel still exists in the game world, skip ghost spawning.
+                // Tree-owned vessels bypass this check (their ghost replays the recorded flight).
+                bool externalVesselSuppressed = false;
                 if (GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
                     rec.TreeId, rec.VesselPersistentId, IsActiveTreeRecording(rec)))
                 {
@@ -5353,7 +5355,12 @@ namespace Parsek
                             $"Ghost #{i} destroyed — external vessel '{rec.VesselName}' " +
                             $"pid={rec.VesselPersistentId} real vessel present");
                     }
-                    continue;
+                    if (loggedGhostEnter.Add(i + 400000))
+                        ParsekLog.Verbose("Flight",
+                            $"Ghost #{i} suppressed — external vessel '{rec.VesselName}' " +
+                            $"pid={rec.VesselPersistentId} exists (not tree-owned)");
+                    externalVesselSuppressed = true;
+                    // Fall through — spawn-at-end evaluation must still run
                 }
 
                 if (ShouldLoopPlayback(rec))
@@ -5428,6 +5435,14 @@ namespace Parsek
                 {
                     rec.VesselSpawned = true;
                     Log($"Vessel already spawned (pid={rec.SpawnedVesselPersistentId}) — marked VesselSpawned=true for recording #{i}");
+                }
+
+                // External vessel suppression: skip ghost visuals while in-range,
+                // but allow spawn-at-end evaluation when past-end.
+                if (externalVesselSuppressed && inRange)
+                {
+                    if (rec.TreeId == null) ApplyResourceDeltas(rec, currentUT);
+                    continue;
                 }
 
                 if (inRange)

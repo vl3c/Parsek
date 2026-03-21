@@ -488,7 +488,32 @@ namespace Parsek
                 return false;
             }
 
+            // Tree-owned vessel: if the recording's tree has recordings with this PID,
+            // the vessel is part of the tree's own flight history — always show the ghost
+            // so the user can see the recorded trajectory replayed. The real vessel may sit
+            // at its save-time position, which is different from the ghost's interpolated path.
+            if (IsVesselOwnedByTree(treeId, vesselPersistentId))
+                return false;
+
             return RealVesselExists(vesselPersistentId);
+        }
+
+        /// <summary>
+        /// Checks whether the given vessel PID belongs to any recording in the same tree.
+        /// A tree "owns" a vessel PID if any of its recordings has that VesselPersistentId.
+        /// Uses the cached OwnedVesselPids set on RecordingTree for O(1) lookup.
+        /// </summary>
+        internal static bool IsVesselOwnedByTree(string treeId, uint vesselPersistentId)
+        {
+            if (string.IsNullOrEmpty(treeId) || vesselPersistentId == 0) return false;
+
+            var trees = RecordingStore.CommittedTrees;
+            for (int i = 0; i < trees.Count; i++)
+            {
+                if (trees[i].Id == treeId)
+                    return trees[i].OwnedVesselPids.Contains(vesselPersistentId);
+            }
+            return false;
         }
 
         /// <summary>
@@ -1902,6 +1927,17 @@ namespace Parsek
             // On revert, SpawnedVesselPersistentId resets to 0 from quicksave so reverts still work.
             if (rec.SpawnedVesselPersistentId != 0)
                 return (false, $"already spawned (pid={rec.SpawnedVesselPersistentId})");
+
+            // Real vessel dedup: if a vessel with this PID still exists in the game world,
+            // the vessel is already at its post-recording position — no need to spawn a duplicate.
+            // On revert, KSP restores the vessel from quicksave with a new PID (launch state),
+            // so RealVesselExists(old PID) returns false and the spawn proceeds correctly.
+            if (rec.VesselPersistentId != 0 && RealVesselExists(rec.VesselPersistentId))
+            {
+                rec.VesselSpawned = true;
+                rec.SpawnedVesselPersistentId = rec.VesselPersistentId;
+                return (false, "real vessel already exists");
+            }
 
             return (true, "");
         }
