@@ -5849,6 +5849,16 @@ namespace Parsek
                     }
                 }
 
+                // Recover missing VesselSnapshot from GhostVisualSnapshot.
+                // VesselSnapshot can be lost if it was null during a save (file gets deleted).
+                // GhostVisualSnapshot persists separately and contains the same vessel data.
+                if (!needsSpawn && rec.VesselSnapshot == null && rec.GhostVisualSnapshot != null
+                    && !rec.VesselDestroyed)
+                {
+                    rec.VesselSnapshot = rec.GhostVisualSnapshot.CreateCopy();
+                    Log($"Recovered VesselSnapshot from GhostVisualSnapshot for recording #{i} \"{rec.VesselName}\"");
+                }
+
                 // External vessel suppression: skip ghost visuals while in-range,
                 // but allow spawn-at-end evaluation when past-end.
                 if (externalVesselSuppressed && inRange)
