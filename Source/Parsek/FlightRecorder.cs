@@ -29,6 +29,7 @@ namespace Parsek
         public List<TrajectoryPoint> Recording { get; } = new List<TrajectoryPoint>();
         public List<OrbitSegment> OrbitSegments { get; } = new List<OrbitSegment>();
         public List<PartEvent> PartEvents { get; } = new List<PartEvent>();
+        public List<FlagEvent> FlagEvents { get; } = new List<FlagEvent>();
         public List<SegmentEvent> SegmentEvents { get; } = new List<SegmentEvent>();
         public List<TrackSection> TrackSections { get; } = new List<TrackSection>();
 
@@ -2031,6 +2032,12 @@ namespace Parsek
             return ((ulong)pid << 8) | (uint)moduleIndex;
         }
 
+        internal static void DecodeEngineKey(ulong key, out uint pid, out int moduleIndex)
+        {
+            pid = (uint)(key >> 8);
+            moduleIndex = (int)(key & 0xFF);
+        }
+
         private static string FormatCoverageEntries(List<string> entries, int maxEntries = 8)
         {
             if (entries == null || entries.Count == 0)
@@ -3567,6 +3574,7 @@ namespace Parsek
             Recording.Clear();
             OrbitSegments.Clear();
             PartEvents.Clear();
+            FlagEvents.Clear();
             SegmentEvents.Clear();
             ResetPartEventTrackingState(v);
 
@@ -3770,6 +3778,45 @@ namespace Parsek
             // false events at first poll (e.g., shrouds already jettisoned,
             // engines already running, lights already on, etc.)
             SeedExistingPartStates(v);
+
+            // Emit seed events for the initial visual state so ghost playback
+            // can reconstruct correct visuals from recording start (bugs #70/#65).
+            var partNamesByPid = new Dictionary<uint, string>();
+            if (v.parts != null)
+            {
+                for (int i = 0; i < v.parts.Count; i++)
+                {
+                    Part p = v.parts[i];
+                    if (p != null && !partNamesByPid.ContainsKey(p.persistentId))
+                        partNamesByPid[p.persistentId] = p.partInfo?.name ?? "unknown";
+                }
+            }
+            var seedSets = new PartTrackingSets
+            {
+                deployedFairings = deployedFairings,
+                jettisonedShrouds = jettisonedShrouds,
+                parachuteStates = parachuteStates,
+                extendedDeployables = extendedDeployables,
+                lightsOn = lightsOn,
+                blinkingLights = blinkingLights,
+                lightBlinkRates = lightBlinkRates,
+                deployedGear = deployedGear,
+                openCargoBays = openCargoBays,
+                deployedLadders = deployedLadders,
+                deployedAnimationGroups = deployedAnimationGroups,
+                deployedAnimateGenericModules = deployedAnimateGenericModules,
+                deployedAeroSurfaceModules = deployedAeroSurfaceModules,
+                deployedControlSurfaceModules = deployedControlSurfaceModules,
+                deployedRobotArmScannerModules = deployedRobotArmScannerModules,
+                animateHeatLevels = animateHeatLevels,
+                activeEngineKeys = activeEngineKeys,
+                lastThrottle = lastThrottle,
+                activeRcsKeys = activeRcsKeys,
+                lastRcsThrottle = lastRcsThrottle,
+            };
+            double seedUT = Planetarium.GetUniversalTime();
+            var seedEvents = PartStateSeeder.EmitSeedEvents(seedSets, partNamesByPid, seedUT, "Recorder");
+            PartEvents.AddRange(seedEvents);
         }
 
         /// <summary>
@@ -3828,6 +3875,7 @@ namespace Parsek
                 Points = new List<TrajectoryPoint>(Recording),
                 OrbitSegments = new List<OrbitSegment>(OrbitSegments),
                 PartEvents = new List<PartEvent>(PartEvents),
+                FlagEvents = new List<FlagEvent>(FlagEvents),
                 SegmentEvents = new List<SegmentEvent>(SegmentEvents),
                 PreLaunchFunds = PreLaunchFunds,
                 PreLaunchScience = PreLaunchScience,
@@ -3890,8 +3938,9 @@ namespace Parsek
             UnsubscribePartEvents();
             IsRecording = false;
 
-            // Sort part events chronologically (mixed event sources may produce non-chronological order)
+            // Sort part/flag events chronologically (mixed event sources may produce non-chronological order)
             PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+            FlagEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
 
             // Capture persistence artifacts at stop-time so later scene changes
             // don't depend on whatever vessel is currently active.
@@ -3944,6 +3993,7 @@ namespace Parsek
             IsRecording = false;
 
             PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+            FlagEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
 
             CaptureAtStop = BuildCaptureRecording(
                 FlightGlobals.ActiveVessel != null
@@ -4584,6 +4634,7 @@ namespace Parsek
             UnsubscribePartEvents();
             IsRecording = false;
             PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+            FlagEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
 
             double duration = Recording.Count > 0
                 ? Recording[Recording.Count - 1].ut - Recording[0].ut

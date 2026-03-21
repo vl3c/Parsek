@@ -3344,12 +3344,15 @@ namespace Parsek
                                 fxInstance.transform.localRotation = fxDefinitions[f].localRotation;
                                 fxInstance.transform.localScale = fxDefinitions[f].localScale;
 
-                                var ps = fxInstance.GetComponentInChildren<ParticleSystem>();
-                                if (ps != null)
+                                // Configure ALL particle systems in the FX hierarchy (not just the first).
+                                // KSP RCS FX models have multiple child systems (plume + glow/smoke).
+                                // Using singular GetComponentInChildren only stopped the first one —
+                                // the rest kept playOnAwake=true and auto-played on ghost activation.
+                                var allPs = fxInstance.GetComponentsInChildren<ParticleSystem>(true);
+                                for (int p = 0; p < allPs.Length; p++)
                                 {
+                                    var ps = allPs[p];
                                     var main = ps.main;
-                                    // Keep showcase/startup visuals deterministic: cloned FX must not
-                                    // auto-emit before the first explicit RCS event is applied.
                                     main.playOnAwake = false;
                                     main.prewarm = false;
 
@@ -3359,15 +3362,16 @@ namespace Parsek
                                     ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                                     ps.Clear(true);
 
-                                    if (raiseRcsVisualOnly)
-                                    {
-                                        var psRenderer = ps.GetComponent<ParticleSystemRenderer>();
-                                        if (psRenderer != null)
-                                        {
-                                            psRenderer.enabled = true;
-                                        }
-                                    }
+                                    // Disable renderer at build time (matching engine FX pattern).
+                                    // SetRcsEmission re-enables renderers when RCS events fire.
+                                    var psRenderer = ps.GetComponent<ParticleSystemRenderer>();
+                                    if (psRenderer != null)
+                                        psRenderer.enabled = raiseRcsVisualOnly;
+
                                     info.particleSystems.Add(ps);
+                                }
+                                if (allPs.Length > 0)
+                                {
                                     LogFxInstancePlacementDiagnostic(
                                         partName,
                                         moduleIndex,
@@ -3382,16 +3386,18 @@ namespace Parsek
                                         fxDefinitions[f].localOffset,
                                         fxDefinitions[f].localRotation,
                                         true);
-                                    var diagRenderer = ps.GetComponent<ParticleSystemRenderer>();
-                                    var diagMain = ps.main;
+                                    var diagPs = allPs[0];
+                                    var diagRenderer = diagPs.GetComponent<ParticleSystemRenderer>();
+                                    var diagMain = diagPs.main;
                                     ParsekLog.Verbose("GhostVisual", $"    RCS FX cloned: '{partName}' midx={moduleIndex} " +
                                         $"transform='{transformName}' model='{modelName}' " +
                                         $"offset={fxDefinitions[f].localOffset} " +
                                         $"rot={fxDefinitions[f].localRotation.eulerAngles} " +
                                         $"scale={fxDefinitions[f].localScale} " +
-                                        $"active={ps.gameObject.activeInHierarchy} " +
+                                        $"active={diagPs.gameObject.activeInHierarchy} " +
                                         $"sim={diagMain.simulationSpace} playOnAwake={diagMain.playOnAwake} prewarm={diagMain.prewarm} " +
-                                        $"renderer={(diagRenderer != null && diagRenderer.enabled)}");
+                                        $"renderer={(diagRenderer != null && diagRenderer.enabled)} " +
+                                        $"totalSystems={allPs.Length}");
                                 }
                             }
                             else
@@ -3479,6 +3485,100 @@ namespace Parsek
                     names.Add(damagedName);
             }
             return names;
+        }
+
+        /// <summary>
+        /// Extracts rootObject values from all ModuleStructuralNode MODULE nodes
+        /// in the given part config. These are the internal truss/cap transforms
+        /// that should be hidden when procedural fairings are intact.
+        /// Returns an empty set if no structural node modules exist.
+        /// </summary>
+        internal static HashSet<string> GetFairingInternalStructureNames(ConfigNode partConfig)
+        {
+            var names = new HashSet<string>();
+            if (partConfig == null) return names;
+
+            var modules = partConfig.GetNodes("MODULE");
+            if (modules == null) return names;
+
+            for (int i = 0; i < modules.Length; i++)
+            {
+                if (modules[i].GetValue("name") != "ModuleStructuralNode")
+                    continue;
+                string rootObject = modules[i].GetValue("rootObject");
+                if (!string.IsNullOrEmpty(rootObject))
+                    names.Add(rootObject);
+            }
+            return names;
+        }
+
+        /// <summary>
+        /// Reads the showMesh field from ModuleStructuralNodeToggle in the snapshot
+        /// partNode. This is a KSPField serialized at runtime indicating whether
+        /// internal structure should be visible when fairings are jettisoned.
+        /// Defaults to true if the module or field is not found.
+        /// </summary>
+        internal static bool GetFairingShowMesh(ConfigNode partNode)
+        {
+            if (partNode == null) return true;
+
+            ConfigNode toggleModule = FindModuleNode(partNode, "ModuleStructuralNodeToggle");
+            if (toggleModule == null) return true;
+
+            string showMeshVal = toggleModule.GetValue("showMesh");
+            if (string.IsNullOrEmpty(showMeshVal)) return true;
+
+            bool result;
+            if (bool.TryParse(showMeshVal, out result))
+                return result;
+            return true;
+        }
+
+        /// <summary>
+        /// Finds already-cloned transforms in the ghost model hierarchy that match
+        /// fairing internal structure names (truss/cap objects from ModuleStructuralNode)
+        /// and permanently hides them. Prefab Cap/Truss meshes are at placeholder scale
+        /// (2000,10,2000) — the procedural truss mesh replaces them visually.
+        /// </summary>
+        internal static void HideFairingInternalStructure(
+            FairingGhostInfo fairingInfo, ConfigNode partConfig,
+            Transform ghostModelNode, uint persistentId, string partName)
+        {
+            if (fairingInfo == null || ghostModelNode == null) return;
+
+            HashSet<string> structureNames = GetFairingInternalStructureNames(partConfig);
+            if (structureNames.Count == 0)
+            {
+                ParsekLog.Verbose("GhostVisual", $"    Fairing '{partName}' pid={persistentId}: " +
+                    "no ModuleStructuralNode rootObject names found — no internal structure to hide");
+                return;
+            }
+
+            // Permanently hide prefab Cap/Truss clones — they are at meaningless prefab default scale
+            // (2000,10,2000). The procedural truss mesh on FairingGhostInfo.trussStructureObject
+            // provides the correct post-jettison visual instead.
+            var hidden = new List<GameObject>();
+            CollectMatchingTransforms(ghostModelNode, structureNames, hidden);
+
+            for (int i = 0; i < hidden.Count; i++)
+                hidden[i].SetActive(false);
+
+            ParsekLog.Verbose("GhostVisual", $"    Fairing '{partName}' pid={persistentId}: " +
+                $"found {structureNames.Count} structure names [{string.Join(", ", structureNames)}], " +
+                $"hidden {hidden.Count} prefab structure transforms (procedural truss used instead)");
+        }
+
+        /// <summary>
+        /// Recursively walks a transform hierarchy collecting GameObjects whose name
+        /// matches one of the given names.
+        /// </summary>
+        private static void CollectMatchingTransforms(Transform root, HashSet<string> names, List<GameObject> results)
+        {
+            if (root == null) return;
+            if (names.Contains(root.name))
+                results.Add(root.gameObject);
+            for (int i = 0; i < root.childCount; i++)
+                CollectMatchingTransforms(root.GetChild(i), names, results);
         }
 
         /// <summary>
@@ -4212,7 +4312,7 @@ namespace Parsek
                 }
             }
 
-            // Connect last ring to apex
+            // Connect last ring to apex (pointy nosecone)
             if (hasApex && ringsToGenerate > 0)
             {
                 int lastRingBase = (ringsToGenerate - 1) * vertsPerRing;
@@ -4226,6 +4326,149 @@ namespace Parsek
                     triangles.Add(br);
                 }
             }
+
+            // Conical cap for truncated cone (top ring has non-zero radius, e.g. capRadius).
+            // Creates a pointed cone from the last ring to an apex above it, matching the
+            // shape of a real fairing nosecone. Apex height = lastR * 1.5 above last ring.
+            if (!hasApex && ringsToGenerate > 0)
+            {
+                float capH = sections[ringCount - 1].h;
+                float capR = sections[ringCount - 1].r;
+                float coneApexH = capH + capR * 1.5f;
+                Vector3 coneApex = axisRot * new Vector3(0f, coneApexH, 0f) + pivot;
+                int coneApexIdx = vertices.Count;
+                vertices.Add(coneApex);
+                uvs.Add(new Vector2(0.5f, 1f));
+
+                int lastRingBase = (ringsToGenerate - 1) * vertsPerRing;
+                for (int s = 0; s < nSides; s++)
+                {
+                    int bl = lastRingBase + s;
+                    int br = lastRingBase + s + 1;
+
+                    triangles.Add(bl);
+                    triangles.Add(coneApexIdx);
+                    triangles.Add(br);
+                }
+            }
+
+            Mesh mesh = new Mesh();
+            mesh.SetVertices(vertices);
+            mesh.SetUVs(0, uvs);
+            mesh.SetTriangles(triangles, 0);
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
+        /// <summary>
+        /// Generates a procedural truss structure mesh from XSECTION data: horizontal cap discs
+        /// at each internal ring boundary and vertical struts connecting adjacent rings.
+        /// Shown after fairing jettison to represent the exposed interstage structure.
+        /// </summary>
+        internal static Mesh GenerateFairingTrussMesh(
+            List<(float h, float r)> sections, int nSides, Vector3 pivot, Vector3 axis)
+        {
+            if (sections.Count < 2) return null;
+
+            sections.Sort((a, b) => a.h.CompareTo(b.h));
+            nSides = Mathf.Min(nSides, 24);
+            if (nSides < 3) nSides = 3;
+
+            Quaternion axisRot = Quaternion.FromToRotation(Vector3.up, axis.normalized);
+            var vertices = new List<Vector3>();
+            var uvs = new List<Vector2>();
+            var triangles = new List<int>();
+
+            // --- Horizontal cap discs at each internal XSECTION boundary ---
+            // Skip the bottom (index 0) and top (last index) — caps are only at interior boundaries.
+            for (int i = 1; i < sections.Count - 1; i++)
+            {
+                float h = sections[i].h;
+                float r = sections[i].r;
+                if (r < 0.01f) continue;
+
+                // Center vertex of the disc
+                int centerIdx = vertices.Count;
+                vertices.Add(axisRot * new Vector3(0f, h, 0f) + pivot);
+                uvs.Add(new Vector2(0.5f, 0.5f));
+
+                // Ring vertices
+                int ringStart = vertices.Count;
+                for (int s = 0; s <= nSides; s++)
+                {
+                    float angle = (float)s / nSides * Mathf.PI * 2f;
+                    float x = Mathf.Cos(angle) * r;
+                    float z = Mathf.Sin(angle) * r;
+                    vertices.Add(axisRot * new Vector3(x, h, z) + pivot);
+                    uvs.Add(new Vector2((Mathf.Cos(angle) + 1f) * 0.5f, (Mathf.Sin(angle) + 1f) * 0.5f));
+                }
+
+                // Triangle fan (both sides visible via doubled winding)
+                for (int s = 0; s < nSides; s++)
+                {
+                    int left = ringStart + s;
+                    int right = ringStart + s + 1;
+                    // Top face
+                    triangles.Add(centerIdx);
+                    triangles.Add(left);
+                    triangles.Add(right);
+                    // Bottom face
+                    triangles.Add(centerIdx);
+                    triangles.Add(right);
+                    triangles.Add(left);
+                }
+            }
+
+            // --- Vertical struts connecting adjacent rings ---
+            // Place struts at evenly-spaced azimuthal positions.
+            int strutCount = Mathf.Max(nSides / 3, 6);
+            float strutHalfWidth = 0.03f; // thin struts as fraction of local scale
+
+            for (int s = 0; s < strutCount; s++)
+            {
+                float angle = (float)s / strutCount * Mathf.PI * 2f;
+                float cos = Mathf.Cos(angle);
+                float sin = Mathf.Sin(angle);
+
+                // Perpendicular direction for strut width
+                float perpCos = Mathf.Cos(angle + Mathf.PI * 0.5f);
+                float perpSin = Mathf.Sin(angle + Mathf.PI * 0.5f);
+
+                for (int i = 0; i < sections.Count - 1; i++)
+                {
+                    float h0 = sections[i].h;
+                    float r0 = sections[i].r;
+                    float h1 = sections[i + 1].h;
+                    float r1 = sections[i + 1].r;
+
+                    if (r0 < 0.01f || r1 < 0.01f) continue;
+
+                    // Inset struts slightly inside the cone surface so they don't z-fight
+                    float inset = 0.97f;
+                    float w0 = r0 * strutHalfWidth;
+                    float w1 = r1 * strutHalfWidth;
+
+                    // Four corners of the strut quad
+                    Vector3 bl = axisRot * new Vector3(cos * r0 * inset - perpCos * w0, h0, sin * r0 * inset - perpSin * w0) + pivot;
+                    Vector3 br = axisRot * new Vector3(cos * r0 * inset + perpCos * w0, h0, sin * r0 * inset + perpSin * w0) + pivot;
+                    Vector3 tl = axisRot * new Vector3(cos * r1 * inset - perpCos * w1, h1, sin * r1 * inset - perpSin * w1) + pivot;
+                    Vector3 tr = axisRot * new Vector3(cos * r1 * inset + perpCos * w1, h1, sin * r1 * inset + perpSin * w1) + pivot;
+
+                    int baseIdx = vertices.Count;
+                    vertices.Add(bl); vertices.Add(br); vertices.Add(tl); vertices.Add(tr);
+                    uvs.Add(new Vector2(0f, 0f)); uvs.Add(new Vector2(1f, 0f));
+                    uvs.Add(new Vector2(0f, 1f)); uvs.Add(new Vector2(1f, 1f));
+
+                    // Both sides visible
+                    triangles.Add(baseIdx); triangles.Add(baseIdx + 2); triangles.Add(baseIdx + 1);
+                    triangles.Add(baseIdx + 1); triangles.Add(baseIdx + 2); triangles.Add(baseIdx + 3);
+                    triangles.Add(baseIdx); triangles.Add(baseIdx + 1); triangles.Add(baseIdx + 2);
+                    triangles.Add(baseIdx + 1); triangles.Add(baseIdx + 3); triangles.Add(baseIdx + 2);
+                }
+            }
+
+            if (vertices.Count == 0) return null;
 
             Mesh mesh = new Mesh();
             mesh.SetVertices(vertices);
@@ -4739,7 +4982,8 @@ namespace Parsek
         }
 
         private static List<HeatMaterialState> BuildHeatMaterialStates(
-            Transform modelNode, string partName, uint persistentId)
+            Transform modelNode, string partName, uint persistentId,
+            List<HeatTransformState> affectedTransforms)
         {
             if (modelNode == null)
                 return null;
@@ -4748,21 +4992,54 @@ namespace Parsek
             if (renderers == null || renderers.Length == 0)
                 return null;
 
+            // Build set of transforms affected by heat animation so we only clone
+            // materials on renderers that actually participate in the heat visual.
+            // When null/empty, fall back to cloning all renderers (legacy behavior).
+            HashSet<Transform> affectedSet = null;
+            if (affectedTransforms != null && affectedTransforms.Count > 0)
+            {
+                affectedSet = new HashSet<Transform>();
+                for (int a = 0; a < affectedTransforms.Count; a++)
+                {
+                    Transform root = affectedTransforms[a].t;
+                    if (root == null) continue;
+                    affectedSet.Add(root);
+                    var descendants = root.GetComponentsInChildren<Transform>(true);
+                    for (int d = 0; d < descendants.Length; d++)
+                        affectedSet.Add(descendants[d]);
+                }
+                ParsekLog.Verbose("GhostVisual", $"    AnimateHeat '{partName}' pid={persistentId}: " +
+                    $"filtering renderers to {affectedSet.Count} affected transforms from {affectedTransforms.Count} heat anim target(s)");
+            }
+            else
+            {
+                ParsekLog.Verbose("GhostVisual", $"    AnimateHeat '{partName}' pid={persistentId}: " +
+                    $"no affected transforms provided, cloning all renderers (fallback)");
+            }
+
             var materialStates = new List<HeatMaterialState>();
             int clonedMaterials = 0;
             int trackedMaterials = 0;
+            int skippedRenderers = 0;
 
             for (int i = 0; i < renderers.Length; i++)
             {
                 Renderer renderer = renderers[i];
                 if (renderer == null) continue;
 
+                // Skip renderers not under any heat-animated transform
+                if (affectedSet != null && !affectedSet.Contains(renderer.transform))
+                {
+                    skippedRenderers++;
+                    continue;
+                }
+
                 Material[] sourceMaterials = renderer.sharedMaterials;
                 if (sourceMaterials == null || sourceMaterials.Length == 0)
                     continue;
 
                 var cloned = new Material[sourceMaterials.Length];
-                bool hasAnyMaterial = false;
+                bool hasTrackedMaterial = false;
                 for (int m = 0; m < sourceMaterials.Length; m++)
                 {
                     Material source = sourceMaterials[m];
@@ -4774,7 +5051,6 @@ namespace Parsek
 
                     Material materialClone = new Material(source);
                     cloned[m] = materialClone;
-                    hasAnyMaterial = true;
                     clonedMaterials++;
 
                     string colorProperty = materialClone.HasProperty("_Color")
@@ -4784,6 +5060,8 @@ namespace Parsek
 
                     if (colorProperty == null && emissiveProperty == null)
                         continue;
+
+                    hasTrackedMaterial = true;
 
                     Color coldColor = colorProperty != null
                         ? materialClone.GetColor(colorProperty)
@@ -4817,8 +5095,17 @@ namespace Parsek
                     trackedMaterials++;
                 }
 
-                if (hasAnyMaterial)
+                // Only replace renderer materials if at least one is tracked for heat animation.
+                // Renderers with no trackable properties keep their original sharedMaterials,
+                // preventing color contamination from orphaned material clones.
+                if (hasTrackedMaterial)
                     renderer.materials = cloned;
+            }
+
+            if (skippedRenderers > 0)
+            {
+                ParsekLog.Verbose("GhostVisual", $"    AnimateHeat '{partName}' pid={persistentId}: " +
+                    $"skipped {skippedRenderers} renderer(s) outside heat-animated subtree");
             }
 
             if (trackedMaterials > 0)
@@ -5903,7 +6190,7 @@ namespace Parsek
                 }
 
                 List<HeatMaterialState> heatMaterialStates =
-                    BuildHeatMaterialStates(modelNode.transform, partName, persistentId);
+                    BuildHeatMaterialStates(modelNode.transform, partName, persistentId, resolvedHeatTransforms);
 
                 if ((resolvedHeatTransforms != null && resolvedHeatTransforms.Count > 0) ||
                     (heatMaterialStates != null && heatMaterialStates.Count > 0))
@@ -5954,7 +6241,12 @@ namespace Parsek
             // Detect procedural fairings and generate simplified cone mesh
             fairingInfo = BuildFairingVisual(partNode, prefab, modelNode.transform, persistentId, partName);
             if (fairingInfo != null)
+            {
                 added = true;
+                // Hide internal truss/cap structure that would poke through the fairing cone
+                HideFairingInternalStructure(fairingInfo, prefab.partInfo?.partConfig,
+                    modelNode.transform, persistentId, partName);
+            }
 
             if (!added)
             {
@@ -6985,5 +7277,89 @@ namespace Parsek
 
             return intensity;
         }
+
+        /// <summary>
+        /// Builds a ghost GameObject for a planted flag from the flag part prefab.
+        /// Returns the ghost (initially inactive). Applies flag texture to the mesh_flag quad.
+        /// </summary>
+        /// <summary>
+        /// Spawns a real KSP flag vessel at the recorded position via ProtoVessel.
+        /// Returns the flag vessel's root GameObject, or null on failure.
+        /// The flag part is "prebuilt" with no .mu mesh — meshes are generated at runtime
+        /// by FlagDecalBackground, so we must spawn a real vessel rather than clone a ghost.
+        /// </summary>
+        internal static GameObject SpawnFlagVessel(FlagEvent evt)
+        {
+            try
+            {
+                CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == evt.bodyName);
+                if (body == null)
+                {
+                    ParsekLog.Warn("GhostBuild",
+                        $"Cannot spawn flag vessel: body '{evt.bodyName}' not found");
+                    return null;
+                }
+
+                // Build flag part node with FlagSite module in "Placed" state
+                uint flightId = ShipConstruction.GetUniqueFlightID(HighLogic.CurrentGame.flightState);
+                ConfigNode partNode = ProtoVessel.CreatePartNode("flag", flightId);
+                string flagURL = !string.IsNullOrEmpty(evt.flagURL) ? evt.flagURL : "Squad/Flags/default";
+                partNode.SetValue("flag", flagURL, true);
+
+                ConfigNode moduleNode = new ConfigNode("MODULE");
+                moduleNode.AddValue("name", "FlagSite");
+                moduleNode.AddValue("state", "Placed");
+                moduleNode.AddValue("PlaqueText", evt.plaqueText ?? "");
+                moduleNode.AddValue("placedBy", evt.placedBy ?? "");
+                partNode.AddNode(moduleNode);
+
+                // Build orbit (required by ProtoVessel even for landed vessels)
+                Orbit orbit = new Orbit(0, 0, body.Radius + evt.altitude, 0, 0, 0, 0, body);
+                ConfigNode[] partNodes = new ConfigNode[] { partNode };
+
+                string vesselName = !string.IsNullOrEmpty(evt.flagSiteName) ? evt.flagSiteName : "Flag";
+                ConfigNode vesselNode = ProtoVessel.CreateVesselNode(
+                    vesselName, VesselType.Flag, orbit, 0, partNodes);
+
+                // Set landed position
+                var ic = CultureInfo.InvariantCulture;
+                vesselNode.SetValue("sit", Vessel.Situations.LANDED.ToString(), true);
+                vesselNode.SetValue("landed", "True", true);
+                vesselNode.SetValue("splashed", "False", true);
+                vesselNode.SetValue("lat", evt.latitude.ToString("R", ic), true);
+                vesselNode.SetValue("lon", evt.longitude.ToString("R", ic), true);
+                vesselNode.SetValue("alt", evt.altitude.ToString("R", ic), true);
+                vesselNode.SetValue("landedAt", body.name, true);
+
+                // Set surface-relative rotation
+                Quaternion surfRot = new Quaternion(evt.rotX, evt.rotY, evt.rotZ, evt.rotW);
+                vesselNode.SetValue("rot", KSPUtil.WriteQuaternion(surfRot), true);
+
+                // Spawn via ProtoVessel
+                ProtoVessel pv = new ProtoVessel(vesselNode, HighLogic.CurrentGame);
+                HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
+                pv.Load(HighLogic.CurrentGame.flightState);
+
+                if (pv.vesselRef == null)
+                {
+                    ParsekLog.Warn("GhostBuild",
+                        $"Flag vessel spawn failed: ProtoVessel.Load() produced null vesselRef");
+                    return null;
+                }
+
+                ParsekLog.Verbose("GhostBuild",
+                    $"Spawned flag vessel: '{vesselName}' by '{evt.placedBy}' " +
+                    $"at ({evt.latitude:F4},{evt.longitude:F4},{evt.altitude:F1}) on {evt.bodyName}");
+
+                return pv.vesselRef.gameObject;
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Error("GhostBuild",
+                    $"Failed to spawn flag vessel: {ex.Message}");
+                return null;
+            }
+        }
+
     }
 }

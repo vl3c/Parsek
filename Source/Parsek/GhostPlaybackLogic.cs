@@ -1014,20 +1014,89 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Initializes flag ghost visibility — all flags start hidden and appear when their event fires.
+        /// </summary>
+        internal static void InitializeFlagVisibility(Recording rec, GhostPlaybackState state)
+        {
+            if (rec == null || rec.FlagEvents == null || rec.FlagEvents.Count == 0) return;
+            if (state == null) return;
+            state.flagEventIndex = 0;
+        }
+
+        /// <summary>
+        /// Spawns flag vessels when their UT is reached. Flags are permanent world objects —
+        /// they are never destroyed by Parsek. Duplicate check prevents re-spawning on loop wrap.
+        /// The FlagEvent in the recording tracks which flag was planted (name, position, texture, plaque).
+        /// </summary>
+        internal static void ApplyFlagEvents(GhostPlaybackState state, Recording rec, double currentUT)
+        {
+            if (rec == null || rec.FlagEvents == null || rec.FlagEvents.Count == 0) return;
+            if (state == null) return;
+
+            while (state.flagEventIndex < rec.FlagEvents.Count)
+            {
+                var evt = rec.FlagEvents[state.flagEventIndex];
+                if (evt.ut > currentUT) break;
+
+                // Spawn a real, permanent flag vessel — skip if one already exists at this position
+                if (!FlagExistsAtPosition(evt))
+                    GhostVisualBuilder.SpawnFlagVessel(evt);
+
+                state.flagEventIndex++;
+            }
+        }
+
+        /// <summary>
+        /// Checks if a flag vessel already exists within 1m of the event position (prevents duplicates on loop).
+        /// Uses world-space 3D distance rather than lat/lon to handle high-latitude and small-body cases correctly.
+        /// </summary>
+        private static bool FlagExistsAtPosition(FlagEvent evt)
+        {
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == evt.bodyName);
+            if (body == null || FlightGlobals.Vessels == null) return false;
+
+            Vector3d eventPos = body.GetWorldSurfacePosition(evt.latitude, evt.longitude, evt.altitude);
+
+            for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
+            {
+                Vessel v = FlightGlobals.Vessels[i];
+                if (v == null || v.vesselType != VesselType.Flag) continue;
+                if (v.mainBody != body) continue;
+
+                Vector3d flagPos = body.GetWorldSurfacePosition(v.latitude, v.longitude, v.altitude);
+                double dx = flagPos.x - eventPos.x;
+                double dy = flagPos.y - eventPos.y;
+                double dz = flagPos.z - eventPos.z;
+                if (dx * dx + dy * dy + dz * dz < 1.0) // within 1m
+                    return true;
+            }
+            return false;
+        }
+
         internal static void HidePartSubtree(GameObject ghost, uint rootPid, Dictionary<uint, List<uint>> tree)
         {
+            int hidden = 0;
+            int notFound = 0;
             var stack = new Stack<uint>();
             stack.Push(rootPid);
             while (stack.Count > 0)
             {
                 uint pid = stack.Pop();
                 var t = ghost.transform.Find($"ghost_part_{pid}");
-                if (t != null) t.gameObject.SetActive(false);
+                if (t != null)
+                {
+                    t.gameObject.SetActive(false);
+                    hidden++;
+                }
+                else
+                    notFound++;
                 List<uint> children;
                 if (tree.TryGetValue(pid, out children))
                     for (int c = 0; c < children.Count; c++)
                         stack.Push(children[c]);
             }
+            ParsekLog.Verbose("Flight", $"HidePartSubtree: rootPid={rootPid}, hidden={hidden}, notFound={notFound}, treeHasRoot={tree.ContainsKey(rootPid)}");
         }
 
         /// <summary>
@@ -1965,16 +2034,18 @@ namespace Parsek
 
         /// <summary>
         /// Determines whether part events should be applied for the given zone.
-        /// Part events only fire in the Physics zone (within 2.3 km).
+        /// Part events fire in Physics and Visual zones — structural changes (decoupling,
+        /// fairing jettison, destruction) must be applied even when the ghost is distant.
+        /// Only Beyond zone skips part events (ghost mesh is hidden anyway).
         /// </summary>
         internal static bool ShouldApplyPartEventsForZone(RenderingZone zone)
         {
-            return zone == RenderingZone.Physics;
+            return zone != RenderingZone.Beyond;
         }
 
         /// <summary>
         /// Determines the rendering actions to take when a ghost transitions between zones.
-        /// Returns (shouldHideMesh, shouldExitWatch, shouldSkipPartEvents, shouldSkipPositioning).
+        /// Returns (shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning).
         /// </summary>
         internal static (bool shouldHideMesh, bool shouldSkipPartEvents, bool shouldSkipPositioning)
             GetZoneRenderingPolicy(RenderingZone zone)
@@ -1984,7 +2055,7 @@ namespace Parsek
                 case RenderingZone.Beyond:
                     return (true, true, true);
                 case RenderingZone.Visual:
-                    return (false, true, false);
+                    return (false, false, false); // part events apply in Visual zone
                 case RenderingZone.Physics:
                 default:
                     return (false, false, false);
