@@ -165,6 +165,11 @@ namespace Parsek
         private bool spawnControlWindowHasInputLock;
         private const string SpawnControlInputLockId = "Parsek_SpawnControlWindow";
 
+        // Spawn Control sort state
+        private enum SpawnSortColumn { Distance, Countdown }
+        private SpawnSortColumn spawnSortColumn = SpawnSortColumn.Distance;
+        private bool spawnSortAscending = true;
+
         public ParsekUI(ParsekFlight flight)
         {
             this.flight = flight;
@@ -2903,6 +2908,21 @@ namespace Parsek
         private const float SpawnColW_Countdown = 95f;
         private const float SpawnColW_Warp = 50f;
 
+        private void DrawSpawnSortableHeader(string label, SpawnSortColumn col, float width)
+        {
+            string arrow = spawnSortColumn == col ? (spawnSortAscending ? " \u25b2" : " \u25bc") : "";
+            if (GUILayout.Button(label + arrow, GUI.skin.label, GUILayout.Width(width)))
+            {
+                if (spawnSortColumn == col)
+                    spawnSortAscending = !spawnSortAscending;
+                else
+                {
+                    spawnSortColumn = col;
+                    spawnSortAscending = true;
+                }
+            }
+        }
+
         private void DrawSpawnControlWindow(int windowID)
         {
             var ic = System.Globalization.CultureInfo.InvariantCulture;
@@ -2918,19 +2938,30 @@ namespace Parsek
                 return;
             }
 
-            // Header row (matches recordings window pattern)
+            // Header row with sortable columns
             GUILayout.BeginHorizontal();
             GUILayout.Label("Craft", GUILayout.ExpandWidth(true));
-            GUILayout.Label("Dist", GUILayout.Width(SpawnColW_Dist));
+            DrawSpawnSortableHeader("Dist", SpawnSortColumn.Distance, SpawnColW_Dist);
             GUILayout.Label("Spawns at", GUILayout.Width(SpawnColW_SpawnTime));
-            GUILayout.Label("Countdown", GUILayout.Width(SpawnColW_Countdown));
+            DrawSpawnSortableHeader("In T-", SpawnSortColumn.Countdown, SpawnColW_Countdown);
             GUILayout.Label("", GUILayout.Width(SpawnColW_Warp));
             GUILayout.EndHorizontal();
 
-            // Per-craft rows (already sorted by distance)
-            for (int i = 0; i < candidates.Count; i++)
+            // Sort candidates for display
+            var sorted = new List<NearbySpawnCandidate>(candidates);
+            if (spawnSortColumn == SpawnSortColumn.Countdown)
+                sorted.Sort((a, b) => spawnSortAscending
+                    ? a.endUT.CompareTo(b.endUT)
+                    : b.endUT.CompareTo(a.endUT));
+            else
+                sorted.Sort((a, b) => spawnSortAscending
+                    ? a.distance.CompareTo(b.distance)
+                    : b.distance.CompareTo(a.distance));
+
+            // Per-craft rows
+            for (int i = 0; i < sorted.Count; i++)
             {
-                var cand = candidates[i];
+                var cand = sorted[i];
                 double delta = cand.endUT - currentUT;
                 bool canWarp = cand.endUT > currentUT;
 
