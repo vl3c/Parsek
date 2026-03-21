@@ -179,5 +179,81 @@ namespace Parsek.Tests
             Assert.Equal(0.0, RecordingStore.RewindUT);
             Assert.Equal(0.0, RecordingStore.RewindReserved.reservedFunds);
         }
+
+        [Fact]
+        public void ResetAllPlaybackState_ClearsPostSpawnRecoveredTerminalState()
+        {
+            var rec = new Recording
+            {
+                VesselName = "TestVessel",
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = 100,
+                TerminalStateValue = TerminalState.Recovered
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100 });
+            RecordingStore.CommittedRecordings.Add(rec);
+
+            RecordingStore.ResetAllPlaybackState();
+
+            Assert.Null(rec.TerminalStateValue);
+            Assert.False(rec.VesselSpawned);
+        }
+
+        [Fact]
+        public void ResetAllPlaybackState_ClearsPostSpawnDestroyedTerminalState()
+        {
+            var rec = new Recording
+            {
+                VesselName = "TestVessel",
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = 200,
+                TerminalStateValue = TerminalState.Destroyed
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100 });
+            RecordingStore.CommittedRecordings.Add(rec);
+
+            RecordingStore.ResetAllPlaybackState();
+
+            Assert.Null(rec.TerminalStateValue);
+        }
+
+        [Fact]
+        public void ResetAllPlaybackState_PreservesRecordingTimeTerminalState()
+        {
+            // Recording committed as ghost-only (destroyed during recording, never spawned)
+            var rec = new Recording
+            {
+                VesselName = "TestVessel",
+                VesselSpawned = false,
+                TerminalStateValue = TerminalState.Destroyed
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100 });
+            RecordingStore.CommittedRecordings.Add(rec);
+
+            RecordingStore.ResetAllPlaybackState();
+
+            // Terminal state should persist — it was set during recording, not post-spawn
+            Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
+        }
+
+        [Fact]
+        public void ResetAllPlaybackState_PreservesSituationBasedTerminalState()
+        {
+            // Spawned recording with Landed terminal state (set at commit, not suppressing)
+            var rec = new Recording
+            {
+                VesselName = "TestVessel",
+                VesselSpawned = true,
+                TerminalStateValue = TerminalState.Landed
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100 });
+            RecordingStore.CommittedRecordings.Add(rec);
+
+            RecordingStore.ResetAllPlaybackState();
+
+            // Situation-based states (Landed, Orbiting, etc.) are preserved —
+            // only Recovered/Destroyed are cleared as post-spawn lifecycle events
+            Assert.Equal(TerminalState.Landed, rec.TerminalStateValue);
+        }
     }
 }

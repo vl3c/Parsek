@@ -420,6 +420,19 @@ namespace Parsek
                 for (int i = 0; i < recordings.Count; i++)
                 {
                     if (recordings[i].TreeId == null) continue;
+
+                    // Clear post-spawn terminal state before resetting spawn flags
+                    if (recordings[i].VesselSpawned && recordings[i].TerminalStateValue.HasValue)
+                    {
+                        var ts = recordings[i].TerminalStateValue.Value;
+                        if (ts == TerminalState.Recovered || ts == TerminalState.Destroyed)
+                        {
+                            ParsekLog.Verbose("Scenario",
+                                $"Clearing post-spawn terminal state {ts} for tree recording '{recordings[i].VesselName}'");
+                            recordings[i].TerminalStateValue = null;
+                        }
+                    }
+
                     recordings[i].VesselSpawned = false;
                     recordings[i].SpawnAttempts = 0;
                     recordings[i].SpawnedVesselPersistentId = 0;
@@ -1338,6 +1351,18 @@ namespace Parsek
             {
                 // Skip tree recordings — their mutable state is restored from tree nodes
                 if (recordings[i].TreeId != null) continue;
+
+                // Clear post-spawn terminal state before resetting spawn flags
+                if (recordings[i].VesselSpawned && recordings[i].TerminalStateValue.HasValue)
+                {
+                    var ts = recordings[i].TerminalStateValue.Value;
+                    if (ts == TerminalState.Recovered || ts == TerminalState.Destroyed)
+                    {
+                        ParsekLog.Verbose("Scenario",
+                            $"Clearing post-spawn terminal state {ts} for recording '{recordings[i].VesselName}'");
+                        recordings[i].TerminalStateValue = null;
+                    }
+                }
 
                 recordings[i].VesselSpawned = false;
                 recordings[i].SpawnAttempts = 0;
@@ -2418,23 +2443,11 @@ namespace Parsek
                 }
             }
 
-            // Check committed recordings (most recent first — only update the first match to
-            // avoid updating unrelated recordings that happen to share the same vessel name)
-            var committed = RecordingStore.CommittedRecordings;
-            for (int i = committed.Count - 1; i >= 0; i--)
-            {
-                var rec = committed[i];
-                if (MatchesVessel(rec, vesselName) && CanOverwriteTerminalState(rec.TerminalStateValue, state))
-                {
-                    rec.TerminalStateValue = state;
-                    rec.ExplicitEndUT = ut;
-                    UnreserveCrewInSnapshot(rec.VesselSnapshot);
-                    rec.VesselSnapshot = null;
-                    anyUpdated = true;
-                    ParsekLog.Verbose("Scenario", $"Updated committed recording '{rec.VesselName}' (#{i}) with {state}");
-                    break; // only update the most recent matching recording
-                }
-            }
+            // Committed recordings are never modified by terminal events. Recovery or
+            // destruction of a real vessel (whether spawned by Parsek or pre-existing) must
+            // not alter frozen recording data — snapshot, terminal state, crew, or EndUT.
+            // Name-based matching is ambiguous (multiple recordings share vessel names) and
+            // any mutation persists through reverts, permanently preventing re-spawn.
 
             return anyUpdated;
         }

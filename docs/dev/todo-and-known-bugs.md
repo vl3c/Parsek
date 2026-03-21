@@ -1092,3 +1092,26 @@ The Watch (W) button is shown enabled for a recording whose time range is entire
 When a surface vessel (rover, lander) goes on rails during recording (e.g., time warp), an orbit segment is created with SMA ≈ half the body radius. During playback, `InterpolateAndPosition` prioritizes orbit segments over point-based interpolation. The Keplerian orbit path goes through the planet interior — the terrain clamp corrects altitude but the lat/lon follows the orbital path, causing the ghost to slide along the ground away from the runway/landing site. Observed with Crater Crawler rover on the KSC runway: ghost altitude fell to -6281m (clamped back to 65.3m each frame), but the ghost drifted off its recorded position.
 
 **Status:** Fixed (`6996b65`, `ea14b8f`) — three-layer fix: (1) skip orbit segment creation for LANDED/SPLASHED/PRELAUNCH vessels, (2) `IsSurfaceAtUT` skips orbit segments during playback for surface TrackSections, (3) SMA < 90% body radius sanity check rejects sub-surface orbits
+
+## 94. Recovering a spawned vessel prevents re-spawn after revert
+
+Recovering a vessel spawned by Parsek (e.g. cleaning the runway) fires `onVesselRecovered`, which stamps `TerminalState.Recovered` on the committed recording AND nulls its `VesselSnapshot` via `UpdateRecordingsForTerminalEvent`. Both persist through reverts, permanently preventing the ghost from spawning a real vessel. Real Spawn Control also shows 0 candidates.
+
+**Status:** Fixed — `UpdateRecordingsForTerminalEvent` now skips committed recordings where `VesselSpawned == true` or `SpawnedVesselPersistentId != 0`. Defense-in-depth: all three reset paths (Rewind, tree revert, standalone revert) clear post-spawn `Recovered`/`Destroyed` terminal state.
+
+## 95. Committed recordings are mutated in several places after commit
+
+Recordings should be frozen after commit (immutable trajectory + events, mutable playback state only). Audit found several places where immutable fields on committed recordings are mutated:
+
+1. **`ParsekFlight.cs:993`** — Continuation vessel destroyed: sets `VesselDestroyed = true` and nulls `VesselSnapshot`. Snapshot lost permanently; vessel cannot re-spawn after revert.
+2. **`ParsekFlight.cs:2722`** — EVA boarding: nulls `VesselSnapshot` on committed recording (next chain segment is expected to spawn, but revert breaks that assumption).
+3. **`ParsekFlight.cs:2785,3595`** — Continuation sampling: `Points.Add` appends trajectory points to committed recordings. Intentional continuation design, but points from the abandoned timeline persist after revert.
+4. **`ParsekFlight.cs:2820-2831`** — Continuation snapshot refresh: replaces or mutates `VesselSnapshot` in-place on committed recordings, overwriting the commit-time position with a later state.
+5. **`ParsekFlight.cs:3629-3641`** — Undock continuation snapshot refresh: same pattern for `GhostVisualSnapshot`.
+6. **`ParsekScenario.cs:2469-2472`** — `UpdateRecordingsForTerminalEvent`: can still mutate committed recordings that match by vessel name but haven't spawned yet (name collision edge case; spawned recordings are now guarded).
+
+Items 1-2 are highest risk (snapshot destruction). Items 3-5 are part of the continuation mechanism's design but violate the frozen-recording principle. Item 6 is a residual edge case from #94.
+
+**Priority:** Medium — the continuation mutations are by design and rarely hit in practice, but the snapshot nulling (items 1-2) can cause the same no-spawn-after-revert symptom as #94 if the continuation vessel is destroyed or boards before revert.
+
+**Status:** Open

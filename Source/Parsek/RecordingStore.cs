@@ -1122,6 +1122,21 @@ namespace Parsek
 
         private static void ResetRecordingPlaybackFields(Recording rec)
         {
+            // If the vessel had spawned, any terminal state change (Recovered/Destroyed)
+            // was on the spawned real vessel, not the recording. Clear it so the recording
+            // can spawn again after revert/rewind.
+            if (rec.VesselSpawned && rec.TerminalStateValue.HasValue)
+            {
+                var ts = rec.TerminalStateValue.Value;
+                if (ts == TerminalState.Recovered || ts == TerminalState.Destroyed)
+                {
+                    if (!SuppressLogging)
+                        ParsekLog.Verbose("Rewind",
+                            $"Clearing post-spawn terminal state {ts} for '{rec.VesselName}' (id={rec.RecordingId})");
+                    rec.TerminalStateValue = null;
+                }
+            }
+
             rec.VesselSpawned = false;
             rec.SpawnAttempts = 0;
             rec.SpawnedVesselPersistentId = 0;
