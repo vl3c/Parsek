@@ -135,6 +135,42 @@ Redesign milestone capture, resource budgeting, and action replay validated per 
 
 **Priority:** Low — test infrastructure
 
+### T19. FlightRecorder per-frame List<PartEvent> allocations
+
+`CheckLightBlinkTransition`, `CheckEngineTransition`, `CheckRcsTransition`, and `ProcessRcsDebounce` allocate `new List<PartEvent>()` every physics frame for every cached module. At 50Hz with e.g. 10 engines, that's 500 allocations/second producing zero events most of the time. Should use a caller-owned reusable list or return `PartEvent?` for the common single-event case.
+
+**Priority:** Medium — GC pressure during recording
+
+### T20. ParsekFlight.TimelineGhosts allocates new Dictionary on every access
+
+The `TimelineGhosts` property creates `new Dictionary<int, GameObject>()` every call. If accessed per-frame from UI code, generates garbage. Should cache or return a read-only view.
+
+**Priority:** Low — UI-path only
+
+### T21. ParsekUI double ComputeTotal calls
+
+Both `DrawResourceBudget` and `DrawCompactBudgetLine` call `ResourceBudget.ComputeTotal(...)` independently. If both are drawn in the same OnGUI frame, budget is computed twice. Should compute once and pass the result.
+
+**Priority:** Low — minor perf
+
+### T22. GhostSoftCapManager.EvaluateCaps not tested when Enabled=false
+
+No test verifies that `EvaluateCaps` returns empty actions when `Enabled = false`. This is the critical production toggle — if the guard were removed, no test would catch it.
+
+**Priority:** Low — test gap
+
+### T23. SessionMerger frame trimming not tested
+
+Tests assert `startUT`/`endUT`/`source` after `ResolveOverlaps` but never check that the `frames` lists were actually trimmed. `TrimFrames` could be broken and tests would still pass.
+
+**Priority:** Low — test gap
+
+### T24. EnvironmentDetector untested for ORBITING and ESCAPING situations
+
+Tests only cover LANDED(1), SPLASHED(2), PRELAUNCH(4), FLYING(8), SUB_ORBITAL(16). The ORBITING(32) and ESCAPING(64) situations are untested. They fall through to the altitude/thrust check, which is likely correct but should be verified.
+
+**Priority:** Low — test gap
+
 ---
 
 # Known Bugs
@@ -902,3 +938,87 @@ Related to the general "initial part state" problem — the ghost builder needs 
 **Observed in:** Rover recording session (2026-03-21). Recording shows `deployables=2` (2 solar panels EXTENDED), but ghost renders them retracted.
 
 **Status:** Open
+
+## 71. GhostCommNetRelay.RegisterNode orphans CommNet nodes on double registration
+
+`RegisterNode` at line 237 does `activeGhostNodes[vesselPid] = node` which overwrites any existing entry without removing the old `CommNode` from `CommNetNetwork.Instance.CommNet` first. If called twice for the same PID (e.g., ghost destroyed and recreated), the first node becomes permanently orphaned in the CommNet graph. Fix: check for existing node and `CommNet.Remove()` before registering.
+
+**Status:** Open
+
+## 72. GhostCommNetRelay antenna combination formula wrong for non-combinable strongest
+
+`ComputeCombinedAntennaPowerFromList` uses the strongest antenna's `antennaCombinableExponent` regardless of whether the strongest is itself combinable. KSP's actual formula uses the strongest *combinable* antenna as the base when the overall strongest is non-combinable. Result: ghost relay power is computed higher than KSP would.
+
+**Status:** Open
+
+## 73. SpawnCollisionDetector.CheckWarningProximity includes ActiveVessel and unfiltered vessel types
+
+Unlike `CheckOverlapAgainstLoadedVessels` which properly excludes Debris/EVA/Flag/SpaceObject and `FlightGlobals.ActiveVessel`, the `CheckWarningProximity` method includes everything. The player's own vessel at distance ~0 would always be the "closest vessel", making proximity warnings fire constantly with the player's own name. Should apply the same filters as `CheckOverlapAgainstLoadedVessels`.
+
+**Status:** Open
+
+## 74. FlightRecorder.SamplePosition ignores RELATIVE mode at on-rails boundary
+
+`SamplePosition` (lines 4320-4356) always records raw `v.latitude/v.longitude/v.altitude`. When called at on-rails transitions while in RELATIVE mode (before mode is cleared at line 4414 and before the track section transition at line 4423), the boundary point has absolute coordinates within a RELATIVE TrackSection, creating a potential discontinuity.
+
+**Status:** Open — verify if the boundary point timing makes this moot in practice
+
+## 75. GhostPlaybackLogic inconsistent negative interval handling
+
+`ComputeLoopPhaseFromUT` (line 275) clamps negative intervals to 0 via `Math.Max(0, intervalSeconds)`, but `TryComputeLoopPlaybackUT` (line 91) and `GetActiveCycles` (line 148) allow negative intervals (overlapping cycles). These methods compute related loop timing — the disagreement could cause visual glitches (wrong phase or missing overlap cycles) when negative intervals are used.
+
+**Status:** Open
+
+## 76. GhostExtender.PropagateOrbital hyperbolic fallback can return negative altitude
+
+Lines 90-97: For `ecc >= 1.0 || sma <= 0`, the fallback returns `(0, 0, sma - bodyRadius)`. When `sma < bodyRadius`, this produces a negative altitude, placing the ghost underground. Should use `Math.Max(0, sma - bodyRadius)`.
+
+**Status:** Open
+
+## 77. TerrainCorrector log format strings use system culture
+
+Lines 37, 42-44 in `TerrainCorrector.cs` use `$"{corrected:F1}"` string interpolation which uses the system locale (comma on some machines). Inconsistent with the project's InvariantCulture policy. Only affects log output, not gameplay or serialization.
+
+**Status:** Open — cosmetic
+
+## 78. RecordingTree.DetermineTerminalState maps DOCKED to Orbiting
+
+`DetermineTerminalState` maps the KSP `DOCKED` situation to `TerminalState.Orbiting`. When called from `EndDebrisRecording`, a debris piece that docks would get `Orbiting` instead of a more appropriate terminal state. Edge case but semantically wrong.
+
+**Status:** Open — unlikely to occur for debris
+
+## 79. TimeJumpManager.ExecuteJump mutates caller's chains dictionary
+
+Line 278: `chains.Remove(chain.OriginalVesselPid)` is a side effect on the caller's dictionary, not documented in the method signature. Could cause subtle issues if the caller iterates `chains` after calling `ExecuteJump`. The caller should decide which chains to remove.
+
+**Status:** Open — design smell
+
+## 80. TimeJumpManager.ExecuteJump has no guard against active time warp
+
+If called during time warp (warp rate > 1), `Planetarium.SetUniversalTime` can interact badly with KSP's internal warp state. There is no guard to ensure warp is stopped before the jump.
+
+**Status:** Open — needs in-game verification
+
+## 81. TrackSection struct shallow copy shares mutable list references
+
+`Recording` copy constructor does `new List<TrackSection>(source.TrackSections)` which copies struct values but shares `frames`/`checkpoints` list references between source and copy. Currently safe because recordings are read-only after construction, but fragile if any code later mutates a copied recording's track section frames.
+
+**Status:** Open — fragile but not currently triggered
+
+## 82. IsDebris, Controllers, SurfacePos not serialized for standalone recordings
+
+These fields are serialized in the `RecordingTree` code path but not in `ParsekScenario.SaveStandaloneRecordings` / `LoadStandaloneRecordingsFromNodes`. Standalone recordings lose these values across save/load. May be intentional if standalone recordings are never debris.
+
+**Status:** Open — verify if standalone debris recordings can exist
+
+## 83. GhostCommNetRelay.ReregisterAllNodes re-adds potentially stale CommNode objects
+
+After CommNet reinitialization, the existing `CommNode` objects in `activeGhostNodes` are re-added via `commNet.Add(kvp.Value)`. If KSP's CommNet reinitialization invalidates old node objects, re-adding them could fail silently. Consider creating fresh `CommNode` objects with the same data.
+
+**Status:** Open — needs in-game verification
+
+## 84. GhostPlaybackLogic.ComputeLoopPhaseFromUT integer overflow risk
+
+Line 289: `int cycleIndex = (int)(elapsed / cycleDuration)` — for very long-running loops with short cycle durations, the double value can exceed `Int32.MaxValue`. The cast produces undefined behavior in C# (typically `Int32.MinValue` or garbage). A 0.1s recording looping for 250+ in-game days would overflow.
+
+**Status:** Open — extreme edge case
