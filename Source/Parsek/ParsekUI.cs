@@ -641,8 +641,8 @@ namespace Parsek
                 GUILayout.Label("No actions recorded.");
             }
 
-            // C. Bottom Bar
-            GUILayout.Space(5);
+            // C. Bottom Bar — pinned to window bottom
+            GUILayout.FlexibleSpace();
 
             uint epoch = MilestoneStore.CurrentEpoch;
             if (epoch > 0)
@@ -1177,8 +1177,8 @@ namespace Parsek
                     scrollViewRect = GUILayoutUtility.GetLastRect();
             }
 
-            // Bottom button bar
-            GUILayout.Space(5);
+            // Bottom button bar — pinned to window bottom
+            GUILayout.FlexibleSpace();
             GUILayout.BeginHorizontal();
 
             if (committed.Count > 0)
@@ -3048,8 +3048,8 @@ namespace Parsek
                 GUILayout.EndHorizontal();
             }
 
-            // Bottom section
-            GUILayout.Space(SpacingLarge);
+            // Bottom section — pinned to window bottom
+            GUILayout.FlexibleSpace();
 
             GUILayout.BeginHorizontal();
             var next = SelectiveSpawnUI.FindNextSpawnCandidate(candidates, currentUT);
