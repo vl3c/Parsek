@@ -3530,6 +3530,17 @@ namespace Parsek
                     continue;
                 }
 
+                // Exclude landed/splashed/prelaunch vessels as anchors.
+                // These won't be loaded during ghost playback when the ghost is far from
+                // the surface location (KSP only loads vessels within physics range).
+                // RELATIVE mode is for orbital rendezvous/docking with in-flight vessels.
+                if (vessel.situation == Vessel.Situations.LANDED ||
+                    vessel.situation == Vessel.Situations.SPLASHED ||
+                    vessel.situation == Vessel.Situations.PRELAUNCH)
+                {
+                    continue;
+                }
+
                 vesselInfoBuffer.Add((vessel.persistentId, (Vector3d)vessel.transform.position));
             }
             return vesselInfoBuffer;
