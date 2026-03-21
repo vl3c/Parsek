@@ -213,11 +213,13 @@ namespace Parsek
             }
 
             // --- Real Spawn Control toggle (in the window group, after Game Actions) ---
-            if (InFlight && flight != null && flight.NearbySpawnCandidates.Count > 0)
+            if (InFlight && flight != null)
             {
+                int spawnCount = flight.NearbySpawnCandidates.Count;
+                GUI.enabled = spawnCount > 0;
                 if (GUILayout.Button(string.Format(
                     System.Globalization.CultureInfo.InvariantCulture,
-                    "Real Spawn Control ({0})", flight.NearbySpawnCandidates.Count)))
+                    "Real Spawn Control ({0})", spawnCount)))
                 {
                     showSpawnControlWindow = !showSpawnControlWindow;
                     ParsekLog.Verbose("UI",
@@ -225,6 +227,7 @@ namespace Parsek
                             "Real Spawn Control window toggled: {0}",
                             showSpawnControlWindow ? "open" : "closed"));
                 }
+                GUI.enabled = true;
             }
 
             if (InFlight)
