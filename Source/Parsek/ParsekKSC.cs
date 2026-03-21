@@ -252,7 +252,10 @@ namespace Parsek
 
                 // Distance culling: skip expensive part events for ghosts too far from camera
                 if (IsGhostInCullRange(state.ghost))
+                {
                     GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, targetUT, state);
+                    GhostPlaybackLogic.ApplyFlagEvents(state, rec, targetUT);
+                }
                 if (suppressVisualFx)
                     GhostPlaybackLogic.StopAllRcsEmissions(state);
                 else
@@ -361,7 +364,10 @@ namespace Parsek
                     ref primaryState.playbackIndex, loopUT, srfRel);
 
                 if (IsGhostInCullRange(primaryState.ghost))
+                {
                     GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, loopUT, primaryState);
+                    GhostPlaybackLogic.ApplyFlagEvents(primaryState, rec, loopUT);
+                }
                 if (suppressVisualFx)
                     GhostPlaybackLogic.StopAllRcsEmissions(primaryState);
                 else
@@ -406,7 +412,10 @@ namespace Parsek
                     ref ovState.playbackIndex, loopUT, srfRel);
 
                 if (IsGhostInCullRange(ovState.ghost))
+                {
                     GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, loopUT, ovState);
+                    GhostPlaybackLogic.ApplyFlagEvents(ovState, rec, loopUT);
+                }
                 if (suppressVisualFx)
                     GhostPlaybackLogic.StopAllRcsEmissions(ovState);
                 else
@@ -565,6 +574,9 @@ namespace Parsek
                 state.colorChangerInfos = GhostVisualBuilder.GroupColorChangersByPartId(buildResult.colorChangerInfos);
 
             GhostPlaybackLogic.InitializeInventoryPlacementVisibility(rec, state);
+
+            // Initialize flag event index — flags are spawned as real vessels on-demand by ApplyFlagEvents
+            GhostPlaybackLogic.InitializeFlagVisibility(rec, state);
 
             ParsekLog.Info("KSCGhost",
                 $"Ghost #{index} \"{rec.VesselName}\" spawned" +
@@ -829,7 +841,6 @@ namespace Parsek
             StopRcsParticleSystems(state.rcsInfos);
 
             GhostPlaybackLogic.DestroyAllFakeCanopies(state);
-
             if (state.ghost != null)
                 Destroy(state.ghost);
 

@@ -97,6 +97,7 @@ namespace Parsek
             string recordingId = null,
             int? recordingFormatVersion = null,
             List<PartEvent> partEvents = null,
+            List<FlagEvent> flagEvents = null,
             List<SegmentEvent> segmentEvents = null,
             List<TrackSection> trackSections = null)
         {
@@ -139,6 +140,19 @@ namespace Parsek
                         }
                     }
                 }
+                // Retime flag events the same way
+                if (flagEvents != null)
+                {
+                    for (int i = 0; i < flagEvents.Count; i++)
+                    {
+                        if (flagEvents[i].ut < trimUT)
+                        {
+                            var e = flagEvents[i];
+                            e.ut = trimUT;
+                            flagEvents[i] = e;
+                        }
+                    }
+                }
             }
 
             if (pendingRecording != null)
@@ -161,6 +175,9 @@ namespace Parsek
                 PartEvents = partEvents != null
                     ? new List<PartEvent>(partEvents)
                     : new List<PartEvent>(),
+                FlagEvents = flagEvents != null
+                    ? new List<FlagEvent>(flagEvents)
+                    : new List<FlagEvent>(),
                 SegmentEvents = segmentEvents != null
                     ? new List<SegmentEvent>(segmentEvents)
                     : new List<SegmentEvent>(),
@@ -1511,6 +1528,25 @@ namespace Parsek
                 evtNode.AddValue("midx", evt.moduleIndex.ToString(ic));
             }
 
+            for (int fe = 0; fe < rec.FlagEvents.Count; fe++)
+            {
+                var evt = rec.FlagEvents[fe];
+                ConfigNode feNode = targetNode.AddNode("FLAG_EVENT");
+                feNode.AddValue("ut", evt.ut.ToString("R", ic));
+                feNode.AddValue("name", evt.flagSiteName ?? "");
+                feNode.AddValue("placedBy", evt.placedBy ?? "");
+                feNode.AddValue("plaqueText", evt.plaqueText ?? "");
+                feNode.AddValue("flagURL", evt.flagURL ?? "");
+                feNode.AddValue("lat", evt.latitude.ToString("R", ic));
+                feNode.AddValue("lon", evt.longitude.ToString("R", ic));
+                feNode.AddValue("alt", evt.altitude.ToString("R", ic));
+                feNode.AddValue("rotX", evt.rotX.ToString("R", ic));
+                feNode.AddValue("rotY", evt.rotY.ToString("R", ic));
+                feNode.AddValue("rotZ", evt.rotZ.ToString("R", ic));
+                feNode.AddValue("rotW", evt.rotW.ToString("R", ic));
+                feNode.AddValue("body", evt.bodyName ?? "Kerbin");
+            }
+
             SerializeSegmentEvents(targetNode, rec.SegmentEvents);
 
             // Serialize track sections (new recording system)
@@ -1523,6 +1559,7 @@ namespace Parsek
             DeserializePoints(sourceNode, rec);
             DeserializeOrbitSegments(sourceNode, rec);
             DeserializePartEvents(sourceNode, rec);
+            DeserializeFlagEvents(sourceNode, rec);
             DeserializeSegmentEvents(sourceNode, rec.SegmentEvents);
             DeserializeTrackSections(sourceNode, rec.TrackSections);
         }
@@ -1532,7 +1569,7 @@ namespace Parsek
         /// </summary>
         internal static void DeserializePoints(ConfigNode sourceNode, Recording rec)
         {
-            var inv = NumberStyles.Float;
+            var ns = NumberStyles.Float;
             var ic = CultureInfo.InvariantCulture;
 
             ConfigNode[] ptNodes = sourceNode.GetNodes("POINT");
@@ -1542,36 +1579,36 @@ namespace Parsek
                 var ptNode = ptNodes[i];
                 var pt = new TrajectoryPoint();
 
-                bool utOk = double.TryParse(ptNode.GetValue("ut"), inv, ic, out pt.ut);
-                double.TryParse(ptNode.GetValue("lat"), inv, ic, out pt.latitude);
-                double.TryParse(ptNode.GetValue("lon"), inv, ic, out pt.longitude);
-                double.TryParse(ptNode.GetValue("alt"), inv, ic, out pt.altitude);
+                bool utOk = double.TryParse(ptNode.GetValue("ut"), ns, ic, out pt.ut);
+                double.TryParse(ptNode.GetValue("lat"), ns, ic, out pt.latitude);
+                double.TryParse(ptNode.GetValue("lon"), ns, ic, out pt.longitude);
+                double.TryParse(ptNode.GetValue("alt"), ns, ic, out pt.altitude);
 
                 if (!utOk)
                     parseFailCount++;
 
                 float rx, ry, rz, rw;
-                float.TryParse(ptNode.GetValue("rotX"), inv, ic, out rx);
-                float.TryParse(ptNode.GetValue("rotY"), inv, ic, out ry);
-                float.TryParse(ptNode.GetValue("rotZ"), inv, ic, out rz);
-                float.TryParse(ptNode.GetValue("rotW"), inv, ic, out rw);
+                float.TryParse(ptNode.GetValue("rotX"), ns, ic, out rx);
+                float.TryParse(ptNode.GetValue("rotY"), ns, ic, out ry);
+                float.TryParse(ptNode.GetValue("rotZ"), ns, ic, out rz);
+                float.TryParse(ptNode.GetValue("rotW"), ns, ic, out rw);
                 pt.rotation = new Quaternion(rx, ry, rz, rw);
 
                 pt.bodyName = ptNode.GetValue("body") ?? "Kerbin";
 
                 float velX, velY, velZ;
-                float.TryParse(ptNode.GetValue("velX"), inv, ic, out velX);
-                float.TryParse(ptNode.GetValue("velY"), inv, ic, out velY);
-                float.TryParse(ptNode.GetValue("velZ"), inv, ic, out velZ);
+                float.TryParse(ptNode.GetValue("velX"), ns, ic, out velX);
+                float.TryParse(ptNode.GetValue("velY"), ns, ic, out velY);
+                float.TryParse(ptNode.GetValue("velZ"), ns, ic, out velZ);
                 pt.velocity = new Vector3(velX, velY, velZ);
 
                 double funds;
-                double.TryParse(ptNode.GetValue("funds"), inv, ic, out funds);
+                double.TryParse(ptNode.GetValue("funds"), ns, ic, out funds);
                 pt.funds = funds;
 
                 float science, rep;
-                float.TryParse(ptNode.GetValue("science"), inv, ic, out science);
-                float.TryParse(ptNode.GetValue("rep"), inv, ic, out rep);
+                float.TryParse(ptNode.GetValue("science"), ns, ic, out science);
+                float.TryParse(ptNode.GetValue("rep"), ns, ic, out rep);
                 pt.science = science;
                 pt.reputation = rep;
 
@@ -1586,7 +1623,7 @@ namespace Parsek
         /// </summary>
         internal static void DeserializeOrbitSegments(ConfigNode sourceNode, Recording rec)
         {
-            var inv = NumberStyles.Float;
+            var ns = NumberStyles.Float;
             var ic = CultureInfo.InvariantCulture;
 
             ConfigNode[] segNodes = sourceNode.GetNodes("ORBIT_SEGMENT");
@@ -1595,30 +1632,30 @@ namespace Parsek
                 var segNode = segNodes[s];
                 var seg = new OrbitSegment();
 
-                double.TryParse(segNode.GetValue("startUT"), inv, ic, out seg.startUT);
-                double.TryParse(segNode.GetValue("endUT"), inv, ic, out seg.endUT);
-                double.TryParse(segNode.GetValue("inc"), inv, ic, out seg.inclination);
-                double.TryParse(segNode.GetValue("ecc"), inv, ic, out seg.eccentricity);
-                double.TryParse(segNode.GetValue("sma"), inv, ic, out seg.semiMajorAxis);
-                double.TryParse(segNode.GetValue("lan"), inv, ic, out seg.longitudeOfAscendingNode);
-                double.TryParse(segNode.GetValue("argPe"), inv, ic, out seg.argumentOfPeriapsis);
-                double.TryParse(segNode.GetValue("mna"), inv, ic, out seg.meanAnomalyAtEpoch);
-                double.TryParse(segNode.GetValue("epoch"), inv, ic, out seg.epoch);
+                double.TryParse(segNode.GetValue("startUT"), ns, ic, out seg.startUT);
+                double.TryParse(segNode.GetValue("endUT"), ns, ic, out seg.endUT);
+                double.TryParse(segNode.GetValue("inc"), ns, ic, out seg.inclination);
+                double.TryParse(segNode.GetValue("ecc"), ns, ic, out seg.eccentricity);
+                double.TryParse(segNode.GetValue("sma"), ns, ic, out seg.semiMajorAxis);
+                double.TryParse(segNode.GetValue("lan"), ns, ic, out seg.longitudeOfAscendingNode);
+                double.TryParse(segNode.GetValue("argPe"), ns, ic, out seg.argumentOfPeriapsis);
+                double.TryParse(segNode.GetValue("mna"), ns, ic, out seg.meanAnomalyAtEpoch);
+                double.TryParse(segNode.GetValue("epoch"), ns, ic, out seg.epoch);
                 seg.bodyName = segNode.GetValue("body") ?? "Kerbin";
 
                 float ofrX, ofrY, ofrZ, ofrW;
-                if (float.TryParse(segNode.GetValue("ofrX"), inv, ic, out ofrX) &&
-                    float.TryParse(segNode.GetValue("ofrY"), inv, ic, out ofrY) &&
-                    float.TryParse(segNode.GetValue("ofrZ"), inv, ic, out ofrZ) &&
-                    float.TryParse(segNode.GetValue("ofrW"), inv, ic, out ofrW))
+                if (float.TryParse(segNode.GetValue("ofrX"), ns, ic, out ofrX) &&
+                    float.TryParse(segNode.GetValue("ofrY"), ns, ic, out ofrY) &&
+                    float.TryParse(segNode.GetValue("ofrZ"), ns, ic, out ofrZ) &&
+                    float.TryParse(segNode.GetValue("ofrW"), ns, ic, out ofrW))
                 {
                     seg.orbitalFrameRotation = new Quaternion(ofrX, ofrY, ofrZ, ofrW);
                 }
 
                 float avX, avY, avZ;
-                if (float.TryParse(segNode.GetValue("avX"), inv, ic, out avX) &&
-                    float.TryParse(segNode.GetValue("avY"), inv, ic, out avY) &&
-                    float.TryParse(segNode.GetValue("avZ"), inv, ic, out avZ))
+                if (float.TryParse(segNode.GetValue("avX"), ns, ic, out avX) &&
+                    float.TryParse(segNode.GetValue("avY"), ns, ic, out avY) &&
+                    float.TryParse(segNode.GetValue("avZ"), ns, ic, out avZ))
                 {
                     seg.angularVelocity = new UnityEngine.Vector3(avX, avY, avZ);
                 }
@@ -1632,7 +1669,7 @@ namespace Parsek
         /// </summary>
         internal static void DeserializePartEvents(ConfigNode sourceNode, Recording rec)
         {
-            var inv = NumberStyles.Float;
+            var ns = NumberStyles.Float;
             var ic = CultureInfo.InvariantCulture;
 
             ConfigNode[] peNodes = sourceNode.GetNodes("PART_EVENT");
@@ -1641,7 +1678,7 @@ namespace Parsek
                 var peNode = peNodes[pe];
                 var evt = new PartEvent();
 
-                double.TryParse(peNode.GetValue("ut"), inv, ic, out evt.ut);
+                double.TryParse(peNode.GetValue("ut"), ns, ic, out evt.ut);
                 uint pid;
                 if (uint.TryParse(peNode.GetValue("pid"), NumberStyles.Integer, ic, out pid))
                     evt.partPersistentId = pid;
@@ -1659,7 +1696,7 @@ namespace Parsek
                 evt.partName = peNode.GetValue("part") ?? "";
 
                 float val;
-                if (float.TryParse(peNode.GetValue("value"), inv, ic, out val))
+                if (float.TryParse(peNode.GetValue("value"), ns, ic, out val))
                     evt.value = val;
                 int midx;
                 if (int.TryParse(peNode.GetValue("midx"), NumberStyles.Integer, ic, out midx))
@@ -1667,6 +1704,41 @@ namespace Parsek
 
                 rec.PartEvents.Add(evt);
             }
+        }
+
+        /// <summary>
+        /// Deserializes FLAG_EVENT nodes from a trajectory ConfigNode into the recording's FlagEvents list.
+        /// </summary>
+        internal static void DeserializeFlagEvents(ConfigNode sourceNode, Recording rec)
+        {
+            var ns = NumberStyles.Float;
+            var ic = CultureInfo.InvariantCulture;
+
+            ConfigNode[] feNodes = sourceNode.GetNodes("FLAG_EVENT");
+            for (int fe = 0; fe < feNodes.Length; fe++)
+            {
+                var feNode = feNodes[fe];
+                var evt = new FlagEvent();
+
+                double.TryParse(feNode.GetValue("ut"), ns, ic, out evt.ut);
+                evt.flagSiteName = feNode.GetValue("name") ?? "";
+                evt.placedBy = feNode.GetValue("placedBy") ?? "";
+                evt.plaqueText = feNode.GetValue("plaqueText") ?? "";
+                evt.flagURL = feNode.GetValue("flagURL") ?? "";
+                double.TryParse(feNode.GetValue("lat"), ns, ic, out evt.latitude);
+                double.TryParse(feNode.GetValue("lon"), ns, ic, out evt.longitude);
+                double.TryParse(feNode.GetValue("alt"), ns, ic, out evt.altitude);
+                float.TryParse(feNode.GetValue("rotX"), ns, ic, out evt.rotX);
+                float.TryParse(feNode.GetValue("rotY"), ns, ic, out evt.rotY);
+                float.TryParse(feNode.GetValue("rotZ"), ns, ic, out evt.rotZ);
+                float.TryParse(feNode.GetValue("rotW"), ns, ic, out evt.rotW);
+                evt.bodyName = feNode.GetValue("body") ?? "Kerbin";
+
+                rec.FlagEvents.Add(evt);
+            }
+
+            if (feNodes.Length > 0)
+                Log($"[Recording] Deserialized {feNodes.Length} flag event(s) for recording {rec.RecordingId}");
         }
 
         /// <summary>
@@ -1705,7 +1777,7 @@ namespace Parsek
             if (seNodes.Length == 0)
                 return;
 
-            var inv = NumberStyles.Float;
+            var ns = NumberStyles.Float;
             var ic = CultureInfo.InvariantCulture;
             int skipped = 0;
 
@@ -1714,7 +1786,7 @@ namespace Parsek
                 var seNode = seNodes[i];
 
                 double ut;
-                if (!double.TryParse(seNode.GetValue("ut"), inv, ic, out ut))
+                if (!double.TryParse(seNode.GetValue("ut"), ns, ic, out ut))
                 {
                     Log("[Recording] WARNING: Skipping SEGMENT_EVENT with missing or unparseable ut");
                     skipped++;
@@ -1871,7 +1943,7 @@ namespace Parsek
         /// </summary>
         internal static void DeserializeTrackSections(ConfigNode parent, List<TrackSection> tracks)
         {
-            var inv = NumberStyles.Float;
+            var ns = NumberStyles.Float;
             var ic = CultureInfo.InvariantCulture;
 
             ConfigNode[] tsNodes = parent.GetNodes("TRACK_SECTION");
@@ -1919,9 +1991,9 @@ namespace Parsek
                 section.referenceFrame = (ReferenceFrame)refInt;
 
                 // Parse scalar fields
-                double.TryParse(tsNode.GetValue("startUT"), inv, ic, out section.startUT);
-                double.TryParse(tsNode.GetValue("endUT"), inv, ic, out section.endUT);
-                float.TryParse(tsNode.GetValue("sampleRate"), inv, ic, out section.sampleRateHz);
+                double.TryParse(tsNode.GetValue("startUT"), ns, ic, out section.startUT);
+                double.TryParse(tsNode.GetValue("endUT"), ns, ic, out section.endUT);
+                float.TryParse(tsNode.GetValue("sampleRate"), ns, ic, out section.sampleRateHz);
 
                 // Source: defaults to Active (0) when absent — backward compatible
                 string srcStr = tsNode.GetValue("src");
@@ -1947,7 +2019,7 @@ namespace Parsek
 
                 // Boundary discontinuity: defaults to 0 when absent — backward compatible
                 float bdisc;
-                if (float.TryParse(tsNode.GetValue("bdisc"), inv, ic, out bdisc))
+                if (float.TryParse(tsNode.GetValue("bdisc"), ns, ic, out bdisc))
                     section.boundaryDiscontinuityMeters = bdisc;
 
                 uint anchorPid;
@@ -1965,33 +2037,33 @@ namespace Parsek
                         var ptNode = ptNodes[i];
                         var pt = new TrajectoryPoint();
 
-                        double.TryParse(ptNode.GetValue("ut"), inv, ic, out pt.ut);
-                        double.TryParse(ptNode.GetValue("lat"), inv, ic, out pt.latitude);
-                        double.TryParse(ptNode.GetValue("lon"), inv, ic, out pt.longitude);
-                        double.TryParse(ptNode.GetValue("alt"), inv, ic, out pt.altitude);
+                        double.TryParse(ptNode.GetValue("ut"), ns, ic, out pt.ut);
+                        double.TryParse(ptNode.GetValue("lat"), ns, ic, out pt.latitude);
+                        double.TryParse(ptNode.GetValue("lon"), ns, ic, out pt.longitude);
+                        double.TryParse(ptNode.GetValue("alt"), ns, ic, out pt.altitude);
 
                         float rx, ry, rz, rw;
-                        float.TryParse(ptNode.GetValue("rotX"), inv, ic, out rx);
-                        float.TryParse(ptNode.GetValue("rotY"), inv, ic, out ry);
-                        float.TryParse(ptNode.GetValue("rotZ"), inv, ic, out rz);
-                        float.TryParse(ptNode.GetValue("rotW"), inv, ic, out rw);
+                        float.TryParse(ptNode.GetValue("rotX"), ns, ic, out rx);
+                        float.TryParse(ptNode.GetValue("rotY"), ns, ic, out ry);
+                        float.TryParse(ptNode.GetValue("rotZ"), ns, ic, out rz);
+                        float.TryParse(ptNode.GetValue("rotW"), ns, ic, out rw);
                         pt.rotation = new Quaternion(rx, ry, rz, rw);
 
                         pt.bodyName = ptNode.GetValue("body") ?? "Kerbin";
 
                         float velX, velY, velZ;
-                        float.TryParse(ptNode.GetValue("velX"), inv, ic, out velX);
-                        float.TryParse(ptNode.GetValue("velY"), inv, ic, out velY);
-                        float.TryParse(ptNode.GetValue("velZ"), inv, ic, out velZ);
+                        float.TryParse(ptNode.GetValue("velX"), ns, ic, out velX);
+                        float.TryParse(ptNode.GetValue("velY"), ns, ic, out velY);
+                        float.TryParse(ptNode.GetValue("velZ"), ns, ic, out velZ);
                         pt.velocity = new Vector3(velX, velY, velZ);
 
                         double funds;
-                        double.TryParse(ptNode.GetValue("funds"), inv, ic, out funds);
+                        double.TryParse(ptNode.GetValue("funds"), ns, ic, out funds);
                         pt.funds = funds;
 
                         float science, rep;
-                        float.TryParse(ptNode.GetValue("science"), inv, ic, out science);
-                        float.TryParse(ptNode.GetValue("rep"), inv, ic, out rep);
+                        float.TryParse(ptNode.GetValue("science"), ns, ic, out science);
+                        float.TryParse(ptNode.GetValue("rep"), ns, ic, out rep);
                         pt.science = science;
                         pt.reputation = rep;
 
@@ -2007,30 +2079,30 @@ namespace Parsek
                         var segNode = segNodes[s];
                         var seg = new OrbitSegment();
 
-                        double.TryParse(segNode.GetValue("startUT"), inv, ic, out seg.startUT);
-                        double.TryParse(segNode.GetValue("endUT"), inv, ic, out seg.endUT);
-                        double.TryParse(segNode.GetValue("inc"), inv, ic, out seg.inclination);
-                        double.TryParse(segNode.GetValue("ecc"), inv, ic, out seg.eccentricity);
-                        double.TryParse(segNode.GetValue("sma"), inv, ic, out seg.semiMajorAxis);
-                        double.TryParse(segNode.GetValue("lan"), inv, ic, out seg.longitudeOfAscendingNode);
-                        double.TryParse(segNode.GetValue("argPe"), inv, ic, out seg.argumentOfPeriapsis);
-                        double.TryParse(segNode.GetValue("mna"), inv, ic, out seg.meanAnomalyAtEpoch);
-                        double.TryParse(segNode.GetValue("epoch"), inv, ic, out seg.epoch);
+                        double.TryParse(segNode.GetValue("startUT"), ns, ic, out seg.startUT);
+                        double.TryParse(segNode.GetValue("endUT"), ns, ic, out seg.endUT);
+                        double.TryParse(segNode.GetValue("inc"), ns, ic, out seg.inclination);
+                        double.TryParse(segNode.GetValue("ecc"), ns, ic, out seg.eccentricity);
+                        double.TryParse(segNode.GetValue("sma"), ns, ic, out seg.semiMajorAxis);
+                        double.TryParse(segNode.GetValue("lan"), ns, ic, out seg.longitudeOfAscendingNode);
+                        double.TryParse(segNode.GetValue("argPe"), ns, ic, out seg.argumentOfPeriapsis);
+                        double.TryParse(segNode.GetValue("mna"), ns, ic, out seg.meanAnomalyAtEpoch);
+                        double.TryParse(segNode.GetValue("epoch"), ns, ic, out seg.epoch);
                         seg.bodyName = segNode.GetValue("body") ?? "Kerbin";
 
                         float ofrX, ofrY, ofrZ, ofrW;
-                        if (float.TryParse(segNode.GetValue("ofrX"), inv, ic, out ofrX) &&
-                            float.TryParse(segNode.GetValue("ofrY"), inv, ic, out ofrY) &&
-                            float.TryParse(segNode.GetValue("ofrZ"), inv, ic, out ofrZ) &&
-                            float.TryParse(segNode.GetValue("ofrW"), inv, ic, out ofrW))
+                        if (float.TryParse(segNode.GetValue("ofrX"), ns, ic, out ofrX) &&
+                            float.TryParse(segNode.GetValue("ofrY"), ns, ic, out ofrY) &&
+                            float.TryParse(segNode.GetValue("ofrZ"), ns, ic, out ofrZ) &&
+                            float.TryParse(segNode.GetValue("ofrW"), ns, ic, out ofrW))
                         {
                             seg.orbitalFrameRotation = new Quaternion(ofrX, ofrY, ofrZ, ofrW);
                         }
 
                         float avX, avY, avZ;
-                        if (float.TryParse(segNode.GetValue("avX"), inv, ic, out avX) &&
-                            float.TryParse(segNode.GetValue("avY"), inv, ic, out avY) &&
-                            float.TryParse(segNode.GetValue("avZ"), inv, ic, out avZ))
+                        if (float.TryParse(segNode.GetValue("avX"), ns, ic, out avX) &&
+                            float.TryParse(segNode.GetValue("avY"), ns, ic, out avY) &&
+                            float.TryParse(segNode.GetValue("avZ"), ns, ic, out avZ))
                         {
                             seg.angularVelocity = new Vector3(avX, avY, avZ);
                         }

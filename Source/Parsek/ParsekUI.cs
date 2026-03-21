@@ -125,7 +125,6 @@ namespace Parsek
         private int lastSortedCount = -1;
 
         // Tooltip state
-        private int hoveredRecIdx = -1;
         private GUIStyle tooltipLabelStyle;
         private Rect scrollViewRect;
 
@@ -925,7 +924,6 @@ namespace Parsek
             EnsurePhaseStyles();
             RebuildSortedIndices(committed, now);
 
-            hoveredRecIdx = -1;
 
             if (committed.Count == 0)
             {
