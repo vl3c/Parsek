@@ -568,6 +568,35 @@ namespace Parsek
                     }
                 }
             }
+
+            // Terrain clamp: prevent ghosts from appearing below terrain surface.
+            // Sub-orbital orbit reconstruction can place ghosts underground (periapsis
+            // below surface), and procedural terrain height varies between sessions.
+            for (int i = 0; i < ghostPosEntries.Count; i++)
+            {
+                var e = ghostPosEntries[i];
+                if (e.ghost == null || !e.ghost.activeSelf) continue;
+                if (e.mode == GhostPosMode.Relative) continue;
+
+                CelestialBody body = (e.mode == GhostPosMode.Orbit) ? e.orbitBody : e.bodyBefore;
+                if (body == null || body.pqsController == null) continue;
+
+                Vector3d pos = e.ghost.transform.position;
+                double alt = body.GetAltitude(pos);
+                if (alt > 10000) continue; // skip in-flight ghosts (no terrain risk)
+
+                double lat = body.GetLatitude(pos);
+                double lon = body.GetLongitude(pos);
+                double terrainHeight = body.TerrainAltitude(lat, lon, true);
+                double clamped = TerrainCorrector.ClampAltitude(alt, terrainHeight);
+                if (clamped > alt)
+                {
+                    e.ghost.transform.position = body.GetWorldSurfacePosition(lat, lon, clamped);
+                    ParsekLog.VerboseRateLimited("TerrainCorrect", "clamp-ghost",
+                        $"Ghost terrain clamp: alt={alt:F1} terrain={terrainHeight:F1} -> {clamped:F1}");
+                }
+            }
+
             ghostPosEntries.Clear();
 
             UpdateWatchCamera();
