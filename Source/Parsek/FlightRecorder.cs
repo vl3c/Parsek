@@ -2032,6 +2032,12 @@ namespace Parsek
             return ((ulong)pid << 8) | (uint)moduleIndex;
         }
 
+        internal static void DecodeEngineKey(ulong key, out uint pid, out int moduleIndex)
+        {
+            pid = (uint)(key >> 8);
+            moduleIndex = (int)(key & 0xFF);
+        }
+
         private static string FormatCoverageEntries(List<string> entries, int maxEntries = 8)
         {
             if (entries == null || entries.Count == 0)
@@ -3772,6 +3778,45 @@ namespace Parsek
             // false events at first poll (e.g., shrouds already jettisoned,
             // engines already running, lights already on, etc.)
             SeedExistingPartStates(v);
+
+            // Emit seed events for the initial visual state so ghost playback
+            // can reconstruct correct visuals from recording start (bugs #70/#65).
+            var partNamesByPid = new Dictionary<uint, string>();
+            if (v.parts != null)
+            {
+                for (int i = 0; i < v.parts.Count; i++)
+                {
+                    Part p = v.parts[i];
+                    if (p != null && !partNamesByPid.ContainsKey(p.persistentId))
+                        partNamesByPid[p.persistentId] = p.partInfo?.name ?? "unknown";
+                }
+            }
+            var seedSets = new PartTrackingSets
+            {
+                deployedFairings = deployedFairings,
+                jettisonedShrouds = jettisonedShrouds,
+                parachuteStates = parachuteStates,
+                extendedDeployables = extendedDeployables,
+                lightsOn = lightsOn,
+                blinkingLights = blinkingLights,
+                lightBlinkRates = lightBlinkRates,
+                deployedGear = deployedGear,
+                openCargoBays = openCargoBays,
+                deployedLadders = deployedLadders,
+                deployedAnimationGroups = deployedAnimationGroups,
+                deployedAnimateGenericModules = deployedAnimateGenericModules,
+                deployedAeroSurfaceModules = deployedAeroSurfaceModules,
+                deployedControlSurfaceModules = deployedControlSurfaceModules,
+                deployedRobotArmScannerModules = deployedRobotArmScannerModules,
+                animateHeatLevels = animateHeatLevels,
+                activeEngineKeys = activeEngineKeys,
+                lastThrottle = lastThrottle,
+                activeRcsKeys = activeRcsKeys,
+                lastRcsThrottle = lastRcsThrottle,
+            };
+            double seedUT = Planetarium.GetUniversalTime();
+            var seedEvents = PartStateSeeder.EmitSeedEvents(seedSets, partNamesByPid, seedUT, "Recorder");
+            PartEvents.AddRange(seedEvents);
         }
 
         /// <summary>

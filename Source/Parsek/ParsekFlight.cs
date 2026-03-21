@@ -28,6 +28,12 @@ namespace Parsek
         private static readonly List<TrajectoryPoint> noRecording = new List<TrajectoryPoint>();
         private static readonly List<OrbitSegment> noOrbitSegments = new List<OrbitSegment>();
 
+        // Auto-record from LANDED: tracks when the active vessel last entered LANDED state.
+        // Only triggers auto-record if the vessel was settled for at least this long,
+        // filtering out physics bounces (rovers, crashes, EVA kerbals).
+        private double lastLandedUT = -1;
+        private const double LandedSettleThreshold = 5.0; // seconds
+
         // Manual playback state (preview of current recording)
         private bool isPlaying = false;
         private double playbackStartUT;
@@ -2511,6 +2517,13 @@ namespace Parsek
 
         void OnVesselSituationChange(GameEvents.HostedFromToAction<Vessel, Vessel.Situations> data)
         {
+            // Track when the active vessel enters LANDED/SPLASHED for the settle timer
+            if (data.host == FlightGlobals.ActiveVessel &&
+                (data.to == Vessel.Situations.LANDED || data.to == Vessel.Situations.SPLASHED))
+            {
+                lastLandedUT = Planetarium.GetUniversalTime();
+            }
+
             if (IsRecording) return;
             if (data.host != FlightGlobals.ActiveVessel)
             {
@@ -2518,10 +2531,27 @@ namespace Parsek
                     $"OnVesselSituationChange: ignoring non-active vessel ({data.from} → {data.to})");
                 return;
             }
-            if (data.from != Vessel.Situations.PRELAUNCH)
+
+            bool isPrelaunch = data.from == Vessel.Situations.PRELAUNCH;
+            bool isSettledLaunch = false;
+            if (!isPrelaunch && data.from == Vessel.Situations.LANDED)
             {
-                ParsekLog.VerboseRateLimited("Flight", "sit-change-not-prelaunch",
-                    $"OnVesselSituationChange: not from PRELAUNCH ({data.from} → {data.to})");
+                double settledTime = lastLandedUT >= 0
+                    ? Planetarium.GetUniversalTime() - lastLandedUT
+                    : 0;
+                isSettledLaunch = settledTime >= LandedSettleThreshold;
+                if (!isSettledLaunch)
+                {
+                    ParsekLog.VerboseRateLimited("Flight", "sit-change-bounce",
+                        $"OnVesselSituationChange: LANDED → {data.to} after {settledTime:F1}s (< {LandedSettleThreshold}s settle threshold)");
+                }
+            }
+
+            if (!isPrelaunch && !isSettledLaunch)
+            {
+                if (data.from != Vessel.Situations.LANDED) // already logged above for LANDED bounces
+                    ParsekLog.VerboseRateLimited("Flight", "sit-change-not-launch",
+                        $"OnVesselSituationChange: not a launch transition ({data.from} → {data.to})");
                 return;
             }
             if (ParsekSettings.Current?.autoRecordOnLaunch == false)
@@ -2531,7 +2561,7 @@ namespace Parsek
             }
 
             StartRecording();
-            Log("Auto-record started (vessel left pad/runway)");
+            Log($"Auto-record started ({data.from} → {data.to})");
             ScreenMessage("Recording STARTED (auto)", 2f);
         }
 
@@ -3605,6 +3635,16 @@ namespace Parsek
                     capSettings.ghostCapZone2Simplify);
             }
 
+            // Seed lastLandedUT if vessel is already on the surface (save-loaded pad, Mun lander, etc.)
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel != null &&
+                (activeVessel.situation == Vessel.Situations.LANDED ||
+                 activeVessel.situation == Vessel.Situations.SPLASHED))
+            {
+                lastLandedUT = Planetarium.GetUniversalTime();
+                ParsekLog.Verbose("Flight", $"Seeded lastLandedUT={lastLandedUT:F1} (vessel already {activeVessel.situation})");
+            }
+
             // Phase 6b: Evaluate ghost chains and ghost claimed vessels
             EvaluateAndApplyGhostChains();
 
@@ -3624,6 +3664,21 @@ namespace Parsek
             if (RecordingStore.HasPending)
             {
                 var pending = RecordingStore.Pending;
+
+                // After revert, the original vessel exists at its reverted position (e.g., on the pad),
+                // not at the recording's end position. Mark for fresh spawn with a new PID so the
+                // dedup check doesn't skip it. Also mark committed chain siblings.
+                pending.ForceSpawnNewVessel = true;
+                if (!string.IsNullOrEmpty(pending.ChainId))
+                {
+                    var chainSiblings = RecordingStore.GetChainRecordings(pending.ChainId);
+                    if (chainSiblings != null)
+                    {
+                        for (int cs = 0; cs < chainSiblings.Count; cs++)
+                            chainSiblings[cs].ForceSpawnNewVessel = true;
+                    }
+                }
+                ParsekLog.Verbose("Flight", $"Pending recording on flight ready: ForceSpawnNewVessel=true for '{pending.VesselName}'");
 
                 // Check if this is part of a chain with committed siblings
                 bool hasChainSiblings = !string.IsNullOrEmpty(pending.ChainId) &&
@@ -5494,7 +5549,10 @@ namespace Parsek
             // Real vessel dedup: if a vessel with this PID still exists in the game world,
             // skip spawning a duplicate. This runs only at actual spawn time (pastChainEnd),
             // not every frame like ShouldSpawnAtRecordingEnd.
-            if (rec.VesselPersistentId != 0 && GhostPlaybackLogic.RealVesselExists(rec.VesselPersistentId))
+            // Exception: ForceSpawnNewVessel is set after revert — the existing vessel is at the
+            // reverted position, not the recording's end position. Spawn a fresh copy with a new PID.
+            if (!rec.ForceSpawnNewVessel &&
+                rec.VesselPersistentId != 0 && GhostPlaybackLogic.RealVesselExists(rec.VesselPersistentId))
             {
                 rec.VesselSpawned = true;
                 rec.SpawnedVesselPersistentId = rec.VesselPersistentId;
@@ -7689,6 +7747,16 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns true if the ghost at index is within visual range (not in the Beyond zone).
+        /// </summary>
+        internal bool IsGhostWithinVisualRange(int index)
+        {
+            GhostPlaybackState s;
+            if (!ghostStates.TryGetValue(index, out s) || s == null) return false;
+            return s.currentZone != RenderingZone.Beyond;
+        }
+
+        /// <summary>
         /// Returns true if the ghost at index is on the same celestial body as the active vessel.
         /// </summary>
         internal bool IsGhostOnSameBody(int index)
@@ -7730,7 +7798,7 @@ namespace Parsek
                 vesselName = committed[watchedRecordingIndex].VesselName;
 
             float boxW = 300f, boxH = 50f;
-            float x = (Screen.width - boxW) / 2f;
+            float x = (Screen.width * 0.5f - boxW) / 2f; // centered in the left half of the screen
             float y = 10f;
             Rect bgRect = new Rect(x, y, boxW, boxH);
 

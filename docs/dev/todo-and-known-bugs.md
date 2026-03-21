@@ -83,6 +83,14 @@ Engine and RCS particle systems are instantiated per ghost. Pooling would reduce
 
 ## TODO — Features
 
+### T25. Fairing internal truss structure after jettison
+
+After fairing jettison, the ghost currently shows just the payload and base adapter. KSP's real vessel can show an internal truss structure (Cap/Truss meshes controlled by `ModuleStructuralNodeToggle.showMesh`). The prefab meshes are at placeholder scale (2000x10x2000) that only KSP's runtime `ModuleProceduralFairing` can set correctly. A procedural truss mesh was attempted but removed due to insufficient visual quality.
+
+To implement properly: either rescale prefab Cap/Truss meshes from XSECTION data (need to reverse-engineer the mesh unit geometry), or generate higher-fidelity procedural geometry with proper materials.
+
+**Priority:** Low — cosmetic, only visible briefly after fairing jettison
+
 ### T11. Ghost map presence KSP integration (bug #60)
 
 `GhostMapPresence` pure data layer is complete. 4 KSP integration points need in-game API investigation: tracking station registration, map orbit lines, nav target support, cleanup on despawn.
@@ -476,7 +484,7 @@ Additionally, `ComputeRcsPower` normalizes thrust across all nozzles (`sum / (th
 
 **Fix:** Added 8-frame debounce (~0.15s at 50Hz) to `CheckRcsState` in both `FlightRecorder` and `BackgroundRecorder`. RCS must be continuously `rcs_active` for 8 consecutive physics frames before `RCSActivated` is emitted. `RCSStopped` fires immediately when activity stops after a sustained activation. Micro-corrections below the threshold are silently filtered — no events emitted. Debounce state tracked in `rcsActiveFrameCount` dictionary, cleared on reset. Pure static helpers `ShouldStartRcsRecording`/`IsRcsRecordingSustained` extracted for testability. No changes to PartEvent struct, serialization, playback, or ghost builder.
 
-**Status:** Fixed (two-part). Recording-side: 8-frame debounce filters SAS micro-corrections. Playback-side: `RestoreAllRcsEmissions` was unconditionally calling `Play()` on ALL RCS particle systems after warp/suppression cycling, even those never activated by an event. Fixed by checking `rateOverTimeMultiplier > 0` before restoring — only RCS modules that received an `RCSActivated` event get restored.
+**Status:** Fixed (three-part). Recording-side: 8-frame debounce filters SAS micro-corrections. Playback-side: `RestoreAllRcsEmissions` was unconditionally calling `Play()` on ALL RCS particle systems after warp/suppression cycling, even those never activated by an event. Fixed by checking `rateOverTimeMultiplier > 0` before restoring — only RCS modules that received an `RCSActivated` event get restored. Build-side: `TryBuildRcsFX` used `GetComponentInChildren` (singular) which only configured the first `ParticleSystem` per FX model; child systems (glow/smoke) kept `playOnAwake=true` and auto-played on every ghost activation. Fixed by using `GetComponentsInChildren` (plural) to stop, clear, and disable renderers on all child systems.
 
 ## 31. Engine shroud/cover not rendered correctly for some engines
 
@@ -876,7 +884,7 @@ Related to bug #42 (engine shroud missing at recording start) and bug #31 (shrou
 
 **Repro:** Launch a vessel with SRB shroud → wait for shroud to jettison → start recording → stop → commit → play back ghost → shroud is visible on the ghost.
 
-**Status:** Open
+**Status:** Fixed — `PartStateSeeder.EmitSeedEvents` now emits synthetic `ShroudJettisoned` events at `startUT` for all pre-jettisoned shrouds. The existing `ApplyPartEvents` playback applies them on the first frame.
 
 ## 66. [v0.5.1] Booster/debris recording: auto-tree creation for DebrisSplit events
 
@@ -919,15 +927,15 @@ When a ghost recording reaches its end UT during watch mode while time-warping, 
 
 ## 68. Ghost parts colored red despite not being hot (engine thrust color leak)
 
-Many ghost parts appear red/orange even when they are not experiencing reentry heating. Likely related to the engine thrust level coloring system bleeding into non-engine parts — the emissive color or material override applied for active engines may be leaking to adjacent parts or not being properly scoped to engine renderers only.
+Many ghost parts appear red/orange even when they are not experiencing reentry heating. The engine thrust level coloring system was cloning materials on ALL renderers of heat-animated parts, not just the heat-affected ones.
 
-**Status:** Open
+**Status:** Fixed — `BuildHeatMaterialStates` now filters renderers by the resolved heat transform subtree. Fallback path (material-only animations) only replaces `renderer.materials` when at least one material is tracked (#86 follow-up).
 
 ## 69. Procedural fairing shows internal structure on ghost
 
 The procedural fairing ghost displays its internal structural framework/skeleton part sticking out through the fairing shell. The fairing's internal structure mesh should be hidden on the ghost — only the outer shell panels should be visible.
 
-**Status:** Open
+**Status:** Fixed — Prefab Cap/Truss clones (at placeholder scale 2000x10x2000) are permanently hidden. A procedural truss mesh is generated from XSECTION data with horizontal cap discs and vertical struts, hidden by default and revealed on `FairingJettisoned` event. Fairing cone mesh now has a cap disc for truncated tops (#85).
 
 ## 70. Deployed solar panels shown retracted on ghost during playback
 
@@ -937,7 +945,7 @@ Related to the general "initial part state" problem — the ghost builder needs 
 
 **Observed in:** Rover recording session (2026-03-21). Recording shows `deployables=2` (2 solar panels EXTENDED), but ghost renders them retracted.
 
-**Status:** Open
+**Status:** Fixed — `PartStateSeeder.EmitSeedEvents` now emits synthetic `DeployableExtended` events at `startUT` for all pre-extended deployables. Covers all 16 tracking set types including gear, lights, engines, RCS, thermal animations, and more.
 
 ## 71. GhostCommNetRelay.RegisterNode orphans CommNet nodes on double registration
 
@@ -1022,3 +1030,59 @@ After CommNet reinitialization, the existing `CommNode` objects in `activeGhostN
 Line 289: `int cycleIndex = (int)(elapsed / cycleDuration)` — for very long-running loops with short cycle durations, the double value can exceed `Int32.MaxValue`. The cast produces undefined behavior in C# (typically `Int32.MinValue` or garbage). A 0.1s recording looping for 250+ in-game days would overflow.
 
 **Status:** Open — extreme edge case
+
+## 85. Fairing nosecone cap missing on ghost
+
+The generated fairing cone mesh (`GenerateFairingConeMesh`) builds a surface-of-revolution from XSECTION data but may not close off the top with a cap face. The topmost fairing cap piece (the nose tip) is visually missing on the ghost. The Cap1-Cap6 transforms from AutoTruss are interstage discs, not the nosecone.
+
+**Repro:** Build a vessel with a procedural fairing → launch → commit → play back ghost → top of fairing has a hole.
+
+**Status:** Fixed — `GenerateFairingConeMesh` now generates a flat disc cap when the top XSECTION has non-zero radius (capRadius).
+
+## 86. Heat material fallback still colors non-heat renderers (material-only animations)
+
+Bug #68 fix limits material cloning to heat-animated transforms, but `FXModuleAnimateThrottle` animations like `overheat` on engines (e.g., `engineLargeSkipper`) animate material properties only (no transform deltas). `SampleAnimateHeatStates` returns 0 transform deltas, triggering the clone-all fallback. All 7 materials are cloned but only 4 are tracked — the 3 untracked clones keep stale colors, causing the red tint on non-heat parts.
+
+**Log evidence:** `AnimateHeat 'engineLargeSkipper.v2': no affected transforms provided, cloning all renderers (fallback)` — `tracked=4 cloned=7`
+
+**Fix:** In the fallback path, don't clone materials that won't be tracked. Only clone materials that have `_Color` or emissive properties. Leave untracked materials as `sharedMaterials`.
+
+**Status:** Fixed — `BuildHeatMaterialStates` fallback path now only assigns `renderer.materials = cloned` when at least one material on that renderer is tracked in `materialStates`.
+
+## 87. Chain boundary commit creates group inside group in UI
+
+When a chain recording hits a boundary split (e.g., atmosphere exit), the committed segments appear as a nested group inside a group in the recordings UI. The RecordingGroup logic may be double-nesting chain segments.
+
+**Status:** Open — needs investigation of RecordingGroup assignment during chain boundary commits
+
+## 88. No merge/approval dialog shown on recording commit
+
+After recording completes (via chain boundary or scene change), the recording is auto-committed without showing a dialog asking the user to approve. The merge dialog is currently only shown on revert, not on normal commit flow. User expects to be asked before committing.
+
+**Status:** Open — design decision needed: should normal commits require approval?
+
+## 89. Watch button enabled for distant ghosts beyond visual range
+
+Pressing Watch (W) on a ghost that is beyond visual range (100km+) switches the camera to it, then immediately exits watch mode because the ghost exceeds range. The Watch button should be disabled (or the switch should be prevented) when the ghost is too far away.
+
+**Log evidence:** `EnterWatchMode` at 161km → `Watch exited: ghost exceeded visual range (163142m)` after 2 seconds.
+
+**Status:** Fixed — Watch button now requires `IsGhostWithinVisualRange` (currentZone != Beyond). Tooltip shows "Ghost is beyond visual range" when disabled.
+
+## 90. Watch button enabled for recordings from the past
+
+The Watch (W) button is shown enabled for a recording whose time range is entirely in the past (already finished playing). Watching a finished recording is meaningless — the ghost doesn't exist. The button should be disabled for recordings outside the current playback window.
+
+**Status:** Fixed — Non-looping past ghosts are destroyed (hasGhost=false → button disabled). Looping ghosts that drift beyond range are caught by the visual range check (#89).
+
+## 91. Fairing internal structure shown on ghost when disabled on real vessel
+
+`GetFairingShowMesh` reads `showMesh` from `ModuleStructuralNodeToggle` in the snapshot but returns `True` even when the player set it to hidden. Log shows `showInternalOnJettison=True` when the real vessel has structure hidden. Either the snapshot doesn't contain the updated `showMesh` value, or the field name is wrong.
+
+**Status:** Fixed — Prefab Cap/Truss meshes are at placeholder scale (2000x10x2000) that only KSP's runtime `ModuleProceduralFairing` can adjust. Procedural truss mesh generated from XSECTION data replaces them. The `showMesh` field in snapshots was always `True` for this vessel — the visual issue was the enormous prefab-scale meshes, not a reading error.
+
+## 92. Zone rendering policy tests expect old Visual-zone behavior
+
+`GetZoneRenderingPolicy(Visual)` and `ShouldApplyPartEventsForZone(Visual)` were changed to apply part events in the Visual zone (2.3-120km) so that structural changes (fairing jettison, staging, crash destruction) work at altitude. Two existing tests still assert the old behavior (`skipPartEvents = true` for Visual zone). Update them to expect `skipPartEvents = false` and `ShouldApplyPartEventsForZone(Visual) = true`.
+
+**Status:** Open — test-only fix, no production code change needed

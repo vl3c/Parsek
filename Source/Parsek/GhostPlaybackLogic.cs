@@ -1076,18 +1076,27 @@ namespace Parsek
 
         internal static void HidePartSubtree(GameObject ghost, uint rootPid, Dictionary<uint, List<uint>> tree)
         {
+            int hidden = 0;
+            int notFound = 0;
             var stack = new Stack<uint>();
             stack.Push(rootPid);
             while (stack.Count > 0)
             {
                 uint pid = stack.Pop();
                 var t = ghost.transform.Find($"ghost_part_{pid}");
-                if (t != null) t.gameObject.SetActive(false);
+                if (t != null)
+                {
+                    t.gameObject.SetActive(false);
+                    hidden++;
+                }
+                else
+                    notFound++;
                 List<uint> children;
                 if (tree.TryGetValue(pid, out children))
                     for (int c = 0; c < children.Count; c++)
                         stack.Push(children[c]);
             }
+            ParsekLog.Verbose("Flight", $"HidePartSubtree: rootPid={rootPid}, hidden={hidden}, notFound={notFound}, treeHasRoot={tree.ContainsKey(rootPid)}");
         }
 
         /// <summary>
@@ -2025,16 +2034,18 @@ namespace Parsek
 
         /// <summary>
         /// Determines whether part events should be applied for the given zone.
-        /// Part events only fire in the Physics zone (within 2.3 km).
+        /// Part events fire in Physics and Visual zones — structural changes (decoupling,
+        /// fairing jettison, destruction) must be applied even when the ghost is distant.
+        /// Only Beyond zone skips part events (ghost mesh is hidden anyway).
         /// </summary>
         internal static bool ShouldApplyPartEventsForZone(RenderingZone zone)
         {
-            return zone == RenderingZone.Physics;
+            return zone != RenderingZone.Beyond;
         }
 
         /// <summary>
         /// Determines the rendering actions to take when a ghost transitions between zones.
-        /// Returns (shouldHideMesh, shouldExitWatch, shouldSkipPartEvents, shouldSkipPositioning).
+        /// Returns (shouldHideMesh, shouldSkipPartEvents, shouldSkipPositioning).
         /// </summary>
         internal static (bool shouldHideMesh, bool shouldSkipPartEvents, bool shouldSkipPositioning)
             GetZoneRenderingPolicy(RenderingZone zone)
@@ -2044,7 +2055,7 @@ namespace Parsek
                 case RenderingZone.Beyond:
                     return (true, true, true);
                 case RenderingZone.Visual:
-                    return (false, true, false);
+                    return (false, false, false); // part events apply in Visual zone
                 case RenderingZone.Physics:
                 default:
                     return (false, false, false);

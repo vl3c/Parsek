@@ -1317,12 +1317,15 @@ namespace Parsek
             {
                 bool hasGhost = flight.HasActiveGhost(ri);
                 bool sameBody = flight.IsGhostOnSameBody(ri);
+                bool inRange = flight.IsGhostWithinVisualRange(ri);
                 bool isWatching = flight.WatchedRecordingIndex == ri;
-                bool canWatch = hasGhost && sameBody;
+                bool canWatch = hasGhost && sameBody && inRange;
 
                 GUI.enabled = canWatch;
                 string watchLabel = isWatching ? "W*" : "W";
-                string watchTooltip = (hasGhost && !sameBody) ? "Ghost is on a different body" : "";
+                string watchTooltip = (hasGhost && !sameBody) ? "Ghost is on a different body"
+                    : (hasGhost && !inRange) ? "Ghost is beyond visual range"
+                    : "";
                 var watchContent = new GUIContent(watchLabel, watchTooltip);
                 if (GUILayout.Button(watchContent, GUILayout.Width(ColW_Watch)))
                 {

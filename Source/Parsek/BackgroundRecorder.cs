@@ -1413,6 +1413,48 @@ namespace Parsek
             // Seed all tracking sets with current part state (mirrors FlightRecorder.SeedExistingPartStates)
             SeedBackgroundPartStates(v, state);
 
+            // Emit seed events for the initial visual state (bugs #70/#65)
+            var partNamesByPid = new Dictionary<uint, string>();
+            if (v.parts != null)
+            {
+                for (int i = 0; i < v.parts.Count; i++)
+                {
+                    Part p = v.parts[i];
+                    if (p != null && !partNamesByPid.ContainsKey(p.persistentId))
+                        partNamesByPid[p.persistentId] = p.partInfo?.name ?? "unknown";
+                }
+            }
+            double seedUT = Planetarium.GetUniversalTime();
+            var seedSets = new PartTrackingSets
+            {
+                deployedFairings = state.deployedFairings,
+                jettisonedShrouds = state.jettisonedShrouds,
+                parachuteStates = state.parachuteStates,
+                extendedDeployables = state.extendedDeployables,
+                lightsOn = state.lightsOn,
+                blinkingLights = state.blinkingLights,
+                lightBlinkRates = state.lightBlinkRates,
+                deployedGear = state.deployedGear,
+                openCargoBays = state.openCargoBays,
+                deployedLadders = state.deployedLadders,
+                deployedAnimationGroups = state.deployedAnimationGroups,
+                deployedAnimateGenericModules = state.deployedAnimateGenericModules,
+                deployedAeroSurfaceModules = state.deployedAeroSurfaceModules,
+                deployedControlSurfaceModules = state.deployedControlSurfaceModules,
+                deployedRobotArmScannerModules = state.deployedRobotArmScannerModules,
+                animateHeatLevels = state.animateHeatLevels,
+                activeEngineKeys = state.activeEngineKeys,
+                lastThrottle = state.lastThrottle,
+                activeRcsKeys = state.activeRcsKeys,
+                lastRcsThrottle = state.lastRcsThrottle,
+            };
+            var seedEvents = PartStateSeeder.EmitSeedEvents(seedSets, partNamesByPid, seedUT, "BgRecorder");
+            Recording treeRecForSeed;
+            if (seedEvents.Count > 0 && tree.Recordings.TryGetValue(recordingId, out treeRecForSeed))
+            {
+                treeRecForSeed.PartEvents.AddRange(seedEvents);
+            }
+
             // Initialize environment tracking and open first TrackSection
             double ut = Planetarium.GetUniversalTime();
             bool hasAtmo = v.mainBody != null && v.mainBody.atmosphere;
