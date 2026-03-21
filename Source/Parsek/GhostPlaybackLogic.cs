@@ -898,12 +898,6 @@ namespace Parsek
                                 && fInfo.fairingMeshObject != null)
                             {
                                 fInfo.fairingMeshObject.SetActive(false);
-                                // Show procedural truss structure (generated from XSECTION data at build time)
-                                if (fInfo.trussStructureObject != null)
-                                {
-                                    fInfo.trussStructureObject.SetActive(true);
-                                    ParsekLog.Verbose("Flight", $"Fairing truss structure revealed for pid={evt.partPersistentId}");
-                                }
                                 ParsekLog.Verbose("Flight", $"Part event applied: FairingJettisoned '{evt.partName}' pid={evt.partPersistentId}");
                             }
                         }

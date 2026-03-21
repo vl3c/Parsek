@@ -4527,36 +4527,13 @@ namespace Parsek
                 color = new Color(0.85f, 0.85f, 0.85f)
             };
 
-            // Generate truss structure mesh (hidden initially, revealed on jettison)
-            // Only if the player has truss structure enabled (showMesh from ModuleStructuralNodeToggle)
-            GameObject trussGo = null;
-            bool showMesh = GetFairingShowMesh(partNode);
-            if (showMesh)
-            {
-                Mesh trussMesh = GenerateFairingTrussMesh(sections, nSides, pivot, axis);
-                if (trussMesh != null)
-                {
-                    trussGo = new GameObject("fairing_truss");
-                    trussGo.transform.SetParent(modelNode, false);
-                    trussGo.AddComponent<MeshFilter>().mesh = trussMesh;
-                    var trussMr = trussGo.AddComponent<MeshRenderer>();
-                    trussMr.material = new Material(Shader.Find("KSP/Diffuse"))
-                    {
-                        color = new Color(0.65f, 0.65f, 0.65f) // slightly darker than the fairing shell
-                    };
-                    trussGo.SetActive(false);
-                }
-            }
-
             ParsekLog.Verbose("GhostVisual", $"    Fairing detected: '{partName}' pid={persistentId}, " +
-                $"cone mesh generated ({sections.Count} sections, {nSides} sides)" +
-                (trussGo != null ? ", truss structure mesh generated" : ""));
+                $"cone mesh generated ({sections.Count} sections, {nSides} sides)");
 
             return new FairingGhostInfo
             {
                 partPersistentId = persistentId,
-                fairingMeshObject = go,
-                trussStructureObject = trussGo
+                fairingMeshObject = go
             };
         }
 
