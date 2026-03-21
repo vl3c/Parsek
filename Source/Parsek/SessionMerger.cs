@@ -180,7 +180,6 @@ namespace Parsek
                 }
 
                 // Check against all existing output sections for overlaps
-                bool added = false;
                 var newOutput = new List<TrackSection>();
 
                 for (int j = 0; j < output.Count; j++)
