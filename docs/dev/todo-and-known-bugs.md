@@ -880,3 +880,25 @@ When a ghost recording reaches its end UT during watch mode while time-warping, 
 **Fix applied:** Removed the `pendingWatchRecordingId` assignment in the recording-end exit path. Watch mode ending because a recording finished is NOT a "pause for later resumption" — it's a final exit that should not trigger camera re-targeting.
 
 **Status:** Fixed
+
+## 68. Ghost parts colored red despite not being hot (engine thrust color leak)
+
+Many ghost parts appear red/orange even when they are not experiencing reentry heating. Likely related to the engine thrust level coloring system bleeding into non-engine parts — the emissive color or material override applied for active engines may be leaking to adjacent parts or not being properly scoped to engine renderers only.
+
+**Status:** Open
+
+## 69. Procedural fairing shows internal structure on ghost
+
+The procedural fairing ghost displays its internal structural framework/skeleton part sticking out through the fairing shell. The fairing's internal structure mesh should be hidden on the ghost — only the outer shell panels should be visible.
+
+**Status:** Open
+
+## 70. Deployed solar panels shown retracted on ghost during playback
+
+The rover ghost shows solar panels in their default (retracted) position even though they were extended at recording time. The initial state seeding correctly captures the deployment state (`solarPanels1[pid=873017503](state=EXTENDED)`), but the ghost is built from the vessel snapshot which stores parts in their default configuration. The deployed state from part events is not applied to the ghost mesh at spawn time.
+
+Related to the general "initial part state" problem — the ghost builder needs to apply the recorded deployment state from `SeedInitialState` to the ghost's animated transforms at spawn time, similar to how engine shroud jettison state should be applied (see #65).
+
+**Observed in:** Rover recording session (2026-03-21). Recording shows `deployables=2` (2 solar panels EXTENDED), but ghost renders them retracted.
+
+**Status:** Open
