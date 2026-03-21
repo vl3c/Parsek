@@ -781,7 +781,7 @@ When the player stages/decouples parts, KSP may instantly destroy the separated 
 3. **User guidance:** Document in mod settings/FAQ that debris persistence should be enabled for full recording fidelity. Add a setting check that warns the user if debris persistence is off.
 4. **Synthetic debris trajectory:** When a `PartEvent.Decoupled` fires but no new vessel appears, Parsek could compute an approximate ballistic trajectory for the separated mass (using the vessel's velocity + a separation impulse) and create a visual-only ghost that shows the booster tumbling away. This wouldn't be a real recording but would look correct visually.
 
-**Status:** Open — enhancement opportunity
+**Status:** Detection fixed — `onPartDeCoupleNewVesselComplete` hook catches debris vessels synchronously during `Part.decouple()` (FixedUpdate), before KSP can destroy them. All 4 booster separations now correctly classified as `DebrisSplit` and fed to the crash coalescer. However, debris **recording** still blocked — see #66 (auto-tree creation for debris splits).
 
 ## 59. SoftCap ClassifyPriority logs per-frame per-ghost at VERBOSE (log spam)
 
@@ -841,3 +841,42 @@ Related to bug #42 (engine shroud missing at recording start) and bug #31 (shrou
 **Repro:** Launch a vessel with SRB shroud → wait for shroud to jettison → start recording → stop → commit → play back ghost → shroud is visible on the ghost.
 
 **Status:** Open
+
+## 66. [v0.5.1] Booster/debris recording: auto-tree creation for DebrisSplit events
+
+**Target version:** 0.5.1
+
+Booster separation is now correctly **detected** (via `onPartDeCoupleNewVesselComplete` hook, see #58) but separated boosters are not **recorded**. The crash coalescer emits BREAKUP events with the correct debris count, but `ProcessBreakupEvent` discards them with `"no active tree — breakup event logged but not recorded"`.
+
+**Root cause:** Background vessel recording (including debris TTL tracking) only works in tree mode. Trees are currently created only by controlled vessel splits (EVA, dock/undock). A standalone recording that stages boosters never enters tree mode, so debris is detected but not tracked.
+
+**Required changes:**
+
+1. **Auto-tree promotion on DebrisSplit:** When `ProcessBreakupEvent` fires and there is no active tree, automatically promote the standalone recording into a tree. The current recorder's accumulated data becomes the tree root recording, and a BackgroundRecorder is created to track debris vessels.
+
+2. **Debris background recording:** After tree creation, the separated booster vessels (captured by `onPartDeCoupleNewVesselComplete` with their PIDs) need to be added to the tree's BackgroundMap so BackgroundRecorder can sample them. The existing 30-second debris TTL mechanism should apply.
+
+3. **Debris vessel survival:** The debris vessels must survive long enough for BackgroundRecorder to sample them. Current approach uses `onPartDeCoupleNewVesselComplete` to capture PIDs synchronously during decouple, plus a reflection-based `GameSettings` search for debris persistence enforcement (field not found in KSP 1.12.5 — may need alternative approach).
+
+4. **Timing challenge:** The decouple event fires during FixedUpdate. The deferred joint break check runs next frame. By that time, KSP may have already destroyed the debris. The BackgroundRecorder needs the vessel to exist in `FlightGlobals.Vessels` to sample it. If the vessel is destroyed before the first sample, only the initial position (captured at decouple time) is available. Consider creating a single-point "separation trajectory" recording from the captured position/velocity.
+
+**Key code paths:**
+- `ParsekFlight.ProcessBreakupEvent()` — currently no-ops without a tree
+- `ParsekFlight.HandleJointBreakDeferredCheck()` + `DeferredJointBreakCheck()` — split detection
+- `ParsekFlight.OnDecoupleNewVesselDuringSplitCheck()` — captures PIDs at decouple time
+- `CrashCoalescer` — groups rapid splits into BREAKUP events
+- `BackgroundRecorder` — samples background vessels (requires tree)
+
+**Observed in:** Multiple test sessions (2026-03-21). 4 boosters correctly detected as DebrisSplit, BREAKUP emitted with debris=4, but discarded due to no active tree.
+
+**Status:** Open — planned for v0.5.1
+
+## 67. [v0.5.1] Camera switches to spawned vessel after watch mode ends at recording boundary
+
+When a ghost recording reaches its end UT during watch mode while time-warping, the camera correctly exits watch mode and returns to the player's vessel. However, the deferred spawn mechanism then switches the camera to the newly spawned vessel, pulling the player away from their real vessel.
+
+**Root cause:** `pendingWatchRecordingId` was set before `ExitWatchMode()` in the warp-deferred code path (`ParsekFlight.cs` ~line 5852). When the deferred spawn executed after warp ended, `ShouldRestoreWatchMode` returned true and `DeferredActivateVessel` switched the camera to the spawned vessel.
+
+**Fix applied:** Removed the `pendingWatchRecordingId` assignment in the recording-end exit path. Watch mode ending because a recording finished is NOT a "pause for later resumption" — it's a final exit that should not trigger camera re-targeting.
+
+**Status:** Fixed
