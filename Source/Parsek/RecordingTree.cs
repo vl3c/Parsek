@@ -32,6 +32,11 @@ namespace Parsek
         public Dictionary<uint, string> BackgroundMap
             = new Dictionary<uint, string>();
 
+        // Set of all vessel PIDs that appear in this tree's recordings.
+        // Used to distinguish tree-owned vessels from external vessels in ghost skip logic.
+        // Rebuilt alongside BackgroundMap via RebuildBackgroundMap().
+        public HashSet<uint> OwnedVesselPids = new HashSet<uint>();
+
         // --- Serialization ---
 
         public void Save(ConfigNode treeNode)
@@ -128,9 +133,13 @@ namespace Parsek
         public void RebuildBackgroundMap()
         {
             BackgroundMap.Clear();
+            OwnedVesselPids.Clear();
             foreach (var kvp in Recordings)
             {
                 var rec = kvp.Value;
+                if (rec.VesselPersistentId != 0)
+                    OwnedVesselPids.Add(rec.VesselPersistentId);
+
                 if (rec.VesselPersistentId != 0
                     && rec.TerminalStateValue == null
                     && rec.ChildBranchPointId == null  // has branched → no longer a live recording
@@ -145,7 +154,7 @@ namespace Parsek
             }
 
             ParsekLog.Verbose("RecordingTree",
-                $"RebuildBackgroundMap: entries={BackgroundMap.Count} totalRecordings={Recordings.Count}");
+                $"RebuildBackgroundMap: entries={BackgroundMap.Count} ownedPids={OwnedVesselPids.Count} totalRecordings={Recordings.Count}");
         }
 
         // --- Recording serialization helpers ---

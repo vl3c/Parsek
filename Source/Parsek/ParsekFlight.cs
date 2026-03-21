@@ -158,6 +158,11 @@ namespace Parsek
         // Recording tree mode (null when not in tree mode)
         private RecordingTree activeTree;
 
+        // Debris persistence enforcement: saved original value when Parsek overrides it
+        private const int MinDebrisForRecording = 10;
+        private int savedMaxPersistentDebris = -1;
+        private bool debrisOverrideActive;
+
         // Background recorder for tree mode (null when not in tree mode)
         private BackgroundRecorder backgroundRecorder;
 
@@ -168,6 +173,12 @@ namespace Parsek
         private FlightRecorder pendingSplitRecorder;
         // Vessel PIDs that existed before a joint break (for filtering pre-existing vessels)
         private HashSet<uint> preBreakVesselPids;
+        // Vessels created by decouple during recording (caught via onPartDeCoupleNewVesselComplete
+        // synchronously during Part.decouple(), before KSP's debris cleanup can destroy them).
+        // Subscribed for the entire recording session, consumed by DeferredJointBreakCheck.
+        private List<Vessel> decoupleCreatedVessels;
+        // Controller status captured at creation time (vessel parts may be cleared before deferred check)
+        private Dictionary<uint, bool> decoupleControllerStatus;
 
         // Crash coalescer: groups rapid structural splits into single BREAKUP events
         private CrashCoalescer crashCoalescer = new CrashCoalescer();
@@ -610,6 +621,17 @@ namespace Parsek
             GameEvents.onGroundSciencePartRemoved.Remove(OnGroundSciencePartRemoved);
             GameEvents.onVesselChange.Remove(OnVesselSwitchComplete);
             GameEvents.onTimeWarpRateChanged.Remove(OnTimeWarpRateChanged);
+
+            // Restore debris persistence if still overridden
+            RestoreDebrisPersistence();
+
+            // Clean up decouple listener if still active
+            if (decoupleCreatedVessels != null)
+            {
+                GameEvents.onPartDeCoupleNewVesselComplete.Remove(OnDecoupleNewVesselDuringSplitCheck);
+                decoupleCreatedVessels = null;
+                decoupleControllerStatus = null;
+            }
 
             // Clean up background recorder if active
             if (backgroundRecorder != null)
@@ -1240,6 +1262,7 @@ namespace Parsek
             treeRec.Points.AddRange(rec.Recording);
             treeRec.OrbitSegments.AddRange(rec.OrbitSegments);
             treeRec.PartEvents.AddRange(rec.PartEvents);
+            treeRec.TrackSections.AddRange(rec.TrackSections);
 
             // Sort part events chronologically (mixed event sources may produce non-chronological order)
             treeRec.PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
@@ -1486,6 +1509,7 @@ namespace Parsek
                     rootRec.Points = new List<TrajectoryPoint>(splitRecorder.CaptureAtStop.Points);
                     rootRec.OrbitSegments = new List<OrbitSegment>(splitRecorder.CaptureAtStop.OrbitSegments);
                     rootRec.PartEvents = new List<PartEvent>(splitRecorder.CaptureAtStop.PartEvents);
+                    rootRec.TrackSections = new List<TrackSection>(splitRecorder.CaptureAtStop.TrackSections);
                     rootRec.GhostVisualSnapshot = splitRecorder.CaptureAtStop.GhostVisualSnapshot;
                     rootRec.VesselSnapshot = splitRecorder.CaptureAtStop.VesselSnapshot;
                     rootRec.RewindSaveFileName = splitRecorder.CaptureAtStop.RewindSaveFileName;
@@ -1527,6 +1551,7 @@ namespace Parsek
                         parentRec.Points.AddRange(splitRecorder.CaptureAtStop.Points);
                         parentRec.OrbitSegments.AddRange(splitRecorder.CaptureAtStop.OrbitSegments);
                         parentRec.PartEvents.AddRange(splitRecorder.CaptureAtStop.PartEvents);
+                        parentRec.TrackSections.AddRange(splitRecorder.CaptureAtStop.TrackSections);
                         parentRec.PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
                     }
                     parentRec.ExplicitEndUT = branchUT;
@@ -1664,6 +1689,7 @@ namespace Parsek
                     activeParentRec.Points.AddRange(stoppedRecorder.CaptureAtStop.Points);
                     activeParentRec.OrbitSegments.AddRange(stoppedRecorder.CaptureAtStop.OrbitSegments);
                     activeParentRec.PartEvents.AddRange(stoppedRecorder.CaptureAtStop.PartEvents);
+                    activeParentRec.TrackSections.AddRange(stoppedRecorder.CaptureAtStop.TrackSections);
                     activeParentRec.PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
                 }
                 activeParentRec.ExplicitEndUT = mergeUT;
@@ -2051,6 +2077,38 @@ namespace Parsek
                 var newVesselHasController = new Dictionary<uint, bool>();
                 bool anyNewVesselHasController = false;
 
+                // First, include vessels caught by onPartDeCoupleNewVesselComplete during recording.
+                // These may have been destroyed by KSP's debris cleanup before this scan,
+                // so we use the controller status captured at creation time (parts may be cleared).
+                if (decoupleCreatedVessels != null && decoupleCreatedVessels.Count > 0)
+                {
+                    ParsekLog.Info("Flight",
+                        $"DeferredJointBreakCheck: {decoupleCreatedVessels.Count} vessel(s) caught by onPartDeCouple");
+
+                    for (int i = 0; i < decoupleCreatedVessels.Count; i++)
+                    {
+                        Vessel v = decoupleCreatedVessels[i];
+                        if (v == null || v.persistentId == recordedPid) continue;
+
+                        if (activeTree != null && activeTree.BackgroundMap.ContainsKey(v.persistentId))
+                            continue;
+
+                        if (!newVesselPids.Contains(v.persistentId))
+                        {
+                            newVesselPids.Add(v.persistentId);
+
+                            // Use pre-captured controller status (vessel parts may be gone now)
+                            bool hasController = decoupleControllerStatus != null
+                                && decoupleControllerStatus.ContainsKey(v.persistentId)
+                                && decoupleControllerStatus[v.persistentId];
+                            newVesselHasController[v.persistentId] = hasController;
+                            if (hasController)
+                                anyNewVesselHasController = true;
+                        }
+                    }
+                }
+
+                // Also scan FlightGlobals.Vessels for any new vessels still alive
                 if (FlightGlobals.Vessels != null)
                 {
                     for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
@@ -2064,6 +2122,10 @@ namespace Parsek
 
                         // Skip vessels we're already tracking in the tree
                         if (activeTree != null && activeTree.BackgroundMap.ContainsKey(v.persistentId))
+                            continue;
+
+                        // Skip if already captured by onVesselCreate
+                        if (newVesselPids.Contains(v.persistentId))
                             continue;
 
                         newVesselPids.Add(v.persistentId);
@@ -2145,6 +2207,9 @@ namespace Parsek
                 pendingSplitInProgress = false;
                 pendingSplitRecorder = null;
                 preBreakVesselPids = null;
+                // Clear consumed decouple vessels (list stays alive for session, just emptied)
+                decoupleCreatedVessels?.Clear();
+                decoupleControllerStatus?.Clear();
             }
         }
 
@@ -4086,8 +4151,34 @@ namespace Parsek
             pendingSplitRecorder = recorder;
             recorder = null;
             pendingSplitInProgress = true;
+
             Log("Joint break detected \u2014 starting deferred vessel split check");
             StartCoroutine(DeferredJointBreakCheck());
+        }
+
+        /// <summary>
+        /// Callback for GameEvents.onVesselCreate during the split check window.
+        /// Captures vessels immediately at creation, before KSP's debris cleanup can destroy them.
+        /// </summary>
+        /// <summary>
+        /// Callback for GameEvents.onPartDeCoupleNewVesselComplete during the split check window.
+        /// Fires synchronously inside Part.decouple(), before KSP's debris cleanup can destroy the vessel.
+        /// </summary>
+        private void OnDecoupleNewVesselDuringSplitCheck(Vessel originalVessel, Vessel newVessel)
+        {
+            if (newVessel == null) return;
+            // Only capture vessels that didn't exist before the break
+            if (preBreakVesselPids != null && preBreakVesselPids.Contains(newVessel.persistentId))
+                return;
+            decoupleCreatedVessels?.Add(newVessel);
+            // Capture controller status NOW — vessel parts may be cleared by the deferred check
+            bool hasController = IsTrackableVessel(newVessel);
+            if (decoupleControllerStatus != null)
+                decoupleControllerStatus[newVessel.persistentId] = hasController;
+            ParsekLog.Info("Flight",
+                $"Decouple created vessel during split check: pid={newVessel.persistentId} " +
+                $"name='{newVessel.vesselName}' type={newVessel.vesselType} " +
+                $"parts={newVessel.parts?.Count ?? 0} hasController={hasController}");
         }
 
         /// <summary>
@@ -4174,12 +4265,127 @@ namespace Parsek
                 ParsekLog.Verbose("Coalescer", "Coalescer reset on recording start");
             }
 
+            // Enforce minimum debris persistence so decoupled stages survive long enough
+            // to be detected as vessel splits and recorded as background vessels.
+            EnforceMinDebrisPersistence();
+
+            // Subscribe to decouple events for the entire recording session.
+            // onPartDeCoupleNewVesselComplete fires synchronously in Part.decouple() (FixedUpdate),
+            // which is the same frame as the joint break. Subscribing only during the split check
+            // window (Update) misses the initial decouple because FixedUpdate runs before Update.
+            decoupleCreatedVessels = new List<Vessel>();
+            decoupleControllerStatus = new Dictionary<uint, bool>();
+            GameEvents.onPartDeCoupleNewVesselComplete.Add(OnDecoupleNewVesselDuringSplitCheck);
+
             uint pid = FlightGlobals.ActiveVessel != null ? FlightGlobals.ActiveVessel.persistentId : 0;
             ParsekLog.Info("Flight", $"StartRecording succeeded: pid={pid}, chainActive={activeChainId != null}, tree={activeTree != null}");
         }
 
+        /// <summary>
+        /// Ensures KSP's MAX_PERSISTENT_DEBRIS is at least MinDebrisForRecording during recording.
+        /// Without this, decoupled stages (boosters, fairings) are destroyed before Parsek can
+        /// detect them as vessel splits and create background recordings.
+        /// </summary>
+        // Cached reflection field for KSP's maxPersistentDebris setting
+        private static System.Reflection.FieldInfo debrisField;
+        private static bool debrisFieldSearched;
+
+        void EnforceMinDebrisPersistence()
+        {
+            if (debrisOverrideActive) return;
+
+            try
+            {
+                int? current = GetMaxPersistentDebris();
+                if (current.HasValue && current.Value < MinDebrisForRecording)
+                {
+                    savedMaxPersistentDebris = current.Value;
+                    SetMaxPersistentDebris(MinDebrisForRecording);
+                    debrisOverrideActive = true;
+                    ParsekLog.Info("Flight",
+                        $"Debris persistence overridden: {current.Value} -> {MinDebrisForRecording} " +
+                        "(will restore when recording stops)");
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Verbose("Flight",
+                    $"Could not check/set debris persistence: {ex.GetType().Name}");
+            }
+        }
+
+        void RestoreDebrisPersistence()
+        {
+            if (!debrisOverrideActive) return;
+
+            try
+            {
+                SetMaxPersistentDebris(savedMaxPersistentDebris);
+                ParsekLog.Info("Flight",
+                    $"Debris persistence restored: {savedMaxPersistentDebris}");
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Verbose("Flight",
+                    $"Could not restore debris persistence: {ex.GetType().Name}");
+            }
+            debrisOverrideActive = false;
+        }
+
+        /// <summary>
+        /// Gets KSP's maxPersistentDebris value via reflection.
+        /// KSP stores this in GameSettings as a field (name varies by version).
+        /// </summary>
+        static int? GetMaxPersistentDebris()
+        {
+            var field = FindDebrisField();
+            if (field != null)
+                return (int)field.GetValue(null);
+            return null;
+        }
+
+        static void SetMaxPersistentDebris(int value)
+        {
+            var field = FindDebrisField();
+            if (field != null)
+                field.SetValue(null, value);
+        }
+
+        static System.Reflection.FieldInfo FindDebrisField()
+        {
+            if (debrisFieldSearched) return debrisField;
+            debrisFieldSearched = true;
+
+            // Search GameSettings for a static int field containing "debris" (case-insensitive)
+            var gsType = typeof(GameSettings);
+            var fields = gsType.GetFields(
+                System.Reflection.BindingFlags.Public |
+                System.Reflection.BindingFlags.Static);
+            foreach (var f in fields)
+            {
+                if (f.FieldType == typeof(int) &&
+                    f.Name.IndexOf("debris", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    debrisField = f;
+                    ParsekLog.Info("Flight", $"Found debris persistence field: GameSettings.{f.Name}");
+                    return debrisField;
+                }
+            }
+
+            ParsekLog.Verbose("Flight", "No debris persistence field found in GameSettings");
+            return null;
+        }
+
         public void StopRecording()
         {
+            RestoreDebrisPersistence();
+            // Unsubscribe decouple listener
+            if (decoupleCreatedVessels != null)
+            {
+                GameEvents.onPartDeCoupleNewVesselComplete.Remove(OnDecoupleNewVesselDuringSplitCheck);
+                decoupleCreatedVessels = null;
+                decoupleControllerStatus = null;
+            }
             recorder?.StopRecording();
 
             // Tag the final segment with chain metadata if in a chain
@@ -5181,6 +5387,18 @@ namespace Parsek
         /// </summary>
         private void SpawnVesselOrChainTip(Recording rec, int index)
         {
+            // Real vessel dedup: if a vessel with this PID still exists in the game world,
+            // skip spawning a duplicate. This runs only at actual spawn time (pastChainEnd),
+            // not every frame like ShouldSpawnAtRecordingEnd.
+            if (rec.VesselPersistentId != 0 && GhostPlaybackLogic.RealVesselExists(rec.VesselPersistentId))
+            {
+                rec.VesselSpawned = true;
+                rec.SpawnedVesselPersistentId = rec.VesselPersistentId;
+                ParsekLog.Info("Flight",
+                    $"Spawn skipped: #{index} \"{rec.VesselName}\" — real vessel pid={rec.VesselPersistentId} already exists");
+                return;
+            }
+
             GhostChain chain = FindChainTipForRecording(activeGhostChains, rec);
             if (chain != null && vesselGhoster != null)
             {
@@ -5343,6 +5561,8 @@ namespace Parsek
 
                 // External vessel ghost skip: if this is a background tree recording
                 // whose real vessel still exists in the game world, skip ghost spawning.
+                // Tree-owned vessels bypass this check (their ghost replays the recorded flight).
+                bool externalVesselSuppressed = false;
                 if (GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
                     rec.TreeId, rec.VesselPersistentId, IsActiveTreeRecording(rec)))
                 {
@@ -5353,7 +5573,12 @@ namespace Parsek
                             $"Ghost #{i} destroyed — external vessel '{rec.VesselName}' " +
                             $"pid={rec.VesselPersistentId} real vessel present");
                     }
-                    continue;
+                    if (loggedGhostEnter.Add(i + 400000))
+                        ParsekLog.Verbose("Flight",
+                            $"Ghost #{i} suppressed — external vessel '{rec.VesselName}' " +
+                            $"pid={rec.VesselPersistentId} exists (not tree-owned)");
+                    externalVesselSuppressed = true;
+                    // Fall through — spawn-at-end evaluation must still run
                 }
 
                 if (ShouldLoopPlayback(rec))
@@ -5428,6 +5653,14 @@ namespace Parsek
                 {
                     rec.VesselSpawned = true;
                     Log($"Vessel already spawned (pid={rec.SpawnedVesselPersistentId}) — marked VesselSpawned=true for recording #{i}");
+                }
+
+                // External vessel suppression: skip ghost visuals while in-range,
+                // but allow spawn-at-end evaluation when past-end.
+                if (externalVesselSuppressed && inRange)
+                {
+                    if (rec.TreeId == null) ApplyResourceDeltas(rec, currentUT);
+                    continue;
                 }
 
                 if (inRange)
@@ -5618,8 +5851,11 @@ namespace Parsek
                         // Defer spawn until warp ends — ProtoVessel.Load unsafe during warp
                         if (watchedRecordingIndex == i)
                         {
-                            pendingWatchRecordingId = rec.RecordingId;
-                            ParsekLog.Info("Flight", $"Watch mode deferred for spawn: #{i} \"{rec.VesselName}\"");
+                            // Don't set pendingWatchRecordingId — watch mode is ending because
+                            // the recording finished, not pausing for later resumption.
+                            // Setting it would cause the deferred spawn to switch the camera
+                            // to the spawned vessel instead of staying on the player's vessel.
+                            ParsekLog.Info("Flight", $"Watch mode ended at recording end (deferred spawn): #{i} \"{rec.VesselName}\"");
                             ExitWatchMode();
                         }
                         if (pendingSpawnRecordingIds.Add(rec.RecordingId))

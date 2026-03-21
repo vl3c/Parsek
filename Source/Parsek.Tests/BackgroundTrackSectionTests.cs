@@ -248,8 +248,9 @@ namespace Parsek.Tests
             var hysteresis = new EnvironmentHysteresis(SegmentEnvironment.Atmospheric);
             Assert.Equal(SegmentEnvironment.Atmospheric, hysteresis.CurrentEnvironment);
 
-            // Atmospheric -> SurfaceMobile has 0 debounce (immediate)
-            bool changed = hysteresis.Update(SegmentEnvironment.SurfaceMobile, 1000.0);
+            // Atmospheric -> SurfaceMobile has 0.5s debounce
+            Assert.False(hysteresis.Update(SegmentEnvironment.SurfaceMobile, 1000.0));
+            bool changed = hysteresis.Update(SegmentEnvironment.SurfaceMobile, 1000.5);
             Assert.True(changed);
             Assert.Equal(SegmentEnvironment.SurfaceMobile, hysteresis.CurrentEnvironment);
         }
