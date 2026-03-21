@@ -5040,7 +5040,7 @@ namespace Parsek
                     continue;
 
                 var cloned = new Material[sourceMaterials.Length];
-                bool hasAnyMaterial = false;
+                bool hasTrackedMaterial = false;
                 for (int m = 0; m < sourceMaterials.Length; m++)
                 {
                     Material source = sourceMaterials[m];
@@ -5052,7 +5052,6 @@ namespace Parsek
 
                     Material materialClone = new Material(source);
                     cloned[m] = materialClone;
-                    hasAnyMaterial = true;
                     clonedMaterials++;
 
                     string colorProperty = materialClone.HasProperty("_Color")
@@ -5062,6 +5061,8 @@ namespace Parsek
 
                     if (colorProperty == null && emissiveProperty == null)
                         continue;
+
+                    hasTrackedMaterial = true;
 
                     Color coldColor = colorProperty != null
                         ? materialClone.GetColor(colorProperty)
@@ -5095,7 +5096,10 @@ namespace Parsek
                     trackedMaterials++;
                 }
 
-                if (hasAnyMaterial)
+                // Only replace renderer materials if at least one is tracked for heat animation.
+                // Renderers with no trackable properties keep their original sharedMaterials,
+                // preventing color contamination from orphaned material clones.
+                if (hasTrackedMaterial)
                     renderer.materials = cloned;
             }
 
