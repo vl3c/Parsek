@@ -6985,5 +6985,95 @@ namespace Parsek
 
             return intensity;
         }
+
+        /// <summary>
+        /// Builds a ghost GameObject for a planted flag from the flag part prefab.
+        /// Returns the ghost (initially inactive). Applies flag texture to the mesh_flag quad.
+        /// </summary>
+        internal static GameObject BuildFlagGhost(FlagEvent evt)
+        {
+            AvailablePart ap = ResolveAvailablePart("flag");
+            if (ap == null || ap.partPrefab == null)
+            {
+                ParsekLog.Warn("GhostBuild",
+                    $"Cannot build flag ghost: 'flag' part not found in PartLoader");
+                return null;
+            }
+
+            Transform prefabModel = ap.partPrefab.FindModelTransform("model");
+            if (prefabModel == null)
+            {
+                // Fallback: try partPrefab.transform directly
+                prefabModel = ap.partPrefab.transform;
+            }
+
+            var flagGhost = new GameObject($"flag_ghost_{evt.flagSiteName}");
+            flagGhost.SetActive(false);
+
+            // Clone mesh renderers from prefab model
+            var renderers = prefabModel.GetComponentsInChildren<MeshRenderer>(true);
+            foreach (var r in renderers)
+            {
+                var mf = r.GetComponent<MeshFilter>();
+                if (mf == null || mf.sharedMesh == null) continue;
+
+                var clone = new GameObject(r.gameObject.name);
+                clone.transform.SetParent(flagGhost.transform, false);
+
+                // Copy local transform from prefab hierarchy
+                clone.transform.localPosition = GetRelativePosition(r.transform, prefabModel);
+                clone.transform.localRotation = GetRelativeRotation(r.transform, prefabModel);
+                clone.transform.localScale = r.transform.lossyScale;
+
+                var clonedMf = clone.AddComponent<MeshFilter>();
+                clonedMf.sharedMesh = mf.sharedMesh;
+
+                var clonedR = clone.AddComponent<MeshRenderer>();
+                // Clone materials to allow per-ghost texture
+                var mats = r.sharedMaterials;
+                var clonedMats = new Material[mats.Length];
+                for (int i = 0; i < mats.Length; i++)
+                    clonedMats[i] = mats[i] != null ? new Material(mats[i]) : null;
+                clonedR.materials = clonedMats;
+
+                // Apply flag texture to the flag mesh quad
+                if (r.gameObject.name != null && r.gameObject.name.StartsWith("mesh_flag"))
+                {
+                    string url = !string.IsNullOrEmpty(evt.flagURL) ? evt.flagURL : "Squad/Flags/default";
+                    Texture2D flagTex = GameDatabase.Instance.GetTexture(url, false);
+                    if (flagTex == null && url != "Squad/Flags/default")
+                        flagTex = GameDatabase.Instance.GetTexture("Squad/Flags/default", false);
+
+                    if (flagTex != null)
+                    {
+                        for (int i = 0; i < clonedMats.Length; i++)
+                        {
+                            if (clonedMats[i] != null)
+                                clonedMats[i].mainTexture = flagTex;
+                        }
+                    }
+                }
+            }
+
+            ParsekLog.Verbose("GhostBuild",
+                $"Built flag ghost: '{evt.flagSiteName}' url='{evt.flagURL}' " +
+                $"renderers={renderers.Length}");
+
+            return flagGhost;
+        }
+
+        private static Vector3 GetRelativePosition(Transform child, Transform root)
+        {
+            if (child.parent == root || child.parent == null)
+                return child.localPosition;
+            return root.InverseTransformPoint(child.position);
+        }
+
+        private static Quaternion GetRelativeRotation(Transform child, Transform root)
+        {
+            if (child.parent == root || child.parent == null)
+                return child.localRotation;
+            return Quaternion.Inverse(root.rotation) * child.rotation;
+        }
     }
 }

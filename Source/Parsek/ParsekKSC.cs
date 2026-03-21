@@ -252,7 +252,10 @@ namespace Parsek
 
                 // Distance culling: skip expensive part events for ghosts too far from camera
                 if (IsGhostInCullRange(state.ghost))
+                {
                     GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, targetUT, state);
+                    GhostPlaybackLogic.ApplyFlagEvents(state, rec, targetUT);
+                }
                 if (suppressVisualFx)
                     GhostPlaybackLogic.StopAllRcsEmissions(state);
                 else
@@ -361,7 +364,10 @@ namespace Parsek
                     ref primaryState.playbackIndex, loopUT, srfRel);
 
                 if (IsGhostInCullRange(primaryState.ghost))
+                {
                     GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, loopUT, primaryState);
+                    GhostPlaybackLogic.ApplyFlagEvents(primaryState, rec, loopUT);
+                }
                 if (suppressVisualFx)
                     GhostPlaybackLogic.StopAllRcsEmissions(primaryState);
                 else
@@ -406,7 +412,10 @@ namespace Parsek
                     ref ovState.playbackIndex, loopUT, srfRel);
 
                 if (IsGhostInCullRange(ovState.ghost))
+                {
                     GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, loopUT, ovState);
+                    GhostPlaybackLogic.ApplyFlagEvents(ovState, rec, loopUT);
+                }
                 if (suppressVisualFx)
                     GhostPlaybackLogic.StopAllRcsEmissions(ovState);
                 else
@@ -565,6 +574,15 @@ namespace Parsek
                 state.colorChangerInfos = GhostVisualBuilder.GroupColorChangersByPartId(buildResult.colorChangerInfos);
 
             GhostPlaybackLogic.InitializeInventoryPlacementVisibility(rec, state);
+
+            // Build flag ghosts (world-positioned, not child of vessel ghost)
+            if (rec.FlagEvents != null && rec.FlagEvents.Count > 0)
+            {
+                state.flagGhosts = new List<GameObject>(rec.FlagEvents.Count);
+                for (int fi = 0; fi < rec.FlagEvents.Count; fi++)
+                    state.flagGhosts.Add(GhostVisualBuilder.BuildFlagGhost(rec.FlagEvents[fi]));
+                GhostPlaybackLogic.InitializeFlagVisibility(rec, state);
+            }
 
             ParsekLog.Info("KSCGhost",
                 $"Ghost #{index} \"{rec.VesselName}\" spawned" +
@@ -829,6 +847,11 @@ namespace Parsek
             StopRcsParticleSystems(state.rcsInfos);
 
             GhostPlaybackLogic.DestroyAllFakeCanopies(state);
+
+            if (state.flagGhosts != null)
+                for (int i = 0; i < state.flagGhosts.Count; i++)
+                    if (state.flagGhosts[i] != null)
+                        Destroy(state.flagGhosts[i]);
 
             if (state.ghost != null)
                 Destroy(state.ghost);

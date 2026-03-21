@@ -989,6 +989,67 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Initializes flag ghost visibility — all flags start hidden and appear when their event fires.
+        /// </summary>
+        internal static void InitializeFlagVisibility(Recording rec, GhostPlaybackState state)
+        {
+            if (rec == null || rec.FlagEvents == null || rec.FlagEvents.Count == 0) return;
+            if (state == null || state.flagGhosts == null) return;
+
+            for (int i = 0; i < state.flagGhosts.Count; i++)
+            {
+                if (state.flagGhosts[i] != null)
+                    state.flagGhosts[i].SetActive(false);
+            }
+            state.flagEventIndex = 0;
+
+            ParsekLog.Verbose("Flight",
+                $"Flag visibility initialized: {state.flagGhosts.Count} flag(s) hidden");
+        }
+
+        /// <summary>
+        /// Applies flag events up to currentUT — shows flag ghosts and positions them on the body surface.
+        /// </summary>
+        internal static void ApplyFlagEvents(GhostPlaybackState state, Recording rec, double currentUT)
+        {
+            if (rec == null || rec.FlagEvents == null || rec.FlagEvents.Count == 0) return;
+            if (state == null || state.flagGhosts == null) return;
+
+            while (state.flagEventIndex < rec.FlagEvents.Count)
+            {
+                var evt = rec.FlagEvents[state.flagEventIndex];
+                if (evt.ut > currentUT) break;
+
+                if (state.flagEventIndex < state.flagGhosts.Count)
+                {
+                    var flagGo = state.flagGhosts[state.flagEventIndex];
+                    if (flagGo != null)
+                    {
+                        // Position the flag on the body surface
+                        CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == evt.bodyName);
+                        if (body != null)
+                        {
+                            Vector3d worldPos = body.GetWorldSurfacePosition(evt.latitude, evt.longitude, evt.altitude);
+                            flagGo.transform.position = (Vector3)worldPos;
+
+                            // Reconstruct world rotation from surface-relative (v5)
+                            Quaternion surfRot = new Quaternion(evt.rotX, evt.rotY, evt.rotZ, evt.rotW);
+                            flagGo.transform.rotation = body.bodyTransform.rotation * surfRot;
+                        }
+
+                        flagGo.SetActive(true);
+
+                        ParsekLog.Verbose("Flight",
+                            $"Flag event applied: '{evt.flagSiteName}' by '{evt.placedBy}' " +
+                            $"at ({evt.latitude:F4},{evt.longitude:F4},{evt.altitude:F1}) on {evt.bodyName}");
+                    }
+                }
+
+                state.flagEventIndex++;
+            }
+        }
+
         internal static void HidePartSubtree(GameObject ghost, uint rootPid, Dictionary<uint, List<uint>> tree)
         {
             var stack = new Stack<uint>();
