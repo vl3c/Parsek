@@ -5354,9 +5354,11 @@ namespace Parsek
 
             InterpolationResult interpResult;
             bool srfRel = previewRecording != null && previewRecording.RecordingFormatVersion >= 5;
+            bool surfaceSkip = previewRecording != null &&
+                TrajectoryMath.IsSurfaceAtUT(previewRecording.TrackSections, recordingTime);
             InterpolateAndPosition(ghostObject, recording, orbitSegments,
                 ref lastPlaybackIndex, recordingTime, 10000, out interpResult,
-                surfaceRelativeRotation: srfRel);
+                surfaceRelativeRotation: srfRel, skipOrbitSegments: surfaceSkip);
 
             if (previewGhostState != null && previewRecording != null)
             {
@@ -5504,10 +5506,11 @@ namespace Parsek
                     // TODO: cachedIdx resets to 0 each frame — when ghost GO creation is implemented
                     // (6b-4), cache this on the ghost state or chain for O(1) amortized lookup.
                     bool srfRel = bgRec.RecordingFormatVersion >= 5;
+                    bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(bgRec.TrackSections, currentUT);
                     int cachedIdx = 0;
                     InterpolateAndPosition(info.ghostGO, bgRec.Points, bgRec.OrbitSegments,
                         ref cachedIdx, currentUT, (int)(chain.OriginalVesselPid * 10000),
-                        out _, surfaceRelativeRotation: srfRel);
+                        out _, surfaceRelativeRotation: srfRel, skipOrbitSegments: surfaceSkip);
 
                     ParsekLog.VerboseRateLimited("Flight", "chain-ghost-trajectory-" + chain.OriginalVesselPid,
                         string.Format(CultureInfo.InvariantCulture,
@@ -5945,9 +5948,12 @@ namespace Parsek
 
                         if (!usedRelative)
                         {
+                            // Layer 2: Skip orbit segments when the current TrackSection
+                            // is a surface environment — use point interpolation instead.
+                            bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(rec.TrackSections, currentUT);
                             InterpolateAndPosition(state.ghost, rec.Points, rec.OrbitSegments,
                                 ref playbackIdx, currentUT, i * 10000, out interpResult,
-                                surfaceRelativeRotation: srfRel);
+                                surfaceRelativeRotation: srfRel, skipOrbitSegments: surfaceSkip);
                         }
 
                         state.SetInterpolated(interpResult);
@@ -6007,7 +6013,11 @@ namespace Parsek
 
                         if (state != null && state.ghost != null)
                         {
-                            if (hasOrbitData)
+                            // Layer 2: Prefer surface positioning over orbit for surface recordings.
+                            // Orbit data from surface vessels is sub-surface and produces wrong positions.
+                            if (hasSurfaceData && TrajectoryMath.IsSurfaceAtUT(rec.TrackSections, currentUT))
+                                PositionGhostAtSurface(state.ghost, rec.SurfacePos.Value);
+                            else if (hasOrbitData)
                                 PositionGhostFromOrbitOnly(state.ghost, rec, currentUT, i * 10000);
                             else if (hasSurfaceData)
                                 PositionGhostAtSurface(state.ghost, rec.SurfacePos.Value);
@@ -8892,29 +8902,44 @@ namespace Parsek
 
         void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points,
             List<OrbitSegment> segments, ref int cachedIndex, double targetUT, int orbitCacheBase,
-            out InterpolationResult interpResult, bool surfaceRelativeRotation = false)
+            out InterpolationResult interpResult, bool surfaceRelativeRotation = false,
+            bool skipOrbitSegments = false)
         {
-            // Check orbit segments first
-            if (segments != null && segments.Count > 0)
+            // Check orbit segments first (unless suppressed for surface vehicles)
+            if (!skipOrbitSegments && segments != null && segments.Count > 0)
             {
                 OrbitSegment? seg = FindOrbitSegment(segments, targetUT);
                 if (seg.HasValue)
                 {
-                    // Use segment index as cache key offset
-                    int segIdx = segments.IndexOf(seg.Value);
-                    int cacheKey = orbitCacheBase + segIdx;
-                    if (loggedOrbitSegments.Add(cacheKey))
-                        Log($"Orbit segment activated: cache={cacheKey}, body={seg.Value.bodyName}, " +
-                            $"sma={seg.Value.semiMajorAxis:F0}, UT {seg.Value.startUT:F0}-{seg.Value.endUT:F0}");
-                    PositionGhostFromOrbit(ghost, seg.Value, targetUT, cacheKey);
-                    Vector3 vel = Vector3.zero;
-                    Orbit orbit;
-                    if (orbitCache.TryGetValue(cacheKey, out orbit))
-                        vel = orbit.getOrbitalVelocityAtUT(targetUT);
+                    // Layer 3: SMA sanity check — reject orbit segments where the orbit
+                    // is mostly sub-surface (SMA < 90% of body radius). This catches
+                    // old recordings that have invalid orbit segments for surface vessels.
                     CelestialBody segBody = FlightGlobals.Bodies?.Find(b => b.name == seg.Value.bodyName);
-                    double segAlt = segBody != null ? segBody.GetAltitude(ghost.transform.position) : 0;
-                    interpResult = new InterpolationResult(vel, seg.Value.bodyName, segAlt);
-                    return;
+                    double bodyRadius = segBody?.Radius ?? 600000;
+                    if (seg.Value.semiMajorAxis < bodyRadius * 0.9)
+                    {
+                        int smaKey = orbitCacheBase + 900000;
+                        if (loggedOrbitSegments.Add(smaKey))
+                            Log($"Orbit segment rejected (sub-surface): sma={seg.Value.semiMajorAxis:F0} < " +
+                                $"bodyRadius*0.9={bodyRadius * 0.9:F0}, falling through to point interpolation");
+                    }
+                    else
+                    {
+                        // Use segment index as cache key offset
+                        int segIdx = segments.IndexOf(seg.Value);
+                        int cacheKey = orbitCacheBase + segIdx;
+                        if (loggedOrbitSegments.Add(cacheKey))
+                            Log($"Orbit segment activated: cache={cacheKey}, body={seg.Value.bodyName}, " +
+                                $"sma={seg.Value.semiMajorAxis:F0}, UT {seg.Value.startUT:F0}-{seg.Value.endUT:F0}");
+                        PositionGhostFromOrbit(ghost, seg.Value, targetUT, cacheKey);
+                        Vector3 vel = Vector3.zero;
+                        Orbit orbit;
+                        if (orbitCache.TryGetValue(cacheKey, out orbit))
+                            vel = orbit.getOrbitalVelocityAtUT(targetUT);
+                        double segAlt = segBody != null ? segBody.GetAltitude(ghost.transform.position) : 0;
+                        interpResult = new InterpolationResult(vel, seg.Value.bodyName, segAlt);
+                        return;
+                    }
                 }
             }
 

@@ -610,5 +610,18 @@ namespace Parsek
             }
             return -1;
         }
+
+        /// <summary>
+        /// Returns true if the TrackSection covering the given UT has a surface environment
+        /// (SurfaceMobile or SurfaceStationary). Surface vessels should not use orbit segment
+        /// interpolation — their Keplerian orbit is a sub-surface path through the planet.
+        /// </summary>
+        internal static bool IsSurfaceAtUT(List<TrackSection> sections, double ut)
+        {
+            int idx = FindTrackSectionForUT(sections, ut);
+            if (idx < 0) return false;
+            var env = sections[idx].environment;
+            return env == SegmentEnvironment.SurfaceMobile || env == SegmentEnvironment.SurfaceStationary;
+        }
     }
 }
