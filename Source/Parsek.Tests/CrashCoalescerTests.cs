@@ -631,5 +631,106 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region LastEmittedDebrisPids
+
+        [Fact]
+        public void LastEmittedDebrisPids_AvailableAfterTick()
+        {
+            var coalescer = new CrashCoalescer();
+            coalescer.OnSplitEvent(100.0, 1000, childHasController: false);
+            coalescer.OnSplitEvent(100.1, 1001, childHasController: false);
+            coalescer.OnSplitEvent(100.2, 1002, childHasController: true); // controlled, not debris
+
+            var bp = coalescer.Tick(100.5);
+            Assert.NotNull(bp);
+
+            // Debris PIDs should contain 1000 and 1001 but NOT 1002 (controlled)
+            Assert.Equal(2, coalescer.LastEmittedDebrisPids.Count);
+            Assert.Equal(1000u, coalescer.LastEmittedDebrisPids[0]);
+            Assert.Equal(1001u, coalescer.LastEmittedDebrisPids[1]);
+        }
+
+        [Fact]
+        public void LastEmittedDebrisPids_ControlledPidsNotIncluded()
+        {
+            var coalescer = new CrashCoalescer();
+            coalescer.OnSplitEvent(100.0, 2000, childHasController: true);
+            coalescer.OnSplitEvent(100.1, 3000, childHasController: true);
+
+            var bp = coalescer.Tick(100.5);
+            Assert.NotNull(bp);
+
+            Assert.Empty(coalescer.LastEmittedDebrisPids);
+            Assert.Equal(2, coalescer.LastEmittedControlledChildPids.Count);
+        }
+
+        [Fact]
+        public void LastEmittedDebrisPids_PreservedAfterReset()
+        {
+            var coalescer = new CrashCoalescer();
+            coalescer.OnSplitEvent(100.0, 4000, childHasController: false);
+            coalescer.OnSplitEvent(100.1, 4001, childHasController: false);
+
+            var bp = coalescer.Tick(100.5);
+            Assert.NotNull(bp);
+
+            // After Tick + internal Reset, LastEmitted is preserved
+            Assert.False(coalescer.HasPendingBreakup);
+            Assert.Equal(2, coalescer.LastEmittedDebrisPids.Count);
+            Assert.Equal(4000u, coalescer.LastEmittedDebrisPids[0]);
+            Assert.Equal(4001u, coalescer.LastEmittedDebrisPids[1]);
+        }
+
+        [Fact]
+        public void LastEmittedDebrisPids_FourBoosters_AllTracked()
+        {
+            var coalescer = new CrashCoalescer();
+            coalescer.OnSplitEvent(100.0, 5000, childHasController: false);
+            coalescer.OnSplitEvent(100.0, 5001, childHasController: false);
+            coalescer.OnSplitEvent(100.0, 5002, childHasController: false);
+            coalescer.OnSplitEvent(100.0, 5003, childHasController: false);
+
+            var bp = coalescer.Tick(100.5);
+            Assert.NotNull(bp);
+
+            Assert.Equal(4, bp.DebrisCount);
+            Assert.Equal(4, coalescer.LastEmittedDebrisPids.Count);
+            Assert.Equal(5000u, coalescer.LastEmittedDebrisPids[0]);
+            Assert.Equal(5001u, coalescer.LastEmittedDebrisPids[1]);
+            Assert.Equal(5002u, coalescer.LastEmittedDebrisPids[2]);
+            Assert.Equal(5003u, coalescer.LastEmittedDebrisPids[3]);
+        }
+
+        [Fact]
+        public void LastEmittedDebrisPids_OverwrittenByNextBreakup()
+        {
+            var coalescer = new CrashCoalescer();
+
+            // First breakup with 2 debris
+            coalescer.OnSplitEvent(100.0, 1000, childHasController: false);
+            coalescer.OnSplitEvent(100.1, 1001, childHasController: false);
+            coalescer.Tick(100.5);
+            Assert.Equal(2, coalescer.LastEmittedDebrisPids.Count);
+
+            // Second breakup with 1 different debris
+            coalescer.OnSplitEvent(200.0, 9000, childHasController: false);
+            coalescer.Tick(200.5);
+            Assert.Single(coalescer.LastEmittedDebrisPids);
+            Assert.Equal(9000u, coalescer.LastEmittedDebrisPids[0]);
+        }
+
+        [Fact]
+        public void Log_DebrisAdded_IncludesPid()
+        {
+            var coalescer = new CrashCoalescer();
+            coalescer.OnSplitEvent(100.0, 7777, childHasController: false);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Coalescer]") && l.Contains("Debris fragment added") &&
+                l.Contains("pid=7777"));
+        }
+
+        #endregion
     }
 }

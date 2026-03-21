@@ -661,6 +661,19 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Sets the debris TTL expiry for an externally-created debris recording.
+        /// Called by ParsekFlight when promoting a standalone recording to a tree
+        /// and adding debris child recordings.
+        /// </summary>
+        public void SetDebrisExpiry(uint vesselPid, double expiryUT)
+        {
+            debrisTTLExpiry[vesselPid] = expiryUT;
+            ParsekLog.Info("BgRecorder",
+                "Debris expiry set: pid=" + vesselPid +
+                ", expiryUT=" + expiryUT.ToString("F1", CultureInfo.InvariantCulture));
+        }
+
+        /// <summary>
         /// Ends a debris recording: finalizes the recording with a terminal state,
         /// cleans up tracking state, removes from BackgroundMap.
         /// </summary>

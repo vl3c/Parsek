@@ -20,12 +20,14 @@ namespace Parsek
 
         // Accumulated split data during the window
         private List<uint> controlledChildPids = new List<uint>();
+        private List<uint> debrisPids = new List<uint>();
         private int debrisCount;
         private string cause;  // "CRASH", "OVERHEAT", "STRUCTURAL_FAILURE"
 
-        // Snapshot of controlled child PIDs from the last emitted BREAKUP,
+        // Snapshot of child PIDs from the last emitted BREAKUP,
         // preserved across Reset() so the caller can access them after Tick() returns.
         private List<uint> lastEmittedControlledChildPids = new List<uint>();
+        private List<uint> lastEmittedDebrisPids = new List<uint>();
 
         public bool HasPendingBreakup => !double.IsNaN(windowStartUT);
         public double WindowStartUT => windowStartUT;
@@ -68,9 +70,10 @@ namespace Parsek
             }
             else
             {
+                debrisPids.Add(childPid);
                 debrisCount++;
                 ParsekLog.Verbose("Coalescer",
-                    "Debris fragment added at UT=" + ut.ToString("F2", CultureInfo.InvariantCulture) +
+                    "Debris fragment added: pid=" + childPid + " at UT=" + ut.ToString("F2", CultureInfo.InvariantCulture) +
                     " (total debris=" + debrisCount + ")");
             }
         }
@@ -110,10 +113,12 @@ namespace Parsek
                 " controlledChildren=" + controlledChildPids.Count + " debris=" + debrisCount +
                 " duration=" + bp.BreakupDuration.ToString("F3", ic) + "s window=" + coalesceWindow.ToString("F1", ic) + "s");
 
-            // Snapshot controlled child PIDs before Reset clears them,
-            // so the caller can access them via LastEmittedControlledChildPids.
+            // Snapshot child PIDs before Reset clears them,
+            // so the caller can access them via LastEmittedControlledChildPids / LastEmittedDebrisPids.
             lastEmittedControlledChildPids.Clear();
             lastEmittedControlledChildPids.AddRange(controlledChildPids);
+            lastEmittedDebrisPids.Clear();
+            lastEmittedDebrisPids.AddRange(debrisPids);
 
             Reset();
             return bp;
@@ -134,6 +139,12 @@ namespace Parsek
         public IReadOnlyList<uint> LastEmittedControlledChildPids => lastEmittedControlledChildPids;
 
         /// <summary>
+        /// Returns the debris child PIDs from the last emitted BREAKUP.
+        /// Same lifecycle as LastEmittedControlledChildPids.
+        /// </summary>
+        public IReadOnlyList<uint> LastEmittedDebrisPids => lastEmittedDebrisPids;
+
+        /// <summary>
         /// Returns the current debris count. Only valid while HasPendingBreakup is true.
         /// </summary>
         public int CurrentDebrisCount => debrisCount;
@@ -146,6 +157,7 @@ namespace Parsek
             windowStartUT = double.NaN;
             lastSplitUT = double.NaN;
             controlledChildPids.Clear();
+            debrisPids.Clear();
             debrisCount = 0;
             cause = null;
             ParsekLog.Verbose("Coalescer", "Reset -- window cleared");
