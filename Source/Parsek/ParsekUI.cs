@@ -166,9 +166,10 @@ namespace Parsek
         private const string SpawnControlInputLockId = "Parsek_SpawnControlWindow";
 
         // Spawn Control sort state
-        private enum SpawnSortColumn { Distance, Countdown }
+        private enum SpawnSortColumn { Name, Distance, SpawnTime, Countdown }
         private SpawnSortColumn spawnSortColumn = SpawnSortColumn.Distance;
         private bool spawnSortAscending = true;
+        private bool isResizingSpawnControlWindow;
 
         public ParsekUI(ParsekFlight flight)
         {
@@ -2860,13 +2861,32 @@ namespace Parsek
 
             if (spawnControlWindowRect.width < 1f)
             {
-                spawnControlWindowRect = new Rect(
-                    mainWindowRect.x + mainWindowRect.width + 10,
-                    mainWindowRect.y + mainWindowRect.height + 10,
-                    340, 10);
+                float x = mainWindowRect.x + mainWindowRect.width + 10;
+                spawnControlWindowRect = new Rect(x, mainWindowRect.y, 528, 200);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI",
                     $"Real Spawn Control window initial position: x={spawnControlWindowRect.x.ToString("F0", ic)} y={spawnControlWindowRect.y.ToString("F0", ic)}");
+            }
+
+            // Handle resize drag
+            if (isResizingSpawnControlWindow)
+            {
+                if (Event.current.type == EventType.MouseDrag || Event.current.type == EventType.MouseUp)
+                {
+                    float newW = Mathf.Max(MinWindowWidth, Event.current.mousePosition.x - spawnControlWindowRect.x);
+                    float newH = Mathf.Max(MinWindowHeight, Event.current.mousePosition.y - spawnControlWindowRect.y);
+                    spawnControlWindowRect.width = newW;
+                    spawnControlWindowRect.height = newH;
+                }
+                if (Event.current.type == EventType.MouseUp)
+                {
+                    isResizingSpawnControlWindow = false;
+                    var ic = System.Globalization.CultureInfo.InvariantCulture;
+                    ParsekLog.Verbose("UI",
+                        $"Real Spawn Control window resize ended: w={spawnControlWindowRect.width.ToString("F0", ic)} h={spawnControlWindowRect.height.ToString("F0", ic)}");
+                }
+                if (Event.current.type == EventType.MouseDrag)
+                    Event.current.Use();
             }
 
             EnsureOpaqueWindowStyle();
@@ -2876,7 +2896,8 @@ namespace Parsek
                 DrawSpawnControlWindow,
                 "Parsek \u2014 Real Spawn Control",
                 opaqueWindowStyle,
-                GUILayout.Width(340)
+                GUILayout.Width(spawnControlWindowRect.width),
+                GUILayout.Height(spawnControlWindowRect.height)
             );
             LogWindowPosition("SpawnControl", ref lastSpawnControlWindowRect, spawnControlWindowRect);
 
@@ -2910,16 +2931,37 @@ namespace Parsek
 
         private void DrawSpawnSortableHeader(string label, SpawnSortColumn col, float width)
         {
+            DrawSpawnSortableHeader(label, col, false, width);
+        }
+
+        private void DrawSpawnSortableHeader(string label, SpawnSortColumn col, bool expand)
+        {
+            DrawSpawnSortableHeader(label, col, expand, 0);
+        }
+
+        private void DrawSpawnSortableHeader(string label, SpawnSortColumn col, bool expand, float width)
+        {
             string arrow = spawnSortColumn == col ? (spawnSortAscending ? " \u25b2" : " \u25bc") : "";
-            if (GUILayout.Button(label + arrow, GUI.skin.label, GUILayout.Width(width)))
+            if (expand)
             {
-                if (spawnSortColumn == col)
-                    spawnSortAscending = !spawnSortAscending;
-                else
-                {
-                    spawnSortColumn = col;
-                    spawnSortAscending = true;
-                }
+                if (GUILayout.Button(label + arrow, GUI.skin.label, GUILayout.ExpandWidth(true)))
+                    ToggleSpawnSort(col);
+            }
+            else
+            {
+                if (GUILayout.Button(label + arrow, GUI.skin.label, GUILayout.Width(width)))
+                    ToggleSpawnSort(col);
+            }
+        }
+
+        private void ToggleSpawnSort(SpawnSortColumn col)
+        {
+            if (spawnSortColumn == col)
+                spawnSortAscending = !spawnSortAscending;
+            else
+            {
+                spawnSortColumn = col;
+                spawnSortAscending = true;
             }
         }
 
@@ -2940,23 +2982,36 @@ namespace Parsek
 
             // Header row with sortable columns
             GUILayout.BeginHorizontal();
-            GUILayout.Label("Craft", GUILayout.ExpandWidth(true));
+            DrawSpawnSortableHeader("Craft", SpawnSortColumn.Name, true);
             DrawSpawnSortableHeader("Dist", SpawnSortColumn.Distance, SpawnColW_Dist);
-            GUILayout.Label("Spawns at", GUILayout.Width(SpawnColW_SpawnTime));
+            DrawSpawnSortableHeader("Spawns at", SpawnSortColumn.SpawnTime, SpawnColW_SpawnTime);
             DrawSpawnSortableHeader("In T-", SpawnSortColumn.Countdown, SpawnColW_Countdown);
             GUILayout.Label("", GUILayout.Width(SpawnColW_Warp));
             GUILayout.EndHorizontal();
 
             // Sort candidates for display
             var sorted = new List<NearbySpawnCandidate>(candidates);
-            if (spawnSortColumn == SpawnSortColumn.Countdown)
-                sorted.Sort((a, b) => spawnSortAscending
-                    ? a.endUT.CompareTo(b.endUT)
-                    : b.endUT.CompareTo(a.endUT));
-            else
-                sorted.Sort((a, b) => spawnSortAscending
-                    ? a.distance.CompareTo(b.distance)
-                    : b.distance.CompareTo(a.distance));
+            sorted.Sort((a, b) =>
+            {
+                int cmp;
+                switch (spawnSortColumn)
+                {
+                    case SpawnSortColumn.Name:
+                        cmp = string.Compare(a.vesselName, b.vesselName,
+                            System.StringComparison.OrdinalIgnoreCase);
+                        break;
+                    case SpawnSortColumn.SpawnTime:
+                        cmp = a.endUT.CompareTo(b.endUT);
+                        break;
+                    case SpawnSortColumn.Countdown:
+                        cmp = a.endUT.CompareTo(b.endUT);
+                        break;
+                    default: // Distance
+                        cmp = a.distance.CompareTo(b.distance);
+                        break;
+                }
+                return spawnSortAscending ? cmp : -cmp;
+            });
 
             // Per-craft rows
             for (int i = 0; i < sorted.Count; i++)
@@ -2997,9 +3052,9 @@ namespace Parsek
             if (next != null)
             {
                 string tooltip = SelectiveSpawnUI.FormatNextSpawnTooltip(next, currentUT);
-                if (GUILayout.Button(new GUIContent("Warp to Next Spawn", tooltip)))
+                if (GUILayout.Button(new GUIContent("Warp to Next Real Spawn", tooltip)))
                 {
-                    ParsekLog.Info("UI", "Real Spawn Control: Warp to Next Spawn clicked");
+                    ParsekLog.Info("UI", "Real Spawn Control: Warp to Next Real Spawn clicked");
                     flight.WarpToNextCraftSpawn();
                 }
             }
@@ -3014,6 +3069,19 @@ namespace Parsek
             {
                 GUILayout.Space(SpacingSmall);
                 GUILayout.Label(GUI.tooltip, GUI.skin.box);
+            }
+
+            // Resize handle (bottom-right corner)
+            Rect handleRect = new Rect(
+                spawnControlWindowRect.width - ResizeHandleSize,
+                spawnControlWindowRect.height - ResizeHandleSize,
+                ResizeHandleSize, ResizeHandleSize);
+            GUI.Label(handleRect, "\u25e2");
+            if (Event.current.type == EventType.MouseDown && handleRect.Contains(Event.current.mousePosition))
+            {
+                isResizingSpawnControlWindow = true;
+                ParsekLog.Verbose("UI", "Real Spawn Control window resize started");
+                Event.current.Use();
             }
 
             GUI.DragWindow();
