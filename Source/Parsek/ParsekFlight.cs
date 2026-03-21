@@ -9159,7 +9159,7 @@ namespace Parsek
                     ParsekLog.ScreenMessage(
                         string.Format(CultureInfo.InvariantCulture,
                             "Nearby craft: {0}. Open the Real Spawn Control window to fast forward and interact.",
-                            cand.vesselName), 5f);
+                            cand.vesselName), 10f);
                     ParsekLog.Info("Flight",
                         string.Format(CultureInfo.InvariantCulture,
                             "Proximity notification: '{0}' recording #{1} distance={2:F0}m endUT={3:F1}",
