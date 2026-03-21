@@ -7633,6 +7633,16 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns true if the ghost at index is within visual range (not in the Beyond zone).
+        /// </summary>
+        internal bool IsGhostWithinVisualRange(int index)
+        {
+            GhostPlaybackState s;
+            if (!ghostStates.TryGetValue(index, out s) || s == null) return false;
+            return s.currentZone != RenderingZone.Beyond;
+        }
+
+        /// <summary>
         /// Returns true if the ghost at index is on the same celestial body as the active vessel.
         /// </summary>
         internal bool IsGhostOnSameBody(int index)
