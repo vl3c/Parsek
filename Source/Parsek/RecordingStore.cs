@@ -291,6 +291,10 @@ namespace Parsek
                 committedRecordings.Add(rec);
             }
 
+            // Ensure OwnedVesselPids is populated (covers runtime-created trees
+            // that never went through RecordingTree.Load)
+            tree.RebuildBackgroundMap();
+
             committedTrees.Add(tree);
 
             // Commit pending science subjects before clearing
