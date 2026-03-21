@@ -14,7 +14,7 @@ Known-bugs.md #16 documents an earlier analysis (based on PersistentRotation mod
 2. **The spin-forward formula** `AngleAxis(omega.mag * dt, axis) * storedRot` is a single-axis approximation. This matches PersistentRotation's own `PackedSpin` implementation, which uses the same approximation.
 3. **`Planetarium.right` drift compensation** adds complexity whose value is unclear without empirical measurement. Deferred to Phase 6.
 
-This design stores orbital-frame-relative rotation (for SAS-locked/stable vessels) plus angular velocity (for spinning vessels when PersistentRotation is active). It replaces the implementation plan in known-bugs.md #16. The format v6 version bump mentioned there is not needed (see Backward Compatibility).
+This design stores orbital-frame-relative rotation (for SAS-locked/stable vessels) plus angular velocity (for spinning vessels when PersistentRotation is active). It replaces the implementation plan in todo-and-known-bugs.md #16. The format v6 version bump mentioned there is not needed (see Backward Compatibility).
 
 ## Terminology
 
@@ -830,7 +830,7 @@ No format version bump. No migration. No breaking changes.
 
 ### Phase 4: Documentation
 
-**Files:** `docs/dev/known-bugs.md`
+**Files:** `docs/dev/todo-and-known-bugs.md`
 
 1. Update bug #16 status to "Fixed" with summary
 2. Replace the outdated angular-momentum implementation plan

@@ -1,3 +1,142 @@
+# TODO & Known Bugs
+
+---
+
+## TODO — Release & Distribution
+
+### T1. Add Parsek.version file (KSP mod convention)
+
+Standard `.version` file enables AVC (Add-on Version Checker) and CKAN to detect available updates. Place in `GameData/Parsek/Parsek.version`.
+
+```json
+{
+    "NAME": "Parsek",
+    "URL": "https://raw.githubusercontent.com/vl3c/Parsek/main/GameData/Parsek/Parsek.version",
+    "VERSION": { "MAJOR": 0, "MINOR": 5, "PATCH": 0 },
+    "KSP_VERSION": { "MAJOR": 1, "MINOR": 12, "PATCH": 5 },
+    "KSP_VERSION_MIN": { "MAJOR": 1, "MINOR": 12, "PATCH": 0 },
+    "KSP_VERSION_MAX": { "MAJOR": 1, "MINOR": 12, "PATCH": 99 }
+}
+```
+
+**Priority:** Should-do for 0.5.1
+
+### T2. UI version display
+
+Show "Parsek v0.5.0" somewhere in the main Parsek window (title bar or footer). Currently the version is only in `AssemblyInfo.cs` and not visible to the player.
+
+**Priority:** Should-do for 0.5.1
+
+### T3. CKAN metadata
+
+Create a `.netkan` file or submit to CKAN indexer so users can install Parsek via CKAN. Requires a stable release URL pattern.
+
+**Priority:** Nice-to-have
+
+### T4. Release automation
+
+GitHub Actions workflow to build, run tests, package `GameData/Parsek/` into a zip, and create a GitHub release on tag push. Currently all release packaging is manual.
+
+**Priority:** Nice-to-have
+
+---
+
+## TODO — Performance
+
+### T5. ReduceFidelity and SimplifyToOrbitLine full implementations
+
+`GhostSoftCapManager` actions `ReduceFidelity` (mesh part culling) and `SimplifyToOrbitLine` (orbit line replacement) are placeholder — ghosts are hidden but not replaced with simplified representations.
+
+**Priority:** Medium — needed when ghost counts are high enough to trigger soft caps
+
+### T6. LOD culling for distant ghost meshes
+
+Don't render full ghost meshes far from camera. Unity LOD groups or manual distance culling.
+
+**Priority:** Low — only matters with many ghosts in Zone 2
+
+### T7. Ghost mesh unloading outside active time range
+
+Ghost meshes built for recordings whose UT range is far from current playback time could be unloaded and rebuilt on demand.
+
+**Priority:** Low — memory optimization
+
+### T8. Particle system pooling for engine/RCS FX
+
+Engine and RCS particle systems are instantiated per ghost. Pooling would reduce GC pressure with many active ghosts.
+
+**Priority:** Low
+
+### T9. Background ghost cachedIdx persistence (bug #62)
+
+`InterpolateAndPosition` for background/chain ghosts resets trajectory lookup index each frame instead of caching per-ghost. O(n) search instead of O(1) amortized.
+
+**Priority:** Low — minor perf cost
+
+### T10. RealVesselExists O(n) per frame (bug #49)
+
+`GhostPlaybackLogic.RealVesselExists` scans `FlightGlobals.Vessels` linearly. A HashSet lookup by PID would be O(1).
+
+**Priority:** Low — only matters with many committed recordings
+
+---
+
+## TODO — Features
+
+### T11. Ghost map presence KSP integration (bug #60)
+
+`GhostMapPresence` pure data layer is complete. 4 KSP integration points need in-game API investigation: tracking station registration, map orbit lines, nav target support, cleanup on despawn.
+
+**Priority:** Medium — improves ghost world presence
+
+### T12. EVA recording scope expansion (bug #56)
+
+`OnCrewOnEva` only records EVAs from launch pad. In-flight EVAs (suborbital, flying, orbiting) are not recorded.
+
+**Priority:** Medium — design limitation
+
+### T13. UI subgroup enable/loop checkboxes (bug #50)
+
+Recording subgroups in the UI are missing bulk enable and loop toggle checkboxes. Only top-level groups have them.
+
+**Priority:** Low — UI polish
+
+### T14. Controlled children recording after breakup (bug #61)
+
+When crash/breakup creates controlled children (surviving probe cores), no recording segments are started for them. Would need multi-vessel background recording to track their trajectories.
+
+**Priority:** Low — edge case
+
+### T15. Crash-safe pending recording recovery
+
+If the game crashes with a merge dialog pending, recording data is lost from memory. Solution: write a `pending_manifest.cfg` to `Parsek/Recordings/` when stashed, auto-recover on next load.
+
+**Priority:** Low — data safety improvement
+
+### T16. Planetarium.right drift compensation
+
+KSP's inertial reference frame may drift over very long time warp. Could cause ghost orientation mismatch for interplanetary segments. Needs empirical measurement first.
+
+**Priority:** Low — may not be needed
+
+---
+
+## TODO — Code Quality
+
+### T17. Game actions recording redesign (Phase 8)
+
+Redesign milestone capture, resource budgeting, and action replay validated per game mode: sandbox (no resources), science (science only), career (full). See roadmap Phase 8.
+
+**Priority:** High — correctness across game modes
+
+### T18. Log contract checker error whitelist (bug #63)
+
+`ParsekLogContractChecker` has no whitelist for intentional error-path test scenarios. Currently no tests need this.
+
+**Priority:** Low — test infrastructure
+
+---
+
 # Known Bugs
 
 ## 1. Tech tree nodes stay unlocked after rewind

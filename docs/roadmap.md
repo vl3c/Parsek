@@ -179,11 +179,11 @@ Comprehensive redesign of the recording and playback systems, built on the `reco
 - **KSC ghost playback** — ghosts visible in KSC scene with distance-based part event culling
 - **Ghost soft cap manager** — zone-based priority despawn (partial, see Phase 4)
 - **Log spam mitigation** — rate-limited high-volume diagnostics (SoftCap, GhostVisual, ShouldTriggerExplosion, CanRewind)
-- **59 bugs documented** — 44 fixed, see `docs/dev/known-bugs.md`
+- **59 bugs documented** — 44 fixed, see `docs/dev/todo-and-known-bugs.md`
 
 ### What remains
 
-Remaining work tracked in `docs/dev/known-bugs.md`. Key areas:
+Remaining work tracked in `docs/dev/todo-and-known-bugs.md`. Key areas:
 - Log spam reduction (high-volume per-frame diagnostics still dominating output)
 - Watch mode distance limits and anchor detection filtering
 - Ghost map presence KSP integration (tracking station, orbit lines, nav target)

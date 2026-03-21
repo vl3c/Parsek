@@ -80,7 +80,7 @@ Recording system redesign: multi-vessel sessions, ghost chain paradox prevention
 - False RELATIVE anchor at launchpad — skip anchor detection on surface
 - Watch mode on beyond-range looped ghost — loop phase offset reset
 - Background split children capture vessel snapshots for ghost playback
-- See `docs/dev/known-bugs.md` for full list
+- See `docs/dev/todo-and-known-bugs.md` for full list
 
 ### Format Changes
 
