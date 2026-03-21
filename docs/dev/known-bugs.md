@@ -582,25 +582,25 @@ When a vessel switch triggers auto-stop during an active chain recording, the st
 
 `RecordingStore.CanRewind` logs at VERBOSE every call, but is called per-recording per-frame from the UI. With 11+ rewind-eligible recordings at 60fps, this produces ~660 log lines/second (80% of total log output).
 
-**Fix:** Use `VerboseRateLimited` or suppress entirely — CanRewind is a read-only check that doesn't need per-frame logging.
+**Fix:** Removed Verbose log on the success path — CanRewind is a read-only check called per-recording per-frame. Blocked-case logs remain for diagnostics.
 
-**Status:** Open — high priority
+**Status:** Fixed
 
 ## 53. "re-shown after warp-down" log spam — 16K lines per session
 
 Ghosts toggled SetActive(false)/SetActive(true) every frame in KSC and Flight scenes produce continuous log spam. The re-show logic was designed for one-time warp transitions, not continuous toggling.
 
-**Fix:** Only log the re-show message once (use a `loggedReshow` HashSet), or rate-limit the message.
+**Fix:** Added `loggedReshow` HashSet to deduplicate the re-show log per ghost index. Cleared when warp suppression starts (so the next warp-down cycle logs once) and on ghost destruction.
 
-**Status:** Open — high priority
+**Status:** Fixed
 
 ## 54. Watch mode follows ghost beyond terrain loading range
 
 Watch mode keeps the ghost visible at any distance (per the earlier fix to skip zone hiding for watched ghosts). But when the ghost exceeds ~120km from the active vessel, KSP's terrain is not loaded around the ghost's position, causing terrain disappearance and floating-point jitter.
 
-**Fix:** Watch mode should exit when the watched ghost exceeds 120km from the active vessel. The scene origin stays near the active vessel, so terrain is only loaded there.
+**Fix:** Watch mode now has a 2-second real-time grace period (`WatchModeZoneGraceSeconds`). After grace, if the ghost enters Beyond zone (>120km), Watch exits and the ghost hides normally.
 
-**Status:** Open — high priority
+**Status:** Fixed
 
 ## 55. RELATIVE anchor triggers on debris and launch pad structures
 
@@ -608,9 +608,9 @@ The AnchorDetector's 2300m threshold triggers on any nearby vessel, including: l
 
 **Root cause:** No filtering on vessel type. The surface-vessel check added earlier (skip LANDED/SPLASHED/PRELAUNCH) only filters the focused vessel, not the anchor candidates.
 
-**Fix:** Filter anchor candidates: exclude debris (vesselType == Debris), exclude SpaceObjects, exclude vessels with the same launch ID as the focused vessel (same mission = not a docking target). Only anchor to vessels that are a genuine docking/rendezvous target.
+**Fix:** Added vessel type filtering in `BuildVesselInfoList` to exclude Debris, EVA, SpaceObject, and Flag vessels from anchor candidates. Also skip anchor detection entirely while on the surface (LANDED/SPLASHED/PRELAUNCH).
 
-**Status:** Open — high priority
+**Status:** Fixed
 
 ## 56. EVA recordings only created from launch pad
 
