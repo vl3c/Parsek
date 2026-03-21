@@ -51,6 +51,14 @@ namespace Parsek
         // of its recording (at the pad). This avoids targeting a ghost 300km away.
         private Dictionary<int, double> loopPhaseOffsets = new Dictionary<int, double>();
 
+        // Real Spawn Control: proximity-based nearby craft detection
+        private readonly List<NearbySpawnCandidate> nearbySpawnCandidates = new List<NearbySpawnCandidate>();
+        private float nextProximityCheckTime;
+        private const float ProximityCheckIntervalSec = 1.5f;
+        internal const double NearbySpawnRadius = 500.0;
+        private readonly HashSet<string> notifiedSpawnRecordingIds = new HashSet<string>();
+        internal List<NearbySpawnCandidate> NearbySpawnCandidates => nearbySpawnCandidates;
+
         // --- Floating-origin correction ---
         // Ghosts are plain GameObjects not registered with KSP's FloatingOrigin.
         // FloatingOrigin shifts all registered objects in LateUpdate(), but ghosts
@@ -420,6 +428,7 @@ namespace Parsek
             }
 
             UpdateTimelinePlayback();
+            UpdateProximityCheck();
         }
 
         /// <summary>
@@ -658,7 +667,7 @@ namespace Parsek
             vesselGhoster?.CleanupAll();
             vesselGhoster = null;
             activeGhostChains = null;
-            chainMutationGeneration++;
+
 
             ui?.Cleanup();
         }
@@ -3649,7 +3658,7 @@ namespace Parsek
             vesselGhoster?.CleanupAll();
             vesselGhoster = null;
             activeGhostChains = null;
-            chainMutationGeneration++;
+
 
             // Shutdown background recorder before clearing tree
             if (backgroundRecorder != null)
@@ -3712,7 +3721,7 @@ namespace Parsek
             if (trees == null || trees.Count == 0)
             {
                 activeGhostChains = null;
-                chainMutationGeneration++;
+    
                 ParsekLog.Verbose("Ghoster", "EvaluateAndApplyGhostChains: no committed trees");
                 return;
             }
@@ -3723,7 +3732,7 @@ namespace Parsek
             if (chains == null || chains.Count == 0)
             {
                 activeGhostChains = null;
-                chainMutationGeneration++;
+    
                 ParsekLog.Verbose("Ghoster", "EvaluateAndApplyGhostChains: no ghost chains found");
                 return;
             }
@@ -3761,7 +3770,7 @@ namespace Parsek
             }
 
             activeGhostChains = activeChains;
-            chainMutationGeneration++;
+
 
             // Wire the ghosted-vessel check for ShouldSkipExternalVesselGhost (Task 6b-3b)
             GhostPlaybackLogic.SetIsGhostedOverride(
@@ -5418,7 +5427,7 @@ namespace Parsek
                         rec.SpawnedVesselPersistentId = spawnedPid;
                         rec.VesselSpawned = true;
                         activeGhostChains.Remove(chain.OriginalVesselPid);
-                        chainMutationGeneration++;
+            
                         ParsekLog.Info("Flight",
                             $"Blocked chain tip spawn resolved: #{index} \"{rec.VesselName}\" pid={spawnedPid}");
                     }
@@ -5432,7 +5441,7 @@ namespace Parsek
                         rec.SpawnedVesselPersistentId = spawnedPid;
                         rec.VesselSpawned = true;
                         activeGhostChains.Remove(chain.OriginalVesselPid);
-                        chainMutationGeneration++;
+            
                         ParsekLog.Info("Flight",
                             $"Chain tip spawn complete: #{index} \"{rec.VesselName}\" pid={spawnedPid}");
                     }
@@ -6936,6 +6945,8 @@ namespace Parsek
             loggedOrbitRotationSegments.Clear();
             loggedReshow.Clear();
             pendingSpawnRecordingIds.Clear();
+            nearbySpawnCandidates.Clear();
+            notifiedSpawnRecordingIds.Clear();
             pendingWatchRecordingId = null;
             loadedAnchorVessels.Clear();
             softCapSuppressed.Clear();
@@ -8885,111 +8896,154 @@ namespace Parsek
         /// </summary>
         internal Dictionary<uint, GhostChain> ActiveGhostChains => activeGhostChains;
 
+        // ════════════════════════════════════════════════════════════════
+        //  Real Spawn Control: proximity check and warp
+        // ════════════════════════════════════════════════════════════════
+
         /// <summary>
-        /// Executes a time jump to the specified chain tip's SpawnUT.
-        /// Called from ParsekUI when the player clicks a "Warp to Spawn" button.
-        /// Validates the jump, notifies active recorder, then delegates to TimeJumpManager.
+        /// Periodic proximity scan: finds nearby ghost craft whose recording ends
+        /// in the future and would spawn a real vessel. Runs every 1.5s from Update().
+        /// Fires a one-time screen notification when a new candidate enters range.
         /// </summary>
-        internal void WarpToChainTip(uint vesselPid)
+        private void UpdateProximityCheck()
         {
-            if (activeGhostChains == null || !activeGhostChains.ContainsKey(vesselPid))
+            if (Time.time < nextProximityCheckTime) return;
+            nextProximityCheckTime = Time.time + ProximityCheckIntervalSec;
+
+            nearbySpawnCandidates.Clear();
+
+            if (FlightGlobals.ActiveVessel == null) return;
+
+            Vector3d activePos = FlightGlobals.ActiveVessel.GetWorldPos3D();
+            double currentUT = Planetarium.GetUniversalTime();
+            var committed = RecordingStore.CommittedRecordings;
+
+            foreach (var kvp in ghostStates)
+            {
+                int i = kvp.Key;
+                GhostPlaybackState state = kvp.Value;
+                if (state == null || state.ghost == null || !state.ghost.activeSelf)
+                    continue;
+                if (i < 0 || i >= committed.Count)
+                    continue;
+
+                Recording rec = committed[i];
+                if (rec.EndUT <= currentUT)
+                    continue;
+
+                // Check spawn eligibility
+                bool isActiveChainMember = activeChainId != null && rec.ChainId == activeChainId;
+                bool isChainLoopingOrDisabled = !string.IsNullOrEmpty(rec.ChainId) &&
+                    (RecordingStore.IsChainLooping(rec.ChainId) ||
+                     RecordingStore.IsChainFullyDisabled(rec.ChainId));
+
+                var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                    rec, isActiveChainMember, isChainLoopingOrDisabled);
+                if (!needsSpawn)
+                    continue;
+
+                // Check chain suppression
+                if (activeGhostChains != null)
+                {
+                    var (suppressed, _) = GhostPlaybackLogic.ShouldSuppressSpawnForChain(
+                        activeGhostChains, rec);
+                    if (suppressed)
+                        continue;
+                }
+
+                double dist = Vector3d.Distance(activePos, state.ghost.transform.position);
+                if (dist > NearbySpawnRadius)
+                    continue;
+
+                nearbySpawnCandidates.Add(new NearbySpawnCandidate
+                {
+                    recordingIndex = i,
+                    vesselName = rec.VesselName,
+                    endUT = rec.EndUT,
+                    distance = dist,
+                    recordingId = rec.RecordingId
+                });
+            }
+
+            // Sort by distance (closest first)
+            nearbySpawnCandidates.Sort((a, b) => a.distance.CompareTo(b.distance));
+
+            // Notify for new candidates
+            for (int c = 0; c < nearbySpawnCandidates.Count; c++)
+            {
+                var cand = nearbySpawnCandidates[c];
+                if (notifiedSpawnRecordingIds.Add(cand.recordingId))
+                {
+                    ParsekLog.ScreenMessage(
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Nearby craft: {0}. Open the Real Spawn Control window to fast forward and interact.",
+                            cand.vesselName), 5f);
+                    ParsekLog.Info("Flight",
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Proximity notification: '{0}' recording #{1} distance={2:F0}m endUT={3:F1}",
+                            cand.vesselName, cand.recordingIndex, cand.distance, cand.endUT));
+                }
+            }
+
+            if (ParsekLog.IsVerboseEnabled && nearbySpawnCandidates.Count > 0)
+                ParsekLog.Verbose("Flight",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Proximity check: {0} candidate(s) within {1:F0}m",
+                        nearbySpawnCandidates.Count, NearbySpawnRadius));
+        }
+
+        /// <summary>
+        /// Executes a time jump to a recording's EndUT so it becomes a real craft.
+        /// Called from ParsekUI when the player clicks a "Warp" button.
+        /// Passes null chains to ExecuteJump — spawning is handled by UpdateTimelinePlayback.
+        /// </summary>
+        internal void WarpToRecordingEnd(int recordingIndex)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            if (recordingIndex < 0 || recordingIndex >= committed.Count)
             {
                 ParsekLog.Warn("Flight",
                     string.Format(CultureInfo.InvariantCulture,
-                        "WarpToChainTip: vessel pid={0} not in active chains — aborted", vesselPid));
+                        "WarpToRecordingEnd: invalid index {0} — aborted", recordingIndex));
                 return;
             }
 
-            double targetUT = TimeJumpManager.ComputeJumpTargetUT(activeGhostChains, vesselPid);
+            Recording rec = committed[recordingIndex];
+            double targetUT = rec.EndUT;
             double currentUT = Planetarium.GetUniversalTime();
 
             if (!TimeJumpManager.IsValidJump(currentUT, targetUT))
             {
                 ParsekLog.Warn("Flight",
                     string.Format(CultureInfo.InvariantCulture,
-                        "WarpToChainTip: invalid jump current={0:F1} target={1:F1} — aborted",
+                        "WarpToRecordingEnd: invalid jump current={0:F1} target={1:F1} — aborted",
                         currentUT, targetUT));
                 return;
             }
 
             ParsekLog.Info("Flight",
                 string.Format(CultureInfo.InvariantCulture,
-                    "WarpToChainTip: jumping to UT={0:F1} for vessel pid={1} (delta={2:F1}s)",
-                    targetUT, vesselPid, targetUT - currentUT));
+                    "WarpToRecordingEnd: jumping to UT={0:F1} for '{1}' (delta={2:F1}s)",
+                    targetUT, rec.VesselName, targetUT - currentUT));
 
-            // Notify recorder before jump (captures TIME_JUMP event)
             TimeJumpManager.NotifyRecorder(recorder, currentUT, targetUT);
-
-            // Execute the jump
-            TimeJumpManager.ExecuteJump(targetUT, activeGhostChains, vesselGhoster);
+            // Pass null chains — let UpdateTimelinePlayback handle spawn naturally
+            TimeJumpManager.ExecuteJump(targetUT, null, vesselGhoster);
         }
 
         /// <summary>
-        /// Executes a time jump to the earliest pending chain tip.
-        /// "Warp to Next Spawn" — warps to earliest pending chain tip.
-        /// Uses FindNextSpawnChain to get the chain directly, avoiding float equality.
+        /// Warps to the earliest nearby spawn candidate's EndUT.
         /// </summary>
-        internal void WarpToNextSpawn()
+        internal void WarpToNextCraftSpawn()
         {
             double currentUT = Planetarium.GetUniversalTime();
-            GhostChain next = SelectiveSpawnUI.FindNextSpawnChain(activeGhostChains, currentUT);
-
+            var next = SelectiveSpawnUI.FindNextSpawnCandidate(nearbySpawnCandidates, currentUT);
             if (next == null)
             {
-                ParsekLog.Verbose("Flight", "WarpToNextSpawn: no pending chain tips");
+                ParsekLog.Verbose("Flight", "WarpToNextCraftSpawn: no nearby candidates");
                 return;
             }
-
-            WarpToChainTip(next.OriginalVesselPid);
-        }
-
-        /// <summary>
-        /// Cached vessel PID → name lookup for SelectiveSpawnUI.
-        /// Invalidated when chainMutationGeneration changes (chains added/removed/set to null).
-        /// </summary>
-        private Dictionary<uint, string> cachedChainVesselNames;
-        private int cachedChainNamesGeneration = -1;
-        private int chainMutationGeneration;
-
-        /// <summary>
-        /// Returns a cached vessel PID → vessel name lookup for the SelectiveSpawnUI.
-        /// Rebuilds only when the chain mutation generation changes.
-        /// </summary>
-        internal Dictionary<uint, string> GetChainVesselNames()
-        {
-            if (cachedChainVesselNames != null && cachedChainNamesGeneration == chainMutationGeneration)
-                return cachedChainVesselNames;
-
-            var names = new Dictionary<uint, string>();
-            if (activeGhostChains == null)
-            {
-                cachedChainVesselNames = names;
-                cachedChainNamesGeneration = chainMutationGeneration;
-                return names;
-            }
-
-            foreach (var kvp in activeGhostChains)
-            {
-                uint pid = kvp.Key;
-                string name = null;
-
-                // Try to find the vessel name from committed recordings
-                for (int i = 0; i < RecordingStore.CommittedRecordings.Count; i++)
-                {
-                    var rec = RecordingStore.CommittedRecordings[i];
-                    if (rec.RecordingId == kvp.Value.TipRecordingId)
-                    {
-                        name = rec.VesselName;
-                        break;
-                    }
-                }
-
-                names[pid] = name ?? string.Format(CultureInfo.InvariantCulture, "Vessel {0}", pid);
-            }
-
-            cachedChainVesselNames = names;
-            cachedChainNamesGeneration = chainMutationGeneration;
-            return names;
+            WarpToRecordingEnd(next.Value.recordingIndex);
         }
 
         void Log(string message) => ParsekLog.Verbose("Flight", message);

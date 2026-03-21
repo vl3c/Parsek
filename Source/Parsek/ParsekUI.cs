@@ -209,24 +209,18 @@ namespace Parsek
             if (InFlight)
                 DrawFlightRecordingControls();
 
-            // --- Spawn Control toggle ---
-            if (InFlight && flight != null &&
-                flight.ActiveGhostChains != null && flight.ActiveGhostChains.Count > 0)
+            // --- Real Spawn Control toggle ---
+            if (InFlight && flight != null && flight.NearbySpawnCandidates.Count > 0)
             {
-                int pendingCount = SelectiveSpawnUI.GetPendingChainTipCount(
-                    flight.ActiveGhostChains);
-                if (pendingCount > 0)
+                if (GUILayout.Button(string.Format(
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    "Real Spawn Control ({0})", flight.NearbySpawnCandidates.Count)))
                 {
-                    if (GUILayout.Button(string.Format(
-                        System.Globalization.CultureInfo.InvariantCulture,
-                        "Spawn Control ({0})", pendingCount)))
-                    {
-                        showSpawnControlWindow = !showSpawnControlWindow;
-                        ParsekLog.Verbose("UI",
-                            string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                                "Spawn Control window toggled: {0}",
-                                showSpawnControlWindow ? "open" : "closed"));
-                    }
+                    showSpawnControlWindow = !showSpawnControlWindow;
+                    ParsekLog.Verbose("UI",
+                        string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "Real Spawn Control window toggled: {0}",
+                            showSpawnControlWindow ? "open" : "closed"));
                 }
             }
 
@@ -2823,7 +2817,7 @@ namespace Parsek
         }
 
         // ════════════════════════════════════════════════════════════════
-        //  Spawn Control window
+        //  Real Spawn Control window
         // ════════════════════════════════════════════════════════════════
 
         public void DrawSpawnControlWindowIfOpen(Rect mainWindowRect)
@@ -2834,9 +2828,8 @@ namespace Parsek
                 return;
             }
 
-            // Auto-close when no chains exist
-            if (!InFlight || flight == null ||
-                flight.ActiveGhostChains == null || flight.ActiveGhostChains.Count == 0)
+            // Auto-close when no nearby candidates
+            if (!InFlight || flight == null || flight.NearbySpawnCandidates.Count == 0)
             {
                 showSpawnControlWindow = false;
                 ReleaseSpawnControlInputLock();
@@ -2848,10 +2841,10 @@ namespace Parsek
                 spawnControlWindowRect = new Rect(
                     mainWindowRect.x + mainWindowRect.width + 10,
                     mainWindowRect.y + mainWindowRect.height + 10,
-                    320, 10);
+                    340, 10);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI",
-                    $"Spawn Control window initial position: x={spawnControlWindowRect.x.ToString("F0", ic)} y={spawnControlWindowRect.y.ToString("F0", ic)}");
+                    $"Real Spawn Control window initial position: x={spawnControlWindowRect.x.ToString("F0", ic)} y={spawnControlWindowRect.y.ToString("F0", ic)}");
             }
 
             EnsureOpaqueWindowStyle();
@@ -2859,9 +2852,9 @@ namespace Parsek
                 "ParsekSpawnControl".GetHashCode(),
                 spawnControlWindowRect,
                 DrawSpawnControlWindow,
-                "Parsek \u2014 Spawn Control",
+                "Parsek \u2014 Real Spawn Control",
                 opaqueWindowStyle,
-                GUILayout.Width(320)
+                GUILayout.Width(340)
             );
             LogWindowPosition("SpawnControl", ref lastSpawnControlWindowRect, spawnControlWindowRect);
 
@@ -2890,91 +2883,76 @@ namespace Parsek
         {
             var ic = System.Globalization.CultureInfo.InvariantCulture;
             double currentUT = Planetarium.GetUniversalTime();
-            var pendingTips = SelectiveSpawnUI.GetPendingChainTips(flight.ActiveGhostChains);
-            var vesselNames = flight.GetChainVesselNames();
+            var candidates = flight.NearbySpawnCandidates;
 
-            if (pendingTips.Count == 0)
+            if (candidates.Count == 0)
             {
-                GUILayout.Label("No pending spawns.");
+                GUILayout.Label("No nearby craft to spawn.");
                 if (GUILayout.Button("Close"))
                     showSpawnControlWindow = false;
                 GUI.DragWindow();
                 return;
             }
 
-            // Per-chain rows
-            for (int i = 0; i < pendingTips.Count; i++)
+            // Header
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Craft", GUI.skin.box, GUILayout.ExpandWidth(true));
+            GUILayout.Label("Distance", GUI.skin.box, GUILayout.Width(65));
+            GUILayout.Label("Spawns at", GUI.skin.box, GUILayout.Width(110));
+            GUILayout.Label("", GUILayout.Width(60)); // Warp button column
+            GUILayout.EndHorizontal();
+
+            // Per-craft rows (already sorted by distance)
+            for (int i = 0; i < candidates.Count; i++)
             {
-                GhostChain chain = pendingTips[i];
-                string name;
-                if (!vesselNames.TryGetValue(chain.OriginalVesselPid, out name))
-                    name = string.Format(ic, "Vessel {0}", chain.OriginalVesselPid);
-
-                string spawnDate = KSPUtil.PrintDateCompact(chain.SpawnUT, true);
-                double delta = chain.SpawnUT - currentUT;
-                bool canWarp = SelectiveSpawnUI.CanWarpToChain(chain, currentUT);
-
-                // "Also spawns" warning (computed once, used for label and click log)
-                string rowWarning = null;
-                if (canWarp)
-                {
-                    var alsoSpawned = SelectiveSpawnUI.FindAlsoSpawnedChains(
-                        flight.ActiveGhostChains, chain, currentUT);
-                    rowWarning = SelectiveSpawnUI.FormatAlsoSpawnsWarning(
-                        alsoSpawned, vesselNames);
-                }
+                var cand = candidates[i];
+                double delta = cand.endUT - currentUT;
+                bool canWarp = cand.endUT > currentUT;
 
                 GUILayout.BeginHorizontal(GUI.skin.box);
-                GUILayout.BeginVertical();
-                GUILayout.Label(name, GUILayout.ExpandWidth(true));
+                GUILayout.Label(cand.vesselName, GUILayout.ExpandWidth(true));
                 GUILayout.Label(
-                    string.Format(ic, "{0}  (in {1})", spawnDate,
-                        SelectiveSpawnUI.FormatTimeDelta(delta)));
-                GUILayout.EndVertical();
+                    string.Format(ic, "{0:F0}m", cand.distance),
+                    GUILayout.Width(65));
+                GUILayout.Label(
+                    string.Format(ic, "{0}\n(in {1})",
+                        KSPUtil.PrintDateCompact(cand.endUT, true),
+                        SelectiveSpawnUI.FormatTimeDelta(delta)),
+                    GUILayout.Width(110));
 
                 GUI.enabled = canWarp;
                 if (GUILayout.Button("Warp", GUILayout.Width(60)))
                 {
-                    if (rowWarning != null)
-                        ParsekLog.Info("UI",
-                            string.Format(ic, "Spawn Control warp: {0}", rowWarning));
                     ParsekLog.Info("UI",
                         string.Format(ic,
-                            "Spawn Control: warp to vessel={0} name='{1}'",
-                            chain.OriginalVesselPid, name));
-                    flight.WarpToChainTip(chain.OriginalVesselPid);
+                            "Real Spawn Control: warp to '{0}' recording #{1}",
+                            cand.vesselName, cand.recordingIndex));
+                    flight.WarpToRecordingEnd(cand.recordingIndex);
                 }
                 GUI.enabled = true;
                 GUILayout.EndHorizontal();
-
-                if (rowWarning != null)
-                    GUILayout.Label(string.Format(ic, "  \u26a0 {0}", rowWarning));
             }
 
             // Bottom section
             GUILayout.Space(SpacingLarge);
 
-            // "Warp to Next Spawn" — earliest future chain tip
-            GhostChain nextChain = SelectiveSpawnUI.FindNextSpawnChain(
-                flight.ActiveGhostChains, currentUT);
-            if (nextChain != null)
+            var next = SelectiveSpawnUI.FindNextSpawnCandidate(candidates, currentUT);
+            if (next != null)
             {
-                string tooltip = SelectiveSpawnUI.FormatNextSpawnTooltip(
-                    nextChain, currentUT, vesselNames);
+                string tooltip = SelectiveSpawnUI.FormatNextSpawnTooltip(next, currentUT);
                 if (GUILayout.Button(new GUIContent("Warp to Next Spawn", tooltip)))
                 {
-                    ParsekLog.Info("UI", "Spawn Control: Warp to Next Spawn clicked");
-                    flight.WarpToNextSpawn();
+                    ParsekLog.Info("UI", "Real Spawn Control: Warp to Next Spawn clicked");
+                    flight.WarpToNextCraftSpawn();
                 }
             }
 
             if (GUILayout.Button("Close"))
             {
                 showSpawnControlWindow = false;
-                ParsekLog.Verbose("UI", "Spawn Control window closed via button");
+                ParsekLog.Verbose("UI", "Real Spawn Control window closed");
             }
 
-            // Render tooltip below buttons
             if (!string.IsNullOrEmpty(GUI.tooltip))
             {
                 GUILayout.Space(SpacingSmall);
