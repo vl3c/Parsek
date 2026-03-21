@@ -10,6 +10,7 @@ namespace Parsek.Tests.Generators
         private readonly List<ConfigNode> points = new List<ConfigNode>();
         private readonly List<ConfigNode> orbitSegments = new List<ConfigNode>();
         private readonly List<ConfigNode> partEvents = new List<ConfigNode>();
+        private readonly List<ConfigNode> flagEvents = new List<ConfigNode>();
         private readonly List<TrackSection> trackSections = new List<TrackSection>();
         private readonly List<SegmentEvent> segmentEvents = new List<SegmentEvent>();
         private List<ControllerInfo> controllers;
@@ -179,6 +180,30 @@ namespace Parsek.Tests.Generators
             node.AddValue("value", value.ToString("R", ic));
             node.AddValue("midx", moduleIndex.ToString(ic));
             partEvents.Add(node);
+            return this;
+        }
+
+        public RecordingBuilder AddFlagEvent(double ut, string name, string placedBy,
+            string plaqueText, string flagURL, double lat, double lon, double alt,
+            float rotX = 0f, float rotY = 0f, float rotZ = 0f, float rotW = 1f,
+            string body = "Kerbin")
+        {
+            var ic = CultureInfo.InvariantCulture;
+            var node = new ConfigNode("FLAG_EVENT");
+            node.AddValue("ut", ut.ToString("R", ic));
+            node.AddValue("name", name ?? "");
+            node.AddValue("placedBy", placedBy ?? "");
+            node.AddValue("plaqueText", plaqueText ?? "");
+            node.AddValue("flagURL", flagURL ?? "");
+            node.AddValue("lat", lat.ToString("R", ic));
+            node.AddValue("lon", lon.ToString("R", ic));
+            node.AddValue("alt", alt.ToString("R", ic));
+            node.AddValue("rotX", rotX.ToString("R", ic));
+            node.AddValue("rotY", rotY.ToString("R", ic));
+            node.AddValue("rotZ", rotZ.ToString("R", ic));
+            node.AddValue("rotW", rotW.ToString("R", ic));
+            node.AddValue("body", body);
+            flagEvents.Add(node);
             return this;
         }
 
@@ -433,6 +458,8 @@ namespace Parsek.Tests.Generators
                 node.AddNode(seg);
             foreach (var pe in partEvents)
                 node.AddNode(pe);
+            foreach (var fe in flagEvents)
+                node.AddNode(fe);
 
             // v6: serialize segment events and track sections
             if (segmentEvents.Count > 0)
@@ -554,6 +581,9 @@ namespace Parsek.Tests.Generators
 
             foreach (var pe in partEvents)
                 node.AddNode(pe);
+
+            foreach (var fe in flagEvents)
+                node.AddNode(fe);
 
             if (!string.IsNullOrEmpty(parentRecordingId))
                 node.AddValue("parentRecordingId", parentRecordingId);

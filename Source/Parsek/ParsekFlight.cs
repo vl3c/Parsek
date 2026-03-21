@@ -330,6 +330,7 @@ namespace Parsek
             GameEvents.onGroundSciencePartRemoved.Add(OnGroundSciencePartRemoved);
             GameEvents.onVesselChange.Add(OnVesselSwitchComplete);
             GameEvents.onTimeWarpRateChanged.Add(OnTimeWarpRateChanged);
+            GameEvents.afterFlagPlanted.Add(OnAfterFlagPlanted);
 
             ui = new ParsekUI(this);
 
@@ -621,6 +622,7 @@ namespace Parsek
             GameEvents.onGroundSciencePartRemoved.Remove(OnGroundSciencePartRemoved);
             GameEvents.onVesselChange.Remove(OnVesselSwitchComplete);
             GameEvents.onTimeWarpRateChanged.Remove(OnTimeWarpRateChanged);
+            GameEvents.afterFlagPlanted.Remove(OnAfterFlagPlanted);
 
             // Restore debris persistence if still overridden
             RestoreDebrisPersistence();
@@ -758,7 +760,8 @@ namespace Parsek
                     recordingId: captured != null ? captured.RecordingId : null,
                     recordingFormatVersion: captured != null ? (int?)captured.RecordingFormatVersion : null,
 
-                    partEvents: recorder.PartEvents);
+                    partEvents: recorder.PartEvents,
+                    flagEvents: recorder.FlagEvents);
 
                 // Use stop-time atomic capture when available; fallback to scene-change capture.
                 // ApplyPersistenceArtifactsFrom copies chain/ParentRecordingId/EvaCrewName from
@@ -1001,7 +1004,8 @@ namespace Parsek
                 recorder.OrbitSegments,
                 recordingId: captured != null ? captured.RecordingId : null,
                 recordingFormatVersion: captured != null ? (int?)captured.RecordingFormatVersion : null,
-                partEvents: recorder.PartEvents);
+                partEvents: recorder.PartEvents,
+                flagEvents: recorder.FlagEvents);
 
             if (captured != null)
             {
@@ -1262,10 +1266,12 @@ namespace Parsek
             treeRec.Points.AddRange(rec.Recording);
             treeRec.OrbitSegments.AddRange(rec.OrbitSegments);
             treeRec.PartEvents.AddRange(rec.PartEvents);
+            treeRec.FlagEvents.AddRange(rec.FlagEvents);
             treeRec.TrackSections.AddRange(rec.TrackSections);
 
-            // Sort part events chronologically (mixed event sources may produce non-chronological order)
+            // Sort part/flag events chronologically (mixed event sources may produce non-chronological order)
             treeRec.PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+            treeRec.FlagEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
 
             // Populate VesselPersistentId (required for RebuildBackgroundMap after save/load)
             if (treeRec.VesselPersistentId == 0 && rec.RecordingVesselId != 0)
@@ -1778,7 +1784,8 @@ namespace Parsek
                 RecordingStore.StashPending(
                     captured.Points, captured.VesselName,
                     orbitSegments: captured.OrbitSegments,
-                    partEvents: captured.PartEvents);
+                    partEvents: captured.PartEvents,
+                    flagEvents: captured.FlagEvents);
                 // Copy snapshot/vessel state to the pending recording
                 if (RecordingStore.HasPending)
                 {
@@ -2570,7 +2577,8 @@ namespace Parsek
                 segmentRecorder.OrbitSegments,
                 recordingId: segmentId,
                 recordingFormatVersion: segmentRecorder.CaptureAtStop.RecordingFormatVersion,
-                partEvents: segmentRecorder.PartEvents);
+                partEvents: segmentRecorder.PartEvents,
+                flagEvents: segmentRecorder.FlagEvents);
 
             if (!RecordingStore.HasPending)
             {
@@ -3070,6 +3078,94 @@ namespace Parsek
             Log($"Part event captured: {eventType} '{evt.partName}' pid={evt.partPersistentId} via {sourceEvent}");
         }
 
+        void OnAfterFlagPlanted(FlagSite flagSite)
+        {
+            if (flagSite == null || flagSite.vessel == null || flagSite.part == null) return;
+
+            // Always stamp the planting date onto the plaque text
+            double ut = Planetarium.GetUniversalTime();
+            string dateStr = KSPUtil.PrintDate(ut, includeTime: true);
+            flagSite.PlaqueText = FormatPlaqueWithDate(flagSite.PlaqueText, dateStr);
+
+            ParsekLog.Verbose("Flight",
+                $"Flag planted: '{flagSite.vessel.vesselName}' by '{flagSite.placedBy}' — date stamped");
+
+            // Recording-specific: capture FlagEvent
+            if (recorder == null || !recorder.IsRecording) return;
+
+            string placedBy = flagSite.placedBy ?? "";
+            Vessel recordedVessel = FlightRecorder.FindVesselByPid(recorder.RecordingVesselId);
+            if (!ShouldRecordFlagEvent(placedBy, recordedVessel))
+            {
+                ParsekLog.Verbose("Flight",
+                    $"Flag planted by '{placedBy}' but recorded vessel is '{recordedVessel?.vesselName}' — skipping");
+                return;
+            }
+
+            Vessel flagVessel = flagSite.vessel;
+            CelestialBody body = flagVessel.mainBody;
+
+            // Compute surface-relative rotation (v5 format)
+            Quaternion worldRot = flagVessel.transform.rotation;
+            Quaternion surfRot = Quaternion.Inverse(body.bodyTransform.rotation) * worldRot;
+
+            var fe = new FlagEvent
+            {
+                ut = ut,
+                flagSiteName = flagVessel.vesselName ?? "",
+                placedBy = placedBy,
+                plaqueText = flagSite.PlaqueText ?? "",
+                flagURL = flagSite.part.flagURL ?? "",
+                latitude = flagVessel.latitude,
+                longitude = flagVessel.longitude,
+                altitude = flagVessel.altitude,
+                rotX = surfRot.x,
+                rotY = surfRot.y,
+                rotZ = surfRot.z,
+                rotW = surfRot.w,
+                bodyName = body.name
+            };
+            recorder.FlagEvents.Add(fe);
+
+            Log($"Flag event captured: '{fe.flagSiteName}' by '{fe.placedBy}' at " +
+                $"({fe.latitude:F4},{fe.longitude:F4},{fe.altitude:F1}) on {fe.bodyName}");
+        }
+
+        /// <summary>
+        /// Appends the planting date to the plaque text, right-aligned via TMP rich text.
+        /// </summary>
+        internal static string FormatPlaqueWithDate(string originalText, string formattedDate)
+        {
+            if (string.IsNullOrEmpty(formattedDate))
+                return originalText ?? "";
+
+            if (string.IsNullOrEmpty(originalText))
+                return formattedDate;
+
+            return originalText + " - " + formattedDate;
+        }
+
+        /// <summary>
+        /// Checks whether a flag planting event should be recorded for the given vessel.
+        /// The planting kerbal must be the recorded vessel (EVA kerbal) or crew on the recorded vessel.
+        /// </summary>
+        internal static bool ShouldRecordFlagEvent(string placedBy, Vessel recordedVessel)
+        {
+            if (string.IsNullOrEmpty(placedBy) || recordedVessel == null) return false;
+
+            // Check crew roster — works for both EVA kerbals and crewed vessels
+            var crew = recordedVessel.GetVesselCrew();
+            if (crew != null)
+            {
+                for (int i = 0; i < crew.Count; i++)
+                {
+                    if (crew[i].name == placedBy)
+                        return true;
+                }
+            }
+            return false;
+        }
+
         /// <summary>
         /// Commits the current segment as a dock/undock chain boundary.
         /// Initializes the chain if needed, tags segment metadata, and advances chain state.
@@ -3085,7 +3181,8 @@ namespace Parsek
                 segmentRecorder.OrbitSegments,
                 recordingId: segmentId,
                 recordingFormatVersion: segmentRecorder.CaptureAtStop.RecordingFormatVersion,
-                partEvents: segmentRecorder.PartEvents);
+                partEvents: segmentRecorder.PartEvents,
+                flagEvents: segmentRecorder.FlagEvents);
 
             if (!RecordingStore.HasPending)
             {
@@ -3172,7 +3269,8 @@ namespace Parsek
                 recorder.OrbitSegments,
                 recordingId: segmentId,
                 recordingFormatVersion: (int?)captured.RecordingFormatVersion,
-                partEvents: recorder.PartEvents);
+                partEvents: recorder.PartEvents,
+                flagEvents: recorder.FlagEvents);
 
             if (!RecordingStore.HasPending)
             {
@@ -3255,7 +3353,8 @@ namespace Parsek
                 recorder.OrbitSegments,
                 recordingId: segmentId,
                 recordingFormatVersion: captured != null ? (int?)captured.RecordingFormatVersion : null,
-                partEvents: recorder.PartEvents);
+                partEvents: recorder.PartEvents,
+                flagEvents: recorder.FlagEvents);
 
             if (!RecordingStore.HasPending)
             {
@@ -4468,7 +4567,8 @@ namespace Parsek
                 recorder.OrbitSegments,
                 recordingId: captured != null ? captured.RecordingId : null,
                 recordingFormatVersion: captured != null ? (int?)captured.RecordingFormatVersion : null,
-                partEvents: recorder.PartEvents);
+                partEvents: recorder.PartEvents,
+                flagEvents: recorder.FlagEvents);
 
             if (!RecordingStore.HasPending)
             {
@@ -5028,6 +5128,9 @@ namespace Parsek
                     previewGhostState.reentryFxInfo = GhostVisualBuilder.TryBuildReentryFx(
                         ghost, previewGhostState.heatInfos, -1, previewRecording.VesselName);
 
+                    // Initialize flag event index for preview playback
+                    GhostPlaybackLogic.InitializeFlagVisibility(previewRecording, previewGhostState);
+
                     Log("Manual preview ghost: built from recording-start snapshot (with part events)");
                 }
             }
@@ -5175,6 +5278,7 @@ namespace Parsek
             {
                 previewGhostState.SetInterpolated(interpResult);
                 GhostPlaybackLogic.ApplyPartEvents(-1, previewRecording, recordingTime, previewGhostState);
+                GhostPlaybackLogic.ApplyFlagEvents(previewGhostState, previewRecording, recordingTime);
                 UpdateReentryFx(-1, previewGhostState, previewRecording.VesselName ?? "Preview");
             }
         }
@@ -5766,6 +5870,7 @@ namespace Parsek
                         if (!shouldSkipPartEvents)
                         {
                             GhostPlaybackLogic.ApplyPartEvents(i, rec, currentUT, state);
+                            GhostPlaybackLogic.ApplyFlagEvents(state, rec, currentUT);
                             UpdateReentryFx(i, state, rec.VesselName);
                             if (suppressVisualFx)
                                 GhostPlaybackLogic.StopAllRcsEmissions(state);
@@ -5827,6 +5932,7 @@ namespace Parsek
                         if (!bgSkipPartEvents)
                         {
                             GhostPlaybackLogic.ApplyPartEvents(i, rec, currentUT, state);
+                            GhostPlaybackLogic.ApplyFlagEvents(state, rec, currentUT);
                             // Reentry FX: no InterpolationResult set for background-only path — bodyName stays null,
                             // so UpdateReentryFx will no-op. Intentional: on-rails vessels don't reenter.
                             UpdateReentryFx(i, state, rec.VesselName);
@@ -6405,6 +6511,7 @@ namespace Parsek
             if (!skipLoopPartEvents)
             {
                 GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, loopUT, state);
+                GhostPlaybackLogic.ApplyFlagEvents(state, rec, loopUT);
                 UpdateReentryFx(recIdx, state, rec.VesselName);
                 if (suppressVisualFx)
                     GhostPlaybackLogic.StopAllRcsEmissions(state);
@@ -6526,6 +6633,7 @@ namespace Parsek
                 primaryState.playbackIndex = playbackIdx;
 
                 GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, loopUT, primaryState);
+                GhostPlaybackLogic.ApplyFlagEvents(primaryState, rec, loopUT);
                 UpdateReentryFx(recIdx, primaryState, rec.VesselName);
                 if (suppressVisualFx)
                     GhostPlaybackLogic.StopAllRcsEmissions(primaryState);
@@ -6599,6 +6707,7 @@ namespace Parsek
                 ovState.playbackIndex = playbackIdx;
 
                 GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, loopUT, ovState);
+                GhostPlaybackLogic.ApplyFlagEvents(ovState, rec, loopUT);
                 UpdateReentryFx(recIdx, ovState, rec.VesselName);
                 if (suppressVisualFx)
                     GhostPlaybackLogic.StopAllRcsEmissions(ovState);
@@ -6858,6 +6967,9 @@ namespace Parsek
                 rec.VesselName);
             state.reentryMpb = new MaterialPropertyBlock();
 
+            // Initialize flag event index — flags are spawned as real vessels on-demand by ApplyFlagEvents
+            GhostPlaybackLogic.InitializeFlagVisibility(rec, state);
+
             ghostStates[index] = state;
         }
 
@@ -6900,6 +7012,7 @@ namespace Parsek
                 Destroy(state.ghost);
 
             GhostPlaybackLogic.DestroyAllFakeCanopies(state);
+
             ghostStates.Remove(index);
             loopPhaseOffsets.Remove(index);
         }
@@ -7046,6 +7159,7 @@ namespace Parsek
             DestroyReentryFxResources(state.reentryFxInfo);
             if (state.ghost != null) Destroy(state.ghost);
             GhostPlaybackLogic.DestroyAllFakeCanopies(state);
+
         }
 
         /// <summary>

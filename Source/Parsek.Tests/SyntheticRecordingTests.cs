@@ -997,9 +997,10 @@ namespace Parsek.Tests
         private const uint AnimateHeatShowcasePidBase = 99100000;
         private const uint EngineShowcasePidBase = 99200000;
         private const uint ColorChangerShowcasePidBase = 99300000;
+        private const uint FlagPlantShowcasePid = 99400000;
         // Optional companion part (e.g., kerbal actor) receives the second slot.
         // Total visible showcase row entries (indices 0-235, including inventory placement).
-        private const int ShowcaseRowCount = 244;
+        private const int ShowcaseRowCount = 245;
         // Split showcase into three parallel lines to avoid runway clipping.
         private static readonly int ShowcaseEntriesPerLine = (ShowcaseRowCount + 2) / 3;
         private const double ShowcaseLineSpacingMeters = 20.0;
@@ -2307,6 +2308,38 @@ namespace Parsek.Tests
                 .WithPersistentId(InventoryPlacementPid)
                 .AddPart(partName, rotation: "0,-0.7071068,0,0.7071068")
                 .AddPart("kerbalEVA", position: "2.25,0,0", rotation: "0,0.7071068,0,0.7071068", parentIndex: 0)
+                .AsLanded(lat, lon, alt)
+                .Build();
+
+            b.WithGhostVisualSnapshot(snap);
+            return b;
+        }
+
+        internal static RecordingBuilder FlagPlantShowcaseRecording(double baseUT = 0)
+        {
+            const int rowIndex = ShowcaseRowCount - 1; // last row
+            double t = baseUT + 30;
+            ShowcasePosition(rowIndex, ShowcaseDistanceFromPadMeters, out double lat, out double lon, out double alt);
+
+            var b = new RecordingBuilder("Part Showcase - Flag Plant")
+                .WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW)
+                .WithLoopPlayback(loop: true, intervalSeconds: 0.0)
+                .WithRecordingGroup("Part Showcases");
+
+            for (int i = 0; i <= 8; i++)
+                b.AddPoint(t + (i * 3), lat, lon, alt);
+
+            // Flag appears 3s into the 24s loop, stays visible until loop resets
+            b.AddFlagEvent(t + 3.0, "Showcase Flag", "Jeb Kerman", "Part Showcase",
+                "Squad/Flags/default", lat, lon + 0.00005, alt,
+                rotX: KscRotX, rotY: KscRotY, rotZ: KscRotZ, rotW: KscRotW,
+                body: "Kerbin");
+
+            // EVA kerbal ghost (to show who planted it)
+            var snap = new VesselSnapshotBuilder()
+                .WithName("Part Showcase - Flag Plant")
+                .WithPersistentId(FlagPlantShowcasePid)
+                .AddPart("kerbalEVA", rotation: "0,-0.7071068,0,0.7071068")
                 .AsLanded(lat, lon, alt)
                 .Build();
 
@@ -5197,6 +5230,7 @@ namespace Parsek.Tests
             for (int i = 0; i < colorChangerShowcases.Length; i++)
                 writer.AddRecording(colorChangerShowcases[i]);
             writer.AddRecording(InventoryPlacementShowcaseRecording(baseUT));
+            writer.AddRecording(FlagPlantShowcaseRecording(baseUT));
 
             var chainSegments = EvaBoardChain(baseUT);
             chainSegments[0].WithRewindSave("parsek_rw_evab01");
