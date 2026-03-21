@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Globalization;
+using UnityEngine;
 
 namespace Parsek.Tests.Generators
 {
@@ -9,6 +10,10 @@ namespace Parsek.Tests.Generators
         private readonly List<ConfigNode> points = new List<ConfigNode>();
         private readonly List<ConfigNode> orbitSegments = new List<ConfigNode>();
         private readonly List<ConfigNode> partEvents = new List<ConfigNode>();
+        private readonly List<TrackSection> trackSections = new List<TrackSection>();
+        private readonly List<SegmentEvent> segmentEvents = new List<SegmentEvent>();
+        private List<ControllerInfo> controllers;
+        private bool isDebris;
         private ConfigNode vesselSnapshot;
         private ConfigNode ghostVisualSnapshot;
         private uint spawnedPid;
@@ -30,12 +35,13 @@ namespace Parsek.Tests.Generators
         private double rewindReservedScience;
         private float rewindReservedRep;
         private int? terminalState;
+        private double terrainHeightAtEnd = double.NaN;
 
         // Default rotation for points that don't specify one explicitly
         private float defaultRotX, defaultRotY, defaultRotZ;
         private float defaultRotW = 1;
         private bool hasDefaultRotation;
-        private int formatVersion = 5;
+        private int formatVersion = 7;
 
         public RecordingBuilder(string vesselName)
         {
@@ -266,6 +272,142 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
+        public RecordingBuilder WithTerrainHeightAtEnd(double height)
+        {
+            terrainHeightAtEnd = height;
+            return this;
+        }
+
+        // --- v6 TrackSection builder methods ---
+
+        /// <summary>
+        /// Adds a TrackSection with full control over all parameters.
+        /// </summary>
+        public RecordingBuilder AddTrackSection(
+            SegmentEnvironment env, ReferenceFrame refFrame, TrackSectionSource source,
+            double startUT, double endUT,
+            List<TrajectoryPoint> frames = null, List<OrbitSegment> checkpoints = null,
+            uint anchorVesselId = 0, float sampleRateHz = 0f)
+        {
+            var section = new TrackSection
+            {
+                environment = env,
+                referenceFrame = refFrame,
+                source = source,
+                startUT = startUT,
+                endUT = endUT,
+                frames = frames ?? new List<TrajectoryPoint>(),
+                checkpoints = checkpoints ?? new List<OrbitSegment>(),
+                anchorVesselId = anchorVesselId,
+                sampleRateHz = sampleRateHz
+            };
+            trackSections.Add(section);
+            return this;
+        }
+
+        /// <summary>
+        /// Convenience: creates an ATMOSPHERIC + ABSOLUTE + Active section with no frames.
+        /// Frames can be added separately or the section can serve as a time-range marker.
+        /// </summary>
+        public RecordingBuilder AddAtmosphericSection(double startUT, double endUT)
+        {
+            return AddTrackSection(
+                SegmentEnvironment.Atmospheric, ReferenceFrame.Absolute, TrackSectionSource.Active,
+                startUT, endUT, sampleRateHz: 10.0f);
+        }
+
+        /// <summary>
+        /// Convenience: creates an EXO_BALLISTIC + ORBITAL_CHECKPOINT + Checkpoint section
+        /// with a single orbital checkpoint.
+        /// </summary>
+        public RecordingBuilder AddOrbitalCheckpointSection(double startUT, double endUT, OrbitSegment checkpoint)
+        {
+            return AddTrackSection(
+                SegmentEnvironment.ExoBallistic, ReferenceFrame.OrbitalCheckpoint, TrackSectionSource.Checkpoint,
+                startUT, endUT,
+                checkpoints: new List<OrbitSegment> { checkpoint },
+                sampleRateHz: 0.1f);
+        }
+
+        // --- v6 SegmentEvent builder methods ---
+
+        /// <summary>
+        /// Adds a SegmentEvent with explicit type, UT, and optional details.
+        /// </summary>
+        public RecordingBuilder AddSegmentEvent(SegmentEventType type, double ut, string details = null)
+        {
+            segmentEvents.Add(new SegmentEvent
+            {
+                type = type,
+                ut = ut,
+                details = details
+            });
+            return this;
+        }
+
+        /// <summary>
+        /// Convenience: adds a ControllerChange segment event.
+        /// </summary>
+        public RecordingBuilder AddControllerChangeEvent(double ut, string details)
+        {
+            return AddSegmentEvent(SegmentEventType.ControllerChange, ut, details);
+        }
+
+        /// <summary>
+        /// Convenience: adds a PartDestroyed segment event with part name and PID in details.
+        /// </summary>
+        public RecordingBuilder AddPartDestroyedEvent(double ut, string partName, uint partPid)
+        {
+            return AddSegmentEvent(SegmentEventType.PartDestroyed, ut,
+                $"{partName}:{partPid}");
+        }
+
+        // --- v6 ControllerInfo builder methods ---
+
+        /// <summary>
+        /// Sets the full list of controllers from the given array.
+        /// </summary>
+        public RecordingBuilder WithControllers(params ControllerInfo[] ctrls)
+        {
+            controllers = new List<ControllerInfo>(ctrls);
+            return this;
+        }
+
+        /// <summary>
+        /// Adds a single controller to the controllers list.
+        /// </summary>
+        public RecordingBuilder AddController(string type, string partName, uint partPid)
+        {
+            if (controllers == null)
+                controllers = new List<ControllerInfo>();
+            controllers.Add(new ControllerInfo
+            {
+                type = type,
+                partName = partName,
+                partPersistentId = partPid
+            });
+            return this;
+        }
+
+        /// <summary>
+        /// Marks this recording as debris (vessel has no controller parts).
+        /// </summary>
+        public RecordingBuilder AsDebris()
+        {
+            isDebris = true;
+            return this;
+        }
+
+        /// <summary>
+        /// Returns the track sections list (for test assertions).
+        /// </summary>
+        public List<TrackSection> GetTrackSections() => trackSections;
+
+        /// <summary>
+        /// Returns the segment events list (for test assertions).
+        /// </summary>
+        public List<SegmentEvent> GetSegmentEvents() => segmentEvents;
+
         /// <summary>
         /// Returns the recording ID (auto-generates one if not set).
         /// </summary>
@@ -291,6 +433,12 @@ namespace Parsek.Tests.Generators
                 node.AddNode(seg);
             foreach (var pe in partEvents)
                 node.AddNode(pe);
+
+            // v6: serialize segment events and track sections
+            if (segmentEvents.Count > 0)
+                RecordingStore.SerializeSegmentEvents(node, segmentEvents);
+            if (trackSections.Count > 0)
+                RecordingStore.SerializeTrackSections(node, trackSections);
 
             return node;
         }
@@ -346,6 +494,26 @@ namespace Parsek.Tests.Generators
 
             if (terminalState.HasValue)
                 node.AddValue("terminalState", terminalState.Value.ToString(CultureInfo.InvariantCulture));
+
+            if (!double.IsNaN(terrainHeightAtEnd))
+                node.AddValue("terrainHeightAtEnd", terrainHeightAtEnd.ToString("R", CultureInfo.InvariantCulture));
+
+            // v6: Controller info
+            if (controllers != null)
+            {
+                var ic2 = CultureInfo.InvariantCulture;
+                for (int i = 0; i < controllers.Count; i++)
+                {
+                    ConfigNode ctrlNode = node.AddNode("CONTROLLER");
+                    ctrlNode.AddValue("type", controllers[i].type ?? "");
+                    ctrlNode.AddValue("part", controllers[i].partName ?? "");
+                    ctrlNode.AddValue("pid", controllers[i].partPersistentId.ToString(ic2));
+                }
+            }
+
+            // v6: IsDebris
+            if (isDebris)
+                node.AddValue("isDebris", isDebris.ToString());
 
             return node;
         }
@@ -424,6 +592,32 @@ namespace Parsek.Tests.Generators
 
             if (terminalState.HasValue)
                 node.AddValue("terminalState", terminalState.Value.ToString(CultureInfo.InvariantCulture));
+
+            if (!double.IsNaN(terrainHeightAtEnd))
+                node.AddValue("terrainHeightAtEnd", terrainHeightAtEnd.ToString("R", CultureInfo.InvariantCulture));
+
+            // v6: Controller info
+            if (controllers != null)
+            {
+                var icCtrl = CultureInfo.InvariantCulture;
+                for (int i = 0; i < controllers.Count; i++)
+                {
+                    ConfigNode ctrlNode = node.AddNode("CONTROLLER");
+                    ctrlNode.AddValue("type", controllers[i].type ?? "");
+                    ctrlNode.AddValue("part", controllers[i].partName ?? "");
+                    ctrlNode.AddValue("pid", controllers[i].partPersistentId.ToString(icCtrl));
+                }
+            }
+
+            // v6: IsDebris
+            if (isDebris)
+                node.AddValue("isDebris", isDebris.ToString());
+
+            // v6: Segment events and track sections (inline for v2)
+            if (segmentEvents.Count > 0)
+                RecordingStore.SerializeSegmentEvents(node, segmentEvents);
+            if (trackSections.Count > 0)
+                RecordingStore.SerializeTrackSections(node, trackSections);
 
             return node;
         }

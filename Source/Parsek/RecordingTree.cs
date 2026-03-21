@@ -32,6 +32,11 @@ namespace Parsek
         public Dictionary<uint, string> BackgroundMap
             = new Dictionary<uint, string>();
 
+        // Set of all vessel PIDs that appear in this tree's recordings.
+        // Used to distinguish tree-owned vessels from external vessels in ghost skip logic.
+        // Rebuilt alongside BackgroundMap via RebuildBackgroundMap().
+        public HashSet<uint> OwnedVesselPids = new HashSet<uint>();
+
         // --- Serialization ---
 
         public void Save(ConfigNode treeNode)
@@ -128,9 +133,13 @@ namespace Parsek
         public void RebuildBackgroundMap()
         {
             BackgroundMap.Clear();
+            OwnedVesselPids.Clear();
             foreach (var kvp in Recordings)
             {
                 var rec = kvp.Value;
+                if (rec.VesselPersistentId != 0)
+                    OwnedVesselPids.Add(rec.VesselPersistentId);
+
                 if (rec.VesselPersistentId != 0
                     && rec.TerminalStateValue == null
                     && rec.ChildBranchPointId == null  // has branched → no longer a live recording
@@ -145,7 +154,7 @@ namespace Parsek
             }
 
             ParsekLog.Verbose("RecordingTree",
-                $"RebuildBackgroundMap: entries={BackgroundMap.Count} totalRecordings={Recordings.Count}");
+                $"RebuildBackgroundMap: entries={BackgroundMap.Count} ownedPids={OwnedVesselPids.Count} totalRecordings={Recordings.Count}");
         }
 
         // --- Recording serialization helpers ---
@@ -193,6 +202,10 @@ namespace Parsek
                 SurfacePosition.SaveInto(tpNode, rec.TerminalPosition.Value);
             }
 
+            // Terrain height at recording end (v7+)
+            if (!double.IsNaN(rec.TerrainHeightAtEnd))
+                recNode.AddValue("terrainHeightAtEnd", rec.TerrainHeightAtEnd.ToString("R", ic));
+
             // Background surface position
             if (rec.SurfacePos.HasValue)
             {
@@ -219,6 +232,10 @@ namespace Parsek
             recNode.AddValue("recordingFormatVersion", rec.RecordingFormatVersion);
             recNode.AddValue("loopPlayback", rec.LoopPlayback);
             recNode.AddValue("loopIntervalSeconds", rec.LoopIntervalSeconds.ToString("R", ic));
+            if (rec.LoopAnchorVesselId != 0)
+                recNode.AddValue("loopAnchorPid", rec.LoopAnchorVesselId.ToString(ic));
+            if (!string.IsNullOrEmpty(rec.LoopAnchorBodyName))
+                recNode.AddValue("loopAnchorBodyName", rec.LoopAnchorBodyName);
             if (!rec.PlaybackEnabled)
                 recNode.AddValue("playbackEnabled", rec.PlaybackEnabled.ToString());
             if (rec.Hidden)
@@ -282,6 +299,22 @@ namespace Parsek
             if (rec.RecordingGroups != null)
                 for (int g = 0; g < rec.RecordingGroups.Count; g++)
                     recNode.AddValue("recordingGroup", rec.RecordingGroups[g]);
+
+            // Controller info (v6+)
+            if (rec.Controllers != null)
+            {
+                for (int i = 0; i < rec.Controllers.Count; i++)
+                {
+                    ConfigNode ctrlNode = recNode.AddNode("CONTROLLER");
+                    ctrlNode.AddValue("type", rec.Controllers[i].type ?? "");
+                    ctrlNode.AddValue("part", rec.Controllers[i].partName ?? "");
+                    ctrlNode.AddValue("pid", rec.Controllers[i].partPersistentId.ToString(ic));
+                }
+                ParsekLog.Verbose("RecordingTree",
+                    $"SaveRecordingResourceAndState: saved {rec.Controllers.Count} controller(s) for recording={rec.RecordingId}");
+            }
+            if (rec.IsDebris)
+                recNode.AddValue("isDebris", rec.IsDebris.ToString());
         }
 
         internal static void LoadRecordingFrom(ConfigNode recNode, Recording rec)
@@ -346,6 +379,15 @@ namespace Parsek
             if (tpNode != null)
                 rec.TerminalPosition = SurfacePosition.LoadFrom(tpNode);
 
+            // Terrain height at recording end (v7+)
+            string thtStr = recNode.GetValue("terrainHeightAtEnd");
+            if (thtStr != null)
+            {
+                double tht;
+                if (double.TryParse(thtStr, inv, ic, out tht))
+                    rec.TerrainHeightAtEnd = tht;
+            }
+
             // Background surface position
             ConfigNode spNode = recNode.GetNode("SURFACE_POSITION");
             if (spNode != null)
@@ -408,6 +450,18 @@ namespace Parsek
                 if (double.TryParse(loopIntervalStr, inv, ic, out loopIntervalSeconds))
                     rec.LoopIntervalSeconds = loopIntervalSeconds;
             }
+
+            string loopAnchorPidStr = recNode.GetValue("loopAnchorPid");
+            if (loopAnchorPidStr != null)
+            {
+                uint loopAnchorPid;
+                if (uint.TryParse(loopAnchorPidStr, NumberStyles.Integer, ic, out loopAnchorPid))
+                    rec.LoopAnchorVesselId = loopAnchorPid;
+            }
+
+            string loopAnchorBodyNameStr = recNode.GetValue("loopAnchorBodyName");
+            if (!string.IsNullOrEmpty(loopAnchorBodyNameStr))
+                rec.LoopAnchorBodyName = loopAnchorBodyNameStr;
 
             string playbackEnabledStr = recNode.GetValue("playbackEnabled");
             if (playbackEnabledStr != null)
@@ -552,6 +606,33 @@ namespace Parsek
             string[] recGroups = recNode.GetValues("recordingGroup");
             if (recGroups != null && recGroups.Length > 0)
                 rec.RecordingGroups = new List<string>(recGroups);
+
+            // Controller info (v6+)
+            ConfigNode[] ctrlNodes = recNode.GetNodes("CONTROLLER");
+            if (ctrlNodes.Length > 0)
+            {
+                rec.Controllers = new List<ControllerInfo>(ctrlNodes.Length);
+                for (int i = 0; i < ctrlNodes.Length; i++)
+                {
+                    var ctrl = new ControllerInfo();
+                    ctrl.type = ctrlNodes[i].GetValue("type") ?? "";
+                    ctrl.partName = ctrlNodes[i].GetValue("part") ?? "";
+                    uint pid;
+                    if (uint.TryParse(ctrlNodes[i].GetValue("pid"), NumberStyles.Integer, ic, out pid))
+                        ctrl.partPersistentId = pid;
+                    rec.Controllers.Add(ctrl);
+                }
+                ParsekLog.Verbose("RecordingTree",
+                    $"LoadRecordingResourceAndState: loaded {rec.Controllers.Count} controller(s) for recording={rec.RecordingId}");
+            }
+
+            string isDebrisStr = recNode.GetValue("isDebris");
+            if (isDebrisStr != null)
+            {
+                bool isDebris;
+                if (bool.TryParse(isDebrisStr, out isDebris))
+                    rec.IsDebris = isDebris;
+            }
         }
 
         #endregion
@@ -571,6 +652,44 @@ namespace Parsek
 
             for (int i = 0; i < bp.ChildRecordingIds.Count; i++)
                 bpNode.AddValue("childId", bp.ChildRecordingIds[i] ?? "");
+
+            // SPLIT metadata
+            if (bp.SplitCause != null)
+                bpNode.AddValue("splitCause", bp.SplitCause);
+            if (bp.DecouplerPartId != 0)
+                bpNode.AddValue("decouplerPartId", bp.DecouplerPartId.ToString(ic));
+
+            // BREAKUP metadata
+            if (bp.BreakupCause != null)
+                bpNode.AddValue("breakupCause", bp.BreakupCause);
+            if (bp.BreakupDuration != 0)
+                bpNode.AddValue("breakupDuration", bp.BreakupDuration.ToString("R", ic));
+            if (bp.DebrisCount != 0)
+                bpNode.AddValue("debrisCount", bp.DebrisCount.ToString(ic));
+            if (bp.CoalesceWindow != 0)
+                bpNode.AddValue("coalesceWindow", bp.CoalesceWindow.ToString("R", ic));
+
+            // MERGE metadata
+            if (bp.MergeCause != null)
+                bpNode.AddValue("mergeCause", bp.MergeCause);
+            if (bp.TargetVesselPersistentId != 0)
+                bpNode.AddValue("targetVesselPid", bp.TargetVesselPersistentId.ToString(ic));
+
+            // TERMINAL metadata
+            if (bp.TerminalCause != null)
+                bpNode.AddValue("terminalCause", bp.TerminalCause);
+
+            ParsekLog.Verbose("RecordingTree",
+                $"SaveBranchPoint: id={bp.Id} type={bp.Type} ut={bp.UT.ToString("F1", ic)}" +
+                (bp.SplitCause != null ? $" splitCause={bp.SplitCause}" : "") +
+                (bp.DecouplerPartId != 0 ? $" decouplerPartId={bp.DecouplerPartId}" : "") +
+                (bp.BreakupCause != null ? $" breakupCause={bp.BreakupCause}" : "") +
+                (bp.BreakupDuration != 0 ? $" breakupDuration={bp.BreakupDuration.ToString("F3", ic)}" : "") +
+                (bp.DebrisCount != 0 ? $" debrisCount={bp.DebrisCount}" : "") +
+                (bp.CoalesceWindow != 0 ? $" coalesceWindow={bp.CoalesceWindow.ToString("F3", ic)}" : "") +
+                (bp.MergeCause != null ? $" mergeCause={bp.MergeCause}" : "") +
+                (bp.TargetVesselPersistentId != 0 ? $" targetVesselPid={bp.TargetVesselPersistentId}" : "") +
+                (bp.TerminalCause != null ? $" terminalCause={bp.TerminalCause}" : ""));
         }
 
         internal static BranchPoint LoadBranchPointFrom(ConfigNode bpNode)
@@ -583,15 +702,84 @@ namespace Parsek
             double.TryParse(bpNode.GetValue("ut"), inv, ic, out bp.UT);
 
             int typeInt;
-            if (int.TryParse(bpNode.GetValue("type"), NumberStyles.Integer, ic, out typeInt)
-                && Enum.IsDefined(typeof(BranchPointType), typeInt))
-                bp.Type = (BranchPointType)typeInt;
+            if (int.TryParse(bpNode.GetValue("type"), NumberStyles.Integer, ic, out typeInt))
+            {
+                if (Enum.IsDefined(typeof(BranchPointType), typeInt))
+                {
+                    bp.Type = (BranchPointType)typeInt;
+                }
+                else
+                {
+                    ParsekLog.Warn("RecordingTree",
+                        $"LoadBranchPoint: unknown type integer {typeInt} for id={bp.Id}, defaulting to Undock(0)");
+                    bp.Type = BranchPointType.Undock;
+                }
+            }
 
             string[] parentIds = bpNode.GetValues("parentId");
             bp.ParentRecordingIds = new List<string>(parentIds);
 
             string[] childIds = bpNode.GetValues("childId");
             bp.ChildRecordingIds = new List<string>(childIds);
+
+            // SPLIT metadata
+            bp.SplitCause = bpNode.GetValue("splitCause");
+            string decouplerPartIdStr = bpNode.GetValue("decouplerPartId");
+            if (decouplerPartIdStr != null)
+            {
+                uint decouplerPartId;
+                if (uint.TryParse(decouplerPartIdStr, NumberStyles.Integer, ic, out decouplerPartId))
+                    bp.DecouplerPartId = decouplerPartId;
+            }
+
+            // BREAKUP metadata
+            bp.BreakupCause = bpNode.GetValue("breakupCause");
+            string breakupDurationStr = bpNode.GetValue("breakupDuration");
+            if (breakupDurationStr != null)
+            {
+                double breakupDuration;
+                if (double.TryParse(breakupDurationStr, inv, ic, out breakupDuration))
+                    bp.BreakupDuration = breakupDuration;
+            }
+            string debrisCountStr = bpNode.GetValue("debrisCount");
+            if (debrisCountStr != null)
+            {
+                int debrisCount;
+                if (int.TryParse(debrisCountStr, NumberStyles.Integer, ic, out debrisCount))
+                    bp.DebrisCount = debrisCount;
+            }
+            string coalesceWindowStr = bpNode.GetValue("coalesceWindow");
+            if (coalesceWindowStr != null)
+            {
+                double coalesceWindow;
+                if (double.TryParse(coalesceWindowStr, inv, ic, out coalesceWindow))
+                    bp.CoalesceWindow = coalesceWindow;
+            }
+
+            // MERGE metadata
+            bp.MergeCause = bpNode.GetValue("mergeCause");
+            string targetVesselPidStr = bpNode.GetValue("targetVesselPid");
+            if (targetVesselPidStr != null)
+            {
+                uint targetVesselPid;
+                if (uint.TryParse(targetVesselPidStr, NumberStyles.Integer, ic, out targetVesselPid))
+                    bp.TargetVesselPersistentId = targetVesselPid;
+            }
+
+            // TERMINAL metadata
+            bp.TerminalCause = bpNode.GetValue("terminalCause");
+
+            ParsekLog.Verbose("RecordingTree",
+                $"LoadBranchPoint: id={bp.Id} type={bp.Type} ut={bp.UT.ToString("F1", ic)}" +
+                (bp.SplitCause != null ? $" splitCause={bp.SplitCause}" : "") +
+                (bp.DecouplerPartId != 0 ? $" decouplerPartId={bp.DecouplerPartId}" : "") +
+                (bp.BreakupCause != null ? $" breakupCause={bp.BreakupCause}" : "") +
+                (bp.BreakupDuration != 0 ? $" breakupDuration={bp.BreakupDuration.ToString("F3", ic)}" : "") +
+                (bp.DebrisCount != 0 ? $" debrisCount={bp.DebrisCount}" : "") +
+                (bp.CoalesceWindow != 0 ? $" coalesceWindow={bp.CoalesceWindow.ToString("F3", ic)}" : "") +
+                (bp.MergeCause != null ? $" mergeCause={bp.MergeCause}" : "") +
+                (bp.TargetVesselPersistentId != 0 ? $" targetVesselPid={bp.TargetVesselPersistentId}" : "") +
+                (bp.TerminalCause != null ? $" terminalCause={bp.TerminalCause}" : ""));
 
             return bp;
         }

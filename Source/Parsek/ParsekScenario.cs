@@ -1248,6 +1248,56 @@ namespace Parsek
                         rec.VesselPersistentId = vpid;
                 }
 
+                // Restore terrain height at recording end (v7+)
+                string thtStr = recNode.GetValue("terrainHeightAtEnd");
+                if (thtStr != null)
+                {
+                    double tht;
+                    if (double.TryParse(thtStr, NumberStyles.Float, CultureInfo.InvariantCulture, out tht))
+                        rec.TerrainHeightAtEnd = tht;
+                }
+
+                // Restore antenna specs for CommNet ghost relay (Phase 6f)
+                ConfigNode[] antennaNodes = recNode.GetNodes("ANTENNA_SPEC");
+                if (antennaNodes != null && antennaNodes.Length > 0)
+                {
+                    rec.AntennaSpecs = new List<AntennaSpec>();
+                    for (int a = 0; a < antennaNodes.Length; a++)
+                    {
+                        var spec = new AntennaSpec();
+                        spec.partName = antennaNodes[a].GetValue("part") ?? "";
+
+                        string powerStr = antennaNodes[a].GetValue("power");
+                        if (powerStr != null)
+                        {
+                            double power;
+                            if (double.TryParse(powerStr, NumberStyles.Float, CultureInfo.InvariantCulture, out power))
+                                spec.antennaPower = power;
+                        }
+
+                        string combinableStr = antennaNodes[a].GetValue("combinable");
+                        if (combinableStr != null)
+                        {
+                            bool combinable;
+                            if (bool.TryParse(combinableStr, out combinable))
+                                spec.antennaCombinable = combinable;
+                        }
+
+                        string exponentStr = antennaNodes[a].GetValue("exponent");
+                        if (exponentStr != null)
+                        {
+                            double exponent;
+                            if (double.TryParse(exponentStr, NumberStyles.Float, CultureInfo.InvariantCulture, out exponent))
+                                spec.antennaCombinableExponent = exponent;
+                        }
+
+                        spec.antennaType = antennaNodes[a].GetValue("type") ?? "";
+
+                        rec.AntennaSpecs.Add(spec);
+                    }
+                    ScenarioLog($"[Parsek Scenario] Loaded {rec.AntennaSpecs.Count} antenna spec(s) for '{rec.VesselName}'");
+                }
+
                 // Restore resource application index
                 string resIdxStr = recNode.GetValue("lastResIdx");
                 if (resIdxStr != null)
@@ -1373,6 +1423,26 @@ namespace Parsek
                 if (rec.VesselPersistentId != 0)
                     recNode.AddValue("vesselPersistentId", rec.VesselPersistentId.ToString(CultureInfo.InvariantCulture));
 
+                // Persist terrain height at recording end (v7+)
+                if (!double.IsNaN(rec.TerrainHeightAtEnd))
+                    recNode.AddValue("terrainHeightAtEnd", rec.TerrainHeightAtEnd.ToString("R", CultureInfo.InvariantCulture));
+
+                // Persist antenna specs for CommNet ghost relay (Phase 6f)
+                if (rec.AntennaSpecs != null)
+                {
+                    for (int a = 0; a < rec.AntennaSpecs.Count; a++)
+                    {
+                        var spec = rec.AntennaSpecs[a];
+                        var specNode = recNode.AddNode("ANTENNA_SPEC");
+                        specNode.AddValue("part", spec.partName ?? "");
+                        specNode.AddValue("power", spec.antennaPower.ToString("R", CultureInfo.InvariantCulture));
+                        specNode.AddValue("combinable", spec.antennaCombinable.ToString());
+                        specNode.AddValue("exponent", spec.antennaCombinableExponent.ToString("R", CultureInfo.InvariantCulture));
+                        if (!string.IsNullOrEmpty(spec.antennaType))
+                            specNode.AddValue("type", spec.antennaType);
+                    }
+                }
+
                 // Persist resource index so quickload doesn't re-apply deltas
                 recNode.AddValue("lastResIdx", rec.LastAppliedResourceIndex);
             }
@@ -1388,6 +1458,10 @@ namespace Parsek
             recNode.AddValue("recordingFormatVersion", rec.RecordingFormatVersion);
             recNode.AddValue("loopPlayback", rec.LoopPlayback);
             recNode.AddValue("loopIntervalSeconds", rec.LoopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture));
+            if (rec.LoopAnchorVesselId != 0)
+                recNode.AddValue("loopAnchorPid", rec.LoopAnchorVesselId.ToString(CultureInfo.InvariantCulture));
+            if (!string.IsNullOrEmpty(rec.LoopAnchorBodyName))
+                recNode.AddValue("loopAnchorBodyName", rec.LoopAnchorBodyName);
             if (rec.LoopTimeUnit != LoopTimeUnit.Sec)
                 recNode.AddValue("loopTimeUnit", rec.LoopTimeUnit.ToString());
             if (rec.PreLaunchFunds != 0)
@@ -1478,6 +1552,18 @@ namespace Parsek
                 if (System.Enum.TryParse(loopTimeUnitStr, out loopTimeUnit))
                     rec.LoopTimeUnit = loopTimeUnit;
             }
+
+            string loopAnchorPidStr = recNode.GetValue("loopAnchorPid");
+            if (loopAnchorPidStr != null)
+            {
+                uint loopAnchorPid;
+                if (uint.TryParse(loopAnchorPidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out loopAnchorPid))
+                    rec.LoopAnchorVesselId = loopAnchorPid;
+            }
+
+            string loopAnchorBodyNameStr = recNode.GetValue("loopAnchorBodyName");
+            if (!string.IsNullOrEmpty(loopAnchorBodyNameStr))
+                rec.LoopAnchorBodyName = loopAnchorBodyNameStr;
 
             rec.GhostGeometryRelativePath = recNode.GetValue("ghostGeometryPath");
             string strategy = recNode.GetValue("ghostGeometryStrategy");

@@ -1269,7 +1269,7 @@ Ghosts represent vessels that exist in the world pending chain resolution. They 
 
 Antennas on ghosted vessels relay signal, extending communication network coverage. Other real vessels' probe control and science transmission depend on relay paths. A relay constellation placed by a committed recording must provide coverage during the ghost window. The ghost's physical position matters for line-of-sight checks — a relay behind the Mun cannot relay through the Mun.
 
-Implementation: the recording stores antenna data from each vessel's `ModuleDataTransmitter` parts — specifically `antennaPower`, `antennaCombinable`, and `antennaCombinableExponent`. These are captured in `AntennaSpec` entries on the Recording at commit time. Ghost CommNet nodes are registered at ghost positions using these specs. Nodes are updated each frame (loaded: from GO position; unloaded: from orbital propagation). Nodes are removed when the ghost is destroyed or the chain tip spawns.
+Implementation: the recording stores antenna data from each vessel's `ModuleDataTransmitter` parts — specifically `antennaPower`, `antennaCombinable`, and `antennaCombinableExponent`. These are captured in `AntennaSpec` entries on the Recording at commit time. Ghost CommNet nodes are registered at ghost positions using these specs. Nodes are updated each frame (loaded: from GO position; unloaded: from orbital propagation). Nodes are removed when the ghost is destroyed or the chain tip spawns. The stock CommNet API (`CommNetNetwork.Instance.CommNet.Add/Remove`) is used directly — no ProtoVessel or Harmony patches required. The implementation was informed by source code analysis of [CommNetManager](https://github.com/DBooots/CommNetManager) (confirmed stock API works through its delegate chain) and [RemoteTech](https://github.com/RemoteTechnologiesGroup/RemoteTech) (detected at runtime — ghost CommNet registration is skipped when present, since RemoteTech replaces CommNet entirely).
 
 ### 15.7 Passive Resource Generation During Ghost Windows
 
@@ -1504,18 +1504,20 @@ The recording system core is fully implemented:
 - **Phase 4:** Rewind procedure, spawn-at-recording-end, warp spawn queue, PID-based deduplication, timeline immutability.
 - **Phase 5:** Distance-based rendering zones, ghost soft caps with priority-based despawning.
 
-### 21.2 Phase 6: Vessel Interaction Paradox Extension
+### 21.2 Phase 6: Vessel Interaction Paradox Extension — COMPLETE
 
-The ghost chain system, spawn safety, time jump, and ghost world presence are designed and ready for implementation. Six sub-phases:
+The ghost chain system, spawn safety, time jump, and ghost world presence are implemented. 381 new tests (2989 total). In-game testing pending for KSP runtime paths.
 
-| Phase | Scope |
-|-------|-------|
-| 6a — Ghost Chain Infrastructure | Chain walker, claiming logic, intermediate spawn suppression, PID preservation. Pure data model, fully testable without Unity/KSP. |
-| 6b — Ghost Conversion + Chain-Aware Spawn | Real-to-ghost conversion, chain-aware spawn-at-end, save/load re-evaluation |
-| 6c — Spawn Safety | Bounding box collision, ghost extension, terrain correction, trajectory walkback |
-| 6d — UI | Spawn warnings, ghost labels, chain status display |
-| 6e — Relative-State Time Jump | Discrete UT skip, selective spawning UI, TIME_JUMP event |
-| 6f — Ghost World Presence | Map view, tracking station, CommNet relay, unloaded ghost lifecycle |
+| Phase | Scope | Status |
+|-------|-------|--------|
+| 6a — Ghost Chain Infrastructure | Chain walker, claiming logic, intermediate spawn suppression, PID preservation | Done (105 tests) |
+| 6b — Ghost Conversion + Chain-Aware Spawn | Real-to-ghost conversion, chain-aware spawn-at-end, save/load re-evaluation | Done (79 tests) |
+| 6c — Spawn Safety | Bounding box collision, ghost extension, terrain correction, trajectory walkback | Done (93 tests) |
+| 6d — UI | Spawn warnings, ghost labels, chain status display | Done (27 tests) |
+| 6e — Relative-State Time Jump | Discrete UT skip, TIME_JUMP event | Done (27 tests) |
+| 6f — Ghost World Presence | Map view, tracking station, CommNet relay (stock API), antenna specs | Done (47 tests) |
+
+New source files: GhostingTriggerClassifier, GhostChain, GhostChainWalker, VesselGhoster, SpawnCollisionDetector, GhostExtender, TerrainCorrector, SpawnWarningUI, TimeJumpManager, GhostMapPresence, GhostCommNetRelay, AntennaSpec. Recording format version bumped to 7 (additive TerrainHeightAtEnd field).
 
 ### 21.3 Deferred Items
 

@@ -14,7 +14,9 @@ namespace Parsek
     /// </summary>
     public static class RecordingStore
     {
-        public const int CurrentRecordingFormatVersion = 5;
+        public const int CurrentRecordingFormatVersion = 7;
+        // v7: Added TerrainHeightAtEnd for surface spawn terrain correction
+        // v6: Added SegmentEvents, TrackSections, ControllerInfo, extended BranchPoint types
 
         // When true, suppresses logging calls (for unit testing outside Unity)
         internal static bool SuppressLogging;
@@ -67,7 +69,14 @@ namespace Parsek
         // Just-finished recording awaiting user decision (merge or discard)
         private static Recording pendingRecording;
 
-        // Merged to timeline — these auto-playback during flight
+        // Merged to timeline — these auto-playback during flight.
+        //
+        // POLICY: Individual recording deletion is not supported.
+        // Recordings can only be committed (at merge dialog) or discarded (before commit).
+        // The entire timeline can be wiped, but individual recordings cannot be removed
+        // after commit. This prevents time paradoxes (orphaned vessels, broken chains,
+        // inconsistent ghost playback).
+        // Future: timeline wipe from current UT forward (clear future, keep past).
         private static List<Recording> committedRecordings = new List<Recording>();
 
         // Committed recording trees (parallel storage — tree recordings also appear in committedRecordings)
@@ -87,7 +96,9 @@ namespace Parsek
             List<OrbitSegment> orbitSegments = null,
             string recordingId = null,
             int? recordingFormatVersion = null,
-            List<PartEvent> partEvents = null)
+            List<PartEvent> partEvents = null,
+            List<SegmentEvent> segmentEvents = null,
+            List<TrackSection> trackSections = null)
         {
             if (points == null || points.Count < 2)
             {
@@ -150,6 +161,12 @@ namespace Parsek
                 PartEvents = partEvents != null
                     ? new List<PartEvent>(partEvents)
                     : new List<PartEvent>(),
+                SegmentEvents = segmentEvents != null
+                    ? new List<SegmentEvent>(segmentEvents)
+                    : new List<SegmentEvent>(),
+                TrackSections = trackSections != null
+                    ? new List<TrackSection>(trackSections)
+                    : new List<TrackSection>(),
                 VesselName = vesselName
             };
 
@@ -244,11 +261,55 @@ namespace Parsek
                 }
             }
 
+            // Merge overlapping data sources before committing.
+            // Strategy: start from the original recording (preserves ALL fields by default),
+            // then overwrite only the merge-produced fields. This ensures new Recording fields
+            // added in the future are preserved without requiring an explicit copy here.
+            var mergedRecordings = SessionMerger.MergeTree(tree);
+            foreach (var kvp in mergedRecordings)
+            {
+                Recording original;
+                if (tree.Recordings.TryGetValue(kvp.Key, out original))
+                {
+                    Recording merged = kvp.Value;
+
+                    // Overwrite only the merge-produced fields on the original
+                    original.TrackSections = merged.TrackSections;
+                    original.PartEvents = merged.PartEvents;
+                    original.SegmentEvents = merged.SegmentEvents;
+                    original.Points = merged.Points;
+                    original.OrbitSegments = merged.OrbitSegments;
+                    ParsekLog.Verbose("Merger",
+                        $"CommitTree: merged recording '{kvp.Key}' in-place " +
+                        $"(sections={original.TrackSections?.Count ?? 0} events={original.PartEvents?.Count ?? 0})");
+                }
+            }
+
+            // Auto-group: assign all tree recordings to a group named after the tree
+            // so they appear collapsed in the recordings window instead of as separate entries.
+            if (!string.IsNullOrEmpty(tree.TreeName) && tree.Recordings.Count > 1)
+            {
+                string groupName = tree.TreeName;
+                foreach (var rec in tree.Recordings.Values)
+                {
+                    if (rec.RecordingGroups == null)
+                        rec.RecordingGroups = new List<string>();
+                    if (!rec.RecordingGroups.Contains(groupName))
+                        rec.RecordingGroups.Add(groupName);
+                }
+                ParsekLog.Info("RecordingStore",
+                    $"Auto-grouped {tree.Recordings.Count} recordings under '{groupName}'");
+            }
+
             // Add all tree recordings to committedRecordings (enables ghost playback)
             foreach (var rec in tree.Recordings.Values)
             {
                 committedRecordings.Add(rec);
             }
+
+            // Ensure OwnedVesselPids is populated (covers runtime-created trees
+            // that never went through RecordingTree.Load)
+            tree.RebuildBackgroundMap();
 
             committedTrees.Add(tree);
 
@@ -1164,7 +1225,6 @@ namespace Parsek
             }
 
             reason = "";
-            ParsekLog.Verbose("Store", $"CanRewind: allowed for '{rec.VesselName}' (save={rec.RewindSaveFileName})");
             return true;
         }
 
@@ -1450,6 +1510,12 @@ namespace Parsek
                 evtNode.AddValue("value", evt.value.ToString("R", ic));
                 evtNode.AddValue("midx", evt.moduleIndex.ToString(ic));
             }
+
+            SerializeSegmentEvents(targetNode, rec.SegmentEvents);
+
+            // Serialize track sections (new recording system)
+            if (rec.TrackSections != null && rec.TrackSections.Count > 0)
+                SerializeTrackSections(targetNode, rec.TrackSections);
         }
 
         internal static void DeserializeTrajectoryFrom(ConfigNode sourceNode, Recording rec)
@@ -1457,6 +1523,8 @@ namespace Parsek
             DeserializePoints(sourceNode, rec);
             DeserializeOrbitSegments(sourceNode, rec);
             DeserializePartEvents(sourceNode, rec);
+            DeserializeSegmentEvents(sourceNode, rec.SegmentEvents);
+            DeserializeTrackSections(sourceNode, rec.TrackSections);
         }
 
         /// <summary>
@@ -1599,6 +1667,395 @@ namespace Parsek
 
                 rec.PartEvents.Add(evt);
             }
+        }
+
+        /// <summary>
+        /// Serializes SegmentEvent entries as SEGMENT_EVENT child nodes.
+        /// </summary>
+        internal static void SerializeSegmentEvents(ConfigNode parent, List<SegmentEvent> events)
+        {
+            if (events == null || events.Count == 0)
+            {
+                Log("[Recording] SerializeSegmentEvents: 0 segment events");
+                return;
+            }
+
+            var ic = CultureInfo.InvariantCulture;
+            for (int i = 0; i < events.Count; i++)
+            {
+                var evt = events[i];
+                ConfigNode evtNode = parent.AddNode("SEGMENT_EVENT");
+                evtNode.AddValue("ut", evt.ut.ToString("R", ic));
+                evtNode.AddValue("type", ((int)evt.type).ToString(ic));
+                if (!string.IsNullOrEmpty(evt.details))
+                    evtNode.AddValue("details", evt.details);
+            }
+
+            Log($"[Recording] SerializeSegmentEvents: {events.Count} segment events serialized");
+        }
+
+        /// <summary>
+        /// Deserializes SEGMENT_EVENT child nodes into the given list.
+        /// Unknown type values are skipped with a warning log.
+        /// Missing ut values cause the event to be skipped.
+        /// </summary>
+        internal static void DeserializeSegmentEvents(ConfigNode parent, List<SegmentEvent> events)
+        {
+            ConfigNode[] seNodes = parent.GetNodes("SEGMENT_EVENT");
+            if (seNodes.Length == 0)
+                return;
+
+            var inv = NumberStyles.Float;
+            var ic = CultureInfo.InvariantCulture;
+            int skipped = 0;
+
+            for (int i = 0; i < seNodes.Length; i++)
+            {
+                var seNode = seNodes[i];
+
+                double ut;
+                if (!double.TryParse(seNode.GetValue("ut"), inv, ic, out ut))
+                {
+                    Log("[Recording] WARNING: Skipping SEGMENT_EVENT with missing or unparseable ut");
+                    skipped++;
+                    continue;
+                }
+
+                int typeInt;
+                if (!int.TryParse(seNode.GetValue("type"), NumberStyles.Integer, ic, out typeInt))
+                {
+                    Log("[Recording] WARNING: Skipping SEGMENT_EVENT with unparseable type");
+                    skipped++;
+                    continue;
+                }
+                if (!Enum.IsDefined(typeof(SegmentEventType), typeInt))
+                {
+                    Log($"[Recording] WARNING: Skipping SEGMENT_EVENT with unknown type={typeInt}");
+                    skipped++;
+                    continue;
+                }
+
+                var evt = new SegmentEvent
+                {
+                    ut = ut,
+                    type = (SegmentEventType)typeInt,
+                    details = seNode.GetValue("details")
+                };
+                events.Add(evt);
+            }
+
+            Log($"[Recording] DeserializeSegmentEvents: {events.Count} deserialized, {skipped} skipped (of {seNodes.Length} total)");
+        }
+
+        /// <summary>
+        /// Serializes TrackSection list into TRACK_SECTION ConfigNodes under the given parent.
+        /// Each section carries its own environment classification, reference frame, and nested
+        /// trajectory data (POINT nodes for Absolute/Relative, ORBIT_SEGMENT nodes for OrbitalCheckpoint).
+        /// </summary>
+        internal static void SerializeTrackSections(ConfigNode parent, List<TrackSection> tracks)
+        {
+            if (tracks == null || tracks.Count == 0)
+            {
+                ParsekLog.Verbose("RecordingStore", "SerializeTrackSections: 0 track sections to serialize");
+                return;
+            }
+
+            var ic = CultureInfo.InvariantCulture;
+
+            for (int t = 0; t < tracks.Count; t++)
+            {
+                var track = tracks[t];
+                ConfigNode tsNode = parent.AddNode("TRACK_SECTION");
+
+                tsNode.AddValue("env", ((int)track.environment).ToString(ic));
+                tsNode.AddValue("ref", ((int)track.referenceFrame).ToString(ic));
+                tsNode.AddValue("startUT", track.startUT.ToString("R", ic));
+                tsNode.AddValue("endUT", track.endUT.ToString("R", ic));
+                tsNode.AddValue("sampleRate", track.sampleRateHz.ToString("R", ic));
+
+                // Source: sparse — only write when not Active (default)
+                if (track.source != TrackSectionSource.Active)
+                {
+                    tsNode.AddValue("src", ((int)track.source).ToString(ic));
+                    ParsekLog.Verbose("RecordingStore",
+                        $"SerializeTrackSections: [{t}] writing source={track.source} (non-default)");
+                }
+
+                // Boundary discontinuity: sparse — only write when > 0
+                if (track.boundaryDiscontinuityMeters > 0f)
+                    tsNode.AddValue("bdisc", track.boundaryDiscontinuityMeters.ToString("R", ic));
+
+                if (track.anchorVesselId != 0)
+                    tsNode.AddValue("anchorPid", track.anchorVesselId.ToString(ic));
+
+                // Nested trajectory data depends on reference frame
+                if (track.referenceFrame == ReferenceFrame.Absolute ||
+                    track.referenceFrame == ReferenceFrame.Relative)
+                {
+                    var frames = track.frames;
+                    if (frames != null)
+                    {
+                        for (int i = 0; i < frames.Count; i++)
+                        {
+                            var pt = frames[i];
+                            ConfigNode ptNode = tsNode.AddNode("POINT");
+                            ptNode.AddValue("ut", pt.ut.ToString("R", ic));
+                            ptNode.AddValue("lat", pt.latitude.ToString("R", ic));
+                            ptNode.AddValue("lon", pt.longitude.ToString("R", ic));
+                            ptNode.AddValue("alt", pt.altitude.ToString("R", ic));
+                            ptNode.AddValue("rotX", pt.rotation.x.ToString("R", ic));
+                            ptNode.AddValue("rotY", pt.rotation.y.ToString("R", ic));
+                            ptNode.AddValue("rotZ", pt.rotation.z.ToString("R", ic));
+                            ptNode.AddValue("rotW", pt.rotation.w.ToString("R", ic));
+                            ptNode.AddValue("body", pt.bodyName);
+                            ptNode.AddValue("velX", pt.velocity.x.ToString("R", ic));
+                            ptNode.AddValue("velY", pt.velocity.y.ToString("R", ic));
+                            ptNode.AddValue("velZ", pt.velocity.z.ToString("R", ic));
+                            ptNode.AddValue("funds", pt.funds.ToString("R", ic));
+                            ptNode.AddValue("science", pt.science.ToString("R", ic));
+                            ptNode.AddValue("rep", pt.reputation.ToString("R", ic));
+                        }
+                    }
+                }
+                else if (track.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
+                {
+                    var checkpoints = track.checkpoints;
+                    if (checkpoints != null)
+                    {
+                        for (int s = 0; s < checkpoints.Count; s++)
+                        {
+                            var seg = checkpoints[s];
+                            ConfigNode segNode = tsNode.AddNode("ORBIT_SEGMENT");
+                            segNode.AddValue("startUT", seg.startUT.ToString("R", ic));
+                            segNode.AddValue("endUT", seg.endUT.ToString("R", ic));
+                            segNode.AddValue("inc", seg.inclination.ToString("R", ic));
+                            segNode.AddValue("ecc", seg.eccentricity.ToString("R", ic));
+                            segNode.AddValue("sma", seg.semiMajorAxis.ToString("R", ic));
+                            segNode.AddValue("lan", seg.longitudeOfAscendingNode.ToString("R", ic));
+                            segNode.AddValue("argPe", seg.argumentOfPeriapsis.ToString("R", ic));
+                            segNode.AddValue("mna", seg.meanAnomalyAtEpoch.ToString("R", ic));
+                            segNode.AddValue("epoch", seg.epoch.ToString("R", ic));
+                            segNode.AddValue("body", seg.bodyName);
+                            if (TrajectoryMath.HasOrbitalFrameRotation(seg))
+                            {
+                                segNode.AddValue("ofrX", seg.orbitalFrameRotation.x.ToString("R", ic));
+                                segNode.AddValue("ofrY", seg.orbitalFrameRotation.y.ToString("R", ic));
+                                segNode.AddValue("ofrZ", seg.orbitalFrameRotation.z.ToString("R", ic));
+                                segNode.AddValue("ofrW", seg.orbitalFrameRotation.w.ToString("R", ic));
+                            }
+                            if (TrajectoryMath.IsSpinning(seg))
+                            {
+                                segNode.AddValue("avX", seg.angularVelocity.x.ToString("R", ic));
+                                segNode.AddValue("avY", seg.angularVelocity.y.ToString("R", ic));
+                                segNode.AddValue("avZ", seg.angularVelocity.z.ToString("R", ic));
+                            }
+                        }
+                    }
+                }
+
+                int frameCount = track.frames?.Count ?? 0;
+                int checkpointCount = track.checkpoints?.Count ?? 0;
+                ParsekLog.Verbose("RecordingStore",
+                    $"SerializeTrackSections: [{t}] env={track.environment} ref={track.referenceFrame} " +
+                    $"frames={frameCount} checkpoints={checkpointCount}");
+            }
+
+            ParsekLog.Info("RecordingStore",
+                $"SerializeTrackSections: serialized {tracks.Count} track section(s)");
+        }
+
+        /// <summary>
+        /// Deserializes TRACK_SECTION ConfigNodes from the given parent into the tracks list.
+        /// Unknown environment or reference frame values cause the entire section to be skipped
+        /// with a warning (forward tolerance for future enum additions).
+        /// </summary>
+        internal static void DeserializeTrackSections(ConfigNode parent, List<TrackSection> tracks)
+        {
+            var inv = NumberStyles.Float;
+            var ic = CultureInfo.InvariantCulture;
+
+            ConfigNode[] tsNodes = parent.GetNodes("TRACK_SECTION");
+            if (tsNodes.Length == 0)
+            {
+                ParsekLog.Verbose("RecordingStore", "DeserializeTrackSections: no TRACK_SECTION nodes found");
+                return;
+            }
+
+            for (int t = 0; t < tsNodes.Length; t++)
+            {
+                var tsNode = tsNodes[t];
+                var section = new TrackSection();
+
+                // Parse environment enum (skip section if unknown)
+                int envInt;
+                if (!int.TryParse(tsNode.GetValue("env"), NumberStyles.Integer, ic, out envInt))
+                {
+                    ParsekLog.Warn("RecordingStore",
+                        $"DeserializeTrackSections: section [{t}] has unparseable env — skipping");
+                    continue;
+                }
+                if (!Enum.IsDefined(typeof(SegmentEnvironment), envInt))
+                {
+                    ParsekLog.Warn("RecordingStore",
+                        $"DeserializeTrackSections: section [{t}] has unknown env={envInt} — skipping");
+                    continue;
+                }
+                section.environment = (SegmentEnvironment)envInt;
+
+                // Parse reference frame enum (skip section if unknown)
+                int refInt;
+                if (!int.TryParse(tsNode.GetValue("ref"), NumberStyles.Integer, ic, out refInt))
+                {
+                    ParsekLog.Warn("RecordingStore",
+                        $"DeserializeTrackSections: section [{t}] has unparseable ref — skipping");
+                    continue;
+                }
+                if (!Enum.IsDefined(typeof(ReferenceFrame), refInt))
+                {
+                    ParsekLog.Warn("RecordingStore",
+                        $"DeserializeTrackSections: section [{t}] has unknown ref={refInt} — skipping");
+                    continue;
+                }
+                section.referenceFrame = (ReferenceFrame)refInt;
+
+                // Parse scalar fields
+                double.TryParse(tsNode.GetValue("startUT"), inv, ic, out section.startUT);
+                double.TryParse(tsNode.GetValue("endUT"), inv, ic, out section.endUT);
+                float.TryParse(tsNode.GetValue("sampleRate"), inv, ic, out section.sampleRateHz);
+
+                // Source: defaults to Active (0) when absent — backward compatible
+                string srcStr = tsNode.GetValue("src");
+                if (srcStr != null)
+                {
+                    int srcInt;
+                    if (int.TryParse(srcStr, NumberStyles.Integer, ic, out srcInt))
+                    {
+                        if (Enum.IsDefined(typeof(TrackSectionSource), srcInt))
+                        {
+                            section.source = (TrackSectionSource)srcInt;
+                            ParsekLog.Verbose("RecordingStore",
+                                $"DeserializeTrackSections: [{t}] loaded source={section.source}");
+                        }
+                        else
+                        {
+                            ParsekLog.Warn("RecordingStore",
+                                $"DeserializeTrackSections: [{t}] unknown TrackSectionSource value={srcInt}, defaulting to Active");
+                        }
+                    }
+                }
+                // else: absent key — defaults to Active (struct default = 0)
+
+                // Boundary discontinuity: defaults to 0 when absent — backward compatible
+                float bdisc;
+                if (float.TryParse(tsNode.GetValue("bdisc"), inv, ic, out bdisc))
+                    section.boundaryDiscontinuityMeters = bdisc;
+
+                uint anchorPid;
+                if (uint.TryParse(tsNode.GetValue("anchorPid"), NumberStyles.Integer, ic, out anchorPid))
+                    section.anchorVesselId = anchorPid;
+
+                // Parse nested trajectory data based on reference frame
+                if (section.referenceFrame == ReferenceFrame.Absolute ||
+                    section.referenceFrame == ReferenceFrame.Relative)
+                {
+                    section.frames = new List<TrajectoryPoint>();
+                    ConfigNode[] ptNodes = tsNode.GetNodes("POINT");
+                    for (int i = 0; i < ptNodes.Length; i++)
+                    {
+                        var ptNode = ptNodes[i];
+                        var pt = new TrajectoryPoint();
+
+                        double.TryParse(ptNode.GetValue("ut"), inv, ic, out pt.ut);
+                        double.TryParse(ptNode.GetValue("lat"), inv, ic, out pt.latitude);
+                        double.TryParse(ptNode.GetValue("lon"), inv, ic, out pt.longitude);
+                        double.TryParse(ptNode.GetValue("alt"), inv, ic, out pt.altitude);
+
+                        float rx, ry, rz, rw;
+                        float.TryParse(ptNode.GetValue("rotX"), inv, ic, out rx);
+                        float.TryParse(ptNode.GetValue("rotY"), inv, ic, out ry);
+                        float.TryParse(ptNode.GetValue("rotZ"), inv, ic, out rz);
+                        float.TryParse(ptNode.GetValue("rotW"), inv, ic, out rw);
+                        pt.rotation = new Quaternion(rx, ry, rz, rw);
+
+                        pt.bodyName = ptNode.GetValue("body") ?? "Kerbin";
+
+                        float velX, velY, velZ;
+                        float.TryParse(ptNode.GetValue("velX"), inv, ic, out velX);
+                        float.TryParse(ptNode.GetValue("velY"), inv, ic, out velY);
+                        float.TryParse(ptNode.GetValue("velZ"), inv, ic, out velZ);
+                        pt.velocity = new Vector3(velX, velY, velZ);
+
+                        double funds;
+                        double.TryParse(ptNode.GetValue("funds"), inv, ic, out funds);
+                        pt.funds = funds;
+
+                        float science, rep;
+                        float.TryParse(ptNode.GetValue("science"), inv, ic, out science);
+                        float.TryParse(ptNode.GetValue("rep"), inv, ic, out rep);
+                        pt.science = science;
+                        pt.reputation = rep;
+
+                        section.frames.Add(pt);
+                    }
+                }
+                else if (section.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
+                {
+                    section.checkpoints = new List<OrbitSegment>();
+                    ConfigNode[] segNodes = tsNode.GetNodes("ORBIT_SEGMENT");
+                    for (int s = 0; s < segNodes.Length; s++)
+                    {
+                        var segNode = segNodes[s];
+                        var seg = new OrbitSegment();
+
+                        double.TryParse(segNode.GetValue("startUT"), inv, ic, out seg.startUT);
+                        double.TryParse(segNode.GetValue("endUT"), inv, ic, out seg.endUT);
+                        double.TryParse(segNode.GetValue("inc"), inv, ic, out seg.inclination);
+                        double.TryParse(segNode.GetValue("ecc"), inv, ic, out seg.eccentricity);
+                        double.TryParse(segNode.GetValue("sma"), inv, ic, out seg.semiMajorAxis);
+                        double.TryParse(segNode.GetValue("lan"), inv, ic, out seg.longitudeOfAscendingNode);
+                        double.TryParse(segNode.GetValue("argPe"), inv, ic, out seg.argumentOfPeriapsis);
+                        double.TryParse(segNode.GetValue("mna"), inv, ic, out seg.meanAnomalyAtEpoch);
+                        double.TryParse(segNode.GetValue("epoch"), inv, ic, out seg.epoch);
+                        seg.bodyName = segNode.GetValue("body") ?? "Kerbin";
+
+                        float ofrX, ofrY, ofrZ, ofrW;
+                        if (float.TryParse(segNode.GetValue("ofrX"), inv, ic, out ofrX) &&
+                            float.TryParse(segNode.GetValue("ofrY"), inv, ic, out ofrY) &&
+                            float.TryParse(segNode.GetValue("ofrZ"), inv, ic, out ofrZ) &&
+                            float.TryParse(segNode.GetValue("ofrW"), inv, ic, out ofrW))
+                        {
+                            seg.orbitalFrameRotation = new Quaternion(ofrX, ofrY, ofrZ, ofrW);
+                        }
+
+                        float avX, avY, avZ;
+                        if (float.TryParse(segNode.GetValue("avX"), inv, ic, out avX) &&
+                            float.TryParse(segNode.GetValue("avY"), inv, ic, out avY) &&
+                            float.TryParse(segNode.GetValue("avZ"), inv, ic, out avZ))
+                        {
+                            seg.angularVelocity = new Vector3(avX, avY, avZ);
+                        }
+
+                        section.checkpoints.Add(seg);
+                    }
+                }
+
+                // Initialize null lists to empty for frames that don't have nested data
+                if (section.frames == null)
+                    section.frames = new List<TrajectoryPoint>();
+                if (section.checkpoints == null)
+                    section.checkpoints = new List<OrbitSegment>();
+
+                tracks.Add(section);
+
+                int frameCount = section.frames.Count;
+                int checkpointCount = section.checkpoints.Count;
+                ParsekLog.Verbose("RecordingStore",
+                    $"DeserializeTrackSections: [{t}] env={section.environment} ref={section.referenceFrame} " +
+                    $"frames={frameCount} checkpoints={checkpointCount}");
+            }
+
+            ParsekLog.Info("RecordingStore",
+                $"DeserializeTrackSections: deserialized {tracks.Count} track section(s) from {tsNodes.Length} node(s)");
         }
 
         #endregion
