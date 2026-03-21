@@ -898,6 +898,15 @@ namespace Parsek
                                 && fInfo.fairingMeshObject != null)
                             {
                                 fInfo.fairingMeshObject.SetActive(false);
+                                if (fInfo.showInternalOnJettison && fInfo.internalStructureObjects != null)
+                                {
+                                    for (int s = 0; s < fInfo.internalStructureObjects.Count; s++)
+                                    {
+                                        if (fInfo.internalStructureObjects[s] != null)
+                                            fInfo.internalStructureObjects[s].SetActive(true);
+                                    }
+                                    ParsekLog.Verbose("Flight", $"Fairing internal structure revealed for pid={evt.partPersistentId} ({fInfo.internalStructureObjects.Count} objects)");
+                                }
                                 ParsekLog.Verbose("Flight", $"Part event applied: FairingJettisoned '{evt.partName}' pid={evt.partPersistentId}");
                             }
                         }
