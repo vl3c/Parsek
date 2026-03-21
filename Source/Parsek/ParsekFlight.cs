@@ -19,6 +19,9 @@ namespace Parsek
         internal const string MODID = "Parsek_NS";
         internal const string MODNAME = "Parsek";
 
+        /// <summary>Above this altitude, skip the per-frame terrain clamp (no terrain risk in flight).</summary>
+        const double TerrainClampAltitudeLimit = 10000;
+
         #region State
 
         // Recording (delegated to FlightRecorder)
@@ -592,7 +595,7 @@ namespace Parsek
 
                 Vector3d pos = e.ghost.transform.position;
                 double alt = body.GetAltitude(pos);
-                if (alt > 10000) continue; // skip in-flight ghosts (no terrain risk)
+                if (alt > TerrainClampAltitudeLimit) continue;
 
                 double lat = body.GetLatitude(pos);
                 double lon = body.GetLongitude(pos);
@@ -8962,7 +8965,7 @@ namespace Parsek
                     double bodyRadius = segBody?.Radius ?? 600000;
                     if (seg.Value.semiMajorAxis < bodyRadius * 0.9)
                     {
-                        int smaKey = orbitCacheBase + 900000;
+                        int smaKey = ~orbitCacheBase; // bitwise complement — guaranteed no collision with positive cache keys
                         if (loggedOrbitSegments.Add(smaKey))
                             Log($"Orbit segment rejected (sub-surface): sma={seg.Value.semiMajorAxis:F0} < " +
                                 $"bodyRadius*0.9={bodyRadius * 0.9:F0}, falling through to point interpolation");
