@@ -657,6 +657,7 @@ namespace Parsek
             vesselGhoster?.CleanupAll();
             vesselGhoster = null;
             activeGhostChains = null;
+            chainMutationGeneration++;
 
             ui?.Cleanup();
         }
@@ -3647,6 +3648,7 @@ namespace Parsek
             vesselGhoster?.CleanupAll();
             vesselGhoster = null;
             activeGhostChains = null;
+            chainMutationGeneration++;
 
             // Shutdown background recorder before clearing tree
             if (backgroundRecorder != null)
@@ -3709,6 +3711,7 @@ namespace Parsek
             if (trees == null || trees.Count == 0)
             {
                 activeGhostChains = null;
+                chainMutationGeneration++;
                 ParsekLog.Verbose("Ghoster", "EvaluateAndApplyGhostChains: no committed trees");
                 return;
             }
@@ -3719,6 +3722,7 @@ namespace Parsek
             if (chains == null || chains.Count == 0)
             {
                 activeGhostChains = null;
+                chainMutationGeneration++;
                 ParsekLog.Verbose("Ghoster", "EvaluateAndApplyGhostChains: no ghost chains found");
                 return;
             }
@@ -3756,6 +3760,7 @@ namespace Parsek
             }
 
             activeGhostChains = activeChains;
+            chainMutationGeneration++;
 
             // Wire the ghosted-vessel check for ShouldSkipExternalVesselGhost (Task 6b-3b)
             GhostPlaybackLogic.SetIsGhostedOverride(
@@ -5412,6 +5417,7 @@ namespace Parsek
                         rec.SpawnedVesselPersistentId = spawnedPid;
                         rec.VesselSpawned = true;
                         activeGhostChains.Remove(chain.OriginalVesselPid);
+                        chainMutationGeneration++;
                         ParsekLog.Info("Flight",
                             $"Blocked chain tip spawn resolved: #{index} \"{rec.VesselName}\" pid={spawnedPid}");
                     }
@@ -5425,6 +5431,7 @@ namespace Parsek
                         rec.SpawnedVesselPersistentId = spawnedPid;
                         rec.VesselSpawned = true;
                         activeGhostChains.Remove(chain.OriginalVesselPid);
+                        chainMutationGeneration++;
                         ParsekLog.Info("Flight",
                             $"Chain tip spawn complete: #{index} \"{rec.VesselName}\" pid={spawnedPid}");
                     }
@@ -8937,26 +8944,26 @@ namespace Parsek
 
         /// <summary>
         /// Cached vessel PID → name lookup for SelectiveSpawnUI.
-        /// Invalidated when chain count changes (chains added/removed on spawn or rewind).
+        /// Invalidated when chainMutationGeneration changes (chains added/removed/set to null).
         /// </summary>
         private Dictionary<uint, string> cachedChainVesselNames;
-        private int cachedChainVesselNamesCount = -1;
+        private int cachedChainNamesGeneration = -1;
+        private int chainMutationGeneration;
 
         /// <summary>
         /// Returns a cached vessel PID → vessel name lookup for the SelectiveSpawnUI.
-        /// Rebuilds only when the active chain count changes.
+        /// Rebuilds only when the chain mutation generation changes.
         /// </summary>
         internal Dictionary<uint, string> GetChainVesselNames()
         {
-            int currentCount = activeGhostChains != null ? activeGhostChains.Count : 0;
-            if (cachedChainVesselNames != null && cachedChainVesselNamesCount == currentCount)
+            if (cachedChainVesselNames != null && cachedChainNamesGeneration == chainMutationGeneration)
                 return cachedChainVesselNames;
 
             var names = new Dictionary<uint, string>();
             if (activeGhostChains == null)
             {
                 cachedChainVesselNames = names;
-                cachedChainVesselNamesCount = 0;
+                cachedChainNamesGeneration = chainMutationGeneration;
                 return names;
             }
 
@@ -8980,7 +8987,7 @@ namespace Parsek
             }
 
             cachedChainVesselNames = names;
-            cachedChainVesselNamesCount = currentCount;
+            cachedChainNamesGeneration = chainMutationGeneration;
             return names;
         }
 
