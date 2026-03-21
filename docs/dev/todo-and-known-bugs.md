@@ -981,7 +981,7 @@ Unlike `CheckOverlapAgainstLoadedVessels` which properly excludes Debris/EVA/Fla
 
 Lines 90-97: For `ecc >= 1.0 || sma <= 0`, the fallback returns `(0, 0, sma - bodyRadius)`. When `sma < bodyRadius`, this produces a negative altitude, placing the ghost underground. Should use `Math.Max(0, sma - bodyRadius)`.
 
-**Status:** Open
+**Status:** Mitigated — the LateUpdate terrain clamp (`e5c5340`) prevents any ghost from appearing below terrain, and the SMA sanity check in `InterpolateAndPosition` (`ea14b8f`) rejects orbit segments with SMA < 90% body radius. The root GhostExtender fallback formula is still uncorrected.
 
 ## 77. TerrainCorrector log format strings use system culture
 
@@ -1086,3 +1086,9 @@ The Watch (W) button is shown enabled for a recording whose time range is entire
 `GetZoneRenderingPolicy(Visual)` and `ShouldApplyPartEventsForZone(Visual)` were changed to apply part events in the Visual zone (2.3-120km) so that structural changes (fairing jettison, staging, crash destruction) work at altitude. Two existing tests still assert the old behavior (`skipPartEvents = true` for Visual zone). Update them to expect `skipPartEvents = false` and `ShouldApplyPartEventsForZone(Visual) = true`.
 
 **Status:** Open — test-only fix, no production code change needed
+
+## 93. Surface vehicle ghost slides away from recorded position during on-rails playback
+
+When a surface vessel (rover, lander) goes on rails during recording (e.g., time warp), an orbit segment is created with SMA ≈ half the body radius. During playback, `InterpolateAndPosition` prioritizes orbit segments over point-based interpolation. The Keplerian orbit path goes through the planet interior — the terrain clamp corrects altitude but the lat/lon follows the orbital path, causing the ghost to slide along the ground away from the runway/landing site. Observed with Crater Crawler rover on the KSC runway: ghost altitude fell to -6281m (clamped back to 65.3m each frame), but the ghost drifted off its recorded position.
+
+**Status:** Fixed (`6996b65`, `ea14b8f`) — three-layer fix: (1) skip orbit segment creation for LANDED/SPLASHED/PRELAUNCH vessels, (2) `IsSurfaceAtUT` skips orbit segments during playback for surface TrackSections, (3) SMA < 90% body radius sanity check rejects sub-surface orbits
