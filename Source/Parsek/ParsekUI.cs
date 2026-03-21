@@ -308,16 +308,15 @@ namespace Parsek
         private void DrawWarpToNextSpawnButton()
         {
             double currentUT = Planetarium.GetUniversalTime();
-            bool hasNext = SelectiveSpawnUI.ShouldEnableWarpToNext(
+            GhostChain nextChain = SelectiveSpawnUI.FindNextSpawnChain(
                 flight.ActiveGhostChains, currentUT);
 
-            if (!hasNext) return;
+            if (nextChain == null) return;
 
             GUILayout.Space(SpacingSmall);
 
-            var names = flight.GetChainVesselNames();
             string tooltip = SelectiveSpawnUI.FormatNextSpawnTooltip(
-                flight.ActiveGhostChains, currentUT, names);
+                nextChain, currentUT, flight.GetChainVesselNames());
 
             if (GUILayout.Button(new GUIContent("Warp to Next Spawn", tooltip)))
             {
@@ -1343,7 +1342,7 @@ namespace Parsek
                         alsoSpawned, flight.GetChainVesselNames());
                     var btnContent = new GUIContent(btnText, warning ?? "");
 
-                    if (GUILayout.Button(btnContent, GUILayout.Width(75)))
+                    if (GUILayout.Button(btnContent, GUILayout.MinWidth(75)))
                     {
                         ParsekLog.Info("UI",
                             $"Warp to Spawn clicked for chain tip vessel={rowChain.OriginalVesselPid} " +

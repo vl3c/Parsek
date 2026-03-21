@@ -114,34 +114,34 @@ namespace Parsek.Tests
             Assert.Equal(200, result);
         }
 
-        // ── ShouldEnableWarpToNext ──
+        // ── FindNextSpawnChain (replaces ShouldEnableWarpToNext) ──
 
         [Fact]
-        public void ShouldEnableWarpToNext_FutureChain_True()
+        public void FindNextSpawnChain_FutureChain_ReturnsChain()
         {
             var chains = new Dictionary<uint, GhostChain>
             {
                 { 1, new GhostChain { OriginalVesselPid = 1, SpawnUT = 200 } }
             };
 
-            Assert.True(SelectiveSpawnUI.ShouldEnableWarpToNext(chains, 100));
+            Assert.NotNull(SelectiveSpawnUI.FindNextSpawnChain(chains, 100));
         }
 
         [Fact]
-        public void ShouldEnableWarpToNext_AllPast_False()
+        public void FindNextSpawnChain_AllPast_ReturnsNull()
         {
             var chains = new Dictionary<uint, GhostChain>
             {
                 { 1, new GhostChain { OriginalVesselPid = 1, SpawnUT = 50 } }
             };
 
-            Assert.False(SelectiveSpawnUI.ShouldEnableWarpToNext(chains, 100));
+            Assert.Null(SelectiveSpawnUI.FindNextSpawnChain(chains, 100));
         }
 
         [Fact]
-        public void ShouldEnableWarpToNext_EmptyChains_False()
+        public void FindNextSpawnChain_EmptyChains_ReturnsNull()
         {
-            Assert.False(SelectiveSpawnUI.ShouldEnableWarpToNext(
+            Assert.Null(SelectiveSpawnUI.FindNextSpawnChain(
                 new Dictionary<uint, GhostChain>(), 100));
         }
 
@@ -337,13 +337,10 @@ namespace Parsek.Tests
         [Fact]
         public void FormatNextSpawnTooltip_HasPending()
         {
-            var chains = new Dictionary<uint, GhostChain>
-            {
-                { 1, new GhostChain { OriginalVesselPid = 1, SpawnUT = 200 } }
-            };
+            var chain = new GhostChain { OriginalVesselPid = 1, SpawnUT = 200 };
             var names = new Dictionary<uint, string> { { 1, "Station" } };
 
-            string result = SelectiveSpawnUI.FormatNextSpawnTooltip(chains, 100, names);
+            string result = SelectiveSpawnUI.FormatNextSpawnTooltip(chain, 100, names);
 
             Assert.Contains("Station", result);
             Assert.Contains("1m 40s", result);
@@ -352,9 +349,68 @@ namespace Parsek.Tests
         [Fact]
         public void FormatNextSpawnTooltip_NoPending()
         {
-            var chains = new Dictionary<uint, GhostChain>();
-            string result = SelectiveSpawnUI.FormatNextSpawnTooltip(chains, 100, null);
+            string result = SelectiveSpawnUI.FormatNextSpawnTooltip(null, 100, null);
             Assert.Equal("No pending spawns", result);
+        }
+
+        // ── FindNextSpawnChain ──
+
+        [Fact]
+        public void FindNextSpawnChain_ReturnsEarliestFuture()
+        {
+            var chains = new Dictionary<uint, GhostChain>
+            {
+                { 1, new GhostChain { OriginalVesselPid = 1, SpawnUT = 50 } },
+                { 2, new GhostChain { OriginalVesselPid = 2, SpawnUT = 200 } },
+                { 3, new GhostChain { OriginalVesselPid = 3, SpawnUT = 150 } }
+            };
+
+            var result = SelectiveSpawnUI.FindNextSpawnChain(chains, 100);
+
+            Assert.NotNull(result);
+            Assert.Equal((uint)3, result.OriginalVesselPid);
+        }
+
+        [Fact]
+        public void FindNextSpawnChain_NoPending_ReturnsNull()
+        {
+            var chains = new Dictionary<uint, GhostChain>
+            {
+                { 1, new GhostChain { OriginalVesselPid = 1, SpawnUT = 50 } }
+            };
+
+            Assert.Null(SelectiveSpawnUI.FindNextSpawnChain(chains, 100));
+        }
+
+        // ── Boundary: SpawnUT == currentUT ──
+
+        [Fact]
+        public void CanWarpToChain_SpawnUTEqualsCurrentUT_False()
+        {
+            var chain = new GhostChain { OriginalVesselPid = 1, SpawnUT = 100 };
+            Assert.False(SelectiveSpawnUI.CanWarpToChain(chain, 100));
+        }
+
+        [Fact]
+        public void ComputeNextSpawnUT_SpawnUTEqualsCurrentUT_ReturnsZero()
+        {
+            var chains = new Dictionary<uint, GhostChain>
+            {
+                { 1, new GhostChain { OriginalVesselPid = 1, SpawnUT = 100 } }
+            };
+
+            Assert.Equal(0, SelectiveSpawnUI.ComputeNextSpawnUT(chains, 100));
+        }
+
+        [Fact]
+        public void FindNextSpawnChain_SpawnUTEqualsCurrentUT_ReturnsNull()
+        {
+            var chains = new Dictionary<uint, GhostChain>
+            {
+                { 1, new GhostChain { OriginalVesselPid = 1, SpawnUT = 100 } }
+            };
+
+            Assert.Null(SelectiveSpawnUI.FindNextSpawnChain(chains, 100));
         }
 
         // ── Log assertions ──

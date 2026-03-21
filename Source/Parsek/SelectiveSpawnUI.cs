@@ -50,10 +50,12 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure: compute the target UT for "Warp to Next Spawn" (DMP's SUBSPACE_SIMPLE analog).
-        /// Returns the earliest pending chain tip's SpawnUT, or 0 if none pending.
+        /// Pure: find the earliest pending chain tip in the future.
+        /// Returns the chain itself (for direct PID access), or null if none pending.
+        /// Avoids floating-point equality issues by returning the chain directly
+        /// rather than just its SpawnUT.
         /// </summary>
-        internal static double ComputeNextSpawnUT(Dictionary<uint, GhostChain> chains, double currentUT)
+        internal static GhostChain FindNextSpawnChain(Dictionary<uint, GhostChain> chains, double currentUT)
         {
             var pending = GetPendingChainTips(chains);
 
@@ -61,36 +63,26 @@ namespace Parsek
             {
                 if (pending[i].SpawnUT > currentUT)
                 {
-                    double target = pending[i].SpawnUT;
                     ParsekLog.Verbose(Tag,
                         string.Format(IC,
-                            "ComputeNextSpawnUT: next spawn at UT={0} vessel={1}",
-                            target.ToString("F1", IC), pending[i].OriginalVesselPid));
-                    return target;
+                            "FindNextSpawnChain: next spawn at UT={0} vessel={1}",
+                            pending[i].SpawnUT.ToString("F1", IC), pending[i].OriginalVesselPid));
+                    return pending[i];
                 }
             }
 
-            ParsekLog.Verbose(Tag, "ComputeNextSpawnUT: no future chain tips");
-            return 0;
+            ParsekLog.Verbose(Tag, "FindNextSpawnChain: no future chain tips");
+            return null;
         }
 
         /// <summary>
-        /// Pure: determine whether the "Warp to Next Spawn" button should be enabled.
-        /// Enabled when there is at least one pending chain tip in the future.
+        /// Pure: compute the target UT for "Warp to Next Spawn" (DMP's SUBSPACE_SIMPLE analog).
+        /// Returns the earliest pending chain tip's SpawnUT, or 0 if none pending.
         /// </summary>
-        internal static bool ShouldEnableWarpToNext(Dictionary<uint, GhostChain> chains, double currentUT)
+        internal static double ComputeNextSpawnUT(Dictionary<uint, GhostChain> chains, double currentUT)
         {
-            double nextUT = ComputeNextSpawnUT(chains, currentUT);
-            bool enabled = nextUT > 0;
-
-            ParsekLog.Verbose(Tag,
-                string.Format(IC,
-                    "ShouldEnableWarpToNext: currentUT={0} nextUT={1} enabled={2}",
-                    currentUT.ToString("F1", IC),
-                    nextUT.ToString("F1", IC),
-                    enabled));
-
-            return enabled;
+            var next = FindNextSpawnChain(chains, currentUT);
+            return next != null ? next.SpawnUT : 0;
         }
 
         /// <summary>
@@ -201,27 +193,21 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure: format the "Warp to Next Spawn" button tooltip with vessel info.
+        /// Pure: format the "Warp to Next Spawn" button tooltip from a pre-found chain.
+        /// Accepts the chain directly to avoid redundant GetPendingChainTips scans.
         /// </summary>
         internal static string FormatNextSpawnTooltip(
-            Dictionary<uint, GhostChain> chains, double currentUT,
+            GhostChain nextChain, double currentUT,
             Dictionary<uint, string> vesselNames)
         {
-            var pending = GetPendingChainTips(chains);
+            if (nextChain == null)
+                return "No pending spawns";
 
-            for (int i = 0; i < pending.Count; i++)
-            {
-                if (pending[i].SpawnUT > currentUT)
-                {
-                    string name = GetVesselName(pending[i].OriginalVesselPid, vesselNames);
-                    double delta = pending[i].SpawnUT - currentUT;
-                    return string.Format(IC,
-                        "Warp to {0} (spawns in {1})",
-                        name, FormatTimeDelta(delta));
-                }
-            }
-
-            return "No pending spawns";
+            string name = GetVesselName(nextChain.OriginalVesselPid, vesselNames);
+            double delta = nextChain.SpawnUT - currentUT;
+            return string.Format(IC,
+                "Warp to {0} (spawns in {1})",
+                name, FormatTimeDelta(delta));
         }
 
         /// <summary>

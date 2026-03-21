@@ -8683,39 +8683,46 @@ namespace Parsek
         /// <summary>
         /// Executes a time jump to the earliest pending chain tip.
         /// "Warp to Next Spawn" — DMP's SUBSPACE_SIMPLE analog.
+        /// Uses FindNextSpawnChain to get the chain directly, avoiding float equality.
         /// </summary>
         internal void WarpToNextSpawn()
         {
             double currentUT = Planetarium.GetUniversalTime();
-            double nextUT = SelectiveSpawnUI.ComputeNextSpawnUT(activeGhostChains, currentUT);
+            GhostChain next = SelectiveSpawnUI.FindNextSpawnChain(activeGhostChains, currentUT);
 
-            if (nextUT <= 0)
+            if (next == null)
             {
                 ParsekLog.Verbose("Flight", "WarpToNextSpawn: no pending chain tips");
                 return;
             }
 
-            // Find the chain at nextUT to get its PID for the targeted warp
-            foreach (var kvp in activeGhostChains)
-            {
-                if (!kvp.Value.IsTerminated && kvp.Value.SpawnUT == nextUT)
-                {
-                    WarpToChainTip(kvp.Key);
-                    return;
-                }
-            }
-
-            ParsekLog.Warn("Flight", "WarpToNextSpawn: computed nextUT but no matching chain — aborted");
+            WarpToChainTip(next.OriginalVesselPid);
         }
 
         /// <summary>
-        /// Builds a vessel PID → vessel name lookup for the SelectiveSpawnUI.
-        /// Uses committed recordings to resolve names.
+        /// Cached vessel PID → name lookup for SelectiveSpawnUI.
+        /// Invalidated when chain count changes (chains added/removed on spawn or rewind).
+        /// </summary>
+        private Dictionary<uint, string> cachedChainVesselNames;
+        private int cachedChainVesselNamesCount = -1;
+
+        /// <summary>
+        /// Returns a cached vessel PID → vessel name lookup for the SelectiveSpawnUI.
+        /// Rebuilds only when the active chain count changes.
         /// </summary>
         internal Dictionary<uint, string> GetChainVesselNames()
         {
+            int currentCount = activeGhostChains != null ? activeGhostChains.Count : 0;
+            if (cachedChainVesselNames != null && cachedChainVesselNamesCount == currentCount)
+                return cachedChainVesselNames;
+
             var names = new Dictionary<uint, string>();
-            if (activeGhostChains == null) return names;
+            if (activeGhostChains == null)
+            {
+                cachedChainVesselNames = names;
+                cachedChainVesselNamesCount = 0;
+                return names;
+            }
 
             foreach (var kvp in activeGhostChains)
             {
@@ -8736,6 +8743,8 @@ namespace Parsek
                 names[pid] = name ?? string.Format(CultureInfo.InvariantCulture, "Vessel {0}", pid);
             }
 
+            cachedChainVesselNames = names;
+            cachedChainVesselNamesCount = currentCount;
             return names;
         }
 
