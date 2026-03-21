@@ -8561,6 +8561,104 @@ namespace Parsek
         /// </summary>
         internal Dictionary<uint, GhostChain> ActiveGhostChains => activeGhostChains;
 
+        /// <summary>
+        /// Executes a time jump to the specified chain tip's SpawnUT.
+        /// Called from ParsekUI when the player clicks a "Warp to Spawn" button.
+        /// Validates the jump, notifies active recorder, then delegates to TimeJumpManager.
+        /// </summary>
+        internal void WarpToChainTip(uint vesselPid)
+        {
+            if (activeGhostChains == null || !activeGhostChains.ContainsKey(vesselPid))
+            {
+                ParsekLog.Warn("Flight",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "WarpToChainTip: vessel pid={0} not in active chains — aborted", vesselPid));
+                return;
+            }
+
+            double targetUT = TimeJumpManager.ComputeJumpTargetUT(activeGhostChains, vesselPid);
+            double currentUT = Planetarium.GetUniversalTime();
+
+            if (!TimeJumpManager.IsValidJump(currentUT, targetUT))
+            {
+                ParsekLog.Warn("Flight",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "WarpToChainTip: invalid jump current={0:F1} target={1:F1} — aborted",
+                        currentUT, targetUT));
+                return;
+            }
+
+            ParsekLog.Info("Flight",
+                string.Format(CultureInfo.InvariantCulture,
+                    "WarpToChainTip: jumping to UT={0:F1} for vessel pid={1} (delta={2:F1}s)",
+                    targetUT, vesselPid, targetUT - currentUT));
+
+            // Notify recorder before jump (captures TIME_JUMP event)
+            TimeJumpManager.NotifyRecorder(recorder, currentUT, targetUT);
+
+            // Execute the jump
+            TimeJumpManager.ExecuteJump(targetUT, activeGhostChains, vesselGhoster);
+        }
+
+        /// <summary>
+        /// Executes a time jump to the earliest pending chain tip.
+        /// "Warp to Next Spawn" — DMP's SUBSPACE_SIMPLE analog.
+        /// </summary>
+        internal void WarpToNextSpawn()
+        {
+            double currentUT = Planetarium.GetUniversalTime();
+            double nextUT = SelectiveSpawnUI.ComputeNextSpawnUT(activeGhostChains, currentUT);
+
+            if (nextUT <= 0)
+            {
+                ParsekLog.Verbose("Flight", "WarpToNextSpawn: no pending chain tips");
+                return;
+            }
+
+            // Find the chain at nextUT to get its PID for the targeted warp
+            foreach (var kvp in activeGhostChains)
+            {
+                if (!kvp.Value.IsTerminated && kvp.Value.SpawnUT == nextUT)
+                {
+                    WarpToChainTip(kvp.Key);
+                    return;
+                }
+            }
+
+            ParsekLog.Warn("Flight", "WarpToNextSpawn: computed nextUT but no matching chain — aborted");
+        }
+
+        /// <summary>
+        /// Builds a vessel PID → vessel name lookup for the SelectiveSpawnUI.
+        /// Uses committed recordings to resolve names.
+        /// </summary>
+        internal Dictionary<uint, string> GetChainVesselNames()
+        {
+            var names = new Dictionary<uint, string>();
+            if (activeGhostChains == null) return names;
+
+            foreach (var kvp in activeGhostChains)
+            {
+                uint pid = kvp.Key;
+                string name = null;
+
+                // Try to find the vessel name from committed recordings
+                for (int i = 0; i < RecordingStore.CommittedRecordings.Count; i++)
+                {
+                    var rec = RecordingStore.CommittedRecordings[i];
+                    if (rec.RecordingId == kvp.Value.TipRecordingId)
+                    {
+                        name = rec.VesselName;
+                        break;
+                    }
+                }
+
+                names[pid] = name ?? string.Format(CultureInfo.InvariantCulture, "Vessel {0}", pid);
+            }
+
+            return names;
+        }
+
         void Log(string message) => ParsekLog.Verbose("Flight", message);
         void ScreenMessage(string message, float duration) => ParsekLog.ScreenMessage(message, duration);
 
