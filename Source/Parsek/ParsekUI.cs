@@ -791,7 +791,7 @@ namespace Parsek
                 recordingsWindowRect = new Rect(
                     mainWindowRect.x + mainWindowRect.width + 10,
                     mainWindowRect.y,
-                    1081, recHeight);
+                    1106, recHeight);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI", $"Recordings window initial position: x={recordingsWindowRect.x.ToString("F0", ic)} y={recordingsWindowRect.y.ToString("F0", ic)}");
             }
@@ -1188,10 +1188,10 @@ namespace Parsek
                 {
                     showExpandedStats = !showExpandedStats;
                     ParsekLog.Verbose("UI", $"Recordings Stats toggled: {(showExpandedStats ? "expanded" : "collapsed")}");
-                    if (showExpandedStats && recordingsWindowRect.width < 1150f)
-                        recordingsWindowRect.width = 1150f;
+                    if (showExpandedStats && recordingsWindowRect.width < 1324f)
+                        recordingsWindowRect.width = 1324f;
                     else if (!showExpandedStats)
-                        recordingsWindowRect.width = 1081f;
+                        recordingsWindowRect.width = 1106f;
                 }
             }
 
