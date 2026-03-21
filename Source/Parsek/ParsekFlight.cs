@@ -3128,29 +3128,13 @@ namespace Parsek
         {
             if (string.IsNullOrEmpty(placedBy) || recordedVessel == null) return false;
 
-            // EVA kerbal: vessel name typically matches the kerbal name
-            if (recordedVessel.isEVA)
+            // Check crew roster — works for both EVA kerbals and crewed vessels
+            var crew = recordedVessel.GetVesselCrew();
+            if (crew != null)
             {
-                // Check crew roster on the EVA vessel
-                var crew = recordedVessel.GetVesselCrew();
-                if (crew != null)
+                for (int i = 0; i < crew.Count; i++)
                 {
-                    for (int i = 0; i < crew.Count; i++)
-                    {
-                        if (crew[i].name == placedBy)
-                            return true;
-                    }
-                }
-                return false;
-            }
-
-            // Non-EVA vessel: check all crew
-            var vesselCrew = recordedVessel.GetVesselCrew();
-            if (vesselCrew != null)
-            {
-                for (int i = 0; i < vesselCrew.Count; i++)
-                {
-                    if (vesselCrew[i].name == placedBy)
+                    if (crew[i].name == placedBy)
                         return true;
                 }
             }
@@ -5196,10 +5180,7 @@ namespace Parsek
                 DestroyReentryFxResources(previewGhostState.reentryFxInfo);
 
                 GhostPlaybackLogic.DestroyAllFakeCanopies(previewGhostState);
-                if (previewGhostState.flagGhosts != null)
-                    for (int i = 0; i < previewGhostState.flagGhosts.Count; i++)
-                        if (previewGhostState.flagGhosts[i] != null)
-                            Destroy(previewGhostState.flagGhosts[i]);
+                GhostPlaybackLogic.DestroyAllFlagGhosts(previewGhostState);
                 previewGhostState = null;
             }
             else if (previewGhostMaterials != null)
@@ -7022,10 +7003,7 @@ namespace Parsek
                 Destroy(state.ghost);
 
             GhostPlaybackLogic.DestroyAllFakeCanopies(state);
-            if (state.flagGhosts != null)
-                for (int i = 0; i < state.flagGhosts.Count; i++)
-                    if (state.flagGhosts[i] != null)
-                        Destroy(state.flagGhosts[i]);
+            GhostPlaybackLogic.DestroyAllFlagGhosts(state);
             ghostStates.Remove(index);
             loopPhaseOffsets.Remove(index);
         }
@@ -7172,10 +7150,7 @@ namespace Parsek
             DestroyReentryFxResources(state.reentryFxInfo);
             if (state.ghost != null) Destroy(state.ghost);
             GhostPlaybackLogic.DestroyAllFakeCanopies(state);
-            if (state.flagGhosts != null)
-                for (int i = 0; i < state.flagGhosts.Count; i++)
-                    if (state.flagGhosts[i] != null)
-                        Destroy(state.flagGhosts[i]);
+            GhostPlaybackLogic.DestroyAllFlagGhosts(state);
         }
 
         /// <summary>

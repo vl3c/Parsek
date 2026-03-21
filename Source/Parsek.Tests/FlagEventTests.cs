@@ -122,6 +122,11 @@ namespace Parsek.Tests
             RecordingStore.DeserializeFlagEvents(targetNode, deserialized);
 
             Assert.Single(deserialized.FlagEvents);
+            Assert.Equal("Flag with \"quotes\"", deserialized.FlagEvents[0].flagSiteName);
+            // ConfigNode strips newlines — verify the rest survives
+            Assert.Contains("Line1", deserialized.FlagEvents[0].plaqueText);
+            Assert.Contains("Line2", deserialized.FlagEvents[0].plaqueText);
+            Assert.Equal("MyMod/Flags/custom flag", deserialized.FlagEvents[0].flagURL);
             Assert.Equal("Eve", deserialized.FlagEvents[0].bodyName);
         }
 

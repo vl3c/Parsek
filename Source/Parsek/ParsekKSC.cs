@@ -847,11 +847,7 @@ namespace Parsek
             StopRcsParticleSystems(state.rcsInfos);
 
             GhostPlaybackLogic.DestroyAllFakeCanopies(state);
-
-            if (state.flagGhosts != null)
-                for (int i = 0; i < state.flagGhosts.Count; i++)
-                    if (state.flagGhosts[i] != null)
-                        Destroy(state.flagGhosts[i]);
+            GhostPlaybackLogic.DestroyAllFlagGhosts(state);
 
             if (state.ghost != null)
                 Destroy(state.ghost);

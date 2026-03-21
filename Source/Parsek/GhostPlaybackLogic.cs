@@ -1141,6 +1141,15 @@ namespace Parsek
             state.fakeCanopies.Remove(partPid);
         }
 
+        internal static void DestroyAllFlagGhosts(GhostPlaybackState state)
+        {
+            if (state.flagGhosts == null) return;
+            for (int i = 0; i < state.flagGhosts.Count; i++)
+                if (state.flagGhosts[i] != null)
+                    UnityEngine.Object.Destroy(state.flagGhosts[i]);
+            state.flagGhosts = null;
+        }
+
         internal static void DestroyAllFakeCanopies(GhostPlaybackState state)
         {
             if (state.fakeCanopies == null) return;
