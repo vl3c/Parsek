@@ -63,6 +63,7 @@ namespace Parsek
         private const float ColW_Phase = 70f;
         private const float ColW_Index = 30f;
         private const float ColW_Launch = 110f;
+        private const float ColW_Countdown = 95f;
         private const float ColW_Dur = 65f;
         private const float ColW_Status = 55f;
         private const float ColW_Loop = 55f;
@@ -118,7 +119,7 @@ namespace Parsek
         private GUIStyle phaseStyleSpace;
 
         // Sort state
-        internal enum SortColumn { Index, Phase, Name, LaunchTime, Duration, Status }
+        internal enum SortColumn { Index, Phase, Name, LaunchTime, Countdown, Duration, Status }
         private SortColumn sortColumn = SortColumn.Index;
         private bool sortAscending = true;
         private int[] sortedIndices; // maps display row → CommittedRecordings index
@@ -205,10 +206,7 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Actions window toggled: {(showActionsWindow ? "open" : "closed")}");
             }
 
-            if (InFlight)
-                DrawFlightRecordingControls();
-
-            // --- Real Spawn Control toggle ---
+            // --- Real Spawn Control toggle (in the window group, after Game Actions) ---
             if (InFlight && flight != null && flight.NearbySpawnCandidates.Count > 0)
             {
                 if (GUILayout.Button(string.Format(
@@ -222,6 +220,9 @@ namespace Parsek
                             showSpawnControlWindow ? "open" : "closed"));
                 }
             }
+
+            if (InFlight)
+                DrawFlightRecordingControls();
 
             // --- Settings button ---
             GUILayout.Space(SpacingLarge);
@@ -975,6 +976,7 @@ namespace Parsek
                 DrawSortableHeader("Name", SortColumn.Name, 0, true);
                 DrawSortableHeader("Phase", SortColumn.Phase, ColW_Phase);
                 DrawSortableHeader("Launch", SortColumn.LaunchTime, ColW_Launch);
+                DrawSortableHeader("Countdown", SortColumn.Countdown, ColW_Countdown);
                 DrawSortableHeader("Duration", SortColumn.Duration, ColW_Dur);
 
                 if (showExpandedStats)
@@ -1263,6 +1265,15 @@ namespace Parsek
                 ? KSPUtil.PrintDateCompact(rec.StartUT, true)
                 : "-";
             GUILayout.Label(launchTime, GUILayout.Width(ColW_Launch));
+
+            // Countdown
+            if (rec.Points.Count > 0 && rec.StartUT > now)
+                GUILayout.Label(SelectiveSpawnUI.FormatCountdown(rec.StartUT - now),
+                    GUILayout.Width(ColW_Countdown));
+            else if (rec.Points.Count > 0 && rec.EndUT > now)
+                GUILayout.Label("LIVE", GUILayout.Width(ColW_Countdown));
+            else
+                GUILayout.Label("-", GUILayout.Width(ColW_Countdown));
 
             // Duration
             double dur = rec.EndUT - rec.StartUT;
@@ -2428,6 +2439,11 @@ namespace Parsek
                 case SortColumn.LaunchTime:
                     cmp = ra.StartUT.CompareTo(rb.StartUT);
                     break;
+                case SortColumn.Countdown:
+                    // Sort by time remaining until launch (StartUT - now).
+                    // Past recordings (negative delta) sort after future ones.
+                    cmp = (ra.StartUT - now).CompareTo(rb.StartUT - now);
+                    break;
                 case SortColumn.Duration:
                     cmp = (ra.EndUT - ra.StartUT).CompareTo(rb.EndUT - rb.StartUT);
                     break;
@@ -2880,6 +2896,13 @@ namespace Parsek
             spawnControlWindowHasInputLock = false;
         }
 
+        // Spawn Control column widths (matches recordings window style)
+        private const float SpawnColW_Name = 0f;    // expand
+        private const float SpawnColW_Dist = 55f;
+        private const float SpawnColW_SpawnTime = 100f;
+        private const float SpawnColW_Countdown = 95f;
+        private const float SpawnColW_Warp = 50f;
+
         private void DrawSpawnControlWindow(int windowID)
         {
             var ic = System.Globalization.CultureInfo.InvariantCulture;
@@ -2895,12 +2918,13 @@ namespace Parsek
                 return;
             }
 
-            // Header
+            // Header row (matches recordings window pattern)
             GUILayout.BeginHorizontal();
-            GUILayout.Label("Craft", GUI.skin.box, GUILayout.ExpandWidth(true));
-            GUILayout.Label("Distance", GUI.skin.box, GUILayout.Width(65));
-            GUILayout.Label("Spawns at", GUI.skin.box, GUILayout.Width(110));
-            GUILayout.Label("", GUILayout.Width(60)); // Warp button column
+            GUILayout.Label("Craft", GUILayout.ExpandWidth(true));
+            GUILayout.Label("Dist", GUILayout.Width(SpawnColW_Dist));
+            GUILayout.Label("Spawns at", GUILayout.Width(SpawnColW_SpawnTime));
+            GUILayout.Label("Countdown", GUILayout.Width(SpawnColW_Countdown));
+            GUILayout.Label("", GUILayout.Width(SpawnColW_Warp));
             GUILayout.EndHorizontal();
 
             // Per-craft rows (already sorted by distance)
@@ -2910,19 +2934,20 @@ namespace Parsek
                 double delta = cand.endUT - currentUT;
                 bool canWarp = cand.endUT > currentUT;
 
-                GUILayout.BeginHorizontal(GUI.skin.box);
+                GUILayout.BeginHorizontal();
                 GUILayout.Label(cand.vesselName, GUILayout.ExpandWidth(true));
                 GUILayout.Label(
                     string.Format(ic, "{0:F0}m", cand.distance),
-                    GUILayout.Width(65));
+                    GUILayout.Width(SpawnColW_Dist));
                 GUILayout.Label(
-                    string.Format(ic, "{0}\n(in {1})",
-                        KSPUtil.PrintDateCompact(cand.endUT, true),
-                        SelectiveSpawnUI.FormatTimeDelta(delta)),
-                    GUILayout.Width(110));
+                    KSPUtil.PrintDateCompact(cand.endUT, true),
+                    GUILayout.Width(SpawnColW_SpawnTime));
+                GUILayout.Label(
+                    SelectiveSpawnUI.FormatCountdown(delta),
+                    GUILayout.Width(SpawnColW_Countdown));
 
                 GUI.enabled = canWarp;
-                if (GUILayout.Button("Warp", GUILayout.Width(60)))
+                if (GUILayout.Button("Warp", GUILayout.Width(SpawnColW_Warp)))
                 {
                     ParsekLog.Info("UI",
                         string.Format(ic,

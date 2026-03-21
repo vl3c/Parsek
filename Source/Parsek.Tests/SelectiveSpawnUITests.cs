@@ -171,6 +171,57 @@ namespace Parsek.Tests
             Assert.Equal("0s", SelectiveSpawnUI.FormatTimeDelta(0));
         }
 
+        // ── FormatCountdown ──
+
+        [Fact]
+        public void FormatCountdown_SecondsOnly()
+        {
+            Assert.Equal("T-45s", SelectiveSpawnUI.FormatCountdown(45));
+        }
+
+        [Fact]
+        public void FormatCountdown_MinutesAndSeconds()
+        {
+            Assert.Equal("T-5m 30s", SelectiveSpawnUI.FormatCountdown(330));
+        }
+
+        [Fact]
+        public void FormatCountdown_HoursMinutesSeconds()
+        {
+            Assert.Equal("T-2h 15m 0s", SelectiveSpawnUI.FormatCountdown(8100));
+        }
+
+        [Fact]
+        public void FormatCountdown_DaysHoursMinutesSeconds()
+        {
+            Assert.Equal("T-1d 2h 3m 4s", SelectiveSpawnUI.FormatCountdown(93784));
+        }
+
+        [Fact]
+        public void FormatCountdown_YearsDaysHours()
+        {
+            Assert.Equal("T-1y 10d 0h 0m 0s", SelectiveSpawnUI.FormatCountdown(365 * 86400 + 10 * 86400));
+        }
+
+        [Fact]
+        public void FormatCountdown_HidesLeadingZeros()
+        {
+            // 3661 seconds = 1h 1m 1s — no years or days
+            Assert.Equal("T-1h 1m 1s", SelectiveSpawnUI.FormatCountdown(3661));
+        }
+
+        [Fact]
+        public void FormatCountdown_Negative_ShowsTPlus()
+        {
+            Assert.Equal("T+10s", SelectiveSpawnUI.FormatCountdown(-10));
+        }
+
+        [Fact]
+        public void FormatCountdown_Zero()
+        {
+            Assert.Equal("T-0s", SelectiveSpawnUI.FormatCountdown(0));
+        }
+
         // ── FormatNextSpawnTooltip ──
 
         [Fact]
