@@ -65,15 +65,18 @@ Computed from existing trajectory data: max altitude, max speed, max G-force, di
 
 ---
 
-## Phase 4: Scale & Integration
+## Phase 4: Scale & Integration — Partial
 
 Make the mod work well with many recordings and integrate with the broader KSP ecosystem.
 
-### Ghost performance at scale
-Profile and optimize for 20+ recordings:
+### ~~Ghost soft cap manager~~ (Partial)
+`GhostSoftCapManager` implemented with zone-based thresholds and priority classification (looped/debris/timeline). Despawn action fully works. `ReduceFidelity` (mesh part culling) and `SimplifyToOrbitLine` (orbit line replacement) are placeholder/partial — ghosts are hidden but not replaced with simplified representations. Settings UI integrated.
+
+Remaining performance work:
 - LOD culling (don't render ghost meshes far from camera)
 - Ghost mesh unloading outside active time range
 - Particle system pooling for engine/RCS FX
+- `ReduceFidelity` and `SimplifyToOrbitLine` full implementations
 - Benchmark memory and frame time with synthetic recording stress tests
 
 ### Recording export/import
@@ -154,7 +157,93 @@ The recording tree builds on top of the existing chain system. Each node in the 
 | 12. Tree verbose logging | 11 logging gaps filled across RecordingTree, ParsekFlight, ResourceBudget. |
 | 13. Tree test coverage | 18 non-vacuous tests + 3 synthetic tree recordings for in-game validation. |
 
-**Test coverage:** 1342 tests.
+**Test coverage:** 2988 tests.
+
+---
+
+## Phase 7: Flight Recording System Redesign — In Progress
+
+Comprehensive redesign of the recording and playback systems, built on the `recording-system-redesign` branch. Encompasses Phase 6 (Recording Tree) plus format evolution, ghost visual hardening, part coverage expansion, and robustness improvements.
+
+**Design:** `docs/parsek-flight-recorder-design.md` (consolidated design document, also rendered as PDF)
+
+**Archived working documents:** `docs/dev/done/recording-system-redesign/`
+
+### What's done
+
+- **Recording Tree** (Phase 6) — 13 tasks, multi-vessel recording with background capture, tree commit, leaf spawn
+- **Format v6** — SegmentEvents, TrackSections, ControllerInfo, extended BranchPoint types
+- **Ghost visual hardening** — variant textures, damaged wheel filtering, fairing meshes, SRB nozzle glow, engine shrouds, initial state seeding for all 15+ tracking sets
+- **Part coverage expansion** — control surfaces, robotics/servo detection, cabin lights (ColorChanger), AnimateGeneric-based deployables
+- **RCS debounce** — 8-frame minimum activation filter eliminates SAS micro-correction noise
+- **KSC ghost playback** — ghosts visible in KSC scene with distance-based part event culling
+- **Ghost soft cap manager** — zone-based priority despawn (partial, see Phase 4)
+- **Log spam mitigation** — rate-limited high-volume diagnostics (SoftCap, GhostVisual, ShouldTriggerExplosion, CanRewind)
+- **59 bugs documented** — 44 fixed, see `docs/dev/known-bugs.md`
+
+### What remains
+
+**Critical:**
+- #51 — Chain ID lost on vessel-switch auto-stop (chain segments become disconnected)
+
+**High priority:**
+- #52 — CanRewind log spam (485K lines/session)
+- #53 — "re-shown after warp-down" log spam (16K lines/session)
+- #54 — Watch mode follows ghost beyond terrain loading range (~120km limit)
+- #55 — RELATIVE anchor triggers on debris and launch pad structures
+
+**Medium priority:**
+- #45 — Suborbital vessel spawn causes explosion
+- #46 — EVA kerbals disappear in water after spawn (needs investigation)
+- #50 — UI subgroups missing enable/loop checkboxes
+- #56 — EVA recordings only created from launch pad (design limitation)
+- #60 — Ghost map presence stubs not implemented (tracking station, orbit lines, nav target)
+- #61 — Controlled children have no recording segments after breakup
+
+**Low priority:**
+- #43 — Ghost variant shader not found: KSP/Emissive Specular (cosmetic)
+- #47 — TestSinkForTesting race condition (workaround in place)
+- #48 — ComputeBoundaryDiscontinuity hardcodes Kerbin radius (diagnostic only)
+- #49 — RealVesselExists O(n) per frame
+- #57 — Boarding confirmation expired on vessel switch
+- #58 — Background recording requires KSP debris persistence
+- #62 — Background ghost cachedIdx not persistent (minor perf)
+- #63 — Log contract checker lacks error whitelist (test infra)
+
+**Merge to main** after critical and high-priority items resolved.
+
+---
+
+## Phase 8: Game Actions Recording Redesign
+
+Redesign milestone capture, resource budgeting, and action replay to work correctly across all game modes, validated in order of increasing complexity.
+
+### Sandbox
+No resources, no tech tree, no contracts. Recording and ghost playback work as pure trajectory replay with zero game state interactions. Verify:
+- No resource budget UI shown
+- No milestone capture attempted
+- Rewind loads quicksave without action replay
+- Commit path skips all game state delta computation
+
+### Science mode
+Science budget and tech tree, no funds or reputation. Verify:
+- Science-only resource tracking (no funds/rep deltas)
+- Tech unlock milestones captured and replayed correctly
+- Part purchase milestones work without funds checks
+- Action blocking prevents re-researching committed tech
+- Rewind restores science balance and replays tech unlocks only
+
+### Career mode
+Full complexity: funds + science + reputation + contracts + crew management. Verify:
+- All three currencies tracked in resource budget
+- Contract milestone capture (accept, complete, fail, cancel)
+- Facility upgrade milestones and action blocking
+- Crew hire/fire milestones
+- Action replay handles all event types correctly after rewind
+- Resource budget remains consistent across rewind/fast-forward cycles
+- Edge cases: over-committed budgets, rewind past contract completion, facility downgrade on rewind
+
+Each mode adds a layer of game state complexity. The simpler modes must work flawlessly before the next layer is validated.
 
 ---
 
@@ -167,8 +256,8 @@ KSP's inertial reference frame (`Planetarium.right`) may drift over very long ti
 If the game crashes or the player alt-F4s while a merge dialog is pending, the recording data is lost from memory. The sidecar files (`.prec`, `_vessel.craft`, `_ghost.craft`) already exist on disk, but the metadata entry in `.sfs` referencing them is missing. Solution: write a `pending_manifest.cfg` file to `Parsek/Recordings/` when a recording is stashed. On next game load, if the manifest exists but the recording ID isn't in committed recordings, auto-recover it. Delete the manifest on commit or discard.
 
 ### Additional part event coverage
-- Control surface deflection (continuous float - thousands of events per flight, unclear visual value)
-- Robotics / Breaking Ground DLC (continuous servo motion, DLC-dependent)
+- ~~Control surface deflection~~ (done — recorded via AnimateGeneric pattern)
+- ~~Robotics / Breaking Ground DLC~~ (partial — servo detection implemented, continuous position tracking in place)
 - Two-phase engine startup (spool-up animations on some engines)
 
 ---

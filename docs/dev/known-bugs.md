@@ -651,3 +651,34 @@ When the player stages/decouples parts, KSP may instantly destroy the separated 
 **Fix:** Removed the per-call VERBOSE logs from `ClassifyPriority` entirely — inputs/outputs are already visible in the EvaluateCaps summary log. Also rate-limited related spam in the same commit: looped ghost spawn suppression (INFO → VerboseRateLimited 30s per ghost, was 61K lines), heat state changes (VERBOSE → VerboseRateLimited 5s per part PID, was ~20K lines during reentry).
 
 **Status:** Fixed
+
+## 60. Ghost map presence stubs not implemented (GhostMapPresence.cs)
+
+`GhostMapPresence` has the pure data layer complete (`HasOrbitData`, `ComputeGhostDisplayInfo`) but 4 KSP integration points are stubbed out as TODO comments (lines 108-128):
+
+1. **Register ghost in tracking station** — investigate whether KSP requires a `ProtoVessel` entry or if a custom `MapNode` can be created directly
+2. **Create map view orbit line** — distinct color/style to differentiate from real vessel orbits, needs `PlanetariumCamera` API research
+3. **Enable ghost as navigation target** — allow player to set ghost as rendezvous target for transfer planning, investigate `Vessel.SetTarget` compatibility
+4. **Remove tracking entry on despawn** — clean up when ghost is destroyed or chain tip spawns
+
+Tagged as Phase 6f-1 in code. Requires in-game API investigation.
+
+**Status:** Open — deferred (Phase 6f)
+
+## 61. Controlled children have no recording segments after breakup
+
+`ParsekFlight.cs:2225` — when a crash/breakup creates a recording tree, controlled children (non-debris parts that survive) have no recording segments created for them. The code logs their PIDs but does not start background recordings. Full implementation requires multi-vessel background recording infrastructure.
+
+**Status:** Open — deferred
+
+## 62. Background ghost positioning cachedIdx not persistent
+
+`ParsekFlight.cs:5030` — `InterpolateAndPosition` for background recording ghosts resets `cachedIdx` to 0 each frame instead of caching it on the ghost state or chain. This means every frame does a full binary search instead of O(1) amortized sequential lookup. No visual impact, minor performance cost with many background ghosts.
+
+**Status:** Open — low priority optimization
+
+## 63. Log contract checker lacks error whitelist
+
+`ParsekLogContractChecker.cs:99` — the `ERR-001` violation flags any ERROR-level log line as a test failure. No whitelist mechanism exists for intentional error-path test scenarios (e.g., testing that invalid input produces an expected error log). Currently no test scenarios require this.
+
+**Status:** Open — low priority (test infrastructure)
