@@ -12,7 +12,7 @@ Recording system redesign: multi-vessel sessions, ghost chain paradox prevention
 
 - **Segment boundary rule** — only physical structural separation creates new segments. Controller changes, part destruction without splitting, and crew transfers are recorded as SegmentEvents within a continuing segment.
 - **Crash coalescing** — rapid split events grouped into single BREAKUP BranchPoints via 0.5s window.
-- **Environment taxonomy** — 5-state classification (Atmospheric, ExoPropulsive, ExoBallistic, SurfaceMobile, SurfaceStationary) with hysteresis (1s thrust, 3s surface speed).
+- **Environment taxonomy** — 5-state classification (Atmospheric, ExoPropulsive, ExoBallistic, SurfaceMobile, SurfaceStationary) with hysteresis (1s thrust, 3s surface speed, 0.5s surface/atmospheric bounce).
 - **TrackSections** — typed trajectory chunks tagged with environment, reference frame, and data source.
 - **Reference frames** — ABSOLUTE for physics, ORBITAL_CHECKPOINT for on-rails, RELATIVE for anchor-vessel proximity.
 
@@ -20,12 +20,13 @@ Recording system redesign: multi-vessel sessions, ghost chain paradox prevention
 
 - **Background vessel recording** — all vessels in the physics bubble sampled at proximity-based rates (<200m: 5Hz, 200m-1km: 2Hz, 1-2.3km: 0.5Hz) with full part event capture.
 - **Background vessel split detection** — creates tree BranchPoints + child recordings for all new vessels from separations. Debris children get 30s TTL.
+- **Debris split detection** — `onPartDeCoupleNewVesselComplete` catches booster/debris vessels synchronously at decouple time. Debris trajectory recording planned for v0.5.1.
 - **Highest-fidelity-wins merge** — overlapping Active/Background/Checkpoint TrackSections merged per vessel with snap-switch at boundaries.
 - **Per-vessel merge dialog** — extended dialog shows per-vessel persist/ghost-only decisions.
 
 ### Relative Frames & Anchoring
 
-- **Anchor detection** — nearest pre-existing vessel with 2300m entry / 2500m exit hysteresis.
+- **Anchor detection** — nearest in-flight vessel with 2300m entry / 2500m exit hysteresis. Landed/splashed vessels excluded (not loaded during playback far from surface).
 - **Relative recording** — offsets stored as dx/dy/dz from anchor vessel for pixel-perfect docking playback.
 - **Relative playback** — ghost positioned at anchor's current world position + stored offset, FloatingOrigin-safe.
 - **Loop phase tracking** — preserves phase across anchor vessel load/unload via pure arithmetic.
@@ -66,7 +67,7 @@ Recording system redesign: multi-vessel sessions, ghost chain paradox prevention
 - **Settings UI** — three slider controls for cap thresholds with enable toggle and live apply.
 - **Log spam mitigation** — rate-limited high-volume diagnostics (SoftCap, zone, heat, engine FX).
 
-### Bug Fixes (63 tracked, 48 fixed)
+### Bug Fixes (70 tracked, 48 fixed)
 
 - **#51**: Chain ID lost on vessel-switch auto-stop — proper segment commit and chain termination
 - **#52**: CanRewind log spam (485K lines) — verbose removed from success path
@@ -74,6 +75,8 @@ Recording system redesign: multi-vessel sessions, ghost chain paradox prevention
 - **#54**: Watch mode beyond terrain range — 2s grace period then auto-exit
 - **#55**: RELATIVE anchor on debris — vessel type filtering + surface skip
 - **#9**: Zero-frame TrackSections from brief RELATIVE flickers — discarded
+- Active TrackSections not flushed to tree recordings — FlushRecorderToTreeRecording, CreateSplitBranch, CreateMergeBranch now copy TrackSections
+- Watch mode camera re-targeting — deferred spawn no longer switches camera to spawned vessel after watch mode ends at recording boundary
 - Rewind save propagation fixed across tree/EVA/split paths
 - Soft cap spawn-despawn loop — suppression set prevents re-spawn after cap despawn
 - Zone hide vs warp re-show loop — check currentZone before re-showing
@@ -91,7 +94,7 @@ Recording system redesign: multi-vessel sessions, ghost chain paradox prevention
 
 ### Test Coverage
 
-2988 tests (up from 1748 in v0.4.3).
+2994 tests (up from 1748 in v0.4.3).
 
 ---
 
