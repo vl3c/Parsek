@@ -1928,17 +1928,6 @@ namespace Parsek
             if (rec.SpawnedVesselPersistentId != 0)
                 return (false, $"already spawned (pid={rec.SpawnedVesselPersistentId})");
 
-            // Real vessel dedup: if a vessel with this PID still exists in the game world,
-            // the vessel is already at its post-recording position — no need to spawn a duplicate.
-            // On revert, KSP restores the vessel from quicksave with a new PID (launch state),
-            // so RealVesselExists(old PID) returns false and the spawn proceeds correctly.
-            if (rec.VesselPersistentId != 0 && RealVesselExists(rec.VesselPersistentId))
-            {
-                rec.VesselSpawned = true;
-                rec.SpawnedVesselPersistentId = rec.VesselPersistentId;
-                return (false, "real vessel already exists");
-            }
-
             return (true, "");
         }
 

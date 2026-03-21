@@ -5181,6 +5181,18 @@ namespace Parsek
         /// </summary>
         private void SpawnVesselOrChainTip(Recording rec, int index)
         {
+            // Real vessel dedup: if a vessel with this PID still exists in the game world,
+            // skip spawning a duplicate. This runs only at actual spawn time (pastChainEnd),
+            // not every frame like ShouldSpawnAtRecordingEnd.
+            if (rec.VesselPersistentId != 0 && GhostPlaybackLogic.RealVesselExists(rec.VesselPersistentId))
+            {
+                rec.VesselSpawned = true;
+                rec.SpawnedVesselPersistentId = rec.VesselPersistentId;
+                ParsekLog.Info("Flight",
+                    $"Spawn skipped: #{index} \"{rec.VesselName}\" — real vessel pid={rec.VesselPersistentId} already exists");
+                return;
+            }
+
             GhostChain chain = FindChainTipForRecording(activeGhostChains, rec);
             if (chain != null && vesselGhoster != null)
             {

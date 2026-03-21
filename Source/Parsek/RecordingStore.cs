@@ -285,6 +285,22 @@ namespace Parsek
                 }
             }
 
+            // Auto-group: assign all tree recordings to a group named after the tree
+            // so they appear collapsed in the recordings window instead of as separate entries.
+            if (!string.IsNullOrEmpty(tree.TreeName) && tree.Recordings.Count > 1)
+            {
+                string groupName = tree.TreeName;
+                foreach (var rec in tree.Recordings.Values)
+                {
+                    if (rec.RecordingGroups == null)
+                        rec.RecordingGroups = new List<string>();
+                    if (!rec.RecordingGroups.Contains(groupName))
+                        rec.RecordingGroups.Add(groupName);
+                }
+                ParsekLog.Info("RecordingStore",
+                    $"Auto-grouped {tree.Recordings.Count} recordings under '{groupName}'");
+            }
+
             // Add all tree recordings to committedRecordings (enables ghost playback)
             foreach (var rec in tree.Recordings.Values)
             {

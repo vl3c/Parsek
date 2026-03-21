@@ -468,15 +468,17 @@ namespace Parsek.Tests
         #endregion
 
         // ================================================================
-        // 3b. ShouldSpawnAtRecordingEnd — real vessel dedup
+        // 3b. ShouldSpawnAtRecordingEnd — no side-effecting RealVesselExists
         // ================================================================
 
         #region ShouldSpawnAtRecordingEnd real vessel dedup
 
         [Fact]
-        public void ShouldSpawn_RealVesselExists_ReturnsFalse()
+        public void ShouldSpawn_RealVesselExists_StillReturnsTrue()
         {
-            // Vessel already in scene — no spawn needed
+            // ShouldSpawnAtRecordingEnd does NOT check RealVesselExists —
+            // that dedup happens at actual spawn time in SpawnVesselOrChainTip.
+            // This avoids premature VesselSpawned=true side effects.
             GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == 3000);
             var rec = new Recording
             {
@@ -490,10 +492,9 @@ namespace Parsek.Tests
             var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                 rec, false, false);
 
-            Assert.False(needsSpawn);
-            Assert.Contains("real vessel already exists", reason);
-            Assert.True(rec.VesselSpawned);
-            Assert.Equal((uint)3000, rec.SpawnedVesselPersistentId);
+            Assert.True(needsSpawn);
+            Assert.Equal("", reason);
+            Assert.False(rec.VesselSpawned); // no side effect
         }
 
         [Fact]
