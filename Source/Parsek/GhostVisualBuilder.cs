@@ -3344,12 +3344,15 @@ namespace Parsek
                                 fxInstance.transform.localRotation = fxDefinitions[f].localRotation;
                                 fxInstance.transform.localScale = fxDefinitions[f].localScale;
 
-                                var ps = fxInstance.GetComponentInChildren<ParticleSystem>();
-                                if (ps != null)
+                                // Configure ALL particle systems in the FX hierarchy (not just the first).
+                                // KSP RCS FX models have multiple child systems (plume + glow/smoke).
+                                // Using singular GetComponentInChildren only stopped the first one —
+                                // the rest kept playOnAwake=true and auto-played on ghost activation.
+                                var allPs = fxInstance.GetComponentsInChildren<ParticleSystem>(true);
+                                for (int p = 0; p < allPs.Length; p++)
                                 {
+                                    var ps = allPs[p];
                                     var main = ps.main;
-                                    // Keep showcase/startup visuals deterministic: cloned FX must not
-                                    // auto-emit before the first explicit RCS event is applied.
                                     main.playOnAwake = false;
                                     main.prewarm = false;
 
@@ -3359,15 +3362,16 @@ namespace Parsek
                                     ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                                     ps.Clear(true);
 
-                                    if (raiseRcsVisualOnly)
-                                    {
-                                        var psRenderer = ps.GetComponent<ParticleSystemRenderer>();
-                                        if (psRenderer != null)
-                                        {
-                                            psRenderer.enabled = true;
-                                        }
-                                    }
+                                    // Disable renderer at build time (matching engine FX pattern).
+                                    // SetRcsEmission re-enables renderers when RCS events fire.
+                                    var psRenderer = ps.GetComponent<ParticleSystemRenderer>();
+                                    if (psRenderer != null)
+                                        psRenderer.enabled = raiseRcsVisualOnly;
+
                                     info.particleSystems.Add(ps);
+                                }
+                                if (allPs.Length > 0)
+                                {
                                     LogFxInstancePlacementDiagnostic(
                                         partName,
                                         moduleIndex,
@@ -3382,16 +3386,18 @@ namespace Parsek
                                         fxDefinitions[f].localOffset,
                                         fxDefinitions[f].localRotation,
                                         true);
-                                    var diagRenderer = ps.GetComponent<ParticleSystemRenderer>();
-                                    var diagMain = ps.main;
+                                    var diagPs = allPs[0];
+                                    var diagRenderer = diagPs.GetComponent<ParticleSystemRenderer>();
+                                    var diagMain = diagPs.main;
                                     ParsekLog.Verbose("GhostVisual", $"    RCS FX cloned: '{partName}' midx={moduleIndex} " +
                                         $"transform='{transformName}' model='{modelName}' " +
                                         $"offset={fxDefinitions[f].localOffset} " +
                                         $"rot={fxDefinitions[f].localRotation.eulerAngles} " +
                                         $"scale={fxDefinitions[f].localScale} " +
-                                        $"active={ps.gameObject.activeInHierarchy} " +
+                                        $"active={diagPs.gameObject.activeInHierarchy} " +
                                         $"sim={diagMain.simulationSpace} playOnAwake={diagMain.playOnAwake} prewarm={diagMain.prewarm} " +
-                                        $"renderer={(diagRenderer != null && diagRenderer.enabled)}");
+                                        $"renderer={(diagRenderer != null && diagRenderer.enabled)} " +
+                                        $"totalSystems={allPs.Length}");
                                 }
                             }
                             else
