@@ -3076,9 +3076,6 @@ namespace Parsek
             Log($"Part event captured: {eventType} '{evt.partName}' pid={evt.partPersistentId} via {sourceEvent}");
         }
 
-        // TODO(multiplayer): Consider blocking FlagSite.TakeDown KSPEvent for flags
-        // planted by other players, so they can't remove each other's flags.
-        // Harmony prefix on FlagSite.TakeDown that checks placedBy against local player.
         void OnAfterFlagPlanted(FlagSite flagSite)
         {
             if (flagSite == null || flagSite.vessel == null || flagSite.part == null) return;
