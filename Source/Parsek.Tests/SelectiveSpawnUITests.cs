@@ -20,6 +20,27 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
         }
 
+        // ── GetPendingChainTipCount ──
+
+        [Fact]
+        public void GetPendingChainTipCount_NullChains_ReturnsZero()
+        {
+            Assert.Equal(0, SelectiveSpawnUI.GetPendingChainTipCount(null));
+        }
+
+        [Fact]
+        public void GetPendingChainTipCount_FiltersTerminated()
+        {
+            var chains = new Dictionary<uint, GhostChain>
+            {
+                { 1, new GhostChain { OriginalVesselPid = 1, IsTerminated = false } },
+                { 2, new GhostChain { OriginalVesselPid = 2, IsTerminated = true } },
+                { 3, new GhostChain { OriginalVesselPid = 3, IsTerminated = false } }
+            };
+
+            Assert.Equal(2, SelectiveSpawnUI.GetPendingChainTipCount(chains));
+        }
+
         // ── GetPendingChainTips ──
 
         [Fact]

@@ -591,6 +591,7 @@ namespace Parsek
                 ui.DrawRecordingsWindowIfOpen(windowRect);
                 ui.DrawActionsWindowIfOpen(windowRect);
                 ui.DrawSettingsWindowIfOpen(windowRect);
+                ui.DrawSpawnControlWindowIfOpen(windowRect);
             }
         }
 
@@ -8925,7 +8926,7 @@ namespace Parsek
 
         /// <summary>
         /// Executes a time jump to the earliest pending chain tip.
-        /// "Warp to Next Spawn" — DMP's SUBSPACE_SIMPLE analog.
+        /// "Warp to Next Spawn" — warps to earliest pending chain tip.
         /// Uses FindNextSpawnChain to get the chain directly, avoiding float equality.
         /// </summary>
         internal void WarpToNextSpawn()

@@ -157,11 +157,13 @@ namespace Parsek
         private Rect lastRecordingsWindowRect;
         private Rect lastActionsWindowRect;
         private Rect lastSettingsWindowRect;
+        private Rect lastSpawnControlWindowRect;
 
-        // Per-draw cached spawn UI data (avoids per-frame/per-row allocations)
-        private GhostChain cachedNextSpawnChain;
-        private Dictionary<string, GhostChain> cachedTipRecToChain;
-        private double cachedSpawnCurrentUT;
+        // Spawn Control window
+        private bool showSpawnControlWindow;
+        private Rect spawnControlWindowRect;
+        private bool spawnControlWindowHasInputLock;
+        private const string SpawnControlInputLockId = "Parsek_SpawnControlWindow";
 
         public ParsekUI(ParsekFlight flight)
         {
@@ -180,22 +182,6 @@ namespace Parsek
 
         public void DrawWindow(int windowID)
         {
-            // Pre-compute spawn UI data once per draw (avoids per-row allocations)
-            if (InFlight && flight != null && flight.ActiveGhostChains != null)
-            {
-                cachedSpawnCurrentUT = Planetarium.GetUniversalTime();
-                cachedNextSpawnChain = SelectiveSpawnUI.FindNextSpawnChain(
-                    flight.ActiveGhostChains, cachedSpawnCurrentUT);
-                cachedTipRecToChain = SelectiveSpawnUI.BuildTipRecordingToChainMap(
-                    flight.ActiveGhostChains);
-            }
-            else
-            {
-                cachedSpawnCurrentUT = 0;
-                cachedNextSpawnChain = null;
-                cachedTipRecToChain = null;
-            }
-
             GUILayout.BeginVertical();
 
             if (InFlight)
@@ -223,9 +209,26 @@ namespace Parsek
             if (InFlight)
                 DrawFlightRecordingControls();
 
-            // --- Warp to Next Spawn button (DMP SUBSPACE_SIMPLE analog) ---
-            if (InFlight && flight != null)
-                DrawWarpToNextSpawnButton();
+            // --- Spawn Control toggle ---
+            if (InFlight && flight != null &&
+                flight.ActiveGhostChains != null && flight.ActiveGhostChains.Count > 0)
+            {
+                int pendingCount = SelectiveSpawnUI.GetPendingChainTipCount(
+                    flight.ActiveGhostChains);
+                if (pendingCount > 0)
+                {
+                    if (GUILayout.Button(string.Format(
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        "Spawn Control ({0})", pendingCount)))
+                    {
+                        showSpawnControlWindow = !showSpawnControlWindow;
+                        ParsekLog.Verbose("UI",
+                            string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                "Spawn Control window toggled: {0}",
+                                showSpawnControlWindow ? "open" : "closed"));
+                    }
+                }
+            }
 
             // --- Settings button ---
             GUILayout.Space(SpacingLarge);
@@ -318,29 +321,6 @@ namespace Parsek
                     flight.CommitFlight();
             }
             GUI.enabled = true;
-        }
-
-        /// <summary>
-        /// Draws the "Warp to Next Spawn" button in the main Parsek window.
-        /// Visible when there are pending ghost chain tips in the future.
-        /// Inspired by DMP's SUBSPACE_SIMPLE mode: single button to warp to the
-        /// earliest pending interaction point.
-        /// Uses cachedNextSpawnChain pre-computed in DrawWindow.
-        /// </summary>
-        private void DrawWarpToNextSpawnButton()
-        {
-            if (cachedNextSpawnChain == null) return;
-
-            GUILayout.Space(SpacingSmall);
-
-            string tooltip = SelectiveSpawnUI.FormatNextSpawnTooltip(
-                cachedNextSpawnChain, cachedSpawnCurrentUT, flight.GetChainVesselNames());
-
-            if (GUILayout.Button(new GUIContent("Warp to Next Spawn", tooltip)))
-            {
-                ParsekLog.Info("UI", "Warp to Next Spawn button clicked");
-                flight.WarpToNextSpawn();
-            }
         }
 
         /// <summary>
@@ -1336,28 +1316,6 @@ namespace Parsek
             }
             var statusContent = new GUIContent(statusText, chainStatusTooltip);
             GUILayout.Label(statusContent, statusStyle, GUILayout.Width(ColW_Status));
-
-            // Per-chain "Warp to Spawn" button — uses cached reverse lookup (O(1) per row)
-            if (cachedTipRecToChain != null && rec.RecordingId != null &&
-                cachedTipRecToChain.TryGetValue(rec.RecordingId, out GhostChain rowChain) &&
-                SelectiveSpawnUI.CanWarpToChain(rowChain, cachedSpawnCurrentUT))
-            {
-                string btnText = SelectiveSpawnUI.FormatWarpButtonText(rowChain, cachedSpawnCurrentUT);
-                var alsoSpawned = SelectiveSpawnUI.FindAlsoSpawnedChains(
-                    flight.ActiveGhostChains, rowChain, cachedSpawnCurrentUT);
-                string warning = SelectiveSpawnUI.FormatAlsoSpawnsWarning(
-                    alsoSpawned, flight.GetChainVesselNames());
-                var btnContent = new GUIContent(btnText, warning ?? "");
-
-                if (GUILayout.Button(btnContent, GUILayout.MinWidth(75)))
-                {
-                    ParsekLog.Info("UI",
-                        string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                            "Warp to Spawn clicked for chain tip vessel={0} recording='{1}'",
-                            rowChain.OriginalVesselPid, rec.VesselName));
-                    flight.WarpToChainTip(rowChain.OriginalVesselPid);
-                }
-            }
 
             // Group assignment button
             if (GUILayout.Button("G", GUILayout.Width(ColW_Group)))
@@ -2864,6 +2822,168 @@ namespace Parsek
             settingsWindowHasInputLock = false;
         }
 
+        // ════════════════════════════════════════════════════════════════
+        //  Spawn Control window
+        // ════════════════════════════════════════════════════════════════
+
+        public void DrawSpawnControlWindowIfOpen(Rect mainWindowRect)
+        {
+            if (!showSpawnControlWindow)
+            {
+                ReleaseSpawnControlInputLock();
+                return;
+            }
+
+            // Auto-close when no chains exist
+            if (!InFlight || flight == null ||
+                flight.ActiveGhostChains == null || flight.ActiveGhostChains.Count == 0)
+            {
+                showSpawnControlWindow = false;
+                ReleaseSpawnControlInputLock();
+                return;
+            }
+
+            if (spawnControlWindowRect.width < 1f)
+            {
+                spawnControlWindowRect = new Rect(
+                    mainWindowRect.x + mainWindowRect.width + 10,
+                    mainWindowRect.y + mainWindowRect.height + 10,
+                    320, 10);
+                var ic = System.Globalization.CultureInfo.InvariantCulture;
+                ParsekLog.Verbose("UI",
+                    $"Spawn Control window initial position: x={spawnControlWindowRect.x.ToString("F0", ic)} y={spawnControlWindowRect.y.ToString("F0", ic)}");
+            }
+
+            EnsureOpaqueWindowStyle();
+            spawnControlWindowRect = ClickThruBlocker.GUILayoutWindow(
+                "ParsekSpawnControl".GetHashCode(),
+                spawnControlWindowRect,
+                DrawSpawnControlWindow,
+                "Parsek \u2014 Spawn Control",
+                opaqueWindowStyle,
+                GUILayout.Width(320)
+            );
+            LogWindowPosition("SpawnControl", ref lastSpawnControlWindowRect, spawnControlWindowRect);
+
+            if (spawnControlWindowRect.Contains(Event.current.mousePosition))
+            {
+                if (!spawnControlWindowHasInputLock)
+                {
+                    InputLockManager.SetControlLock(ControlTypes.CAMERACONTROLS, SpawnControlInputLockId);
+                    spawnControlWindowHasInputLock = true;
+                }
+            }
+            else
+            {
+                ReleaseSpawnControlInputLock();
+            }
+        }
+
+        private void ReleaseSpawnControlInputLock()
+        {
+            if (!spawnControlWindowHasInputLock) return;
+            InputLockManager.RemoveControlLock(SpawnControlInputLockId);
+            spawnControlWindowHasInputLock = false;
+        }
+
+        private void DrawSpawnControlWindow(int windowID)
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            double currentUT = Planetarium.GetUniversalTime();
+            var pendingTips = SelectiveSpawnUI.GetPendingChainTips(flight.ActiveGhostChains);
+            var vesselNames = flight.GetChainVesselNames();
+
+            if (pendingTips.Count == 0)
+            {
+                GUILayout.Label("No pending spawns.");
+                if (GUILayout.Button("Close"))
+                    showSpawnControlWindow = false;
+                GUI.DragWindow();
+                return;
+            }
+
+            // Per-chain rows
+            for (int i = 0; i < pendingTips.Count; i++)
+            {
+                GhostChain chain = pendingTips[i];
+                string name;
+                if (!vesselNames.TryGetValue(chain.OriginalVesselPid, out name))
+                    name = string.Format(ic, "Vessel {0}", chain.OriginalVesselPid);
+
+                string spawnDate = KSPUtil.PrintDateCompact(chain.SpawnUT, true);
+                double delta = chain.SpawnUT - currentUT;
+                bool canWarp = SelectiveSpawnUI.CanWarpToChain(chain, currentUT);
+
+                // "Also spawns" warning (computed once, used for label and click log)
+                string rowWarning = null;
+                if (canWarp)
+                {
+                    var alsoSpawned = SelectiveSpawnUI.FindAlsoSpawnedChains(
+                        flight.ActiveGhostChains, chain, currentUT);
+                    rowWarning = SelectiveSpawnUI.FormatAlsoSpawnsWarning(
+                        alsoSpawned, vesselNames);
+                }
+
+                GUILayout.BeginHorizontal(GUI.skin.box);
+                GUILayout.BeginVertical();
+                GUILayout.Label(name, GUILayout.ExpandWidth(true));
+                GUILayout.Label(
+                    string.Format(ic, "{0}  (in {1})", spawnDate,
+                        SelectiveSpawnUI.FormatTimeDelta(delta)));
+                GUILayout.EndVertical();
+
+                GUI.enabled = canWarp;
+                if (GUILayout.Button("Warp", GUILayout.Width(60)))
+                {
+                    if (rowWarning != null)
+                        ParsekLog.Info("UI",
+                            string.Format(ic, "Spawn Control warp: {0}", rowWarning));
+                    ParsekLog.Info("UI",
+                        string.Format(ic,
+                            "Spawn Control: warp to vessel={0} name='{1}'",
+                            chain.OriginalVesselPid, name));
+                    flight.WarpToChainTip(chain.OriginalVesselPid);
+                }
+                GUI.enabled = true;
+                GUILayout.EndHorizontal();
+
+                if (rowWarning != null)
+                    GUILayout.Label(string.Format(ic, "  \u26a0 {0}", rowWarning));
+            }
+
+            // Bottom section
+            GUILayout.Space(SpacingLarge);
+
+            // "Warp to Next Spawn" — earliest future chain tip
+            GhostChain nextChain = SelectiveSpawnUI.FindNextSpawnChain(
+                flight.ActiveGhostChains, currentUT);
+            if (nextChain != null)
+            {
+                string tooltip = SelectiveSpawnUI.FormatNextSpawnTooltip(
+                    nextChain, currentUT, vesselNames);
+                if (GUILayout.Button(new GUIContent("Warp to Next Spawn", tooltip)))
+                {
+                    ParsekLog.Info("UI", "Spawn Control: Warp to Next Spawn clicked");
+                    flight.WarpToNextSpawn();
+                }
+            }
+
+            if (GUILayout.Button("Close"))
+            {
+                showSpawnControlWindow = false;
+                ParsekLog.Verbose("UI", "Spawn Control window closed via button");
+            }
+
+            // Render tooltip below buttons
+            if (!string.IsNullOrEmpty(GUI.tooltip))
+            {
+                GUILayout.Space(SpacingSmall);
+                GUILayout.Label(GUI.tooltip, GUI.skin.box);
+            }
+
+            GUI.DragWindow();
+        }
+
         private void CommitSettingsAutoLoopEdit(ParsekSettings s)
         {
             double parsed;
@@ -3226,6 +3346,7 @@ namespace Parsek
             ReleaseRecordingsInputLock();
             ReleaseActionsInputLock();
             ReleaseSettingsInputLock();
+            ReleaseSpawnControlInputLock();
             if (mapMarkerTexture != null)
                 Object.Destroy(mapMarkerTexture);
         }

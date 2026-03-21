@@ -7,15 +7,30 @@ namespace Parsek
     /// Pure static methods for the selective spawn UI: determining which chain tips
     /// are available for interaction, computing warp targets, and formatting UI text.
     ///
-    /// Inspired by Dark Multiplayer's subspace selection pattern: the player sees ghost
-    /// vessels (like DMP's cross-subspace vessels) and explicitly chooses to "sync" by
-    /// warping past the chain tip UT. DMP's SUBSPACE_SIMPLE mode (warp to latest) maps
-    /// to WarpToNextSpawn; the full SUBSPACE list maps to per-chain spawn buttons.
+    /// The player sees ghost vessels and explicitly chooses which to materialize by
+    /// warping past the chain tip UT. The Spawn Control window lists all pending chain
+    /// tips with per-vessel warp buttons and a convenience "Warp to Next Spawn" button.
     /// </summary>
     internal static class SelectiveSpawnUI
     {
         private const string Tag = "SelectiveSpawn";
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+
+        /// <summary>
+        /// Pure: count pending (non-terminated) chain tips without allocating a list.
+        /// Used by the main window toggle button label.
+        /// </summary>
+        internal static int GetPendingChainTipCount(Dictionary<uint, GhostChain> chains)
+        {
+            if (chains == null || chains.Count == 0) return 0;
+            int count = 0;
+            foreach (var kvp in chains)
+            {
+                if (!kvp.Value.IsTerminated)
+                    count++;
+            }
+            return count;
+        }
 
         /// <summary>
         /// Pure: find all pending (non-terminated, non-blocked) chain tips, sorted by SpawnUT.
@@ -78,7 +93,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure: compute the target UT for "Warp to Next Spawn" (DMP's SUBSPACE_SIMPLE analog).
+        /// Pure: compute the target UT for "Warp to Next Spawn".
         /// Returns the earliest pending chain tip's SpawnUT, or 0 if none pending.
         /// </summary>
         internal static double ComputeNextSpawnUT(Dictionary<uint, GhostChain> chains, double currentUT)
@@ -118,7 +133,7 @@ namespace Parsek
         /// Pure: find chains that will also be spawned if the player warps to the given chain.
         /// Returns chains with SpawnUT between currentUT and the selected chain's SpawnUT (exclusive
         /// of the selected chain itself). Sorted chronologically.
-        /// DMP analog: chronological subspace ordering — can't skip intermediate subspaces.
+        /// Chronological constraint: earlier chain tips are always spawned first.
         /// </summary>
         internal static List<GhostChain> FindAlsoSpawnedChains(
             Dictionary<uint, GhostChain> chains, GhostChain selected, double currentUT)
