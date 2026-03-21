@@ -183,9 +183,6 @@ Comprehensive redesign of the recording and playback systems, built on the `reco
 
 ### What remains
 
-**Critical:**
-- #51 — Chain ID lost on vessel-switch auto-stop (chain segments become disconnected)
-
 **High priority:**
 - #52 — CanRewind log spam (485K lines/session)
 - #53 — "re-shown after warp-down" log spam (16K lines/session)

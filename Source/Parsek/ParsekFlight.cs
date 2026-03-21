@@ -364,22 +364,9 @@ namespace Parsek
 
             // Bug #51: vessel-switch auto-stop loses chain ID.
             // HandleVesselSwitchDuringRecording (in FlightRecorder) builds CaptureAtStop
-            // but cannot access ParsekFlight's chain fields. Tag chain metadata here
-            // before OnSceneChangeRequested or CommitFlight consumes the capture.
-            if (recorder != null && !recorder.IsRecording && recorder.CaptureAtStop != null
-                && activeChainId != null
-                && string.IsNullOrEmpty(recorder.CaptureAtStop.ChainId)
-                && !recorder.ChainToVesselPending
-                && !recorder.DockMergePending
-                && !recorder.UndockSwitchPending)
-            {
-                recorder.CaptureAtStop.ChainId = activeChainId;
-                recorder.CaptureAtStop.ChainIndex = activeChainNextIndex;
-                recorder.CaptureAtStop.ParentRecordingId = activeChainPrevId;
-                recorder.CaptureAtStop.EvaCrewName = activeChainCrewName;
-                Log($"Tagged auto-stopped CaptureAtStop with chain metadata: " +
-                    $"chain={activeChainId}, idx={activeChainNextIndex}");
-            }
+            // but cannot access ParsekFlight's chain fields. Commit the segment as a
+            // proper chain member and terminate the chain (vessel was switched away).
+            HandleVesselSwitchChainTermination();
 
             HandleAtmosphereBoundarySplit();
             HandleSoiChangeSplit();
@@ -3090,6 +3077,99 @@ namespace Parsek
             // Advance chain state
             activeChainNextIndex++;
             activeChainPrevId = segmentId;
+        }
+
+        /// <summary>
+        /// Bug #51 fix: when vessel-switch auto-stop fires during an active chain,
+        /// commit the segment as a proper chain member and terminate the chain.
+        /// The vessel was switched away so no continuation recording can start.
+        /// Modeled on CommitBoundarySplit but without starting a new segment.
+        /// </summary>
+        void HandleVesselSwitchChainTermination()
+        {
+            if (recorder == null || recorder.IsRecording || recorder.CaptureAtStop == null)
+                return;
+            if (activeChainId == null)
+                return;
+            if (pendingChainContinuation || recorder.ChainToVesselPending
+                || recorder.DockMergePending || recorder.UndockSwitchPending)
+                return;
+
+            var captured = recorder.CaptureAtStop;
+            string segmentId = captured.RecordingId;
+            ParsekLog.Info("Flight", $"Vessel-switch chain termination: committing final segment " +
+                $"(id={segmentId}, chain={activeChainId}, idx={activeChainNextIndex}, " +
+                $"points={recorder.Recording.Count}, orbits={recorder.OrbitSegments.Count})");
+
+            RecordingStore.StashPending(
+                recorder.Recording,
+                captured.VesselName ?? "Unknown",
+                recorder.OrbitSegments,
+                recordingId: segmentId,
+                recordingFormatVersion: (int?)captured.RecordingFormatVersion,
+                partEvents: recorder.PartEvents);
+
+            if (!RecordingStore.HasPending)
+            {
+                ParsekLog.Warn("Flight", "Vessel-switch chain termination: segment too short to stash — " +
+                    $"aborting (points={recorder.Recording.Count})");
+                // Still clear chain state to avoid blocking CommitFlight
+                activeChainId = null;
+                activeChainNextIndex = 0;
+                activeChainPrevId = null;
+                activeChainCrewName = null;
+                recorder = null;
+                return;
+            }
+
+            RecordingStore.Pending.ApplyPersistenceArtifactsFrom(captured);
+
+            // Tag chain metadata
+            RecordingStore.Pending.ChainId = activeChainId;
+            RecordingStore.Pending.ChainIndex = activeChainNextIndex;
+            RecordingStore.Pending.ChainBranch = 0;
+            RecordingStore.Pending.ParentRecordingId = activeChainPrevId;
+            RecordingStore.Pending.EvaCrewName = activeChainCrewName;
+            RecordingStore.Pending.VesselPersistentId = recorder.RecordingVesselId;
+
+            // Derive segment phase/body from the recorded vessel (not ActiveVessel which changed)
+            Vessel recordedVessel = FlightRecorder.FindVesselByPid(recorder.RecordingVesselId);
+            if (recordedVessel != null && recordedVessel.mainBody != null)
+            {
+                RecordingStore.Pending.SegmentBodyName = recordedVessel.mainBody.name;
+                if (recordedVessel.mainBody.atmosphere)
+                    RecordingStore.Pending.SegmentPhase = recordedVessel.altitude < recordedVessel.mainBody.atmosphereDepth ? "atmo" : "exo";
+                else
+                    RecordingStore.Pending.SegmentPhase = "space";
+
+                // Terminal state from vessel situation
+                RecordingStore.Pending.SceneExitSituation = (int)recordedVessel.situation;
+                RecordingStore.Pending.TerminalStateValue =
+                    RecordingTree.DetermineTerminalState((int)recordedVessel.situation);
+            }
+
+            // Final chain segment keeps VesselSnapshot for spawning (not ghost-only)
+
+            RecordingStore.CommitPending();
+            ParsekScenario.ReserveSnapshotCrew();
+            ParsekScenario.SwapReservedCrewInFlight();
+
+            // Clean up continuation sampling if active
+            if (continuationVesselPid != 0)
+            {
+                RefreshContinuationSnapshot();
+                StopContinuation("vessel-switch chain termination");
+            }
+
+            // Terminate chain — no continuation possible after vessel switch
+            ParsekLog.Info("Flight", $"Chain terminated by vessel switch: chain={activeChainId}, " +
+                $"finalIdx={activeChainNextIndex}, segment={segmentId}, " +
+                $"totalRecordings={RecordingStore.CommittedRecordings.Count}");
+            activeChainId = null;
+            activeChainNextIndex = 0;
+            activeChainPrevId = null;
+            activeChainCrewName = null;
+            recorder = null;
         }
 
         /// <summary>
