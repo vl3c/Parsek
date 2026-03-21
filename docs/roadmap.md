@@ -179,38 +179,18 @@ Comprehensive redesign of the recording and playback systems, built on the `reco
 - **KSC ghost playback** — ghosts visible in KSC scene with distance-based part event culling
 - **Ghost soft cap manager** — zone-based priority despawn (partial, see Phase 4)
 - **Log spam mitigation** — rate-limited high-volume diagnostics (SoftCap, GhostVisual, ShouldTriggerExplosion, CanRewind)
-- **59 bugs documented** — 44 fixed, see `docs/dev/known-bugs.md`
+- **59 bugs documented** — 44 fixed, see `docs/dev/todo-and-known-bugs.md`
 
 ### What remains
 
-**Critical:**
-- #51 — Chain ID lost on vessel-switch auto-stop (chain segments become disconnected)
+Remaining work tracked in `docs/dev/todo-and-known-bugs.md`. Key areas:
+- Log spam reduction (high-volume per-frame diagnostics still dominating output)
+- Watch mode distance limits and anchor detection filtering
+- Ghost map presence KSP integration (tracking station, orbit lines, nav target)
+- UI subgroup controls and EVA recording scope expansion
+- Minor performance optimizations and test infrastructure improvements
 
-**High priority:**
-- #52 — CanRewind log spam (485K lines/session)
-- #53 — "re-shown after warp-down" log spam (16K lines/session)
-- #54 — Watch mode follows ghost beyond terrain loading range (~120km limit)
-- #55 — RELATIVE anchor triggers on debris and launch pad structures
-
-**Medium priority:**
-- #45 — Suborbital vessel spawn causes explosion
-- #46 — EVA kerbals disappear in water after spawn (needs investigation)
-- #50 — UI subgroups missing enable/loop checkboxes
-- #56 — EVA recordings only created from launch pad (design limitation)
-- #60 — Ghost map presence stubs not implemented (tracking station, orbit lines, nav target)
-- #61 — Controlled children have no recording segments after breakup
-
-**Low priority:**
-- #43 — Ghost variant shader not found: KSP/Emissive Specular (cosmetic)
-- #47 — TestSinkForTesting race condition (workaround in place)
-- #48 — ComputeBoundaryDiscontinuity hardcodes Kerbin radius (diagnostic only)
-- #49 — RealVesselExists O(n) per frame
-- #57 — Boarding confirmation expired on vessel switch
-- #58 — Background recording requires KSP debris persistence
-- #62 — Background ghost cachedIdx not persistent (minor perf)
-- #63 — Log contract checker lacks error whitelist (test infra)
-
-**Merge to main** after critical and high-priority items resolved.
+**Merge to main** after high-priority items resolved.
 
 ---
 
