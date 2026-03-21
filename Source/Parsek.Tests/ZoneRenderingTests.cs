@@ -146,12 +146,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void GetZoneRenderingPolicy_Visual_MeshOnlyNoPartEvents()
+        public void GetZoneRenderingPolicy_Visual_MeshAndPartEvents()
         {
             var (shouldHide, skipPartEvents, skipPositioning) =
                 GhostPlaybackLogic.GetZoneRenderingPolicy(RenderingZone.Visual);
             Assert.False(shouldHide);
-            Assert.True(skipPartEvents);
+            Assert.False(skipPartEvents);
             Assert.False(skipPositioning);
         }
 
@@ -234,9 +234,9 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldApplyPartEventsForZone_Visual_ReturnsFalse()
+        public void ShouldApplyPartEventsForZone_Visual_ReturnsTrue()
         {
-            Assert.False(GhostPlaybackLogic.ShouldApplyPartEventsForZone(RenderingZone.Visual));
+            Assert.True(GhostPlaybackLogic.ShouldApplyPartEventsForZone(RenderingZone.Visual));
         }
 
         [Fact]
