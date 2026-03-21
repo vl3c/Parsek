@@ -5063,10 +5063,16 @@ namespace Parsek
                         continue;
                     }
 
-                    string colorProperty = source.HasProperty("_Color")
-                        ? "_Color"
-                        : null;
                     string emissiveProperty = TryGetHeatEmissiveProperty(source);
+
+                    // In the fallback path (no resolved transforms), only track materials
+                    // with emissive properties. _Color alone is too broad — every KSP material
+                    // has it, including body/casing materials that should not get heat tinted.
+                    // When transforms ARE resolved (affectedSet != null), _Color is safe because
+                    // the renderer filter already limits to heat-animated meshes (nozzles).
+                    string colorProperty = null;
+                    if (affectedSet != null && source.HasProperty("_Color"))
+                        colorProperty = "_Color";
 
                     if (colorProperty == null && emissiveProperty == null)
                     {
