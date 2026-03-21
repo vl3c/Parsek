@@ -1025,9 +1025,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Applies flag events up to currentUT — shows flag ghosts and positions them on the body surface.
-        /// </summary>
-        /// <summary>
         /// Spawns flag vessels when their UT is reached. Flags are permanent world objects —
         /// they are never destroyed by Parsek. Duplicate check prevents re-spawning on loop wrap.
         /// The FlagEvent in the recording tracks which flag was planted (name, position, texture, plaque).
