@@ -1391,8 +1391,17 @@ namespace Parsek
                     if (ps != null)
                     {
                         var em = ps.emission;
-                        em.enabled = true;
-                        if (!ps.isPlaying) ps.Play();
+                        // Only restore emission for RCS that was actually activated by an event.
+                        // The ghost builder initializes rateOverTimeMultiplier=0 and calls Stop().
+                        // SetRcsEmission sets rate>0 when an RCSActivated event fires.
+                        // Without this check, suppression cycling (warp on/off) would blindly
+                        // Play() all particle systems — including those never activated.
+                        float rate = em.rateOverTimeMultiplier;
+                        if (rate > 0f)
+                        {
+                            em.enabled = true;
+                            if (!ps.isPlaying) ps.Play();
+                        }
                     }
                 }
         }
