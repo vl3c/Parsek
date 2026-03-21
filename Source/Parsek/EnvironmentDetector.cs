@@ -80,6 +80,7 @@ namespace Parsek
     {
         internal const double ThrustDebounceSeconds = 1.0;
         internal const double SurfaceSpeedDebounceSeconds = 3.0;
+        internal const double SurfaceAtmosphericDebounceSeconds = 0.5;
 
         private SegmentEnvironment lastConfirmedEnvironment;
         private SegmentEnvironment pendingEnvironment;
@@ -174,6 +175,13 @@ namespace Parsek
             if ((from == SegmentEnvironment.SurfaceMobile && to == SegmentEnvironment.SurfaceStationary) ||
                 (from == SegmentEnvironment.SurfaceStationary && to == SegmentEnvironment.SurfaceMobile))
                 return SurfaceSpeedDebounceSeconds;
+
+            // Surface/atmospheric boundary bounce (EVA Kerbals hopping): 0.5s debounce
+            if ((from == SegmentEnvironment.SurfaceMobile && to == SegmentEnvironment.Atmospheric) ||
+                (from == SegmentEnvironment.SurfaceStationary && to == SegmentEnvironment.Atmospheric) ||
+                (from == SegmentEnvironment.Atmospheric && to == SegmentEnvironment.SurfaceMobile) ||
+                (from == SegmentEnvironment.Atmospheric && to == SegmentEnvironment.SurfaceStationary))
+                return SurfaceAtmosphericDebounceSeconds;
 
             // All other transitions: no debounce (immediate)
             return 0.0;

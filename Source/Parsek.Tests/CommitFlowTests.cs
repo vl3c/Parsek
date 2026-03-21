@@ -124,6 +124,7 @@ namespace Parsek.Tests
                 tree.RootRecordingId = recordings[0].RecordingId;
                 tree.ActiveRecordingId = recordings[0].RecordingId;
             }
+            tree.RebuildBackgroundMap();
             return tree;
         }
 
@@ -400,6 +401,121 @@ namespace Parsek.Tests
             GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == 1000);
             Assert.False(GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
                 "tree-123", 5000, false));
+        }
+
+        [Fact]
+        public void ShouldSkip_TreeOwnedVessel_ReturnsFalse()
+        {
+            // Tree-owned vessel: recording belongs to a committed tree that has this PID
+            // Ghost should play to show the recorded trajectory even if real vessel exists
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => true);
+            var rec = MakeRecording("rec-1", "tree-own", "Jumping Flea", pid: 9000,
+                sections: new List<TrackSection> { MakeSection(100, 200) });
+            var tree = MakeTree("Jumping Flea", "tree-own", rec);
+            RecordingStore.CommitTree(tree);
+
+            Assert.False(GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
+                "tree-own", 9000, false));
+        }
+
+        [Fact]
+        public void ShouldSkip_TreeOwnedEvaBranch_ReturnsFalse()
+        {
+            // EVA branch vessel PID is also owned by the tree — ghost should play
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => true);
+            var rec1 = MakeRecording("rec-ship", "tree-eva", "Ship", pid: 8000,
+                sections: new List<TrackSection> { MakeSection(100, 200) });
+            var rec2 = MakeRecording("rec-eva", "tree-eva", "Jeb", pid: 7000,
+                sections: new List<TrackSection> { MakeSection(200, 300) });
+            var tree = MakeTree("Ship", "tree-eva", rec1, rec2);
+            RecordingStore.CommitTree(tree);
+
+            // Both PIDs should be owned by the tree
+            Assert.False(GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
+                "tree-eva", 8000, false));
+            Assert.False(GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
+                "tree-eva", 7000, false));
+        }
+
+        [Fact]
+        public void ShouldSkip_ExternalVesselNotOwnedByTree_ReturnsTrue()
+        {
+            // External vessel from a different tree — should be skipped
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == 6000);
+            var rec = MakeRecording("rec-1", "tree-A", "Station", pid: 5000,
+                sections: new List<TrackSection> { MakeSection(100, 200) });
+            var tree = MakeTree("Station", "tree-A", rec);
+            RecordingStore.CommitTree(tree);
+
+            // PID 6000 is NOT in tree-A's recordings (tree-A has PID 5000)
+            Assert.True(GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
+                "tree-A", 6000, false));
+        }
+
+        [Fact]
+        public void ShouldSkip_OwnedVesselPids_PopulatedFromRecordings()
+        {
+            var rec1 = MakeRecording("rec-1", "tree-pid", "Ship", pid: 1111);
+            var rec2 = MakeRecording("rec-2", "tree-pid", "Kerbal", pid: 2222);
+            var rec3 = MakeRecording("rec-3", "tree-pid", "Ship", pid: 1111); // duplicate PID
+            var tree = MakeTree("Ship", "tree-pid", rec1, rec2, rec3);
+
+            Assert.Contains((uint)1111, tree.OwnedVesselPids);
+            Assert.Contains((uint)2222, tree.OwnedVesselPids);
+            Assert.Equal(2, tree.OwnedVesselPids.Count); // deduped
+        }
+
+        #endregion
+
+        // ================================================================
+        // 3b. ShouldSpawnAtRecordingEnd — no side-effecting RealVesselExists
+        // ================================================================
+
+        #region ShouldSpawnAtRecordingEnd real vessel dedup
+
+        [Fact]
+        public void ShouldSpawn_RealVesselExists_StillReturnsTrue()
+        {
+            // ShouldSpawnAtRecordingEnd does NOT check RealVesselExists —
+            // that dedup happens at actual spawn time in SpawnVesselOrChainTip.
+            // This avoids premature VesselSpawned=true side effects.
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == 3000);
+            var rec = new Recording
+            {
+                RecordingId = "rec-spawn",
+                VesselName = "Ship",
+                VesselPersistentId = 3000,
+                VesselSnapshot = MakeMinimalSnapshot(),
+                TerminalStateValue = TerminalState.Landed
+            };
+
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec, false, false);
+
+            Assert.True(needsSpawn);
+            Assert.Equal("", reason);
+            Assert.False(rec.VesselSpawned); // no side effect
+        }
+
+        [Fact]
+        public void ShouldSpawn_RealVesselGone_ReturnsTrue()
+        {
+            // Vessel not in scene (e.g., after revert) — spawn needed
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => false);
+            var rec = new Recording
+            {
+                RecordingId = "rec-spawn2",
+                VesselName = "Ship",
+                VesselPersistentId = 3000,
+                VesselSnapshot = MakeMinimalSnapshot(),
+                TerminalStateValue = TerminalState.Landed
+            };
+
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec, false, false);
+
+            Assert.True(needsSpawn);
+            Assert.Equal("", reason);
         }
 
         #endregion

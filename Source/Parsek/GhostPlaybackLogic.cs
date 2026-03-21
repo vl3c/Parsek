@@ -488,7 +488,32 @@ namespace Parsek
                 return false;
             }
 
+            // Tree-owned vessel: if the recording's tree has recordings with this PID,
+            // the vessel is part of the tree's own flight history — always show the ghost
+            // so the user can see the recorded trajectory replayed. The real vessel may sit
+            // at its save-time position, which is different from the ghost's interpolated path.
+            if (IsVesselOwnedByTree(treeId, vesselPersistentId))
+                return false;
+
             return RealVesselExists(vesselPersistentId);
+        }
+
+        /// <summary>
+        /// Checks whether the given vessel PID belongs to any recording in the same tree.
+        /// A tree "owns" a vessel PID if any of its recordings has that VesselPersistentId.
+        /// Uses the cached OwnedVesselPids set on RecordingTree for O(1) lookup.
+        /// </summary>
+        internal static bool IsVesselOwnedByTree(string treeId, uint vesselPersistentId)
+        {
+            if (string.IsNullOrEmpty(treeId) || vesselPersistentId == 0) return false;
+
+            var trees = RecordingStore.CommittedTrees;
+            for (int i = 0; i < trees.Count; i++)
+            {
+                if (trees[i].Id == treeId)
+                    return trees[i].OwnedVesselPids.Contains(vesselPersistentId);
+            }
+            return false;
         }
 
         /// <summary>
@@ -1427,8 +1452,17 @@ namespace Parsek
                     if (ps != null)
                     {
                         var em = ps.emission;
-                        em.enabled = true;
-                        if (!ps.isPlaying) ps.Play();
+                        // Only restore emission for RCS that was actually activated by an event.
+                        // The ghost builder initializes rateOverTimeMultiplier=0 and calls Stop().
+                        // SetRcsEmission sets rate>0 when an RCSActivated event fires.
+                        // Without this check, suppression cycling (warp on/off) would blindly
+                        // Play() all particle systems — including those never activated.
+                        float rate = em.rateOverTimeMultiplier;
+                        if (rate > 0f)
+                        {
+                            em.enabled = true;
+                            if (!ps.isPlaying) ps.Play();
+                        }
                     }
                 }
         }
