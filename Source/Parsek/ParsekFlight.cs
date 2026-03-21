@@ -1266,10 +1266,12 @@ namespace Parsek
             treeRec.Points.AddRange(rec.Recording);
             treeRec.OrbitSegments.AddRange(rec.OrbitSegments);
             treeRec.PartEvents.AddRange(rec.PartEvents);
+            treeRec.FlagEvents.AddRange(rec.FlagEvents);
             treeRec.TrackSections.AddRange(rec.TrackSections);
 
-            // Sort part events chronologically (mixed event sources may produce non-chronological order)
+            // Sort part/flag events chronologically (mixed event sources may produce non-chronological order)
             treeRec.PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+            treeRec.FlagEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
 
             // Populate VesselPersistentId (required for RebuildBackgroundMap after save/load)
             if (treeRec.VesselPersistentId == 0 && rec.RecordingVesselId != 0)
@@ -3137,12 +3139,10 @@ namespace Parsek
             if (string.IsNullOrEmpty(formattedDate))
                 return originalText ?? "";
 
-            string dateLine = "<align=\"right\"><i>" + formattedDate + "</i></align>";
-
             if (string.IsNullOrEmpty(originalText))
-                return dateLine;
+                return formattedDate;
 
-            return originalText + "\n" + dateLine;
+            return originalText + " - " + formattedDate;
         }
 
         /// <summary>
@@ -5128,14 +5128,8 @@ namespace Parsek
                     previewGhostState.reentryFxInfo = GhostVisualBuilder.TryBuildReentryFx(
                         ghost, previewGhostState.heatInfos, -1, previewRecording.VesselName);
 
-                    // Build flag ghosts for preview
-                    if (previewRecording.FlagEvents != null && previewRecording.FlagEvents.Count > 0)
-                    {
-                        previewGhostState.flagGhosts = new List<GameObject>(previewRecording.FlagEvents.Count);
-                        for (int fi = 0; fi < previewRecording.FlagEvents.Count; fi++)
-                            previewGhostState.flagGhosts.Add(GhostVisualBuilder.BuildFlagGhost(previewRecording.FlagEvents[fi]));
-                        GhostPlaybackLogic.InitializeFlagVisibility(previewRecording, previewGhostState);
-                    }
+                    // Initialize flag event index for preview playback
+                    GhostPlaybackLogic.InitializeFlagVisibility(previewRecording, previewGhostState);
 
                     Log("Manual preview ghost: built from recording-start snapshot (with part events)");
                 }
@@ -5205,7 +5199,6 @@ namespace Parsek
                 DestroyReentryFxResources(previewGhostState.reentryFxInfo);
 
                 GhostPlaybackLogic.DestroyAllFakeCanopies(previewGhostState);
-                GhostPlaybackLogic.DestroyAllFlagGhosts(previewGhostState);
                 previewGhostState = null;
             }
             else if (previewGhostMaterials != null)
@@ -6974,17 +6967,8 @@ namespace Parsek
                 rec.VesselName);
             state.reentryMpb = new MaterialPropertyBlock();
 
-            // Build flag ghosts (world-positioned, not child of vessel ghost)
-            if (rec.FlagEvents != null && rec.FlagEvents.Count > 0)
-            {
-                state.flagGhosts = new List<GameObject>(rec.FlagEvents.Count);
-                for (int fi = 0; fi < rec.FlagEvents.Count; fi++)
-                {
-                    var flagGo = GhostVisualBuilder.BuildFlagGhost(rec.FlagEvents[fi]);
-                    state.flagGhosts.Add(flagGo);
-                }
-                GhostPlaybackLogic.InitializeFlagVisibility(rec, state);
-            }
+            // Initialize flag event index — flags are spawned as real vessels on-demand by ApplyFlagEvents
+            GhostPlaybackLogic.InitializeFlagVisibility(rec, state);
 
             ghostStates[index] = state;
         }
@@ -7028,7 +7012,7 @@ namespace Parsek
                 Destroy(state.ghost);
 
             GhostPlaybackLogic.DestroyAllFakeCanopies(state);
-            GhostPlaybackLogic.DestroyAllFlagGhosts(state);
+
             ghostStates.Remove(index);
             loopPhaseOffsets.Remove(index);
         }
@@ -7175,7 +7159,7 @@ namespace Parsek
             DestroyReentryFxResources(state.reentryFxInfo);
             if (state.ghost != null) Destroy(state.ghost);
             GhostPlaybackLogic.DestroyAllFakeCanopies(state);
-            GhostPlaybackLogic.DestroyAllFlagGhosts(state);
+
         }
 
         /// <summary>

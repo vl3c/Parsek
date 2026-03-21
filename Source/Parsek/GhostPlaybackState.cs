@@ -40,8 +40,7 @@ namespace Parsek
         public string lastInterpolatedBodyName;
         public double lastInterpolatedAltitude;
         public RenderingZone currentZone = RenderingZone.Physics; // distance-based rendering zone
-        public List<GameObject> flagGhosts;      // one per FlagEvent, world-positioned (not child of ghost)
-        public int flagEventIndex;               // tracks which flags have been shown
+        public int flagEventIndex;               // tracks which flags have been spawned
 
         public void SetInterpolated(InterpolationResult r)
         {

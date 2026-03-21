@@ -575,14 +575,8 @@ namespace Parsek
 
             GhostPlaybackLogic.InitializeInventoryPlacementVisibility(rec, state);
 
-            // Build flag ghosts (world-positioned, not child of vessel ghost)
-            if (rec.FlagEvents != null && rec.FlagEvents.Count > 0)
-            {
-                state.flagGhosts = new List<GameObject>(rec.FlagEvents.Count);
-                for (int fi = 0; fi < rec.FlagEvents.Count; fi++)
-                    state.flagGhosts.Add(GhostVisualBuilder.BuildFlagGhost(rec.FlagEvents[fi]));
-                GhostPlaybackLogic.InitializeFlagVisibility(rec, state);
-            }
+            // Initialize flag event index — flags are spawned as real vessels on-demand by ApplyFlagEvents
+            GhostPlaybackLogic.InitializeFlagVisibility(rec, state);
 
             ParsekLog.Info("KSCGhost",
                 $"Ghost #{index} \"{rec.VesselName}\" spawned" +
@@ -847,8 +841,6 @@ namespace Parsek
             StopRcsParticleSystems(state.rcsInfos);
 
             GhostPlaybackLogic.DestroyAllFakeCanopies(state);
-            GhostPlaybackLogic.DestroyAllFlagGhosts(state);
-
             if (state.ghost != null)
                 Destroy(state.ghost);
 

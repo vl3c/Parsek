@@ -6990,90 +6990,84 @@ namespace Parsek
         /// Builds a ghost GameObject for a planted flag from the flag part prefab.
         /// Returns the ghost (initially inactive). Applies flag texture to the mesh_flag quad.
         /// </summary>
-        internal static GameObject BuildFlagGhost(FlagEvent evt)
+        /// <summary>
+        /// Spawns a real KSP flag vessel at the recorded position via ProtoVessel.
+        /// Returns the flag vessel's root GameObject, or null on failure.
+        /// The flag part is "prebuilt" with no .mu mesh — meshes are generated at runtime
+        /// by FlagDecalBackground, so we must spawn a real vessel rather than clone a ghost.
+        /// </summary>
+        internal static GameObject SpawnFlagVessel(FlagEvent evt)
         {
-            AvailablePart ap = ResolveAvailablePart("flag");
-            if (ap == null || ap.partPrefab == null)
+            try
             {
-                ParsekLog.Warn("GhostBuild",
-                    $"Cannot build flag ghost: 'flag' part not found in PartLoader");
+                CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == evt.bodyName);
+                if (body == null)
+                {
+                    ParsekLog.Warn("GhostBuild",
+                        $"Cannot spawn flag vessel: body '{evt.bodyName}' not found");
+                    return null;
+                }
+
+                // Build flag part node with FlagSite module in "Placed" state
+                uint flightId = ShipConstruction.GetUniqueFlightID(HighLogic.CurrentGame.flightState);
+                ConfigNode partNode = ProtoVessel.CreatePartNode("flag", flightId);
+                string flagURL = !string.IsNullOrEmpty(evt.flagURL) ? evt.flagURL : "Squad/Flags/default";
+                partNode.SetValue("flag", flagURL, true);
+
+                ConfigNode moduleNode = new ConfigNode("MODULE");
+                moduleNode.AddValue("name", "FlagSite");
+                moduleNode.AddValue("state", "Placed");
+                moduleNode.AddValue("PlaqueText", evt.plaqueText ?? "");
+                moduleNode.AddValue("placedBy", evt.placedBy ?? "");
+                partNode.AddNode(moduleNode);
+
+                // Build orbit (required by ProtoVessel even for landed vessels)
+                Orbit orbit = new Orbit(0, 0, body.Radius + evt.altitude, 0, 0, 0, 0, body);
+                ConfigNode[] partNodes = new ConfigNode[] { partNode };
+
+                string vesselName = !string.IsNullOrEmpty(evt.flagSiteName) ? evt.flagSiteName : "Flag";
+                ConfigNode vesselNode = ProtoVessel.CreateVesselNode(
+                    vesselName, VesselType.Flag, orbit, 0, partNodes);
+
+                // Set landed position
+                var ic = CultureInfo.InvariantCulture;
+                vesselNode.SetValue("sit", Vessel.Situations.LANDED.ToString(), true);
+                vesselNode.SetValue("landed", "True", true);
+                vesselNode.SetValue("splashed", "False", true);
+                vesselNode.SetValue("lat", evt.latitude.ToString("R", ic), true);
+                vesselNode.SetValue("lon", evt.longitude.ToString("R", ic), true);
+                vesselNode.SetValue("alt", evt.altitude.ToString("R", ic), true);
+                vesselNode.SetValue("landedAt", body.name, true);
+
+                // Set surface-relative rotation
+                Quaternion surfRot = new Quaternion(evt.rotX, evt.rotY, evt.rotZ, evt.rotW);
+                vesselNode.SetValue("rot", KSPUtil.WriteQuaternion(surfRot), true);
+
+                // Spawn via ProtoVessel
+                ProtoVessel pv = new ProtoVessel(vesselNode, HighLogic.CurrentGame);
+                HighLogic.CurrentGame.flightState.protoVessels.Add(pv);
+                pv.Load(HighLogic.CurrentGame.flightState);
+
+                if (pv.vesselRef == null)
+                {
+                    ParsekLog.Warn("GhostBuild",
+                        $"Flag vessel spawn failed: ProtoVessel.Load() produced null vesselRef");
+                    return null;
+                }
+
+                ParsekLog.Verbose("GhostBuild",
+                    $"Spawned flag vessel: '{vesselName}' by '{evt.placedBy}' " +
+                    $"at ({evt.latitude:F4},{evt.longitude:F4},{evt.altitude:F1}) on {evt.bodyName}");
+
+                return pv.vesselRef.gameObject;
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Error("GhostBuild",
+                    $"Failed to spawn flag vessel: {ex.Message}");
                 return null;
             }
-
-            Transform prefabModel = ap.partPrefab.FindModelTransform("model");
-            if (prefabModel == null)
-            {
-                // Fallback: try partPrefab.transform directly
-                prefabModel = ap.partPrefab.transform;
-            }
-
-            var flagGhost = new GameObject($"flag_ghost_{evt.flagSiteName}");
-            flagGhost.SetActive(false);
-
-            // Clone mesh renderers from prefab model
-            var renderers = prefabModel.GetComponentsInChildren<MeshRenderer>(true);
-            foreach (var r in renderers)
-            {
-                var mf = r.GetComponent<MeshFilter>();
-                if (mf == null || mf.sharedMesh == null) continue;
-
-                var clone = new GameObject(r.gameObject.name);
-                clone.transform.SetParent(flagGhost.transform, false);
-
-                // Copy local transform from prefab hierarchy
-                clone.transform.localPosition = GetRelativePosition(r.transform, prefabModel);
-                clone.transform.localRotation = GetRelativeRotation(r.transform, prefabModel);
-                clone.transform.localScale = r.transform.lossyScale;
-
-                var clonedMf = clone.AddComponent<MeshFilter>();
-                clonedMf.sharedMesh = mf.sharedMesh;
-
-                var clonedR = clone.AddComponent<MeshRenderer>();
-                // Clone materials to allow per-ghost texture
-                var mats = r.sharedMaterials;
-                var clonedMats = new Material[mats.Length];
-                for (int i = 0; i < mats.Length; i++)
-                    clonedMats[i] = mats[i] != null ? new Material(mats[i]) : null;
-                clonedR.materials = clonedMats;
-
-                // Apply flag texture to the flag mesh quad
-                if (r.gameObject.name != null && r.gameObject.name.StartsWith("mesh_flag"))
-                {
-                    string url = !string.IsNullOrEmpty(evt.flagURL) ? evt.flagURL : "Squad/Flags/default";
-                    Texture2D flagTex = GameDatabase.Instance.GetTexture(url, false);
-                    if (flagTex == null && url != "Squad/Flags/default")
-                        flagTex = GameDatabase.Instance.GetTexture("Squad/Flags/default", false);
-
-                    if (flagTex != null)
-                    {
-                        for (int i = 0; i < clonedMats.Length; i++)
-                        {
-                            if (clonedMats[i] != null)
-                                clonedMats[i].mainTexture = flagTex;
-                        }
-                    }
-                }
-            }
-
-            ParsekLog.Verbose("GhostBuild",
-                $"Built flag ghost: '{evt.flagSiteName}' url='{evt.flagURL}' " +
-                $"renderers={renderers.Length}");
-
-            return flagGhost;
         }
 
-        private static Vector3 GetRelativePosition(Transform child, Transform root)
-        {
-            if (child.parent == root || child.parent == null)
-                return child.localPosition;
-            return root.InverseTransformPoint(child.position);
-        }
-
-        private static Quaternion GetRelativeRotation(Transform child, Transform root)
-        {
-            if (child.parent == root || child.parent == null)
-                return child.localRotation;
-            return Quaternion.Inverse(root.rotation) * child.rotation;
-        }
     }
 }
