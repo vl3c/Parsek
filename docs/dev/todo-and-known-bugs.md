@@ -83,6 +83,14 @@ Engine and RCS particle systems are instantiated per ghost. Pooling would reduce
 
 ## TODO — Features
 
+### T25. Fairing internal truss structure after jettison
+
+After fairing jettison, the ghost currently shows just the payload and base adapter. KSP's real vessel can show an internal truss structure (Cap/Truss meshes controlled by `ModuleStructuralNodeToggle.showMesh`). The prefab meshes are at placeholder scale (2000x10x2000) that only KSP's runtime `ModuleProceduralFairing` can set correctly. A procedural truss mesh was attempted but removed due to insufficient visual quality.
+
+To implement properly: either rescale prefab Cap/Truss meshes from XSECTION data (need to reverse-engineer the mesh unit geometry), or generate higher-fidelity procedural geometry with proper materials.
+
+**Priority:** Low — cosmetic, only visible briefly after fairing jettison
+
 ### T11. Ghost map presence KSP integration (bug #60)
 
 `GhostMapPresence` pure data layer is complete. 4 KSP integration points need in-game API investigation: tracking station registration, map orbit lines, nav target support, cleanup on despawn.
