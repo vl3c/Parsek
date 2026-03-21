@@ -3482,6 +3482,102 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Extracts rootObject values from all ModuleStructuralNode MODULE nodes
+        /// in the given part config. These are the internal truss/cap transforms
+        /// that should be hidden when procedural fairings are intact.
+        /// Returns an empty set if no structural node modules exist.
+        /// </summary>
+        internal static HashSet<string> GetFairingInternalStructureNames(ConfigNode partConfig)
+        {
+            var names = new HashSet<string>();
+            if (partConfig == null) return names;
+
+            var modules = partConfig.GetNodes("MODULE");
+            if (modules == null) return names;
+
+            for (int i = 0; i < modules.Length; i++)
+            {
+                if (modules[i].GetValue("name") != "ModuleStructuralNode")
+                    continue;
+                string rootObject = modules[i].GetValue("rootObject");
+                if (!string.IsNullOrEmpty(rootObject))
+                    names.Add(rootObject);
+            }
+            return names;
+        }
+
+        /// <summary>
+        /// Reads the showMesh field from ModuleStructuralNodeToggle in the snapshot
+        /// partNode. This is a KSPField serialized at runtime indicating whether
+        /// internal structure should be visible when fairings are jettisoned.
+        /// Defaults to true if the module or field is not found.
+        /// </summary>
+        internal static bool GetFairingShowMesh(ConfigNode partNode)
+        {
+            if (partNode == null) return true;
+
+            ConfigNode toggleModule = FindModuleNode(partNode, "ModuleStructuralNodeToggle");
+            if (toggleModule == null) return true;
+
+            string showMeshVal = toggleModule.GetValue("showMesh");
+            if (string.IsNullOrEmpty(showMeshVal)) return true;
+
+            bool result;
+            if (bool.TryParse(showMeshVal, out result))
+                return result;
+            return true;
+        }
+
+        /// <summary>
+        /// Finds already-cloned transforms in the ghost model hierarchy that match
+        /// fairing internal structure names (truss/cap objects from ModuleStructuralNode),
+        /// hides them, and populates the FairingGhostInfo with references for later
+        /// reveal on fairing jettison.
+        /// </summary>
+        internal static void HideFairingInternalStructure(
+            FairingGhostInfo fairingInfo, ConfigNode partConfig, ConfigNode partNode,
+            Transform ghostModelNode, uint persistentId, string partName)
+        {
+            if (fairingInfo == null || ghostModelNode == null) return;
+
+            HashSet<string> structureNames = GetFairingInternalStructureNames(partConfig);
+            if (structureNames.Count == 0)
+            {
+                ParsekLog.Verbose("GhostVisual", $"    Fairing '{partName}' pid={persistentId}: " +
+                    "no ModuleStructuralNode rootObject names found — no internal structure to hide");
+                return;
+            }
+
+            bool showMesh = GetFairingShowMesh(partNode);
+            fairingInfo.showInternalOnJettison = showMesh;
+
+            var hidden = new List<GameObject>();
+            CollectMatchingTransforms(ghostModelNode, structureNames, hidden);
+
+            for (int i = 0; i < hidden.Count; i++)
+                hidden[i].SetActive(false);
+
+            fairingInfo.internalStructureObjects = hidden.Count > 0 ? hidden : null;
+
+            ParsekLog.Verbose("GhostVisual", $"    Fairing '{partName}' pid={persistentId}: " +
+                $"found {structureNames.Count} structure names [{string.Join(", ", structureNames)}], " +
+                $"hidden {hidden.Count} transforms, showInternalOnJettison={showMesh}");
+        }
+
+        /// <summary>
+        /// Recursively walks a transform hierarchy collecting GameObjects whose name
+        /// matches one of the given names.
+        /// </summary>
+        private static void CollectMatchingTransforms(Transform root, HashSet<string> names, List<GameObject> results)
+        {
+            if (root == null) return;
+            if (names.Contains(root.name))
+                results.Add(root.gameObject);
+            for (int i = 0; i < root.childCount; i++)
+                CollectMatchingTransforms(root.GetChild(i), names, results);
+        }
+
+        /// <summary>
         /// Checks whether a renderer's transform (or any of its ancestors up to but not
         /// including the hierarchy root) has a name matching one of the damaged wheel
         /// transform names. The damaged mesh may be a child of the named transform.
@@ -4739,7 +4835,8 @@ namespace Parsek
         }
 
         private static List<HeatMaterialState> BuildHeatMaterialStates(
-            Transform modelNode, string partName, uint persistentId)
+            Transform modelNode, string partName, uint persistentId,
+            List<HeatTransformState> affectedTransforms)
         {
             if (modelNode == null)
                 return null;
@@ -4748,14 +4845,47 @@ namespace Parsek
             if (renderers == null || renderers.Length == 0)
                 return null;
 
+            // Build set of transforms affected by heat animation so we only clone
+            // materials on renderers that actually participate in the heat visual.
+            // When null/empty, fall back to cloning all renderers (legacy behavior).
+            HashSet<Transform> affectedSet = null;
+            if (affectedTransforms != null && affectedTransforms.Count > 0)
+            {
+                affectedSet = new HashSet<Transform>();
+                for (int a = 0; a < affectedTransforms.Count; a++)
+                {
+                    Transform root = affectedTransforms[a].t;
+                    if (root == null) continue;
+                    affectedSet.Add(root);
+                    var descendants = root.GetComponentsInChildren<Transform>(true);
+                    for (int d = 0; d < descendants.Length; d++)
+                        affectedSet.Add(descendants[d]);
+                }
+                ParsekLog.Verbose("GhostVisual", $"    AnimateHeat '{partName}' pid={persistentId}: " +
+                    $"filtering renderers to {affectedSet.Count} affected transforms from {affectedTransforms.Count} heat anim target(s)");
+            }
+            else
+            {
+                ParsekLog.Verbose("GhostVisual", $"    AnimateHeat '{partName}' pid={persistentId}: " +
+                    $"no affected transforms provided, cloning all renderers (fallback)");
+            }
+
             var materialStates = new List<HeatMaterialState>();
             int clonedMaterials = 0;
             int trackedMaterials = 0;
+            int skippedRenderers = 0;
 
             for (int i = 0; i < renderers.Length; i++)
             {
                 Renderer renderer = renderers[i];
                 if (renderer == null) continue;
+
+                // Skip renderers not under any heat-animated transform
+                if (affectedSet != null && !affectedSet.Contains(renderer.transform))
+                {
+                    skippedRenderers++;
+                    continue;
+                }
 
                 Material[] sourceMaterials = renderer.sharedMaterials;
                 if (sourceMaterials == null || sourceMaterials.Length == 0)
@@ -4819,6 +4949,12 @@ namespace Parsek
 
                 if (hasAnyMaterial)
                     renderer.materials = cloned;
+            }
+
+            if (skippedRenderers > 0)
+            {
+                ParsekLog.Verbose("GhostVisual", $"    AnimateHeat '{partName}' pid={persistentId}: " +
+                    $"skipped {skippedRenderers} renderer(s) outside heat-animated subtree");
             }
 
             if (trackedMaterials > 0)
@@ -5903,7 +6039,7 @@ namespace Parsek
                 }
 
                 List<HeatMaterialState> heatMaterialStates =
-                    BuildHeatMaterialStates(modelNode.transform, partName, persistentId);
+                    BuildHeatMaterialStates(modelNode.transform, partName, persistentId, resolvedHeatTransforms);
 
                 if ((resolvedHeatTransforms != null && resolvedHeatTransforms.Count > 0) ||
                     (heatMaterialStates != null && heatMaterialStates.Count > 0))
@@ -5954,7 +6090,12 @@ namespace Parsek
             // Detect procedural fairings and generate simplified cone mesh
             fairingInfo = BuildFairingVisual(partNode, prefab, modelNode.transform, persistentId, partName);
             if (fairingInfo != null)
+            {
                 added = true;
+                // Hide internal truss/cap structure that would poke through the fairing cone
+                HideFairingInternalStructure(fairingInfo, prefab.partInfo?.partConfig, partNode,
+                    modelNode.transform, persistentId, partName);
+            }
 
             if (!added)
             {
