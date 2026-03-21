@@ -981,7 +981,7 @@ Unlike `CheckOverlapAgainstLoadedVessels` which properly excludes Debris/EVA/Fla
 
 Lines 90-97: For `ecc >= 1.0 || sma <= 0`, the fallback returns `(0, 0, sma - bodyRadius)`. When `sma < bodyRadius`, this produces a negative altitude, placing the ghost underground. Should use `Math.Max(0, sma - bodyRadius)`.
 
-**Status:** Mitigated — the LateUpdate terrain clamp (`e5c5340`) prevents any ghost from appearing below terrain, and the SMA sanity check in `InterpolateAndPosition` (`ea14b8f`) rejects orbit segments with SMA < 90% body radius. The root GhostExtender fallback formula is still uncorrected.
+**Status:** Mitigated — the LateUpdate terrain clamp (`6996b65`) prevents any ghost from appearing below terrain, and the SMA sanity check in `InterpolateAndPosition` (`ea14b8f`) rejects orbit segments with SMA < 90% body radius. The root GhostExtender fallback formula is still uncorrected.
 
 ## 77. TerrainCorrector log format strings use system culture
 
