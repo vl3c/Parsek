@@ -3518,6 +3518,22 @@ namespace Parsek
         /// internal structure should be visible when fairings are jettisoned.
         /// Defaults to true if the module or field is not found.
         /// </summary>
+        internal static bool GetFairingShowMesh(ConfigNode partNode)
+        {
+            if (partNode == null) return true;
+
+            ConfigNode toggleModule = FindModuleNode(partNode, "ModuleStructuralNodeToggle");
+            if (toggleModule == null) return true;
+
+            string showMeshVal = toggleModule.GetValue("showMesh");
+            if (string.IsNullOrEmpty(showMeshVal)) return true;
+
+            bool result;
+            if (bool.TryParse(showMeshVal, out result))
+                return result;
+            return true;
+        }
+
         /// <summary>
         /// Finds already-cloned transforms in the ghost model hierarchy that match
         /// fairing internal structure names (truss/cap objects from ModuleStructuralNode)
@@ -4328,10 +4344,13 @@ namespace Parsek
                     int left = lastRingBase + s;
                     int right = lastRingBase + s + 1;
 
-                    // CW winding facing upward (outward from the top)
+                    // Double-sided cap disc (visible from both above and below)
                     triangles.Add(right);
                     triangles.Add(capCenterIdx);
                     triangles.Add(left);
+                    triangles.Add(left);
+                    triangles.Add(capCenterIdx);
+                    triangles.Add(right);
                 }
             }
 
@@ -4511,19 +4530,24 @@ namespace Parsek
             };
 
             // Generate truss structure mesh (hidden initially, revealed on jettison)
+            // Only if the player has truss structure enabled (showMesh from ModuleStructuralNodeToggle)
             GameObject trussGo = null;
-            Mesh trussMesh = GenerateFairingTrussMesh(sections, nSides, pivot, axis);
-            if (trussMesh != null)
+            bool showMesh = GetFairingShowMesh(partNode);
+            if (showMesh)
             {
-                trussGo = new GameObject("fairing_truss");
-                trussGo.transform.SetParent(modelNode, false);
-                trussGo.AddComponent<MeshFilter>().mesh = trussMesh;
-                var trussMr = trussGo.AddComponent<MeshRenderer>();
-                trussMr.material = new Material(Shader.Find("KSP/Diffuse"))
+                Mesh trussMesh = GenerateFairingTrussMesh(sections, nSides, pivot, axis);
+                if (trussMesh != null)
                 {
-                    color = new Color(0.65f, 0.65f, 0.65f) // slightly darker than the fairing shell
-                };
-                trussGo.SetActive(false);
+                    trussGo = new GameObject("fairing_truss");
+                    trussGo.transform.SetParent(modelNode, false);
+                    trussGo.AddComponent<MeshFilter>().mesh = trussMesh;
+                    var trussMr = trussGo.AddComponent<MeshRenderer>();
+                    trussMr.material = new Material(Shader.Find("KSP/Diffuse"))
+                    {
+                        color = new Color(0.65f, 0.65f, 0.65f) // slightly darker than the fairing shell
+                    };
+                    trussGo.SetActive(false);
+                }
             }
 
             ParsekLog.Verbose("GhostVisual", $"    Fairing detected: '{partName}' pid={persistentId}, " +

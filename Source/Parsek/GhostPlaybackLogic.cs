@@ -1082,18 +1082,27 @@ namespace Parsek
 
         internal static void HidePartSubtree(GameObject ghost, uint rootPid, Dictionary<uint, List<uint>> tree)
         {
+            int hidden = 0;
+            int notFound = 0;
             var stack = new Stack<uint>();
             stack.Push(rootPid);
             while (stack.Count > 0)
             {
                 uint pid = stack.Pop();
                 var t = ghost.transform.Find($"ghost_part_{pid}");
-                if (t != null) t.gameObject.SetActive(false);
+                if (t != null)
+                {
+                    t.gameObject.SetActive(false);
+                    hidden++;
+                }
+                else
+                    notFound++;
                 List<uint> children;
                 if (tree.TryGetValue(pid, out children))
                     for (int c = 0; c < children.Count; c++)
                         stack.Push(children[c]);
             }
+            ParsekLog.Verbose("Flight", $"HidePartSubtree: rootPid={rootPid}, hidden={hidden}, notFound={notFound}, treeHasRoot={tree.ContainsKey(rootPid)}");
         }
 
         /// <summary>
