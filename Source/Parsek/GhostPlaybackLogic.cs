@@ -17,6 +17,9 @@ namespace Parsek
         internal const float FxSuppressWarpThreshold = 10f;
         internal const float GhostHideWarpThreshold = 50f;
         internal const double MinCycleDuration = 1.0;
+        // Grace period before zone-based watch mode exit (wall-clock seconds).
+        // Prevents immediate exit when a ghost briefly crosses a zone boundary at watch-mode start.
+        internal const float WatchModeZoneGraceSeconds = 2.0f;
 
         #region Warp / Loop Policy
 
@@ -188,6 +191,337 @@ namespace Parsek
 
             double duration = rec.EndUT - rec.StartUT;
             return Math.Max(-duration + minCycleDuration, interval);
+        }
+
+        /// <summary>
+        /// Validates that a loop anchor vessel exists. Returns true if the anchor PID
+        /// corresponds to a real vessel in the game world. Returns false if the anchor
+        /// vessel is missing (loop should be broken / fall back to absolute positioning).
+        /// Pure-static decision method using the existing vesselExistsOverride mechanism
+        /// for testability.
+        /// </summary>
+        internal static bool ValidateLoopAnchor(uint anchorPid)
+        {
+            if (anchorPid == 0)
+            {
+                ParsekLog.Verbose("Loop", "ValidateLoopAnchor: anchorPid=0, no anchor configured");
+                return false;
+            }
+
+            bool exists = RealVesselExists(anchorPid);
+            if (exists)
+            {
+                ParsekLog.Verbose("Loop", $"ValidateLoopAnchor: anchor pid={anchorPid} found");
+            }
+            else
+            {
+                ParsekLog.Warn("Loop", $"ValidateLoopAnchor: anchor pid={anchorPid} NOT found — loop anchor broken");
+            }
+            return exists;
+        }
+
+        /// <summary>
+        /// Determines whether a looping recording should use anchor-relative positioning.
+        /// Returns true if the recording has a LoopAnchorVesselId set AND has RELATIVE
+        /// TrackSections that contain the offset data needed for relative playback.
+        /// Pure static for testability.
+        /// </summary>
+        internal static bool ShouldUseLoopAnchor(Recording rec)
+        {
+            if (rec == null || rec.LoopAnchorVesselId == 0)
+                return false;
+
+            // Only use anchor-relative mode if the recording has RELATIVE TrackSections.
+            // Legacy recordings with absolute positions don't have offset data, so the
+            // anchor has no effect on them.
+            if (rec.TrackSections == null || rec.TrackSections.Count == 0)
+                return false;
+
+            for (int i = 0; i < rec.TrackSections.Count; i++)
+            {
+                if (rec.TrackSections[i].referenceFrame == ReferenceFrame.Relative)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Computes where a looped recording should be in its cycle at a given UT.
+        /// Returns the "loop UT" -- the position within the recording's timeline that
+        /// the ghost should be at right now.
+        ///
+        /// The loop cycles continuously: recording plays from StartUT to EndUT,
+        /// then pauses for intervalSeconds, then repeats. Given any currentUT,
+        /// this method returns which point in the recording the ghost should show.
+        ///
+        /// Returns (loopUT, cycleIndex, isInPause):
+        ///   loopUT: the UT within [StartUT, EndUT] to position the ghost at
+        ///   cycleIndex: which cycle we're in (0-based)
+        ///   isInPause: true if currentUT falls in the pause interval between cycles
+        /// </summary>
+        internal static (double loopUT, int cycleIndex, bool isInPause) ComputeLoopPhaseFromUT(
+            double currentUT,
+            double recordingStartUT,
+            double recordingEndUT,
+            double intervalSeconds)
+        {
+            double duration = recordingEndUT - recordingStartUT;
+            if (duration <= 0)
+            {
+                ParsekLog.Verbose("Loop", $"ComputeLoopPhaseFromUT: zero/negative duration={duration:R}, returning startUT");
+                return (recordingStartUT, 0, false);
+            }
+
+            double cycleDuration = duration + Math.Max(0, intervalSeconds);
+            if (cycleDuration <= 0)
+            {
+                ParsekLog.Verbose("Loop", $"ComputeLoopPhaseFromUT: zero/negative cycleDuration={cycleDuration:R}, returning startUT");
+                return (recordingStartUT, 0, false);
+            }
+
+            double elapsed = currentUT - recordingStartUT;
+            if (elapsed < 0)
+            {
+                ParsekLog.Verbose("Loop", $"ComputeLoopPhaseFromUT: currentUT={currentUT:R} before recordingStartUT={recordingStartUT:R}, returning startUT");
+                return (recordingStartUT, 0, false);
+            }
+
+            int cycleIndex = (int)(elapsed / cycleDuration);
+            double phaseInCycle = elapsed - (cycleIndex * cycleDuration);
+
+            if (phaseInCycle < duration)
+            {
+                // In the playback portion
+                double loopUT = recordingStartUT + phaseInCycle;
+                ParsekLog.Verbose("Loop", $"ComputeLoopPhaseFromUT: cycleIndex={cycleIndex}, loopUT={loopUT:R}, isInPause=false (phase={phaseInCycle:R}/{duration:R})");
+                return (loopUT, cycleIndex, false);
+            }
+            else
+            {
+                // In the pause interval between cycles
+                // Ghost should be at the end position (or hidden)
+                ParsekLog.Verbose("Loop", $"ComputeLoopPhaseFromUT: cycleIndex={cycleIndex}, loopUT={recordingEndUT:R}, isInPause=true (phase={phaseInCycle:R}/{duration:R})");
+                return (recordingEndUT, cycleIndex, true);
+            }
+        }
+
+        /// <summary>
+        /// Determines whether a looped ghost should be spawned for a recording
+        /// whose anchor vessel just loaded. Returns false if:
+        /// - Recording is not looping
+        /// - No anchor vessel ID set
+        /// - Anchor vessel doesn't exist
+        /// - Anchor vessel body mismatch (wrong celestial body)
+        /// </summary>
+        internal static bool ShouldSpawnLoopedGhost(
+            Recording rec,
+            bool anchorVesselExists,
+            string anchorBodyName,
+            string recordingBodyName)
+        {
+            if (rec == null)
+            {
+                ParsekLog.Verbose("Loop", "ShouldSpawnLoopedGhost: rec is null, returning false");
+                return false;
+            }
+
+            if (!rec.LoopPlayback)
+            {
+                ParsekLog.Verbose("Loop", $"ShouldSpawnLoopedGhost: rec '{rec.VesselName}' not looping, returning false");
+                return false;
+            }
+
+            if (rec.LoopAnchorVesselId == 0)
+            {
+                ParsekLog.Verbose("Loop", $"ShouldSpawnLoopedGhost: rec '{rec.VesselName}' has no anchor vessel, returning false");
+                return false;
+            }
+
+            if (!anchorVesselExists)
+            {
+                ParsekLog.Verbose("Loop", $"ShouldSpawnLoopedGhost: rec '{rec.VesselName}' anchor pid={rec.LoopAnchorVesselId} not found, returning false");
+                return false;
+            }
+
+            // Body validation: anchor must be on the same body as when recorded
+            if (!string.IsNullOrEmpty(recordingBodyName) &&
+                !string.IsNullOrEmpty(anchorBodyName) &&
+                anchorBodyName != recordingBodyName)
+            {
+                ParsekLog.Warn("Loop",
+                    $"ShouldSpawnLoopedGhost: rec '{rec.VesselName}' anchor vessel body mismatch: " +
+                    $"expected={recordingBodyName}, actual={anchorBodyName} — loop broken");
+                return false;
+            }
+
+            ParsekLog.Verbose("Loop", $"ShouldSpawnLoopedGhost: rec '{rec.VesselName}' anchor pid={rec.LoopAnchorVesselId} valid, returning true");
+            return true;
+        }
+
+        /// <summary>
+        /// Pure-static gating check: determines whether a looped recording with an anchor
+        /// should have its ghost active right now. Returns true if:
+        /// - The recording has no anchor (anchorPid == 0) — unanchored loops always run
+        /// - The anchor vessel PID is in the loadedAnchors set
+        /// Returns false if the recording has an anchor and it is not loaded.
+        /// </summary>
+        internal static bool IsAnchorLoaded(uint anchorPid, HashSet<uint> loadedAnchors)
+        {
+            if (anchorPid == 0)
+                return true; // No anchor configured — always allow
+
+            if (loadedAnchors == null)
+            {
+                ParsekLog.Verbose("Loop", $"IsAnchorLoaded: loadedAnchors set is null, anchorPid={anchorPid} — returning false");
+                return false;
+            }
+
+            bool loaded = loadedAnchors.Contains(anchorPid);
+            ParsekLog.Verbose("Loop", $"IsAnchorLoaded: anchorPid={anchorPid}, loaded={loaded}");
+            return loaded;
+        }
+
+        #endregion
+
+        #region External Vessel Ghost Policy
+
+        /// <summary>
+        /// Injectable override for vessel existence checks (null = use FlightGlobals).
+        /// Set via SetVesselExistsOverrideForTesting for unit tests.
+        /// </summary>
+        private static Func<uint, bool> vesselExistsOverride;
+
+        /// <summary>
+        /// Injectable override for chain-ghosted vessel checks (null = assume not ghosted).
+        /// Set via SetIsGhostedOverride for unit tests; in production, wired to VesselGhoster.IsGhosted.
+        /// </summary>
+        private static Func<uint, bool> isGhostedOverride;
+
+        /// <summary>
+        /// Sets an injectable override for RealVesselExists, enabling unit testing
+        /// without FlightGlobals. Pass null to restore default behavior.
+        /// </summary>
+        internal static void SetVesselExistsOverrideForTesting(Func<uint, bool> finder)
+        {
+            vesselExistsOverride = finder;
+        }
+
+        /// <summary>
+        /// Sets an injectable override for IsGhostedByChain, enabling unit testing
+        /// without VesselGhoster. Pass null to restore default behavior (not ghosted).
+        /// </summary>
+        internal static void SetIsGhostedOverride(Func<uint, bool> checker)
+        {
+            isGhostedOverride = checker;
+        }
+
+        /// <summary>
+        /// Resets the injectable is-ghosted override. Call from test Dispose.
+        /// </summary>
+        internal static void ResetIsGhostedOverride()
+        {
+            isGhostedOverride = null;
+        }
+
+        /// <summary>
+        /// Checks if a real vessel with the given persistentId currently exists in the game.
+        /// If it exists, no ghost should be spawned (the real vessel serves as its own visual).
+        /// If it doesn't exist, a fallback ghost should be spawned from stored background data.
+        /// Uses injectable override when set (for testing).
+        /// </summary>
+        internal static bool RealVesselExists(uint vesselPersistentId)
+        {
+            if (vesselPersistentId == 0) return false;
+
+            if (vesselExistsOverride != null)
+                return vesselExistsOverride(vesselPersistentId);
+
+            if (FlightGlobals.Vessels == null) return false;
+            for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
+            {
+                if (FlightGlobals.Vessels[i] != null &&
+                    FlightGlobals.Vessels[i].persistentId == vesselPersistentId)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Checks if a vessel is ghosted by a chain (despawned by VesselGhoster).
+        /// Uses injectable override when set (for testing); defaults to false when
+        /// no override is configured (no chain system active).
+        /// </summary>
+        private static bool IsGhostedByChain(uint vesselPersistentId)
+        {
+            if (isGhostedOverride != null)
+                return isGhostedOverride(vesselPersistentId);
+            return false;
+        }
+
+        /// <summary>
+        /// Pure decision method: determines whether a ghost should be skipped for an
+        /// external background vessel whose real vessel still exists in the game world.
+        /// An "external vessel" is a tree recording that was tracked via BackgroundMap
+        /// (not the active vessel) and whose VesselPersistentId matches a live vessel.
+        /// Returns true if the ghost should be skipped.
+        /// </summary>
+        internal static bool ShouldSkipExternalVesselGhost(
+            string treeId, uint vesselPersistentId, bool isActiveRecording)
+        {
+            // Only applies to tree recordings (standalone recordings don't have BackgroundMap)
+            if (string.IsNullOrEmpty(treeId)) return false;
+
+            // Active recording is the player's own vessel — always spawn its ghost
+            if (isActiveRecording) return false;
+
+            // PID 0 means we don't know the vessel — can't check existence
+            if (vesselPersistentId == 0) return false;
+
+            // Phase 6b: If vessel is ghosted by a chain, do NOT skip.
+            // The real vessel has been despawned — the background recording
+            // data must produce a ghost for the chain.
+            if (IsGhostedByChain(vesselPersistentId))
+            {
+                ParsekLog.Verbose("Ghoster",
+                    $"ShouldSkipExternalVesselGhost: vessel pid={vesselPersistentId} " +
+                    "is ghosted by chain — NOT skipping");
+                return false;
+            }
+
+            // Tree-owned vessel: if the recording's tree has recordings with this PID,
+            // the vessel is part of the tree's own flight history — always show the ghost
+            // so the user can see the recorded trajectory replayed. The real vessel may sit
+            // at its save-time position, which is different from the ghost's interpolated path.
+            if (IsVesselOwnedByTree(treeId, vesselPersistentId))
+                return false;
+
+            return RealVesselExists(vesselPersistentId);
+        }
+
+        /// <summary>
+        /// Checks whether the given vessel PID belongs to any recording in the same tree.
+        /// A tree "owns" a vessel PID if any of its recordings has that VesselPersistentId.
+        /// Uses the cached OwnedVesselPids set on RecordingTree for O(1) lookup.
+        /// </summary>
+        internal static bool IsVesselOwnedByTree(string treeId, uint vesselPersistentId)
+        {
+            if (string.IsNullOrEmpty(treeId) || vesselPersistentId == 0) return false;
+
+            var trees = RecordingStore.CommittedTrees;
+            for (int i = 0; i < trees.Count; i++)
+            {
+                if (trees[i].Id == treeId)
+                    return trees[i].OwnedVesselPids.Contains(vesselPersistentId);
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Resets the injectable vessel-exists override. Call from test Dispose.
+        /// </summary>
+        internal static void ResetVesselExistsOverride()
+        {
+            vesselExistsOverride = null;
         }
 
         #endregion
@@ -1057,8 +1391,17 @@ namespace Parsek
                     if (ps != null)
                     {
                         var em = ps.emission;
-                        em.enabled = true;
-                        if (!ps.isPlaying) ps.Play();
+                        // Only restore emission for RCS that was actually activated by an event.
+                        // The ghost builder initializes rateOverTimeMultiplier=0 and calls Stop().
+                        // SetRcsEmission sets rate>0 when an RCSActivated event fires.
+                        // Without this check, suppression cycling (warp on/off) would blindly
+                        // Play() all particle systems — including those never activated.
+                        float rate = em.rateOverTimeMultiplier;
+                        if (rate > 0f)
+                        {
+                            em.enabled = true;
+                            if (!ps.isPlaying) ps.Play();
+                        }
                     }
                 }
         }
@@ -1245,7 +1588,8 @@ namespace Parsek
             }
 
             if (applied)
-                ParsekLog.Verbose("Flight", $"Part pid={evt.partPersistentId}: applied heat level {level}");
+                ParsekLog.VerboseRateLimited("Flight", $"heat-{evt.partPersistentId}",
+                    $"Part pid={evt.partPersistentId}: applied heat level {level}", 5.0);
 
             return applied;
         }
@@ -1491,6 +1835,191 @@ namespace Parsek
                     }
                 }
             }
+        }
+
+        #endregion
+
+        #region Spawn-at-Recording-End Decision
+
+        /// <summary>
+        /// Determines whether spawn should be suppressed because the recording
+        /// is an intermediate link in a ghost chain (not the chain tip), or
+        /// because the chain is terminated (vessel destroyed/recovered).
+        /// Returns (suppressed, reason). Called BEFORE ShouldSpawnAtRecordingEnd
+        /// by the playback controller (Phase 6b).
+        /// </summary>
+        internal static (bool suppressed, string reason) ShouldSuppressSpawnForChain(
+            Dictionary<uint, GhostChain> chains, Recording rec)
+        {
+            if (chains == null || chains.Count == 0)
+                return (false, "");
+
+            if (GhostChainWalker.IsIntermediateChainLink(chains, rec))
+            {
+                var ownerChain = GhostChainWalker.FindChainForVessel(chains, rec.VesselPersistentId);
+                ParsekLog.Info("ChainWalker",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Intermediate spawn suppressed: rec={0} vessel={1} -- chain tip at UT={2:F1}",
+                        rec.RecordingId, rec.VesselName,
+                        ownerChain != null ? ownerChain.SpawnUT : 0.0));
+                return (true, "intermediate ghost chain link");
+            }
+
+            var chain = GhostChainWalker.FindChainForVessel(chains, rec.VesselPersistentId);
+            if (chain != null && chain.IsTerminated && chain.TipRecordingId == rec.RecordingId)
+            {
+                ParsekLog.Info("ChainWalker",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Terminated chain spawn suppressed: rec={0} vessel={1} vesselPid={2}",
+                        rec.RecordingId, rec.VesselName, rec.VesselPersistentId));
+                return (true, "terminated ghost chain");
+            }
+
+            return (false, "");
+        }
+
+        /// <summary>
+        /// Pure decision logic for whether a recording's vessel should be spawned
+        /// at the end of its ghost playback (the "spawn-at-recording-end" feature).
+        /// Extracted from ParsekFlight.UpdateTimelinePlayback for testability.
+        ///
+        /// Returns (needsSpawn, reason) where reason explains why spawn was suppressed.
+        /// Empty reason means spawn is allowed.
+        /// </summary>
+        /// <param name="rec">The recording to evaluate.</param>
+        /// <param name="isActiveChainMember">True if the recording belongs to the chain currently being built.</param>
+        /// <param name="isChainLoopingOrDisabled">True if the recording's chain is looping or fully disabled.</param>
+        internal static (bool needsSpawn, string reason) ShouldSpawnAtRecordingEnd(
+            Recording rec,
+            bool isActiveChainMember,
+            bool isChainLoopingOrDisabled)
+        {
+            // Base condition: must have a snapshot, not already spawned, not destroyed
+            if (rec.VesselSnapshot == null)
+                return (false, "no vessel snapshot");
+            if (rec.VesselSpawned)
+                return (false, "already spawned (VesselSpawned=true)");
+            if (rec.VesselDestroyed)
+                return (false, "vessel destroyed");
+
+            // Branch > 0 recordings are ghost-only (undock continuations) — never spawn
+            if (rec.ChainBranch > 0)
+                return (false, "branch > 0 (ghost-only)");
+
+            // Suppress spawning for recordings belonging to a chain currently being built
+            if (isActiveChainMember)
+                return (false, "active chain being built");
+
+            // Looping recordings: first playthrough spawns the vessel (so it exists in the world),
+            // subsequent loops are visual-only. The VesselSpawned/SpawnedVesselPersistentId checks
+            // above handle this — after first spawn, VesselSpawned=true prevents re-spawning.
+            // No blanket LoopPlayback suppression needed here.
+
+            // Suppress spawn for looping or fully-disabled chains
+            if (isChainLoopingOrDisabled)
+                return (false, "chain looping or fully disabled");
+
+            // Non-leaf tree recordings should never spawn (they branched into children)
+            if (rec.ChildBranchPointId != null)
+                return (false, "non-leaf tree recording");
+
+            // Terminal states: destroyed/recovered/docked/boarded should not spawn
+            if (rec.TerminalStateValue.HasValue)
+            {
+                var ts = rec.TerminalStateValue.Value;
+                if (ts == TerminalState.Destroyed || ts == TerminalState.Recovered
+                    || ts == TerminalState.Docked || ts == TerminalState.Boarded)
+                    return (false, $"terminal state {ts}");
+            }
+
+            // PID dedup: if vessel was already spawned (PID recorded), never re-spawn.
+            // On revert, SpawnedVesselPersistentId resets to 0 from quicksave so reverts still work.
+            if (rec.SpawnedVesselPersistentId != 0)
+                return (false, $"already spawned (pid={rec.SpawnedVesselPersistentId})");
+
+            return (true, "");
+        }
+
+        #endregion
+
+        #region Zone-Based Rendering
+
+        /// <summary>
+        /// Determines whether a ghost mesh should be hidden because it entered Zone 3 (Beyond).
+        /// Returns true if the ghost is active and in Beyond zone, meaning it should be hidden.
+        /// </summary>
+        internal static bool ShouldHideGhostForZone(bool ghostIsActive, RenderingZone zone)
+        {
+            return ghostIsActive && zone == RenderingZone.Beyond;
+        }
+
+        /// <summary>
+        /// Determines whether watch mode should be exited because the watched ghost entered Zone 3.
+        /// Returns true if the ghost being watched moved beyond visual range.
+        /// </summary>
+        internal static bool ShouldExitWatchModeForZone(
+            int watchedRecordingIndex, int currentRecordingIndex, RenderingZone zone)
+        {
+            return watchedRecordingIndex == currentRecordingIndex && zone == RenderingZone.Beyond;
+        }
+
+        /// <summary>
+        /// Determines whether part events should be applied for the given zone.
+        /// Part events only fire in the Physics zone (within 2.3 km).
+        /// </summary>
+        internal static bool ShouldApplyPartEventsForZone(RenderingZone zone)
+        {
+            return zone == RenderingZone.Physics;
+        }
+
+        /// <summary>
+        /// Determines the rendering actions to take when a ghost transitions between zones.
+        /// Returns (shouldHideMesh, shouldExitWatch, shouldSkipPartEvents, shouldSkipPositioning).
+        /// </summary>
+        internal static (bool shouldHideMesh, bool shouldSkipPartEvents, bool shouldSkipPositioning)
+            GetZoneRenderingPolicy(RenderingZone zone)
+        {
+            switch (zone)
+            {
+                case RenderingZone.Beyond:
+                    return (true, true, true);
+                case RenderingZone.Visual:
+                    return (false, true, false);
+                case RenderingZone.Physics:
+                default:
+                    return (false, false, false);
+            }
+        }
+
+        /// <summary>
+        /// Detects a zone transition and returns whether the zone changed.
+        /// Pure decision method — does not mutate state or log.
+        /// </summary>
+        internal static bool DetectZoneTransition(
+            RenderingZone previousZone, RenderingZone newZone,
+            out string transitionDescription)
+        {
+            if (previousZone == newZone)
+            {
+                transitionDescription = null;
+                return false;
+            }
+
+            // Describe the transition direction
+            bool movingOutward = (int)newZone > (int)previousZone;
+            transitionDescription = movingOutward ? "outward" : "inward";
+            return true;
+        }
+
+        /// <summary>
+        /// Determines whether a looped ghost should be spawned at the given distance,
+        /// and whether it should use simplified rendering (no part events).
+        /// Wraps RenderingZoneManager.ShouldSpawnLoopedGhostAtDistance for consistency.
+        /// </summary>
+        internal static (bool shouldSpawn, bool simplified) EvaluateLoopedGhostSpawn(
+            double distanceMeters)
+        {
+            return RenderingZoneManager.ShouldSpawnLoopedGhostAtDistance(distanceMeters);
         }
 
         #endregion

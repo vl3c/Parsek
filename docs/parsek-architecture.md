@@ -688,6 +688,15 @@ Localization files go in `GameData/Parsek/Localization/en-us.cfg`.
 | PersistentRotation | Detected at recording start. When active and vessel is spinning (>0.05 rad/s), angular velocity is recorded. Ghost vessels spin during orbital playback. |
 | Kerbal Alarm Clock | Auto-create alarms for ghost playback windows |
 
+### Research References
+
+The source code of the following mods was studied (cloned to `mods/` at the repo root) to understand CommNet internals for the ghost relay node implementation:
+
+| Mod | What we learned |
+|-----|-----------------|
+| [CommNetManager](https://github.com/DBooots/CommNetManager) | Stock `CommNet.Add(CommNode)` flows through CommNetManager's delegate chain transparently — no special API needed. |
+| [RemoteTech](https://github.com/RemoteTechnologiesGroup/RemoteTech) | Completely replaces CommNet with a parallel network. No extension points for non-vessel nodes — Parsek detects RemoteTech at runtime and skips ghost CommNet registration. |
+
 ---
 
 ## Development Phases (Roadmap)

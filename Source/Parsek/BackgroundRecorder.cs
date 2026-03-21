@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using KSP.UI.Screens;
 using UnityEngine;
 
@@ -26,13 +27,41 @@ namespace Parsek
         private Dictionary<uint, BackgroundOnRailsState> onRailsStates
             = new Dictionary<uint, BackgroundOnRailsState>();
 
+        // GameEvent subscriptions for discrete events (onPartDie, onPartJointBreak)
+        private bool partEventsSubscribed;
+
         // Interval for updating ExplicitEndUT on background recordings
         private const double ExplicitEndUpdateInterval = 30.0;
+
+        // Debris TTL: stop recording debris after this many seconds
+        internal const double DebrisTTLSeconds = 30.0;
+
+        // Per-vessel debris TTL tracking (vesselPid -> UT at which to stop recording)
+        // double.NaN = no TTL (controlled vessel, keep recording indefinitely)
+        private Dictionary<uint, double> debrisTTLExpiry
+            = new Dictionary<uint, double>();
+
+        // Pending background split checks: after OnBackgroundPartJointBreak,
+        // we defer one frame to let KSP finalize the vessel split, then check.
+        // Maps parent vessel PID -> (branchUT, recordingId)
+        private Dictionary<uint, (double branchUT, string recordingId)> pendingBackgroundSplitChecks
+            = new Dictionary<uint, (double, string)>();
+
+        // Pre-break snapshot of all vessel PIDs in FlightGlobals, per parent vessel.
+        // Used to identify NEW vessels that appeared from the split.
+        private Dictionary<uint, HashSet<uint>> preBreakVesselPidSnapshots
+            = new Dictionary<uint, HashSet<uint>>();
 
         // Robotic sampling constants (mirrors FlightRecorder)
         private const double roboticSampleIntervalSeconds = 0.25;
         private const float roboticAngularDeadbandDegrees = 0.5f;
         private const float roboticLinearDeadbandMeters = 0.01f;
+
+        // Injectable vessel finder for CheckpointAllVessels (null = use FlightRecorder.FindVesselByPid)
+        private System.Func<uint, Vessel> vesselFinderOverride;
+
+        // Injectable distance override for testing (null = use FlightGlobals.ActiveVessel)
+        private System.Func<Vessel, double> distanceOverrideForTesting;
 
         public BackgroundRecorder(RecordingTree tree)
         {
@@ -76,6 +105,10 @@ namespace Parsek
             public double lastRecordedUT = -1;
             public Vector3 lastRecordedVelocity;
 
+            // Proximity-based sample interval tracking
+            public double currentSampleInterval = ProximityRateSelector.OutOfRangeInterval;
+            public double lastSampleUT = -1;
+
             // Part event tracking (mirrors FlightRecorder's instance fields)
             public Dictionary<uint, int> parachuteStates = new Dictionary<uint, int>();
             public HashSet<uint> jettisonedShrouds = new HashSet<uint>();
@@ -112,6 +145,15 @@ namespace Parsek
             public Dictionary<ulong, double> lastRoboticSampleUT = new Dictionary<ulong, double>();
             public HashSet<ulong> loggedRoboticModuleKeys = new HashSet<ulong>();
 
+            // Environment tracking (TrackSection management)
+            public EnvironmentHysteresis environmentHysteresis;
+            public TrackSection currentTrackSection;
+            public bool trackSectionActive;
+            public List<TrackSection> trackSections = new List<TrackSection>();
+
+            // Part destruction/decoupling tracking
+            public HashSet<uint> decoupledPartIds = new HashSet<uint>();
+
             // Diagnostic guards (prevent log spam, one per module type)
             public HashSet<ulong> loggedLadderClassificationMisses = new HashSet<ulong>();
             public HashSet<ulong> loggedAnimationGroupClassificationMisses = new HashSet<ulong>();
@@ -124,6 +166,555 @@ namespace Parsek
             public HashSet<uint> loggedCargoBayAnimationIssues = new HashSet<uint>();
             public HashSet<uint> loggedCargoBayClosedPositionIssues = new HashSet<uint>();
             public HashSet<uint> loggedFairingReadFailures = new HashSet<uint>();
+        }
+
+        #endregion
+
+        #region GameEvent Subscriptions
+
+        /// <summary>
+        /// Subscribes to GameEvents for discrete part events (onPartDie, onPartJointBreak)
+        /// that cannot be captured by per-frame polling. These events fire globally for all
+        /// vessels; the handlers check if the part belongs to a background vessel.
+        /// </summary>
+        internal void SubscribePartEvents()
+        {
+            if (partEventsSubscribed) return;
+            GameEvents.onPartDie.Add(OnBackgroundPartDie);
+            GameEvents.onPartJointBreak.Add(OnBackgroundPartJointBreak);
+            partEventsSubscribed = true;
+            ParsekLog.Verbose("BgRecorder", "Subscribed to onPartDie and onPartJointBreak for background vessels");
+        }
+
+        internal void UnsubscribePartEvents()
+        {
+            if (!partEventsSubscribed) return;
+            GameEvents.onPartDie.Remove(OnBackgroundPartDie);
+            GameEvents.onPartJointBreak.Remove(OnBackgroundPartJointBreak);
+            partEventsSubscribed = false;
+            ParsekLog.Verbose("BgRecorder", "Unsubscribed from onPartDie and onPartJointBreak");
+        }
+
+        /// <summary>
+        /// Handles part death for background vessels. Looks up the dying part's vessel
+        /// in the tree's BackgroundMap; if found and in loaded state, emits a Destroyed
+        /// or ParachuteDestroyed event.
+        /// </summary>
+        internal void OnBackgroundPartDie(Part p)
+        {
+            if (tree == null) return;
+            if (p?.vessel == null)
+            {
+                ParsekLog.VerboseRateLimited("BgRecorder", "bg-part-die-null",
+                    "OnBackgroundPartDie: part or vessel is null");
+                return;
+            }
+
+            uint vesselPid = p.vessel.persistentId;
+
+            // Only handle background vessels (not the active/focused vessel)
+            string recordingId;
+            if (!tree.BackgroundMap.TryGetValue(vesselPid, out recordingId)) return;
+
+            // Must have loaded state (part events only meaningful for loaded vessels)
+            BackgroundVesselState state;
+            if (!loadedStates.TryGetValue(vesselPid, out state)) return;
+
+            Recording treeRec;
+            if (!tree.Recordings.TryGetValue(recordingId, out treeRec)) return;
+
+            bool hasChute = p.FindModuleImplementing<ModuleParachute>() != null;
+            var evtType = FlightRecorder.ClassifyPartDeath(
+                p.persistentId, hasChute, state.parachuteStates);
+
+            treeRec.PartEvents.Add(new PartEvent
+            {
+                ut = Planetarium.GetUniversalTime(),
+                partPersistentId = p.persistentId,
+                eventType = evtType,
+                partName = p.partInfo?.name ?? "unknown"
+            });
+
+            ParsekLog.Verbose("BgRecorder",
+                $"Part death on background vessel: {evtType} '{p.partInfo?.name}' " +
+                $"pid={p.persistentId} vesselPid={vesselPid}");
+        }
+
+        /// <summary>
+        /// Handles part joint breaks for background vessels. Looks up the child part's
+        /// vessel in the tree's BackgroundMap; if found and in loaded state, emits a
+        /// Decoupled event (with structural-joint and dedup guards).
+        /// </summary>
+        internal void OnBackgroundPartJointBreak(PartJoint joint, float breakForce)
+        {
+            if (tree == null) return;
+            if (joint?.Child?.vessel == null)
+            {
+                ParsekLog.VerboseRateLimited("BgRecorder", "bg-joint-break-null",
+                    "OnBackgroundPartJointBreak: joint, child, or vessel is null");
+                return;
+            }
+
+            uint vesselPid = joint.Child.vessel.persistentId;
+
+            // Only handle background vessels
+            string recordingId;
+            if (!tree.BackgroundMap.TryGetValue(vesselPid, out recordingId)) return;
+
+            BackgroundVesselState state;
+            if (!loadedStates.TryGetValue(vesselPid, out state)) return;
+
+            Recording treeRec;
+            if (!tree.Recordings.TryGetValue(recordingId, out treeRec)) return;
+
+            // Skip non-structural joint breaks (same logic as FlightRecorder)
+            var childAttachJoint = joint.Child.attachJoint;
+            if (!FlightRecorder.IsStructuralJointBreak(joint == childAttachJoint, childAttachJoint != null))
+            {
+                ParsekLog.VerboseRateLimited("BgRecorder",
+                    $"bg-joint-break-nonstructural-{joint.Child.persistentId}",
+                    $"OnBackgroundPartJointBreak: non-structural joint break on " +
+                    $"'{joint.Child.partInfo?.name}' pid={joint.Child.persistentId} " +
+                    $"vesselPid={vesselPid} (breakForce={breakForce:F1}), skipping");
+                return;
+            }
+
+            // Skip duplicate decoupled events for the same part
+            if (state.decoupledPartIds.Contains(joint.Child.persistentId))
+            {
+                ParsekLog.VerboseRateLimited("BgRecorder",
+                    $"bg-joint-break-dup-{joint.Child.persistentId}",
+                    $"OnBackgroundPartJointBreak: duplicate for already-decoupled " +
+                    $"'{joint.Child.partInfo?.name}' pid={joint.Child.persistentId} " +
+                    $"vesselPid={vesselPid}, skipping");
+                return;
+            }
+            state.decoupledPartIds.Add(joint.Child.persistentId);
+
+            treeRec.PartEvents.Add(new PartEvent
+            {
+                ut = Planetarium.GetUniversalTime(),
+                partPersistentId = joint.Child.persistentId,
+                eventType = PartEventType.Decoupled,
+                partName = joint.Child.partInfo?.name ?? "unknown"
+            });
+
+            ParsekLog.Verbose("BgRecorder",
+                $"Part joint break on background vessel: Decoupled " +
+                $"'{joint.Child.partInfo?.name}' pid={joint.Child.persistentId} " +
+                $"vesselPid={vesselPid} breakForce={breakForce:F1}");
+
+            // Schedule a deferred split check for this background vessel.
+            // KSP needs one frame to finalize vessel splits after joint breaks.
+            if (!pendingBackgroundSplitChecks.ContainsKey(vesselPid))
+            {
+                double branchUT = Planetarium.GetUniversalTime();
+
+                // Snapshot all current vessel PIDs so we can identify NEW ones next frame
+                var snapshot = new HashSet<uint>();
+                if (FlightGlobals.Vessels != null)
+                {
+                    for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
+                    {
+                        Vessel v = FlightGlobals.Vessels[i];
+                        if (v != null) snapshot.Add(v.persistentId);
+                    }
+                }
+                preBreakVesselPidSnapshots[vesselPid] = snapshot;
+                pendingBackgroundSplitChecks[vesselPid] = (branchUT, recordingId);
+
+                ParsekLog.Info("BgRecorder",
+                    $"Scheduled deferred split check for background vessel: " +
+                    $"parentPid={vesselPid} branchUT={branchUT:F1} " +
+                    $"preBreakVesselCount={snapshot.Count}");
+            }
+        }
+
+        #endregion
+
+        #region Background Vessel Split Detection
+
+        /// <summary>
+        /// Called from Update() to process any pending background split checks.
+        /// Must be called one frame after the joint break event to allow KSP to
+        /// finalize the vessel split.
+        /// </summary>
+        internal void ProcessPendingSplitChecks()
+        {
+            if (pendingBackgroundSplitChecks.Count == 0) return;
+
+            // Copy keys to avoid modifying dict during iteration
+            var pending = new List<KeyValuePair<uint, (double branchUT, string recordingId)>>(
+                pendingBackgroundSplitChecks);
+            pendingBackgroundSplitChecks.Clear();
+
+            for (int i = 0; i < pending.Count; i++)
+            {
+                uint parentPid = pending[i].Key;
+                double branchUT = pending[i].Value.branchUT;
+                string parentRecordingId = pending[i].Value.recordingId;
+
+                HashSet<uint> preBreakPids;
+                preBreakVesselPidSnapshots.TryGetValue(parentPid, out preBreakPids);
+                preBreakVesselPidSnapshots.Remove(parentPid);
+
+                HandleBackgroundVesselSplit(parentPid, branchUT, parentRecordingId, preBreakPids);
+            }
+        }
+
+        /// <summary>
+        /// Called when a background vessel may have split. Checks if new vessels appeared
+        /// from the split, creates BranchPoint + child recordings for each new vessel.
+        /// Spent stages and debris get a TTL (stop recording after 30s or on destruction
+        /// or when leaving physics bubble).
+        /// </summary>
+        internal void HandleBackgroundVesselSplit(uint parentPid, double branchUT,
+            string parentRecordingId, HashSet<uint> preBreakPids)
+        {
+            if (tree == null) return;
+
+            Recording parentRec;
+            if (!tree.Recordings.TryGetValue(parentRecordingId, out parentRec))
+            {
+                ParsekLog.Warn("BgRecorder",
+                    $"HandleBackgroundVesselSplit: parent recording not found: " +
+                    $"parentPid={parentPid} recId={parentRecordingId}");
+                return;
+            }
+
+            // Find new vessel PIDs that appeared since the pre-break snapshot
+            var newVesselInfos = new List<(uint pid, string name, bool hasController)>();
+            if (FlightGlobals.Vessels != null)
+            {
+                for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
+                {
+                    Vessel v = FlightGlobals.Vessels[i];
+                    if (v == null) continue;
+                    if (v.persistentId == parentPid) continue;
+
+                    // Only consider vessels that didn't exist before the break
+                    if (preBreakPids != null && preBreakPids.Contains(v.persistentId))
+                        continue;
+
+                    // Skip vessels we're already tracking in the tree
+                    if (tree.BackgroundMap.ContainsKey(v.persistentId))
+                        continue;
+
+                    bool hasController = ParsekFlight.IsTrackableVessel(v);
+                    newVesselInfos.Add((v.persistentId, v.vesselName ?? "Unknown", hasController));
+                }
+            }
+
+            if (newVesselInfos.Count == 0)
+            {
+                ParsekLog.Verbose("BgRecorder",
+                    $"HandleBackgroundVesselSplit: no new vessels from parentPid={parentPid} — " +
+                    $"joint break did not cause vessel split");
+                return;
+            }
+
+            // A split occurred. Build the branch structure.
+            ParsekLog.Info("BgRecorder",
+                $"Background vessel split detected: parentPid={parentPid} " +
+                $"childCount={newVesselInfos.Count} branchUT={branchUT:F1}");
+
+            // Determine BranchPoint type: JointBreak (structural separation)
+            var branchType = BranchPointType.JointBreak;
+
+            // Build a BranchPoint and child recordings using our pure static method
+            var result = BuildBackgroundSplitBranchData(
+                parentRecordingId, tree.Id, branchUT, branchType,
+                parentPid, newVesselInfos);
+
+            var bp = result.bp;
+            var childRecordings = result.childRecordings;
+
+            // Close parent recording: set ChildBranchPointId, close orbit segment/trajectory
+            parentRec.ChildBranchPointId = bp.Id;
+            parentRec.ExplicitEndUT = branchUT;
+
+            // Close parent's orbit segment if open
+            BackgroundOnRailsState parentRails;
+            if (onRailsStates.TryGetValue(parentPid, out parentRails) && parentRails.hasOpenOrbitSegment)
+            {
+                CloseOrbitSegment(parentRails, branchUT);
+            }
+
+            // Sample a final boundary point for the parent if loaded
+            BackgroundVesselState parentLoaded;
+            if (loadedStates.TryGetValue(parentPid, out parentLoaded))
+            {
+                Vessel parentVessel = FlightRecorder.FindVesselByPid(parentPid);
+                if (parentVessel != null)
+                {
+                    SampleBoundaryPoint(parentVessel, parentRec, branchUT);
+                }
+            }
+
+            // Remove parent from BackgroundMap (it has branched, no longer a live recording)
+            tree.BackgroundMap.Remove(parentPid);
+            onRailsStates.Remove(parentPid);
+            loadedStates.Remove(parentPid);
+            debrisTTLExpiry.Remove(parentPid);
+
+            // Add BranchPoint to tree
+            tree.BranchPoints.Add(bp);
+
+            // Create a continuation recording for the parent vessel itself
+            // (it keeps existing with potentially fewer parts)
+            string parentContRecId = System.Guid.NewGuid().ToString("N");
+            var parentContRec = new Recording
+            {
+                RecordingId = parentContRecId,
+                TreeId = tree.Id,
+                VesselPersistentId = parentPid,
+                VesselName = parentRec.VesselName,
+                ParentBranchPointId = bp.Id,
+                ExplicitStartUT = branchUT,
+                IsDebris = parentRec.IsDebris
+            };
+            bp.ChildRecordingIds.Insert(0, parentContRecId);
+            tree.Recordings[parentContRecId] = parentContRec;
+            tree.BackgroundMap[parentPid] = parentContRecId;
+
+            // Re-initialize tracking state for the parent continuation
+            OnVesselBackgrounded(parentPid);
+
+            // Set TTL for parent continuation if it's debris
+            if (parentRec.IsDebris)
+            {
+                debrisTTLExpiry[parentPid] = branchUT + DebrisTTLSeconds;
+                ParsekLog.Info("BgRecorder",
+                    $"Parent continuation is debris, TTL set: parentPid={parentPid} " +
+                    $"expiry={branchUT + DebrisTTLSeconds:F1}");
+            }
+
+            // Add each child recording to tree and BackgroundMap.
+            // Capture vessel snapshots so ghosts can be built during playback
+            // (without snapshots, GhostVisualBuilder returns null → no ghost appears).
+            for (int i = 0; i < childRecordings.Count; i++)
+            {
+                var child = childRecordings[i];
+
+                // Capture snapshot for ghost building — the vessel is still loaded at this point
+                Vessel childVessel = FlightRecorder.FindVesselByPid(child.VesselPersistentId);
+                if (childVessel != null)
+                {
+                    child.VesselSnapshot = VesselSpawner.TryBackupSnapshot(childVessel);
+                    child.GhostVisualSnapshot = child.VesselSnapshot != null
+                        ? child.VesselSnapshot.CreateCopy() : null;
+                    ParsekLog.Verbose("BgRecorder",
+                        $"Captured snapshot for child vessel: pid={child.VesselPersistentId} " +
+                        $"name='{child.VesselName}' hasSnapshot={child.VesselSnapshot != null}");
+                }
+                else
+                {
+                    ParsekLog.Warn("BgRecorder",
+                        $"Could not capture snapshot for child vessel: pid={child.VesselPersistentId} " +
+                        $"name='{child.VesselName}' — vessel not found, ghost will not render");
+                }
+
+                tree.Recordings[child.RecordingId] = child;
+                tree.BackgroundMap[child.VesselPersistentId] = child.RecordingId;
+
+                // Initialize tracking state for new child vessel
+                OnVesselBackgrounded(child.VesselPersistentId);
+
+                bool hasController = newVesselInfos[i].hasController;
+                if (!hasController)
+                {
+                    // Debris child: set TTL
+                    child.IsDebris = true;
+                    debrisTTLExpiry[child.VesselPersistentId] = branchUT + DebrisTTLSeconds;
+                    ParsekLog.Info("BgRecorder",
+                        $"Child recording created (debris, TTL={DebrisTTLSeconds:F0}s): " +
+                        $"recId={child.RecordingId} vesselPid={child.VesselPersistentId} " +
+                        $"name='{child.VesselName}'");
+                }
+                else
+                {
+                    // Controlled child: no TTL
+                    ParsekLog.Info("BgRecorder",
+                        $"Child recording created (controlled, no TTL): " +
+                        $"recId={child.RecordingId} vesselPid={child.VesselPersistentId} " +
+                        $"name='{child.VesselName}'");
+                }
+            }
+
+            ParsekLog.Info("BgRecorder",
+                $"Background split branch complete: bp={bp.Id} type={branchType} " +
+                $"parentRecId={parentRecordingId} children={bp.ChildRecordingIds.Count} " +
+                $"(1 parent continuation + {newVesselInfos.Count} new vessels)");
+        }
+
+        /// <summary>
+        /// Pure static method: creates a BranchPoint and child Recording objects for a
+        /// background vessel split. Testable without Unity.
+        /// The parent vessel gets a continuation recording (added by the caller);
+        /// this method creates recordings for the NEW child vessels only.
+        /// </summary>
+        internal static (BranchPoint bp, List<Recording> childRecordings)
+            BuildBackgroundSplitBranchData(
+                string parentRecordingId, string treeId, double branchUT,
+                BranchPointType branchType, uint parentVesselPid,
+                List<(uint pid, string name, bool hasController)> newVesselInfos)
+        {
+            string bpId = System.Guid.NewGuid().ToString("N");
+
+            var bp = new BranchPoint
+            {
+                Id = bpId,
+                UT = branchUT,
+                Type = branchType,
+                ParentRecordingIds = new List<string> { parentRecordingId },
+                ChildRecordingIds = new List<string>(),
+                SplitCause = "DECOUPLE"
+            };
+
+            var childRecordings = new List<Recording>(newVesselInfos.Count);
+            for (int i = 0; i < newVesselInfos.Count; i++)
+            {
+                string childId = System.Guid.NewGuid().ToString("N");
+                bp.ChildRecordingIds.Add(childId);
+
+                var child = new Recording
+                {
+                    RecordingId = childId,
+                    TreeId = treeId,
+                    VesselPersistentId = newVesselInfos[i].pid,
+                    VesselName = newVesselInfos[i].name,
+                    ParentBranchPointId = bpId,
+                    ExplicitStartUT = branchUT,
+                    IsDebris = !newVesselInfos[i].hasController
+                };
+                childRecordings.Add(child);
+            }
+
+            return (bp, childRecordings);
+        }
+
+        /// <summary>
+        /// Checks debris TTL expiry for all tracked debris vessels.
+        /// Called once per frame from Update(). When a debris vessel's TTL has expired,
+        /// its recording is finalized and tracking state is cleaned up.
+        /// Also checks for destroyed/out-of-bubble vessels.
+        /// </summary>
+        internal void CheckDebrisTTL(double currentUT)
+        {
+            if (debrisTTLExpiry.Count == 0) return;
+
+            // Collect expired entries (can't modify dict during iteration)
+            List<uint> expired = null;
+
+            foreach (var kvp in debrisTTLExpiry)
+            {
+                uint vesselPid = kvp.Key;
+                double expiry = kvp.Value;
+
+                if (double.IsNaN(expiry)) continue; // no TTL
+
+                // Check if vessel is destroyed or out of bubble
+                Vessel v = FlightRecorder.FindVesselByPid(vesselPid);
+                if (v == null)
+                {
+                    // Vessel gone (destroyed or despawned)
+                    if (expired == null) expired = new List<uint>();
+                    expired.Add(vesselPid);
+
+                    ParsekLog.Info("BgRecorder",
+                        $"Debris TTL: vessel destroyed/despawned, ending recording: " +
+                        $"vesselPid={vesselPid}");
+                    continue;
+                }
+
+                // Check if TTL expired
+                if (currentUT >= expiry)
+                {
+                    if (expired == null) expired = new List<uint>();
+                    expired.Add(vesselPid);
+
+                    ParsekLog.Info("BgRecorder",
+                        $"Debris TTL expired, ending recording: " +
+                        $"vesselPid={vesselPid} expiry={expiry:F1} currentUT={currentUT:F1}");
+                    continue;
+                }
+
+                // Check if vessel went out of physics bubble (packed + on rails)
+                if (!v.loaded)
+                {
+                    if (expired == null) expired = new List<uint>();
+                    expired.Add(vesselPid);
+
+                    ParsekLog.Info("BgRecorder",
+                        $"Debris TTL: vessel left physics bubble, ending recording: " +
+                        $"vesselPid={vesselPid}");
+                    continue;
+                }
+            }
+
+            if (expired == null) return;
+
+            for (int i = 0; i < expired.Count; i++)
+            {
+                EndDebrisRecording(expired[i], currentUT);
+            }
+        }
+
+        /// <summary>
+        /// Ends a debris recording: finalizes the recording with a terminal state,
+        /// cleans up tracking state, removes from BackgroundMap.
+        /// </summary>
+        private void EndDebrisRecording(uint vesselPid, double endUT)
+        {
+            debrisTTLExpiry.Remove(vesselPid);
+
+            string recordingId;
+            if (!tree.BackgroundMap.TryGetValue(vesselPid, out recordingId)) return;
+
+            Recording rec;
+            if (tree.Recordings.TryGetValue(recordingId, out rec))
+            {
+                rec.ExplicitEndUT = endUT;
+
+                // Determine terminal state from vessel situation
+                Vessel v = FlightRecorder.FindVesselByPid(vesselPid);
+                if (v == null)
+                {
+                    rec.TerminalStateValue = TerminalState.Destroyed;
+                }
+                else
+                {
+                    rec.TerminalStateValue = RecordingTree.DetermineTerminalState((int)v.situation);
+                }
+            }
+
+            // Clean up tracking state
+            OnVesselRemovedFromBackground(vesselPid);
+            tree.BackgroundMap.Remove(vesselPid);
+
+            ParsekLog.Info("BgRecorder",
+                $"Debris recording ended: vesselPid={vesselPid} recId={recordingId} " +
+                $"terminal={rec?.TerminalStateValue?.ToString() ?? "null"}");
+        }
+
+        /// <summary>
+        /// Pure static method: determines whether a debris vessel's TTL has expired,
+        /// or whether it should stop recording for another reason.
+        /// Returns the reason string if should stop, null if should continue.
+        /// </summary>
+        internal static string ShouldStopDebrisRecording(
+            double currentUT, double ttlExpiry, bool vesselExists, bool vesselLoaded)
+        {
+            if (!vesselExists)
+                return "destroyed";
+
+            if (!double.IsNaN(ttlExpiry) && currentUT >= ttlExpiry)
+                return "ttl_expired";
+
+            if (!vesselLoaded)
+                return "out_of_bubble";
+
+            return null;
         }
 
         #endregion
@@ -186,10 +777,57 @@ namespace Parsek
 
             double ut = Planetarium.GetUniversalTime();
 
-            // Poll part events
+            // Poll part events (always, regardless of sampling rate)
             PollPartEvents(bgVessel, state, treeRec, ut);
 
-            // Adaptive sampling
+            // Check for environment transitions (always, regardless of sampling rate)
+            if (state.environmentHysteresis != null)
+            {
+                bool hasAtmo = bgVessel.mainBody != null && bgVessel.mainBody.atmosphere;
+                double atmoDepth = hasAtmo ? bgVessel.mainBody.atmosphereDepth : 0;
+                var rawEnv = ClassifyBackgroundEnvironment(
+                    hasAtmo, bgVessel.altitude, atmoDepth,
+                    (int)bgVessel.situation, bgVessel.srfSpeed, state.cachedEngines);
+                if (state.environmentHysteresis.Update(rawEnv, ut))
+                {
+                    var newEnv = state.environmentHysteresis.CurrentEnvironment;
+                    ParsekLog.Info("BgRecorder",
+                        $"Environment transition: pid={pid} -> {newEnv} " +
+                        $"at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+                    CloseBackgroundTrackSection(state, ut);
+                    StartBackgroundTrackSection(state, newEnv, ReferenceFrame.Absolute, ut);
+                }
+            }
+
+            // Compute distance to focused vessel and determine proximity-based sample interval
+            double distance = ComputeDistanceToFocusedVessel(bgVessel);
+            double proximityInterval = ProximityRateSelector.GetSampleInterval(distance);
+
+            // Log when sample rate changes for this vessel
+            if (proximityInterval != state.currentSampleInterval)
+            {
+                float newHz = ProximityRateSelector.GetSampleRateHz(distance);
+                string distStr = distance.ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
+                string hzStr = newHz.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+                ParsekLog.Info("BgRecorder",
+                    $"Sample rate changed: pid={pid} dist={distStr}m " +
+                    $"interval={FormatInterval(proximityInterval)} ({hzStr} Hz)");
+                state.currentSampleInterval = proximityInterval;
+            }
+
+            // Skip trajectory sampling if out of range
+            if (proximityInterval >= ProximityRateSelector.OutOfRangeInterval)
+            {
+                return;
+            }
+
+            // Gate sampling by proximity-based interval
+            if (state.lastSampleUT >= 0 && (ut - state.lastSampleUT) < proximityInterval)
+            {
+                return;
+            }
+
+            // Adaptive sampling (velocity-based within the proximity-gated window)
             Vector3 currentVelocity = (Vector3)(bgVessel.rb_velocityD + Krakensbane.GetFrameVelocity());
 
             float maxSampleInterval = ParsekSettings.Current?.maxSampleInterval ?? 3.0f;
@@ -219,12 +857,20 @@ namespace Parsek
             treeRec.Points.Add(point);
             state.lastRecordedUT = point.ut;
             state.lastRecordedVelocity = point.velocity;
+            state.lastSampleUT = ut;
+
+            // Dual-write: also add to current TrackSection's frames list
+            if (state.trackSectionActive && state.currentTrackSection.frames != null)
+            {
+                state.currentTrackSection.frames.Add(point);
+            }
 
             // Update ExplicitEndUT
             treeRec.ExplicitEndUT = ut;
 
             ParsekLog.VerboseRateLimited("BgRecorder", $"bgPhysics.{pid}",
-                $"Background point sampled: pid={pid} pts={treeRec.Points.Count} alt={bgVessel.altitude:F0}", 5.0);
+                $"Background point sampled: pid={pid} pts={treeRec.Points.Count} " +
+                $"alt={bgVessel.altitude:F0} dist={distance:F0}m interval={FormatInterval(proximityInterval)}", 5.0);
         }
 
         /// <summary>
@@ -298,17 +944,22 @@ namespace Parsek
                 onRailsStates.Remove(vesselPid);
             }
 
-            // Sample a final boundary point if loaded
+            // Close TrackSection and flush if loaded
             BackgroundVesselState loadedState;
             if (loadedStates.TryGetValue(vesselPid, out loadedState))
             {
-                Vessel v = FlightRecorder.FindVesselByPid(vesselPid);
-                if (v != null)
+                CloseBackgroundTrackSection(loadedState, ut);
+
+                Recording flushRec;
+                if (tree.Recordings.TryGetValue(loadedState.recordingId, out flushRec))
                 {
-                    Recording treeRec;
-                    if (tree.Recordings.TryGetValue(loadedState.recordingId, out treeRec))
+                    FlushTrackSectionsToRecording(loadedState, flushRec);
+
+                    // Sample a final boundary point
+                    Vessel v = FlightRecorder.FindVesselByPid(vesselPid);
+                    if (v != null)
                     {
-                        SampleBoundaryPoint(v, treeRec, ut);
+                        SampleBoundaryPoint(v, flushRec, ut);
                     }
                 }
                 loadedStates.Remove(vesselPid);
@@ -335,11 +986,20 @@ namespace Parsek
             BackgroundVesselState loadedState;
             if (loadedStates.TryGetValue(pid, out loadedState))
             {
-                // Sample a final boundary point
-                Recording treeRec;
-                if (tree.Recordings.TryGetValue(loadedState.recordingId, out treeRec))
+                // Close the active ABSOLUTE/Background TrackSection
+                CloseBackgroundTrackSection(loadedState, ut);
+
+                // Open an ORBITAL_CHECKPOINT/Checkpoint section for the on-rails phase
+                StartCheckpointTrackSection(loadedState, ut);
+
+                // Flush accumulated TrackSections to the recording
+                Recording flushRec;
+                if (tree.Recordings.TryGetValue(loadedState.recordingId, out flushRec))
                 {
-                    SampleBoundaryPoint(v, treeRec, ut);
+                    FlushTrackSectionsToRecording(loadedState, flushRec);
+
+                    // Sample a final boundary point
+                    SampleBoundaryPoint(v, flushRec, ut);
                 }
 
                 loadedStates.Remove(pid);
@@ -458,8 +1118,16 @@ namespace Parsek
                 onRailsStates.Remove(pid);
             }
 
-            if (loadedStates.ContainsKey(pid))
+            BackgroundVesselState loadedState;
+            if (loadedStates.TryGetValue(pid, out loadedState))
             {
+                CloseBackgroundTrackSection(loadedState, ut);
+
+                Recording flushRec;
+                if (tree.Recordings.TryGetValue(loadedState.recordingId, out flushRec))
+                {
+                    FlushTrackSectionsToRecording(loadedState, flushRec);
+                }
                 loadedStates.Remove(pid);
             }
 
@@ -475,6 +1143,8 @@ namespace Parsek
         /// </summary>
         public void Shutdown()
         {
+            UnsubscribePartEvents();
+
             double ut = Planetarium.GetUniversalTime();
 
             // Close all open orbit segments
@@ -484,6 +1154,19 @@ namespace Parsek
                 if (state.hasOpenOrbitSegment)
                 {
                     CloseOrbitSegment(state, ut);
+                }
+            }
+
+            // Close and flush TrackSections for all loaded vessels
+            foreach (var kvp in loadedStates)
+            {
+                var state = kvp.Value;
+                CloseBackgroundTrackSection(state, ut);
+
+                Recording flushRec;
+                if (tree.Recordings.TryGetValue(state.recordingId, out flushRec))
+                {
+                    FlushTrackSectionsToRecording(state, flushRec);
                 }
             }
 
@@ -511,6 +1194,19 @@ namespace Parsek
                 }
             }
 
+            // Close and flush TrackSections for all loaded vessels
+            foreach (var kvp in loadedStates)
+            {
+                var state = kvp.Value;
+                CloseBackgroundTrackSection(state, commitUT);
+
+                Recording flushRec;
+                if (tree.Recordings.TryGetValue(state.recordingId, out flushRec))
+                {
+                    FlushTrackSectionsToRecording(state, flushRec);
+                }
+            }
+
             // Update ExplicitEndUT on all background recordings
             foreach (var kvp in tree.BackgroundMap)
             {
@@ -523,6 +1219,95 @@ namespace Parsek
 
             ParsekLog.Info("BgRecorder", $"FinalizeAllForCommit complete at UT={commitUT:F1} " +
                 $"({onRailsStates.Count} on-rails, {loadedStates.Count} loaded)");
+        }
+
+        /// <summary>
+        /// Captures an orbital checkpoint for all on-rails background vessels at the given UT.
+        /// For each vessel with an open orbit segment, closes the current segment and opens a
+        /// fresh one with the vessel's current orbital elements. This creates clean reference
+        /// points for orbital propagation during playback.
+        /// Called at time warp boundaries and scene changes.
+        /// </summary>
+        internal void CheckpointAllVessels(double ut)
+        {
+            CheckpointAllVessels(ut, vesselFinderOverride);
+        }
+
+        /// <summary>
+        /// Core checkpoint logic with injectable vessel finder for testability.
+        /// If vesselFinder is null, uses FlightRecorder.FindVesselByPid.
+        /// </summary>
+        internal void CheckpointAllVessels(double ut, System.Func<uint, Vessel> vesselFinder)
+        {
+            if (tree == null) return;
+
+            int checkpointed = 0;
+            int skippedNoVessel = 0;
+            int skippedNotOrbital = 0;
+
+            foreach (var kvp in onRailsStates)
+            {
+                uint vesselPid = kvp.Key;
+                var state = kvp.Value;
+
+                // Only checkpoint vessels with open orbit segments (on-rails, orbiting)
+                if (!state.hasOpenOrbitSegment)
+                {
+                    // Landed/splashed or no-orbit vessels don't need orbital checkpoints
+                    skippedNotOrbital++;
+                    continue;
+                }
+
+                // Find the live vessel to get current orbital elements
+                Vessel v = vesselFinder != null
+                    ? vesselFinder(vesselPid)
+                    : FlightRecorder.FindVesselByPid(vesselPid);
+
+                // Close the current orbit segment at checkpoint UT regardless of vessel availability.
+                // The recorded orbital data up to this point is preserved even if the vessel
+                // can't be found (e.g., destroyed between frames).
+                CloseOrbitSegment(state, ut);
+
+                if (v == null || v.orbit == null)
+                {
+                    skippedNoVessel++;
+                    ParsekLog.Verbose("BgRecorder",
+                        $"CheckpointAllVessels: closed segment for pid={vesselPid} but " +
+                        $"vessel/orbit not found — no new segment opened");
+                    continue;
+                }
+
+                // Open a fresh orbit segment with current orbital elements
+                state.currentOrbitSegment = new OrbitSegment
+                {
+                    startUT = ut,
+                    inclination = v.orbit.inclination,
+                    eccentricity = v.orbit.eccentricity,
+                    semiMajorAxis = v.orbit.semiMajorAxis,
+                    longitudeOfAscendingNode = v.orbit.LAN,
+                    argumentOfPeriapsis = v.orbit.argumentOfPeriapsis,
+                    meanAnomalyAtEpoch = v.orbit.meanAnomalyAtEpoch,
+                    epoch = v.orbit.epoch,
+                    bodyName = v.mainBody?.name ?? "Unknown"
+                };
+                state.hasOpenOrbitSegment = true;
+                checkpointed++;
+            }
+
+            ParsekLog.Info("BgRecorder",
+                $"CheckpointAllVessels at UT={ut:F2}: checkpointed={checkpointed}, " +
+                $"skippedNotOrbital={skippedNotOrbital}, skippedNoVessel={skippedNoVessel}");
+        }
+
+        /// <summary>
+        /// Pure static method for determining whether an orbital checkpoint should be
+        /// captured for a given vessel situation.
+        /// </summary>
+        internal static bool IsOrbitalCheckpointSituation(Vessel.Situations situation)
+        {
+            return situation == Vessel.Situations.ORBITING
+                || situation == Vessel.Situations.SUB_ORBITAL
+                || situation == Vessel.Situations.ESCAPING;
         }
 
         #endregion
@@ -628,9 +1413,19 @@ namespace Parsek
             // Seed all tracking sets with current part state (mirrors FlightRecorder.SeedExistingPartStates)
             SeedBackgroundPartStates(v, state);
 
+            // Initialize environment tracking and open first TrackSection
+            double ut = Planetarium.GetUniversalTime();
+            bool hasAtmo = v.mainBody != null && v.mainBody.atmosphere;
+            double atmoDepth = hasAtmo ? v.mainBody.atmosphereDepth : 0;
+            var initialEnv = ClassifyBackgroundEnvironment(
+                hasAtmo, v.altitude, atmoDepth,
+                (int)v.situation, v.srfSpeed, state.cachedEngines);
+            state.environmentHysteresis = new EnvironmentHysteresis(initialEnv);
+            StartBackgroundTrackSection(state, initialEnv, ReferenceFrame.Absolute, ut);
+
             ParsekLog.Verbose("BgRecorder", $"Loaded state initialized: pid={vesselPid} " +
                 $"engines={state.cachedEngines?.Count ?? 0} rcs={state.cachedRcsModules?.Count ?? 0} " +
-                $"robotics={state.cachedRoboticModules?.Count ?? 0}");
+                $"robotics={state.cachedRoboticModules?.Count ?? 0} initialEnv={initialEnv}");
 
             loadedStates[vesselPid] = state;
         }
@@ -717,6 +1512,164 @@ namespace Parsek
                 $"UT={ut:F1} alt={v.altitude:F0} pts={treeRec.Points.Count}");
         }
 
+        /// <summary>
+        /// Computes the distance in meters between a background vessel and the focused vessel.
+        /// Returns double.MaxValue if there is no focused vessel (defensive).
+        /// Uses an injectable override for testing; falls back to FlightGlobals.ActiveVessel.
+        /// </summary>
+        internal double ComputeDistanceToFocusedVessel(Vessel bgVessel)
+        {
+            if (distanceOverrideForTesting != null)
+                return distanceOverrideForTesting(bgVessel);
+
+            Vessel active = FlightGlobals.ActiveVessel;
+            if (active == null) return double.MaxValue;
+            return Vector3d.Distance(active.transform.position, bgVessel.transform.position);
+        }
+
+        /// <summary>
+        /// Formats a sample interval for log messages.
+        /// </summary>
+        private static string FormatInterval(double interval)
+        {
+            if (interval >= ProximityRateSelector.OutOfRangeInterval || double.IsInfinity(interval))
+                return "none";
+            return interval.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + "s";
+        }
+
+        #endregion
+
+        #region Background Environment Classification & TrackSection Management
+
+        /// <summary>
+        /// Classifies the environment for a background vessel using its cached engine list.
+        /// Similar to FlightRecorder.ClassifyCurrentEnvironment but works with
+        /// BackgroundVesselState's cached engines instead of FlightRecorder instance fields.
+        /// Pure enough to be internal static for testability.
+        /// </summary>
+        internal static SegmentEnvironment ClassifyBackgroundEnvironment(
+            bool hasAtmosphere, double altitude, double atmosphereDepth,
+            int situation, double srfSpeed,
+            List<(Part part, ModuleEngines engine, int moduleIndex)> cachedEngines)
+        {
+            bool hasActiveThrust = false;
+            if (cachedEngines != null)
+            {
+                for (int i = 0; i < cachedEngines.Count; i++)
+                {
+                    if (cachedEngines[i].engine != null &&
+                        cachedEngines[i].engine.EngineIgnited &&
+                        cachedEngines[i].engine.finalThrust > 0)
+                    {
+                        hasActiveThrust = true;
+                        break;
+                    }
+                }
+            }
+
+            return EnvironmentDetector.Classify(
+                hasAtmosphere, altitude, atmosphereDepth,
+                situation, srfSpeed, hasActiveThrust);
+        }
+
+        /// <summary>
+        /// Opens a new TrackSection for a background vessel.
+        /// Sets source = Background.
+        /// </summary>
+        private void StartBackgroundTrackSection(
+            BackgroundVesselState state, SegmentEnvironment env, ReferenceFrame refFrame, double ut)
+        {
+            state.currentTrackSection = new TrackSection
+            {
+                environment = env,
+                referenceFrame = refFrame,
+                startUT = ut,
+                source = TrackSectionSource.Background,
+                frames = new List<TrajectoryPoint>(),
+                checkpoints = new List<OrbitSegment>()
+            };
+            state.trackSectionActive = true;
+            ParsekLog.Info("BgRecorder",
+                $"TrackSection started: env={env} ref={refFrame} source=Background " +
+                $"pid={state.vesselPid} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+        }
+
+        /// <summary>
+        /// Opens an OrbitalCheckpoint TrackSection for a background vessel transitioning to on-rails.
+        /// Sets source = Checkpoint.
+        /// </summary>
+        private void StartCheckpointTrackSection(BackgroundVesselState state, double ut)
+        {
+            state.currentTrackSection = new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = ut,
+                source = TrackSectionSource.Checkpoint,
+                frames = new List<TrajectoryPoint>(),
+                checkpoints = new List<OrbitSegment>()
+            };
+            state.trackSectionActive = true;
+            ParsekLog.Info("BgRecorder",
+                $"TrackSection started: env=ExoBallistic ref=OrbitalCheckpoint source=Checkpoint " +
+                $"pid={state.vesselPid} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+        }
+
+        /// <summary>
+        /// Closes the current TrackSection for a background vessel and appends it
+        /// to the per-vessel trackSections list.
+        /// </summary>
+        private void CloseBackgroundTrackSection(BackgroundVesselState state, double ut)
+        {
+            if (!state.trackSectionActive) return;
+
+            state.currentTrackSection.endUT = ut;
+
+            // Compute approximate sample rate
+            if (state.currentTrackSection.frames != null && state.currentTrackSection.frames.Count > 1)
+            {
+                double duration = state.currentTrackSection.endUT - state.currentTrackSection.startUT;
+                if (duration > 0)
+                    state.currentTrackSection.sampleRateHz =
+                        (float)(state.currentTrackSection.frames.Count / duration);
+            }
+
+            state.trackSections.Add(state.currentTrackSection);
+            state.trackSectionActive = false;
+
+            int frameCount = state.currentTrackSection.frames?.Count ?? 0;
+            int checkpointCount = state.currentTrackSection.checkpoints?.Count ?? 0;
+            double sectionDuration = ut - state.currentTrackSection.startUT;
+            ParsekLog.Info("BgRecorder",
+                $"TrackSection closed: env={state.currentTrackSection.environment} " +
+                $"ref={state.currentTrackSection.referenceFrame} " +
+                $"frames={frameCount} checkpoints={checkpointCount} " +
+                $"duration={sectionDuration.ToString("F2", CultureInfo.InvariantCulture)}s " +
+                $"pid={state.vesselPid}");
+        }
+
+        /// <summary>
+        /// Copies all accumulated TrackSections from a BackgroundVesselState to the
+        /// recording's TrackSections list.
+        /// </summary>
+        private static void FlushTrackSectionsToRecording(BackgroundVesselState state, Recording treeRec)
+        {
+            if (state.trackSections.Count == 0) return;
+
+            for (int i = 0; i < state.trackSections.Count; i++)
+            {
+                treeRec.TrackSections.Add(state.trackSections[i]);
+            }
+
+            ParsekLog.Info("BgRecorder",
+                $"Flushed {state.trackSections.Count} TrackSections to recording: " +
+                $"pid={state.vesselPid} recId={state.recordingId}");
+
+            // Clear after flush to prevent duplicate sections if flushed again
+            // (e.g., FinalizeAllForCommit followed by Shutdown)
+            state.trackSections.Clear();
+        }
+
         #endregion
 
         #region Part Event Polling
@@ -725,6 +1678,35 @@ namespace Parsek
         /// Polls all part event types for a background vessel in loaded/physics mode.
         /// Duplicates the Layer 2 wrapper methods from FlightRecorder, calling the
         /// same Layer 1 static transition methods.
+        ///
+        /// Part Event Coverage Audit (BackgroundRecorder vs FlightRecorder):
+        ///
+        ///   POLLED (per-physics-frame, in PollPartEvents):
+        ///     [x] CheckParachuteState        - ParachuteDeployed / ParachuteCut / ParachuteSemiDeployed
+        ///     [x] CheckJettisonState          - ShroudJettisoned
+        ///     [x] CheckEngineState            - EngineIgnited / EngineShutdown / EngineThrottle
+        ///     [x] CheckRcsState               - RCSActivated / RCSStopped / RCSThrottle
+        ///     [x] CheckDeployableState        - DeployableExtended / DeployableRetracted
+        ///     [x] CheckLadderState            - DeployableExtended / DeployableRetracted (ladders)
+        ///     [x] CheckAnimationGroupState    - DeployableExtended / DeployableRetracted (anim groups)
+        ///     [x] CheckAeroSurfaceState       - DeployableExtended / DeployableRetracted (aero surfaces)
+        ///     [x] CheckControlSurfaceState    - DeployableExtended / DeployableRetracted (control surfaces)
+        ///     [x] CheckRobotArmScannerState   - DeployableExtended / DeployableRetracted (robot arms)
+        ///     [x] CheckAnimateHeatState       - ThermalAnimationHot / ThermalAnimationMedium / ThermalAnimationCold
+        ///     [x] CheckAnimateGenericState    - DeployableExtended / DeployableRetracted (generic animations)
+        ///     [x] CheckLightState             - LightOn / LightOff / LightBlinkEnabled / LightBlinkDisabled / LightBlinkRate
+        ///     [x] CheckGearState              - GearDeployed / GearRetracted
+        ///     [x] CheckCargoBayState          - CargoBayOpened / CargoBayClosed
+        ///     [x] CheckFairingState           - FairingJettisoned
+        ///     [x] CheckRoboticState           - RoboticMotionStarted / RoboticPositionSample / RoboticMotionStopped
+        ///
+        ///   GAME-EVENT DRIVEN (via SubscribePartEvents):
+        ///     [x] onPartDie                   - Destroyed / ParachuteDestroyed (OnBackgroundPartDie)
+        ///     [x] onPartJointBreak            - Decoupled (OnBackgroundPartJointBreak)
+        ///
+        ///   NOT APPLICABLE to background vessels (handled elsewhere):
+        ///     [-] Docked / Undocked           - branch management in ParsekFlight
+        ///     [-] InventoryPartPlaced/Removed  - EVA-only, active vessel only
         /// </summary>
         private void PollPartEvents(Vessel v, BackgroundVesselState state,
             Recording treeRec, double ut)
@@ -1543,6 +2525,173 @@ namespace Parsek
             if (onRailsStates.TryGetValue(pid, out state))
                 return state.lastExplicitEndUpdate;
             return -1;
+        }
+
+        internal bool IsPartEventsSubscribed => partEventsSubscribed;
+
+        /// <summary>
+        /// For testing: injects a loaded state for a vessel PID so that
+        /// OnBackgroundPartDie / OnBackgroundPartJointBreak can find it
+        /// without needing a real KSP Vessel.
+        /// </summary>
+        internal void InjectLoadedStateForTesting(uint vesselPid, string recordingId)
+        {
+            loadedStates[vesselPid] = new BackgroundVesselState
+            {
+                vesselPid = vesselPid,
+                recordingId = recordingId,
+            };
+        }
+
+        /// <summary>
+        /// For testing: gets the decoupledPartIds set for a given vessel PID.
+        /// Returns null if no loaded state exists.
+        /// </summary>
+        internal HashSet<uint> GetDecoupledPartIdsForTesting(uint vesselPid)
+        {
+            BackgroundVesselState state;
+            if (loadedStates.TryGetValue(vesselPid, out state))
+                return state.decoupledPartIds;
+            return null;
+        }
+
+        /// <summary>
+        /// For testing: injects an open orbit segment into the on-rails state for a vessel PID.
+        /// The vessel must already have an on-rails state (created by constructor or OnVesselBackgrounded).
+        /// </summary>
+        internal void InjectOpenOrbitSegmentForTesting(uint vesselPid, OrbitSegment segment)
+        {
+            BackgroundOnRailsState state;
+            if (onRailsStates.TryGetValue(vesselPid, out state))
+            {
+                state.currentOrbitSegment = segment;
+                state.hasOpenOrbitSegment = true;
+            }
+        }
+
+        /// <summary>
+        /// For testing: overrides the vessel finder used by CheckpointAllVessels.
+        /// Set to null to restore default behavior (FlightRecorder.FindVesselByPid).
+        /// </summary>
+        internal void SetVesselFinderForTesting(System.Func<uint, Vessel> finder)
+        {
+            vesselFinderOverride = finder;
+        }
+
+        /// <summary>
+        /// For testing: overrides the distance-to-focused-vessel computation.
+        /// Set to null to restore default behavior (FlightGlobals.ActiveVessel distance).
+        /// </summary>
+        internal void SetDistanceOverrideForTesting(System.Func<Vessel, double> distanceFunc)
+        {
+            distanceOverrideForTesting = distanceFunc;
+        }
+
+        /// <summary>
+        /// For testing: gets the current proximity sample interval for a loaded vessel.
+        /// Returns double.MaxValue if no loaded state exists.
+        /// </summary>
+        internal double GetCurrentSampleIntervalForTesting(uint vesselPid)
+        {
+            BackgroundVesselState state;
+            if (loadedStates.TryGetValue(vesselPid, out state))
+                return state.currentSampleInterval;
+            return double.MaxValue;
+        }
+
+        /// <summary>
+        /// For testing: gets the last sample UT for a loaded vessel.
+        /// Returns -1 if no loaded state exists.
+        /// </summary>
+        internal double GetLastSampleUTForTesting(uint vesselPid)
+        {
+            BackgroundVesselState state;
+            if (loadedStates.TryGetValue(vesselPid, out state))
+                return state.lastSampleUT;
+            return -1;
+        }
+
+        /// <summary>
+        /// For testing: gets the debris TTL expiry for a vessel PID.
+        /// Returns double.NaN if not tracked.
+        /// </summary>
+        internal double GetDebrisTTLExpiryForTesting(uint vesselPid)
+        {
+            double expiry;
+            if (debrisTTLExpiry.TryGetValue(vesselPid, out expiry))
+                return expiry;
+            return double.NaN;
+        }
+
+        /// <summary>
+        /// For testing: injects a debris TTL expiry for a vessel PID.
+        /// </summary>
+        internal void InjectDebrisTTLForTesting(uint vesselPid, double expiry)
+        {
+            debrisTTLExpiry[vesselPid] = expiry;
+        }
+
+        /// <summary>
+        /// For testing: gets the count of pending background split checks.
+        /// </summary>
+        internal int PendingSplitCheckCount => pendingBackgroundSplitChecks.Count;
+
+        /// <summary>
+        /// For testing: gets the count of debris TTL entries.
+        /// </summary>
+        internal int DebrisTTLCount => debrisTTLExpiry.Count;
+
+        /// <summary>
+        /// For testing: gets the accumulated TrackSections for a loaded vessel.
+        /// Returns null if no loaded state exists.
+        /// </summary>
+        internal List<TrackSection> GetTrackSectionsForTesting(uint vesselPid)
+        {
+            BackgroundVesselState state;
+            if (loadedStates.TryGetValue(vesselPid, out state))
+                return state.trackSections;
+            return null;
+        }
+
+        /// <summary>
+        /// For testing: checks if a loaded vessel has an active TrackSection.
+        /// Returns false if no loaded state exists.
+        /// </summary>
+        internal bool GetTrackSectionActiveForTesting(uint vesselPid)
+        {
+            BackgroundVesselState state;
+            if (loadedStates.TryGetValue(vesselPid, out state))
+                return state.trackSectionActive;
+            return false;
+        }
+
+        /// <summary>
+        /// For testing: gets the current TrackSection for a loaded vessel.
+        /// Returns null/default if no loaded state exists.
+        /// </summary>
+        internal TrackSection? GetCurrentTrackSectionForTesting(uint vesselPid)
+        {
+            BackgroundVesselState state;
+            if (loadedStates.TryGetValue(vesselPid, out state))
+                return state.currentTrackSection;
+            return null;
+        }
+
+        /// <summary>
+        /// For testing: injects a loaded state with environment tracking initialized.
+        /// Creates the state, sets up EnvironmentHysteresis, and opens the first TrackSection.
+        /// </summary>
+        internal void InjectLoadedStateWithEnvironmentForTesting(
+            uint vesselPid, string recordingId, SegmentEnvironment initialEnv, double ut)
+        {
+            var state = new BackgroundVesselState
+            {
+                vesselPid = vesselPid,
+                recordingId = recordingId,
+            };
+            state.environmentHysteresis = new EnvironmentHysteresis(initialEnv);
+            StartBackgroundTrackSection(state, initialEnv, ReferenceFrame.Absolute, ut);
+            loadedStates[vesselPid] = state;
         }
 
         #endregion

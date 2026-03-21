@@ -1,3 +1,178 @@
+# TODO & Known Bugs
+
+---
+
+## TODO — Release & Distribution
+
+### T1. Add Parsek.version file (KSP mod convention)
+
+Standard `.version` file enables AVC (Add-on Version Checker) and CKAN to detect available updates. Place in `GameData/Parsek/Parsek.version`.
+
+```json
+{
+    "NAME": "Parsek",
+    "URL": "https://raw.githubusercontent.com/vl3c/Parsek/main/GameData/Parsek/Parsek.version",
+    "VERSION": { "MAJOR": 0, "MINOR": 5, "PATCH": 0 },
+    "KSP_VERSION": { "MAJOR": 1, "MINOR": 12, "PATCH": 5 },
+    "KSP_VERSION_MIN": { "MAJOR": 1, "MINOR": 12, "PATCH": 0 },
+    "KSP_VERSION_MAX": { "MAJOR": 1, "MINOR": 12, "PATCH": 99 }
+}
+```
+
+**Priority:** Should-do for 0.5.1
+
+### T2. UI version display
+
+Show "Parsek v0.5.0" somewhere in the main Parsek window (title bar or footer). Currently the version is only in `AssemblyInfo.cs` and not visible to the player.
+
+**Priority:** Should-do for 0.5.1
+
+### T3. CKAN metadata
+
+Create a `.netkan` file or submit to CKAN indexer so users can install Parsek via CKAN. Requires a stable release URL pattern.
+
+**Priority:** Nice-to-have
+
+### T4. Release automation
+
+GitHub Actions workflow to build, run tests, package `GameData/Parsek/` into a zip, and create a GitHub release on tag push. Currently all release packaging is manual.
+
+**Priority:** Nice-to-have
+
+---
+
+## TODO — Performance
+
+### T5. ReduceFidelity and SimplifyToOrbitLine full implementations
+
+`GhostSoftCapManager` actions `ReduceFidelity` (mesh part culling) and `SimplifyToOrbitLine` (orbit line replacement) are placeholder — ghosts are hidden but not replaced with simplified representations.
+
+**Priority:** Medium — needed when ghost counts are high enough to trigger soft caps
+
+### T6. LOD culling for distant ghost meshes
+
+Don't render full ghost meshes far from camera. Unity LOD groups or manual distance culling.
+
+**Priority:** Low — only matters with many ghosts in Zone 2
+
+### T7. Ghost mesh unloading outside active time range
+
+Ghost meshes built for recordings whose UT range is far from current playback time could be unloaded and rebuilt on demand.
+
+**Priority:** Low — memory optimization
+
+### T8. Particle system pooling for engine/RCS FX
+
+Engine and RCS particle systems are instantiated per ghost. Pooling would reduce GC pressure with many active ghosts.
+
+**Priority:** Low
+
+### T9. Background ghost cachedIdx persistence (bug #62)
+
+`InterpolateAndPosition` for background/chain ghosts resets trajectory lookup index each frame instead of caching per-ghost. O(n) search instead of O(1) amortized.
+
+**Priority:** Low — minor perf cost
+
+### T10. RealVesselExists O(n) per frame (bug #49)
+
+`GhostPlaybackLogic.RealVesselExists` scans `FlightGlobals.Vessels` linearly. A HashSet lookup by PID would be O(1).
+
+**Priority:** Low — only matters with many committed recordings
+
+---
+
+## TODO — Features
+
+### T11. Ghost map presence KSP integration (bug #60)
+
+`GhostMapPresence` pure data layer is complete. 4 KSP integration points need in-game API investigation: tracking station registration, map orbit lines, nav target support, cleanup on despawn.
+
+**Priority:** Medium — improves ghost world presence
+
+### T12. EVA recording scope expansion (bug #56)
+
+`OnCrewOnEva` only records EVAs from launch pad. In-flight EVAs (suborbital, flying, orbiting) are not recorded.
+
+**Priority:** Medium — design limitation
+
+### T13. UI subgroup enable/loop checkboxes (bug #50)
+
+Recording subgroups in the UI are missing bulk enable and loop toggle checkboxes. Only top-level groups have them.
+
+**Priority:** Low — UI polish
+
+### T14. Controlled children recording after breakup (bug #61)
+
+When crash/breakup creates controlled children (surviving probe cores), no recording segments are started for them. Would need multi-vessel background recording to track their trajectories.
+
+**Priority:** Low — edge case
+
+### T15. Crash-safe pending recording recovery
+
+If the game crashes with a merge dialog pending, recording data is lost from memory. Solution: write a `pending_manifest.cfg` to `Parsek/Recordings/` when stashed, auto-recover on next load.
+
+**Priority:** Low — data safety improvement
+
+### T16. Planetarium.right drift compensation
+
+KSP's inertial reference frame may drift over very long time warp. Could cause ghost orientation mismatch for interplanetary segments. Needs empirical measurement first.
+
+**Priority:** Low — may not be needed
+
+---
+
+## TODO — Code Quality
+
+### T17. Game actions recording redesign (Phase 8)
+
+Redesign milestone capture, resource budgeting, and action replay validated per game mode: sandbox (no resources), science (science only), career (full). See roadmap Phase 8.
+
+**Priority:** High — correctness across game modes
+
+### T18. Log contract checker error whitelist (bug #63)
+
+`ParsekLogContractChecker` has no whitelist for intentional error-path test scenarios. Currently no tests need this.
+
+**Priority:** Low — test infrastructure
+
+### T19. FlightRecorder per-frame List<PartEvent> allocations
+
+`CheckLightBlinkTransition`, `CheckEngineTransition`, `CheckRcsTransition`, and `ProcessRcsDebounce` allocate `new List<PartEvent>()` every physics frame for every cached module. At 50Hz with e.g. 10 engines, that's 500 allocations/second producing zero events most of the time. Should use a caller-owned reusable list or return `PartEvent?` for the common single-event case.
+
+**Priority:** Medium — GC pressure during recording
+
+### T20. ParsekFlight.TimelineGhosts allocates new Dictionary on every access
+
+The `TimelineGhosts` property creates `new Dictionary<int, GameObject>()` every call. If accessed per-frame from UI code, generates garbage. Should cache or return a read-only view.
+
+**Priority:** Low — UI-path only
+
+### T21. ParsekUI double ComputeTotal calls
+
+Both `DrawResourceBudget` and `DrawCompactBudgetLine` call `ResourceBudget.ComputeTotal(...)` independently. If both are drawn in the same OnGUI frame, budget is computed twice. Should compute once and pass the result.
+
+**Priority:** Low — minor perf
+
+### T22. GhostSoftCapManager.EvaluateCaps not tested when Enabled=false
+
+No test verifies that `EvaluateCaps` returns empty actions when `Enabled = false`. This is the critical production toggle — if the guard were removed, no test would catch it.
+
+**Priority:** Low — test gap
+
+### T23. SessionMerger frame trimming not tested
+
+Tests assert `startUT`/`endUT`/`source` after `ResolveOverlaps` but never check that the `frames` lists were actually trimmed. `TrimFrames` could be broken and tests would still pass.
+
+**Priority:** Low — test gap
+
+### T24. EnvironmentDetector untested for ORBITING and ESCAPING situations
+
+Tests only cover LANDED(1), SPLASHED(2), PRELAUNCH(4), FLYING(8), SUB_ORBITAL(16). The ORBITING(32) and ESCAPING(64) situations are untested. They fall through to the altitude/thrust check, which is likely correct but should be verified.
+
+**Priority:** Low — test gap
+
+---
+
 # Known Bugs
 
 ## 1. Tech tree nodes stay unlocked after rewind
@@ -301,7 +476,7 @@ Additionally, `ComputeRcsPower` normalizes thrust across all nozzles (`sum / (th
 
 **Fix:** Added 8-frame debounce (~0.15s at 50Hz) to `CheckRcsState` in both `FlightRecorder` and `BackgroundRecorder`. RCS must be continuously `rcs_active` for 8 consecutive physics frames before `RCSActivated` is emitted. `RCSStopped` fires immediately when activity stops after a sustained activation. Micro-corrections below the threshold are silently filtered — no events emitted. Debounce state tracked in `rcsActiveFrameCount` dictionary, cleared on reset. Pure static helpers `ShouldStartRcsRecording`/`IsRcsRecordingSustained` extracted for testability. No changes to PartEvent struct, serialization, playback, or ghost builder.
 
-**Status:** Fixed
+**Status:** Fixed (two-part). Recording-side: 8-frame debounce filters SAS micro-corrections. Playback-side: `RestoreAllRcsEmissions` was unconditionally calling `Play()` on ALL RCS particle systems after warp/suppression cycling, even those never activated by an event. Fixed by checking `rateOverTimeMultiplier > 0` before restoring — only RCS modules that received an `RCSActivated` event get restored.
 
 ## 31. Engine shroud/cover not rendered correctly for some engines
 
@@ -507,3 +682,343 @@ Technical debt from the part-audit PR (#46). Two `// TODO:` items in source code
 2. **BuildTimelineGhostFromSnapshot out-parameters (10 info lists):** Replaced with `GhostBuildResult` class that bundles the root `GameObject` and all 10 info lists. Method now returns `GhostBuildResult` (null on failure). All backward-compat overloads removed. Call sites in `ParsekFlight.cs` and `ParsekKSC.cs` updated. `PopulateGhostInfoDictionaries` now takes `GhostBuildResult` instead of 10 individual list parameters.
 
 **Status:** Fixed
+
+## 45. Suborbital vessel spawn causes explosion
+
+When a recording's final position is SUB_ORBITAL (e.g., the vessel was on a suborbital trajectory when the recording ended due to crash), the spawned vessel appears mid-air and immediately falls/explodes on contact with terrain or water. The spawn snapshot captures the vessel at its last recorded flight position, not on a surface.
+
+**Observed in:** Mun flight test session (2026-03-18). Vessel spawned as `sit=SUB_ORBITAL` at chain end, then crashed.
+
+**Root cause:** `VesselSpawner.RespawnVessel` spawns the vessel at whatever situation was recorded. If the final situation is SUB_ORBITAL, the vessel materializes in mid-air with no support.
+
+**Impact:** Medium — spawned vessel explodes, player loses the vessel they expected to persist after ghost playback.
+
+**Possible fix:**
+1. Don't spawn vessels with SUB_ORBITAL terminal state — treat like Destroyed (ghost-only)
+2. Propagate the orbit forward to find where it lands, spawn at that position
+3. Add a "safe spawn" check: if situation is SUB_ORBITAL and altitude is low, defer spawn until vessel reaches surface
+
+**Status:** Open
+
+## 46. EVA kerbals disappear in water after spawn
+
+Player landed in water, EVA'd 3 kerbals from the pad vessel, but 2 of them disappeared. May be KSP's known behavior of destroying EVA kerbals in certain water situations, or a Parsek crew reservation/dedup conflict.
+
+**Observed in:** Same session as #45. After vessel spawn with crew dedup (3 crew removed from spawn snapshot because they were already on the pad vessel from revert), the pad vessel retained the real crew. Player EVA'd from pad vessel; 2 of 3 kerbals vanished shortly after EVA.
+
+**Root cause:** Needs investigation. Possible causes:
+1. KSP destroys EVA kerbals that land in water (known vanilla behavior in some situations)
+2. Parsek `crewReplacements` dict interfered with EVA kerbal persistence
+3. Crew dedup removed crew from the wrong vessel
+
+**Impact:** Medium — crew members lost unexpectedly.
+
+**Status:** Open — needs investigation
+
+## 47. ParsekLog.TestSinkForTesting race condition (test infrastructure)
+
+xUnit eagerly instantiates test classes, so one class's constructor can overwrite `TestSinkForTesting` while another class's test method is running. Causes log assertion tests to be flaky.
+
+**Workaround applied:** ActionReplayTests converted most log assertions to behavioral assertions. Three remaining use a "local sink" pattern.
+
+**Proper fix:** Make the test sink thread-local (`[ThreadStatic]`) or instance-scoped (`AsyncLocal<Action<string>>`). Apply in ParsekLog.cs, not individual test files.
+
+**Status:** Open — workaround in place
+
+## 48. ComputeBoundaryDiscontinuity hardcodes Kerbin radius
+
+`SessionMerger.ComputeBoundaryDiscontinuity` uses `const double bodyRadius = 600000.0` (Kerbin). Wrong for Mun (200km), Eve (700km), etc. Diagnostic-only — logged magnitude is inaccurate on non-Kerbin bodies, doesn't affect playback.
+
+**Status:** Open — low priority
+
+## 49. RealVesselExists O(n) per frame
+
+`GhostPlaybackLogic.RealVesselExists` iterates `FlightGlobals.Vessels` linearly. Called per background recording per frame. Negligible with typical vessel counts (10-50), would matter with 100+. Fix: cache PIDs in HashSet, rebuild on vessel add/remove events.
+
+**Status:** Open — low priority
+
+## 50. UI: subgroups missing enable and loop checkboxes
+
+Recording subgroups in the UI don't have enable (playback toggle) or loop checkboxes. Only top-level recordings show these controls. Subgroup recordings can't be individually toggled for playback or loop mode from the UI.
+
+**Status:** Open
+
+## 51. Chain ID lost on vessel-switch auto-stop (CRITICAL)
+
+When a vessel switch triggers auto-stop during an active chain recording, the stash/commit path drops the chain assignment. The exo/orbital segment gets committed as a standalone recording with `chain=(none)/-1` instead of being linked to the chain.
+
+**Root cause:** The vessel-switch auto-stop path (`HandleVesselSwitchDuringRecording` in FlightRecorder) builds `CaptureAtStop` and sets `IsRecording = false`, but has no access to `ParsekFlight`'s chain fields. The original partial fix only tagged `CaptureAtStop` with chain metadata but never committed the segment as a chain member — it sat orphaned until `OnSceneChangeRequested` stashed it as a standalone pending.
+
+**Fix:** Replaced the tag-only partial fix with `HandleVesselSwitchChainTermination()` — a dedicated handler in `Update()` modeled on `CommitBoundarySplit`. Detects when auto-stop left a stopped recorder with `CaptureAtStop` during an active chain, then: stashes, applies persistence artifacts, tags chain metadata (ChainId, ChainIndex, ChainBranch=0, ParentRecordingId, EvaCrewName), sets VesselPersistentId, derives SegmentPhase/SegmentBodyName and TerminalState from the recorded vessel (not ActiveVessel which changed), commits, reserves crew, cleans up continuation sampling, and terminates the chain. The final segment keeps its VesselSnapshot for spawning. Setting `recorder = null` prevents double-commit via `OnSceneChangeRequested`.
+
+**Status:** Fixed
+
+## 52. CanRewind log spam — 485K lines per session
+
+`RecordingStore.CanRewind` logs at VERBOSE every call, but is called per-recording per-frame from the UI. With 11+ rewind-eligible recordings at 60fps, this produces ~660 log lines/second (80% of total log output).
+
+**Fix:** Removed Verbose log on the success path — CanRewind is a read-only check called per-recording per-frame. Blocked-case logs remain for diagnostics.
+
+**Status:** Fixed
+
+## 53. "re-shown after warp-down" log spam — 16K lines per session
+
+Ghosts toggled SetActive(false)/SetActive(true) every frame in KSC and Flight scenes produce continuous log spam. The re-show logic was designed for one-time warp transitions, not continuous toggling.
+
+**Fix:** Added `loggedReshow` HashSet to deduplicate the re-show log per ghost index. Cleared when warp suppression starts (so the next warp-down cycle logs once) and on ghost destruction.
+
+**Status:** Fixed
+
+## 54. Watch mode follows ghost beyond terrain loading range
+
+Watch mode keeps the ghost visible at any distance (per the earlier fix to skip zone hiding for watched ghosts). But when the ghost exceeds ~120km from the active vessel, KSP's terrain is not loaded around the ghost's position, causing terrain disappearance and floating-point jitter.
+
+**Fix:** Watch mode now has a 2-second real-time grace period (`WatchModeZoneGraceSeconds`). After grace, if the ghost enters Beyond zone (>120km), Watch exits and the ghost hides normally.
+
+**Status:** Fixed
+
+## 55. RELATIVE anchor triggers on debris and launch pad structures
+
+The AnchorDetector's 2300m threshold triggers on any nearby vessel, including: launch pad infrastructure, jettisoned fairings, decoupled stages, and debris from staging. These create RELATIVE TrackSections bound to persistent IDs that don't survive revert, causing the ghost to be hidden during playback.
+
+**Root cause:** No filtering on vessel type. The surface-vessel check added earlier (skip LANDED/SPLASHED/PRELAUNCH) only filters the focused vessel, not the anchor candidates.
+
+**Fix:** Added vessel type filtering in `BuildVesselInfoList` to exclude Debris, EVA, SpaceObject, and Flag vessels from anchor candidates. Also skip anchor detection entirely while on the surface (LANDED/SPLASHED/PRELAUNCH).
+
+**Status:** Fixed
+
+## 56. EVA recordings only created from launch pad
+
+`OnCrewOnEva` ignores EVAs when the vessel situation is not "on pad." In-flight EVAs (suborbital, flying, orbiting) are not recorded.
+
+**Status:** Open — medium priority (design limitation)
+
+## 57. Boarding confirmation expired on vessel switch
+
+After a vessel switch, a boarding event was detected but the confirmation timer expired before boarding was confirmed. The boarding was not recorded.
+
+**Root cause:** The boarding confirmation window may be too short, or the boarding was interrupted/cancelled by the player or by another event (EVA, destruction).
+
+**Impact:** Low — boarding not recorded, but kerbal not lost.
+
+**Status:** Open — low priority
+
+## 58. Background vessel recording requires KSP debris persistence enabled
+
+When the player stages/decouples parts, KSP may instantly destroy the separated parts if debris persistence is off or the debris count limit is reached. Parsek's background recording system correctly waits for new vessels to appear in `FlightGlobals.Vessels`, but if KSP destroys them before the deferred check (one frame later), no background recording is created.
+
+**Observed in:** Multiple test sessions (2026-03-18). All staging events classified as `WithinSegment` because no new vessel PIDs appeared after the split.
+
+**Impact:** Booster separation ghosts, detached crew pod ghosts, and any staged-part trajectory recording depends on KSP keeping the separated vessel alive for at least 1-2 frames.
+
+**Possible mitigations:**
+1. **Pre-split snapshot:** Before the deferred joint break check, capture a snapshot of the separating part subtree. If the vessel is destroyed before the check, use the snapshot to create a minimal "debris trajectory" recording (position at separation point, ballistic propagation for visual).
+2. **Immediate vessel scan:** Instead of deferring one frame, scan `FlightGlobals.Vessels` immediately in `OnPartJointBreak` to catch vessels that exist briefly before KSP destroys them.
+3. **User guidance:** Document in mod settings/FAQ that debris persistence should be enabled for full recording fidelity. Add a setting check that warns the user if debris persistence is off.
+4. **Synthetic debris trajectory:** When a `PartEvent.Decoupled` fires but no new vessel appears, Parsek could compute an approximate ballistic trajectory for the separated mass (using the vessel's velocity + a separation impulse) and create a visual-only ghost that shows the booster tumbling away. This wouldn't be a real recording but would look correct visually.
+
+**Status:** Detection fixed — `onPartDeCoupleNewVesselComplete` hook catches debris vessels synchronously during `Part.decouple()` (FixedUpdate), before KSP can destroy them. All 4 booster separations now correctly classified as `DebrisSplit` and fed to the crash coalescer. However, debris **recording** still blocked — see #66 (auto-tree creation for debris splits).
+
+## 59. SoftCap ClassifyPriority logs per-frame per-ghost at VERBOSE (log spam)
+
+`GhostSoftCapManager.ClassifyPriority` logs at VERBOSE on every call. Called per-ghost per-frame during cap evaluation. With 20+ ghosts at 60fps, produces ~1200 log lines/second. Measured at 1.09M lines / 71% of total Parsek log output in a test session.
+
+**Fix:** Removed the per-call VERBOSE logs from `ClassifyPriority` entirely — inputs/outputs are already visible in the EvaluateCaps summary log. Also rate-limited related spam in the same commit: looped ghost spawn suppression (INFO → VerboseRateLimited 30s per ghost, was 61K lines), heat state changes (VERBOSE → VerboseRateLimited 5s per part PID, was ~20K lines during reentry).
+
+**Status:** Fixed
+
+## 60. Ghost map presence stubs not implemented (GhostMapPresence.cs)
+
+`GhostMapPresence` has the pure data layer complete (`HasOrbitData`, `ComputeGhostDisplayInfo`) but 4 KSP integration points are stubbed out as TODO comments (lines 108-128):
+
+1. **Register ghost in tracking station** — investigate whether KSP requires a `ProtoVessel` entry or if a custom `MapNode` can be created directly
+2. **Create map view orbit line** — distinct color/style to differentiate from real vessel orbits, needs `PlanetariumCamera` API research
+3. **Enable ghost as navigation target** — allow player to set ghost as rendezvous target for transfer planning, investigate `Vessel.SetTarget` compatibility
+4. **Remove tracking entry on despawn** — clean up when ghost is destroyed or chain tip spawns
+
+Tagged as Phase 6f-1 in code. Requires in-game API investigation.
+
+**Status:** Open — deferred (Phase 6f)
+
+## 61. Controlled children have no recording segments after breakup
+
+`ParsekFlight.cs:2225` — when a crash/breakup creates a recording tree, controlled children (non-debris parts that survive) have no recording segments created for them. The code logs their PIDs but does not start background recordings. Full implementation requires multi-vessel background recording infrastructure.
+
+**Status:** Open — deferred
+
+## 62. Background ghost positioning cachedIdx not persistent
+
+`ParsekFlight.cs:5030` — `InterpolateAndPosition` for background recording ghosts resets `cachedIdx` to 0 each frame instead of caching it on the ghost state or chain. This means every frame does a full binary search instead of O(1) amortized sequential lookup. No visual impact, minor performance cost with many background ghosts.
+
+**Status:** Open — low priority optimization
+
+## 63. Log contract checker lacks error whitelist
+
+`ParsekLogContractChecker.cs:99` — the `ERR-001` violation flags any ERROR-level log line as a test failure. No whitelist mechanism exists for intentional error-path test scenarios (e.g., testing that invalid input produces an expected error log). Currently no test scenarios require this.
+
+**Status:** Open — low priority (test infrastructure)
+
+## 64. Merge dialog shown twice on revert during tree destruction
+
+When a vessel is destroyed during tree recording, `ShowPostDestructionTreeMergeDialog` fires and shows the merge dialog. If the user reverts to launch while the dialog is open, the scene teardown destroys the dialog but the pending tree survives in `RecordingStore.pendingTree` (static, persists across scenes). On the new flight scene, `OnFlightReady` detects the orphaned pending tree and shows the dialog again via the fallback path (`Pending tree reached OnFlightReady — showing tree merge dialog (fallback)`).
+
+The revert detection (`isRevert=False`) does not recognize this as a revert, so no special handling kicks in.
+
+**Repro:** Record a flight in tree mode → destroy vessel → merge dialog appears → click "Revert to Launch" → dialog appears a second time.
+
+**Status:** Open
+
+## 65. Ghost shroud visible at playback start when already jettisoned at recording start
+
+When a recording starts with the engine shroud already jettisoned (e.g., SRB fired before recording began), the recorder correctly seeds this as `already-jettisoned shroud` but the ghost visual builder does not apply this initial state. The ghost is built from the vessel snapshot which includes the shroud MeshRenderer. Since there is no `ShroudJettisoned` part event in the recording (the jettison happened before recording started), the shroud remains visible throughout ghost playback.
+
+Related to bug #42 (engine shroud missing at recording start) and bug #31 (shroud rendering). The `already-jettisoned` state from `FlightRecorder.SeedInitialState` needs to be propagated to the ghost builder's initial part visibility.
+
+**Repro:** Launch a vessel with SRB shroud → wait for shroud to jettison → start recording → stop → commit → play back ghost → shroud is visible on the ghost.
+
+**Status:** Open
+
+## 66. [v0.5.1] Booster/debris recording: auto-tree creation for DebrisSplit events
+
+**Target version:** 0.5.1
+
+Booster separation is now correctly **detected** (via `onPartDeCoupleNewVesselComplete` hook, see #58) but separated boosters are not **recorded**. The crash coalescer emits BREAKUP events with the correct debris count, but `ProcessBreakupEvent` discards them with `"no active tree — breakup event logged but not recorded"`.
+
+**Root cause:** Background vessel recording (including debris TTL tracking) only works in tree mode. Trees are currently created only by controlled vessel splits (EVA, dock/undock). A standalone recording that stages boosters never enters tree mode, so debris is detected but not tracked.
+
+**Required changes:**
+
+1. **Auto-tree promotion on DebrisSplit:** When `ProcessBreakupEvent` fires and there is no active tree, automatically promote the standalone recording into a tree. The current recorder's accumulated data becomes the tree root recording, and a BackgroundRecorder is created to track debris vessels.
+
+2. **Debris background recording:** After tree creation, the separated booster vessels (captured by `onPartDeCoupleNewVesselComplete` with their PIDs) need to be added to the tree's BackgroundMap so BackgroundRecorder can sample them. The existing 30-second debris TTL mechanism should apply.
+
+3. **Debris vessel survival:** The debris vessels must survive long enough for BackgroundRecorder to sample them. Current approach uses `onPartDeCoupleNewVesselComplete` to capture PIDs synchronously during decouple, plus a reflection-based `GameSettings` search for debris persistence enforcement (field not found in KSP 1.12.5 — may need alternative approach).
+
+4. **Timing challenge:** The decouple event fires during FixedUpdate. The deferred joint break check runs next frame. By that time, KSP may have already destroyed the debris. The BackgroundRecorder needs the vessel to exist in `FlightGlobals.Vessels` to sample it. If the vessel is destroyed before the first sample, only the initial position (captured at decouple time) is available. Consider creating a single-point "separation trajectory" recording from the captured position/velocity.
+
+**Key code paths:**
+- `ParsekFlight.ProcessBreakupEvent()` — currently no-ops without a tree
+- `ParsekFlight.HandleJointBreakDeferredCheck()` + `DeferredJointBreakCheck()` — split detection
+- `ParsekFlight.OnDecoupleNewVesselDuringSplitCheck()` — captures PIDs at decouple time
+- `CrashCoalescer` — groups rapid splits into BREAKUP events
+- `BackgroundRecorder` — samples background vessels (requires tree)
+
+**Observed in:** Multiple test sessions (2026-03-21). 4 boosters correctly detected as DebrisSplit, BREAKUP emitted with debris=4, but discarded due to no active tree.
+
+**Status:** Open — planned for v0.5.1
+
+## 67. [v0.5.1] Camera switches to spawned vessel after watch mode ends at recording boundary
+
+When a ghost recording reaches its end UT during watch mode while time-warping, the camera correctly exits watch mode and returns to the player's vessel. However, the deferred spawn mechanism then switches the camera to the newly spawned vessel, pulling the player away from their real vessel.
+
+**Root cause:** `pendingWatchRecordingId` was set before `ExitWatchMode()` in the warp-deferred code path (`ParsekFlight.cs` ~line 5852). When the deferred spawn executed after warp ended, `ShouldRestoreWatchMode` returned true and `DeferredActivateVessel` switched the camera to the spawned vessel.
+
+**Fix applied:** Removed the `pendingWatchRecordingId` assignment in the recording-end exit path. Watch mode ending because a recording finished is NOT a "pause for later resumption" — it's a final exit that should not trigger camera re-targeting.
+
+**Status:** Fixed
+
+## 68. Ghost parts colored red despite not being hot (engine thrust color leak)
+
+Many ghost parts appear red/orange even when they are not experiencing reentry heating. Likely related to the engine thrust level coloring system bleeding into non-engine parts — the emissive color or material override applied for active engines may be leaking to adjacent parts or not being properly scoped to engine renderers only.
+
+**Status:** Open
+
+## 69. Procedural fairing shows internal structure on ghost
+
+The procedural fairing ghost displays its internal structural framework/skeleton part sticking out through the fairing shell. The fairing's internal structure mesh should be hidden on the ghost — only the outer shell panels should be visible.
+
+**Status:** Open
+
+## 70. Deployed solar panels shown retracted on ghost during playback
+
+The rover ghost shows solar panels in their default (retracted) position even though they were extended at recording time. The initial state seeding correctly captures the deployment state (`solarPanels1[pid=873017503](state=EXTENDED)`), but the ghost is built from the vessel snapshot which stores parts in their default configuration. The deployed state from part events is not applied to the ghost mesh at spawn time.
+
+Related to the general "initial part state" problem — the ghost builder needs to apply the recorded deployment state from `SeedInitialState` to the ghost's animated transforms at spawn time, similar to how engine shroud jettison state should be applied (see #65).
+
+**Observed in:** Rover recording session (2026-03-21). Recording shows `deployables=2` (2 solar panels EXTENDED), but ghost renders them retracted.
+
+**Status:** Open
+
+## 71. GhostCommNetRelay.RegisterNode orphans CommNet nodes on double registration
+
+`RegisterNode` at line 237 does `activeGhostNodes[vesselPid] = node` which overwrites any existing entry without removing the old `CommNode` from `CommNetNetwork.Instance.CommNet` first. If called twice for the same PID (e.g., ghost destroyed and recreated), the first node becomes permanently orphaned in the CommNet graph. Fix: check for existing node and `CommNet.Remove()` before registering.
+
+**Status:** Open
+
+## 72. GhostCommNetRelay antenna combination formula wrong for non-combinable strongest
+
+`ComputeCombinedAntennaPowerFromList` uses the strongest antenna's `antennaCombinableExponent` regardless of whether the strongest is itself combinable. KSP's actual formula uses the strongest *combinable* antenna as the base when the overall strongest is non-combinable. Result: ghost relay power is computed higher than KSP would.
+
+**Status:** Open
+
+## 73. SpawnCollisionDetector.CheckWarningProximity includes ActiveVessel and unfiltered vessel types
+
+Unlike `CheckOverlapAgainstLoadedVessels` which properly excludes Debris/EVA/Flag/SpaceObject and `FlightGlobals.ActiveVessel`, the `CheckWarningProximity` method includes everything. The player's own vessel at distance ~0 would always be the "closest vessel", making proximity warnings fire constantly with the player's own name. Should apply the same filters as `CheckOverlapAgainstLoadedVessels`.
+
+**Status:** Open
+
+## 74. FlightRecorder.SamplePosition ignores RELATIVE mode at on-rails boundary
+
+`SamplePosition` (lines 4320-4356) always records raw `v.latitude/v.longitude/v.altitude`. When called at on-rails transitions while in RELATIVE mode (before mode is cleared at line 4414 and before the track section transition at line 4423), the boundary point has absolute coordinates within a RELATIVE TrackSection, creating a potential discontinuity.
+
+**Status:** Open — verify if the boundary point timing makes this moot in practice
+
+## 75. GhostPlaybackLogic inconsistent negative interval handling
+
+`ComputeLoopPhaseFromUT` (line 275) clamps negative intervals to 0 via `Math.Max(0, intervalSeconds)`, but `TryComputeLoopPlaybackUT` (line 91) and `GetActiveCycles` (line 148) allow negative intervals (overlapping cycles). These methods compute related loop timing — the disagreement could cause visual glitches (wrong phase or missing overlap cycles) when negative intervals are used.
+
+**Status:** Open
+
+## 76. GhostExtender.PropagateOrbital hyperbolic fallback can return negative altitude
+
+Lines 90-97: For `ecc >= 1.0 || sma <= 0`, the fallback returns `(0, 0, sma - bodyRadius)`. When `sma < bodyRadius`, this produces a negative altitude, placing the ghost underground. Should use `Math.Max(0, sma - bodyRadius)`.
+
+**Status:** Open
+
+## 77. TerrainCorrector log format strings use system culture
+
+Lines 37, 42-44 in `TerrainCorrector.cs` use `$"{corrected:F1}"` string interpolation which uses the system locale (comma on some machines). Inconsistent with the project's InvariantCulture policy. Only affects log output, not gameplay or serialization.
+
+**Status:** Open — cosmetic
+
+## 78. RecordingTree.DetermineTerminalState maps DOCKED to Orbiting
+
+`DetermineTerminalState` maps the KSP `DOCKED` situation to `TerminalState.Orbiting`. When called from `EndDebrisRecording`, a debris piece that docks would get `Orbiting` instead of a more appropriate terminal state. Edge case but semantically wrong.
+
+**Status:** Open — unlikely to occur for debris
+
+## 79. TimeJumpManager.ExecuteJump mutates caller's chains dictionary
+
+Line 278: `chains.Remove(chain.OriginalVesselPid)` is a side effect on the caller's dictionary, not documented in the method signature. Could cause subtle issues if the caller iterates `chains` after calling `ExecuteJump`. The caller should decide which chains to remove.
+
+**Status:** Open — design smell
+
+## 80. TimeJumpManager.ExecuteJump has no guard against active time warp
+
+If called during time warp (warp rate > 1), `Planetarium.SetUniversalTime` can interact badly with KSP's internal warp state. There is no guard to ensure warp is stopped before the jump.
+
+**Status:** Open — needs in-game verification
+
+## 81. TrackSection struct shallow copy shares mutable list references
+
+`Recording` copy constructor does `new List<TrackSection>(source.TrackSections)` which copies struct values but shares `frames`/`checkpoints` list references between source and copy. Currently safe because recordings are read-only after construction, but fragile if any code later mutates a copied recording's track section frames.
+
+**Status:** Open — fragile but not currently triggered
+
+## 82. IsDebris, Controllers, SurfacePos not serialized for standalone recordings
+
+These fields are serialized in the `RecordingTree` code path but not in `ParsekScenario.SaveStandaloneRecordings` / `LoadStandaloneRecordingsFromNodes`. Standalone recordings lose these values across save/load. May be intentional if standalone recordings are never debris.
+
+**Status:** Open — verify if standalone debris recordings can exist
+
+## 83. GhostCommNetRelay.ReregisterAllNodes re-adds potentially stale CommNode objects
+
+After CommNet reinitialization, the existing `CommNode` objects in `activeGhostNodes` are re-added via `commNet.Add(kvp.Value)`. If KSP's CommNet reinitialization invalidates old node objects, re-adding them could fail silently. Consider creating fresh `CommNode` objects with the same data.
+
+**Status:** Open — needs in-game verification
+
+## 84. GhostPlaybackLogic.ComputeLoopPhaseFromUT integer overflow risk
+
+Line 289: `int cycleIndex = (int)(elapsed / cycleDuration)` — for very long-running loops with short cycle durations, the double value can exceed `Int32.MaxValue`. The cast produces undefined behavior in C# (typically `Int32.MinValue` or garbage). A 0.1s recording looping for 250+ in-game days would overflow.
+
+**Status:** Open — extreme edge case

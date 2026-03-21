@@ -535,5 +535,281 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region 13.1 Orbital Checkpoint Capture
+
+        [Fact]
+        public void IsOrbitalCheckpointSituation_Orbiting_ReturnsTrue()
+        {
+            Assert.True(BackgroundRecorder.IsOrbitalCheckpointSituation(
+                Vessel.Situations.ORBITING));
+        }
+
+        [Fact]
+        public void IsOrbitalCheckpointSituation_SubOrbital_ReturnsTrue()
+        {
+            Assert.True(BackgroundRecorder.IsOrbitalCheckpointSituation(
+                Vessel.Situations.SUB_ORBITAL));
+        }
+
+        [Fact]
+        public void IsOrbitalCheckpointSituation_Escaping_ReturnsTrue()
+        {
+            Assert.True(BackgroundRecorder.IsOrbitalCheckpointSituation(
+                Vessel.Situations.ESCAPING));
+        }
+
+        [Fact]
+        public void IsOrbitalCheckpointSituation_Landed_ReturnsFalse()
+        {
+            Assert.False(BackgroundRecorder.IsOrbitalCheckpointSituation(
+                Vessel.Situations.LANDED));
+        }
+
+        [Fact]
+        public void IsOrbitalCheckpointSituation_Splashed_ReturnsFalse()
+        {
+            Assert.False(BackgroundRecorder.IsOrbitalCheckpointSituation(
+                Vessel.Situations.SPLASHED));
+        }
+
+        [Fact]
+        public void IsOrbitalCheckpointSituation_Flying_ReturnsFalse()
+        {
+            Assert.False(BackgroundRecorder.IsOrbitalCheckpointSituation(
+                Vessel.Situations.FLYING));
+        }
+
+        [Fact]
+        public void IsOrbitalCheckpointSituation_PreLaunch_ReturnsFalse()
+        {
+            Assert.False(BackgroundRecorder.IsOrbitalCheckpointSituation(
+                Vessel.Situations.PRELAUNCH));
+        }
+
+        [Fact]
+        public void CheckpointAllVessels_NoOpenSegments_SkipsAll()
+        {
+            // Arrange: tree with two background vessels, neither has open orbit segments
+            // (constructor creates minimal state with hasOpenOrbitSegment=false)
+            var tree = MakeTree((100, "rec_bg1"), (200, "rec_bg2"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            bgRecorder.SetVesselFinderForTesting(pid => null); // no KSP runtime
+
+            // Sanity: neither has open orbit segment
+            Assert.False(bgRecorder.GetOnRailsHasOpenSegment(100));
+            Assert.False(bgRecorder.GetOnRailsHasOpenSegment(200));
+
+            // Act: checkpoint at UT=500
+            bgRecorder.CheckpointAllVessels(500.0);
+
+            // Assert: no orbit segments added (nothing to close/reopen)
+            Assert.Empty(tree.Recordings["rec_bg1"].OrbitSegments);
+            Assert.Empty(tree.Recordings["rec_bg2"].OrbitSegments);
+        }
+
+        [Fact]
+        public void CheckpointAllVessels_WithOpenSegment_ClosesSegmentAndSkipsReopenWhenVesselNotFound()
+        {
+            // Arrange: tree with one background vessel with an open orbit segment
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            bgRecorder.SetVesselFinderForTesting(pid => null); // no KSP runtime
+
+            // Inject an open orbit segment (simulating a vessel that went on rails)
+            var segment = new OrbitSegment
+            {
+                startUT = 300.0,
+                inclination = 45.0,
+                eccentricity = 0.01,
+                semiMajorAxis = 700000.0,
+                longitudeOfAscendingNode = 90.0,
+                argumentOfPeriapsis = 0.0,
+                meanAnomalyAtEpoch = 0.5,
+                epoch = 300.0,
+                bodyName = "Kerbin"
+            };
+            bgRecorder.InjectOpenOrbitSegmentForTesting(100, segment);
+            Assert.True(bgRecorder.GetOnRailsHasOpenSegment(100));
+
+            // Act: checkpoint at UT=500
+            bgRecorder.CheckpointAllVessels(500.0);
+
+            // Assert: the segment was closed (endUT set to checkpoint UT)
+            Assert.Single(tree.Recordings["rec_bg1"].OrbitSegments);
+            var closedSegment = tree.Recordings["rec_bg1"].OrbitSegments[0];
+            Assert.Equal(300.0, closedSegment.startUT);
+            Assert.Equal(500.0, closedSegment.endUT);
+            Assert.Equal("Kerbin", closedSegment.bodyName);
+
+            // Segment is closed but NOT reopened (vessel not found)
+            Assert.False(bgRecorder.GetOnRailsHasOpenSegment(100));
+        }
+
+        [Fact]
+        public void CheckpointAllVessels_EmptyBackgroundMap_DoesNotThrow()
+        {
+            var tree = MakeTree(); // no background vessels
+            var bgRecorder = new BackgroundRecorder(tree);
+            bgRecorder.SetVesselFinderForTesting(pid => null);
+
+            // Should not throw
+            bgRecorder.CheckpointAllVessels(100.0);
+        }
+
+        [Fact]
+        public void CheckpointAllVessels_MixedStates_OnlyClosesOpenSegments()
+        {
+            // Arrange: two background vessels — one with open segment, one without
+            var tree = MakeTree((100, "rec_bg1"), (200, "rec_bg2"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            bgRecorder.SetVesselFinderForTesting(pid => null); // no KSP runtime
+
+            // Only vessel 100 has an open orbit segment
+            var segment = new OrbitSegment
+            {
+                startUT = 300.0,
+                inclination = 30.0,
+                eccentricity = 0.0,
+                semiMajorAxis = 600000.0,
+                longitudeOfAscendingNode = 0.0,
+                argumentOfPeriapsis = 0.0,
+                meanAnomalyAtEpoch = 0.0,
+                epoch = 300.0,
+                bodyName = "Mun"
+            };
+            bgRecorder.InjectOpenOrbitSegmentForTesting(100, segment);
+
+            // Act
+            bgRecorder.CheckpointAllVessels(400.0);
+
+            // Assert: vessel 100 had its segment closed
+            Assert.Single(tree.Recordings["rec_bg1"].OrbitSegments);
+            Assert.Equal(400.0, tree.Recordings["rec_bg1"].OrbitSegments[0].endUT);
+            Assert.Equal("Mun", tree.Recordings["rec_bg1"].OrbitSegments[0].bodyName);
+
+            // Vessel 200 had no open segment, so no orbit segments were added
+            Assert.Empty(tree.Recordings["rec_bg2"].OrbitSegments);
+        }
+
+        [Fact]
+        public void CheckpointAllVessels_LogsCheckpointCounts()
+        {
+            // Arrange: capture log output
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            try
+            {
+                var tree = MakeTree((100, "rec_bg1"), (200, "rec_bg2"));
+                var bgRecorder = new BackgroundRecorder(tree);
+                bgRecorder.SetVesselFinderForTesting(pid => null); // no KSP runtime
+
+                // One vessel with open segment, one without
+                bgRecorder.InjectOpenOrbitSegmentForTesting(100, new OrbitSegment
+                {
+                    startUT = 100.0, bodyName = "Kerbin"
+                });
+
+                // Act
+                bgRecorder.CheckpointAllVessels(200.0);
+
+                // Assert: log should contain the summary with correct counts
+                // vessel 100 has open segment but no vessel found -> skippedNoVessel=1
+                // vessel 200 has no open segment -> skippedNotOrbital=1
+                Assert.Contains(logLines, l =>
+                    l.Contains("[BgRecorder]") &&
+                    l.Contains("CheckpointAllVessels") &&
+                    l.Contains("skippedNotOrbital=1") &&
+                    l.Contains("skippedNoVessel=1"));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+                ParsekLog.SuppressLogging = true;
+            }
+        }
+
+        [Fact]
+        public void CheckpointAllVessels_ClosesSegmentEvenWhenVesselNotFound()
+        {
+            // Verifies that the segment is always closed at checkpoint UT,
+            // preserving recorded orbital data, even if vessel can't be found
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            bgRecorder.SetVesselFinderForTesting(pid => null);
+
+            bgRecorder.InjectOpenOrbitSegmentForTesting(100, new OrbitSegment
+            {
+                startUT = 200.0,
+                semiMajorAxis = 750000.0,
+                bodyName = "Kerbin"
+            });
+
+            bgRecorder.CheckpointAllVessels(350.0);
+
+            // Segment was closed with correct endUT
+            Assert.Single(tree.Recordings["rec_bg1"].OrbitSegments);
+            Assert.Equal(200.0, tree.Recordings["rec_bg1"].OrbitSegments[0].startUT);
+            Assert.Equal(350.0, tree.Recordings["rec_bg1"].OrbitSegments[0].endUT);
+
+            // No new segment opened (vessel not found)
+            Assert.False(bgRecorder.GetOnRailsHasOpenSegment(100));
+        }
+
+        [Fact]
+        public void CheckpointAllVessels_UpdatesExplicitEndUT()
+        {
+            // Closing an orbit segment also updates ExplicitEndUT via CloseOrbitSegment
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+            bgRecorder.SetVesselFinderForTesting(pid => null);
+
+            bgRecorder.InjectOpenOrbitSegmentForTesting(100, new OrbitSegment
+            {
+                startUT = 100.0, bodyName = "Kerbin"
+            });
+
+            bgRecorder.CheckpointAllVessels(500.0);
+
+            Assert.Equal(500.0, tree.Recordings["rec_bg1"].ExplicitEndUT);
+        }
+
+        [Fact]
+        public void InjectOpenOrbitSegmentForTesting_SetsOpenSegmentState()
+        {
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+
+            // Initially no open segment
+            Assert.False(bgRecorder.GetOnRailsHasOpenSegment(100));
+
+            // Inject
+            bgRecorder.InjectOpenOrbitSegmentForTesting(100, new OrbitSegment
+            {
+                startUT = 100.0,
+                semiMajorAxis = 700000.0,
+                bodyName = "Kerbin"
+            });
+
+            // Now has open segment
+            Assert.True(bgRecorder.GetOnRailsHasOpenSegment(100));
+        }
+
+        [Fact]
+        public void InjectOpenOrbitSegmentForTesting_NoState_DoesNotThrow()
+        {
+            var tree = MakeTree((100, "rec_bg1"));
+            var bgRecorder = new BackgroundRecorder(tree);
+
+            // PID 999 is not in the on-rails state — should not throw
+            bgRecorder.InjectOpenOrbitSegmentForTesting(999, new OrbitSegment());
+
+            // No state was created (only modifies existing state)
+            Assert.False(bgRecorder.HasOnRailsState(999));
+        }
+
+        #endregion
     }
 }

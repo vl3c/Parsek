@@ -35,6 +35,7 @@ namespace Parsek
 
         // One-time log tracking (avoids repeating the same log every frame)
         private HashSet<int> loggedGhostSpawn = new HashSet<int>();
+        private HashSet<int> loggedReshow = new HashSet<int>();
 
         private const double DefaultLoopIntervalSeconds = 10.0;
         private const double MinLoopDurationSeconds = 1.0;
@@ -129,6 +130,7 @@ namespace Parsek
                 // High time warp: hide primary ghosts, destroy overlap ghosts.
                 // KSC scene does not apply resource deltas (flight-only), so no
                 // ApplyResourceDeltas call needed here.
+                loggedReshow.Clear();
                 foreach (var kvp in kscGhosts)
                     if (kvp.Value.ghost != null && kvp.Value.ghost.activeSelf)
                     {
@@ -238,8 +240,9 @@ namespace Parsek
                 else if (!state.ghost.activeSelf)
                 {
                     state.ghost.SetActive(true);
-                    ParsekLog.Info("KSCGhost",
-                        $"Ghost #{recIdx} \"{rec.VesselName}\" re-shown after warp-down");
+                    if (loggedReshow.Add(recIdx))
+                        ParsekLog.Info("KSCGhost",
+                            $"Ghost #{recIdx} \"{rec.VesselName}\" re-shown after warp-down");
                 }
 
                 InterpolateAndPositionKsc(
@@ -891,6 +894,7 @@ namespace Parsek
                     DestroyKscGhost(kv.Value[i], kv.Key);
             kscOverlapGhosts.Clear();
             loggedGhostSpawn.Clear();
+            loggedReshow.Clear();
 
             ParsekLog.Info("KSC", "ParsekKSC destroyed");
             ui?.Cleanup();

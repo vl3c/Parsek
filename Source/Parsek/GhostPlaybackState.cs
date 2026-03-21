@@ -39,6 +39,7 @@ namespace Parsek
         public Vector3 lastInterpolatedVelocity;
         public string lastInterpolatedBodyName;
         public double lastInterpolatedAltitude;
+        public RenderingZone currentZone = RenderingZone.Physics; // distance-based rendering zone
 
         public void SetInterpolated(InterpolationResult r)
         {

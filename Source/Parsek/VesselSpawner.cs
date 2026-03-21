@@ -34,7 +34,7 @@ namespace Parsek
             }
         }
 
-        public static uint RespawnVessel(ConfigNode vesselNode, HashSet<string> excludeCrew = null)
+        public static uint RespawnVessel(ConfigNode vesselNode, HashSet<string> excludeCrew = null, bool preserveIdentity = false)
         {
             try
             {
@@ -61,7 +61,14 @@ namespace Parsek
                 // Remove crew that already exist on a loaded vessel (prevents duplication)
                 RemoveDuplicateCrewFromSnapshot(spawnNode);
 
-                RegenerateVesselIdentity(spawnNode);
+                if (!preserveIdentity)
+                {
+                    RegenerateVesselIdentity(spawnNode);
+                }
+                else
+                {
+                    ParsekLog.Info("Spawner", "RespawnVessel: preserving vessel identity (chain-tip spawn)");
+                }
                 EnsureSpawnReadiness(spawnNode);
 
                 ProtoVessel pv = new ProtoVessel(spawnNode, HighLogic.CurrentGame);
@@ -96,7 +103,7 @@ namespace Parsek
         public static uint SpawnAtPosition(ConfigNode vesselNode, CelestialBody body,
             double lat, double lon, double alt,
             Vector3d velocity, double ut,
-            HashSet<string> excludeCrew = null)
+            HashSet<string> excludeCrew = null, bool preserveIdentity = false)
         {
             try
             {
@@ -186,7 +193,14 @@ namespace Parsek
                 // Remove crew that already exist on a loaded vessel (prevents duplication)
                 RemoveDuplicateCrewFromSnapshot(spawnNode);
 
-                RegenerateVesselIdentity(spawnNode);
+                if (!preserveIdentity)
+                {
+                    RegenerateVesselIdentity(spawnNode);
+                }
+                else
+                {
+                    ParsekLog.Info("Spawner", "SpawnAtPosition: preserving vessel identity (chain-tip spawn)");
+                }
                 EnsureSpawnReadiness(spawnNode);
 
                 ProtoVessel pv = new ProtoVessel(spawnNode, HighLogic.CurrentGame);
@@ -963,6 +977,16 @@ namespace Parsek
         }
 
         #region Extracted helpers
+
+        /// <summary>
+        /// Pure decision: should vessel identity be regenerated?
+        /// Returns true for normal spawns (new GUID), false for chain-tip spawns
+        /// that must preserve the original vessel's PID for continuity.
+        /// </summary>
+        internal static bool ShouldRegenerateIdentity(bool preserveIdentity)
+        {
+            return !preserveIdentity;
+        }
 
         /// <summary>
         /// Pure decision: determine vessel situation string from altitude, water presence,

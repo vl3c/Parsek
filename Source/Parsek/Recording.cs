@@ -22,9 +22,19 @@ namespace Parsek
         public List<TrajectoryPoint> Points = new List<TrajectoryPoint>();
         public List<OrbitSegment> OrbitSegments = new List<OrbitSegment>();
         public List<PartEvent> PartEvents = new List<PartEvent>();
+        public List<SegmentEvent> SegmentEvents = new List<SegmentEvent>();
+        public List<TrackSection> TrackSections = new List<TrackSection>();
+
+        // Controller parts at segment start (for identity tracking)
+        public List<ControllerInfo> Controllers;  // null = not set (legacy recording)
+
+        // True if vessel has no controller parts (debris). Minimal recording only.
+        public bool IsDebris;
         public bool LoopPlayback;
         public double LoopIntervalSeconds = 10.0;
         public LoopTimeUnit LoopTimeUnit = LoopTimeUnit.Sec;
+        public uint LoopAnchorVesselId;  // Anchor vessel for relative loop playback (0 = no anchor, use absolute positioning)
+        public string LoopAnchorBodyName;  // Body the anchor was on when loop was configured (null = not set)
 
         // UI grouping tags (e.g. "Synthetic", "Part Showcase") — multi-group membership
         public List<string> RecordingGroups;
@@ -70,6 +80,15 @@ namespace Parsek
 
         // Terminal surface position (for Landed/Splashed terminal state)
         public SurfacePosition? TerminalPosition;      // null if not landed/splashed
+
+        // Terrain height at recording end (for terrain correction on spawn)
+        // NaN = not set (pre-v7 recording or non-surface terminal state)
+        public double TerrainHeightAtEnd = double.NaN;
+
+        // Antenna specifications for CommNet ghost relay registration (Phase 6f)
+        // Extracted from ModuleDataTransmitter modules in vessel snapshot at commit time.
+        // null = not extracted (legacy recording or no antennas).
+        internal List<AntennaSpec> AntennaSpecs;
 
         // Background recording: surface position for landed/splashed vessels
         public SurfacePosition? SurfacePos;            // null if not a background landed vessel
@@ -153,6 +172,8 @@ namespace Parsek
             LoopPlayback = source.LoopPlayback;
             LoopIntervalSeconds = source.LoopIntervalSeconds;
             LoopTimeUnit = source.LoopTimeUnit;
+            LoopAnchorVesselId = source.LoopAnchorVesselId;
+            LoopAnchorBodyName = source.LoopAnchorBodyName;
             PreLaunchFunds = source.PreLaunchFunds;
             PreLaunchScience = source.PreLaunchScience;
             PreLaunchReputation = source.PreLaunchReputation;
@@ -176,6 +197,7 @@ namespace Parsek
             TerminalOrbitEpoch = source.TerminalOrbitEpoch;
             TerminalOrbitBody = source.TerminalOrbitBody;
             TerminalPosition = source.TerminalPosition;
+            TerrainHeightAtEnd = source.TerrainHeightAtEnd;
             SurfacePos = source.SurfacePos;
             ParentBranchPointId = source.ParentBranchPointId;
             ChildBranchPointId = source.ChildBranchPointId;
@@ -183,6 +205,17 @@ namespace Parsek
             ExplicitEndUT = source.ExplicitEndUT;
             RecordingGroups = source.RecordingGroups != null
                 ? new List<string>(source.RecordingGroups) : null;
+            AntennaSpecs = source.AntennaSpecs != null
+                ? new List<AntennaSpec>(source.AntennaSpecs) : null;
+
+            // Copy segment events and tracks if source has them
+            if (source.SegmentEvents != null && source.SegmentEvents.Count > 0)
+                SegmentEvents = new List<SegmentEvent>(source.SegmentEvents);
+            if (source.TrackSections != null && source.TrackSections.Count > 0)
+                TrackSections = new List<TrackSection>(source.TrackSections);
+            if (source.Controllers != null)
+                Controllers = new List<ControllerInfo>(source.Controllers);
+            IsDebris = source.IsDebris;
         }
     }
 }

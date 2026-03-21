@@ -1276,7 +1276,18 @@ namespace Parsek
                 statusStyle = statusStylePast;
                 statusText = "past";
             }
-            GUILayout.Label(statusText, statusStyle, GUILayout.Width(ColW_Status));
+
+            // Phase 6d-3: Chain status tooltip — show ghost chain info on hover
+            string chainStatusTooltip = "";
+            if (InFlight && flight != null)
+            {
+                string chainStatus = ParsekFlight.GetChainStatusForRecording(
+                    flight.ActiveGhostChains, rec);
+                if (chainStatus != null)
+                    chainStatusTooltip = chainStatus;
+            }
+            var statusContent = new GUIContent(statusText, chainStatusTooltip);
+            GUILayout.Label(statusContent, statusStyle, GUILayout.Width(ColW_Status));
 
             // Group assignment button
             if (GUILayout.Button("G", GUILayout.Width(ColW_Group)))
@@ -2479,6 +2490,15 @@ namespace Parsek
                           $"Distance: {FormatDistance(stats.distanceTravelled)}\n" +
                           $"Points: {stats.pointCount}";
 
+            // Phase 6d-3: Chain status in recording tooltip
+            if (InFlight && flight != null)
+            {
+                string chainStatus = ParsekFlight.GetChainStatusForRecording(
+                    flight.ActiveGhostChains, rec);
+                if (chainStatus != null)
+                    text += $"\n{chainStatus}";
+            }
+
             if (stats.orbitSegmentCount > 0)
                 text += $"\nOrbit Segments: {stats.orbitSegmentCount}";
             if (stats.partEventCount > 0)
@@ -2823,6 +2843,8 @@ namespace Parsek
             GUILayout.Space(SpacingSmall);
             DrawSamplingSettings(s);
             GUILayout.Space(SpacingSmall);
+            DrawGhostCapSettings(s);
+            GUILayout.Space(SpacingSmall);
             DrawDataManagementSettings(s);
             #endregion
 
@@ -2840,6 +2862,12 @@ namespace Parsek
                 s.speedChangeThreshold = 5.0f;
                 s.autoLoopIntervalSeconds = 10.0f;
                 s.autoLoopTimeUnit = 0;
+                s.ghostCapEnabled = false;
+                s.ghostCapZone1Reduce = 8;
+                s.ghostCapZone1Despawn = 15;
+                s.ghostCapZone2Simplify = 20;
+                GhostSoftCapManager.Enabled = false;
+                GhostSoftCapManager.ApplySettings(8, 15, 20);
                 settingsAutoLoopEditing = false;
                 ParsekLog.Info("UI", "Settings reset to defaults");
             }
@@ -2989,6 +3017,87 @@ namespace Parsek
                     $"Setting changed: speedChangeThreshold={s.speedChangeThreshold:F0}%", 1.0);
             }
             GUILayout.EndHorizontal();
+        }
+
+        private void DrawGhostCapSettings(ParsekSettings s)
+        {
+            GUILayout.Label("Ghost Soft Caps", GUI.skin.box);
+
+            bool enabled = GUILayout.Toggle(s.ghostCapEnabled, "Enable ghost soft caps");
+            if (enabled != s.ghostCapEnabled)
+            {
+                s.ghostCapEnabled = enabled;
+                GhostSoftCapManager.Enabled = enabled;
+                ParsekLog.Info("UI", $"Ghost soft caps {(enabled ? "enabled" : "disabled")}");
+            }
+
+            if (!s.ghostCapEnabled)
+            {
+                GUILayout.Label("  (caps disabled — all ghosts rendered)", GUI.skin.label);
+                return;
+            }
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(
+                new GUIContent($"Zone 1 reduce: {s.ghostCapZone1Reduce}",
+                    "Nearby ghosts above this count get reduced fidelity"),
+                GUILayout.Width(140));
+            int zone1Reduce = Mathf.RoundToInt(
+                GUILayout.HorizontalSlider(s.ghostCapZone1Reduce, 2, 30));
+            if (zone1Reduce != s.ghostCapZone1Reduce)
+            {
+                s.ghostCapZone1Reduce = zone1Reduce;
+                GhostSoftCapManager.ApplySettings(
+                    s.ghostCapZone1Reduce, s.ghostCapZone1Despawn, s.ghostCapZone2Simplify);
+                ParsekLog.VerboseRateLimited("UI", "ghostCap.zone1Reduce",
+                    $"Setting changed: ghostCapZone1Reduce={s.ghostCapZone1Reduce}", 1.0);
+            }
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(
+                new GUIContent($"Zone 1 despawn: {s.ghostCapZone1Despawn}",
+                    "Nearby ghosts above this count get despawned (lowest priority first)"),
+                GUILayout.Width(140));
+            int zone1Despawn = Mathf.RoundToInt(
+                GUILayout.HorizontalSlider(s.ghostCapZone1Despawn, 5, 50));
+            if (zone1Despawn != s.ghostCapZone1Despawn)
+            {
+                s.ghostCapZone1Despawn = zone1Despawn;
+                GhostSoftCapManager.ApplySettings(
+                    s.ghostCapZone1Reduce, s.ghostCapZone1Despawn, s.ghostCapZone2Simplify);
+                ParsekLog.VerboseRateLimited("UI", "ghostCap.zone1Despawn",
+                    $"Setting changed: ghostCapZone1Despawn={s.ghostCapZone1Despawn}", 1.0);
+            }
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(
+                new GUIContent($"Zone 2 simplify: {s.ghostCapZone2Simplify}",
+                    "Distant ghosts above this count get simplified to orbit lines"),
+                GUILayout.Width(140));
+            int zone2Simplify = Mathf.RoundToInt(
+                GUILayout.HorizontalSlider(s.ghostCapZone2Simplify, 5, 60));
+            if (zone2Simplify != s.ghostCapZone2Simplify)
+            {
+                s.ghostCapZone2Simplify = zone2Simplify;
+                GhostSoftCapManager.ApplySettings(
+                    s.ghostCapZone1Reduce, s.ghostCapZone1Despawn, s.ghostCapZone2Simplify);
+                ParsekLog.VerboseRateLimited("UI", "ghostCap.zone2Simplify",
+                    $"Setting changed: ghostCapZone2Simplify={s.ghostCapZone2Simplify}", 1.0);
+            }
+            GUILayout.EndHorizontal();
+
+            // Enforce constraint: reduce must be less than despawn
+            if (s.ghostCapZone1Reduce >= s.ghostCapZone1Despawn)
+            {
+                s.ghostCapZone1Reduce = System.Math.Max(2, s.ghostCapZone1Despawn - 1);
+                GhostSoftCapManager.ApplySettings(
+                    s.ghostCapZone1Reduce, s.ghostCapZone1Despawn, s.ghostCapZone2Simplify);
+                ParsekLog.Info("UI",
+                    $"Clamped ghostCapZone1Reduce={s.ghostCapZone1Reduce} to stay below " +
+                    $"ghostCapZone1Despawn={s.ghostCapZone1Despawn}");
+            }
         }
 
         private void DrawDataManagementSettings(ParsekSettings s)
