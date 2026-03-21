@@ -97,6 +97,7 @@ namespace Parsek
             string recordingId = null,
             int? recordingFormatVersion = null,
             List<PartEvent> partEvents = null,
+            List<FlagEvent> flagEvents = null,
             List<SegmentEvent> segmentEvents = null,
             List<TrackSection> trackSections = null)
         {
@@ -139,6 +140,19 @@ namespace Parsek
                         }
                     }
                 }
+                // Retime flag events the same way
+                if (flagEvents != null)
+                {
+                    for (int i = 0; i < flagEvents.Count; i++)
+                    {
+                        if (flagEvents[i].ut < trimUT)
+                        {
+                            var e = flagEvents[i];
+                            e.ut = trimUT;
+                            flagEvents[i] = e;
+                        }
+                    }
+                }
             }
 
             if (pendingRecording != null)
@@ -161,6 +175,9 @@ namespace Parsek
                 PartEvents = partEvents != null
                     ? new List<PartEvent>(partEvents)
                     : new List<PartEvent>(),
+                FlagEvents = flagEvents != null
+                    ? new List<FlagEvent>(flagEvents)
+                    : new List<FlagEvent>(),
                 SegmentEvents = segmentEvents != null
                     ? new List<SegmentEvent>(segmentEvents)
                     : new List<SegmentEvent>(),
@@ -1491,6 +1508,25 @@ namespace Parsek
                 evtNode.AddValue("midx", evt.moduleIndex.ToString(ic));
             }
 
+            for (int fe = 0; fe < rec.FlagEvents.Count; fe++)
+            {
+                var evt = rec.FlagEvents[fe];
+                ConfigNode feNode = targetNode.AddNode("FLAG_EVENT");
+                feNode.AddValue("ut", evt.ut.ToString("R", ic));
+                feNode.AddValue("name", evt.flagSiteName ?? "");
+                feNode.AddValue("placedBy", evt.placedBy ?? "");
+                feNode.AddValue("plaqueText", evt.plaqueText ?? "");
+                feNode.AddValue("flagURL", evt.flagURL ?? "");
+                feNode.AddValue("lat", evt.latitude.ToString("R", ic));
+                feNode.AddValue("lon", evt.longitude.ToString("R", ic));
+                feNode.AddValue("alt", evt.altitude.ToString("R", ic));
+                feNode.AddValue("rotX", evt.rotX.ToString("R", ic));
+                feNode.AddValue("rotY", evt.rotY.ToString("R", ic));
+                feNode.AddValue("rotZ", evt.rotZ.ToString("R", ic));
+                feNode.AddValue("rotW", evt.rotW.ToString("R", ic));
+                feNode.AddValue("body", evt.bodyName ?? "Kerbin");
+            }
+
             SerializeSegmentEvents(targetNode, rec.SegmentEvents);
 
             // Serialize track sections (new recording system)
@@ -1503,6 +1539,7 @@ namespace Parsek
             DeserializePoints(sourceNode, rec);
             DeserializeOrbitSegments(sourceNode, rec);
             DeserializePartEvents(sourceNode, rec);
+            DeserializeFlagEvents(sourceNode, rec);
             DeserializeSegmentEvents(sourceNode, rec.SegmentEvents);
             DeserializeTrackSections(sourceNode, rec.TrackSections);
         }
@@ -1647,6 +1684,41 @@ namespace Parsek
 
                 rec.PartEvents.Add(evt);
             }
+        }
+
+        /// <summary>
+        /// Deserializes FLAG_EVENT nodes from a trajectory ConfigNode into the recording's FlagEvents list.
+        /// </summary>
+        internal static void DeserializeFlagEvents(ConfigNode sourceNode, Recording rec)
+        {
+            var inv = NumberStyles.Float;
+            var ic = CultureInfo.InvariantCulture;
+
+            ConfigNode[] feNodes = sourceNode.GetNodes("FLAG_EVENT");
+            for (int fe = 0; fe < feNodes.Length; fe++)
+            {
+                var feNode = feNodes[fe];
+                var evt = new FlagEvent();
+
+                double.TryParse(feNode.GetValue("ut"), inv, ic, out evt.ut);
+                evt.flagSiteName = feNode.GetValue("name") ?? "";
+                evt.placedBy = feNode.GetValue("placedBy") ?? "";
+                evt.plaqueText = feNode.GetValue("plaqueText") ?? "";
+                evt.flagURL = feNode.GetValue("flagURL") ?? "";
+                double.TryParse(feNode.GetValue("lat"), inv, ic, out evt.latitude);
+                double.TryParse(feNode.GetValue("lon"), inv, ic, out evt.longitude);
+                double.TryParse(feNode.GetValue("alt"), inv, ic, out evt.altitude);
+                float.TryParse(feNode.GetValue("rotX"), inv, ic, out evt.rotX);
+                float.TryParse(feNode.GetValue("rotY"), inv, ic, out evt.rotY);
+                float.TryParse(feNode.GetValue("rotZ"), inv, ic, out evt.rotZ);
+                float.TryParse(feNode.GetValue("rotW"), inv, ic, out evt.rotW);
+                evt.bodyName = feNode.GetValue("body") ?? "Kerbin";
+
+                rec.FlagEvents.Add(evt);
+            }
+
+            if (feNodes.Length > 0)
+                Log($"[Recording] Deserialized {feNodes.Length} flag event(s) for recording {rec.RecordingId}");
         }
 
         /// <summary>

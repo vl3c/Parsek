@@ -29,6 +29,7 @@ namespace Parsek
         public List<TrajectoryPoint> Recording { get; } = new List<TrajectoryPoint>();
         public List<OrbitSegment> OrbitSegments { get; } = new List<OrbitSegment>();
         public List<PartEvent> PartEvents { get; } = new List<PartEvent>();
+        public List<FlagEvent> FlagEvents { get; } = new List<FlagEvent>();
         public List<SegmentEvent> SegmentEvents { get; } = new List<SegmentEvent>();
         public List<TrackSection> TrackSections { get; } = new List<TrackSection>();
 
@@ -3556,6 +3557,7 @@ namespace Parsek
             Recording.Clear();
             OrbitSegments.Clear();
             PartEvents.Clear();
+            FlagEvents.Clear();
             SegmentEvents.Clear();
             ResetPartEventTrackingState(v);
 
@@ -3817,6 +3819,7 @@ namespace Parsek
                 Points = new List<TrajectoryPoint>(Recording),
                 OrbitSegments = new List<OrbitSegment>(OrbitSegments),
                 PartEvents = new List<PartEvent>(PartEvents),
+                FlagEvents = new List<FlagEvent>(FlagEvents),
                 SegmentEvents = new List<SegmentEvent>(SegmentEvents),
                 PreLaunchFunds = PreLaunchFunds,
                 PreLaunchScience = PreLaunchScience,
@@ -3879,8 +3882,9 @@ namespace Parsek
             UnsubscribePartEvents();
             IsRecording = false;
 
-            // Sort part events chronologically (mixed event sources may produce non-chronological order)
+            // Sort part/flag events chronologically (mixed event sources may produce non-chronological order)
             PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+            FlagEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
 
             // Capture persistence artifacts at stop-time so later scene changes
             // don't depend on whatever vessel is currently active.
@@ -3933,6 +3937,7 @@ namespace Parsek
             IsRecording = false;
 
             PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+            FlagEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
 
             CaptureAtStop = BuildCaptureRecording(
                 FlightGlobals.ActiveVessel != null
@@ -4573,6 +4578,7 @@ namespace Parsek
             UnsubscribePartEvents();
             IsRecording = false;
             PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+            FlagEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
 
             double duration = Recording.Count > 0
                 ? Recording[Recording.Count - 1].ut - Recording[0].ut
