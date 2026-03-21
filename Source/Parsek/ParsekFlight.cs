@@ -1240,6 +1240,7 @@ namespace Parsek
             treeRec.Points.AddRange(rec.Recording);
             treeRec.OrbitSegments.AddRange(rec.OrbitSegments);
             treeRec.PartEvents.AddRange(rec.PartEvents);
+            treeRec.TrackSections.AddRange(rec.TrackSections);
 
             // Sort part events chronologically (mixed event sources may produce non-chronological order)
             treeRec.PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
@@ -1486,6 +1487,7 @@ namespace Parsek
                     rootRec.Points = new List<TrajectoryPoint>(splitRecorder.CaptureAtStop.Points);
                     rootRec.OrbitSegments = new List<OrbitSegment>(splitRecorder.CaptureAtStop.OrbitSegments);
                     rootRec.PartEvents = new List<PartEvent>(splitRecorder.CaptureAtStop.PartEvents);
+                    rootRec.TrackSections = new List<TrackSection>(splitRecorder.CaptureAtStop.TrackSections);
                     rootRec.GhostVisualSnapshot = splitRecorder.CaptureAtStop.GhostVisualSnapshot;
                     rootRec.VesselSnapshot = splitRecorder.CaptureAtStop.VesselSnapshot;
                     rootRec.RewindSaveFileName = splitRecorder.CaptureAtStop.RewindSaveFileName;
@@ -1527,6 +1529,7 @@ namespace Parsek
                         parentRec.Points.AddRange(splitRecorder.CaptureAtStop.Points);
                         parentRec.OrbitSegments.AddRange(splitRecorder.CaptureAtStop.OrbitSegments);
                         parentRec.PartEvents.AddRange(splitRecorder.CaptureAtStop.PartEvents);
+                        parentRec.TrackSections.AddRange(splitRecorder.CaptureAtStop.TrackSections);
                         parentRec.PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
                     }
                     parentRec.ExplicitEndUT = branchUT;
@@ -1664,6 +1667,7 @@ namespace Parsek
                     activeParentRec.Points.AddRange(stoppedRecorder.CaptureAtStop.Points);
                     activeParentRec.OrbitSegments.AddRange(stoppedRecorder.CaptureAtStop.OrbitSegments);
                     activeParentRec.PartEvents.AddRange(stoppedRecorder.CaptureAtStop.PartEvents);
+                    activeParentRec.TrackSections.AddRange(stoppedRecorder.CaptureAtStop.TrackSections);
                     activeParentRec.PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
                 }
                 activeParentRec.ExplicitEndUT = mergeUT;
