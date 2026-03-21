@@ -5834,6 +5834,21 @@ namespace Parsek
                     Log($"Vessel already spawned (pid={rec.SpawnedVesselPersistentId}) — marked VesselSpawned=true for recording #{i}");
                 }
 
+                // Reverse: if marked as spawned but the real vessel no longer exists
+                // (recovered, destroyed, or cleared), reset spawn state so the recording
+                // can be spawned again via Real Spawn Control or natural playback.
+                if (!needsSpawn && (rec.VesselSpawned || rec.SpawnedVesselPersistentId != 0))
+                {
+                    uint checkPid = rec.SpawnedVesselPersistentId != 0
+                        ? rec.SpawnedVesselPersistentId : rec.VesselPersistentId;
+                    if (checkPid != 0 && !GhostPlaybackLogic.RealVesselExists(checkPid))
+                    {
+                        rec.VesselSpawned = false;
+                        rec.SpawnedVesselPersistentId = 0;
+                        Log($"Spawned vessel gone (pid={checkPid}) — reset spawn state for recording #{i} \"{rec.VesselName}\"");
+                    }
+                }
+
                 // External vessel suppression: skip ghost visuals while in-range,
                 // but allow spawn-at-end evaluation when past-end.
                 if (externalVesselSuppressed && inRange)
