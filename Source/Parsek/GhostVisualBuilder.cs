@@ -4327,28 +4327,28 @@ namespace Parsek
                 }
             }
 
-            // Cap disc for truncated cone (top ring has non-zero radius, e.g. capRadius)
+            // Conical cap for truncated cone (top ring has non-zero radius, e.g. capRadius).
+            // Creates a pointed cone from the last ring to an apex above it, matching the
+            // shape of a real fairing nosecone. Apex height = lastR * 1.5 above last ring.
             if (!hasApex && ringsToGenerate > 0)
             {
                 float capH = sections[ringCount - 1].h;
-                Vector3 capCenter = axisRot * new Vector3(0f, capH, 0f) + pivot;
-                int capCenterIdx = vertices.Count;
-                vertices.Add(capCenter);
+                float capR = sections[ringCount - 1].r;
+                float coneApexH = capH + capR * 1.5f;
+                Vector3 coneApex = axisRot * new Vector3(0f, coneApexH, 0f) + pivot;
+                int coneApexIdx = vertices.Count;
+                vertices.Add(coneApex);
                 uvs.Add(new Vector2(0.5f, 1f));
 
                 int lastRingBase = (ringsToGenerate - 1) * vertsPerRing;
                 for (int s = 0; s < nSides; s++)
                 {
-                    int left = lastRingBase + s;
-                    int right = lastRingBase + s + 1;
+                    int bl = lastRingBase + s;
+                    int br = lastRingBase + s + 1;
 
-                    // Double-sided cap disc (visible from both above and below)
-                    triangles.Add(right);
-                    triangles.Add(capCenterIdx);
-                    triangles.Add(left);
-                    triangles.Add(left);
-                    triangles.Add(capCenterIdx);
-                    triangles.Add(right);
+                    triangles.Add(bl);
+                    triangles.Add(coneApexIdx);
+                    triangles.Add(br);
                 }
             }
 
