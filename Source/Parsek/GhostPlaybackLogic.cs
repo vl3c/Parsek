@@ -1027,6 +1027,11 @@ namespace Parsek
         /// <summary>
         /// Applies flag events up to currentUT — shows flag ghosts and positions them on the body surface.
         /// </summary>
+        /// <summary>
+        /// Spawns flag vessels when their UT is reached. Flags are permanent world objects —
+        /// they are never destroyed by Parsek. Duplicate check prevents re-spawning on loop wrap.
+        /// The FlagEvent in the recording tracks which flag was planted (name, position, texture, plaque).
+        /// </summary>
         internal static void ApplyFlagEvents(GhostPlaybackState state, Recording rec, double currentUT)
         {
             if (rec == null || rec.FlagEvents == null || rec.FlagEvents.Count == 0) return;
@@ -1046,20 +1051,27 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Checks if a flag vessel already exists near the given position (prevents duplicates on loop).
+        /// Checks if a flag vessel already exists within 1m of the event position (prevents duplicates on loop).
+        /// Uses world-space 3D distance rather than lat/lon to handle high-latitude and small-body cases correctly.
         /// </summary>
         private static bool FlagExistsAtPosition(FlagEvent evt)
         {
-            if (FlightGlobals.Vessels == null) return false;
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == evt.bodyName);
+            if (body == null || FlightGlobals.Vessels == null) return false;
+
+            Vector3d eventPos = body.GetWorldSurfacePosition(evt.latitude, evt.longitude, evt.altitude);
+
             for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
             {
                 Vessel v = FlightGlobals.Vessels[i];
                 if (v == null || v.vesselType != VesselType.Flag) continue;
-                if (v.mainBody == null || v.mainBody.name != evt.bodyName) continue;
-                // Within ~1m is the same flag
-                double dLat = v.latitude - evt.latitude;
-                double dLon = v.longitude - evt.longitude;
-                if (dLat * dLat + dLon * dLon < 1e-8)
+                if (v.mainBody != body) continue;
+
+                Vector3d flagPos = body.GetWorldSurfacePosition(v.latitude, v.longitude, v.altitude);
+                double dx = flagPos.x - eventPos.x;
+                double dy = flagPos.y - eventPos.y;
+                double dz = flagPos.z - eventPos.z;
+                if (dx * dx + dy * dy + dz * dz < 1.0) // within 1m
                     return true;
             }
             return false;
