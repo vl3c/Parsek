@@ -2362,6 +2362,10 @@ namespace Parsek
             activeTree.PreTreeScience = splitRecorder.PreLaunchScience;
             activeTree.PreTreeReputation = splitRecorder.PreLaunchReputation;
 
+            ParsekLog.Info("Coalescer",
+                $"PromoteToTreeForBreakup: tree created: id={treeId}, name='{activeTree.TreeName}', " +
+                $"vesselPid={splitRecorder.RecordingVesselId}");
+
             // 3. Create root recording from CaptureAtStop
             var cap = splitRecorder.CaptureAtStop;
             var rootRec = new Recording
@@ -2390,6 +2394,11 @@ namespace Parsek
 
             activeTree.Recordings[rootRecId] = rootRec;
 
+            ParsekLog.Info("Coalescer",
+                $"PromoteToTreeForBreakup: root recording created: id={rootRecId}, " +
+                $"points={rootRec.Points.Count}, partEvents={rootRec.PartEvents.Count}, " +
+                $"endUT={breakupBp.UT:F2}, rewind={!string.IsNullOrEmpty(rootRec.RewindSaveFileName)}");
+
             // 4. Capture active vessel snapshot for continuation
             Vessel activeVessel = FlightGlobals.ActiveVessel;
             ConfigNode activeSnapshot = VesselSpawner.TryBackupSnapshot(activeVessel);
@@ -2408,6 +2417,10 @@ namespace Parsek
                 VesselSnapshot = activeSnapshot != null ? activeSnapshot.CreateCopy() : null
             };
             activeTree.Recordings[contRecId] = contRec;
+
+            ParsekLog.Info("Coalescer",
+                $"PromoteToTreeForBreakup: continuation recording created: id={contRecId}, " +
+                $"vesselPid={contRec.VesselPersistentId}, snapshot={activeSnapshot != null}");
 
             // 6. Wire BREAKUP into tree
             breakupBp.ParentRecordingIds.Add(rootRecId);
@@ -2508,6 +2521,10 @@ namespace Parsek
             activeTree.RebuildBackgroundMap();
             backgroundRecorder = new BackgroundRecorder(activeTree);
             Patches.PhysicsFramePatch.BackgroundRecorderInstance = backgroundRecorder;
+
+            ParsekLog.Info("Coalescer",
+                $"PromoteToTreeForBreakup: BackgroundRecorder created, " +
+                $"backgroundMap={activeTree.BackgroundMap.Count} vessels");
 
             // 10. Set debris TTL and notify BackgroundRecorder
             double debrisExpiryUT = breakupBp.UT + BackgroundRecorder.DebrisTTLSeconds;

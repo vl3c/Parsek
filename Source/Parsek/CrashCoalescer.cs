@@ -53,6 +53,7 @@ namespace Parsek
                 windowStartUT = ut;
                 cause = splitCause;
                 controlledChildPids.Clear();
+                debrisPids.Clear();
                 debrisCount = 0;
                 var ic = CultureInfo.InvariantCulture;
                 ParsekLog.Info("Coalescer",
