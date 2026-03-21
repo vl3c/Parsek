@@ -3512,30 +3512,14 @@ namespace Parsek
         /// internal structure should be visible when fairings are jettisoned.
         /// Defaults to true if the module or field is not found.
         /// </summary>
-        internal static bool GetFairingShowMesh(ConfigNode partNode)
-        {
-            if (partNode == null) return true;
-
-            ConfigNode toggleModule = FindModuleNode(partNode, "ModuleStructuralNodeToggle");
-            if (toggleModule == null) return true;
-
-            string showMeshVal = toggleModule.GetValue("showMesh");
-            if (string.IsNullOrEmpty(showMeshVal)) return true;
-
-            bool result;
-            if (bool.TryParse(showMeshVal, out result))
-                return result;
-            return true;
-        }
-
         /// <summary>
         /// Finds already-cloned transforms in the ghost model hierarchy that match
-        /// fairing internal structure names (truss/cap objects from ModuleStructuralNode),
-        /// hides them, and populates the FairingGhostInfo with references for later
-        /// reveal on fairing jettison.
+        /// fairing internal structure names (truss/cap objects from ModuleStructuralNode)
+        /// and permanently hides them. Prefab Cap/Truss meshes are at placeholder scale
+        /// (2000,10,2000) — the procedural truss mesh replaces them visually.
         /// </summary>
         internal static void HideFairingInternalStructure(
-            FairingGhostInfo fairingInfo, ConfigNode partConfig, ConfigNode partNode,
+            FairingGhostInfo fairingInfo, ConfigNode partConfig,
             Transform ghostModelNode, uint persistentId, string partName)
         {
             if (fairingInfo == null || ghostModelNode == null) return;
@@ -3548,9 +3532,9 @@ namespace Parsek
                 return;
             }
 
-            bool showMesh = GetFairingShowMesh(partNode);
-            fairingInfo.showInternalOnJettison = showMesh;
-
+            // Permanently hide prefab Cap/Truss clones — they are at meaningless prefab default scale
+            // (2000,10,2000). The procedural truss mesh on FairingGhostInfo.trussStructureObject
+            // provides the correct post-jettison visual instead.
             var hidden = new List<GameObject>();
             CollectMatchingTransforms(ghostModelNode, structureNames, hidden);
 
@@ -3561,7 +3545,7 @@ namespace Parsek
 
             ParsekLog.Verbose("GhostVisual", $"    Fairing '{partName}' pid={persistentId}: " +
                 $"found {structureNames.Count} structure names [{string.Join(", ", structureNames)}], " +
-                $"hidden {hidden.Count} transforms, showInternalOnJettison={showMesh}");
+                $"hidden {hidden.Count} prefab structure transforms (procedural truss used instead)");
         }
 
         /// <summary>
@@ -4354,6 +4338,124 @@ namespace Parsek
             return mesh;
         }
 
+        /// <summary>
+        /// Generates a procedural truss structure mesh from XSECTION data: horizontal cap discs
+        /// at each internal ring boundary and vertical struts connecting adjacent rings.
+        /// Shown after fairing jettison to represent the exposed interstage structure.
+        /// </summary>
+        internal static Mesh GenerateFairingTrussMesh(
+            List<(float h, float r)> sections, int nSides, Vector3 pivot, Vector3 axis)
+        {
+            if (sections.Count < 2) return null;
+
+            sections.Sort((a, b) => a.h.CompareTo(b.h));
+            nSides = Mathf.Min(nSides, 24);
+            if (nSides < 3) nSides = 3;
+
+            Quaternion axisRot = Quaternion.FromToRotation(Vector3.up, axis.normalized);
+            var vertices = new List<Vector3>();
+            var uvs = new List<Vector2>();
+            var triangles = new List<int>();
+
+            // --- Horizontal cap discs at each internal XSECTION boundary ---
+            // Skip the bottom (index 0) and top (last index) — caps are only at interior boundaries.
+            for (int i = 1; i < sections.Count - 1; i++)
+            {
+                float h = sections[i].h;
+                float r = sections[i].r;
+                if (r < 0.01f) continue;
+
+                // Center vertex of the disc
+                int centerIdx = vertices.Count;
+                vertices.Add(axisRot * new Vector3(0f, h, 0f) + pivot);
+                uvs.Add(new Vector2(0.5f, 0.5f));
+
+                // Ring vertices
+                int ringStart = vertices.Count;
+                for (int s = 0; s <= nSides; s++)
+                {
+                    float angle = (float)s / nSides * Mathf.PI * 2f;
+                    float x = Mathf.Cos(angle) * r;
+                    float z = Mathf.Sin(angle) * r;
+                    vertices.Add(axisRot * new Vector3(x, h, z) + pivot);
+                    uvs.Add(new Vector2((Mathf.Cos(angle) + 1f) * 0.5f, (Mathf.Sin(angle) + 1f) * 0.5f));
+                }
+
+                // Triangle fan (both sides visible via doubled winding)
+                for (int s = 0; s < nSides; s++)
+                {
+                    int left = ringStart + s;
+                    int right = ringStart + s + 1;
+                    // Top face
+                    triangles.Add(centerIdx);
+                    triangles.Add(left);
+                    triangles.Add(right);
+                    // Bottom face
+                    triangles.Add(centerIdx);
+                    triangles.Add(right);
+                    triangles.Add(left);
+                }
+            }
+
+            // --- Vertical struts connecting adjacent rings ---
+            // Place struts at evenly-spaced azimuthal positions.
+            int strutCount = Mathf.Max(nSides / 3, 6);
+            float strutHalfWidth = 0.03f; // thin struts as fraction of local scale
+
+            for (int s = 0; s < strutCount; s++)
+            {
+                float angle = (float)s / strutCount * Mathf.PI * 2f;
+                float cos = Mathf.Cos(angle);
+                float sin = Mathf.Sin(angle);
+
+                // Perpendicular direction for strut width
+                float perpCos = Mathf.Cos(angle + Mathf.PI * 0.5f);
+                float perpSin = Mathf.Sin(angle + Mathf.PI * 0.5f);
+
+                for (int i = 0; i < sections.Count - 1; i++)
+                {
+                    float h0 = sections[i].h;
+                    float r0 = sections[i].r;
+                    float h1 = sections[i + 1].h;
+                    float r1 = sections[i + 1].r;
+
+                    if (r0 < 0.01f || r1 < 0.01f) continue;
+
+                    // Inset struts slightly inside the cone surface so they don't z-fight
+                    float inset = 0.97f;
+                    float w0 = r0 * strutHalfWidth;
+                    float w1 = r1 * strutHalfWidth;
+
+                    // Four corners of the strut quad
+                    Vector3 bl = axisRot * new Vector3(cos * r0 * inset - perpCos * w0, h0, sin * r0 * inset - perpSin * w0) + pivot;
+                    Vector3 br = axisRot * new Vector3(cos * r0 * inset + perpCos * w0, h0, sin * r0 * inset + perpSin * w0) + pivot;
+                    Vector3 tl = axisRot * new Vector3(cos * r1 * inset - perpCos * w1, h1, sin * r1 * inset - perpSin * w1) + pivot;
+                    Vector3 tr = axisRot * new Vector3(cos * r1 * inset + perpCos * w1, h1, sin * r1 * inset + perpSin * w1) + pivot;
+
+                    int baseIdx = vertices.Count;
+                    vertices.Add(bl); vertices.Add(br); vertices.Add(tl); vertices.Add(tr);
+                    uvs.Add(new Vector2(0f, 0f)); uvs.Add(new Vector2(1f, 0f));
+                    uvs.Add(new Vector2(0f, 1f)); uvs.Add(new Vector2(1f, 1f));
+
+                    // Both sides visible
+                    triangles.Add(baseIdx); triangles.Add(baseIdx + 2); triangles.Add(baseIdx + 1);
+                    triangles.Add(baseIdx + 1); triangles.Add(baseIdx + 2); triangles.Add(baseIdx + 3);
+                    triangles.Add(baseIdx); triangles.Add(baseIdx + 1); triangles.Add(baseIdx + 2);
+                    triangles.Add(baseIdx + 1); triangles.Add(baseIdx + 3); triangles.Add(baseIdx + 2);
+                }
+            }
+
+            if (vertices.Count == 0) return null;
+
+            Mesh mesh = new Mesh();
+            mesh.SetVertices(vertices);
+            mesh.SetUVs(0, uvs);
+            mesh.SetTriangles(triangles, 0);
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
         private static FairingGhostInfo BuildFairingVisual(
             ConfigNode partNode, Part prefab, Transform modelNode,
             uint persistentId, string partName)
@@ -4402,13 +4504,31 @@ namespace Parsek
                 color = new Color(0.85f, 0.85f, 0.85f)
             };
 
+            // Generate truss structure mesh (hidden initially, revealed on jettison)
+            GameObject trussGo = null;
+            Mesh trussMesh = GenerateFairingTrussMesh(sections, nSides, pivot, axis);
+            if (trussMesh != null)
+            {
+                trussGo = new GameObject("fairing_truss");
+                trussGo.transform.SetParent(modelNode, false);
+                trussGo.AddComponent<MeshFilter>().mesh = trussMesh;
+                var trussMr = trussGo.AddComponent<MeshRenderer>();
+                trussMr.material = new Material(Shader.Find("KSP/Diffuse"))
+                {
+                    color = new Color(0.65f, 0.65f, 0.65f) // slightly darker than the fairing shell
+                };
+                trussGo.SetActive(false);
+            }
+
             ParsekLog.Verbose("GhostVisual", $"    Fairing detected: '{partName}' pid={persistentId}, " +
-                $"cone mesh generated ({sections.Count} sections, {nSides} sides)");
+                $"cone mesh generated ({sections.Count} sections, {nSides} sides)" +
+                (trussGo != null ? ", truss structure mesh generated" : ""));
 
             return new FairingGhostInfo
             {
                 partPersistentId = persistentId,
-                fairingMeshObject = go
+                fairingMeshObject = go,
+                trussStructureObject = trussGo
             };
         }
 
@@ -6115,7 +6235,7 @@ namespace Parsek
             {
                 added = true;
                 // Hide internal truss/cap structure that would poke through the fairing cone
-                HideFairingInternalStructure(fairingInfo, prefab.partInfo?.partConfig, partNode,
+                HideFairingInternalStructure(fairingInfo, prefab.partInfo?.partConfig,
                     modelNode.transform, persistentId, partName);
             }
 

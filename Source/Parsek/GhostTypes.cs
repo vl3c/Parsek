@@ -148,8 +148,8 @@ namespace Parsek
     {
         public uint partPersistentId;
         public GameObject fairingMeshObject;
-        public List<GameObject> internalStructureObjects; // truss/cap clones, initially hidden
-        public bool showInternalOnJettison;               // from ModuleStructuralNodeToggle.showMesh
+        public GameObject trussStructureObject;            // procedural truss mesh, initially hidden, shown on jettison
+        public List<GameObject> internalStructureObjects;  // prefab truss/cap clones, permanently hidden (wrong scale)
     }
 
     internal struct FireShellMesh

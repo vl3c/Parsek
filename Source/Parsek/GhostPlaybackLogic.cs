@@ -898,9 +898,12 @@ namespace Parsek
                                 && fInfo.fairingMeshObject != null)
                             {
                                 fInfo.fairingMeshObject.SetActive(false);
-                                // Internal structure (Cap/Truss) meshes stay hidden: they are cloned at
-                                // prefab default scale which is meaningless without ModuleProceduralFairing's
-                                // runtime rescaling. Revealing them would show enormous flat planes.
+                                // Show procedural truss structure (generated from XSECTION data at build time)
+                                if (fInfo.trussStructureObject != null)
+                                {
+                                    fInfo.trussStructureObject.SetActive(true);
+                                    ParsekLog.Verbose("Flight", $"Fairing truss structure revealed for pid={evt.partPersistentId}");
+                                }
                                 ParsekLog.Verbose("Flight", $"Part event applied: FairingJettisoned '{evt.partName}' pid={evt.partPersistentId}");
                             }
                         }
