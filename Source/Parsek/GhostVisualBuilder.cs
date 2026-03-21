@@ -4308,7 +4308,7 @@ namespace Parsek
                 }
             }
 
-            // Connect last ring to apex
+            // Connect last ring to apex (pointy nosecone)
             if (hasApex && ringsToGenerate > 0)
             {
                 int lastRingBase = (ringsToGenerate - 1) * vertsPerRing;
@@ -4320,6 +4320,28 @@ namespace Parsek
                     triangles.Add(bl);
                     triangles.Add(apexIndex);
                     triangles.Add(br);
+                }
+            }
+
+            // Cap disc for truncated cone (top ring has non-zero radius, e.g. capRadius)
+            if (!hasApex && ringsToGenerate > 0)
+            {
+                float capH = sections[ringCount - 1].h;
+                Vector3 capCenter = axisRot * new Vector3(0f, capH, 0f) + pivot;
+                int capCenterIdx = vertices.Count;
+                vertices.Add(capCenter);
+                uvs.Add(new Vector2(0.5f, 1f));
+
+                int lastRingBase = (ringsToGenerate - 1) * vertsPerRing;
+                for (int s = 0; s < nSides; s++)
+                {
+                    int left = lastRingBase + s;
+                    int right = lastRingBase + s + 1;
+
+                    // CW winding facing upward (outward from the top)
+                    triangles.Add(right);
+                    triangles.Add(capCenterIdx);
+                    triangles.Add(left);
                 }
             }
 
