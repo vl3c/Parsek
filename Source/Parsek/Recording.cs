@@ -134,7 +134,7 @@ namespace Parsek
         public string VesselSituation;          // "Orbiting Kerbin", "Landed on Mun", etc.
         public double MaxDistanceFromLaunch;     // Peak distance reached during recording
         public bool VesselSpawned;              // True after deferred RespawnVessel has fired
-        public bool ForceSpawnNewVessel;        // Skip PID dedup — vessel exists at reverted position, not recording end
+        public bool ForceSpawnNewVessel;        // Skip PID dedup — vessel exists at reverted position, not recording end (transient, not serialized)
 
         public uint SpawnedVesselPersistentId;  // persistentId of spawned vessel (0 = not yet spawned)
         public int SpawnAttempts;               // Number of failed spawn attempts (give up after 3)

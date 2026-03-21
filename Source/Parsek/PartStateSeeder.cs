@@ -584,12 +584,12 @@ namespace Parsek
                 }
             }
 
-            // --- ulong-keyed sets (encoded pid+moduleIndex) ---
+            // --- ulong-keyed deployable sets (all emit DeployableExtended with decoded moduleIndex) ---
 
-            // deployedLadders → DeployableExtended with decoded moduleIndex
-            if (sets.deployedLadders != null)
+            void EmitDeployableFromUlongSet(HashSet<ulong> set, string source)
             {
-                foreach (ulong key in sets.deployedLadders)
+                if (set == null) return;
+                foreach (ulong key in set)
                 {
                     uint pid; int midx;
                     FlightRecorder.DecodeEngineKey(key, out pid, out midx);
@@ -602,109 +602,16 @@ namespace Parsek
                         value = 0f,
                         moduleIndex = midx
                     });
-                    ParsekLog.Verbose(logTag, $"Seed event: DeployableExtended (ladder) pid={pid} midx={midx} part='{NameFor(pid)}'");
+                    ParsekLog.Verbose(logTag, $"Seed event: DeployableExtended ({source}) pid={pid} midx={midx} part='{NameFor(pid)}'");
                 }
             }
 
-            // deployedAnimationGroups → DeployableExtended with decoded moduleIndex
-            if (sets.deployedAnimationGroups != null)
-            {
-                foreach (ulong key in sets.deployedAnimationGroups)
-                {
-                    uint pid; int midx;
-                    FlightRecorder.DecodeEngineKey(key, out pid, out midx);
-                    events.Add(new PartEvent
-                    {
-                        ut = startUT,
-                        partPersistentId = pid,
-                        eventType = PartEventType.DeployableExtended,
-                        partName = NameFor(pid),
-                        value = 0f,
-                        moduleIndex = midx
-                    });
-                    ParsekLog.Verbose(logTag, $"Seed event: DeployableExtended (animGroup) pid={pid} midx={midx} part='{NameFor(pid)}'");
-                }
-            }
-
-            // deployedAnimateGenericModules → DeployableExtended with decoded moduleIndex
-            if (sets.deployedAnimateGenericModules != null)
-            {
-                foreach (ulong key in sets.deployedAnimateGenericModules)
-                {
-                    uint pid; int midx;
-                    FlightRecorder.DecodeEngineKey(key, out pid, out midx);
-                    events.Add(new PartEvent
-                    {
-                        ut = startUT,
-                        partPersistentId = pid,
-                        eventType = PartEventType.DeployableExtended,
-                        partName = NameFor(pid),
-                        value = 0f,
-                        moduleIndex = midx
-                    });
-                    ParsekLog.Verbose(logTag, $"Seed event: DeployableExtended (animGeneric) pid={pid} midx={midx} part='{NameFor(pid)}'");
-                }
-            }
-
-            // deployedAeroSurfaceModules → DeployableExtended with decoded moduleIndex
-            if (sets.deployedAeroSurfaceModules != null)
-            {
-                foreach (ulong key in sets.deployedAeroSurfaceModules)
-                {
-                    uint pid; int midx;
-                    FlightRecorder.DecodeEngineKey(key, out pid, out midx);
-                    events.Add(new PartEvent
-                    {
-                        ut = startUT,
-                        partPersistentId = pid,
-                        eventType = PartEventType.DeployableExtended,
-                        partName = NameFor(pid),
-                        value = 0f,
-                        moduleIndex = midx
-                    });
-                    ParsekLog.Verbose(logTag, $"Seed event: DeployableExtended (aeroSurface) pid={pid} midx={midx} part='{NameFor(pid)}'");
-                }
-            }
-
-            // deployedControlSurfaceModules → DeployableExtended with decoded moduleIndex
-            if (sets.deployedControlSurfaceModules != null)
-            {
-                foreach (ulong key in sets.deployedControlSurfaceModules)
-                {
-                    uint pid; int midx;
-                    FlightRecorder.DecodeEngineKey(key, out pid, out midx);
-                    events.Add(new PartEvent
-                    {
-                        ut = startUT,
-                        partPersistentId = pid,
-                        eventType = PartEventType.DeployableExtended,
-                        partName = NameFor(pid),
-                        value = 0f,
-                        moduleIndex = midx
-                    });
-                    ParsekLog.Verbose(logTag, $"Seed event: DeployableExtended (controlSurface) pid={pid} midx={midx} part='{NameFor(pid)}'");
-                }
-            }
-
-            // deployedRobotArmScannerModules → DeployableExtended with decoded moduleIndex
-            if (sets.deployedRobotArmScannerModules != null)
-            {
-                foreach (ulong key in sets.deployedRobotArmScannerModules)
-                {
-                    uint pid; int midx;
-                    FlightRecorder.DecodeEngineKey(key, out pid, out midx);
-                    events.Add(new PartEvent
-                    {
-                        ut = startUT,
-                        partPersistentId = pid,
-                        eventType = PartEventType.DeployableExtended,
-                        partName = NameFor(pid),
-                        value = 0f,
-                        moduleIndex = midx
-                    });
-                    ParsekLog.Verbose(logTag, $"Seed event: DeployableExtended (robotArmScanner) pid={pid} midx={midx} part='{NameFor(pid)}'");
-                }
-            }
+            EmitDeployableFromUlongSet(sets.deployedLadders, "ladder");
+            EmitDeployableFromUlongSet(sets.deployedAnimationGroups, "animGroup");
+            EmitDeployableFromUlongSet(sets.deployedAnimateGenericModules, "animGeneric");
+            EmitDeployableFromUlongSet(sets.deployedAeroSurfaceModules, "aeroSurface");
+            EmitDeployableFromUlongSet(sets.deployedControlSurfaceModules, "controlSurface");
+            EmitDeployableFromUlongSet(sets.deployedRobotArmScannerModules, "robotArmScanner");
 
             // animateHeatLevels → ThermalAnimationHot or ThermalAnimationMedium
             if (sets.animateHeatLevels != null)

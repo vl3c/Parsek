@@ -3563,8 +3563,6 @@ namespace Parsek
             for (int i = 0; i < hidden.Count; i++)
                 hidden[i].SetActive(false);
 
-            fairingInfo.internalStructureObjects = hidden.Count > 0 ? hidden : null;
-
             ParsekLog.Verbose("GhostVisual", $"    Fairing '{partName}' pid={persistentId}: " +
                 $"found {structureNames.Count} structure names [{string.Join(", ", structureNames)}], " +
                 $"hidden {hidden.Count} prefab structure transforms (procedural truss used instead)");
