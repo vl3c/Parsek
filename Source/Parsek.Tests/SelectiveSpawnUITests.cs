@@ -438,5 +438,53 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[SelectiveSpawn]") && l.Contains("CanWarpToChain"));
         }
+
+        // ── BuildTipRecordingToChainMap ──
+
+        [Fact]
+        public void BuildTipRecordingToChainMap_NullChains_ReturnsEmpty()
+        {
+            var result = SelectiveSpawnUI.BuildTipRecordingToChainMap(null);
+            Assert.Empty(result);
+        }
+
+        [Fact]
+        public void BuildTipRecordingToChainMap_EmptyChains_ReturnsEmpty()
+        {
+            var result = SelectiveSpawnUI.BuildTipRecordingToChainMap(
+                new Dictionary<uint, GhostChain>());
+            Assert.Empty(result);
+        }
+
+        [Fact]
+        public void BuildTipRecordingToChainMap_MapsNonTerminatedByTipRecordingId()
+        {
+            var chainA = new GhostChain { OriginalVesselPid = 1, TipRecordingId = "rec-a" };
+            var chainB = new GhostChain { OriginalVesselPid = 2, TipRecordingId = "rec-b", IsTerminated = true };
+            var chainC = new GhostChain { OriginalVesselPid = 3, TipRecordingId = "rec-c" };
+
+            var chains = new Dictionary<uint, GhostChain>
+            {
+                { 1, chainA }, { 2, chainB }, { 3, chainC }
+            };
+
+            var result = SelectiveSpawnUI.BuildTipRecordingToChainMap(chains);
+
+            Assert.Equal(2, result.Count);
+            Assert.Same(chainA, result["rec-a"]);
+            Assert.Same(chainC, result["rec-c"]);
+            Assert.False(result.ContainsKey("rec-b"));
+        }
+
+        [Fact]
+        public void BuildTipRecordingToChainMap_SkipsNullTipRecordingId()
+        {
+            var chain = new GhostChain { OriginalVesselPid = 1, TipRecordingId = null };
+
+            var chains = new Dictionary<uint, GhostChain> { { 1, chain } };
+
+            var result = SelectiveSpawnUI.BuildTipRecordingToChainMap(chains);
+            Assert.Empty(result);
+        }
     }
 }

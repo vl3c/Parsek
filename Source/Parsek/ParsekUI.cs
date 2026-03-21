@@ -158,6 +158,11 @@ namespace Parsek
         private Rect lastActionsWindowRect;
         private Rect lastSettingsWindowRect;
 
+        // Per-draw cached spawn UI data (avoids per-frame/per-row allocations)
+        private GhostChain cachedNextSpawnChain;
+        private Dictionary<string, GhostChain> cachedTipRecToChain;
+        private double cachedSpawnCurrentUT;
+
         public ParsekUI(ParsekFlight flight)
         {
             this.flight = flight;
@@ -175,6 +180,22 @@ namespace Parsek
 
         public void DrawWindow(int windowID)
         {
+            // Pre-compute spawn UI data once per draw (avoids per-row allocations)
+            if (InFlight && flight != null && flight.ActiveGhostChains != null)
+            {
+                cachedSpawnCurrentUT = Planetarium.GetUniversalTime();
+                cachedNextSpawnChain = SelectiveSpawnUI.FindNextSpawnChain(
+                    flight.ActiveGhostChains, cachedSpawnCurrentUT);
+                cachedTipRecToChain = SelectiveSpawnUI.BuildTipRecordingToChainMap(
+                    flight.ActiveGhostChains);
+            }
+            else
+            {
+                cachedSpawnCurrentUT = 0;
+                cachedNextSpawnChain = null;
+                cachedTipRecToChain = null;
+            }
+
             GUILayout.BeginVertical();
 
             if (InFlight)
@@ -304,19 +325,16 @@ namespace Parsek
         /// Visible when there are pending ghost chain tips in the future.
         /// Inspired by DMP's SUBSPACE_SIMPLE mode: single button to warp to the
         /// earliest pending interaction point.
+        /// Uses cachedNextSpawnChain pre-computed in DrawWindow.
         /// </summary>
         private void DrawWarpToNextSpawnButton()
         {
-            double currentUT = Planetarium.GetUniversalTime();
-            GhostChain nextChain = SelectiveSpawnUI.FindNextSpawnChain(
-                flight.ActiveGhostChains, currentUT);
-
-            if (nextChain == null) return;
+            if (cachedNextSpawnChain == null) return;
 
             GUILayout.Space(SpacingSmall);
 
             string tooltip = SelectiveSpawnUI.FormatNextSpawnTooltip(
-                nextChain, currentUT, flight.GetChainVesselNames());
+                cachedNextSpawnChain, cachedSpawnCurrentUT, flight.GetChainVesselNames());
 
             if (GUILayout.Button(new GUIContent("Warp to Next Spawn", tooltip)))
             {
@@ -1319,36 +1337,25 @@ namespace Parsek
             var statusContent = new GUIContent(statusText, chainStatusTooltip);
             GUILayout.Label(statusContent, statusStyle, GUILayout.Width(ColW_Status));
 
-            // Per-chain "Warp to Spawn" button — shown only for recordings that are chain tips
-            if (InFlight && flight != null && flight.ActiveGhostChains != null)
+            // Per-chain "Warp to Spawn" button — uses cached reverse lookup (O(1) per row)
+            if (cachedTipRecToChain != null && rec.RecordingId != null &&
+                cachedTipRecToChain.TryGetValue(rec.RecordingId, out GhostChain rowChain) &&
+                SelectiveSpawnUI.CanWarpToChain(rowChain, cachedSpawnCurrentUT))
             {
-                GhostChain rowChain = null;
-                double currentUT = Planetarium.GetUniversalTime();
-                foreach (var kvp in flight.ActiveGhostChains)
-                {
-                    if (kvp.Value.TipRecordingId == rec.RecordingId && !kvp.Value.IsTerminated)
-                    {
-                        rowChain = kvp.Value;
-                        break;
-                    }
-                }
+                string btnText = SelectiveSpawnUI.FormatWarpButtonText(rowChain, cachedSpawnCurrentUT);
+                var alsoSpawned = SelectiveSpawnUI.FindAlsoSpawnedChains(
+                    flight.ActiveGhostChains, rowChain, cachedSpawnCurrentUT);
+                string warning = SelectiveSpawnUI.FormatAlsoSpawnsWarning(
+                    alsoSpawned, flight.GetChainVesselNames());
+                var btnContent = new GUIContent(btnText, warning ?? "");
 
-                if (rowChain != null && SelectiveSpawnUI.CanWarpToChain(rowChain, currentUT))
+                if (GUILayout.Button(btnContent, GUILayout.MinWidth(75)))
                 {
-                    string btnText = SelectiveSpawnUI.FormatWarpButtonText(rowChain, currentUT);
-                    var alsoSpawned = SelectiveSpawnUI.FindAlsoSpawnedChains(
-                        flight.ActiveGhostChains, rowChain, currentUT);
-                    string warning = SelectiveSpawnUI.FormatAlsoSpawnsWarning(
-                        alsoSpawned, flight.GetChainVesselNames());
-                    var btnContent = new GUIContent(btnText, warning ?? "");
-
-                    if (GUILayout.Button(btnContent, GUILayout.MinWidth(75)))
-                    {
-                        ParsekLog.Info("UI",
-                            $"Warp to Spawn clicked for chain tip vessel={rowChain.OriginalVesselPid} " +
-                            $"recording='{rec.VesselName}'");
-                        flight.WarpToChainTip(rowChain.OriginalVesselPid);
-                    }
+                    ParsekLog.Info("UI",
+                        string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "Warp to Spawn clicked for chain tip vessel={0} recording='{1}'",
+                            rowChain.OriginalVesselPid, rec.VesselName));
+                    flight.WarpToChainTip(rowChain.OriginalVesselPid);
                 }
             }
 

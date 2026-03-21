@@ -42,9 +42,10 @@ namespace Parsek
 
             result.Sort((a, b) => a.SpawnUT.CompareTo(b.SpawnUT));
 
-            ParsekLog.Verbose(Tag,
-                string.Format(IC, "GetPendingChainTips: {0} pending from {1} total",
-                    result.Count, chains.Count));
+            if (ParsekLog.IsVerboseEnabled)
+                ParsekLog.Verbose(Tag,
+                    string.Format(IC, "GetPendingChainTips: {0} pending from {1} total",
+                        result.Count, chains.Count));
 
             return result;
         }
@@ -63,10 +64,11 @@ namespace Parsek
             {
                 if (pending[i].SpawnUT > currentUT)
                 {
-                    ParsekLog.Verbose(Tag,
-                        string.Format(IC,
-                            "FindNextSpawnChain: next spawn at UT={0} vessel={1}",
-                            pending[i].SpawnUT.ToString("F1", IC), pending[i].OriginalVesselPid));
+                    if (ParsekLog.IsVerboseEnabled)
+                        ParsekLog.Verbose(Tag,
+                            string.Format(IC,
+                                "FindNextSpawnChain: next spawn at UT={0} vessel={1}",
+                                pending[i].SpawnUT.ToString("F1", IC), pending[i].OriginalVesselPid));
                     return pending[i];
                 }
             }
@@ -99,14 +101,15 @@ namespace Parsek
 
             bool can = !chain.IsTerminated && chain.SpawnUT > currentUT;
 
-            ParsekLog.Verbose(Tag,
-                string.Format(IC,
-                    "CanWarpToChain: vessel={0} spawnUT={1} terminated={2} currentUT={3} -> {4}",
-                    chain.OriginalVesselPid,
-                    chain.SpawnUT.ToString("F1", IC),
-                    chain.IsTerminated,
-                    currentUT.ToString("F1", IC),
-                    can));
+            if (ParsekLog.IsVerboseEnabled)
+                ParsekLog.Verbose(Tag,
+                    string.Format(IC,
+                        "CanWarpToChain: vessel={0} spawnUT={1} terminated={2} currentUT={3} -> {4}",
+                        chain.OriginalVesselPid,
+                        chain.SpawnUT.ToString("F1", IC),
+                        chain.IsTerminated,
+                        currentUT.ToString("F1", IC),
+                        can));
 
             return can;
         }
@@ -142,10 +145,11 @@ namespace Parsek
 
             result.Sort((a, b) => a.SpawnUT.CompareTo(b.SpawnUT));
 
-            ParsekLog.Verbose(Tag,
-                string.Format(IC,
-                    "FindAlsoSpawnedChains: selected vessel={0} also spawns {1} chain(s)",
-                    selected.OriginalVesselPid, result.Count));
+            if (ParsekLog.IsVerboseEnabled)
+                ParsekLog.Verbose(Tag,
+                    string.Format(IC,
+                        "FindAlsoSpawnedChains: selected vessel={0} also spawns {1} chain(s)",
+                        selected.OriginalVesselPid, result.Count));
 
             return result;
         }
@@ -231,6 +235,26 @@ namespace Parsek
             int h = (int)(seconds / 3600);
             int min = (int)((seconds % 3600) / 60);
             return string.Format(IC, "{0}h {1}m", h.ToString(IC), min.ToString(IC));
+        }
+
+        /// <summary>
+        /// Pure: build a reverse lookup from TipRecordingId → GhostChain for non-terminated chains.
+        /// Used by the UI to find the chain for a given recording row in O(1) instead of
+        /// iterating all chains per row.
+        /// </summary>
+        internal static Dictionary<string, GhostChain> BuildTipRecordingToChainMap(
+            Dictionary<uint, GhostChain> chains)
+        {
+            var map = new Dictionary<string, GhostChain>();
+            if (chains == null) return map;
+
+            foreach (var kvp in chains)
+            {
+                GhostChain chain = kvp.Value;
+                if (!chain.IsTerminated && chain.TipRecordingId != null)
+                    map[chain.TipRecordingId] = chain;
+            }
+            return map;
         }
 
         private static string GetVesselName(uint pid, Dictionary<uint, string> vesselNames)
