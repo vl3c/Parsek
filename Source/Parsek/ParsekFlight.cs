@@ -3566,6 +3566,21 @@ namespace Parsek
             {
                 var pending = RecordingStore.Pending;
 
+                // After revert, the original vessel exists at its reverted position (e.g., on the pad),
+                // not at the recording's end position. Mark for fresh spawn with a new PID so the
+                // dedup check doesn't skip it. Also mark committed chain siblings.
+                pending.ForceSpawnNewVessel = true;
+                if (!string.IsNullOrEmpty(pending.ChainId))
+                {
+                    var chainSiblings = RecordingStore.GetChainRecordings(pending.ChainId);
+                    if (chainSiblings != null)
+                    {
+                        for (int cs = 0; cs < chainSiblings.Count; cs++)
+                            chainSiblings[cs].ForceSpawnNewVessel = true;
+                    }
+                }
+                ParsekLog.Verbose("Flight", $"Pending recording on flight ready: ForceSpawnNewVessel=true for '{pending.VesselName}'");
+
                 // Check if this is part of a chain with committed siblings
                 bool hasChainSiblings = !string.IsNullOrEmpty(pending.ChainId) &&
                     RecordingStore.GetChainRecordings(pending.ChainId) != null;
@@ -5430,7 +5445,10 @@ namespace Parsek
             // Real vessel dedup: if a vessel with this PID still exists in the game world,
             // skip spawning a duplicate. This runs only at actual spawn time (pastChainEnd),
             // not every frame like ShouldSpawnAtRecordingEnd.
-            if (rec.VesselPersistentId != 0 && GhostPlaybackLogic.RealVesselExists(rec.VesselPersistentId))
+            // Exception: ForceSpawnNewVessel is set after revert — the existing vessel is at the
+            // reverted position, not the recording's end position. Spawn a fresh copy with a new PID.
+            if (!rec.ForceSpawnNewVessel &&
+                rec.VesselPersistentId != 0 && GhostPlaybackLogic.RealVesselExists(rec.VesselPersistentId))
             {
                 rec.VesselSpawned = true;
                 rec.SpawnedVesselPersistentId = rec.VesselPersistentId;
