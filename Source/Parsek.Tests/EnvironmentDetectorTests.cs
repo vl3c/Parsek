@@ -333,14 +333,14 @@ namespace Parsek.Tests
         #region Hysteresis — Immediate transition (zero debounce)
 
         [Fact]
-        public void Hysteresis_AtmosphericToSurfaceStationary_ImmediateTransition()
+        public void Hysteresis_AtmosphericToSurfaceStationary_DebouncedTransition()
         {
-            // Atmospheric -> SurfaceStationary has zero debounce
+            // Atmospheric -> SurfaceStationary has 0.5s debounce (surface/atmospheric bounce)
             var h = new EnvironmentHysteresis(SegmentEnvironment.Atmospheric);
 
-            bool changed = h.Update(SegmentEnvironment.SurfaceStationary, 100.0);
+            Assert.False(h.Update(SegmentEnvironment.SurfaceStationary, 100.0));
+            Assert.True(h.Update(SegmentEnvironment.SurfaceStationary, 100.5));
 
-            Assert.True(changed);
             Assert.Equal(SegmentEnvironment.SurfaceStationary, h.CurrentEnvironment);
         }
 
@@ -357,14 +357,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Hysteresis_SurfaceStationaryToAtmospheric_ImmediateTransition()
+        public void Hysteresis_SurfaceStationaryToAtmospheric_DebouncedTransition()
         {
-            // SurfaceStationary -> Atmospheric has zero debounce (liftoff)
+            // SurfaceStationary -> Atmospheric has 0.5s debounce (surface/atmospheric bounce)
             var h = new EnvironmentHysteresis(SegmentEnvironment.SurfaceStationary);
 
-            bool changed = h.Update(SegmentEnvironment.Atmospheric, 100.0);
+            Assert.False(h.Update(SegmentEnvironment.Atmospheric, 100.0));
+            Assert.True(h.Update(SegmentEnvironment.Atmospheric, 100.5));
 
-            Assert.True(changed);
             Assert.Equal(SegmentEnvironment.Atmospheric, h.CurrentEnvironment);
         }
 
@@ -499,8 +499,10 @@ namespace Parsek.Tests
             // Pending toward SurfaceStationary (3s debounce) at UT=100
             Assert.False(h.Update(SegmentEnvironment.SurfaceStationary, 100.0));
 
-            // At UT=102, switch to Atmospheric (0s debounce) — immediate
-            Assert.True(h.Update(SegmentEnvironment.Atmospheric, 102.0));
+            // At UT=102, switch to Atmospheric (0.5s debounce) — resets timer
+            Assert.False(h.Update(SegmentEnvironment.Atmospheric, 102.0));
+            // After 0.5s, debounce elapsed
+            Assert.True(h.Update(SegmentEnvironment.Atmospheric, 102.5));
 
             Assert.Equal(SegmentEnvironment.Atmospheric, h.CurrentEnvironment);
         }
@@ -537,11 +539,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void GetDebounceFor_SurfaceToAtmospheric_ReturnsZero()
+        public void GetDebounceFor_SurfaceToAtmospheric_ReturnsHalfSecond()
         {
-            Assert.Equal(0.0, EnvironmentHysteresis.GetDebounceFor(
+            Assert.Equal(0.5, EnvironmentHysteresis.GetDebounceFor(
                 SegmentEnvironment.SurfaceStationary, SegmentEnvironment.Atmospheric));
-            Assert.Equal(0.0, EnvironmentHysteresis.GetDebounceFor(
+            Assert.Equal(0.5, EnvironmentHysteresis.GetDebounceFor(
                 SegmentEnvironment.SurfaceMobile, SegmentEnvironment.Atmospheric));
         }
 
@@ -578,16 +580,17 @@ namespace Parsek.Tests
         [Fact]
         public void Hysteresis_ImmediateTransition_LogsDebounceZero()
         {
+            // Use a transition that still has zero debounce (Atmospheric -> ExoBallistic)
             var h = new EnvironmentHysteresis(SegmentEnvironment.Atmospheric);
 
-            h.Update(SegmentEnvironment.SurfaceStationary, 200.0);
+            h.Update(SegmentEnvironment.ExoBallistic, 200.0);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[INFO]") &&
                 l.Contains("[Environment]") &&
                 l.Contains("Environment transition") &&
                 l.Contains("Atmospheric") &&
-                l.Contains("SurfaceStationary") &&
+                l.Contains("ExoBallistic") &&
                 l.Contains("immediate"));
         }
 
