@@ -3078,10 +3078,19 @@ namespace Parsek
 
         void OnAfterFlagPlanted(FlagSite flagSite)
         {
-            if (recorder == null || !recorder.IsRecording) return;
             if (flagSite == null || flagSite.vessel == null || flagSite.part == null) return;
 
-            // Match: the planting kerbal must be on the recorded vessel (EVA kerbal recording)
+            // Always stamp the planting date onto the plaque text
+            double ut = Planetarium.GetUniversalTime();
+            string dateStr = KSPUtil.PrintDate(ut, includeTime: true);
+            flagSite.PlaqueText = FormatPlaqueWithDate(flagSite.PlaqueText, dateStr);
+
+            ParsekLog.Verbose("Flight",
+                $"Flag planted: '{flagSite.vessel.vesselName}' by '{flagSite.placedBy}' — date stamped");
+
+            // Recording-specific: capture FlagEvent
+            if (recorder == null || !recorder.IsRecording) return;
+
             string placedBy = flagSite.placedBy ?? "";
             Vessel recordedVessel = FlightRecorder.FindVesselByPid(recorder.RecordingVesselId);
             if (!ShouldRecordFlagEvent(placedBy, recordedVessel))
@@ -3100,7 +3109,7 @@ namespace Parsek
 
             var fe = new FlagEvent
             {
-                ut = Planetarium.GetUniversalTime(),
+                ut = ut,
                 flagSiteName = flagVessel.vesselName ?? "",
                 placedBy = placedBy,
                 plaqueText = flagSite.PlaqueText ?? "",
@@ -3118,6 +3127,22 @@ namespace Parsek
 
             Log($"Flag event captured: '{fe.flagSiteName}' by '{fe.placedBy}' at " +
                 $"({fe.latitude:F4},{fe.longitude:F4},{fe.altitude:F1}) on {fe.bodyName}");
+        }
+
+        /// <summary>
+        /// Appends the planting date to the plaque text, right-aligned via TMP rich text.
+        /// </summary>
+        internal static string FormatPlaqueWithDate(string originalText, string formattedDate)
+        {
+            if (string.IsNullOrEmpty(formattedDate))
+                return originalText ?? "";
+
+            string dateLine = "<align=\"right\"><i>" + formattedDate + "</i></align>";
+
+            if (string.IsNullOrEmpty(originalText))
+                return dateLine;
+
+            return originalText + "\n" + dateLine;
         }
 
         /// <summary>

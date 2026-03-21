@@ -296,5 +296,44 @@ namespace Parsek.Tests
         {
             Assert.False(ParsekFlight.ShouldRecordFlagEvent("Jeb Kerman", null));
         }
+
+        [Fact]
+        public void FormatPlaqueWithDate_AppendsDateToText()
+        {
+            string result = ParsekFlight.FormatPlaqueWithDate("First landing!", "Year 1, Day 12, 3:45:30");
+            Assert.StartsWith("First landing!", result);
+            Assert.Contains("Year 1, Day 12, 3:45:30", result);
+            Assert.Contains("<align=\"right\">", result);
+            Assert.Contains("<i>", result);
+        }
+
+        [Fact]
+        public void FormatPlaqueWithDate_EmptyText_ReturnsDateOnly()
+        {
+            string result = ParsekFlight.FormatPlaqueWithDate("", "Year 1, Day 1, 0:00:00");
+            Assert.Contains("Year 1, Day 1, 0:00:00", result);
+            Assert.DoesNotContain("\n", result);
+        }
+
+        [Fact]
+        public void FormatPlaqueWithDate_NullText_ReturnsDateOnly()
+        {
+            string result = ParsekFlight.FormatPlaqueWithDate(null, "Year 1, Day 1, 0:00:00");
+            Assert.Contains("Year 1, Day 1, 0:00:00", result);
+        }
+
+        [Fact]
+        public void FormatPlaqueWithDate_EmptyDate_ReturnsOriginalText()
+        {
+            string result = ParsekFlight.FormatPlaqueWithDate("Hello", "");
+            Assert.Equal("Hello", result);
+        }
+
+        [Fact]
+        public void FormatPlaqueWithDate_BothEmpty_ReturnsEmpty()
+        {
+            string result = ParsekFlight.FormatPlaqueWithDate("", "");
+            Assert.Equal("", result);
+        }
     }
 }
