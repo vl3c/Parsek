@@ -1080,3 +1080,9 @@ The Watch (W) button is shown enabled for a recording whose time range is entire
 `GetFairingShowMesh` reads `showMesh` from `ModuleStructuralNodeToggle` in the snapshot but returns `True` even when the player set it to hidden. Log shows `showInternalOnJettison=True` when the real vessel has structure hidden. Either the snapshot doesn't contain the updated `showMesh` value, or the field name is wrong.
 
 **Status:** Fixed — Prefab Cap/Truss meshes are at placeholder scale (2000x10x2000) that only KSP's runtime `ModuleProceduralFairing` can adjust. Procedural truss mesh generated from XSECTION data replaces them. The `showMesh` field in snapshots was always `True` for this vessel — the visual issue was the enormous prefab-scale meshes, not a reading error.
+
+## 92. Zone rendering policy tests expect old Visual-zone behavior
+
+`GetZoneRenderingPolicy(Visual)` and `ShouldApplyPartEventsForZone(Visual)` were changed to apply part events in the Visual zone (2.3-120km) so that structural changes (fairing jettison, staging, crash destruction) work at altitude. Two existing tests still assert the old behavior (`skipPartEvents = true` for Visual zone). Update them to expect `skipPartEvents = false` and `ShouldApplyPartEventsForZone(Visual) = true`.
+
+**Status:** Open — test-only fix, no production code change needed

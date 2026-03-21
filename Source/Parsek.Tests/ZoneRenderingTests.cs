@@ -151,7 +151,7 @@ namespace Parsek.Tests
             var (shouldHide, skipPartEvents, skipPositioning) =
                 GhostPlaybackLogic.GetZoneRenderingPolicy(RenderingZone.Visual);
             Assert.False(shouldHide);
-            Assert.False(skipPartEvents);
+            Assert.False(skipPartEvents); // part events apply in Visual zone for staging/jettison/destruction
             Assert.False(skipPositioning);
         }
 

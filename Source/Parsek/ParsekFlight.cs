@@ -7817,7 +7817,7 @@ namespace Parsek
                 vesselName = committed[watchedRecordingIndex].VesselName;
 
             float boxW = 300f, boxH = 50f;
-            float x = (Screen.width - boxW) / 2f;
+            float x = (Screen.width * 0.5f - boxW) / 2f; // centered in the left half of the screen
             float y = 10f;
             Rect bgRect = new Rect(x, y, boxW, boxH);
 

@@ -4521,11 +4521,22 @@ namespace Parsek
             go.transform.SetParent(modelNode, false);
             go.AddComponent<MeshFilter>().mesh = mesh;
 
+            // Use the base adapter's material (includes variant textures) instead of hardcoded gray.
+            // The first active MeshRenderer on the ghost model node is the base adapter mesh
+            // (Cap/Truss are further down in the hierarchy).
             var mr = go.AddComponent<MeshRenderer>();
-            mr.material = new Material(Shader.Find("KSP/Diffuse"))
+            var baseMr = modelNode.GetComponentInChildren<MeshRenderer>();
+            if (baseMr != null && baseMr.sharedMaterial != null)
             {
-                color = new Color(0.85f, 0.85f, 0.85f)
-            };
+                mr.sharedMaterial = baseMr.sharedMaterial;
+            }
+            else
+            {
+                mr.material = new Material(Shader.Find("KSP/Diffuse"))
+                {
+                    color = new Color(0.85f, 0.85f, 0.85f)
+                };
+            }
 
             ParsekLog.Verbose("GhostVisual", $"    Fairing detected: '{partName}' pid={persistentId}, " +
                 $"cone mesh generated ({sections.Count} sections, {nSides} sides)");
@@ -5038,6 +5049,9 @@ namespace Parsek
                 if (sourceMaterials == null || sourceMaterials.Length == 0)
                     continue;
 
+                // Only clone materials that have trackable heat properties (_Color or emissive).
+                // Untracked materials keep their original shared reference to avoid visual
+                // divergence from orphaned material clones.
                 var cloned = new Material[sourceMaterials.Length];
                 bool hasTrackedMaterial = false;
                 for (int m = 0; m < sourceMaterials.Length; m++)
@@ -5049,18 +5063,28 @@ namespace Parsek
                         continue;
                     }
 
+                    string emissiveProperty = TryGetHeatEmissiveProperty(source);
+
+                    // In the fallback path (no resolved transforms), only track materials
+                    // with emissive properties. _Color alone is too broad — every KSP material
+                    // has it, including body/casing materials that should not get heat tinted.
+                    // When transforms ARE resolved (affectedSet != null), _Color is safe because
+                    // the renderer filter already limits to heat-animated meshes (nozzles).
+                    string colorProperty = null;
+                    if (affectedSet != null && source.HasProperty("_Color"))
+                        colorProperty = "_Color";
+
+                    if (colorProperty == null && emissiveProperty == null)
+                    {
+                        // Keep shared reference — no heat properties to animate
+                        cloned[m] = source;
+                        continue;
+                    }
+
+                    // Clone only materials that will be tracked
                     Material materialClone = new Material(source);
                     cloned[m] = materialClone;
                     clonedMaterials++;
-
-                    string colorProperty = materialClone.HasProperty("_Color")
-                        ? "_Color"
-                        : null;
-                    string emissiveProperty = TryGetHeatEmissiveProperty(materialClone);
-
-                    if (colorProperty == null && emissiveProperty == null)
-                        continue;
-
                     hasTrackedMaterial = true;
 
                     Color coldColor = colorProperty != null
@@ -5095,9 +5119,6 @@ namespace Parsek
                     trackedMaterials++;
                 }
 
-                // Only replace renderer materials if at least one is tracked for heat animation.
-                // Renderers with no trackable properties keep their original sharedMaterials,
-                // preventing color contamination from orphaned material clones.
                 if (hasTrackedMaterial)
                     renderer.materials = cloned;
             }
