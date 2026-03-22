@@ -409,13 +409,27 @@ namespace Parsek
                     t0, targetUT, jumpDelta, objectCount));
 
             // Put in-physics vessels on rails temporarily so SetUniversalTime doesn't
-            // cause physics interactions during the jump
+            // cause physics interactions during the jump.
+            // Copy to list first — GoOnRails callbacks could mutate VesselsLoaded.
             var onRailsVessels = new List<Vessel>();
             if (FlightGlobals.VesselsLoaded != null)
             {
-                foreach (Vessel v in FlightGlobals.VesselsLoaded)
+                var loadedSnapshot = new List<Vessel>(FlightGlobals.VesselsLoaded);
+                foreach (Vessel v in loadedSnapshot)
                 {
                     if (v == null) continue;
+
+                    // Atmospheric warning: Keplerian propagation ignores drag,
+                    // vessel may end up underground after forward jump
+                    if (v.mainBody != null && v.mainBody.atmosphere &&
+                        v.altitude < v.mainBody.atmosphereDepth)
+                    {
+                        ParsekLog.Warn(Tag,
+                            string.Format(ic,
+                                "WARNING: vessel '{0}' is in atmosphere — orbit propagation is approximate",
+                                v.vesselName));
+                    }
+
                     if (!v.packed && v.loaded)
                     {
                         try

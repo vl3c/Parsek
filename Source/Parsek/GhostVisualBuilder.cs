@@ -944,12 +944,6 @@ namespace Parsek
                             $"Stripped {typeName} from '{fxClone.name}'");
                         Object.Destroy(behaviours[i]);
                         break;
-                    default:
-                        // Diagnostic: log surviving MonoBehaviours to confirm what's on cloned FX objects.
-                        // Remove this default case after in-game verification.
-                        ParsekLog.Verbose("GhostVisual",
-                            $"Kept {typeName} on '{fxClone.name}'");
-                        break;
                 }
             }
         }
