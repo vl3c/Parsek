@@ -1218,6 +1218,19 @@ namespace Parsek
                 }
             }
 
+            // Seed lastLandedUT when switching to a vessel already on the surface.
+            // Spawned vessels (from recordings) are created directly in LANDED — no
+            // onVesselSituationChange fires, so the settle timer is never initialized.
+            // Without this, auto-record fails because settledTime computes as 0.
+            if (newVessel != null &&
+                (newVessel.situation == Vessel.Situations.LANDED ||
+                 newVessel.situation == Vessel.Situations.SPLASHED))
+            {
+                lastLandedUT = Planetarium.GetUniversalTime();
+                ParsekLog.Verbose("Flight",
+                    $"OnVesselSwitchComplete: seeded lastLandedUT={lastLandedUT:F1} (vessel '{newVessel.vesselName}' already {newVessel.situation})");
+            }
+
             if (activeTree == null) return;
             if (newVessel == null) return;
 
