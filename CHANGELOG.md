@@ -22,32 +22,95 @@ All notable changes to Parsek are documented here.
 
 ## 0.5.1
 
+Spawn safety hardening, ghost visual improvements, booster/debris tree recording, flag planting, and Fast Forward redesign. 20 PRs merged, 24 bugs fixed.
+
+### Spawn Safety & Reliability
+
+- **Bounding box collision detection** — replaced proximity-offset heuristic with oriented bounding box overlap checks against all loaded vessels (active vessel, debris, EVA, flags excluded)
+- **Spawn collision retry limit** — 150-frame (~2.5s) collision block limit for non-chain spawns; walkback exhaustion flag for chain-tip spawns; spawn abandoned with WARN after limit hit (#110)
+- **Spawn-die-respawn prevention** — 3-cycle death counter with permanent abandon for vessels destroyed immediately after spawn (e.g., FLYING at sea level killed by on-rails aero) (#110b)
+- **Spawn abandon flag** — `SpawnAbandoned` prevents vessel-gone reset cycle from re-triggering spawn indefinitely
+- **Non-leaf spawn suppression** — non-leaf tree recordings and FLYING/SUB_ORBITAL snapshot situations blocked from spawning; crew stripped from Destroyed-terminal-state spawn snapshots (#114)
+- **SubOrbital terminal spawn suppression** — recordings with SubOrbital terminal state no longer attempt vessel spawn (#45)
+- **Debris spawn suppression** — debris recordings (`IsDebris=true`) blocked from spawning real vessels
+- **Orphaned vessel cleanup** — spawned vessels stripped from FLIGHTSTATE on revert and rewind; guards preserve already-set cleanup data on second rewind (#109)
+- **ForceSpawnNewVessel on tree merge** — tree recordings correctly set ForceSpawnNewVessel during merge dialog callback, preventing PID dedup from skipping spawn after revert (#120)
+- **ForceSpawnNewVessel on flight entry** — all same-PID committed recordings marked at flight entry for standalone recordings
+- **Terminal state protection** — recovered/destroyed terminal state no longer corrupts committed recordings (#94)
+- **Save stale data leak** — `initialLoadDone` reset on main menu transition prevents old recordings leaking into new saves with the same name (#98)
+
+### Recording Improvements
+
+- **Booster/debris tree recording** — `PromoteToTreeForBreakup` auto-promotes standalone recordings to trees on staging; creates root, continuation, and debris child recordings with 30s debris TTL. Continuation seeded with post-breakup points from root recording (#106 watch camera fix)
+- **Flag planting recording/playback** — flag planting captured via `afterFlagPlanted`, stored as `FlagEvent` with position/rotation/flagUrl. Ghost flags built from stock flagPole prefab. Flags spawn as real vessels at playback end with world-space distance dedup
+- **Auto-record from LANDED** — recording now triggers from LANDED state (not just PRELAUNCH) with 5-second settle timer to filter physics bounces, enabling save-loaded pad vessels and Mun takeoffs
+- **Settle timer seed on vessel switch** — `lastLandedUT` seeded in `OnVesselSwitchComplete` for already-landed vessels, fixing auto-record for spawned vessels (#111)
+- **Terminal engine/RCS events** — synthetic EngineShutdown, RCSStopped, and RoboticMotionStopped events emitted at recording stop for all active entries, preventing ghost plumes from persisting past recording end (#108)
+- **Localization resolution** — `#autoLOC` keys resolved to human-readable names in vessel names and group headers via `Localizer.Format()` (#103)
+- **Group name dedup** — multiple launches of same craft get unique group names: "Flea (2)", "Flea (3)" etc. (#104)
+- **Chain boundary fix** — boundary splits skip standalone chain commits during tree mode, preventing nested groups in UI (#87)
+
+### Ghost Visual Improvements
+
+- **Compound part visuals** — fuel lines and struts render correctly on ghosts via PARTDATA/CModuleLinkedMesh fixup
+- **Plume bubble fix** — ghost plume bubble artifacts eliminated by using KSP-native `KSPParticleEmitter.emit` via reflection instead of Unity emission module (#105)
+- **Smoke trail fix** — Unity emission only disabled on FX objects that have KSPParticleEmitter; objects without it (smoke trails) keep their emission intact
+- **Engine plume persistence** — `ModelMultiParticlePersistFX`/`ModelParticleFX` kept alive on ghosts for native KSP plume visuals (stripping them killed smoke trails)
+- **Fairing cap** — `GenerateFairingConeMesh` generates flat disc cap when top XSECTION has non-zero radius (#85)
+- **Fairing internal structure** — prefab Cap/Truss meshes permanently hidden; internal structure revealed only on `FairingJettisoned` event (#91)
+- **Heat material fallback** — fallback path only clones materials that are tracked in `materialStates`, preventing red tint on non-heat parts (#86)
+- **Surface ghost slide fix** — orbit segments skipped for LANDED/SPLASHED/PRELAUNCH vessels; `IsSurfaceAtUT` suppresses orbit interpolation for surface TrackSections; SMA < 90% body radius rejected (#93)
+- **Terrain clamp** — ghost positions clamped above terrain in LateUpdate, preventing underground ghosts regardless of interpolation source
+- **Part events in Visual zone** — structural part events (fairing jettison, staging, destruction) now applied in the Visual zone (2.3-120km), not just Physics zone
+
+### UI Improvements
+
+- **Real Spawn Control window** — proximity-based UI showing ghosts within 500m whose recording ends in the future. Per-craft Warp button, sortable columns (Craft, Dist, Spawns at, In T-), and "Warp to Next Spawn" quick-jump button
+- **Countdown column** — `T-Xd Xh Xm Xs` countdown in Recordings Manager, updates live during playback
+- **Screen notification** when ghost craft enters spawn proximity range (10-second duration)
+- **Toggle button** — "Real Spawn Control (N)" in main window, grayed out when no candidates nearby
+- **Fast Forward redesign** — FF button performs instant UT jump forward (like time warp) instead of loading a quicksave; uses reflection for `BaseConverter.lastUpdateTime` to prevent burst resource production
+- **Pinned bottom buttons** — Warp, Close, and action buttons pinned to window bottom in Actions, Recordings, and Spawn Control windows
+- **Recordings window widened** — 1106 collapsed, 1324 expanded for better readability
+- **Spawn abandon status** — spawn warnings show "walkback exhausted" / "spawn abandoned" status instead of silently retrying
+- **Watch button guards** — disabled for out-of-range ghosts (tooltip: "Ghost is beyond visual range") and past recordings (#89, #90)
+- **Watch overlay repositioned** — moved to left half of screen to avoid altimeter overlap
+
+### Performance & Logging
+
+- **CanRewind/CanFastForward log spam removed** — per-frame VERBOSE logs eliminated (was 578K lines/session, 94% of all output) (#117)
+- **Main menu hook warning downgraded** — "Failed to register main menu hook" from WARN to VERBOSE (#118)
+- **Spawn collision log demotion** — per-frame overlap log from Info to VerboseRateLimited (was ~24K lines/session)
+- **GC allocation reduction** — per-frame allocations reduced in spawn UI via cached vessel names and eliminated redundant scans
+- **Ghost FX audit** — systematic review of KSP-native component usage on ghosts; `KSPParticleEmitter` kept alive with `emit` control, `SmokeTrailControl` stripped (sets alpha to 0 on ghosts), `FXPrefab` stripped (pollutes FloatingOrigin), engine heat/RCS glow reimplementations retained (#113)
+- **ParsekLog thread safety** — test overrides made thread-static to prevent cross-test pollution (#47)
+
 ### Bug Fixes
 
-- **#93**: Surface vehicle ghost slides away during on-rails playback — orbit segments with sub-surface SMA now skipped for LANDED/SPLASHED/PRELAUNCH vessels at recording time; playback uses `IsSurfaceAtUT` to suppress orbit interpolation for surface TrackSections; SMA < 90% body radius rejected as safety net
-- **#109**: Spawned vessels not cleaned up on second rewind — revert path overwrote rewind cleanup data with null; added guard to preserve already-set cleanup data
-- **#110**: Spawn collision retry ran every frame with no limit — added 150-frame (~2.5s) collision block limit for non-chain spawns, walkback exhaustion flag for chain-tip spawns, rate-limited collision log messages
-- **#110b**: Spawn-die-respawn infinite loop — vessels spawned FLYING at sea level are immediately killed by KSP on-rails aero, triggering respawn every frame (~24K cycles/session); added 3-cycle death counter with permanent abandon
-- **#111**: Auto-record not starting for spawned vessels — `lastLandedUT` not seeded on vessel switch to already-landed vessel
-- **Smoke trails** — engine and booster smoke trails invisible on ghosts; Unity emission was disabled on all particle systems but smoke FX have no KSPParticleEmitter to compensate; now only disables Unity emission on FX objects that have KSPParticleEmitter
-- **Terrain clamp** — ghost positions clamped above terrain in LateUpdate, preventing any ghost from appearing underground regardless of interpolation source
-- **#87**: Chain boundary commits no longer create nested groups — boundary splits skip standalone chain commits during tree mode
-- **#104**: Multiple launches of same craft get unique group names — "Flea (2)", "Flea (3)" etc.
-- **#108**: Synthetic EngineShutdown/RCSStopped events emitted at recording stop for all active engines/RCS, preventing ghost plumes from persisting past recording end
-- **#114**: Non-leaf tree recordings and FLYING/SUB_ORBITAL snapshot situations blocked from spawning; crew stripped from Destroyed-terminal-state spawn snapshots
-- **#119**: Watch mode no longer exits when ghost exceeds 120km from active vessel — watched ghosts are exempt from zone distance hiding
-- **#120**: Tree recordings correctly set ForceSpawnNewVessel on merge, preventing PID dedup from skipping spawn after revert
-- **Smoke trails** — engine and booster smoke trails invisible on ghosts; Unity emission was disabled on all particle systems but smoke FX have no KSPParticleEmitter to compensate; now only disables Unity emission on FX objects that have KSPParticleEmitter
-- **Engine plumes** — ModelMultiParticlePersistFX/ModelParticleFX kept alive for native KSP plume visuals
-- **Terrain clamp** — ghost positions clamped above terrain in LateUpdate, preventing any ghost from appearing underground regardless of interpolation source
-- **Compound part ghost visuals** — fuel lines and struts now render correctly on ghosts via PARTDATA fixup (CModuleLinkedMesh replacement)
-
-### Improvements
-
-- **Spawn abandon UI** — spawn warnings show "walkback exhausted" / "spawn abandoned" status instead of silently retrying forever
-- Spawn collision overlap log demoted from Info to VerboseRateLimited (was ~24K lines/session)
-- CanRewind/CanFastForward per-frame VERBOSE log spam removed (was 578K lines/session)
-- "Failed to register main menu hook" downgraded from WARN to VERBOSE
+- **#45**: SubOrbital terminal state recordings no longer attempt vessel spawn
+- **#47**: ParsekLog test overrides made thread-static
+- **#85**: Fairing nosecone cap added to generated cone mesh
+- **#86**: Heat material fallback only clones tracked materials, preventing red tint
+- **#87**: Chain boundary commits no longer create nested groups in tree mode
+- **#89**: Watch button disabled for ghosts beyond visual range
+- **#90**: Watch button disabled for past (finished) recordings
+- **#91**: Fairing internal structure hidden on ghost, revealed on jettison
+- **#92**: Zone rendering tests updated for Visual-zone part events
+- **#93**: Surface ghost slide fixed via orbit segment skip and SMA sanity check
+- **#94**: Recovered/destroyed terminal state no longer corrupts committed recordings
+- **#98**: Save data leak on same-name save recreation fixed via main menu reset
+- **#103**: Localization keys resolved in vessel names and group headers
+- **#104**: Multiple launches of same craft get unique group names
+- **#105**: Ghost plume bubble artifacts fixed by using KSP-native emission
+- **#106**: Watch camera booster fix via continuation point seeding
+- **#108**: Synthetic shutdown events emitted at recording stop for all active engines/RCS
+- **#109**: Spawned vessel cleanup preserved on second rewind
+- **#110**: Spawn collision retry limited to 150 frames with abandon
+- **#110b**: Spawn-die-respawn infinite loop stopped after 3 death cycles
+- **#111**: Auto-record settle timer seeded on vessel switch
+- **#114**: Non-leaf and FLYING/SUB_ORBITAL recordings blocked from spawning; crew stripped from destroyed-vessel snapshots
+- **#119**: Watched ghosts exempt from zone distance hiding
+- **#120**: Tree recordings set ForceSpawnNewVessel on merge
 
 ---
 
