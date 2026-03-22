@@ -1231,7 +1231,7 @@ When a ghost vessel is destroyed (recording ends, zone exit, loop cycle boundary
 
 ## 108. EngineShutdown event not recorded when engine cuts off
 
-Engine events missing or incomplete in recordings. Ghost engine plumes fire when they shouldn't or continue past cutoff. Verified in recording `b656f9d4` (save `s10`): `toroidalAerospike` (LV-1R "Spider" / Aerospike, blue flame engine) had zero engine events — no EngineIgnited, no EngineThrottle, no EngineShutdown — despite being active during the flight. Only a ShroudJettisoned event was recorded. The `turboFanEngine` on the same craft had ignition and throttle events but no shutdown.
+Engine shutdown not recorded. Ghost engine plumes continue firing past cutoff. Verified in recording `b656f9d4` (save `s10`): `turboFanEngine` (J-33 "Wheesley" jet, blue afterburner flames) had 2 `EngineIgnited` + 238 `EngineThrottle` events but 0 `EngineShutdown`, despite the engines being shut down during the recorded flight.
 
 Likely cause: `CheckEngineTransition` may not detect the `EngineIgnited → false` transition correctly, or the transition check polls `engine.EngineIgnited && engine.isOperational` which may remain true in certain states (e.g., fuel depletion vs. manual shutdown).
 
