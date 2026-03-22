@@ -5526,13 +5526,22 @@ namespace Parsek
         /// </summary>
         private static void TryFixupCompoundPartVisuals(
             Part prefab, ConfigNode partNode, Transform partRoot,
-            Transform prefabModelRoot, Transform ghostModelNode,
             Dictionary<Transform, Transform> cloneMap,
             uint persistentId, string partName)
         {
             // Compound parts store target connection data in PARTDATA
             ConfigNode partData = partNode.GetNode("PARTDATA");
-            if (partData == null) return;
+            if (partData == null)
+            {
+                // Expected no-op for non-compound parts. Log if the prefab IS a compound
+                // part — that would indicate corrupt/missing snapshot data.
+                if (prefab is CompoundPart)
+                {
+                    ParsekLog.Verbose("GhostVisual", $"  CompoundPart fixup WARNING: '{partName}' pid={persistentId} " +
+                        $"is a CompoundPart but snapshot has no PARTDATA node");
+                }
+                return;
+            }
 
             Vector3 targetPos;
             if (!TryParseVector3(partData.GetValue("pos"), out targetPos))
@@ -5605,6 +5614,10 @@ namespace Parsek
             else
                 targetWorldPos = partRoot.TransformPoint(targetPos);
 
+            // NOTE: delta points from target toward source (line - target), matching
+            // CModuleLinkedMesh.TrackAnchor which computes (line.position - endCap.position).
+            // The stock line mesh faces -Z in the prefab, so LookRotation along this reversed
+            // vector produces the correct orientation. Do not "fix" by swapping operands.
             Vector3 delta = lineWorldPos - targetWorldPos;
             float distance = delta.magnitude;
             const float lineMinimumLength = 0.01f;
@@ -5891,7 +5904,7 @@ namespace Parsek
             // Fix up compound part visuals (fuel lines, struts) — CModuleLinkedMesh
             // normally stretches the line mesh at runtime; ghosts need manual fixup.
             TryFixupCompoundPartVisuals(prefab, partNode, partRoot.transform,
-                modelRoot, modelNode.transform, cloneMap, persistentId, partName);
+                cloneMap, persistentId, partName);
 
             // Detect parachute parts via cloneMap (after cloneMap is fully populated)
             ModuleParachute chute = prefab.FindModuleImplementing<ModuleParachute>();
