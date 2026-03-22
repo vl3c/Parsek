@@ -916,6 +916,53 @@ namespace Parsek
                 $"sourceToFx=({sourceToFx}) parentToFx=({parentToFx})", 60.0);
         }
 
+        /// <summary>
+        /// Strip KSP FX controller components from cloned particle system GameObjects.
+        /// KSPParticleEmitter is KEPT alive (it handles material setup and particle creation)
+        /// but set to emit=false initially. It is collected into kspEmitterSink for later
+        /// control via reflection in SetEngineEmission/SetRcsEmission.
+        /// Unity's emission module is disabled separately (in ConfigureGhostEngineParticleSystems)
+        /// to prevent Unity from creating its own material-less "bubble" particles.
+        /// SmokeTrailControl modifies material color every frame based on atmospheric density.
+        /// FXPrefab registers particles with FloatingOrigin — pollutes global state on ghosts.
+        /// </summary>
+        private static void StripKspFxControllers(GameObject fxClone, List<KspEmitterRef> kspEmitterSink)
+        {
+            if (fxClone == null) return;
+
+            MonoBehaviour[] behaviours = fxClone.GetComponentsInChildren<MonoBehaviour>(true);
+            for (int i = 0; i < behaviours.Length; i++)
+            {
+                if (behaviours[i] == null) continue;
+                string typeName = behaviours[i].GetType().Name;
+                switch (typeName)
+                {
+                    case "KSPParticleEmitter":
+                        // Cache FieldInfo at capture time to avoid per-frame reflection in
+                        // SetKspEmittersEnabled (called from SetEngineEmission/SetRcsEmission).
+                        var emitField = behaviours[i].GetType().GetField("emit");
+                        if (emitField != null)
+                        {
+                            emitField.SetValue(behaviours[i], false);
+                            kspEmitterSink?.Add(new KspEmitterRef
+                            {
+                                emitter = behaviours[i],
+                                emitField = emitField
+                            });
+                        }
+                        ParsekLog.Verbose("GhostVisual",
+                            $"Captured KSPParticleEmitter on '{fxClone.name}' (emit=false)");
+                        break;
+                    case "SmokeTrailControl":
+                    case "FXPrefab":
+                        ParsekLog.Verbose("GhostVisual",
+                            $"Stripped {typeName} from '{fxClone.name}'");
+                        Object.Destroy(behaviours[i]);
+                        break;
+                }
+            }
+        }
+
         private static int ConfigureGhostEngineParticleSystems(
             GameObject fxInstance, List<ParticleSystem> sink)
         {
@@ -934,9 +981,13 @@ namespace Parsek
                 main.playOnAwake = false;
                 main.prewarm = false;
 
+                // Permanently disable Unity's emission module — all particle creation
+                // is handled by KSPParticleEmitter.EmitParticle(). Leaving emission.enabled=true
+                // causes Unity to create its own particles using main.startSize and
+                // ParticleSystemRenderer.material, which are never set from KSP values,
+                // producing huge material-less "bubble" artifacts (bug #105).
                 var emission = ps.emission;
-                emission.enabled = true;
-                emission.rateOverTimeMultiplier = 0f;
+                emission.enabled = false;
 
                 ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                 ps.Clear(true);
@@ -2302,9 +2353,7 @@ namespace Parsek
                         fxClone.transform.localRotation = legacyLocalRot;
                         fxClone.transform.localScale = child.localScale;
 
-                        var smokeTrail = fxClone.GetComponent("SmokeTrailControl");
-                        if (smokeTrail != null)
-                            Object.Destroy(smokeTrail);
+                        StripKspFxControllers(fxClone, info.kspEmitters);
 
                         int addedSystems = ConfigureGhostEngineParticleSystems(fxClone, info.particleSystems);
                         if (addedSystems > 0)
@@ -2332,9 +2381,7 @@ namespace Parsek
                     fxClone.transform.localRotation = child.localRotation;
                     fxClone.transform.localScale = child.localScale;
 
-                    var smokeTrail = fxClone.GetComponent("SmokeTrailControl");
-                    if (smokeTrail != null)
-                        Object.Destroy(smokeTrail);
+                    StripKspFxControllers(fxClone, info.kspEmitters);
 
                     int addedSystems = ConfigureGhostEngineParticleSystems(fxClone, info.particleSystems);
                     if (addedSystems > 0)
@@ -2399,6 +2446,8 @@ namespace Parsek
                             fxInstance.transform.SetParent(ghostFxParent, false);
                             fxInstance.transform.localPosition = mmpLocalPos;
                             fxInstance.transform.localRotation = mmpLocalRot;
+
+                            StripKspFxControllers(fxInstance, info.kspEmitters);
 
                             int addedSystems = ConfigureGhostEngineParticleSystems(fxInstance, info.particleSystems);
                             if (addedSystems > 0)
@@ -2498,9 +2547,7 @@ namespace Parsek
                         }
                     }
 
-                    var smokeTrail = fxInstance.GetComponent("SmokeTrailControl");
-                    if (smokeTrail != null)
-                        Object.Destroy(smokeTrail);
+                    StripKspFxControllers(fxInstance, info.kspEmitters);
 
                     int addedSystems = ConfigureGhostEngineParticleSystems(fxInstance, info.particleSystems);
                     if (addedSystems > 0)
@@ -3344,6 +3391,8 @@ namespace Parsek
                                 fxInstance.transform.localRotation = fxDefinitions[f].localRotation;
                                 fxInstance.transform.localScale = fxDefinitions[f].localScale;
 
+                                StripKspFxControllers(fxInstance, info.kspEmitters);
+
                                 // Configure ALL particle systems in the FX hierarchy (not just the first).
                                 // KSP RCS FX models have multiple child systems (plume + glow/smoke).
                                 // Using singular GetComponentInChildren only stopped the first one —
@@ -3356,9 +3405,10 @@ namespace Parsek
                                     main.playOnAwake = false;
                                     main.prewarm = false;
 
+                                    // Permanently disable Unity's emission module — all particle
+                                    // creation is handled by KSPParticleEmitter (bug #105 fix).
                                     var emission = ps.emission;
-                                    emission.enabled = true;
-                                    emission.rateOverTimeMultiplier = 0;
+                                    emission.enabled = false;
                                     ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                                     ps.Clear(true);
 
@@ -5483,6 +5533,173 @@ namespace Parsek
 
         #endregion
 
+        private static bool HasCModuleLinkedMesh(ConfigNode partConfig)
+        {
+            if (partConfig == null) return false;
+            ConfigNode[] modules = partConfig.GetNodes("MODULE");
+            for (int m = 0; m < modules.Length; m++)
+            {
+                if (modules[m].GetValue("name") == "CModuleLinkedMesh")
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Parses compound part target data from a snapshot PART node.
+        /// Returns false (no-op) for non-compound parts or corrupt data.
+        /// Pure method — no Unity Transform access, directly testable.
+        /// </summary>
+        internal static bool TryParseCompoundPartData(
+            ConfigNode partNode, ConfigNode partConfig, bool isCompoundPart,
+            uint persistentId, string partName,
+            out CompoundPartData data)
+        {
+            data = new CompoundPartData
+            {
+                lineObjName = "obj_line",
+                targetAnchorName = "obj_targetAnchor",
+                targetCapName = "obj_targetCap"
+            };
+
+            // Only process parts that have CModuleLinkedMesh — avoids false positives
+            // from non-compound parts that happen to have a PARTDATA node.
+            if (!HasCModuleLinkedMesh(partConfig))
+                return false;
+
+            ConfigNode partData = partNode.GetNode("PARTDATA");
+            if (partData == null)
+            {
+                // Expected no-op for non-compound parts. Log if the prefab IS a compound
+                // part — that would indicate corrupt/missing snapshot data.
+                if (isCompoundPart)
+                {
+                    ParsekLog.Verbose("GhostVisual", $"  CompoundPart fixup WARNING: '{partName}' pid={persistentId} " +
+                        $"is a CompoundPart but snapshot has no PARTDATA node");
+                }
+                return false;
+            }
+
+            if (!TryParseVector3(partData.GetValue("pos"), out data.targetPos))
+            {
+                ParsekLog.Verbose("GhostVisual", $"  CompoundPart fixup skipped: '{partName}' pid={persistentId} " +
+                    $"PARTDATA has no parseable 'pos'");
+                return false;
+            }
+
+            if (!TryParseQuaternion(partData.GetValue("rot"), out data.targetRot))
+            {
+                data.targetRot = Quaternion.identity;
+                ParsekLog.Verbose("GhostVisual", $"  CompoundPart fixup: '{partName}' pid={persistentId} " +
+                    $"PARTDATA has no parseable 'rot', defaulting to identity");
+            }
+
+            // Read transform names from CModuleLinkedMesh part config (varies: fuel line
+            // uses obj_line, strut uses obj_strut).
+            if (partConfig != null)
+            {
+                ConfigNode[] modules = partConfig.GetNodes("MODULE");
+                for (int m = 0; m < modules.Length; m++)
+                {
+                    if (modules[m].GetValue("name") == "CModuleLinkedMesh")
+                    {
+                        data.lineObjName = modules[m].GetValue("lineObjName") ?? data.lineObjName;
+                        data.targetAnchorName = modules[m].GetValue("targetAnchorName") ?? data.targetAnchorName;
+                        data.targetCapName = modules[m].GetValue("targetCapName") ?? data.targetCapName;
+                        break;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Fixes up compound part visuals (fuel lines, struts) by repositioning the
+        /// target anchor and stretching the line mesh using PARTDATA from the snapshot.
+        /// In KSP, CModuleLinkedMesh handles this at runtime; ghosts need manual fixup.
+        /// </summary>
+        private static void TryFixupCompoundPartVisuals(
+            Part prefab, ConfigNode partNode, Transform partRoot,
+            Dictionary<Transform, Transform> cloneMap,
+            uint persistentId, string partName)
+        {
+            CompoundPartData data;
+            if (!TryParseCompoundPartData(partNode, prefab.partInfo?.partConfig,
+                    prefab is CompoundPart, persistentId, partName, out data))
+                return;
+
+            // Find source transforms on prefab, then look up ghost clones in cloneMap
+            Transform srcLine = prefab.FindModelTransform(data.lineObjName);
+            Transform srcTargetAnchor = prefab.FindModelTransform(data.targetAnchorName);
+            Transform srcTargetCap = prefab.FindModelTransform(data.targetCapName);
+
+            Transform ghostLine = null, ghostTargetAnchor = null, ghostTargetCap = null;
+            if (srcLine != null) cloneMap.TryGetValue(srcLine, out ghostLine);
+            if (srcTargetAnchor != null) cloneMap.TryGetValue(srcTargetAnchor, out ghostTargetAnchor);
+            if (srcTargetCap != null) cloneMap.TryGetValue(srcTargetCap, out ghostTargetCap);
+
+            if (ghostLine == null)
+            {
+                ParsekLog.Verbose("GhostVisual", $"  CompoundPart fixup skipped: '{partName}' pid={persistentId} " +
+                    $"line transform '{data.lineObjName}' not in cloneMap " +
+                    $"(srcLine={(srcLine != null ? "found" : "null")})");
+                return;
+            }
+
+            // PARTDATA.pos is in compound part local space (= partRoot space).
+            // Move target anchor to the correct position — endCap is a child, moves with it.
+            if (ghostTargetAnchor != null)
+            {
+                ghostTargetAnchor.position = partRoot.TransformPoint(data.targetPos);
+                ghostTargetAnchor.rotation = partRoot.rotation * data.targetRot;
+            }
+
+            // Stretch line mesh from its position to the target end.
+            // Mirrors CModuleLinkedMesh.TrackAnchor: LookRotation + Z-scale.
+            Vector3 lineWorldPos = ghostLine.position;
+            Vector3 targetWorldPos;
+            if (ghostTargetCap != null)
+                targetWorldPos = ghostTargetCap.position;
+            else if (ghostTargetAnchor != null)
+                targetWorldPos = ghostTargetAnchor.position;
+            else
+                targetWorldPos = partRoot.TransformPoint(data.targetPos);
+
+            // NOTE: delta points from target toward source (line - target), matching
+            // CModuleLinkedMesh.TrackAnchor which computes (line.position - endCap.position).
+            // The stock line mesh faces -Z in the prefab, so LookRotation along this reversed
+            // vector produces the correct orientation. Do not "fix" by swapping operands.
+            Vector3 delta = lineWorldPos - targetWorldPos;
+            float distance = delta.magnitude;
+            const float lineMinimumLength = 0.01f;
+
+            if (distance > lineMinimumLength)
+            {
+                ghostLine.rotation = Quaternion.LookRotation(delta.normalized, partRoot.forward);
+                // prefab.scaleFactor is the stock prefab value (typically rescaleFactor, default
+                // 1.25). Mods like TweakScale may change scaleFactor on the live part, but the
+                // prefab retains the original value — acceptable for ghost visuals.
+                ghostLine.localScale = new Vector3(
+                    ghostLine.localScale.x,
+                    ghostLine.localScale.y,
+                    distance * prefab.scaleFactor);
+
+                if (ghostTargetCap != null)
+                    ghostTargetCap.rotation = ghostLine.rotation;
+
+                ParsekLog.Verbose("GhostVisual", $"  CompoundPart fixup: '{partName}' pid={persistentId} " +
+                    $"line='{data.lineObjName}' targetPos={data.targetPos} distance={distance:F3} " +
+                    $"scaleFactor={prefab.scaleFactor} zScale={(distance * prefab.scaleFactor):F3}");
+            }
+            else
+            {
+                ghostLine.gameObject.SetActive(false);
+                ParsekLog.Verbose("GhostVisual", $"  CompoundPart fixup: '{partName}' pid={persistentId} " +
+                    $"line hidden (distance={distance:F4} < {lineMinimumLength})");
+            }
+        }
+
         private static bool AddPartVisuals(Transform root, ConfigNode partNode, Part prefab,
             uint persistentId, string partName, out int meshCount,
             out ParachuteGhostInfo parachuteInfo, out JettisonGhostInfo jettisonInfo,
@@ -5738,6 +5955,11 @@ namespace Parsek
                         $"applied {applied} variant texture properties");
                 }
             }
+
+            // Fix up compound part visuals (fuel lines, struts) — CModuleLinkedMesh
+            // normally stretches the line mesh at runtime; ghosts need manual fixup.
+            TryFixupCompoundPartVisuals(prefab, partNode, partRoot.transform,
+                cloneMap, persistentId, partName);
 
             // Detect parachute parts via cloneMap (after cloneMap is fully populated)
             ModuleParachute chute = prefab.FindModuleImplementing<ModuleParachute>();

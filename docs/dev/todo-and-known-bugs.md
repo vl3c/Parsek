@@ -1193,17 +1193,15 @@ Fix: disambiguate with a launch number suffix. Check existing group names via `R
 
 **Status:** Open
 
-## 105. Colored bubbles visible in ghost engine plume FX
+## 105. Colored bubbles visible in ghost engine/RCS plume FX
 
-Ghost engine plumes show colored bubble/sphere artifacts instead of smooth exhaust trails. Most likely cause: KSP FX controller components (`ModelMultiParticlePersistFX`, `KSPParticleEmitter`) survive the `Object.Instantiate` clone and interfere with particle system state at runtime. `ConfigureGhostEngineParticleSystems` (GhostVisualBuilder.cs:919) correctly configures the cloned systems, but surviving KSP components may re-initialize materials or override emission shape afterward.
+Ghost engine and RCS plumes showed colored bubble/sphere artifacts. Root cause: ghost plumes had TWO particle emission sources fighting each other — `KSPParticleEmitter.EmitParticle()` (creates correctly-textured particles) and Unity's emission module (`emission.rateOverTimeMultiplier`) which creates particles using `ParticleSystem.main.startSize` and `ParticleSystemRenderer.material`, neither of which are set from KSP values, producing huge material-less "bubbles".
 
-The code only strips `SmokeTrailControl` (lines 2305, 2335, 2501) but does not strip other KSP FX management components. A secondary possibility: `TextureSheetAnimation` UV state lost if materials are cloned or replaced after instantiation, causing particles to render the full sprite atlas as a colored circle.
+Fix: Permanently disable Unity's emission module (`emission.enabled = false`) at build time. Keep `KSPParticleEmitter` alive (it handles material setup and particle creation) but control it via reflection (`emit` field) in `SetEngineEmission`/`SetRcsEmission`. `StripKspFxControllers` captures `KSPParticleEmitter` references into `kspEmitters` lists on `EngineGhostInfo`/`RcsGhostInfo` instead of destroying them. `SmokeTrailControl` and `FXPrefab` are still stripped.
 
-**Fix approach:** Strip all `ModelMultiParticlePersistFX` and `KSPParticleEmitter` components from the cloned FX hierarchy after instantiation (similar to `SmokeTrailControl` stripping). Verify `ParticleSystemRenderer.renderMode` is `Billboard` or `StretchedBillboard` (not `Mesh`).
+**Priority:** Medium — visually distracting on every engine/RCS ghost
 
-**Priority:** Medium — visually distracting on every engine ghost
-
-**Status:** Open
+**Status:** Fixed
 
 ## 106. Watch mode camera follows booster instead of main vessel at BREAKUP
 
@@ -1231,7 +1229,57 @@ When a ghost vessel is destroyed (recording ends, zone exit, loop cycle boundary
 
 **Status:** Open
 
-## 109. Audit ghost FX for KSP-native component usage
+## 108. EngineShutdown event not recorded when engine cuts off
+
+Engine throttle/shutdown events not recorded for some engine types. Ghost engine plumes stay at full intensity from ignition until shutdown (no throttle response), or never stop if shutdown is also missing. Observed on Aeris-4A (save `s10`) with `turboFanEngine` (J-X4 "Whiplash" Turbo Ramjet, `ModuleEnginesFX`): playback log shows `EngineIgnited` and `EngineShutdown` but zero `EngineThrottle` events between them. An earlier recording of the same craft had 238 throttle events but no shutdown — inconsistent behavior suggests a timing or caching issue in `CheckEngineTransition` / `CacheEngineModules`.
+
+Likely cause: `CheckEngineTransition` may not detect the `EngineIgnited → false` transition correctly, or the transition check polls `engine.EngineIgnited && engine.isOperational` which may remain true in certain states (e.g., fuel depletion vs. manual shutdown).
+
+**Priority:** Medium — ghost engines keep burning past cutoff, visually incorrect
+
+**Status:** Open
+
+## 109. Missing CleanupOrphanedSpawnedVessels on second Rewind flight-ready
+
+After a second Rewind, `CleanupOrphanedSpawnedVessels` does not run, leaving a previously-spawned vessel in the scene at the spawn coordinates. The first Rewind correctly recovers the old spawned vessel, but the second one skips cleanup entirely. This leaves a stale vessel that blocks future spawns at that location.
+
+**Priority:** High
+
+**Status:** Open
+
+## 110. Spawn collision retry has no limit — infinite loop on permanent overlap
+
+When a spawn is permanently blocked by an immovable vessel (e.g., a landed spawned vessel from a previous cycle that wasn't cleaned up), the spawn retry loop runs every frame indefinitely (~8ms per retry). In one test session this produced 6,270 retries over 27 seconds, flooding ~24,000 lines into KSP.log until the user exited to the main menu. There is no retry limit, timeout, or backoff.
+
+**Fix approach:** Add a maximum retry count (e.g., 60 retries = ~1 second at 60fps). After exhausting retries, log a warning and either skip the spawn or force-spawn at an offset position.
+
+**Priority:** High
+
+**Status:** Open
+
+## 111. Auto-record fails for spawned vessels (settle timer not seeded on vessel switch)
+
+When Parsek spawns a vessel from a recording and switches the active vessel to it, `lastLandedUT` is never initialized. Spawned vessels are created directly in LANDED state — there is no situation *transition*, so `OnVesselSituationChange` never fires. `OnVesselSwitchComplete` also did not seed the timer. When the user takes off (LANDED → FLYING), `settledTime` computes as 0 (fallback from `lastLandedUT = -1`), which is less than the 5-second settle threshold, and auto-recording is silently suppressed.
+
+**Repro:** Rewind to a recording → let the timeline ghost play and spawn a real vessel → camera switches to it → user throttles up and takes off → no recording starts. Log shows: `OnVesselSituationChange: LANDED → FLYING after 0.0s (< 5s settle threshold)`.
+
+**Fix approach:** Seed `lastLandedUT` in `OnVesselSwitchComplete` when the new active vessel is already in LANDED or SPLASHED, mirroring the existing init-time seed at `OnFlightReady`.
+
+**Priority:** High
+
+**Status:** Fixed (branch `fix/settle-seed-on-vessel-switch`)
+
+## 112. Aeris 4A spawn blocked by own spawned copy — permanent overlap
+
+After rewinding and re-entering flight, the Aeris 4A recording's spawn-at-end tried to place a new vessel at the same position where a previously-spawned (but not cleaned up) Aeris 4A already sat. The spawn collision detector correctly blocked it, but because the overlap is permanent (both vessels at the same runway position), this triggered bug #110's infinite retry loop. The log showed `Spawn blocked: overlaps with #autoLOC_501176 at 5m — will retry next frame` repeating every frame for the remainder of the session.
+
+**Root cause:** `CleanupOrphanedSpawnedVessels` recovered one copy, but a second Aeris 4A was loaded from the save and occupied the spawn slot. The spawn system has no dedup against already-present matching vessels.
+
+**Priority:** Medium (consequence of #110 infinite retry)
+
+**Status:** Open
+
+## 113. Audit ghost FX for KSP-native component usage
 
 Bug #105 revealed that fighting KSP's own FX components (KSPParticleEmitter, ModelMultiParticleFX) produces artifacts. The fix — letting KSP handle particle creation natively and controlling `emit` via reflection — produced much better visuals than any approach that tried to replace KSP's emission with Unity's.
 
@@ -1246,3 +1294,8 @@ General principle: prefer toggling KSP's own components on/off via reflection ov
 **Priority:** Low — improvement opportunity, not a bug
 
 **Status:** Open
+
+# In-Game Tests
+
+- [ ] Vessels propagate naturally along orbits after FF (no position freezing)
+- [ ] Resource converters don't burst after FF jump
