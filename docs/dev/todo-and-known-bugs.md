@@ -1416,6 +1416,36 @@ After revert, the quicksave restores the pre-launch vessel on the pad with the s
 
 **Status:** Fixed
 
+## 121. Ghost SKIPPED per-frame spam during collision-blocked spawn
+
+When a recording's ghost is past EndUT and spawn is collision-blocked, `UpdateTimelinePlayback` logs `Ghost SKIPPED (UT already past EndUT) — spawning vessel immediately` every physics frame until the collision block limit (150 frames) is reached. Session 4 showed 151 identical messages in 1.3 seconds for recording #5.
+
+**Fix:** Rate-limit or deduplicate the "Ghost SKIPPED" message during collision-blocked state. Log once when first blocked, suppress until resolved.
+
+**Priority:** Low — VERBOSE level only, does not affect gameplay
+
+**Status:** Open
+
+## 122. Dead→Dead crew status identity transitions logged as events
+
+When a spawned vessel is immediately destroyed (bug #110b), KSP fires `CrewStatusChanged` for crew already marked Dead. `GameStateRecorder` records these `Dead → Dead` no-op transitions as real events. Session 4 showed 10 such events across 3 spawn-death cycles.
+
+**Fix:** Filter identity transitions (`oldStatus == newStatus`) in `GameStateRecorder` before recording.
+
+**Priority:** Low — minor log noise, bounded by #110b's 3-cycle limit
+
+**Status:** Open
+
+## 123. `#autoLOC` localization keys in internal log messages
+
+Bug #103 fixed user-facing group headers, but some internal code paths (`TimeJumpManager`, `SpawnCollisionDetector`, `FlightRecorder`) still pass raw `Vessel.vesselName` (which may be an `#autoLOC_XXXXX` key) to log messages. Session 4 showed `vessel '#autoLOC_501224'` in TimeJump WARN messages and spawn collision logs.
+
+**Fix:** Apply `ResolveVesselName` more broadly to internal log call sites, or accept as cosmetic log-only issue.
+
+**Priority:** Low — log readability only, no gameplay impact
+
+**Status:** Open
+
 # In-Game Tests
 
 - [ ] Vessels propagate naturally along orbits after FF (no position freezing)
