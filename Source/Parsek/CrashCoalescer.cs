@@ -20,12 +20,13 @@ namespace Parsek
 
         // Accumulated split data during the window
         private List<uint> controlledChildPids = new List<uint>();
-        private int debrisCount;
+        private List<uint> debrisPids = new List<uint>();
         private string cause;  // "CRASH", "OVERHEAT", "STRUCTURAL_FAILURE"
 
-        // Snapshot of controlled child PIDs from the last emitted BREAKUP,
+        // Snapshot of child PIDs from the last emitted BREAKUP,
         // preserved across Reset() so the caller can access them after Tick() returns.
         private List<uint> lastEmittedControlledChildPids = new List<uint>();
+        private List<uint> lastEmittedDebrisPids = new List<uint>();
 
         public bool HasPendingBreakup => !double.IsNaN(windowStartUT);
         public double WindowStartUT => windowStartUT;
@@ -51,7 +52,7 @@ namespace Parsek
                 windowStartUT = ut;
                 cause = splitCause;
                 controlledChildPids.Clear();
-                debrisCount = 0;
+                debrisPids.Clear();
                 var ic = CultureInfo.InvariantCulture;
                 ParsekLog.Info("Coalescer",
                     "Coalescing window opened at UT=" + ut.ToString("F2", ic) + ", cause=" + splitCause);
@@ -68,10 +69,10 @@ namespace Parsek
             }
             else
             {
-                debrisCount++;
+                debrisPids.Add(childPid);
                 ParsekLog.Verbose("Coalescer",
-                    "Debris fragment added at UT=" + ut.ToString("F2", CultureInfo.InvariantCulture) +
-                    " (total debris=" + debrisCount + ")");
+                    "Debris fragment added: pid=" + childPid + " at UT=" + ut.ToString("F2", CultureInfo.InvariantCulture) +
+                    " (total debris=" + debrisPids.Count + ")");
             }
         }
 
@@ -97,7 +98,7 @@ namespace Parsek
                 Type = BranchPointType.Breakup,
                 BreakupCause = cause,
                 BreakupDuration = lastSplitUT - windowStartUT,
-                DebrisCount = debrisCount,
+                DebrisCount = debrisPids.Count,
                 CoalesceWindow = coalesceWindow
             };
 
@@ -107,13 +108,15 @@ namespace Parsek
             var ic = CultureInfo.InvariantCulture;
             ParsekLog.Info("Coalescer",
                 "BREAKUP emitted: ut=" + windowStartUT.ToString("F2", ic) + " cause=" + cause +
-                " controlledChildren=" + controlledChildPids.Count + " debris=" + debrisCount +
+                " controlledChildren=" + controlledChildPids.Count + " debris=" + debrisPids.Count +
                 " duration=" + bp.BreakupDuration.ToString("F3", ic) + "s window=" + coalesceWindow.ToString("F1", ic) + "s");
 
-            // Snapshot controlled child PIDs before Reset clears them,
-            // so the caller can access them via LastEmittedControlledChildPids.
+            // Snapshot child PIDs before Reset clears them,
+            // so the caller can access them via LastEmittedControlledChildPids / LastEmittedDebrisPids.
             lastEmittedControlledChildPids.Clear();
             lastEmittedControlledChildPids.AddRange(controlledChildPids);
+            lastEmittedDebrisPids.Clear();
+            lastEmittedDebrisPids.AddRange(debrisPids);
 
             Reset();
             return bp;
@@ -134,9 +137,15 @@ namespace Parsek
         public IReadOnlyList<uint> LastEmittedControlledChildPids => lastEmittedControlledChildPids;
 
         /// <summary>
+        /// Returns the debris child PIDs from the last emitted BREAKUP.
+        /// Same lifecycle as LastEmittedControlledChildPids.
+        /// </summary>
+        public IReadOnlyList<uint> LastEmittedDebrisPids => lastEmittedDebrisPids;
+
+        /// <summary>
         /// Returns the current debris count. Only valid while HasPendingBreakup is true.
         /// </summary>
-        public int CurrentDebrisCount => debrisCount;
+        public int CurrentDebrisCount => debrisPids.Count;
 
         /// <summary>
         /// Resets the coalescer, clearing all accumulated state.
@@ -146,7 +155,7 @@ namespace Parsek
             windowStartUT = double.NaN;
             lastSplitUT = double.NaN;
             controlledChildPids.Clear();
-            debrisCount = 0;
+            debrisPids.Clear();
             cause = null;
             ParsekLog.Verbose("Coalescer", "Reset -- window cleared");
         }

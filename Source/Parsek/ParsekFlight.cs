@@ -2294,15 +2294,20 @@ namespace Parsek
         /// <summary>
         /// Processes a BREAKUP branch point emitted by the crash coalescer.
         /// If an active tree exists, adds the BREAKUP event as a terminal-like marker
-        /// on the current recording segment. If no tree exists, logs the event
-        /// for diagnostic purposes only (no tree to record to).
+        /// on the current recording segment. If no tree exists but a recorder is active,
+        /// promotes the standalone recording into a tree to enable debris tracking.
         /// </summary>
         void ProcessBreakupEvent(BranchPoint breakupBp)
         {
             if (activeTree == null)
             {
+                if (recorder != null && recorder.IsRecording)
+                {
+                    PromoteToTreeForBreakup(breakupBp);
+                    return; // promotion handled everything including BREAKUP wiring
+                }
                 ParsekLog.Info("Coalescer",
-                    "ProcessBreakupEvent: no active tree — breakup event logged but not recorded. " +
+                    "ProcessBreakupEvent: no active tree and no active recorder — breakup not recorded. " +
                     $"cause={breakupBp.BreakupCause}, debris={breakupBp.DebrisCount}");
                 return;
             }
@@ -2349,6 +2354,279 @@ namespace Parsek
                 $"parentRec={activeRecId}, bpId={breakupBp.Id}, " +
                 $"cause={breakupBp.BreakupCause}, debris={breakupBp.DebrisCount}, " +
                 $"duration={breakupBp.BreakupDuration:F3}s");
+        }
+
+        /// <summary>
+        /// Promotes a standalone recording to a tree when a BREAKUP fires without an active tree.
+        /// Stops the current recorder, creates a tree with root recording from CaptureAtStop,
+        /// creates a continuation recording for the active vessel, creates child recordings for
+        /// debris and controlled children, and starts a new FlightRecorder in tree mode.
+        /// </summary>
+        void PromoteToTreeForBreakup(BranchPoint breakupBp)
+        {
+            // 1. Stop recorder to capture all accumulated data
+            recorder.StopRecordingForChainBoundary();
+            var splitRecorder = recorder;
+            recorder = null;
+
+            if (splitRecorder.CaptureAtStop == null)
+            {
+                ParsekLog.Warn("Coalescer",
+                    "PromoteToTreeForBreakup: no CaptureAtStop data — cannot promote");
+                FallbackCommitSplitRecorder(splitRecorder);
+                return;
+            }
+
+            // 2. Create tree (same pattern as CreateSplitBranch lines 1483-1537)
+            string treeId = Guid.NewGuid().ToString("N");
+            string rootRecId = Guid.NewGuid().ToString("N");
+
+            activeTree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = splitRecorder.CaptureAtStop.VesselName
+                           ?? FlightGlobals.ActiveVessel?.vesselName ?? "Unknown",
+                RootRecordingId = rootRecId,
+                ActiveRecordingId = null // set below
+            };
+
+            activeTree.PreTreeFunds = splitRecorder.PreLaunchFunds;
+            activeTree.PreTreeScience = splitRecorder.PreLaunchScience;
+            activeTree.PreTreeReputation = splitRecorder.PreLaunchReputation;
+
+            ParsekLog.Info("Coalescer",
+                $"PromoteToTreeForBreakup: tree created: id={treeId}, name='{activeTree.TreeName}', " +
+                $"vesselPid={splitRecorder.RecordingVesselId}");
+
+            // 3. Create root recording from CaptureAtStop
+            var cap = splitRecorder.CaptureAtStop;
+            var rootRec = new Recording
+            {
+                RecordingId = rootRecId,
+                TreeId = treeId,
+                VesselPersistentId = splitRecorder.RecordingVesselId,
+                VesselName = cap.VesselName ?? "Unknown",
+                ExplicitEndUT = breakupBp.UT
+            };
+
+            rootRec.Points = new List<TrajectoryPoint>(cap.Points);
+            rootRec.OrbitSegments = new List<OrbitSegment>(cap.OrbitSegments);
+            rootRec.PartEvents = new List<PartEvent>(cap.PartEvents);
+            rootRec.TrackSections = new List<TrackSection>(cap.TrackSections);
+            rootRec.FlagEvents = new List<FlagEvent>(cap.FlagEvents);
+            rootRec.SegmentEvents = new List<SegmentEvent>(cap.SegmentEvents);
+            rootRec.GhostVisualSnapshot = cap.GhostVisualSnapshot;
+            rootRec.VesselSnapshot = cap.VesselSnapshot;
+            rootRec.RewindSaveFileName = cap.RewindSaveFileName;
+            rootRec.RewindReservedFunds = cap.RewindReservedFunds;
+            rootRec.RewindReservedScience = cap.RewindReservedScience;
+            rootRec.RewindReservedRep = cap.RewindReservedRep;
+            if (rootRec.Points.Count > 0)
+                rootRec.ExplicitStartUT = rootRec.Points[0].ut;
+
+            activeTree.Recordings[rootRecId] = rootRec;
+
+            ParsekLog.Info("Coalescer",
+                $"PromoteToTreeForBreakup: root recording created: id={rootRecId}, " +
+                $"points={rootRec.Points.Count}, partEvents={rootRec.PartEvents.Count}, " +
+                $"endUT={breakupBp.UT:F2}, rewind={!string.IsNullOrEmpty(rootRec.RewindSaveFileName)}");
+
+            // 4. Capture active vessel snapshot for continuation
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            ConfigNode activeSnapshot = VesselSpawner.TryBackupSnapshot(activeVessel);
+
+            // 5. Create continuation recording (active vessel post-split)
+            string contRecId = Guid.NewGuid().ToString("N");
+            var contRec = new Recording
+            {
+                RecordingId = contRecId,
+                TreeId = treeId,
+                VesselPersistentId = splitRecorder.RecordingVesselId,
+                VesselName = activeVessel?.vesselName ?? cap.VesselName ?? "Unknown",
+                ParentBranchPointId = breakupBp.Id,
+                ExplicitStartUT = breakupBp.UT,
+                GhostVisualSnapshot = activeSnapshot,
+                VesselSnapshot = activeSnapshot != null ? activeSnapshot.CreateCopy() : null
+            };
+            // Seed continuation with post-breakup points from root recording.
+            // The root's Points extend ~0.5s past breakupBp.UT (coalescing window).
+            // Without this, the continuation has 0 points if the vessel is destroyed
+            // before FlushRecorderToTreeRecording runs — causing ghost spawn skip
+            // and watch mode camera falling back to a debris child (#106).
+            double breakupUT = breakupBp.UT;
+            for (int i = 0; i < rootRec.Points.Count; i++)
+            {
+                if (rootRec.Points[i].ut >= breakupUT)
+                    contRec.Points.Add(rootRec.Points[i]);
+            }
+
+            activeTree.Recordings[contRecId] = contRec;
+
+            ParsekLog.Info("Coalescer",
+                $"PromoteToTreeForBreakup: continuation recording created: id={contRecId}, " +
+                $"vesselPid={contRec.VesselPersistentId}, snapshot={activeSnapshot != null}, " +
+                $"seededPoints={contRec.Points.Count}");
+
+            // 6. Wire BREAKUP into tree
+            breakupBp.ParentRecordingIds.Add(rootRecId);
+            breakupBp.ChildRecordingIds.Add(contRecId);
+            activeTree.BranchPoints.Add(breakupBp);
+            rootRec.ChildBranchPointId = breakupBp.Id;
+
+            // 7. Create debris child recordings
+            var debrisPids = crashCoalescer.LastEmittedDebrisPids;
+            if (debrisPids != null)
+            {
+                for (int i = 0; i < debrisPids.Count; i++)
+                {
+                    uint pid = debrisPids[i];
+                    Vessel debrisVessel = FlightRecorder.FindVesselByPid(pid);
+                    string childRecId = Guid.NewGuid().ToString("N");
+                    string vesselName = debrisVessel?.vesselName ?? "Debris";
+
+                    var childRec = new Recording
+                    {
+                        RecordingId = childRecId,
+                        TreeId = treeId,
+                        VesselPersistentId = pid,
+                        VesselName = vesselName,
+                        ParentBranchPointId = breakupBp.Id,
+                        ExplicitStartUT = breakupBp.UT,
+                        IsDebris = true
+                    };
+
+                    if (debrisVessel != null)
+                    {
+                        ConfigNode debrisSnapshot = VesselSpawner.TryBackupSnapshot(debrisVessel);
+                        childRec.GhostVisualSnapshot = debrisSnapshot;
+                        childRec.VesselSnapshot = debrisSnapshot != null ? debrisSnapshot.CreateCopy() : null;
+                    }
+                    else
+                    {
+                        // Vessel already destroyed — mark as terminated
+                        childRec.TerminalStateValue = TerminalState.Destroyed;
+                        childRec.ExplicitEndUT = breakupBp.UT;
+                    }
+
+                    activeTree.Recordings[childRecId] = childRec;
+                    breakupBp.ChildRecordingIds.Add(childRecId);
+
+                    ParsekLog.Info("Coalescer",
+                        $"PromoteToTreeForBreakup: debris child created: pid={pid}, " +
+                        $"name='{vesselName}', recId={childRecId}, " +
+                        $"alive={debrisVessel != null}");
+                }
+            }
+
+            // 8. Create controlled child recordings (same pattern, IsDebris = false, no TTL)
+            var controlledPids = crashCoalescer.LastEmittedControlledChildPids;
+            if (controlledPids != null)
+            {
+                for (int i = 0; i < controlledPids.Count; i++)
+                {
+                    uint pid = controlledPids[i];
+                    Vessel childVessel = FlightRecorder.FindVesselByPid(pid);
+                    string childRecId = Guid.NewGuid().ToString("N");
+                    string vesselName = childVessel?.vesselName ?? "Unknown";
+
+                    var childRec = new Recording
+                    {
+                        RecordingId = childRecId,
+                        TreeId = treeId,
+                        VesselPersistentId = pid,
+                        VesselName = vesselName,
+                        ParentBranchPointId = breakupBp.Id,
+                        ExplicitStartUT = breakupBp.UT,
+                        IsDebris = false
+                    };
+
+                    if (childVessel != null)
+                    {
+                        ConfigNode childSnapshot = VesselSpawner.TryBackupSnapshot(childVessel);
+                        childRec.GhostVisualSnapshot = childSnapshot;
+                        childRec.VesselSnapshot = childSnapshot != null ? childSnapshot.CreateCopy() : null;
+                    }
+                    else
+                    {
+                        childRec.TerminalStateValue = TerminalState.Destroyed;
+                        childRec.ExplicitEndUT = breakupBp.UT;
+                    }
+
+                    activeTree.Recordings[childRecId] = childRec;
+                    breakupBp.ChildRecordingIds.Add(childRecId);
+
+                    ParsekLog.Info("Coalescer",
+                        $"PromoteToTreeForBreakup: controlled child created: pid={pid}, " +
+                        $"name='{vesselName}', recId={childRecId}, " +
+                        $"alive={childVessel != null}");
+                }
+            }
+
+            // 9. Set ActiveRecordingId BEFORE RebuildBackgroundMap so the continuation
+            // is excluded from BackgroundMap (it's the active vessel, not a background one).
+            activeTree.ActiveRecordingId = contRecId;
+
+            // Create BackgroundRecorder
+            activeTree.RebuildBackgroundMap();
+            backgroundRecorder = new BackgroundRecorder(activeTree);
+            Patches.PhysicsFramePatch.BackgroundRecorderInstance = backgroundRecorder;
+
+            ParsekLog.Info("Coalescer",
+                $"PromoteToTreeForBreakup: BackgroundRecorder created, " +
+                $"backgroundMap={activeTree.BackgroundMap.Count} vessels");
+
+            // 10. Set debris TTL and notify BackgroundRecorder
+            double debrisExpiryUT = breakupBp.UT + BackgroundRecorder.DebrisTTLSeconds;
+            foreach (var kvp in activeTree.BackgroundMap)
+            {
+                uint bgPid = kvp.Key;
+                backgroundRecorder.OnVesselBackgrounded(bgPid);
+
+                // Set TTL for debris recordings only
+                Recording bgRec;
+                if (activeTree.Recordings.TryGetValue(kvp.Value, out bgRec) && bgRec.IsDebris)
+                {
+                    backgroundRecorder.SetDebrisExpiry(bgPid, debrisExpiryUT);
+                }
+            }
+
+            // 11. Clear stale standalone state
+            activeChainId = null;
+            activeChainNextIndex = 0;
+            activeChainPrevId = null;
+            activeChainCrewName = null;
+            if (undockContinuationPid != 0)
+                StopUndockContinuation("tree promotion");
+            if (continuationVesselPid != 0)
+                StopContinuation("tree promotion");
+
+            // 12. Start new FlightRecorder for continuation
+            recorder = new FlightRecorder();
+            recorder.ActiveTree = activeTree;
+            recorder.StartRecording(isPromotion: true);
+
+            if (!recorder.IsRecording)
+            {
+                ParsekLog.Warn("Coalescer",
+                    "PromoteToTreeForBreakup: StartRecording failed for continuation");
+                recorder = null;
+            }
+
+            // 13. Log the promotion
+            int debrisAlive = 0;
+            if (debrisPids != null)
+            {
+                for (int i = 0; i < debrisPids.Count; i++)
+                {
+                    if (FlightRecorder.FindVesselByPid(debrisPids[i]) != null) debrisAlive++;
+                }
+            }
+            ParsekLog.Info("Coalescer",
+                $"PromoteToTreeForBreakup: standalone recording promoted to tree. " +
+                $"tree={treeId}, root={rootRecId}, continuation={contRecId}, " +
+                $"debris={debrisPids?.Count ?? 0} (alive={debrisAlive}), " +
+                $"controlled={controlledPids?.Count ?? 0}, " +
+                $"breakup={breakupBp.Id}");
         }
 
         #endregion

@@ -825,7 +825,7 @@ When the player stages/decouples parts, KSP may instantly destroy the separated 
 3. **User guidance:** Document in mod settings/FAQ that debris persistence should be enabled for full recording fidelity. Add a setting check that warns the user if debris persistence is off.
 4. **Synthetic debris trajectory:** When a `PartEvent.Decoupled` fires but no new vessel appears, Parsek could compute an approximate ballistic trajectory for the separated mass (using the vessel's velocity + a separation impulse) and create a visual-only ghost that shows the booster tumbling away. This wouldn't be a real recording but would look correct visually.
 
-**Status:** Detection fixed — `onPartDeCoupleNewVesselComplete` hook catches debris vessels synchronously during `Part.decouple()` (FixedUpdate), before KSP can destroy them. All 4 booster separations now correctly classified as `DebrisSplit` and fed to the crash coalescer. However, debris **recording** still blocked — see #66 (auto-tree creation for debris splits).
+**Status:** Fixed — `onPartDeCoupleNewVesselComplete` hook catches debris vessels synchronously during `Part.decouple()` (FixedUpdate), before KSP can destroy them. All 4 booster separations now correctly classified as `DebrisSplit` and fed to the crash coalescer. Debris recording now works via auto-tree promotion (#66 fixed).
 
 ## 59. SoftCap ClassifyPriority logs per-frame per-ghost at VERBOSE (log spam)
 
@@ -888,32 +888,25 @@ Related to bug #42 (engine shroud missing at recording start) and bug #31 (shrou
 
 ## 66. [v0.5.1] Booster/debris recording: auto-tree creation for DebrisSplit events
 
-**Target version:** 0.5.1
+Booster separation was correctly **detected** (via `onPartDeCoupleNewVesselComplete` hook, see #58) but separated boosters were not **recorded**. `ProcessBreakupEvent` discarded BREAKUP events when `activeTree == null`.
 
-Booster separation is now correctly **detected** (via `onPartDeCoupleNewVesselComplete` hook, see #58) but separated boosters are not **recorded**. The crash coalescer emits BREAKUP events with the correct debris count, but `ProcessBreakupEvent` discards them with `"no active tree — breakup event logged but not recorded"`.
+**Root cause:** Background vessel recording only works in tree mode. Trees were only created by controlled vessel splits (EVA, dock/undock). A standalone recording that stages boosters never entered tree mode.
 
-**Root cause:** Background vessel recording (including debris TTL tracking) only works in tree mode. Trees are currently created only by controlled vessel splits (EVA, dock/undock). A standalone recording that stages boosters never enters tree mode, so debris is detected but not tracked.
+**Fix:** `PromoteToTreeForBreakup` in ParsekFlight.cs. When `ProcessBreakupEvent` fires without an active tree but with a live recorder:
+1. Stops the recorder, captures all accumulated data via `StopRecordingForChainBoundary`
+2. Creates a RecordingTree with root recording from CaptureAtStop (same pattern as `CreateSplitBranch`)
+3. Creates a continuation recording for the active vessel (child of BREAKUP)
+4. Creates debris child recordings from `CrashCoalescer.LastEmittedDebrisPids` (new — coalescer now tracks individual debris PIDs, not just count)
+5. Creates BackgroundRecorder, adds debris to BackgroundMap with 30s TTL
+6. Starts a new FlightRecorder for the continuation in tree mode
 
-**Required changes:**
+Tree topology: `root → BREAKUP → [continuation, debris1, debris2, ...]`
 
-1. **Auto-tree promotion on DebrisSplit:** When `ProcessBreakupEvent` fires and there is no active tree, automatically promote the standalone recording into a tree. The current recorder's accumulated data becomes the tree root recording, and a BackgroundRecorder is created to track debris vessels.
+Also added `BackgroundRecorder.SetDebrisExpiry` for external TTL assignment, and clears stale chain/continuation state on promotion.
 
-2. **Debris background recording:** After tree creation, the separated booster vessels (captured by `onPartDeCoupleNewVesselComplete` with their PIDs) need to be added to the tree's BackgroundMap so BackgroundRecorder can sample them. The existing 30-second debris TTL mechanism should apply.
+**Verified in-game:** 4 SRB separation → 4 debris children created (all alive), 43-50 trajectory points each over 30s TTL, auto-grouped under vessel name in recordings window.
 
-3. **Debris vessel survival:** The debris vessels must survive long enough for BackgroundRecorder to sample them. Current approach uses `onPartDeCoupleNewVesselComplete` to capture PIDs synchronously during decouple, plus a reflection-based `GameSettings` search for debris persistence enforcement (field not found in KSP 1.12.5 — may need alternative approach).
-
-4. **Timing challenge:** The decouple event fires during FixedUpdate. The deferred joint break check runs next frame. By that time, KSP may have already destroyed the debris. The BackgroundRecorder needs the vessel to exist in `FlightGlobals.Vessels` to sample it. If the vessel is destroyed before the first sample, only the initial position (captured at decouple time) is available. Consider creating a single-point "separation trajectory" recording from the captured position/velocity.
-
-**Key code paths:**
-- `ParsekFlight.ProcessBreakupEvent()` — currently no-ops without a tree
-- `ParsekFlight.HandleJointBreakDeferredCheck()` + `DeferredJointBreakCheck()` — split detection
-- `ParsekFlight.OnDecoupleNewVesselDuringSplitCheck()` — captures PIDs at decouple time
-- `CrashCoalescer` — groups rapid splits into BREAKUP events
-- `BackgroundRecorder` — samples background vessels (requires tree)
-
-**Observed in:** Multiple test sessions (2026-03-21). 4 boosters correctly detected as DebrisSplit, BREAKUP emitted with debris=4, but discarded due to no active tree.
-
-**Status:** Open — planned for v0.5.1
+**Status:** Fixed
 
 ## 67. [v0.5.1] Camera switches to spawned vessel after watch mode ends at recording boundary
 
@@ -1165,5 +1158,77 @@ The Recordings Manager has three columns that all describe where a recording sit
 **Decision: Option C.** Keep Launch as an absolute reference for rewind planning. Merge Countdown into Status: show `T-2m 30s` when future, `Active` when playing, terminal state (`Landed`/`Orbiting`/`Recovered`) when past. Removes one column, keeps the information users need.
 
 **Priority:** Low — UI polish, no functional impact
+
+**Status:** Open
+
+## 101. BackgroundRecorder.SubscribePartEvents never called
+
+`BackgroundRecorder.SubscribePartEvents()` (line ~180) subscribes to `GameEvents.onPartDie` and `onPartJointBreak` for background vessels, but is never called from any tree creation path (`CreateSplitBranch`, `PromoteToTreeForBreakup`). Background vessel part destruction events are not captured. Trajectory sampling works (via `PhysicsFramePatch`), so the impact is cosmetic — part events on background debris/vessels won't appear in their recordings.
+
+**Status:** Open — low priority (background debris have 30s TTL, cosmetic-only impact)
+
+## 102. CreateSplitBranch omits FlagEvents and SegmentEvents in root recording
+
+`CreateSplitBranch` (ParsekFlight.cs ~line 1515-1518) copies Points, OrbitSegments, PartEvents, and TrackSections from `CaptureAtStop` into the root recording but omits `FlagEvents` and `SegmentEvents`. If flags were planted or segment events occurred before the first tree split, they are lost from the root recording. The newer `PromoteToTreeForBreakup` method copies all six data lists.
+
+**Status:** Open — low priority (flag planting before first EVA split is rare)
+
+## 103. Group headers show raw #autoLOC keys instead of resolved vessel names
+
+KSP stock vessels use `#autoLOC_XXXXX` localization keys as vessel names (e.g., `#autoLOC_501220` = GDLV3). These keys propagate into `Recording.VesselName`, `RecordingTree.TreeName`, and group names without resolution. The recordings window shows `#autoLOC_501220 (6)` as the group header instead of `GDLV3 (6)`.
+
+`KSP.Localization.Localizer.Format()` is never called anywhere in the codebase. The fix should resolve names at storage time (when `VesselName`/`TreeName` are assigned from `Vessel.vesselName`) so all 9+ display sites get human-readable names. A `ResolveVesselName(string)` helper that calls `Localizer.Format()` when the name starts with `#` would cover all input sites.
+
+**Priority:** Medium — every stock vessel shows unreadable group headers
+
+**Status:** Open
+
+## 104. Multiple launches of same vessel merge into one recording group
+
+`RecordingStore.CommitTree` (line ~309) uses `tree.TreeName` verbatim as the group name. When the same craft is launched multiple times, all trees get the same group name and their recordings collapse into a single group. No way to tell which launch a recording belongs to.
+
+Same issue affects chain recordings: `chainGroupName = RecordingStore.Pending.VesselName` (lines ~2940, ~3554, ~3716 in ParsekFlight.cs).
+
+Fix: disambiguate with a launch number suffix. Check existing group names via `RecordingStore.GetGroupNames()` and append ` (2)`, ` (3)`, etc. Similar to `ParsekUI.GenerateUniqueGroupName` which already implements this pattern for manually-created groups.
+
+**Priority:** Medium — confusing UI when same craft is launched multiple times
+
+**Status:** Open
+
+## 105. Colored bubbles visible in ghost engine plume FX
+
+Ghost engine plumes show colored bubble/sphere artifacts instead of smooth exhaust trails. Most likely cause: KSP FX controller components (`ModelMultiParticlePersistFX`, `KSPParticleEmitter`) survive the `Object.Instantiate` clone and interfere with particle system state at runtime. `ConfigureGhostEngineParticleSystems` (GhostVisualBuilder.cs:919) correctly configures the cloned systems, but surviving KSP components may re-initialize materials or override emission shape afterward.
+
+The code only strips `SmokeTrailControl` (lines 2305, 2335, 2501) but does not strip other KSP FX management components. A secondary possibility: `TextureSheetAnimation` UV state lost if materials are cloned or replaced after instantiation, causing particles to render the full sprite atlas as a colored circle.
+
+**Fix approach:** Strip all `ModelMultiParticlePersistFX` and `KSPParticleEmitter` components from the cloned FX hierarchy after instantiation (similar to `SmokeTrailControl` stripping). Verify `ParticleSystemRenderer.renderMode` is `Billboard` or `StretchedBillboard` (not `Mesh`).
+
+**Priority:** Medium — visually distracting on every engine ghost
+
+**Status:** Open
+
+## 106. Watch mode camera follows booster instead of main vessel at BREAKUP
+
+When watching a ghost via Watch mode (W button), at booster separation the camera jumps to follow a separated booster instead of staying with the main core stage.
+
+**Root cause:** `FindNextWatchTarget` (ParsekFlight.cs:8500) correctly prefers children matching the root's `VesselPersistentId`. But the continuation recording often has 0 trajectory points (data flushed at commit time via `FlushRecorderToTreeRecording`, but if the vessel was destroyed shortly after promotion, the continuation may be empty). Ghost spawning skips recordings with `Points.Count < 2` (line 6090-6093), so the continuation ghost is never created. `FindNextWatchTarget` falls back to the first debris child with an active ghost.
+
+**Secondary causes:**
+1. Dictionary iteration order in `CommitTree` (`tree.Recordings.Values`) is non-deterministic — a debris recording may appear at a lower committed index than the continuation
+2. Brief `watchedRecordingIndex = -1` gap during `TransferWatchToNextSegment` between `ExitWatchMode` and re-assignment could allow KSP camera to re-target
+
+**Fix approach:** Ensure the continuation has trajectory data even when the vessel is short-lived. The root recording's points extend past `ExplicitEndUT` (they cover the 0.5s coalescing window) — the continuation could inherit the post-BREAKUP subset of the root's points at promotion time. Alternatively, `FindNextWatchTarget` could fall back to PID-matching against committed recordings directly (not requiring an active ghost).
+
+**Priority:** Medium — camera behavior surprise during watched booster separations
+
+**Status:** Partially fixed — continuation now seeded with post-breakup points at promotion time (`3bd66ea`). Existing saves with 0-point continuations still affected.
+
+## 107. Engine/SRB smoke trails vanish instantly when ghost despawns
+
+When a ghost vessel is destroyed (recording ends, zone exit, loop cycle boundary), all particle systems are destroyed with the ghost GameObject. Engine and SRB exhaust trails that are still visually fading out disappear instantly instead of persisting until they naturally decay. Stock KSP smoke trails linger for several seconds after engine cutoff — ghost trails should do the same.
+
+**Fix approach:** Before destroying the ghost GameObject, detach active particle systems with `ParticleSystem.Stop(withChildren: true, stopBehavior: ParticleSystemStopBehavior.StopEmitting)` and re-parent them to a temporary holder object. The particles continue rendering with existing lifetime/fade settings. Add a cleanup component that destroys the holder once all particles have expired (`ParticleSystem.particleCount == 0`). Only detach systems that have `isPlaying == true` or `particleCount > 0` at despawn time.
+
+**Priority:** Low — cosmetic polish, no functional impact
 
 **Status:** Open
