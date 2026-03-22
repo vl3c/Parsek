@@ -119,7 +119,7 @@ namespace Parsek
         private GUIStyle phaseStyleSpace;
 
         // Sort state
-        internal enum SortColumn { Index, Phase, Name, LaunchTime, Countdown, Duration, Status }
+        internal enum SortColumn { Index, Phase, Name, LaunchTime, Duration, Status }
         private SortColumn sortColumn = SortColumn.Index;
         private bool sortAscending = true;
         private int[] sortedIndices; // maps display row → CommittedRecordings index
@@ -166,10 +166,17 @@ namespace Parsek
         private const string SpawnControlInputLockId = "Parsek_SpawnControlWindow";
 
         // Spawn Control sort state
-        private enum SpawnSortColumn { Name, Distance, SpawnTime, Countdown }
+        private enum SpawnSortColumn { Name, Distance, SpawnTime }
         private SpawnSortColumn spawnSortColumn = SpawnSortColumn.Distance;
         private bool spawnSortAscending = true;
         private bool isResizingSpawnControlWindow;
+        private Vector2 spawnControlScrollPos;
+
+        // Cached sorted candidate list -- re-sorted only when source data or sort state changes
+        private List<NearbySpawnCandidate> cachedSortedCandidates = new List<NearbySpawnCandidate>();
+        private int cachedCandidateCount = -1;
+        private SpawnSortColumn cachedSortColumn = SpawnSortColumn.Distance;
+        private bool cachedSortAscending = true;
 
         public ParsekUI(ParsekFlight flight)
         {
@@ -985,7 +992,7 @@ namespace Parsek
                 DrawSortableHeader("Name", SortColumn.Name, 0, true);
                 DrawSortableHeader("Phase", SortColumn.Phase, ColW_Phase);
                 DrawSortableHeader("Launch", SortColumn.LaunchTime, ColW_Launch);
-                DrawSortableHeader("Countdown", SortColumn.Countdown, ColW_Countdown);
+                DrawSortableHeader("Countdown", SortColumn.LaunchTime, ColW_Countdown);
                 DrawSortableHeader("Duration", SortColumn.Duration, ColW_Dur);
 
                 if (showExpandedStats)
@@ -2448,11 +2455,6 @@ namespace Parsek
                 case SortColumn.LaunchTime:
                     cmp = ra.StartUT.CompareTo(rb.StartUT);
                     break;
-                case SortColumn.Countdown:
-                    // Sort by time remaining until launch (StartUT - now).
-                    // Past recordings (negative delta) sort after future ones.
-                    cmp = (ra.StartUT - now).CompareTo(rb.StartUT - now);
-                    break;
                 case SortColumn.Duration:
                     cmp = (ra.EndUT - ra.StartUT).CompareTo(rb.EndUT - rb.StartUT);
                     break;
@@ -2968,6 +2970,25 @@ namespace Parsek
             }
         }
 
+        private int CompareSpawnCandidates(NearbySpawnCandidate a, NearbySpawnCandidate b)
+        {
+            int cmp;
+            switch (spawnSortColumn)
+            {
+                case SpawnSortColumn.Name:
+                    cmp = string.Compare(a.vesselName, b.vesselName,
+                        System.StringComparison.OrdinalIgnoreCase);
+                    break;
+                case SpawnSortColumn.SpawnTime:
+                    cmp = a.endUT.CompareTo(b.endUT);
+                    break;
+                default: // Distance
+                    cmp = a.distance.CompareTo(b.distance);
+                    break;
+            }
+            return spawnSortAscending ? cmp : -cmp;
+        }
+
         private void DrawSpawnControlWindow(int windowID)
         {
             var ic = System.Globalization.CultureInfo.InvariantCulture;
@@ -2988,35 +3009,27 @@ namespace Parsek
             DrawSpawnSortableHeader("Craft", SpawnSortColumn.Name, true);
             DrawSpawnSortableHeader("Dist", SpawnSortColumn.Distance, SpawnColW_Dist);
             DrawSpawnSortableHeader("Spawns at", SpawnSortColumn.SpawnTime, SpawnColW_SpawnTime);
-            DrawSpawnSortableHeader("In T-", SpawnSortColumn.Countdown, SpawnColW_Countdown);
+            DrawSpawnSortableHeader("In T-", SpawnSortColumn.SpawnTime, SpawnColW_Countdown);
             GUILayout.Label("", GUILayout.Width(SpawnColW_Warp));
             GUILayout.EndHorizontal();
 
-            // Sort candidates for display
-            var sorted = new List<NearbySpawnCandidate>(candidates);
-            sorted.Sort((a, b) =>
+            // Re-sort only when candidate list or sort state changes
+            if (candidates.Count != cachedCandidateCount
+                || spawnSortColumn != cachedSortColumn
+                || spawnSortAscending != cachedSortAscending)
             {
-                int cmp;
-                switch (spawnSortColumn)
-                {
-                    case SpawnSortColumn.Name:
-                        cmp = string.Compare(a.vesselName, b.vesselName,
-                            System.StringComparison.OrdinalIgnoreCase);
-                        break;
-                    case SpawnSortColumn.SpawnTime:
-                        cmp = a.endUT.CompareTo(b.endUT);
-                        break;
-                    case SpawnSortColumn.Countdown:
-                        cmp = a.endUT.CompareTo(b.endUT);
-                        break;
-                    default: // Distance
-                        cmp = a.distance.CompareTo(b.distance);
-                        break;
-                }
-                return spawnSortAscending ? cmp : -cmp;
-            });
+                cachedSortedCandidates.Clear();
+                for (int ci = 0; ci < candidates.Count; ci++)
+                    cachedSortedCandidates.Add(candidates[ci]);
+                cachedSortedCandidates.Sort(CompareSpawnCandidates);
+                cachedCandidateCount = candidates.Count;
+                cachedSortColumn = spawnSortColumn;
+                cachedSortAscending = spawnSortAscending;
+            }
+            var sorted = cachedSortedCandidates;
 
-            // Per-craft rows
+            // Scrollable per-craft rows
+            spawnControlScrollPos = GUILayout.BeginScrollView(spawnControlScrollPos, GUILayout.ExpandHeight(true));
             for (int i = 0; i < sorted.Count; i++)
             {
                 var cand = sorted[i];
@@ -3047,8 +3060,9 @@ namespace Parsek
                 GUI.enabled = true;
                 GUILayout.EndHorizontal();
             }
+            GUILayout.EndScrollView();
 
-            // Bottom section — pinned to window bottom
+            // Bottom section -- pinned to window bottom
             GUILayout.FlexibleSpace();
 
             GUILayout.BeginHorizontal();

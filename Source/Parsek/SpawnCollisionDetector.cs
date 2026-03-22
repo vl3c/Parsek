@@ -342,10 +342,12 @@ namespace Parsek
             float closestDist = float.MaxValue;
             string closestName = null;
 
+            var activeVessel = FlightGlobals.ActiveVessel;
             for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
             {
                 Vessel other = FlightGlobals.Vessels[i];
                 if (!other.loaded) continue;
+                if (other == activeVessel) continue;
 
                 float dist = (float)Vector3d.Distance(spawnWorldPos, other.GetWorldPos3D());
                 if (dist < closestDist)
