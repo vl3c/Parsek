@@ -1279,6 +1279,22 @@ After rewinding and re-entering flight, the Aeris 4A recording's spawn-at-end tr
 
 **Status:** Open
 
+## 113. Audit ghost FX for KSP-native component usage
+
+Bug #105 revealed that fighting KSP's own FX components (KSPParticleEmitter, ModelMultiParticleFX) produces artifacts. The fix — letting KSP handle particle creation natively and controlling `emit` via reflection — produced much better visuals than any approach that tried to replace KSP's emission with Unity's.
+
+Audit results:
+- **KSPParticleEmitter**: KEPT alive, controlled via `emit` reflection (bug #105 fix, already merged)
+- **SmokeTrailControl**: STRIPPED — tested keeping alive but it sets material alpha to 0 on ghosts, making smoke invisible. Needs vessel context to work correctly
+- **ModelMultiParticlePersistFX / ModelParticleFX**: STRIPPED — EffectBehaviour subclasses that reference Host (Part), NRE without Part context
+- **FXPrefab**: STRIPPED — registers particles with FloatingOrigin, pollutes global state on ghosts
+- **FXModuleAnimateThrottle**: KEEP REIMPLEMENTATION — PartModule requiring Part/Vessel context. Current HeatGhostInfo animation sampling is correct: one-shot cached build cost, near-zero runtime (3-level quantized snaps), correct multi-instance disambiguation
+- **FXModuleAnimateRCS**: KEEP REIMPLEMENTATION — same PartModule constraints, shares HeatGhostInfo infrastructure
+
+**Priority:** Low — improvement opportunity, not a bug
+
+**Status:** Done
+
 # In-Game Tests
 
 - [ ] Vessels propagate naturally along orbits after FF (no position freezing)

@@ -917,14 +917,25 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Strip KSP FX controller components from cloned particle system GameObjects.
+        /// Configure KSP FX controller components on cloned particle system GameObjects.
         /// KSPParticleEmitter is KEPT alive (it handles material setup and particle creation)
         /// but set to emit=false initially. It is collected into kspEmitterSink for later
         /// control via reflection in SetEngineEmission/SetRcsEmission.
         /// Unity's emission module is disabled separately (in ConfigureGhostEngineParticleSystems)
         /// to prevent Unity from creating its own material-less "bubble" particles.
-        /// SmokeTrailControl modifies material color every frame based on atmospheric density.
+        /// SmokeTrailControl is STRIPPED — tested keeping alive (audit #113) but it sets material
+        /// alpha to 0 on ghosts, making smoke invisible. Needs vessel context to work correctly.
+        /// ModelMultiParticlePersistFX/ModelParticleFX are EffectBehaviour subclasses that reference
+        /// Host (the Part) — stripped because they NRE without Part context.
         /// FXPrefab registers particles with FloatingOrigin — pollutes global state on ghosts.
+        ///
+        /// Audit #113: FXModuleAnimateThrottle and FXModuleAnimateRCS are PartModules (not
+        /// MonoBehaviours) requiring Part/Vessel context. They are reimplemented via HeatGhostInfo
+        /// animation sampling, which is architecturally correct: one-shot build cost cached per
+        /// part type, near-zero runtime cost (3-level quantized transform/material snaps on event
+        /// boundaries), correct multi-instance disambiguation. Native modules are infeasible on
+        /// ghosts and the reimplementation is intentionally minimal per the visual efficiency
+        /// design principle.
         /// </summary>
         private static void StripKspFxControllers(GameObject fxClone, List<KspEmitterRef> kspEmitterSink)
         {
@@ -954,6 +965,21 @@ namespace Parsek
                             $"Captured KSPParticleEmitter on '{fxClone.name}' (emit=false)");
                         break;
                     case "SmokeTrailControl":
+                        // Stripped — tested keeping alive (audit #113) but it makes smoke
+                        // invisible on ghosts. SmokeTrailControl sets material alpha to 0
+                        // without valid vessel context.
+                        ParsekLog.Verbose("GhostVisual",
+                            $"Stripped {typeName} from '{fxClone.name}'");
+                        Object.Destroy(behaviours[i]);
+                        break;
+                    case "ModelMultiParticlePersistFX":
+                    case "ModelParticleFX":
+                        // EffectBehaviour subclasses that reference Host (Part).
+                        // NRE without Part context — strip them.
+                        ParsekLog.Verbose("GhostVisual",
+                            $"Stripped {typeName} from '{fxClone.name}'");
+                        Object.Destroy(behaviours[i]);
+                        break;
                     case "FXPrefab":
                         ParsekLog.Verbose("GhostVisual",
                             $"Stripped {typeName} from '{fxClone.name}'");
@@ -6391,6 +6417,9 @@ namespace Parsek
             }
 
             // Detect ModuleAnimateHeat / FXModuleAnimateThrottle visual states (thermal glow / heat-driven animation).
+            // Audit #113: these are PartModules requiring Part/Vessel context that ghosts don't have.
+            // Reimplemented via animation sampling (SampleHeatAnimation3State) + 3-level quantized
+            // HeatGhostInfo playback (ApplyHeatState). Same applies to FXModuleAnimateRCS.
             if (hasAnyHeatAnim)
             {
                 string heatSource = hasAnimateHeat ? "ModuleAnimateHeat"
