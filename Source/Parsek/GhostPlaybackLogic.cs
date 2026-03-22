@@ -1992,6 +1992,10 @@ namespace Parsek
             if (rec.ChildBranchPointId != null)
                 return (false, "non-leaf tree recording");
 
+            // Debris recordings are visual-only (short TTL, no meaningful vessel to persist)
+            if (rec.IsDebris)
+                return (false, "debris recording (visual-only)");
+
             // Terminal states: destroyed/recovered/docked/boarded should not spawn
             if (rec.TerminalStateValue.HasValue)
             {
