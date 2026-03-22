@@ -6254,10 +6254,24 @@ namespace Parsek
                         ? rec.SpawnedVesselPersistentId : rec.VesselPersistentId;
                     if (checkPid != 0 && !GhostPlaybackLogic.RealVesselExists(checkPid))
                     {
-                        rec.VesselSpawned = false;
-                        rec.SpawnedVesselPersistentId = 0;
-                        rec.CollisionBlockCount = 0;
-                        Log($"Spawned vessel gone (pid={checkPid}) — reset spawn state for recording #{i} \"{rec.VesselName}\"");
+                        rec.SpawnDeathCount++;
+                        if (VesselSpawner.ShouldAbandonSpawnDeathLoop(
+                                rec.SpawnDeathCount, VesselSpawner.MaxSpawnDeathCycles))
+                        {
+                            rec.VesselSpawned = true;
+                            rec.SpawnAbandoned = true;
+                            ParsekLog.Warn("Flight",
+                                $"Spawn ABANDONED for #{i} \"{rec.VesselName}\": vessel died immediately " +
+                                $"after spawn {rec.SpawnDeathCount} times (pid={checkPid}) — giving up");
+                        }
+                        else
+                        {
+                            rec.VesselSpawned = false;
+                            rec.SpawnedVesselPersistentId = 0;
+                            rec.CollisionBlockCount = 0;
+                            Log($"Spawned vessel gone (pid={checkPid}) — reset spawn state for recording #{i} " +
+                                $"\"{rec.VesselName}\" (spawnDeathCount={rec.SpawnDeathCount}/{VesselSpawner.MaxSpawnDeathCycles})");
+                        }
                     }
                 }
 

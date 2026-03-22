@@ -1141,6 +1141,7 @@ namespace Parsek
 
             rec.VesselSpawned = false;
             rec.SpawnAttempts = 0;
+            rec.SpawnDeathCount = 0;
             rec.SpawnedVesselPersistentId = 0;
             rec.LastAppliedResourceIndex = -1;
 

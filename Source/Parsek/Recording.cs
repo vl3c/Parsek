@@ -139,7 +139,8 @@ namespace Parsek
         public uint SpawnedVesselPersistentId;  // persistentId of spawned vessel (0 = not yet spawned)
         public int SpawnAttempts;               // Number of failed spawn attempts (give up after 3)
         public int CollisionBlockCount;         // Consecutive collision-blocked frames (give up after MaxCollisionBlocks)
-        public bool SpawnAbandoned;              // True after collision block limit reached — prevents vessel-gone check from resetting (transient)
+        public bool SpawnAbandoned;              // True after collision/death limit reached — prevents vessel-gone check from resetting (transient)
+        public int SpawnDeathCount;              // Spawn-then-die cycles: vessel spawned but immediately destroyed (transient)
         public int SceneExitSituation = -1;     // Vessel.Situations at scene exit (-1 = still in flight/unknown)
 
         public double StartUT => Points.Count > 0 ? Points[0].ut :

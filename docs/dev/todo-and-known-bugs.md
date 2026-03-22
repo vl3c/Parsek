@@ -1261,6 +1261,18 @@ When a spawn is permanently blocked by an immovable vessel (e.g., a landed spawn
 
 **Status:** Fixed (branch `fix/spawn-cleanup`)
 
+## 110b. Spawn-die-respawn infinite loop for FLYING vessels
+
+When a recording's end-of-timeline spawn creates a vessel with `sit=FLYING` at sea level, KSP's on-rails aero check immediately destroys it (101.3 kPa pressure). The "spawned vessel gone" check resets spawn state and the next frame spawns again. This produced 24,000+ spawn-die cycles in one 18-minute session (~960K of 1M log lines). Side effects include unbounded `CrewStatusChanged` event accumulation (3,900+ events) and crew status corruption.
+
+**Root cause:** The vessel-gone check unconditionally resets `VesselSpawned=false` when the spawned vessel disappears, with no counter for how many times this has happened. Unlike the collision-block loop (#110), the spawn SUCCEEDS but the vessel immediately dies.
+
+**Fix:** Added `SpawnDeathCount` field to Recording. The vessel-gone check increments it each time a spawned vessel disappears. After `MaxSpawnDeathCycles` (3) cycles, sets `SpawnAbandoned=true` to permanently stop retries. Resets on revert/load (transient field).
+
+**Priority:** Critical
+
+**Status:** Fixed (branch `fix/spawn-cleanup`)
+
 ## 111. Auto-record fails for spawned vessels (settle timer not seeded on vessel switch)
 
 When Parsek spawns a vessel from a recording and switches the active vessel to it, `lastLandedUT` is never initialized. Spawned vessels are created directly in LANDED state — there is no situation *transition*, so `OnVesselSituationChange` never fires. `OnVesselSwitchComplete` also did not seed the timer. When the user takes off (LANDED → FLYING), `settledTime` computes as 0 (fallback from `lastLandedUT = -1`), which is less than the 5-second settle threshold, and auto-recording is silently suppressed.

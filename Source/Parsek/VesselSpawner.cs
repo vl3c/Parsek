@@ -304,6 +304,22 @@ namespace Parsek
             return collisionBlockCount >= maxBlocks;
         }
 
+        /// <summary>
+        /// Maximum spawn-then-die cycles before abandoning spawn.
+        /// A vessel that spawns and immediately dies (e.g., FLYING at sea level,
+        /// destroyed by KSP on-rails aero check) should not retry forever.
+        /// </summary>
+        internal const int MaxSpawnDeathCycles = 3;
+
+        /// <summary>
+        /// Pure decision: should we abandon a spawn that keeps dying immediately?
+        /// Returns true when the spawn-death count has reached or exceeded the maximum.
+        /// </summary>
+        internal static bool ShouldAbandonSpawnDeathLoop(int spawnDeathCount, int maxCycles)
+        {
+            return spawnDeathCount >= maxCycles;
+        }
+
         internal static HashSet<string> BuildExcludeCrewSet(Recording rec)
         {
             if (string.IsNullOrEmpty(rec.RecordingId)) return null;

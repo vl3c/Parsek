@@ -247,5 +247,99 @@ namespace Parsek.Tests
             Assert.True(wouldEnterVesselGoneCheck,
                 "Normal spawns should still allow the vessel-gone reset check");
         }
+
+        // ────────────────────────────────────────────────────────────
+        //  ShouldAbandonSpawnDeathLoop
+        // ────────────────────────────────────────────────────────────
+
+        [Fact]
+        public void ShouldAbandonSpawnDeathLoop_AtMax_ReturnsTrue()
+        {
+            Assert.True(VesselSpawner.ShouldAbandonSpawnDeathLoop(3, 3));
+        }
+
+        [Fact]
+        public void ShouldAbandonSpawnDeathLoop_AboveMax_ReturnsTrue()
+        {
+            Assert.True(VesselSpawner.ShouldAbandonSpawnDeathLoop(5, 3));
+        }
+
+        [Fact]
+        public void ShouldAbandonSpawnDeathLoop_BelowMax_ReturnsFalse()
+        {
+            Assert.False(VesselSpawner.ShouldAbandonSpawnDeathLoop(2, 3));
+        }
+
+        [Fact]
+        public void ShouldAbandonSpawnDeathLoop_Zero_ReturnsFalse()
+        {
+            Assert.False(VesselSpawner.ShouldAbandonSpawnDeathLoop(0, 3));
+        }
+
+        [Fact]
+        public void MaxSpawnDeathCycles_ConstantValue()
+        {
+            Assert.Equal(3, VesselSpawner.MaxSpawnDeathCycles);
+        }
+
+        [Fact]
+        public void Recording_SpawnDeathCount_DefaultsZero()
+        {
+            var rec = new Recording();
+            Assert.Equal(0, rec.SpawnDeathCount);
+        }
+
+        [Fact]
+        public void SpawnDeathLoop_AtMax_AbandonsSpawn()
+        {
+            var rec = new Recording
+            {
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = 42,
+                SpawnDeathCount = 2 // will become 3 after increment
+            };
+
+            // Simulate the vessel-gone check incrementing and hitting the cap
+            rec.SpawnDeathCount++;
+            bool shouldAbandon = VesselSpawner.ShouldAbandonSpawnDeathLoop(
+                rec.SpawnDeathCount, VesselSpawner.MaxSpawnDeathCycles);
+
+            Assert.True(shouldAbandon);
+
+            // Apply abandon state
+            rec.VesselSpawned = true;
+            rec.SpawnAbandoned = true;
+
+            Assert.True(rec.VesselSpawned);
+            Assert.True(rec.SpawnAbandoned);
+            Assert.Equal(3, rec.SpawnDeathCount);
+        }
+
+        [Fact]
+        public void SpawnDeathLoop_BelowMax_ResetsSpawnState()
+        {
+            var rec = new Recording
+            {
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = 42,
+                SpawnDeathCount = 0
+            };
+
+            // Simulate first death
+            rec.SpawnDeathCount++;
+            bool shouldAbandon = VesselSpawner.ShouldAbandonSpawnDeathLoop(
+                rec.SpawnDeathCount, VesselSpawner.MaxSpawnDeathCycles);
+
+            Assert.False(shouldAbandon);
+
+            // Apply reset state (what the vessel-gone check does)
+            rec.VesselSpawned = false;
+            rec.SpawnedVesselPersistentId = 0;
+            rec.CollisionBlockCount = 0;
+
+            Assert.False(rec.VesselSpawned);
+            Assert.Equal(0u, rec.SpawnedVesselPersistentId);
+            Assert.Equal(1, rec.SpawnDeathCount); // count preserved across reset
+        }
     }
 }

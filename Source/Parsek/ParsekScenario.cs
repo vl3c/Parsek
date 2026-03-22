@@ -529,6 +529,7 @@ namespace Parsek
 
                     recordings[i].VesselSpawned = false;
                     recordings[i].SpawnAttempts = 0;
+                    recordings[i].SpawnDeathCount = 0;
                     recordings[i].SpawnedVesselPersistentId = 0;
 
                     recordings[i].LastAppliedResourceIndex = -1;
@@ -1475,6 +1476,7 @@ namespace Parsek
 
                 recordings[i].VesselSpawned = false;
                 recordings[i].SpawnAttempts = 0;
+                recordings[i].SpawnDeathCount = 0;
 
                 uint savedPid = 0;
                 int resIdx = -1;
