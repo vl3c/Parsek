@@ -3667,6 +3667,19 @@ namespace Parsek
 
             ResetFlightReadyState();
 
+            // Belt-and-suspenders: recover orphaned spawned vessels that survived
+            // the protoVessel stripping in OnLoad (e.g., FLIGHT→FLIGHT revert where
+            // SpaceCenter was never visited, or name change edge cases).
+            // Here FlightGlobals.Vessels is populated and vessel.persistentId is reliable.
+            if (RecordingStore.PendingCleanupPids != null || RecordingStore.PendingCleanupNames != null)
+            {
+                CleanupOrphanedSpawnedVessels(
+                    RecordingStore.PendingCleanupPids,
+                    RecordingStore.PendingCleanupNames);
+                RecordingStore.PendingCleanupPids = null;
+                RecordingStore.PendingCleanupNames = null;
+            }
+
             // Apply ghost soft cap settings from persisted game parameters
             var capSettings = ParsekSettings.Current;
             if (capSettings != null)
@@ -5106,6 +5119,44 @@ namespace Parsek
                     ParsekLog.Warn("Flight", $"SpawnTreeLeaves: exception spawning '{leaf.VesselName}': {ex.Message}");
                 }
             }
+        }
+
+        /// <summary>
+        /// Recovers orphaned spawned vessels after a revert/rewind. Matches by
+        /// persistentId (reliable in Flight) and vessel name (fallback).
+        /// Skips the active vessel.
+        /// </summary>
+        void CleanupOrphanedSpawnedVessels(HashSet<uint> pids, HashSet<string> names)
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            uint activePid = activeVessel != null ? activeVessel.persistentId : 0;
+            bool hasPids = pids != null && pids.Count > 0;
+            bool hasNames = names != null && names.Count > 0;
+            int recovered = 0;
+
+            for (int i = FlightGlobals.Vessels.Count - 1; i >= 0; i--)
+            {
+                var vessel = FlightGlobals.Vessels[i];
+                if (vessel.persistentId == activePid) continue;
+
+                bool matchByPid = hasPids && pids.Contains(vessel.persistentId);
+                bool matchByName = hasNames && names.Contains(vessel.vesselName);
+
+                if (matchByPid || matchByName)
+                {
+                    string matchMethod = matchByPid ? "PID" : "name";
+                    ParsekLog.Info("Flight",
+                        $"CleanupOrphanedSpawnedVessels: recovering '{vessel.vesselName}' " +
+                        $"pid={vessel.persistentId} (matched by {matchMethod})");
+                    ShipConstruction.RecoverVesselFromFlight(
+                        vessel.protoVessel, HighLogic.CurrentGame.flightState, true);
+                    recovered++;
+                }
+            }
+
+            if (recovered > 0)
+                ParsekLog.Info("Flight",
+                    $"CleanupOrphanedSpawnedVessels: recovered {recovered} orphaned vessel(s)");
         }
 
         /// <summary>

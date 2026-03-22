@@ -166,6 +166,8 @@ namespace Parsek
                 budgetDeductionEpoch.ToString(CultureInfo.InvariantCulture));
             ParsekLog.Verbose("Scenario",
                 $"OnSave: wrote milestoneEpoch={MilestoneStore.CurrentEpoch}, budgetDeductionEpoch={budgetDeductionEpoch}");
+
+            lastOnSaveScene = HighLogic.LoadedScene;
         }
 
         // Static flag: only load from save once per KSP session.
@@ -176,6 +178,11 @@ namespace Parsek
         private static string lastSaveFolder = null;
         private static uint budgetDeductionEpoch = 0;
         private static bool mainMenuHookRegistered = false;
+
+        // Tracks the scene from which the last OnSave fired.
+        // Used to detect FLIGHT→FLIGHT transitions (Revert to Launch / quickload)
+        // that aren't caught by epoch/recording-count comparison.
+        private static GameScenes lastOnSaveScene = GameScenes.MAINMENU;
 
         // Cached autoMerge setting — ParsekSettings.Current can be null during early
         // scene loads (OnLoad fires before GameParameters are available). This is set
@@ -351,10 +358,23 @@ namespace Parsek
                     // (milestones created after rewind point get reset to unreplayed)
                     MilestoneStore.RestoreMutableState(node, resetUnmatched: true);
 
+                    // Collect spawned vessel info BEFORE reset zeroes the PIDs
+                    var (rewindSpawnedPids, rewindSpawnedNames) = RecordingStore.CollectSpawnedVesselInfo();
+                    RecordingStore.PendingCleanupPids = rewindSpawnedPids.Count > 0 ? rewindSpawnedPids : null;
+                    RecordingStore.PendingCleanupNames = rewindSpawnedNames.Count > 0 ? rewindSpawnedNames : null;
+
                     // Reset ALL playback state (recordings + trees)
                     var (standaloneCount, treeCount) = RecordingStore.ResetAllPlaybackState();
                     ParsekLog.Info("Rewind",
                         $"OnLoad: resetting playback state for {standaloneCount} recordings + {treeCount} trees");
+
+                    // Strip orphaned spawned vessels from the loaded rewind save's flightState
+                    if (rewindSpawnedNames.Count > 0)
+                    {
+                        var flightState = HighLogic.CurrentGame?.flightState;
+                        if (flightState != null)
+                            StripOrphanedSpawnedVessels(flightState.protoVessels, rewindSpawnedNames);
+                    }
 
                     // Set budgetDeductionEpoch BEFORE scheduling coroutine
                     // (prevents ApplyBudgetDeductionWhenReady from double-deducting)
@@ -404,12 +424,32 @@ namespace Parsek
                     savedTreeRecCount += savedTreeNodesForRevert[t].GetNodes("RECORDING").Length;
                 int totalSavedRecCount = savedRecNodes.Length + savedTreeRecCount;
 
+                // FLIGHT→FLIGHT is always a revert (Revert to Launch or quickload).
+                // KSP has no FLIGHT→FLIGHT path that isn't a revert.
+                bool isFlightToFlight = lastOnSaveScene == GameScenes.FLIGHT
+                                        && HighLogic.LoadedScene == GameScenes.FLIGHT;
                 bool isRevert = savedEpoch < MilestoneStore.CurrentEpoch
-                                || totalSavedRecCount < recordings.Count;
+                                || totalSavedRecCount < recordings.Count
+                                || isFlightToFlight;
                 ParsekLog.Verbose("Scenario",
                     $"OnLoad: revert detection — savedEpoch={savedEpoch}, currentEpoch={MilestoneStore.CurrentEpoch}, " +
                     $"savedRecNodes={savedRecNodes.Length}, savedTreeRecs={savedTreeRecCount}, " +
-                    $"memoryRecordings={recordings.Count}, isRevert={isRevert}");
+                    $"memoryRecordings={recordings.Count}, lastOnSaveScene={lastOnSaveScene}, " +
+                    $"isFlightToFlight={isFlightToFlight}, isRevert={isRevert}");
+
+                // Collect spawned vessel PIDs + names BEFORE restore resets them.
+                // Only on revert — on normal scene changes the spawned vessels are
+                // legitimate and must not be cleaned up.
+                HashSet<uint> spawnedPids = null;
+                HashSet<string> spawnedNames = null;
+                if (isRevert)
+                {
+                    var info = RecordingStore.CollectSpawnedVesselInfo();
+                    spawnedPids = info.pids.Count > 0 ? info.pids : null;
+                    spawnedNames = info.names.Count > 0 ? info.names : null;
+                    RecordingStore.PendingCleanupPids = spawnedPids;
+                    RecordingStore.PendingCleanupNames = spawnedNames;
+                }
 
                 // Restore mutable state from save. On revert the launch quicksave has
                 // no spawnedPid / lastResIdx, so they naturally reset.
@@ -449,6 +489,17 @@ namespace Parsek
                     recordings[i].SpawnedVesselPersistentId = 0;
 
                     recordings[i].LastAppliedResourceIndex = -1;
+                }
+
+                // Strip orphaned spawned vessels from flightState on revert.
+                // These vessels were spawned by Parsek in a previous flight but their
+                // tracking was lost when spawn flags were reset. Without stripping,
+                // they contaminate the next launch quicksave and persist across reverts.
+                if (isRevert && spawnedNames != null && spawnedNames.Count > 0)
+                {
+                    var flightState = HighLogic.CurrentGame?.flightState;
+                    if (flightState != null)
+                        StripOrphanedSpawnedVessels(flightState.protoVessels, spawnedNames);
                 }
 
                 // Then restore from saved tree nodes (present on scene change, absent on revert)
@@ -1410,6 +1461,49 @@ namespace Parsek
                 recordings[i].SpawnedVesselPersistentId = savedPid;
                 recordings[i].LastAppliedResourceIndex = resIdx;
             }
+        }
+
+        /// <summary>
+        /// Strips protoVessels from flightState whose vesselName matches a spawned recording name.
+        /// Called during revert/rewind to remove orphaned spawned vessels before they contaminate
+        /// the next launch quicksave. Uses name-based matching because ProtoVessel doesn't expose
+        /// vessel persistentId directly.
+        /// </summary>
+        internal static int StripOrphanedSpawnedVessels(
+            List<ProtoVessel> protoVessels, HashSet<string> spawnedNames)
+        {
+            if (protoVessels == null || spawnedNames == null || spawnedNames.Count == 0)
+                return 0;
+
+            int stripped = 0;
+            for (int i = protoVessels.Count - 1; i >= 0; i--)
+            {
+                var pv = protoVessels[i];
+                if (!spawnedNames.Contains(pv.vesselName))
+                    continue;
+
+                // Skip PRELAUNCH vessels — these are the user's launch vessel on the pad,
+                // not Parsek-spawned vessels. Spawned vessels have the situation from the
+                // recording's end-state (LANDED, ORBITING, etc.), never PRELAUNCH.
+                if (pv.situation == Vessel.Situations.PRELAUNCH)
+                {
+                    ParsekLog.Verbose("Scenario",
+                        $"Skipping PRELAUNCH vessel '{pv.vesselName}' (not a spawned vessel)");
+                    continue;
+                }
+
+                ParsekLog.Info("Scenario",
+                    $"Stripping orphaned spawned vessel '{pv.vesselName}' " +
+                    $"(situation={pv.situation}) from flightState");
+                protoVessels.RemoveAt(i);
+                stripped++;
+            }
+
+            if (stripped > 0)
+                ParsekLog.Info("Scenario",
+                    $"StripOrphanedSpawnedVessels: removed {stripped} vessel(s) from flightState");
+
+            return stripped;
         }
 
         private static void SaveStandaloneRecordings(ConfigNode node, List<Recording> recordings)
@@ -2524,6 +2618,9 @@ namespace Parsek
             {
                 initialLoadDone = false;
                 lastSaveFolder = null;
+                lastOnSaveScene = GameScenes.MAINMENU;
+                RecordingStore.PendingCleanupPids = null;
+                RecordingStore.PendingCleanupNames = null;
                 ParsekLog.Info("Scenario",
                     "Main menu transition — reset initialLoadDone to prevent stale data leak");
             }
