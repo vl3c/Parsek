@@ -1231,7 +1231,7 @@ When a ghost vessel is destroyed (recording ends, zone exit, loop cycle boundary
 
 ## 108. EngineShutdown event not recorded when engine cuts off
 
-Engine shutdown not recorded. Ghost engine plumes continue firing past cutoff. Verified in recording `b656f9d4` (save `s10`, Aeris-4A with 2x `turboFanEngine` J-X4 "Whiplash" Turbo Ramjet side by side + `toroidalAerospike`): `turboFanEngine` had 2 `EngineIgnited` + 238 `EngineThrottle` but 0 `EngineShutdown`. `toroidalAerospike` had zero engine events entirely.
+Engine throttle/shutdown events not recorded for some engine types. Ghost engine plumes stay at full intensity from ignition until shutdown (no throttle response), or never stop if shutdown is also missing. Observed on Aeris-4A (save `s10`) with `turboFanEngine` (J-X4 "Whiplash" Turbo Ramjet, `ModuleEnginesFX`): playback log shows `EngineIgnited` and `EngineShutdown` but zero `EngineThrottle` events between them. An earlier recording of the same craft had 238 throttle events but no shutdown — inconsistent behavior suggests a timing or caching issue in `CheckEngineTransition` / `CacheEngineModules`.
 
 Likely cause: `CheckEngineTransition` may not detect the `EngineIgnited → false` transition correctly, or the transition check polls `engine.EngineIgnited && engine.isOperational` which may remain true in certain states (e.g., fuel depletion vs. manual shutdown).
 
