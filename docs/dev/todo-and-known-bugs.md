@@ -1257,6 +1257,28 @@ When a spawn is permanently blocked by an immovable vessel (e.g., a landed spawn
 
 **Status:** Open
 
+## 111. Auto-record fails for spawned vessels (settle timer not seeded on vessel switch)
+
+When Parsek spawns a vessel from a recording and switches the active vessel to it, `lastLandedUT` is never initialized. Spawned vessels are created directly in LANDED state — there is no situation *transition*, so `OnVesselSituationChange` never fires. `OnVesselSwitchComplete` also did not seed the timer. When the user takes off (LANDED → FLYING), `settledTime` computes as 0 (fallback from `lastLandedUT = -1`), which is less than the 5-second settle threshold, and auto-recording is silently suppressed.
+
+**Repro:** Rewind to a recording → let the timeline ghost play and spawn a real vessel → camera switches to it → user throttles up and takes off → no recording starts. Log shows: `OnVesselSituationChange: LANDED → FLYING after 0.0s (< 5s settle threshold)`.
+
+**Fix approach:** Seed `lastLandedUT` in `OnVesselSwitchComplete` when the new active vessel is already in LANDED or SPLASHED, mirroring the existing init-time seed at `OnFlightReady`.
+
+**Priority:** High
+
+**Status:** Fixed (branch `fix/settle-seed-on-vessel-switch`)
+
+## 112. Aeris 4A spawn blocked by own spawned copy — permanent overlap
+
+After rewinding and re-entering flight, the Aeris 4A recording's spawn-at-end tried to place a new vessel at the same position where a previously-spawned (but not cleaned up) Aeris 4A already sat. The spawn collision detector correctly blocked it, but because the overlap is permanent (both vessels at the same runway position), this triggered bug #110's infinite retry loop. The log showed `Spawn blocked: overlaps with #autoLOC_501176 at 5m — will retry next frame` repeating every frame for the remainder of the session.
+
+**Root cause:** `CleanupOrphanedSpawnedVessels` recovered one copy, but a second Aeris 4A was loaded from the save and occupied the spawn slot. The spawn system has no dedup against already-present matching vessels.
+
+**Priority:** Medium (consequence of #110 infinite retry)
+
+**Status:** Open
+
 # In-Game Tests
 
 - [ ] Vessels propagate naturally along orbits after FF (no position freezing)
