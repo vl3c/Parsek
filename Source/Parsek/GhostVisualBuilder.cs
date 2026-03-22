@@ -926,7 +926,7 @@ namespace Parsek
         /// SmokeTrailControl is STRIPPED — tested keeping alive (audit #113) but it sets material
         /// alpha to 0 on ghosts, making smoke invisible. Needs vessel context to work correctly.
         /// ModelMultiParticlePersistFX/ModelParticleFX are EffectBehaviour subclasses that reference
-        /// Host (the Part) — stripped because they NRE without Part context.
+        /// Host (the Part). KEPT ALIVE — stripping kills smoke trails. Any NREs are non-fatal.
         /// FXPrefab registers particles with FloatingOrigin — pollutes global state on ghosts.
         ///
         /// Audit #113: FXModuleAnimateThrottle and FXModuleAnimateRCS are PartModules (not
@@ -975,10 +975,11 @@ namespace Parsek
                     case "ModelMultiParticlePersistFX":
                     case "ModelParticleFX":
                         // EffectBehaviour subclasses that reference Host (Part).
-                        // NRE without Part context — strip them.
+                        // Audit #113 stripped these assuming NRE, but they were alive
+                        // pre-audit and smoke trails worked. Stripping kills smoke.
+                        // Keep alive — any NREs are caught by Unity and don't crash.
                         ParsekLog.Verbose("GhostVisual",
-                            $"Stripped {typeName} from '{fxClone.name}'");
-                        Object.Destroy(behaviours[i]);
+                            $"Kept {typeName} alive on '{fxClone.name}' (smoke trail driver)");
                         break;
                     case "FXPrefab":
                         ParsekLog.Verbose("GhostVisual",
