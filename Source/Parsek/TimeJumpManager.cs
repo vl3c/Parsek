@@ -512,7 +512,8 @@ namespace Parsek
             }
 
             int fixedCount = 0;
-            foreach (Vessel v in FlightGlobals.VesselsLoaded)
+            var vessels = new List<Vessel>(FlightGlobals.VesselsLoaded);
+            foreach (Vessel v in vessels)
             {
                 if (v == null || v.parts == null) continue;
 

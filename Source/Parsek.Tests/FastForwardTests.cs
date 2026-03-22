@@ -104,6 +104,18 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CanFastForward_HasPendingTree_ReturnsFalse()
+        {
+            var rec = MakeFutureRecording();
+            RecordingStore.StashPendingTree(new RecordingTree());
+            Assert.True(RecordingStore.HasPendingTree);
+
+            string reason;
+            Assert.False(RecordingStore.CanFastForward(rec, out reason, isRecording: false));
+            Assert.Equal("Merge or discard pending tree first", reason);
+        }
+
+        [Fact]
         public void CanFastForward_NoSaveFile_PassesPreRuntimeGuards()
         {
             // Key difference from CanRewind: FF does NOT require a save file.
