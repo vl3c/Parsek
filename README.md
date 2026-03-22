@@ -17,6 +17,8 @@
 
 Recorded vessels are full visual replicas - original part meshes, textures, engine flames, staging, and parachutes all play back at the correct times.
 
+Time travel paradoxes are avoided by enforcing causality: events are always processed in time-axis order, and the timeline is strictly additive - recordings and game state changes can only be appended, never deleted or retroactively modified. This means the world state at any point in time is fully determined by the ordered sequence of committed events before it.
+
 ## Features
 
 - **Automatic recording** on launch and EVA from pad
