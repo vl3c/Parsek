@@ -1329,6 +1329,56 @@ Audit results:
 
 **Status:** Done
 
+## 114. Non-leaf tree recording spawns vessel at crash endpoint — immediate destruction
+
+When a recording tree ends because the vessel crashed, recording #0 (the root, pre-crash flight) reaches its endpoint and Parsek spawns a real vessel there. But the endpoint was where the vessel was still FLYING at high speed. Spawned as LANDED, the gear snaps and the entire vessel cascade-explodes. The tree's children (crash debris) represent the final state — the root recording should NOT spawn.
+
+**Observed in:** Session 3 (2026-03-22). Aeris 4A crash tree: root recording UT 53-78, crash at UT 100-102. Ghost exits range at UT 78 → spawns vessel → immediate explosion. Happened twice (once after revert, with crew dedup removing Jeb too).
+
+**Root cause:** `ShouldSpawnAtRecordingEnd` does not check whether the recording is a non-leaf node in a committed tree. Non-leaf recordings are superseded by their children and should never spawn.
+
+**Priority:** Critical — causes cascading destruction, crew death, and confusing UX
+
+**Status:** Open
+
+## 115. Crew dedup removes pilot from spawned vessel after revert
+
+After revert, the pilot (Jebediah) is already on the pad vessel from the quicksave. When Parsek spawns the Aeris 4A at recording endpoint, crew dedup finds Jeb "already on a vessel in the scene" and removes him from the spawn snapshot. The vessel spawns crewless.
+
+**Root cause:** The crew reservation system should have replaced Jeb with a temporary kerbal on the pad vessel, but after revert + tree commit, the reservation may have been cleared.
+
+**Priority:** Medium
+
+**Status:** Open
+
+## 116. Valentina Kerman lost to Missing status after rewind vessel strip
+
+Rewind stripped 8 orphaned spawned vessels from the save. Valentina was assigned to one of them but wasn't in Parsek's crew reservation system. KSP set her to Missing. Parsek's crew rescue only handles reserved crew (Bill, Dudfrid were rescued), not all crew affected by the strip.
+
+**Priority:** Medium
+
+**Status:** Open
+
+## 117. CanRewind/CanFastForward VERBOSE log spam — 578K lines/session
+
+`RecordingStore.CanRewind` and `RecordingStore.CanFastForward` log at VERBOSE on every blocked call. Called per-recording per-frame from UI. With active recording + multiple recordings, produces 374K+ CanRewind and 184K+ CanFastForward lines in a single session (94% of all log output). Makes log analysis extremely difficult.
+
+**Fix:** Remove or heavily rate-limit the blocked-path VERBOSE logs. These are read-only UI state checks that should not produce per-frame output.
+
+**Priority:** High — blocks effective log analysis
+
+**Status:** Open
+
+## 118. "Failed to register main menu hook" WARN on every non-MAINMENU OnLoad
+
+`ParsekScenario.OnLoad` logs WARN when main menu hook registration fails outside MAINMENU scene. Expected behavior (retries on next OnLoad), but WARN level is too high for a benign retry.
+
+**Fix:** Downgrade from WARN to VERBOSE.
+
+**Priority:** Low
+
+**Status:** Open
+
 # In-Game Tests
 
 - [ ] Vessels propagate naturally along orbits after FF (no position freezing)
