@@ -5533,6 +5533,18 @@ namespace Parsek
 
         #endregion
 
+        private static bool HasCModuleLinkedMesh(ConfigNode partConfig)
+        {
+            if (partConfig == null) return false;
+            ConfigNode[] modules = partConfig.GetNodes("MODULE");
+            for (int m = 0; m < modules.Length; m++)
+            {
+                if (modules[m].GetValue("name") == "CModuleLinkedMesh")
+                    return true;
+            }
+            return false;
+        }
+
         /// <summary>
         /// Parses compound part target data from a snapshot PART node.
         /// Returns false (no-op) for non-compound parts or corrupt data.
@@ -5549,6 +5561,11 @@ namespace Parsek
                 targetAnchorName = "obj_targetAnchor",
                 targetCapName = "obj_targetCap"
             };
+
+            // Only process parts that have CModuleLinkedMesh — avoids false positives
+            // from non-compound parts that happen to have a PARTDATA node.
+            if (!HasCModuleLinkedMesh(partConfig))
+                return false;
 
             ConfigNode partData = partNode.GetNode("PARTDATA");
             if (partData == null)

@@ -23,10 +23,25 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = true;
         }
 
+        private static ConfigNode MakeLinkedMeshConfig(string lineObjName = "obj_line",
+            string targetAnchorName = null, string targetCapName = null)
+        {
+            var partConfig = new ConfigNode("PART");
+            var module = partConfig.AddNode("MODULE");
+            module.AddValue("name", "CModuleLinkedMesh");
+            module.AddValue("lineObjName", lineObjName);
+            if (targetAnchorName != null)
+                module.AddValue("targetAnchorName", targetAnchorName);
+            if (targetCapName != null)
+                module.AddValue("targetCapName", targetCapName);
+            return partConfig;
+        }
+
         [Fact]
-        public void NoPARTDATA_NonCompoundPart_ReturnsFalse_NoLog()
+        public void NoCModuleLinkedMesh_ReturnsFalse_NoLog()
         {
             var partNode = new ConfigNode("PART");
+            partNode.AddNode("PARTDATA").AddValue("pos", "1,2,3");
 
             bool result = GhostVisualBuilder.TryParseCompoundPartData(
                 partNode, null, isCompoundPart: false, 12345, "fuelTank", out _);
@@ -41,7 +56,7 @@ namespace Parsek.Tests
             var partNode = new ConfigNode("PART");
 
             bool result = GhostVisualBuilder.TryParseCompoundPartData(
-                partNode, null, isCompoundPart: true, 12345, "fuelLine", out _);
+                partNode, MakeLinkedMeshConfig(), isCompoundPart: true, 12345, "fuelLine", out _);
 
             Assert.False(result);
             Assert.Contains(logLines, l =>
@@ -59,7 +74,7 @@ namespace Parsek.Tests
             partNode.AddNode("PARTDATA");
 
             bool result = GhostVisualBuilder.TryParseCompoundPartData(
-                partNode, null, isCompoundPart: true, 99999, "strutConnector", out _);
+                partNode, MakeLinkedMeshConfig(), isCompoundPart: true, 99999, "strutConnector", out _);
 
             Assert.False(result);
             Assert.Contains(logLines, l =>
@@ -77,7 +92,7 @@ namespace Parsek.Tests
             partData.AddValue("pos", "not,a,vector,really");
 
             bool result = GhostVisualBuilder.TryParseCompoundPartData(
-                partNode, null, isCompoundPart: true, 55555, "fuelLine", out _);
+                partNode, MakeLinkedMeshConfig(), isCompoundPart: true, 55555, "fuelLine", out _);
 
             Assert.False(result);
             Assert.Contains(logLines, l =>
@@ -94,7 +109,7 @@ namespace Parsek.Tests
 
             CompoundPartData data;
             bool result = GhostVisualBuilder.TryParseCompoundPartData(
-                partNode, null, isCompoundPart: true, 12345, "fuelLine", out data);
+                partNode, MakeLinkedMeshConfig(), isCompoundPart: true, 12345, "fuelLine", out data);
 
             Assert.True(result);
             Assert.Equal(Quaternion.identity, data.targetRot);
@@ -114,7 +129,7 @@ namespace Parsek.Tests
 
             CompoundPartData data;
             bool result = GhostVisualBuilder.TryParseCompoundPartData(
-                partNode, null, isCompoundPart: true, 1306106500, "fuelLine", out data);
+                partNode, MakeLinkedMeshConfig(), isCompoundPart: true, 1306106500, "fuelLine", out data);
 
             Assert.True(result);
             Assert.InRange(data.targetPos.x, -0.224f, -0.223f);
@@ -122,12 +137,11 @@ namespace Parsek.Tests
             Assert.InRange(data.targetPos.z, 0.080f, 0.082f);
             Assert.InRange(data.targetRot.y, 0.499f, 0.501f);
             Assert.InRange(data.targetRot.w, 0.865f, 0.867f);
-            // No warning/skip logs — only a rot-missing log would appear, and rot is present
             Assert.DoesNotContain(logLines, l => l.Contains("skipped") || l.Contains("WARNING"));
         }
 
         [Fact]
-        public void PARTDATA_DefaultTransformNames_WhenNoPartConfig()
+        public void PARTDATA_DefaultTransformNames_WhenNoOverrides()
         {
             var partNode = new ConfigNode("PART");
             var partData = partNode.AddNode("PARTDATA");
@@ -136,7 +150,7 @@ namespace Parsek.Tests
 
             CompoundPartData data;
             GhostVisualBuilder.TryParseCompoundPartData(
-                partNode, null, isCompoundPart: false, 100, "fuelLine", out data);
+                partNode, MakeLinkedMeshConfig(), isCompoundPart: false, 100, "fuelLine", out data);
 
             Assert.Equal("obj_line", data.lineObjName);
             Assert.Equal("obj_targetAnchor", data.targetAnchorName);
@@ -151,12 +165,7 @@ namespace Parsek.Tests
             partData.AddValue("pos", "1,2,3");
             partData.AddValue("rot", "0,0,0,1");
 
-            var partConfig = new ConfigNode("PART");
-            var module = partConfig.AddNode("MODULE");
-            module.AddValue("name", "CModuleLinkedMesh");
-            module.AddValue("lineObjName", "obj_strut");
-            module.AddValue("targetAnchorName", "obj_custom_anchor");
-            module.AddValue("targetCapName", "obj_custom_cap");
+            var partConfig = MakeLinkedMeshConfig("obj_strut", "obj_custom_anchor", "obj_custom_cap");
 
             CompoundPartData data;
             bool result = GhostVisualBuilder.TryParseCompoundPartData(
@@ -176,11 +185,7 @@ namespace Parsek.Tests
             partData.AddValue("pos", "1,2,3");
             partData.AddValue("rot", "0,0,0,1");
 
-            // Config with CModuleLinkedMesh that only specifies lineObjName
-            var partConfig = new ConfigNode("PART");
-            var module = partConfig.AddNode("MODULE");
-            module.AddValue("name", "CModuleLinkedMesh");
-            module.AddValue("lineObjName", "obj_strut");
+            var partConfig = MakeLinkedMeshConfig("obj_strut");
 
             CompoundPartData data;
             GhostVisualBuilder.TryParseCompoundPartData(
