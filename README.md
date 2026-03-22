@@ -17,6 +17,8 @@
 
 Recorded vessels are full visual replicas - original part meshes, textures, engine flames, staging, and parachutes all play back at the correct times.
 
+Time travel paradoxes are avoided by enforcing causality: events are always processed in time-axis order, and the timeline is strictly additive - recordings and game state changes can only be appended, never deleted or retroactively modified. This means the world state at any point in time is fully determined by the ordered sequence of committed events before it.
+
 ## Features
 
 - **Automatic recording** on launch and EVA from pad
@@ -101,6 +103,7 @@ Parsek was inspired by and learned from the KSP modding community. The following
 - **[ClickThroughBlocker](https://github.com/linuxgurugamer/ClickThroughBlocker)** (linuxgurugamer) - UI click-through prevention
 - **[ToolbarControl](https://github.com/linuxgurugamer/ToolbarControl)** (linuxgurugamer) - toolbar integration
 - **[Camera Focus Changer](https://github.com/linuxgurugamer/camerafocuschanger)** (linuxgurugamer) - camera pivot techniques for ghost vessel tracking
+- **[Dark Multiplayer](https://github.com/godarklight/DarkMultiPlayer)** (godarklight) - subspace selection patterns for selective vessel spawn UI
 - **[CommNetManager](https://github.com/DBooots/CommNetManager)** (DBooots / KSP-TaxiService) - understanding CommNet internals for ghost relay node registration
 - **[RemoteTech](https://github.com/RemoteTechnologiesGroup/RemoteTech)** (RemoteTechnologiesGroup) - CommNet replacement detection, graceful degradation patterns
 - **[Module Manager](https://github.com/sarbian/ModuleManager)** (sarbian) - essential config patching

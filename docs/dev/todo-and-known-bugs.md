@@ -1092,3 +1092,78 @@ The Watch (W) button is shown enabled for a recording whose time range is entire
 When a surface vessel (rover, lander) goes on rails during recording (e.g., time warp), an orbit segment is created with SMA ≈ half the body radius. During playback, `InterpolateAndPosition` prioritizes orbit segments over point-based interpolation. The Keplerian orbit path goes through the planet interior — the terrain clamp corrects altitude but the lat/lon follows the orbital path, causing the ghost to slide along the ground away from the runway/landing site. Observed with Crater Crawler rover on the KSC runway: ghost altitude fell to -6281m (clamped back to 65.3m each frame), but the ghost drifted off its recorded position.
 
 **Status:** Fixed (`6996b65`, `ea14b8f`) — three-layer fix: (1) skip orbit segment creation for LANDED/SPLASHED/PRELAUNCH vessels, (2) `IsSurfaceAtUT` skips orbit segments during playback for surface TrackSections, (3) SMA < 90% body radius sanity check rejects sub-surface orbits
+
+## 94. Recovering a spawned vessel prevents re-spawn after revert
+
+Recovering a vessel spawned by Parsek (e.g. cleaning the runway) fires `onVesselRecovered`, which stamps `TerminalState.Recovered` on the committed recording AND nulls its `VesselSnapshot` via `UpdateRecordingsForTerminalEvent`. Both persist through reverts, permanently preventing the ghost from spawning a real vessel. Real Spawn Control also shows 0 candidates.
+
+**Status:** Fixed — `UpdateRecordingsForTerminalEvent` now skips committed recordings where `VesselSpawned == true` or `SpawnedVesselPersistentId != 0`. Defense-in-depth: all three reset paths (Rewind, tree revert, standalone revert) clear post-spawn `Recovered`/`Destroyed` terminal state.
+
+## 95. Committed recordings are mutated in several places after commit
+
+Recordings should be frozen after commit (immutable trajectory + events, mutable playback state only). Audit found several places where immutable fields on committed recordings are mutated:
+
+1. **`ParsekFlight.cs:993`** — Continuation vessel destroyed: sets `VesselDestroyed = true` and nulls `VesselSnapshot`. Snapshot lost permanently; vessel cannot re-spawn after revert.
+2. **`ParsekFlight.cs:2722`** — EVA boarding: nulls `VesselSnapshot` on committed recording (next chain segment is expected to spawn, but revert breaks that assumption).
+3. **`ParsekFlight.cs:2785,3595`** — Continuation sampling: `Points.Add` appends trajectory points to committed recordings. Intentional continuation design, but points from the abandoned timeline persist after revert.
+4. **`ParsekFlight.cs:2820-2831`** — Continuation snapshot refresh: replaces or mutates `VesselSnapshot` in-place on committed recordings, overwriting the commit-time position with a later state.
+5. **`ParsekFlight.cs:3629-3641`** — Undock continuation snapshot refresh: same pattern for `GhostVisualSnapshot`.
+6. **`ParsekScenario.cs:2469-2472`** — `UpdateRecordingsForTerminalEvent`: can still mutate committed recordings that match by vessel name but haven't spawned yet (name collision edge case; spawned recordings are now guarded).
+
+Items 1-2 are highest risk (snapshot destruction). Items 3-5 are part of the continuation mechanism's design but violate the frozen-recording principle. Item 6 is a residual edge case from #94.
+
+**Priority:** Medium — the continuation mutations are by design and rarely hit in practice, but the snapshot nulling (items 1-2) can cause the same no-spawn-after-revert symptom as #94 if the continuation vessel is destroyed or boards before revert.
+
+**Status:** Open
+
+## 96. Ghost disappears between recording end and real vessel spawn
+
+When a ghost reaches the end of its recording, it is despawned immediately. If the real vessel spawn is blocked (bounding box overlap) or deferred (warp flush), there is a visible gap where nothing exists at that position — the ghost is gone but the real vessel hasn't appeared yet. The ghost should remain visible at its last recorded position until the real vessel actually spawns, so there is no visual discontinuity.
+
+**Priority:** Medium — cosmetic but noticeable, especially on the runway where spawn blocking is common
+
+**Status:** Open
+
+## 97. Recording segmentation and grouping for selective looping
+
+Recordings currently capture entire flights as monolithic units. For effective looping and playback control, recordings should be segmentable into phases (takeoff, cruise, landing, docking approach, etc.) so that interesting segments (e.g. a takeoff or landing) can be looped independently. Segments that are visually uninteresting or far from points of interest (long cruise legs, on-rails coasting) should be mergeable into larger compressed segments that play back efficiently without per-frame overhead. This would allow the player to loop a busy runway with takeoffs and landings while skipping the mid-flight portions that happen far away.
+
+**Priority:** Medium — quality-of-life for players building complex multi-mission scenes
+
+**Status:** Open
+
+## 98. Deleting and recreating a save with the same name leaks old recordings
+
+`initialLoadDone` is a static bool that gates whether `OnLoad` clears and reloads recordings from the `.sfs` (initial load) or keeps in-memory state (revert/scene-change). A save-folder-change check at line 227 resets it when the save name differs. But deleting a career and creating a new one with the same name produces an identical `HighLogic.SaveFolder` — `initialLoadDone` stays `true`, so the new save inherits the old save's in-memory recordings. The `Parsek/Recordings/` sidecar files also persist on disk since KSP's save deletion doesn't know about the Parsek subdirectory.
+
+Fix options: (a) compare a fingerprint beyond just the folder name (e.g. save creation timestamp or recording count vs .sfs node count), or (b) reset `initialLoadDone` on main menu entry (`GameScenes.MAINMENU`), or (c) hash the .sfs RECORDING node IDs and compare against in-memory IDs.
+
+**Priority:** Low — only triggers when recreating a save with an identical name in the same KSP session
+
+**Status:** Fixed (commit d398cac — reset initialLoadDone on main menu transition)
+
+## 99. KSC view does not spawn real vessels when ghost timelines complete
+
+At SpaceCenter, ghost playback is visual-only (KSC ghosts rendered by `ParsekKSC`). When a ghost reaches its recording end time, the ghost mesh despawns but no real vessel is spawned. In Flight scene, `UpdateTimelinePlayback` triggers `VesselSpawner.SpawnOrRecoverIfTooClose` when a ghost exits range — this has no equivalent at KSC.
+
+The user expects that after time-warping past all recording end times at KSC, the runway should show the recorded vessels as real spawned vessels (visible in Tracking Station, switchable, persistent). Instead they simply vanish.
+
+**Priority:** Medium — breaks the mental model that recordings produce real vessels regardless of which scene the player is in
+
+**Status:** Open
+
+## 100. Compress Launch / Countdown / Status columns in Recordings Manager
+
+The Recordings Manager has three columns that all describe where a recording sits in time: **Launch** (absolute UT), **Countdown** (T- until start), and **Status** (past/active/future + terminal state). These are redundant — at any given moment, only one piece of information is most relevant.
+
+**Option A — Single "State" column (most compact):** Display what's most relevant for the recording's temporal phase. Future: `T-2m 30s` (countdown *is* the state). Active: `Playing` or progress indicator. Past: `Landed` / `Orbiting` / `Recovered` (terminal state *is* the state). Color-code by phase (future=gray, active=green, past=yellow). Eliminates all three columns in favor of one.
+
+**Option B — Two columns ("Time" + "State"):** Time shows countdown if future, launch UT if past, blank if active. State shows terminal state for past, `Playing` for active, `Pending` for future.
+
+**Option C — Keep Launch, merge T- into Status:** Launch stays as an absolute reference (needed for rewind decisions). Status absorbs countdown: shows `T-2m 30s` when future, `Active` when playing, terminal state when past.
+
+**Decision: Option C.** Keep Launch as an absolute reference for rewind planning. Merge Countdown into Status: show `T-2m 30s` when future, `Active` when playing, terminal state (`Landed`/`Orbiting`/`Recovered`) when past. Removes one column, keeps the information users need.
+
+**Priority:** Low — UI polish, no functional impact
+
+**Status:** Open

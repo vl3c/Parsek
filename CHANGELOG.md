@@ -4,6 +4,22 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.5.2
+
+### New Features
+
+- **Real Spawn Control window** — proximity-based UI for warping to when nearby ghost craft become real vessels. Detects ghosts within 500m whose recording ends in the future. Per-craft Warp button, sortable columns (Craft, Dist, Spawns at, In T-), and "Warp to Next Spawn" quick-jump button.
+- **Countdown column in Recordings Manager** — shows `T-Xd Xh Xm Xs` until each recording's vessel spawns. Updates live during playback, shows `-` when past.
+- **Screen notification** when a new ghost craft enters spawn proximity range.
+- **Toggle button in main window** — "Real Spawn Control (N)" under the Recordings/Game Actions group, grayed out when no candidates are nearby.
+
+### UI Improvements
+
+- Bottom buttons (Warp, Close, etc.) pinned to window bottom in Actions, Recordings, and Spawn Control windows.
+- Recordings window widened for better readability (1106 collapsed, 1324 expanded).
+
+---
+
 ## 0.5.1
 
 ### Bug Fixes

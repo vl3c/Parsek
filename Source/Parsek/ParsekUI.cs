@@ -63,6 +63,7 @@ namespace Parsek
         private const float ColW_Phase = 70f;
         private const float ColW_Index = 30f;
         private const float ColW_Launch = 110f;
+        private const float ColW_Countdown = 95f;
         private const float ColW_Dur = 65f;
         private const float ColW_Status = 55f;
         private const float ColW_Loop = 55f;
@@ -156,6 +157,26 @@ namespace Parsek
         private Rect lastRecordingsWindowRect;
         private Rect lastActionsWindowRect;
         private Rect lastSettingsWindowRect;
+        private Rect lastSpawnControlWindowRect;
+
+        // Spawn Control window
+        private bool showSpawnControlWindow;
+        private Rect spawnControlWindowRect;
+        private bool spawnControlWindowHasInputLock;
+        private const string SpawnControlInputLockId = "Parsek_SpawnControlWindow";
+
+        // Spawn Control sort state
+        private enum SpawnSortColumn { Name, Distance, SpawnTime }
+        private SpawnSortColumn spawnSortColumn = SpawnSortColumn.Distance;
+        private bool spawnSortAscending = true;
+        private bool isResizingSpawnControlWindow;
+        private Vector2 spawnControlScrollPos;
+
+        // Cached sorted candidate list -- re-sorted only when source data or sort state changes
+        private List<NearbySpawnCandidate> cachedSortedCandidates = new List<NearbySpawnCandidate>();
+        private int cachedCandidateCount = -1;
+        private SpawnSortColumn cachedSortColumn = SpawnSortColumn.Distance;
+        private bool cachedSortAscending = true;
 
         public ParsekUI(ParsekFlight flight)
         {
@@ -196,6 +217,24 @@ namespace Parsek
             {
                 showActionsWindow = !showActionsWindow;
                 ParsekLog.Verbose("UI", $"Actions window toggled: {(showActionsWindow ? "open" : "closed")}");
+            }
+
+            // --- Real Spawn Control toggle (in the window group, after Game Actions) ---
+            if (InFlight && flight != null)
+            {
+                int spawnCount = flight.NearbySpawnCandidates.Count;
+                GUI.enabled = spawnCount > 0;
+                if (GUILayout.Button(string.Format(
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    "Real Spawn Control ({0})", spawnCount)))
+                {
+                    showSpawnControlWindow = !showSpawnControlWindow;
+                    ParsekLog.Verbose("UI",
+                        string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "Real Spawn Control window toggled: {0}",
+                            showSpawnControlWindow ? "open" : "closed"));
+                }
+                GUI.enabled = true;
             }
 
             if (InFlight)
@@ -609,8 +648,8 @@ namespace Parsek
                 GUILayout.Label("No actions recorded.");
             }
 
-            // C. Bottom Bar
-            GUILayout.Space(5);
+            // C. Bottom Bar — pinned to window bottom
+            GUILayout.FlexibleSpace();
 
             uint epoch = MilestoneStore.CurrentEpoch;
             if (epoch > 0)
@@ -759,7 +798,7 @@ namespace Parsek
                 recordingsWindowRect = new Rect(
                     mainWindowRect.x + mainWindowRect.width + 10,
                     mainWindowRect.y,
-                    883, recHeight);
+                    1106, recHeight);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI", $"Recordings window initial position: x={recordingsWindowRect.x.ToString("F0", ic)} y={recordingsWindowRect.y.ToString("F0", ic)}");
             }
@@ -953,6 +992,7 @@ namespace Parsek
                 DrawSortableHeader("Name", SortColumn.Name, 0, true);
                 DrawSortableHeader("Phase", SortColumn.Phase, ColW_Phase);
                 DrawSortableHeader("Launch", SortColumn.LaunchTime, ColW_Launch);
+                DrawSortableHeader("Countdown", SortColumn.LaunchTime, ColW_Countdown);
                 DrawSortableHeader("Duration", SortColumn.Duration, ColW_Dur);
 
                 if (showExpandedStats)
@@ -1144,8 +1184,8 @@ namespace Parsek
                     scrollViewRect = GUILayoutUtility.GetLastRect();
             }
 
-            // Bottom button bar
-            GUILayout.Space(5);
+            // Bottom button bar — pinned to window bottom
+            GUILayout.FlexibleSpace();
             GUILayout.BeginHorizontal();
 
             if (committed.Count > 0)
@@ -1155,10 +1195,10 @@ namespace Parsek
                 {
                     showExpandedStats = !showExpandedStats;
                     ParsekLog.Verbose("UI", $"Recordings Stats toggled: {(showExpandedStats ? "expanded" : "collapsed")}");
-                    if (showExpandedStats && recordingsWindowRect.width < 1150f)
-                        recordingsWindowRect.width = 1150f;
+                    if (showExpandedStats && recordingsWindowRect.width < 1324f)
+                        recordingsWindowRect.width = 1324f;
                     else if (!showExpandedStats)
-                        recordingsWindowRect.width = 883f;
+                        recordingsWindowRect.width = 1106f;
                 }
             }
 
@@ -1241,6 +1281,15 @@ namespace Parsek
                 ? KSPUtil.PrintDateCompact(rec.StartUT, true)
                 : "-";
             GUILayout.Label(launchTime, GUILayout.Width(ColW_Launch));
+
+            // Countdown
+            if (rec.Points.Count > 0 && rec.StartUT > now)
+                GUILayout.Label(SelectiveSpawnUI.FormatCountdown(rec.StartUT - now),
+                    GUILayout.Width(ColW_Countdown));
+            else if (rec.Points.Count > 0 && rec.EndUT > now)
+                GUILayout.Label("LIVE", GUILayout.Width(ColW_Countdown));
+            else
+                GUILayout.Label("-", GUILayout.Width(ColW_Countdown));
 
             // Duration
             double dur = rec.EndUT - rec.StartUT;
@@ -2795,6 +2844,268 @@ namespace Parsek
             settingsWindowHasInputLock = false;
         }
 
+        // ════════════════════════════════════════════════════════════════
+        //  Real Spawn Control window
+        // ════════════════════════════════════════════════════════════════
+
+        public void DrawSpawnControlWindowIfOpen(Rect mainWindowRect)
+        {
+            if (!showSpawnControlWindow)
+            {
+                ReleaseSpawnControlInputLock();
+                return;
+            }
+
+            // Auto-close when no nearby candidates
+            if (!InFlight || flight == null || flight.NearbySpawnCandidates.Count == 0)
+            {
+                showSpawnControlWindow = false;
+                ReleaseSpawnControlInputLock();
+                return;
+            }
+
+            if (spawnControlWindowRect.width < 1f)
+            {
+                float x = mainWindowRect.x + mainWindowRect.width + 10;
+                spawnControlWindowRect = new Rect(x, mainWindowRect.y, 528, 200);
+                var ic = System.Globalization.CultureInfo.InvariantCulture;
+                ParsekLog.Verbose("UI",
+                    $"Real Spawn Control window initial position: x={spawnControlWindowRect.x.ToString("F0", ic)} y={spawnControlWindowRect.y.ToString("F0", ic)}");
+            }
+
+            // Handle resize drag
+            if (isResizingSpawnControlWindow)
+            {
+                if (Event.current.type == EventType.MouseDrag || Event.current.type == EventType.MouseUp)
+                {
+                    float newW = Mathf.Max(MinWindowWidth, Event.current.mousePosition.x - spawnControlWindowRect.x);
+                    float newH = Mathf.Max(MinWindowHeight, Event.current.mousePosition.y - spawnControlWindowRect.y);
+                    spawnControlWindowRect.width = newW;
+                    spawnControlWindowRect.height = newH;
+                }
+                if (Event.current.type == EventType.MouseUp)
+                {
+                    isResizingSpawnControlWindow = false;
+                    var ic = System.Globalization.CultureInfo.InvariantCulture;
+                    ParsekLog.Verbose("UI",
+                        $"Real Spawn Control window resize ended: w={spawnControlWindowRect.width.ToString("F0", ic)} h={spawnControlWindowRect.height.ToString("F0", ic)}");
+                }
+                if (Event.current.type == EventType.MouseDrag)
+                    Event.current.Use();
+            }
+
+            EnsureOpaqueWindowStyle();
+            spawnControlWindowRect = ClickThruBlocker.GUILayoutWindow(
+                "ParsekSpawnControl".GetHashCode(),
+                spawnControlWindowRect,
+                DrawSpawnControlWindow,
+                "Parsek \u2014 Real Spawn Control",
+                opaqueWindowStyle,
+                GUILayout.Width(spawnControlWindowRect.width),
+                GUILayout.Height(spawnControlWindowRect.height)
+            );
+            LogWindowPosition("SpawnControl", ref lastSpawnControlWindowRect, spawnControlWindowRect);
+
+            if (spawnControlWindowRect.Contains(Event.current.mousePosition))
+            {
+                if (!spawnControlWindowHasInputLock)
+                {
+                    InputLockManager.SetControlLock(ControlTypes.CAMERACONTROLS, SpawnControlInputLockId);
+                    spawnControlWindowHasInputLock = true;
+                }
+            }
+            else
+            {
+                ReleaseSpawnControlInputLock();
+            }
+        }
+
+        private void ReleaseSpawnControlInputLock()
+        {
+            if (!spawnControlWindowHasInputLock) return;
+            InputLockManager.RemoveControlLock(SpawnControlInputLockId);
+            spawnControlWindowHasInputLock = false;
+        }
+
+        // Spawn Control column widths (matches recordings window style)
+        private const float SpawnColW_Name = 0f;    // expand
+        private const float SpawnColW_Dist = 55f;
+        private const float SpawnColW_SpawnTime = 100f;
+        private const float SpawnColW_Countdown = 95f;
+        private const float SpawnColW_Warp = 50f;
+
+        private void DrawSpawnSortableHeader(string label, SpawnSortColumn col, float width)
+        {
+            DrawSpawnSortableHeader(label, col, false, width);
+        }
+
+        private void DrawSpawnSortableHeader(string label, SpawnSortColumn col, bool expand)
+        {
+            DrawSpawnSortableHeader(label, col, expand, 0);
+        }
+
+        private void DrawSpawnSortableHeader(string label, SpawnSortColumn col, bool expand, float width)
+        {
+            string arrow = spawnSortColumn == col ? (spawnSortAscending ? " \u25b2" : " \u25bc") : "";
+            if (expand)
+            {
+                if (GUILayout.Button(label + arrow, GUI.skin.label, GUILayout.ExpandWidth(true)))
+                    ToggleSpawnSort(col);
+            }
+            else
+            {
+                if (GUILayout.Button(label + arrow, GUI.skin.label, GUILayout.Width(width)))
+                    ToggleSpawnSort(col);
+            }
+        }
+
+        private void ToggleSpawnSort(SpawnSortColumn col)
+        {
+            if (spawnSortColumn == col)
+                spawnSortAscending = !spawnSortAscending;
+            else
+            {
+                spawnSortColumn = col;
+                spawnSortAscending = true;
+            }
+        }
+
+        private int CompareSpawnCandidates(NearbySpawnCandidate a, NearbySpawnCandidate b)
+        {
+            int cmp;
+            switch (spawnSortColumn)
+            {
+                case SpawnSortColumn.Name:
+                    cmp = string.Compare(a.vesselName, b.vesselName,
+                        System.StringComparison.OrdinalIgnoreCase);
+                    break;
+                case SpawnSortColumn.SpawnTime:
+                    cmp = a.endUT.CompareTo(b.endUT);
+                    break;
+                default: // Distance
+                    cmp = a.distance.CompareTo(b.distance);
+                    break;
+            }
+            return spawnSortAscending ? cmp : -cmp;
+        }
+
+        private void DrawSpawnControlWindow(int windowID)
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            double currentUT = Planetarium.GetUniversalTime();
+            var candidates = flight.NearbySpawnCandidates;
+
+            if (candidates.Count == 0)
+            {
+                GUILayout.Label("No nearby craft to spawn.");
+                if (GUILayout.Button("Close"))
+                    showSpawnControlWindow = false;
+                GUI.DragWindow();
+                return;
+            }
+
+            // Header row with sortable columns
+            GUILayout.BeginHorizontal();
+            DrawSpawnSortableHeader("Craft", SpawnSortColumn.Name, true);
+            DrawSpawnSortableHeader("Dist", SpawnSortColumn.Distance, SpawnColW_Dist);
+            DrawSpawnSortableHeader("Spawns at", SpawnSortColumn.SpawnTime, SpawnColW_SpawnTime);
+            DrawSpawnSortableHeader("In T-", SpawnSortColumn.SpawnTime, SpawnColW_Countdown);
+            GUILayout.Label("", GUILayout.Width(SpawnColW_Warp));
+            GUILayout.EndHorizontal();
+
+            // Re-sort only when candidate list or sort state changes
+            if (candidates.Count != cachedCandidateCount
+                || spawnSortColumn != cachedSortColumn
+                || spawnSortAscending != cachedSortAscending)
+            {
+                cachedSortedCandidates.Clear();
+                for (int ci = 0; ci < candidates.Count; ci++)
+                    cachedSortedCandidates.Add(candidates[ci]);
+                cachedSortedCandidates.Sort(CompareSpawnCandidates);
+                cachedCandidateCount = candidates.Count;
+                cachedSortColumn = spawnSortColumn;
+                cachedSortAscending = spawnSortAscending;
+            }
+            var sorted = cachedSortedCandidates;
+
+            // Scrollable per-craft rows
+            spawnControlScrollPos = GUILayout.BeginScrollView(spawnControlScrollPos, GUILayout.ExpandHeight(true));
+            for (int i = 0; i < sorted.Count; i++)
+            {
+                var cand = sorted[i];
+                double delta = cand.endUT - currentUT;
+                bool canWarp = cand.endUT > currentUT;
+
+                GUILayout.BeginHorizontal();
+                GUILayout.Label(cand.vesselName, GUILayout.ExpandWidth(true));
+                GUILayout.Label(
+                    string.Format(ic, "{0:F0}m", cand.distance),
+                    GUILayout.Width(SpawnColW_Dist));
+                GUILayout.Label(
+                    KSPUtil.PrintDateCompact(cand.endUT, true),
+                    GUILayout.Width(SpawnColW_SpawnTime));
+                GUILayout.Label(
+                    SelectiveSpawnUI.FormatCountdown(delta),
+                    GUILayout.Width(SpawnColW_Countdown));
+
+                GUI.enabled = canWarp;
+                if (GUILayout.Button("Warp", GUILayout.Width(SpawnColW_Warp)))
+                {
+                    ParsekLog.Info("UI",
+                        string.Format(ic,
+                            "Real Spawn Control: warp to '{0}' recording #{1}",
+                            cand.vesselName, cand.recordingIndex));
+                    flight.WarpToRecordingEnd(cand.recordingIndex);
+                }
+                GUI.enabled = true;
+                GUILayout.EndHorizontal();
+            }
+            GUILayout.EndScrollView();
+
+            // Bottom section -- pinned to window bottom
+            GUILayout.FlexibleSpace();
+
+            GUILayout.BeginHorizontal();
+            var next = SelectiveSpawnUI.FindNextSpawnCandidate(candidates, currentUT);
+            GUI.enabled = next != null;
+            string tooltip = next != null
+                ? SelectiveSpawnUI.FormatNextSpawnTooltip(next, currentUT) : "";
+            if (GUILayout.Button(new GUIContent("Warp to Next Real Spawn", tooltip),
+                GUILayout.ExpandWidth(true)))
+            {
+                ParsekLog.Info("UI", "Real Spawn Control: Warp to Next Real Spawn clicked");
+                flight.WarpToNextCraftSpawn();
+            }
+            GUI.enabled = true;
+            if (GUILayout.Button("Close", GUILayout.Width(132)))
+            {
+                showSpawnControlWindow = false;
+                ParsekLog.Verbose("UI", "Real Spawn Control window closed");
+            }
+            GUILayout.EndHorizontal();
+
+            if (!string.IsNullOrEmpty(GUI.tooltip))
+            {
+                GUILayout.Space(SpacingSmall);
+                GUILayout.Label(GUI.tooltip, GUI.skin.box);
+            }
+
+            // Resize handle (bottom-right corner)
+            Rect handleRect = new Rect(
+                spawnControlWindowRect.width - ResizeHandleSize,
+                spawnControlWindowRect.height - ResizeHandleSize,
+                ResizeHandleSize, ResizeHandleSize);
+            GUI.Label(handleRect, "\u25e2");
+            if (Event.current.type == EventType.MouseDown && handleRect.Contains(Event.current.mousePosition))
+            {
+                isResizingSpawnControlWindow = true;
+                ParsekLog.Verbose("UI", "Real Spawn Control window resize started");
+                Event.current.Use();
+            }
+
+            GUI.DragWindow();
+        }
+
         private void CommitSettingsAutoLoopEdit(ParsekSettings s)
         {
             double parsed;
@@ -3157,6 +3468,7 @@ namespace Parsek
             ReleaseRecordingsInputLock();
             ReleaseActionsInputLock();
             ReleaseSettingsInputLock();
+            ReleaseSpawnControlInputLock();
             if (mapMarkerTexture != null)
                 Object.Destroy(mapMarkerTexture);
         }
