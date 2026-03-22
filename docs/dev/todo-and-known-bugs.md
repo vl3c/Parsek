@@ -1115,3 +1115,19 @@ Items 1-2 are highest risk (snapshot destruction). Items 3-5 are part of the con
 **Priority:** Medium — the continuation mutations are by design and rarely hit in practice, but the snapshot nulling (items 1-2) can cause the same no-spawn-after-revert symptom as #94 if the continuation vessel is destroyed or boards before revert.
 
 **Status:** Open
+
+## 96. Ghost disappears between recording end and real vessel spawn
+
+When a ghost reaches the end of its recording, it is despawned immediately. If the real vessel spawn is blocked (bounding box overlap) or deferred (warp flush), there is a visible gap where nothing exists at that position — the ghost is gone but the real vessel hasn't appeared yet. The ghost should remain visible at its last recorded position until the real vessel actually spawns, so there is no visual discontinuity.
+
+**Priority:** Medium — cosmetic but noticeable, especially on the runway where spawn blocking is common
+
+**Status:** Open
+
+## 97. Recording segmentation and grouping for selective looping
+
+Recordings currently capture entire flights as monolithic units. For effective looping and playback control, recordings should be segmentable into phases (takeoff, cruise, landing, docking approach, etc.) so that interesting segments (e.g. a takeoff or landing) can be looped independently. Segments that are visually uninteresting or far from points of interest (long cruise legs, on-rails coasting) should be mergeable into larger compressed segments that play back efficiently without per-frame overhead. This would allow the player to loop a busy runway with takeoffs and landings while skipping the mid-flight portions that happen far away.
+
+**Priority:** Medium — quality-of-life for players building complex multi-mission scenes
+
+**Status:** Open
