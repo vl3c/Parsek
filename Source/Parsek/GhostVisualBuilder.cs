@@ -2522,6 +2522,8 @@ namespace Parsek
                     if (hasLocalRot)
                         fxInstance.transform.localRotation = localRot;
 
+                    StripKspFxControllers(fxInstance);
+
                     if (isRapierWhiteFlame)
                     {
                         fxInstance.transform.localScale *= 0.35f;
@@ -2533,8 +2535,6 @@ namespace Parsek
                             main.startSpeedMultiplier *= 0.75f;
                         }
                     }
-
-                    StripKspFxControllers(fxInstance);
 
                     int addedSystems = ConfigureGhostEngineParticleSystems(fxInstance, info.particleSystems);
                     if (addedSystems > 0)
