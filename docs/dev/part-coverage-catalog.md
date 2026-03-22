@@ -155,7 +155,7 @@ checked in; re-run the extraction from the KSP GameData directory to refresh.
 | externalTankCapsule | externalTankCapsule | Stock | — | N/A | — |  |
 | externalTankRound | externalTankRound | Stock | — | N/A | — |  |
 | externalTankToroid | externalTankToroid | Stock | — | N/A | — |  |
-| fuelLine | fuelLine | Stock | — | N/A | — |  |
+| fuelLine | fuelLine | Stock | CModuleLinkedMesh | Mesh+PARTDATA fixup | — | Compound part line stretched via TryFixupCompoundPartVisuals |
 | fuelTank | fuelTank | Stock | — | N/A | — |  |
 | fuelTank_long | fuelTank.long | Stock | — | N/A | — |  |
 | fuelTankSmall | fuelTankSmall | Stock | — | N/A | — |  |
@@ -331,7 +331,7 @@ checked in; re-run the extraction from the KSP GameData directory to refresh.
 | structuralPanel1 | structuralPanel1 | Stock | — | N/A | — |  |
 | structuralPanel2 | structuralPanel2 | Stock | — | N/A | — |  |
 | structuralPylon | structuralPylon | Stock | — | N/A | — |  |
-| strutConnector | strutConnector | Stock | — | N/A | — |  |
+| strutConnector | strutConnector | Stock | CModuleLinkedMesh | Mesh+PARTDATA fixup | — | Compound part line stretched via TryFixupCompoundPartVisuals |
 | strutCube | strutCube | Stock | — | N/A | — |  |
 | strutOcto | strutOcto | Stock | — | N/A | — |  |
 | Triangle0 | Triangle0 | Making History | — | N/A | — |  |
