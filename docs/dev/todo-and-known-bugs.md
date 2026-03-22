@@ -1230,3 +1230,19 @@ When a ghost vessel is destroyed (recording ends, zone exit, loop cycle boundary
 **Priority:** Low — cosmetic polish, no functional impact
 
 **Status:** Open
+
+## 109. Audit ghost FX for KSP-native component usage
+
+Bug #105 revealed that fighting KSP's own FX components (KSPParticleEmitter, ModelMultiParticleFX) produces artifacts. The fix — letting KSP handle particle creation natively and controlling `emit` via reflection — produced much better visuals than any approach that tried to replace KSP's emission with Unity's.
+
+Audit all ghost visual systems for similar opportunities to use KSP-native components instead of reimplementing or stripping them:
+- **Smoke trails**: currently strip `SmokeTrailControl` which fades smoke by atmospheric density. Could we keep it and let KSP handle density-based fading?
+- **Engine heat glow**: `FXModuleAnimateThrottle` animates engine heat materials. Ghost code reimplements this with `HeatGhostInfo`. Could we keep the stock module and drive it?
+- **RCS glow**: `FXModuleAnimateRCS` handles RCS nozzle glow. Same question.
+- **Other FX components**: check if any stripped components would produce better visuals if kept alive and controlled
+
+General principle: prefer toggling KSP's own components on/off via reflection over reimplementing their behavior. KSP's components handle edge cases (material setup, animation curves, density fading) that are hard to replicate correctly.
+
+**Priority:** Low — improvement opportunity, not a bug
+
+**Status:** Open
