@@ -315,18 +315,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldSpawn_SubOrbital_Allowed()
+        public void ShouldSpawn_SubOrbital_ReturnsFalse()
         {
+            // SubOrbital vessel would materialize mid-air and crash (#45)
             var rec = new Recording
             {
                 VesselSnapshot = new ConfigNode("VESSEL"),
                 TerminalStateValue = TerminalState.SubOrbital
             };
 
-            var (needsSpawn, _) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
                 rec, isActiveChainMember: false, isChainLoopingOrDisabled: false);
 
-            Assert.True(needsSpawn);
+            Assert.False(needsSpawn);
+            Assert.Contains("terminal state SubOrbital", reason);
         }
 
         [Fact]

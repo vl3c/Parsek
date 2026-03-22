@@ -1996,12 +1996,14 @@ namespace Parsek
             if (rec.IsDebris)
                 return (false, "debris recording (visual-only)");
 
-            // Terminal states: destroyed/recovered/docked/boarded should not spawn
+            // Terminal states: destroyed/recovered/docked/boarded/suborbital should not spawn
+            // SubOrbital includes FLYING and ESCAPING — vessel would materialize mid-air and crash (#45)
             if (rec.TerminalStateValue.HasValue)
             {
                 var ts = rec.TerminalStateValue.Value;
                 if (ts == TerminalState.Destroyed || ts == TerminalState.Recovered
-                    || ts == TerminalState.Docked || ts == TerminalState.Boarded)
+                    || ts == TerminalState.Docked || ts == TerminalState.Boarded
+                    || ts == TerminalState.SubOrbital)
                     return (false, $"terminal state {ts}");
             }
 
