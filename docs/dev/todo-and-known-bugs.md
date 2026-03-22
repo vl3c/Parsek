@@ -1238,3 +1238,21 @@ Likely cause: `CheckEngineTransition` may not detect the `EngineIgnited → fals
 **Priority:** Medium — ghost engines keep burning past cutoff, visually incorrect
 
 **Status:** Open
+
+## 109. Missing CleanupOrphanedSpawnedVessels on second Rewind flight-ready
+
+After a second Rewind, `CleanupOrphanedSpawnedVessels` does not run, leaving a previously-spawned vessel in the scene at the spawn coordinates. The first Rewind correctly recovers the old spawned vessel, but the second one skips cleanup entirely. This leaves a stale vessel that blocks future spawns at that location.
+
+**Priority:** High
+
+**Status:** Open
+
+## 110. Spawn collision retry has no limit — infinite loop on permanent overlap
+
+When a spawn is permanently blocked by an immovable vessel (e.g., a landed spawned vessel from a previous cycle that wasn't cleaned up), the spawn retry loop runs every frame indefinitely (~8ms per retry). In one test session this produced 6,270 retries over 27 seconds, flooding ~24,000 lines into KSP.log until the user exited to the main menu. There is no retry limit, timeout, or backoff.
+
+**Fix approach:** Add a maximum retry count (e.g., 60 retries = ~1 second at 60fps). After exhausting retries, log a warning and either skip the spawn or force-spawn at an offset position.
+
+**Priority:** High
+
+**Status:** Open

@@ -2340,8 +2340,10 @@ namespace Parsek
                             flight.FastForwardToRecording(capturedRec);
                         else
                         {
-                            // KSC or other non-flight scene: advance UT directly
-                            // (no loaded vessels to rail, no recorder to notify)
+                            // KSC or other non-flight scene: advance UT directly.
+                            // Intentionally duplicates jump+message from FastForwardToRecording —
+                            // flight path has additional steps (NotifyRecorder, recorder state)
+                            // that don't apply outside flight.
                             double preJumpUT = Planetarium.GetUniversalTime();
                             double jumpDelta = capturedRec.StartUT - preJumpUT;
                             ParsekLog.Info("FastForward",
