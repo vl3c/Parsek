@@ -10,6 +10,7 @@ namespace Parsek
     public static class ParsekLog
     {
         // When true, suppresses Debug.Log calls (for unit testing outside Unity)
+        [ThreadStatic]
         internal static bool SuppressLogging;
 
         private struct RateLimitState
@@ -18,13 +19,20 @@ namespace Parsek
             public int suppressedCount;
         }
 
-        private static readonly Dictionary<string, RateLimitState> rateLimitStateByKey =
-            new Dictionary<string, RateLimitState>();
+        // ThreadStatic so each xUnit thread gets its own rate-limit state.
+        // Backing field is null on non-initial threads; property lazy-creates.
+        [ThreadStatic]
+        private static Dictionary<string, RateLimitState> t_rateLimitStateByKey;
+        private static Dictionary<string, RateLimitState> rateLimitStateByKey =>
+            t_rateLimitStateByKey ?? (t_rateLimitStateByKey = new Dictionary<string, RateLimitState>());
 
         private const double DefaultRateLimitSeconds = 5.0;
         private static readonly DateTime UnixEpochUtc = new DateTime(1970, 1, 1);
+        [ThreadStatic]
         internal static Func<double> ClockOverrideForTesting;
+        [ThreadStatic]
         internal static Action<string> TestSinkForTesting;
+        [ThreadStatic]
         internal static bool? VerboseOverrideForTesting;
 
         public static bool IsVerboseEnabled =>
