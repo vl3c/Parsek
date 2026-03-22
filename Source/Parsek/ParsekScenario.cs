@@ -986,7 +986,7 @@ namespace Parsek
             // Apply adjusted UT unconditionally — Planetarium is always available
             // after the first yield. This must NOT be gated on resource singletons
             // (sandbox/science mode has no Funding/R&D/Reputation, but still needs UT).
-            if (adjustedUT > 0)
+            // UT=0 is valid (recording near game start with lead time clamped to 0).
             {
                 double prePlanetariumUT = Planetarium.GetUniversalTime();
                 Planetarium.SetUniversalTime(adjustedUT);
