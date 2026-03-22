@@ -369,22 +369,32 @@ namespace Parsek
                     // (milestones created after rewind point get reset to unreplayed)
                     MilestoneStore.RestoreMutableState(node, resetUnmatched: true);
 
-                    // Collect spawned vessel info BEFORE reset zeroes the PIDs
-                    var (rewindSpawnedPids, rewindSpawnedNames) = RecordingStore.CollectSpawnedVesselInfo();
+                    // Collect spawned vessel PIDs for belt-and-suspenders in OnFlightReady
+                    var (rewindSpawnedPids, _) = RecordingStore.CollectSpawnedVesselInfo();
                     RecordingStore.PendingCleanupPids = rewindSpawnedPids.Count > 0 ? rewindSpawnedPids : null;
-                    RecordingStore.PendingCleanupNames = rewindSpawnedNames.Count > 0 ? rewindSpawnedNames : null;
+
+                    // Collect ALL recording vessel names for flightState stripping.
+                    // On rewind, ANY vessel matching a recording name is from the future
+                    // and must be stripped — not just those with non-zero SpawnedVesselPersistentId.
+                    // (PIDs may already be zero from a previous rewind's ResetAllPlaybackState.)
+                    var allRecordingNames = RecordingStore.CollectAllRecordingVesselNames();
+                    RecordingStore.PendingCleanupNames = allRecordingNames.Count > 0 ? allRecordingNames : null;
 
                     // Reset ALL playback state (recordings + trees)
                     var (standaloneCount, treeCount) = RecordingStore.ResetAllPlaybackState();
                     ParsekLog.Info("Rewind",
                         $"OnLoad: resetting playback state for {standaloneCount} recordings + {treeCount} trees");
 
-                    // Strip orphaned spawned vessels from the loaded rewind save's flightState
-                    if (rewindSpawnedNames.Count > 0)
+                    // Strip ALL vessels matching recording names from flightState.
+                    // The rewind save was preprocessed to strip the recorded vessel,
+                    // but KSP's scene transition may reintroduce vessels from the old
+                    // persistent.sfs. Strip unconditionally — on rewind, every matching
+                    // vessel is from the future.
+                    if (allRecordingNames.Count > 0)
                     {
                         var flightState = HighLogic.CurrentGame?.flightState;
                         if (flightState != null)
-                            StripOrphanedSpawnedVessels(flightState.protoVessels, rewindSpawnedNames,
+                            StripOrphanedSpawnedVessels(flightState.protoVessels, allRecordingNames,
                                 skipPrelaunch: false);
                     }
 

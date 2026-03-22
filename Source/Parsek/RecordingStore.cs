@@ -1195,6 +1195,33 @@ namespace Parsek
         internal static HashSet<string> PendingCleanupNames { get; set; }
 
         /// <summary>
+        /// Collects vessel names from ALL committed recordings (regardless of spawn state).
+        /// Used during rewind to strip every vessel matching a recording name from flightState —
+        /// on rewind, any such vessel is from the future and incompatible with the rewound state.
+        /// </summary>
+        internal static HashSet<string> CollectAllRecordingVesselNames()
+        {
+            var names = new HashSet<string>();
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                if (!string.IsNullOrEmpty(committedRecordings[i].VesselName))
+                    names.Add(committedRecordings[i].VesselName);
+            }
+            for (int i = 0; i < committedTrees.Count; i++)
+            {
+                foreach (var rec in committedTrees[i].Recordings.Values)
+                {
+                    if (!string.IsNullOrEmpty(rec.VesselName))
+                        names.Add(rec.VesselName);
+                }
+            }
+            if (!SuppressLogging && names.Count > 0)
+                ParsekLog.Info("RecordingStore",
+                    $"CollectAllRecordingVesselNames: {names.Count} unique name(s)");
+            return names;
+        }
+
+        /// <summary>
         /// Marks all committed recordings, trees, and milestones as fully applied.
         /// Called after rewind resource adjustment to prevent double-application.
         /// </summary>
