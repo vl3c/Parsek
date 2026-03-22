@@ -1193,13 +1193,13 @@ Fix: disambiguate with a launch number suffix. Check existing group names via `R
 
 **Status:** Open
 
-## 105. Colored bubbles visible in ghost engine plume FX
+## 105. Colored bubbles visible in ghost engine/RCS plume FX
 
-Ghost engine plumes show colored bubble/sphere artifacts instead of smooth exhaust trails. Root cause: `KSPParticleEmitter` (actual class name, not `ModelMultiParticlePersistFX` as originally noted) survives `Object.Instantiate`. Its `Awake()` marks `dirty=true`, then `Update()` calls `SetupProperties()` which overwrites renderer materials, colors, and renderMode on the cloned particle systems.
+Ghost engine and RCS plumes showed colored bubble/sphere artifacts. Root cause: ghost plumes had TWO particle emission sources fighting each other — `KSPParticleEmitter.EmitParticle()` (creates correctly-textured particles) and Unity's emission module (`emission.rateOverTimeMultiplier`) which creates particles using `ParticleSystem.main.startSize` and `ParticleSystemRenderer.material`, neither of which are set from KSP values, producing huge material-less "bubbles".
 
-Fix: `StripKspFxControllers` helper strips `KSPParticleEmitter`, `ModelMultiParticleFX`, `ModelParticleFX`, `SmokeTrailControl`, and `FXPrefab` from all 5 FX clone sites (engine legacy, engine model, engine prefab, RCS). Previously only `SmokeTrailControl` was stripped at 3 of 5 sites.
+Fix: Permanently disable Unity's emission module (`emission.enabled = false`) at build time. Keep `KSPParticleEmitter` alive (it handles material setup and particle creation) but control it via reflection (`emit` field) in `SetEngineEmission`/`SetRcsEmission`. `StripKspFxControllers` captures `KSPParticleEmitter` references into `kspEmitters` lists on `EngineGhostInfo`/`RcsGhostInfo` instead of destroying them. `SmokeTrailControl` and `FXPrefab` are still stripped.
 
-**Priority:** Medium — visually distracting on every engine ghost
+**Priority:** Medium — visually distracting on every engine/RCS ghost
 
 **Status:** Fixed
 
@@ -1226,5 +1226,15 @@ When a ghost vessel is destroyed (recording ends, zone exit, loop cycle boundary
 **Fix approach:** Before destroying the ghost GameObject, detach active particle systems with `ParticleSystem.Stop(withChildren: true, stopBehavior: ParticleSystemStopBehavior.StopEmitting)` and re-parent them to a temporary holder object. The particles continue rendering with existing lifetime/fade settings. Add a cleanup component that destroys the holder once all particles have expired (`ParticleSystem.particleCount == 0`). Only detach systems that have `isPlaying == true` or `particleCount > 0` at despawn time.
 
 **Priority:** Low — cosmetic polish, no functional impact
+
+**Status:** Open
+
+## 108. EngineShutdown event not recorded when engine cuts off
+
+Engine throttle/shutdown events not recorded for some engine types. Ghost engine plumes stay at full intensity from ignition until shutdown (no throttle response), or never stop if shutdown is also missing. Observed on Aeris-4A (save `s10`) with `turboFanEngine` (J-X4 "Whiplash" Turbo Ramjet, `ModuleEnginesFX`): playback log shows `EngineIgnited` and `EngineShutdown` but zero `EngineThrottle` events between them. An earlier recording of the same craft had 238 throttle events but no shutdown — inconsistent behavior suggests a timing or caching issue in `CheckEngineTransition` / `CacheEngineModules`.
+
+Likely cause: `CheckEngineTransition` may not detect the `EngineIgnited → false` transition correctly, or the transition check polls `engine.EngineIgnited && engine.isOperational` which may remain true in certain states (e.g., fuel depletion vs. manual shutdown).
+
+**Priority:** Medium — ghost engines keep burning past cutoff, visually incorrect
 
 **Status:** Open
