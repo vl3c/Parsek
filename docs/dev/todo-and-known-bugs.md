@@ -706,7 +706,7 @@ When a recording's final position is SUB_ORBITAL (e.g., the vessel was on a subo
 2. Propagate the orbit forward to find where it lands, spawn at that position
 3. Add a "safe spawn" check: if situation is SUB_ORBITAL and altitude is low, defer spawn until vessel reaches surface
 
-**Status:** Open
+**Status:** Fixed — SubOrbital added to non-spawnable terminal states in `ShouldSpawnAtRecordingEnd` (option 1)
 
 ## 46. EVA kerbals disappear in water after spawn
 
