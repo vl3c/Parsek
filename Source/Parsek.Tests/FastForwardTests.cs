@@ -61,7 +61,9 @@ namespace Parsek.Tests
             string reason;
             Assert.False(RecordingStore.CanFastForward(rec, out reason, isRecording: false));
             Assert.Equal("Rewind already in progress", reason);
-            Assert.Contains(logLines, l =>
+            // Bug #117: blocked-path VERBOSE logs removed (per-frame UI spam).
+            // Reason is conveyed via the out parameter, not log output.
+            Assert.DoesNotContain(logLines, l =>
                 l.Contains("[Store]") && l.Contains("CanFastForward") && l.Contains("blocked"));
         }
 

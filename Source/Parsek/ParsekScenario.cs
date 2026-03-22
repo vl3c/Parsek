@@ -245,7 +245,7 @@ namespace Parsek
                 }
                 catch (System.NullReferenceException)
                 {
-                    ParsekLog.Warn("Scenario",
+                    ParsekLog.Verbose("Scenario",
                         "Failed to register main menu hook (GameEvents not ready) — will retry on next OnLoad");
                 }
             }

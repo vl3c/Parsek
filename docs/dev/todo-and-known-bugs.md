@@ -1363,21 +1363,21 @@ Rewind stripped 8 orphaned spawned vessels from the save. Valentina was assigned
 
 `RecordingStore.CanRewind` and `RecordingStore.CanFastForward` log at VERBOSE on every blocked call. Called per-recording per-frame from UI. With active recording + multiple recordings, produces 374K+ CanRewind and 184K+ CanFastForward lines in a single session (94% of all log output). Makes log analysis extremely difficult.
 
-**Fix:** Remove or heavily rate-limit the blocked-path VERBOSE logs. These are read-only UI state checks that should not produce per-frame output.
+**Fix:** Removed all blocked-path VERBOSE logs from both methods. These are read-only UI state checks called per-recording per-frame — the `reason` out-parameter already conveys the block reason to the caller without needing log output. Success-path logs were already removed in #52.
 
 **Priority:** High — blocks effective log analysis
 
-**Status:** Open
+**Status:** Fixed
 
 ## 118. "Failed to register main menu hook" WARN on every non-MAINMENU OnLoad
 
 `ParsekScenario.OnLoad` logs WARN when main menu hook registration fails outside MAINMENU scene. Expected behavior (retries on next OnLoad), but WARN level is too high for a benign retry.
 
-**Fix:** Downgrade from WARN to VERBOSE.
+**Fix:** Downgraded from `ParsekLog.Warn` to `ParsekLog.Verbose`. This is a benign retry path — not an error condition.
 
 **Priority:** Low
 
-**Status:** Open
+**Status:** Fixed
 
 # In-Game Tests
 

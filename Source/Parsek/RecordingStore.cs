@@ -1291,35 +1291,30 @@ namespace Parsek
             if (IsRewinding)
             {
                 reason = "Rewind already in progress";
-                ParsekLog.Verbose("Store", $"CanRewind: blocked — {reason}");
                 return false;
             }
 
             if (string.IsNullOrEmpty(rec.RewindSaveFileName))
             {
                 reason = "No rewind save available";
-                ParsekLog.Verbose("Store", $"CanRewind: blocked for '{rec.VesselName}' — {reason}");
                 return false;
             }
 
             if (isRecording)
             {
                 reason = "Stop recording before rewinding";
-                ParsekLog.Verbose("Store", $"CanRewind: blocked — {reason}");
                 return false;
             }
 
             if (HasPending)
             {
                 reason = "Merge or discard pending recording first";
-                ParsekLog.Verbose("Store", $"CanRewind: blocked — {reason}");
                 return false;
             }
 
             if (HasPendingTree)
             {
                 reason = "Merge or discard pending tree first";
-                ParsekLog.Verbose("Store", $"CanRewind: blocked — {reason}");
                 return false;
             }
 
@@ -1329,7 +1324,6 @@ namespace Parsek
             if (string.IsNullOrEmpty(savePath) || !File.Exists(savePath))
             {
                 reason = "Rewind save file missing";
-                ParsekLog.Verbose("Store", $"CanRewind: blocked for '{rec.VesselName}' — {reason} (path={savePath ?? "null"})");
                 return false;
             }
 
@@ -1346,35 +1340,30 @@ namespace Parsek
             if (IsRewinding)
             {
                 reason = "Rewind already in progress";
-                ParsekLog.Verbose("Store", $"CanFastForward: blocked — {reason}");
                 return false;
             }
 
             if (rec == null || rec.Points.Count == 0)
             {
                 reason = "Recording not available";
-                ParsekLog.Verbose("Store", $"CanFastForward: blocked — {reason}");
                 return false;
             }
 
             if (isRecording)
             {
                 reason = "Stop recording before fast-forwarding";
-                ParsekLog.Verbose("Store", $"CanFastForward: blocked — {reason}");
                 return false;
             }
 
             if (HasPending)
             {
                 reason = "Merge or discard pending recording first";
-                ParsekLog.Verbose("Store", $"CanFastForward: blocked — {reason}");
                 return false;
             }
 
             if (HasPendingTree)
             {
                 reason = "Merge or discard pending tree first";
-                ParsekLog.Verbose("Store", $"CanFastForward: blocked — {reason}");
                 return false;
             }
 
@@ -1383,10 +1372,6 @@ namespace Parsek
             if (now >= rec.StartUT)
             {
                 reason = "Recording is not in the future";
-                ParsekLog.Verbose("Store",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "CanFastForward: blocked for '{0}' — {1} (now={2:F1} startUT={3:F1})",
-                        rec.VesselName, reason, now, rec.StartUT));
                 return false;
             }
 
