@@ -6247,7 +6247,8 @@ namespace Parsek
                 // Reverse: if marked as spawned but the real vessel no longer exists
                 // (recovered, destroyed, or cleared), reset spawn state so the recording
                 // can be spawned again via Real Spawn Control or natural playback.
-                if (!needsSpawn && (rec.VesselSpawned || rec.SpawnedVesselPersistentId != 0))
+                if (!needsSpawn && !rec.SpawnAbandoned
+                    && (rec.VesselSpawned || rec.SpawnedVesselPersistentId != 0))
                 {
                     uint checkPid = rec.SpawnedVesselPersistentId != 0
                         ? rec.SpawnedVesselPersistentId : rec.VesselPersistentId;

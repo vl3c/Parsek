@@ -244,7 +244,8 @@ namespace Parsek
                     rec.CollisionBlockCount++;
                     if (ShouldAbandonCollisionBlockedSpawn(rec.CollisionBlockCount, MaxCollisionBlocks))
                     {
-                        rec.VesselSpawned = true; // prevent further spawn attempts
+                        rec.VesselSpawned = true;   // prevent ShouldSpawnAtRecordingEnd from returning true
+                        rec.SpawnAbandoned = true;  // prevent vessel-gone check from resetting VesselSpawned
                         ParsekLog.Warn("Spawner",
                             $"Spawn ABANDONED for #{index} ({rec.VesselName}): collision-blocked for " +
                             $"{rec.CollisionBlockCount} consecutive frames by '{blockerName}' at {overlapDist:F0}m — " +

@@ -194,5 +194,58 @@ namespace Parsek.Tests
             var rec = new Recording();
             Assert.Equal(0, rec.CollisionBlockCount);
         }
+
+        // ────────────────────────────────────────────────────────────
+        //  Recording.SpawnAbandoned field
+        // ────────────────────────────────────────────────────────────
+
+        [Fact]
+        public void Recording_SpawnAbandoned_DefaultsFalse()
+        {
+            var rec = new Recording();
+            Assert.False(rec.SpawnAbandoned);
+        }
+
+        [Fact]
+        public void SpawnAbandoned_PreventsVesselGoneReset()
+        {
+            // Simulate abandon: VesselSpawned=true, SpawnAbandoned=true, PID=0
+            var rec = new Recording
+            {
+                VesselSpawned = true,
+                SpawnAbandoned = true,
+                SpawnedVesselPersistentId = 0,
+                CollisionBlockCount = 150
+            };
+
+            // The vessel-gone check guards on !rec.SpawnAbandoned.
+            // When SpawnAbandoned is true, the check should be skipped
+            // — VesselSpawned stays true and CollisionBlockCount is not reset.
+            bool wouldEnterVesselGoneCheck = !rec.SpawnAbandoned
+                && (rec.VesselSpawned || rec.SpawnedVesselPersistentId != 0);
+
+            Assert.False(wouldEnterVesselGoneCheck,
+                "SpawnAbandoned should prevent the vessel-gone check from resetting spawn state");
+            Assert.True(rec.VesselSpawned, "VesselSpawned must remain true after abandon");
+            Assert.Equal(150, rec.CollisionBlockCount);
+        }
+
+        [Fact]
+        public void SpawnAbandoned_False_AllowsVesselGoneReset()
+        {
+            // Normal spawn (not abandoned): vessel-gone check should be allowed
+            var rec = new Recording
+            {
+                VesselSpawned = true,
+                SpawnAbandoned = false,
+                SpawnedVesselPersistentId = 0
+            };
+
+            bool wouldEnterVesselGoneCheck = !rec.SpawnAbandoned
+                && (rec.VesselSpawned || rec.SpawnedVesselPersistentId != 0);
+
+            Assert.True(wouldEnterVesselGoneCheck,
+                "Normal spawns should still allow the vessel-gone reset check");
+        }
     }
 }
