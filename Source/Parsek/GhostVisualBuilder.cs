@@ -918,13 +918,15 @@ namespace Parsek
 
         /// <summary>
         /// Strip KSP FX controller components from cloned particle system GameObjects.
-        /// KSPParticleEmitter.Update() overwrites renderer materials, colors, and renderMode
-        /// on cloned particle systems, producing colored bubble artifacts (bug #105).
-        /// ModelMultiParticleFX/ModelParticleFX can re-initialize emitters via the effect system.
+        /// KSPParticleEmitter is KEPT alive (it handles material setup and particle creation)
+        /// but set to emit=false initially. It is collected into kspEmitterSink for later
+        /// control via reflection in SetEngineEmission/SetRcsEmission.
+        /// Unity's emission module is disabled separately (in ConfigureGhostEngineParticleSystems)
+        /// to prevent Unity from creating its own material-less "bubble" particles.
         /// SmokeTrailControl modifies material color every frame based on atmospheric density.
         /// FXPrefab registers particles with FloatingOrigin — pollutes global state on ghosts.
         /// </summary>
-        private static void StripKspFxControllers(GameObject fxClone)
+        private static void StripKspFxControllers(GameObject fxClone, List<MonoBehaviour> kspEmitterSink)
         {
             if (fxClone == null) return;
 
@@ -936,19 +938,20 @@ namespace Parsek
                 switch (typeName)
                 {
                     case "KSPParticleEmitter":
-                    case "ModelMultiParticleFX":
-                    case "ModelParticleFX":
+                        // Set emit=false so KSP doesn't create particles until
+                        // SetEngineEmission/SetRcsEmission enables it.
+                        var emitField = behaviours[i].GetType().GetField("emit");
+                        if (emitField != null)
+                            emitField.SetValue(behaviours[i], false);
+                        kspEmitterSink?.Add(behaviours[i]);
+                        ParsekLog.Verbose("GhostVisual",
+                            $"Captured KSPParticleEmitter on '{fxClone.name}' (emit=false)");
+                        break;
                     case "SmokeTrailControl":
                     case "FXPrefab":
                         ParsekLog.Verbose("GhostVisual",
                             $"Stripped {typeName} from '{fxClone.name}'");
                         Object.Destroy(behaviours[i]);
-                        break;
-                    default:
-                        // Diagnostic: log surviving MonoBehaviours to confirm what's on cloned FX objects.
-                        // Remove this default case after in-game verification.
-                        ParsekLog.Verbose("GhostVisual",
-                            $"Kept {typeName} on '{fxClone.name}'");
                         break;
                 }
             }
@@ -972,9 +975,13 @@ namespace Parsek
                 main.playOnAwake = false;
                 main.prewarm = false;
 
+                // Permanently disable Unity's emission module — all particle creation
+                // is handled by KSPParticleEmitter.EmitParticle(). Leaving emission.enabled=true
+                // causes Unity to create its own particles using main.startSize and
+                // ParticleSystemRenderer.material, which are never set from KSP values,
+                // producing huge material-less "bubble" artifacts (bug #105).
                 var emission = ps.emission;
-                emission.enabled = true;
-                emission.rateOverTimeMultiplier = 0f;
+                emission.enabled = false;
 
                 ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                 ps.Clear(true);
@@ -2340,7 +2347,7 @@ namespace Parsek
                         fxClone.transform.localRotation = legacyLocalRot;
                         fxClone.transform.localScale = child.localScale;
 
-                        StripKspFxControllers(fxClone);
+                        StripKspFxControllers(fxClone, info.kspEmitters);
 
                         int addedSystems = ConfigureGhostEngineParticleSystems(fxClone, info.particleSystems);
                         if (addedSystems > 0)
@@ -2368,7 +2375,7 @@ namespace Parsek
                     fxClone.transform.localRotation = child.localRotation;
                     fxClone.transform.localScale = child.localScale;
 
-                    StripKspFxControllers(fxClone);
+                    StripKspFxControllers(fxClone, info.kspEmitters);
 
                     int addedSystems = ConfigureGhostEngineParticleSystems(fxClone, info.particleSystems);
                     if (addedSystems > 0)
@@ -2434,7 +2441,7 @@ namespace Parsek
                             fxInstance.transform.localPosition = mmpLocalPos;
                             fxInstance.transform.localRotation = mmpLocalRot;
 
-                            StripKspFxControllers(fxInstance);
+                            StripKspFxControllers(fxInstance, info.kspEmitters);
 
                             int addedSystems = ConfigureGhostEngineParticleSystems(fxInstance, info.particleSystems);
                             if (addedSystems > 0)
@@ -2522,7 +2529,7 @@ namespace Parsek
                     if (hasLocalRot)
                         fxInstance.transform.localRotation = localRot;
 
-                    StripKspFxControllers(fxInstance);
+                    StripKspFxControllers(fxInstance, info.kspEmitters);
 
                     if (isRapierWhiteFlame)
                     {
@@ -3378,7 +3385,7 @@ namespace Parsek
                                 fxInstance.transform.localRotation = fxDefinitions[f].localRotation;
                                 fxInstance.transform.localScale = fxDefinitions[f].localScale;
 
-                                StripKspFxControllers(fxInstance);
+                                StripKspFxControllers(fxInstance, info.kspEmitters);
 
                                 // Configure ALL particle systems in the FX hierarchy (not just the first).
                                 // KSP RCS FX models have multiple child systems (plume + glow/smoke).
@@ -3392,9 +3399,10 @@ namespace Parsek
                                     main.playOnAwake = false;
                                     main.prewarm = false;
 
+                                    // Permanently disable Unity's emission module — all particle
+                                    // creation is handled by KSPParticleEmitter (bug #105 fix).
                                     var emission = ps.emission;
-                                    emission.enabled = true;
-                                    emission.rateOverTimeMultiplier = 0;
+                                    emission.enabled = false;
                                     ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                                     ps.Clear(true);
 
