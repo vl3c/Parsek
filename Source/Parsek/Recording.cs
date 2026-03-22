@@ -219,5 +219,30 @@ namespace Parsek
                 Controllers = new List<ControllerInfo>(source.Controllers);
             IsDebris = source.IsDebris;
         }
+
+        /// <summary>
+        /// Resolves KSP localization keys (e.g., "#autoLOC_501220") to human-readable text
+        /// via KSP.Localization.Localizer. Returns the input unchanged if it is not a
+        /// localization key or if the Localizer is unavailable (e.g., unit tests).
+        /// </summary>
+        internal static string ResolveLocalizedName(string name)
+        {
+            if (string.IsNullOrEmpty(name) || name[0] != '#')
+                return name;
+            try
+            {
+                string resolved = KSP.Localization.Localizer.Format(name);
+                if (!string.IsNullOrEmpty(resolved) && resolved != name)
+                {
+                    ParsekLog.Info("Recording", $"Resolved localized name: '{name}' -> '{resolved}'");
+                    return resolved;
+                }
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Verbose("Recording", $"Localizer unavailable for '{name}': {ex.GetType().Name}");
+            }
+            return name;
+        }
     }
 }

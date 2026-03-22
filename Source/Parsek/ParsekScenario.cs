@@ -1283,7 +1283,7 @@ namespace Parsek
                 var recNode = recNodes[r];
                 var rec = new Recording
                 {
-                    VesselName = recNode.GetValue("vesselName") ?? "Unknown"
+                    VesselName = Recording.ResolveLocalizedName(recNode.GetValue("vesselName") ?? "Unknown")
                 };
                 LoadRecordingMetadata(recNode, rec);
 
@@ -1787,7 +1787,11 @@ namespace Parsek
             // UI grouping tags (multi-group membership, backward compat with single value)
             string[] groups = recNode.GetValues("recordingGroup");
             if (groups != null && groups.Length > 0)
+            {
+                for (int g = 0; g < groups.Length; g++)
+                    groups[g] = Recording.ResolveLocalizedName(groups[g]);
                 rec.RecordingGroups = new List<string>(groups);
+            }
 
             // Atmosphere segment metadata
             rec.SegmentPhase = recNode.GetValue("segmentPhase");

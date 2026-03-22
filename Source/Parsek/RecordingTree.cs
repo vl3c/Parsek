@@ -81,7 +81,7 @@ namespace Parsek
 
             var tree = new RecordingTree();
             tree.Id = treeNode.GetValue("id") ?? "";
-            tree.TreeName = treeNode.GetValue("treeName") ?? "";
+            tree.TreeName = Recording.ResolveLocalizedName(treeNode.GetValue("treeName") ?? "");
             tree.RootRecordingId = treeNode.GetValue("rootRecordingId") ?? "";
 
             tree.ActiveRecordingId = treeNode.GetValue("activeRecordingId");
@@ -326,7 +326,7 @@ namespace Parsek
             if (!string.IsNullOrEmpty(id))
                 rec.RecordingId = id;
 
-            rec.VesselName = recNode.GetValue("vesselName") ?? "";
+            rec.VesselName = Recording.ResolveLocalizedName(recNode.GetValue("vesselName") ?? "");
             rec.TreeId = recNode.GetValue("treeId");
 
             uint vesselPid;
@@ -605,7 +605,11 @@ namespace Parsek
             // UI grouping tags (multi-group membership, backward compat with single value)
             string[] recGroups = recNode.GetValues("recordingGroup");
             if (recGroups != null && recGroups.Length > 0)
+            {
+                for (int g = 0; g < recGroups.Length; g++)
+                    recGroups[g] = Recording.ResolveLocalizedName(recGroups[g]);
                 rec.RecordingGroups = new List<string>(recGroups);
+            }
 
             // Controller info (v6+)
             ConfigNode[] ctrlNodes = recNode.GetNodes("CONTROLLER");
