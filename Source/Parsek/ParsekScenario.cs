@@ -373,7 +373,8 @@ namespace Parsek
                     {
                         var flightState = HighLogic.CurrentGame?.flightState;
                         if (flightState != null)
-                            StripOrphanedSpawnedVessels(flightState.protoVessels, rewindSpawnedNames);
+                            StripOrphanedSpawnedVessels(flightState.protoVessels, rewindSpawnedNames,
+                                skipPrelaunch: false);
                     }
 
                     // Set budgetDeductionEpoch BEFORE scheduling coroutine
@@ -499,7 +500,8 @@ namespace Parsek
                 {
                     var flightState = HighLogic.CurrentGame?.flightState;
                     if (flightState != null)
-                        StripOrphanedSpawnedVessels(flightState.protoVessels, spawnedNames);
+                        StripOrphanedSpawnedVessels(flightState.protoVessels, spawnedNames,
+                            skipPrelaunch: true);
                 }
 
                 // Then restore from saved tree nodes (present on scene change, absent on revert)
@@ -1468,9 +1470,13 @@ namespace Parsek
         /// Called during revert/rewind to remove orphaned spawned vessels before they contaminate
         /// the next launch quicksave. Uses name-based matching because ProtoVessel doesn't expose
         /// vessel persistentId directly.
+        /// <param name="skipPrelaunch">When true (KSP Revert), PRELAUNCH vessels are kept —
+        /// they are the user's launch vessel, not spawned vessels. When false (Parsek Rewind),
+        /// all matching vessels are stripped — a PRELAUNCH vessel from a later launch is
+        /// incompatible with the earlier game state being restored.</param>
         /// </summary>
         internal static int StripOrphanedSpawnedVessels(
-            List<ProtoVessel> protoVessels, HashSet<string> spawnedNames)
+            List<ProtoVessel> protoVessels, HashSet<string> spawnedNames, bool skipPrelaunch)
         {
             if (protoVessels == null || spawnedNames == null || spawnedNames.Count == 0)
                 return 0;
@@ -1482,13 +1488,13 @@ namespace Parsek
                 if (!spawnedNames.Contains(pv.vesselName))
                     continue;
 
-                // Skip PRELAUNCH vessels — these are the user's launch vessel on the pad,
-                // not Parsek-spawned vessels. Spawned vessels have the situation from the
-                // recording's end-state (LANDED, ORBITING, etc.), never PRELAUNCH.
-                if (pv.situation == Vessel.Situations.PRELAUNCH)
+                // On KSP Revert, skip PRELAUNCH vessels — these are the user's launch
+                // vessel on the pad. On Parsek Rewind, strip them too — a PRELAUNCH
+                // vessel from a future launch is incompatible with the rewound state.
+                if (skipPrelaunch && pv.situation == Vessel.Situations.PRELAUNCH)
                 {
                     ParsekLog.Verbose("Scenario",
-                        $"Skipping PRELAUNCH vessel '{pv.vesselName}' (not a spawned vessel)");
+                        $"Skipping PRELAUNCH vessel '{pv.vesselName}' (revert — protecting launch vessel)");
                     continue;
                 }
 
