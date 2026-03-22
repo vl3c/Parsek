@@ -2549,7 +2549,11 @@ namespace Parsek
                 }
             }
 
-            // 9. Create BackgroundRecorder
+            // 9. Set ActiveRecordingId BEFORE RebuildBackgroundMap so the continuation
+            // is excluded from BackgroundMap (it's the active vessel, not a background one).
+            activeTree.ActiveRecordingId = contRecId;
+
+            // Create BackgroundRecorder
             activeTree.RebuildBackgroundMap();
             backgroundRecorder = new BackgroundRecorder(activeTree);
             Patches.PhysicsFramePatch.BackgroundRecorderInstance = backgroundRecorder;
@@ -2584,7 +2588,6 @@ namespace Parsek
                 StopContinuation("tree promotion");
 
             // 12. Start new FlightRecorder for continuation
-            activeTree.ActiveRecordingId = contRecId;
             recorder = new FlightRecorder();
             recorder.ActiveTree = activeTree;
             recorder.StartRecording(isPromotion: true);
