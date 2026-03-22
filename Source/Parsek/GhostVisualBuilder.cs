@@ -1008,13 +1008,15 @@ namespace Parsek
                 main.playOnAwake = false;
                 main.prewarm = false;
 
-                // Permanently disable Unity's emission module — all particle creation
-                // is handled by KSPParticleEmitter.EmitParticle(). Leaving emission.enabled=true
-                // causes Unity to create its own particles using main.startSize and
-                // ParticleSystemRenderer.material, which are never set from KSP values,
-                // producing huge material-less "bubble" artifacts (bug #105).
+                // Only disable Unity's emission module when KSPParticleEmitter is present
+                // on this FX object — KSPParticleEmitter handles particle creation via
+                // EmitParticle(), so Unity's emission produces duplicate "bubble" artifacts
+                // (bug #105). Smoke trail FX (fx_smokeTrail_*) have NO KSPParticleEmitter
+                // and rely on Unity's emission module — disabling it kills all smoke.
+                bool hasKspEmitter = fxInstance.GetComponent("KSPParticleEmitter") != null;
                 var emission = ps.emission;
-                emission.enabled = false;
+                if (hasKspEmitter)
+                    emission.enabled = false;
 
                 ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                 ps.Clear(true);
@@ -3432,10 +3434,12 @@ namespace Parsek
                                     main.playOnAwake = false;
                                     main.prewarm = false;
 
-                                    // Permanently disable Unity's emission module — all particle
-                                    // creation is handled by KSPParticleEmitter (bug #105 fix).
+                                    // Only disable Unity emission when KSPParticleEmitter is present
+                                    // (same logic as engine FX — smoke FX need Unity emission).
+                                    bool hasKspEmitter = fxInstance.GetComponent("KSPParticleEmitter") != null;
                                     var emission = ps.emission;
-                                    emission.enabled = false;
+                                    if (hasKspEmitter)
+                                        emission.enabled = false;
                                     ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                                     ps.Clear(true);
 
