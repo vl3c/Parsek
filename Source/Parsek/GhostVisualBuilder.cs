@@ -916,6 +916,53 @@ namespace Parsek
                 $"sourceToFx=({sourceToFx}) parentToFx=({parentToFx})", 60.0);
         }
 
+        /// <summary>
+        /// Strip KSP FX controller components from cloned particle system GameObjects.
+        /// KSPParticleEmitter is KEPT alive (it handles material setup and particle creation)
+        /// but set to emit=false initially. It is collected into kspEmitterSink for later
+        /// control via reflection in SetEngineEmission/SetRcsEmission.
+        /// Unity's emission module is disabled separately (in ConfigureGhostEngineParticleSystems)
+        /// to prevent Unity from creating its own material-less "bubble" particles.
+        /// SmokeTrailControl modifies material color every frame based on atmospheric density.
+        /// FXPrefab registers particles with FloatingOrigin — pollutes global state on ghosts.
+        /// </summary>
+        private static void StripKspFxControllers(GameObject fxClone, List<KspEmitterRef> kspEmitterSink)
+        {
+            if (fxClone == null) return;
+
+            MonoBehaviour[] behaviours = fxClone.GetComponentsInChildren<MonoBehaviour>(true);
+            for (int i = 0; i < behaviours.Length; i++)
+            {
+                if (behaviours[i] == null) continue;
+                string typeName = behaviours[i].GetType().Name;
+                switch (typeName)
+                {
+                    case "KSPParticleEmitter":
+                        // Cache FieldInfo at capture time to avoid per-frame reflection in
+                        // SetKspEmittersEnabled (called from SetEngineEmission/SetRcsEmission).
+                        var emitField = behaviours[i].GetType().GetField("emit");
+                        if (emitField != null)
+                        {
+                            emitField.SetValue(behaviours[i], false);
+                            kspEmitterSink?.Add(new KspEmitterRef
+                            {
+                                emitter = behaviours[i],
+                                emitField = emitField
+                            });
+                        }
+                        ParsekLog.Verbose("GhostVisual",
+                            $"Captured KSPParticleEmitter on '{fxClone.name}' (emit=false)");
+                        break;
+                    case "SmokeTrailControl":
+                    case "FXPrefab":
+                        ParsekLog.Verbose("GhostVisual",
+                            $"Stripped {typeName} from '{fxClone.name}'");
+                        Object.Destroy(behaviours[i]);
+                        break;
+                }
+            }
+        }
+
         private static int ConfigureGhostEngineParticleSystems(
             GameObject fxInstance, List<ParticleSystem> sink)
         {
@@ -934,9 +981,13 @@ namespace Parsek
                 main.playOnAwake = false;
                 main.prewarm = false;
 
+                // Permanently disable Unity's emission module — all particle creation
+                // is handled by KSPParticleEmitter.EmitParticle(). Leaving emission.enabled=true
+                // causes Unity to create its own particles using main.startSize and
+                // ParticleSystemRenderer.material, which are never set from KSP values,
+                // producing huge material-less "bubble" artifacts (bug #105).
                 var emission = ps.emission;
-                emission.enabled = true;
-                emission.rateOverTimeMultiplier = 0f;
+                emission.enabled = false;
 
                 ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                 ps.Clear(true);
@@ -2302,9 +2353,7 @@ namespace Parsek
                         fxClone.transform.localRotation = legacyLocalRot;
                         fxClone.transform.localScale = child.localScale;
 
-                        var smokeTrail = fxClone.GetComponent("SmokeTrailControl");
-                        if (smokeTrail != null)
-                            Object.Destroy(smokeTrail);
+                        StripKspFxControllers(fxClone, info.kspEmitters);
 
                         int addedSystems = ConfigureGhostEngineParticleSystems(fxClone, info.particleSystems);
                         if (addedSystems > 0)
@@ -2332,9 +2381,7 @@ namespace Parsek
                     fxClone.transform.localRotation = child.localRotation;
                     fxClone.transform.localScale = child.localScale;
 
-                    var smokeTrail = fxClone.GetComponent("SmokeTrailControl");
-                    if (smokeTrail != null)
-                        Object.Destroy(smokeTrail);
+                    StripKspFxControllers(fxClone, info.kspEmitters);
 
                     int addedSystems = ConfigureGhostEngineParticleSystems(fxClone, info.particleSystems);
                     if (addedSystems > 0)
@@ -2399,6 +2446,8 @@ namespace Parsek
                             fxInstance.transform.SetParent(ghostFxParent, false);
                             fxInstance.transform.localPosition = mmpLocalPos;
                             fxInstance.transform.localRotation = mmpLocalRot;
+
+                            StripKspFxControllers(fxInstance, info.kspEmitters);
 
                             int addedSystems = ConfigureGhostEngineParticleSystems(fxInstance, info.particleSystems);
                             if (addedSystems > 0)
@@ -2498,9 +2547,7 @@ namespace Parsek
                         }
                     }
 
-                    var smokeTrail = fxInstance.GetComponent("SmokeTrailControl");
-                    if (smokeTrail != null)
-                        Object.Destroy(smokeTrail);
+                    StripKspFxControllers(fxInstance, info.kspEmitters);
 
                     int addedSystems = ConfigureGhostEngineParticleSystems(fxInstance, info.particleSystems);
                     if (addedSystems > 0)
@@ -3344,6 +3391,8 @@ namespace Parsek
                                 fxInstance.transform.localRotation = fxDefinitions[f].localRotation;
                                 fxInstance.transform.localScale = fxDefinitions[f].localScale;
 
+                                StripKspFxControllers(fxInstance, info.kspEmitters);
+
                                 // Configure ALL particle systems in the FX hierarchy (not just the first).
                                 // KSP RCS FX models have multiple child systems (plume + glow/smoke).
                                 // Using singular GetComponentInChildren only stopped the first one —
@@ -3356,9 +3405,10 @@ namespace Parsek
                                     main.playOnAwake = false;
                                     main.prewarm = false;
 
+                                    // Permanently disable Unity's emission module — all particle
+                                    // creation is handled by KSPParticleEmitter (bug #105 fix).
                                     var emission = ps.emission;
-                                    emission.enabled = true;
-                                    emission.rateOverTimeMultiplier = 0;
+                                    emission.enabled = false;
                                     ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                                     ps.Clear(true);
 
