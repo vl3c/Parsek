@@ -233,10 +233,21 @@ namespace Parsek
             // Register a one-time hook to reset session state when returning to main menu.
             // This prevents stale in-memory recordings from leaking into a new save
             // (e.g., deleting a career and creating a new one with the same name).
+            // Wrapped in try-catch: KSP's EvtDelegate constructor can throw
+            // NullReferenceException during early scene loads when GameEvents
+            // internals aren't fully initialized.
             if (!mainMenuHookRegistered)
             {
-                GameEvents.onGameSceneLoadRequested.Add(OnMainMenuTransition);
-                mainMenuHookRegistered = true;
+                try
+                {
+                    GameEvents.onGameSceneLoadRequested.Add(OnMainMenuTransition);
+                    mainMenuHookRegistered = true;
+                }
+                catch (System.NullReferenceException)
+                {
+                    ParsekLog.Warn("Scenario",
+                        "Failed to register main menu hook (GameEvents not ready) — will retry on next OnLoad");
+                }
             }
 
             // Detect loading a different save game (not a revert)
