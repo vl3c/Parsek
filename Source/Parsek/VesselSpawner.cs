@@ -13,6 +13,13 @@ namespace Parsek
         // Proximity offset removed — spawn collision detection now uses bounding box
         // overlap check via SpawnCollisionDetector (same system as chain-tip spawns).
 
+        /// <summary>
+        /// Maximum consecutive collision-blocked frames before abandoning spawn.
+        /// ~2.5 seconds at 60fps. After this many frames the spawn is abandoned
+        /// to prevent infinite retry loops (bug #110).
+        /// </summary>
+        internal const int MaxCollisionBlocks = 150;
+
         public static ConfigNode TryBackupSnapshot(Vessel vessel)
         {
             if (vessel == null) return null;
@@ -234,12 +241,28 @@ namespace Parsek
                     SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(spawnPos, spawnBounds, 5f);
                 if (overlap)
                 {
-                    ParsekLog.Info("Spawner",
-                        $"Spawn blocked for #{index} ({rec.VesselName}): overlaps '{blockerName}' at {overlapDist:F0}m — " +
-                        $"will retry next frame");
+                    rec.CollisionBlockCount++;
+                    if (ShouldAbandonCollisionBlockedSpawn(rec.CollisionBlockCount, MaxCollisionBlocks))
+                    {
+                        rec.VesselSpawned = true; // prevent further spawn attempts
+                        ParsekLog.Warn("Spawner",
+                            $"Spawn ABANDONED for #{index} ({rec.VesselName}): collision-blocked for " +
+                            $"{rec.CollisionBlockCount} consecutive frames by '{blockerName}' at {overlapDist:F0}m — " +
+                            $"giving up (max={MaxCollisionBlocks})");
+                    }
+                    else
+                    {
+                        ParsekLog.VerboseRateLimited("Spawner",
+                            "collision-block-" + index,
+                            $"Spawn blocked for #{index} ({rec.VesselName}): overlaps '{blockerName}' at {overlapDist:F0}m — " +
+                            $"will retry next frame (block={rec.CollisionBlockCount}/{MaxCollisionBlocks})");
+                    }
                     return;
                 }
             }
+
+            // Reset collision block counter on successful spawn path
+            rec.CollisionBlockCount = 0;
 
             // Find nearest vessel for spawn context logging
             double closestDist = double.MaxValue;
@@ -269,6 +292,15 @@ namespace Parsek
                 else
                     ParsekLog.Warn("Spawner", $"Vessel spawn failed for recording #{index} ({rec.VesselName}) — will retry (attempt {rec.SpawnAttempts}/{maxSpawnAttempts})");
             }
+        }
+
+        /// <summary>
+        /// Pure decision: should we abandon a collision-blocked spawn?
+        /// Returns true when the collision block count has reached or exceeded the maximum.
+        /// </summary>
+        internal static bool ShouldAbandonCollisionBlockedSpawn(int collisionBlockCount, int maxBlocks)
+        {
+            return collisionBlockCount >= maxBlocks;
         }
 
         internal static HashSet<string> BuildExcludeCrewSet(Recording rec)

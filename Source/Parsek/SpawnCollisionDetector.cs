@@ -313,8 +313,9 @@ namespace Parsek
                         blockerName = other.vesselName;
                     }
 
-                    ParsekLog.Info(Tag,
-                        $"Spawn blocked: overlaps with {other.vesselName} at {dist.ToString("F1", IC)}m");
+                    ParsekLog.VerboseRateLimited(Tag,
+                        "overlap-" + other.persistentId,
+                        $"Spawn overlaps with {other.vesselName} (pid={other.persistentId}) at {dist.ToString("F1", IC)}m");
                 }
                 else
                 {

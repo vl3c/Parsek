@@ -33,6 +33,7 @@ namespace Parsek
         public bool SpawnBlocked;
         public double BlockedSinceUT;
         public float BlockedInitialDistance;  // distance to blocker when first blocked
+        public bool WalkbackExhausted;        // true after walkback scanned entire trajectory with no valid position
 
         public GhostChain()
         {

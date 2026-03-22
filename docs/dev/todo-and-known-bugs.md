@@ -1243,19 +1243,23 @@ Likely cause: `CheckEngineTransition` may not detect the `EngineIgnited → fals
 
 After a second Rewind, `CleanupOrphanedSpawnedVessels` does not run, leaving a previously-spawned vessel in the scene at the spawn coordinates. The first Rewind correctly recovers the old spawned vessel, but the second one skips cleanup entirely. This leaves a stale vessel that blocks future spawns at that location.
 
+**Root cause:** After a rewind, the rewind path in `OnLoad` sets `PendingCleanupPids`/`PendingCleanupNames`, then `ResetAllPlaybackState` zeros all spawn tracking. When the false-positive revert path fires on the subsequent SpaceCenter-to-Flight transition, `CollectSpawnedVesselInfo()` returns empty (PIDs are zero) and overwrites the rewind data with null. `OnFlightReady` then sees null and skips cleanup.
+
+**Fix:** Added a guard in the revert path: if `PendingCleanupPids` or `PendingCleanupNames` are already set, skip collection and keep the existing data. Also changed the flightState strip to use `RecordingStore.PendingCleanupNames` (the authoritative source) instead of the local variable. Added entry/skip logging to `CleanupOrphanedSpawnedVessels` and `OnFlightReady`.
+
 **Priority:** High
 
-**Status:** Open
+**Status:** Fixed
 
 ## 110. Spawn collision retry has no limit — infinite loop on permanent overlap
 
 When a spawn is permanently blocked by an immovable vessel (e.g., a landed spawned vessel from a previous cycle that wasn't cleaned up), the spawn retry loop runs every frame indefinitely (~8ms per retry). In one test session this produced 6,270 retries over 27 seconds, flooding ~24,000 lines into KSP.log until the user exited to the main menu. There is no retry limit, timeout, or backoff.
 
-**Fix approach:** Add a maximum retry count (e.g., 60 retries = ~1 second at 60fps). After exhausting retries, log a warning and either skip the spawn or force-spawn at an offset position.
+**Fix:** Added `CollisionBlockCount` field to Recording and `MaxCollisionBlocks = 150` (~2.5s at 60fps) constant to VesselSpawner. After 150 consecutive collision-blocked frames, the spawn is abandoned (`VesselSpawned = true` prevents further attempts) and a WARN is logged. The per-frame overlap log was changed from `ParsekLog.Info` to `ParsekLog.VerboseRateLimited` to prevent log flooding. For chain-tip spawns, `WalkbackExhausted` flag on GhostChain prevents repeated trajectory re-scanning after walkback found no valid position. `SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels` per-vessel overlap log also rate-limited. SpawnWarningUI updated with "walkback exhausted" and "spawn abandoned" status text.
 
 **Priority:** High
 
-**Status:** Open
+**Status:** Fixed (branch `fix/spawn-cleanup`)
 
 ## 111. Auto-record fails for spawned vessels (settle timer not seeded on vessel switch)
 
@@ -1275,7 +1279,25 @@ After rewinding and re-entering flight, the Aeris 4A recording's spawn-at-end tr
 
 **Root cause:** `CleanupOrphanedSpawnedVessels` recovered one copy, but a second Aeris 4A was loaded from the save and occupied the spawn slot. The spawn system has no dedup against already-present matching vessels.
 
-**Priority:** Medium (consequence of #110 infinite retry)
+**Note:** The infinite retry loop symptom is resolved by bug #110's fix (spawn abandoned after 150 frames). The root cause of duplicate vessel presence remains a separate issue.
+
+**Priority:** Medium (consequence of #110 infinite retry — infinite loop symptom now resolved)
+
+**Status:** Open (root cause of duplicate vessel remains; infinite loop symptom resolved by #110 fix)
+
+## 113. Audit ghost FX for KSP-native component usage
+
+Bug #105 revealed that fighting KSP's own FX components (KSPParticleEmitter, ModelMultiParticleFX) produces artifacts. The fix — letting KSP handle particle creation natively and controlling `emit` via reflection — produced much better visuals than any approach that tried to replace KSP's emission with Unity's.
+
+Audit all ghost visual systems for similar opportunities to use KSP-native components instead of reimplementing or stripping them:
+- **Smoke trails**: currently strip `SmokeTrailControl` which fades smoke by atmospheric density. Could we keep it and let KSP handle density-based fading?
+- **Engine heat glow**: `FXModuleAnimateThrottle` animates engine heat materials. Ghost code reimplements this with `HeatGhostInfo`. Could we keep the stock module and drive it?
+- **RCS glow**: `FXModuleAnimateRCS` handles RCS nozzle glow. Same question.
+- **Other FX components**: check if any stripped components would produce better visuals if kept alive and controlled
+
+General principle: prefer toggling KSP's own components on/off via reflection over reimplementing their behavior. KSP's components handle edge cases (material setup, animation curves, density fading) that are hard to replicate correctly.
+
+**Priority:** Low — improvement opportunity, not a bug
 
 **Status:** Open
 

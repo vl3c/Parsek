@@ -70,6 +70,7 @@ namespace Parsek
         /// Active chain: "Ghosted -- spawns at UT={SpawnUT:F0}"
         /// Terminated chain: "Ghosted -- chain terminated"
         /// Blocked chain: "Spawn blocked -- waiting for clearance"
+        /// Walkback exhausted: "Spawn blocked -- walkback exhausted, manual placement required"
         /// </summary>
         internal static string FormatChainStatus(GhostChain chain, string vesselName)
         {
@@ -82,7 +83,11 @@ namespace Parsek
             string name = string.IsNullOrEmpty(vesselName) ? "(unknown)" : vesselName;
             string status;
 
-            if (chain.SpawnBlocked)
+            if (chain.SpawnBlocked && chain.WalkbackExhausted)
+            {
+                status = "Spawn blocked -- walkback exhausted, manual placement required";
+            }
+            else if (chain.SpawnBlocked)
             {
                 status = "Spawn blocked -- waiting for clearance";
             }
@@ -99,8 +104,8 @@ namespace Parsek
 
             ParsekLog.Verbose(Tag,
                 string.Format(IC,
-                    "FormatChainStatus: vessel={0} terminated={1} blocked={2} -> \"{3}\"",
-                    name, chain.IsTerminated, chain.SpawnBlocked, status));
+                    "FormatChainStatus: vessel={0} terminated={1} blocked={2} walkbackExhausted={3} -> \"{4}\"",
+                    name, chain.IsTerminated, chain.SpawnBlocked, chain.WalkbackExhausted, status));
 
             return status;
         }
@@ -111,16 +116,22 @@ namespace Parsek
 
         /// <summary>
         /// Pure: compute the floating label text for a ghost vessel.
-        /// Normal chain: "{vesselName}\nGhost -- spawns at UT={spawnUT:F0}"
-        /// Terminated:   "{vesselName}\nGhost -- chain terminated"
-        /// Blocked:      "{vesselName}\nGhost -- spawn blocked"
+        /// Normal chain:         "{vesselName}\nGhost -- spawns at UT={spawnUT:F0}"
+        /// Terminated:           "{vesselName}\nGhost -- chain terminated"
+        /// Blocked:              "{vesselName}\nGhost -- spawn blocked"
+        /// Walkback exhausted:   "{vesselName}\nGhost -- spawn abandoned"
         /// </summary>
-        internal static string ComputeGhostLabelText(string vesselName, double spawnUT, bool isTerminated, bool isBlocked)
+        internal static string ComputeGhostLabelText(string vesselName, double spawnUT,
+            bool isTerminated, bool isBlocked, bool isWalkbackExhausted = false)
         {
             string name = string.IsNullOrEmpty(vesselName) ? "(unknown)" : vesselName;
             string line2;
 
-            if (isBlocked)
+            if (isBlocked && isWalkbackExhausted)
+            {
+                line2 = "Ghost -- spawn abandoned";
+            }
+            else if (isBlocked)
             {
                 line2 = "Ghost -- spawn blocked";
             }
@@ -139,8 +150,8 @@ namespace Parsek
 
             ParsekLog.Verbose(Tag,
                 string.Format(IC,
-                    "ComputeGhostLabelText: vessel={0} spawnUT={1} terminated={2} blocked={3} -> \"{4}\"",
-                    name, spawnUT.ToString("F0", IC), isTerminated, isBlocked,
+                    "ComputeGhostLabelText: vessel={0} spawnUT={1} terminated={2} blocked={3} walkbackExhausted={4} -> \"{5}\"",
+                    name, spawnUT.ToString("F0", IC), isTerminated, isBlocked, isWalkbackExhausted,
                     label.Replace("\n", "\\n")));
 
             return label;

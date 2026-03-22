@@ -3970,6 +3970,11 @@ namespace Parsek
                 RecordingStore.PendingCleanupPids = null;
                 RecordingStore.PendingCleanupNames = null;
             }
+            else
+            {
+                ParsekLog.Verbose("Flight",
+                    "OnFlightReady: no pending cleanup data — skipping CleanupOrphanedSpawnedVessels");
+            }
 
             // Apply ghost soft cap settings from persisted game parameters
             var capSettings = ParsekSettings.Current;
@@ -5419,6 +5424,10 @@ namespace Parsek
         /// </summary>
         void CleanupOrphanedSpawnedVessels(HashSet<uint> pids, HashSet<string> names)
         {
+            ParsekLog.Info("Flight",
+                $"CleanupOrphanedSpawnedVessels: starting with " +
+                $"{pids?.Count ?? 0} pid(s), {names?.Count ?? 0} name(s), " +
+                $"{FlightGlobals.Vessels.Count} loaded vessel(s)");
             var activeVessel = FlightGlobals.ActiveVessel;
             uint activePid = activeVessel != null ? activeVessel.persistentId : 0;
             bool hasPids = pids != null && pids.Count > 0;
@@ -6246,6 +6255,7 @@ namespace Parsek
                     {
                         rec.VesselSpawned = false;
                         rec.SpawnedVesselPersistentId = 0;
+                        rec.CollisionBlockCount = 0;
                         Log($"Spawned vessel gone (pid={checkPid}) — reset spawn state for recording #{i} \"{rec.VesselName}\"");
                     }
                 }
@@ -9469,7 +9479,8 @@ namespace Parsek
                 string vesselName = info != null ? info.vesselName : "(unknown)";
 
                 string labelText = SpawnWarningUI.ComputeGhostLabelText(
-                    vesselName, chain.SpawnUT, chain.IsTerminated, chain.SpawnBlocked);
+                    vesselName, chain.SpawnUT, chain.IsTerminated, chain.SpawnBlocked,
+                    chain.WalkbackExhausted);
 
                 // Unity screen coordinates have Y=0 at bottom; GUI has Y=0 at top
                 float guiY = Screen.height - screenPos.y;
