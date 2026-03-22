@@ -779,9 +779,11 @@ Ghosts toggled SetActive(false)/SetActive(true) every frame in KSC and Flight sc
 
 Watch mode keeps the ghost visible at any distance (per the earlier fix to skip zone hiding for watched ghosts). But when the ghost exceeds ~120km from the active vessel, KSP's terrain is not loaded around the ghost's position, causing terrain disappearance and floating-point jitter.
 
-**Fix:** Watch mode now has a 2-second real-time grace period (`WatchModeZoneGraceSeconds`). After grace, if the ghost enters Beyond zone (>120km), Watch exits and the ghost hides normally.
+**Fix (original):** Watch mode had a 2-second real-time grace period (`WatchModeZoneGraceSeconds`). After grace, if the ghost entered Beyond zone (>120km), Watch exited and the ghost hid normally.
 
-**Status:** Fixed
+**Fix (superseded by #119):** The grace-period approach was wrong — ascending rockets naturally exceed 120km and the camera is at the ghost, so the user can see it fine. Replaced with a full zone-hide exemption for the watched ghost (see #119).
+
+**Status:** Superseded by #119
 
 ## 55. RELATIVE anchor triggers on debris and launch pad structures
 
@@ -1383,6 +1385,28 @@ Rewind stripped 8 orphaned spawned vessels from the save. Valentina was assigned
 **Fix:** Downgraded from `ParsekLog.Warn` to `ParsekLog.Verbose`. This is a benign retry path — not an error condition.
 
 **Priority:** Low
+
+**Status:** Fixed
+
+## 119. Watch mode exits when ghost exceeds 120km — camera is at the ghost
+
+During watch mode, zone distance is measured from the ghost to `FlightGlobals.ActiveVessel` (the pad vessel). A rocket ascending naturally exceeds 120km, but the camera is AT the ghost — the user can see it fine. The Beyond zone check (bug #54's grace-period approach) hid the ghost and exited watch mode after 2 seconds, which was wrong for any flight that climbs above 120km altitude.
+
+**Root cause:** Bug #54 introduced a 2-second grace period for the watched ghost in Beyond zone. After the grace period, `ExitWatchMode()` was called and the ghost was hidden. This was designed for the case where a ghost drifts away from the player, but it also triggers during normal ascent when the camera is right at the ghost the entire time.
+
+**Fix:** Replaced the grace-period logic with a full zone-hide exemption for the watched ghost. When `shouldHideMesh` is true and `isWatchedGhost` is true, `shouldHideMesh` is set to false and the ghost falls through to the visible-zone code path. The watched ghost is never hidden by zone distance. Also reset `watchStartTime = Time.time` in `TransferWatchToNextSegment` so logging timestamps are fresh after a chain transfer.
+
+**Priority:** High — watch mode was unusable for any suborbital or orbital flight
+
+**Status:** Fixed
+
+## 120. Capsule doesn't spawn after revert — PID dedup finds pad vessel instead (tree recordings)
+
+After revert, the quicksave restores the pre-launch vessel on the pad with the same PID as the recording's vessel. When the ghost reaches end-of-recording, `RealVesselExists(pid)` finds the pad vessel and skips spawning. The existing `ForceSpawnNewVessel` flag solves this for standalone recordings (set in `OnFlightReady`), but for TREE recordings the tree is still pending when `OnFlightReady` runs — it gets committed later via the merge dialog callback, so `ForceSpawnNewVessel` is never set.
+
+**Fix:** Added `MergeDialog.MarkForceSpawnOnTreeRecordings(tree, activePid)` — iterates tree recordings, sets `ForceSpawnNewVessel = true` on recordings where `VesselPersistentId == activePid && !VesselSpawned`. Called from: (1) single-leaf "Merge to Timeline" callback, (2) multi-vessel "Commit All" callback, (3) `OnFlightReady` pending tree path (belt-and-suspenders).
+
+**Priority:** High — prevents vessel spawn after revert in tree mode
 
 **Status:** Fixed
 

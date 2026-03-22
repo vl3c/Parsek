@@ -4006,6 +4006,12 @@ namespace Parsek
             if (RecordingStore.HasPendingTree)
             {
                 var pt = RecordingStore.PendingTree;
+                // Belt-and-suspenders: mark tree recordings for force-spawn before dialog.
+                // The merge dialog callbacks also call MarkForceSpawnOnTreeRecordings,
+                // but this covers the case where the tree is committed without a dialog
+                // (e.g., auto-merge setting, or future code paths).
+                if (activeVessel != null && activeVessel.persistentId != 0)
+                    MergeDialog.MarkForceSpawnOnTreeRecordings(pt, activeVessel.persistentId);
                 ParsekLog.Warn("Flight", $"Pending tree '{pt.TreeName}' reached OnFlightReady — showing tree merge dialog (fallback)");
                 MergeDialog.ShowTreeDialog(pt);
             }
@@ -8669,11 +8675,16 @@ namespace Parsek
 
             watchEndHoldUntilUT = -1;
 
+            // Reset watch start time so the zone-exemption logging starts fresh
+            // for the new segment (no stale elapsed time from the previous segment)
+            watchStartTime = Time.time;
+
             ParsekLog.Info("CameraFollow",
                 $"TransferWatch re-target: ghost #{nextIndex} \"{newName}\"" +
                 $" target='{segTarget.name}' pivotLocal=({segTarget.localPosition.x:F2},{segTarget.localPosition.y:F2},{segTarget.localPosition.z:F2})" +
                 $" ghostPos=({gs.ghost.transform.position.x:F1},{gs.ghost.transform.position.y:F1},{gs.ghost.transform.position.z:F1})" +
-                $" camDist={FlightCamera.fetch.Distance:F1}");
+                $" camDist={FlightCamera.fetch.Distance:F1}" +
+                $" watchStartTime={watchStartTime.ToString("F2", CultureInfo.InvariantCulture)}");
         }
 
         #endregion
@@ -8732,35 +8743,23 @@ namespace Parsek
                 GhostPlaybackLogic.GetZoneRenderingPolicy(zone);
 
             // Beyond zone: hide mesh for non-watched ghosts.
-            // Watched ghost gets a grace period: when Watch starts, the ghost may be near
-            // the player. As it flies away and crosses ~120km from the active vessel,
-            // terrain unloads and jitter occurs. Exit Watch after a 2s grace period so
-            // the camera has time to lock on before zone checks kick in. This also avoids
-            // the original bug where Watch on a chain segment already beyond 120km would
-            // exit instantly before the player saw anything.
+            // Watched ghost is NEVER hidden by zone distance — the camera is at the ghost,
+            // so the user can always see it regardless of distance from ActiveVessel.
+            // The old grace-period approach (bug #54) was wrong: it exited watch mode after
+            // 2 seconds, but ascending rockets naturally exceed 120km and the camera is
+            // right there watching them. Skip the hide entirely for the watched ghost.
+            if (shouldHideMesh && isWatchedGhost)
+            {
+                // Watched ghost is never hidden by zone — camera is at the ghost
+                shouldHideMesh = false;
+                ParsekLog.VerboseRateLimited("Zone", $"watched-zone-exempt-{recIdx}",
+                    $"Ghost #{recIdx} \"{rec.VesselName}\" beyond visual range " +
+                    $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m) but watched — exempt from zone hide",
+                    5.0);
+            }
+
             if (shouldHideMesh)
             {
-                if (isWatchedGhost)
-                {
-                    if (Time.time - watchStartTime > GhostPlaybackLogic.WatchModeZoneGraceSeconds)
-                    {
-                        ExitWatchMode();
-                        ParsekLog.Info("Zone",
-                            $"Watch exited: ghost #{recIdx} exceeded visual range " +
-                            $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m)");
-                        // Fall through to hide the ghost normally
-                    }
-                    else
-                    {
-                        // Grace period: keep watching, don't hide
-                        ParsekLog.VerboseRateLimited("Zone", $"watched-zone-{recIdx}",
-                            $"Ghost #{recIdx} \"{rec.VesselName}\" beyond visual range " +
-                            $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m) but watched (grace period) — keeping visible",
-                            5.0);
-                        return new ZoneRenderingResult { hiddenByZone = false, skipPartEvents = shouldSkipPartEvents };
-                    }
-                }
-
                 if (state != null && state.ghost != null && state.ghost.activeSelf)
                 {
                     state.ghost.SetActive(false);
