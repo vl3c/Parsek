@@ -1285,7 +1285,7 @@ Bug #105 revealed that fighting KSP's own FX components (KSPParticleEmitter, Mod
 
 Audit results:
 - **KSPParticleEmitter**: KEPT alive, controlled via `emit` reflection (bug #105 fix, already merged)
-- **SmokeTrailControl**: KEPT alive — MonoBehaviour that fades smoke by atmospheric density using `transform.position` + `FlightGlobals.getAtmDensity()`, both of which work on ghosts
+- **SmokeTrailControl**: STRIPPED — tested keeping alive but it sets material alpha to 0 on ghosts, making smoke invisible. Needs vessel context to work correctly
 - **ModelMultiParticlePersistFX / ModelParticleFX**: STRIPPED — EffectBehaviour subclasses that reference Host (Part), NRE without Part context
 - **FXPrefab**: STRIPPED — registers particles with FloatingOrigin, pollutes global state on ghosts
 - **FXModuleAnimateThrottle**: KEEP REIMPLEMENTATION — PartModule requiring Part/Vessel context. Current HeatGhostInfo animation sampling is correct: one-shot cached build cost, near-zero runtime (3-level quantized snaps), correct multi-instance disambiguation

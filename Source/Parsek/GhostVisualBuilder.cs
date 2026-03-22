@@ -923,8 +923,8 @@ namespace Parsek
         /// control via reflection in SetEngineEmission/SetRcsEmission.
         /// Unity's emission module is disabled separately (in ConfigureGhostEngineParticleSystems)
         /// to prevent Unity from creating its own material-less "bubble" particles.
-        /// SmokeTrailControl is KEPT alive — it fades smoke trail opacity by atmospheric density
-        /// using transform.position + FlightGlobals.getAtmDensity(), both of which work on ghosts.
+        /// SmokeTrailControl is STRIPPED — tested keeping alive (audit #113) but it sets material
+        /// alpha to 0 on ghosts, making smoke invisible. Needs vessel context to work correctly.
         /// ModelMultiParticlePersistFX/ModelParticleFX are EffectBehaviour subclasses that reference
         /// Host (the Part) — stripped because they NRE without Part context.
         /// FXPrefab registers particles with FloatingOrigin — pollutes global state on ghosts.
@@ -965,11 +965,12 @@ namespace Parsek
                             $"Captured KSPParticleEmitter on '{fxClone.name}' (emit=false)");
                         break;
                     case "SmokeTrailControl":
-                        // Kept alive — fades smoke by atmospheric density using
-                        // transform.position + FlightGlobals.getAtmDensity().
-                        // Both work on ghosts (valid world position, static API).
+                        // Stripped — tested keeping alive (audit #113) but it makes smoke
+                        // invisible on ghosts. SmokeTrailControl sets material alpha to 0
+                        // without valid vessel context.
                         ParsekLog.Verbose("GhostVisual",
-                            $"Kept SmokeTrailControl alive on '{fxClone.name}' (density-based smoke fading)");
+                            $"Stripped {typeName} from '{fxClone.name}'");
+                        Object.Destroy(behaviours[i]);
                         break;
                     case "ModelMultiParticlePersistFX":
                     case "ModelParticleFX":
