@@ -1151,3 +1151,19 @@ The user expects that after time-warping past all recording end times at KSC, th
 **Priority:** Medium — breaks the mental model that recordings produce real vessels regardless of which scene the player is in
 
 **Status:** Open
+
+## 100. Compress Launch / Countdown / Status columns in Recordings Manager
+
+The Recordings Manager has three columns that all describe where a recording sits in time: **Launch** (absolute UT), **Countdown** (T- until start), and **Status** (past/active/future + terminal state). These are redundant — at any given moment, only one piece of information is most relevant.
+
+**Option A — Single "State" column (most compact):** Display what's most relevant for the recording's temporal phase. Future: `T-2m 30s` (countdown *is* the state). Active: `Playing` or progress indicator. Past: `Landed` / `Orbiting` / `Recovered` (terminal state *is* the state). Color-code by phase (future=gray, active=green, past=yellow). Eliminates all three columns in favor of one.
+
+**Option B — Two columns ("Time" + "State"):** Time shows countdown if future, launch UT if past, blank if active. State shows terminal state for past, `Playing` for active, `Pending` for future.
+
+**Option C — Keep Launch, merge T- into Status:** Launch stays as an absolute reference (needed for rewind decisions). Status absorbs countdown: shows `T-2m 30s` when future, `Active` when playing, terminal state when past.
+
+Option A is the most aggressive compression. Option C is safer if users need the absolute launch time visible for rewind planning.
+
+**Priority:** Low — UI polish, no functional impact
+
+**Status:** Open
