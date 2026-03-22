@@ -1162,7 +1162,7 @@ The Recordings Manager has three columns that all describe where a recording sit
 
 **Option C — Keep Launch, merge T- into Status:** Launch stays as an absolute reference (needed for rewind decisions). Status absorbs countdown: shows `T-2m 30s` when future, `Active` when playing, terminal state when past.
 
-Option A is the most aggressive compression. Option C is safer if users need the absolute launch time visible for rewind planning.
+**Decision: Option C.** Keep Launch as an absolute reference for rewind planning. Merge Countdown into Status: show `T-2m 30s` when future, `Active` when playing, terminal state (`Landed`/`Orbiting`/`Recovered`) when past. Removes one column, keeps the information users need.
 
 **Priority:** Low — UI polish, no functional impact
 
