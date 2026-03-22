@@ -723,15 +723,13 @@ Player landed in water, EVA'd 3 kerbals from the pad vessel, but 2 of them disap
 
 **Status:** Open — needs investigation
 
-## 47. ParsekLog.TestSinkForTesting race condition (test infrastructure)
+## 47. ~~ParsekLog.TestSinkForTesting race condition (test infrastructure)~~
 
 xUnit eagerly instantiates test classes, so one class's constructor can overwrite `TestSinkForTesting` while another class's test method is running. Causes log assertion tests to be flaky.
 
-**Workaround applied:** ActionReplayTests converted most log assertions to behavioral assertions. Three remaining use a "local sink" pattern.
+**Fix applied:** All test override fields (`SuppressLogging`, `ClockOverrideForTesting`, `TestSinkForTesting`, `VerboseOverrideForTesting`) and `rateLimitStateByKey` marked `[ThreadStatic]` so each xUnit thread gets its own copy. No cross-thread interference.
 
-**Proper fix:** Make the test sink thread-local (`[ThreadStatic]`) or instance-scoped (`AsyncLocal<Action<string>>`). Apply in ParsekLog.cs, not individual test files.
-
-**Status:** Open — workaround in place
+**Status:** Fixed
 
 ## 48. ComputeBoundaryDiscontinuity hardcodes Kerbin radius
 
