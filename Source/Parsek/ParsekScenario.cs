@@ -171,9 +171,11 @@ namespace Parsek
         // Static flag: only load from save once per KSP session.
         // On revert, the launch quicksave has stale data — the in-memory
         // static list is the real source of truth within a session.
+        // Reset on main menu transition to prevent stale data leaking between saves.
         private static bool initialLoadDone = false;
         private static string lastSaveFolder = null;
         private static uint budgetDeductionEpoch = 0;
+        private static bool mainMenuHookRegistered = false;
 
         // Cached autoMerge setting — ParsekSettings.Current can be null during early
         // scene loads (OnLoad fires before GameParameters are available). This is set
@@ -220,6 +222,15 @@ namespace Parsek
             InputLockManager.RemoveControlLock("ParsekMergeDialog");
 
             var recordings = RecordingStore.CommittedRecordings;
+
+            // Register a one-time hook to reset session state when returning to main menu.
+            // This prevents stale in-memory recordings from leaking into a new save
+            // (e.g., deleting a career and creating a new one with the same name).
+            if (!mainMenuHookRegistered)
+            {
+                GameEvents.onGameSceneLoadRequested.Add(OnMainMenuTransition);
+                mainMenuHookRegistered = true;
+            }
 
             // Detect loading a different save game (not a revert)
             string currentSave = HighLogic.SaveFolder;
@@ -2502,6 +2513,21 @@ namespace Parsek
         }
 
         #endregion
+
+        /// <summary>
+        /// Resets session state when transitioning to main menu, preventing stale
+        /// in-memory recordings from leaking between saves with the same name.
+        /// </summary>
+        private static void OnMainMenuTransition(GameScenes newScene)
+        {
+            if (newScene == GameScenes.MAINMENU)
+            {
+                initialLoadDone = false;
+                lastSaveFolder = null;
+                ParsekLog.Info("Scenario",
+                    "Main menu transition — reset initialLoadDone to prevent stale data leak");
+            }
+        }
 
         public void OnDestroy()
         {
