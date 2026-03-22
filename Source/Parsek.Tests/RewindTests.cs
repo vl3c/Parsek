@@ -255,5 +255,65 @@ namespace Parsek.Tests
             // only Recovered/Destroyed are cleared as post-spawn lifecycle events
             Assert.Equal(TerminalState.Landed, rec.TerminalStateValue);
         }
+
+        [Fact]
+        public void CollectSpawnedVesselInfo_NoSpawnedRecordings_ReturnsEmpty()
+        {
+            var rec = new Recording { VesselName = "Rocket", SpawnedVesselPersistentId = 0 };
+            RecordingStore.CommittedRecordings.Add(rec);
+
+            var (pids, names) = RecordingStore.CollectSpawnedVesselInfo();
+
+            Assert.Empty(pids);
+            Assert.Empty(names);
+        }
+
+        [Fact]
+        public void CollectSpawnedVesselInfo_ReturnsNonZeroPidsAndNames()
+        {
+            RecordingStore.CommittedRecordings.Add(new Recording
+                { VesselName = "Rocket", SpawnedVesselPersistentId = 42 });
+            RecordingStore.CommittedRecordings.Add(new Recording
+                { VesselName = "Shuttle", SpawnedVesselPersistentId = 99 });
+
+            var (pids, names) = RecordingStore.CollectSpawnedVesselInfo();
+
+            Assert.Equal(2, pids.Count);
+            Assert.Contains(42u, pids);
+            Assert.Contains(99u, pids);
+            Assert.Equal(2, names.Count);
+            Assert.Contains("Rocket", names);
+            Assert.Contains("Shuttle", names);
+        }
+
+        [Fact]
+        public void CollectSpawnedVesselInfo_SkipsZeroPids()
+        {
+            RecordingStore.CommittedRecordings.Add(new Recording
+                { VesselName = "Rocket", SpawnedVesselPersistentId = 42 });
+            RecordingStore.CommittedRecordings.Add(new Recording
+                { VesselName = "Shuttle", SpawnedVesselPersistentId = 0 });
+
+            var (pids, names) = RecordingStore.CollectSpawnedVesselInfo();
+
+            Assert.Single(pids);
+            Assert.Contains(42u, pids);
+            Assert.Single(names);
+            Assert.Contains("Rocket", names);
+        }
+
+        [Fact]
+        public void CollectSpawnedVesselInfo_DeduplicatesSameName()
+        {
+            RecordingStore.CommittedRecordings.Add(new Recording
+                { VesselName = "Rocket", SpawnedVesselPersistentId = 42 });
+            RecordingStore.CommittedRecordings.Add(new Recording
+                { VesselName = "Rocket", SpawnedVesselPersistentId = 99 });
+
+            var (pids, names) = RecordingStore.CollectSpawnedVesselInfo();
+
+            Assert.Equal(2, pids.Count);
+            Assert.Single(names); // "Rocket" deduplicated
+        }
     }
 }
