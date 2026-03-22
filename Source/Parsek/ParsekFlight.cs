@@ -9649,6 +9649,46 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Fast-forwards to a recording's StartUT by advancing UT without epoch-shifting.
+        /// Unlike WarpToRecordingEnd (which epoch-shifts for Real Spawn Control),
+        /// this lets orbits propagate naturally — a regular instant time warp.
+        /// Keeps the current view (KSC stays KSC, flight stays on current vessel).
+        /// </summary>
+        internal void FastForwardToRecording(Recording rec)
+        {
+            if (rec == null)
+            {
+                ParsekLog.Warn("Flight", "FastForwardToRecording: null recording — aborted");
+                return;
+            }
+
+            double targetUT = rec.StartUT;
+            double currentUT = Planetarium.GetUniversalTime();
+
+            if (!TimeJumpManager.IsValidJump(currentUT, targetUT))
+            {
+                ParsekLog.Warn("Flight",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "FastForwardToRecording: invalid jump current={0:F1} target={1:F1} — aborted",
+                        currentUT, targetUT));
+                return;
+            }
+
+            ParsekLog.Info("Flight",
+                string.Format(CultureInfo.InvariantCulture,
+                    "FastForwardToRecording: jumping to UT={0:F1} for '{1}' (delta={2:F1}s)",
+                    targetUT, rec.VesselName, targetUT - currentUT));
+
+            TimeJumpManager.NotifyRecorder(recorder, currentUT, targetUT);
+            TimeJumpManager.ExecuteForwardJump(targetUT);
+
+            ParsekLog.ScreenMessage(
+                string.Format(CultureInfo.InvariantCulture,
+                    "Fast-forwarded to \"{0}\" ({1:F0}s)",
+                    rec.VesselName, targetUT - currentUT), 3f);
+        }
+
+        /// <summary>
         /// Warps to the earliest nearby spawn candidate's EndUT.
         /// </summary>
         internal void WarpToNextCraftSpawn()
