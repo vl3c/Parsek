@@ -1131,3 +1131,23 @@ Recordings currently capture entire flights as monolithic units. For effective l
 **Priority:** Medium — quality-of-life for players building complex multi-mission scenes
 
 **Status:** Open
+
+## 98. Deleting and recreating a save with the same name leaks old recordings
+
+`initialLoadDone` is a static bool that gates whether `OnLoad` clears and reloads recordings from the `.sfs` (initial load) or keeps in-memory state (revert/scene-change). A save-folder-change check at line 227 resets it when the save name differs. But deleting a career and creating a new one with the same name produces an identical `HighLogic.SaveFolder` — `initialLoadDone` stays `true`, so the new save inherits the old save's in-memory recordings. The `Parsek/Recordings/` sidecar files also persist on disk since KSP's save deletion doesn't know about the Parsek subdirectory.
+
+Fix options: (a) compare a fingerprint beyond just the folder name (e.g. save creation timestamp or recording count vs .sfs node count), or (b) reset `initialLoadDone` on main menu entry (`GameScenes.MAINMENU`), or (c) hash the .sfs RECORDING node IDs and compare against in-memory IDs.
+
+**Priority:** Low — only triggers when recreating a save with an identical name in the same KSP session
+
+**Status:** Fixed (commit d398cac — reset initialLoadDone on main menu transition)
+
+## 99. KSC view does not spawn real vessels when ghost timelines complete
+
+At SpaceCenter, ghost playback is visual-only (KSC ghosts rendered by `ParsekKSC`). When a ghost reaches its recording end time, the ghost mesh despawns but no real vessel is spawned. In Flight scene, `UpdateTimelinePlayback` triggers `VesselSpawner.SpawnOrRecoverIfTooClose` when a ghost exits range — this has no equivalent at KSC.
+
+The user expects that after time-warping past all recording end times at KSC, the runway should show the recorded vessels as real spawned vessels (visible in Tracking Station, switchable, persistent). Instead they simply vanish.
+
+**Priority:** Medium — breaks the mental model that recordings produce real vessels regardless of which scene the player is in
+
+**Status:** Open
