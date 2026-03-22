@@ -1221,4 +1221,14 @@ When watching a ghost via Watch mode (W button), at booster separation the camer
 
 **Priority:** Medium — camera behavior surprise during watched booster separations
 
+**Status:** Partially fixed — continuation now seeded with post-breakup points at promotion time (`3bd66ea`). Existing saves with 0-point continuations still affected.
+
+## 107. Engine/SRB smoke trails vanish instantly when ghost despawns
+
+When a ghost vessel is destroyed (recording ends, zone exit, loop cycle boundary), all particle systems are destroyed with the ghost GameObject. Engine and SRB exhaust trails that are still visually fading out disappear instantly instead of persisting until they naturally decay. Stock KSP smoke trails linger for several seconds after engine cutoff — ghost trails should do the same.
+
+**Fix approach:** Before destroying the ghost GameObject, detach active particle systems with `ParticleSystem.Stop(withChildren: true, stopBehavior: ParticleSystemStopBehavior.StopEmitting)` and re-parent them to a temporary holder object. The particles continue rendering with existing lifetime/fade settings. Add a cleanup component that destroys the holder once all particles have expired (`ParticleSystem.particleCount == 0`). Only detach systems that have `isPlaying == true` or `particleCount > 0` at despawn time.
+
+**Priority:** Low — cosmetic polish, no functional impact
+
 **Status:** Open
