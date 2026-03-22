@@ -1078,7 +1078,7 @@ The Watch (W) button is shown enabled for a recording whose time range is entire
 
 `GetZoneRenderingPolicy(Visual)` and `ShouldApplyPartEventsForZone(Visual)` were changed to apply part events in the Visual zone (2.3-120km) so that structural changes (fairing jettison, staging, crash destruction) work at altitude. Two existing tests still assert the old behavior (`skipPartEvents = true` for Visual zone). Update them to expect `skipPartEvents = false` and `ShouldApplyPartEventsForZone(Visual) = true`.
 
-**Status:** Open — test-only fix, no production code change needed
+**Status:** Fixed (commit 90b73d8)
 
 ## 93. Surface vehicle ghost slides away from recorded position during on-rails playback
 
@@ -1181,7 +1181,7 @@ KSP stock vessels use `#autoLOC_XXXXX` localization keys as vessel names (e.g., 
 
 **Priority:** Medium — every stock vessel shows unreadable group headers
 
-**Status:** Open
+**Status:** Fixed (commit 1104b7e — `ResolveVesselName` via `Localizer.Format()` at storage time)
 
 ## 104. Multiple launches of same vessel merge into one recording group
 
