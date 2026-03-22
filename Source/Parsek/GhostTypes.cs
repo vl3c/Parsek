@@ -23,12 +23,18 @@ namespace Parsek
         public bool semiDeployedSampled;
     }
 
+    internal struct KspEmitterRef
+    {
+        public MonoBehaviour emitter;
+        public System.Reflection.FieldInfo emitField;
+    }
+
     internal class EngineGhostInfo
     {
         public uint partPersistentId;
         public int moduleIndex;
         public List<ParticleSystem> particleSystems = new List<ParticleSystem>();
-        public List<MonoBehaviour> kspEmitters = new List<MonoBehaviour>();
+        public List<KspEmitterRef> kspEmitters = new List<KspEmitterRef>();
         public FloatCurve emissionCurve;
         public FloatCurve speedCurve;
     }
@@ -108,7 +114,7 @@ namespace Parsek
         public uint partPersistentId;
         public int moduleIndex;
         public List<ParticleSystem> particleSystems = new List<ParticleSystem>();
-        public List<MonoBehaviour> kspEmitters = new List<MonoBehaviour>();
+        public List<KspEmitterRef> kspEmitters = new List<KspEmitterRef>();
         public FloatCurve emissionCurve;
         public FloatCurve speedCurve;
         public float emissionScale = 1f;

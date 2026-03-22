@@ -926,7 +926,7 @@ namespace Parsek
         /// SmokeTrailControl modifies material color every frame based on atmospheric density.
         /// FXPrefab registers particles with FloatingOrigin — pollutes global state on ghosts.
         /// </summary>
-        private static void StripKspFxControllers(GameObject fxClone, List<MonoBehaviour> kspEmitterSink)
+        private static void StripKspFxControllers(GameObject fxClone, List<KspEmitterRef> kspEmitterSink)
         {
             if (fxClone == null) return;
 
@@ -938,12 +938,18 @@ namespace Parsek
                 switch (typeName)
                 {
                     case "KSPParticleEmitter":
-                        // Set emit=false so KSP doesn't create particles until
-                        // SetEngineEmission/SetRcsEmission enables it.
+                        // Cache FieldInfo at capture time to avoid per-frame reflection in
+                        // SetKspEmittersEnabled (called from SetEngineEmission/SetRcsEmission).
                         var emitField = behaviours[i].GetType().GetField("emit");
                         if (emitField != null)
+                        {
                             emitField.SetValue(behaviours[i], false);
-                        kspEmitterSink?.Add(behaviours[i]);
+                            kspEmitterSink?.Add(new KspEmitterRef
+                            {
+                                emitter = behaviours[i],
+                                emitField = emitField
+                            });
+                        }
                         ParsekLog.Verbose("GhostVisual",
                             $"Captured KSPParticleEmitter on '{fxClone.name}' (emit=false)");
                         break;

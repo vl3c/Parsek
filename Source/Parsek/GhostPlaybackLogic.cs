@@ -1246,7 +1246,6 @@ namespace Parsek
                     Transform t = ps.transform;
                     string parentName = t != null && t.parent != null ? t.parent.name : "<none>";
                     var diagMain = ps.main;
-                    var diagEmission = ps.emission;
                     string diagLine = BuildEngineFxEmissionDiagnostic(
                         evt.partName,
                         evt.partPersistentId,
@@ -1259,7 +1258,7 @@ namespace Parsek
                         t != null ? t.position : Vector3.zero,
                         t != null ? t.forward : Vector3.zero,
                         t != null ? t.up : Vector3.zero,
-                        diagEmission.rateOverTimeMultiplier,
+                        power > 0f ? 1f : 0f, // KSP emitter emit state (Unity emission disabled)
                         diagMain.startSpeedMultiplier,
                         ps.isPlaying);
                     string diagKey = $"engine-fx-{evt.partPersistentId}-{evt.moduleIndex}-{ps.GetInstanceID()}";
@@ -1330,15 +1329,14 @@ namespace Parsek
         /// KSPParticleEmitter is the ONLY particle creation source on ghost FX objects —
         /// Unity's emission module is permanently disabled to prevent bubble artifacts (bug #105).
         /// </summary>
-        private static void SetKspEmittersEnabled(List<MonoBehaviour> kspEmitters, bool enabled)
+        private static void SetKspEmittersEnabled(List<KspEmitterRef> kspEmitters, bool enabled)
         {
             if (kspEmitters == null) return;
             for (int i = 0; i < kspEmitters.Count; i++)
             {
-                if (kspEmitters[i] == null) continue;
-                var emitField = kspEmitters[i].GetType().GetField("emit");
-                if (emitField != null)
-                    emitField.SetValue(kspEmitters[i], enabled);
+                var r = kspEmitters[i];
+                if (r.emitter == null || r.emitField == null) continue;
+                r.emitField.SetValue(r.emitter, enabled);
             }
         }
 
