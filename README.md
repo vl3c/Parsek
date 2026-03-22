@@ -44,6 +44,7 @@ The Parsek window is available from the toolbar button in Flight and Map view.
 | Mod | Integration |
 |-----|-------------|
 | [PersistentRotation](https://github.com/MarkusA380/PersistentRotation) | When detected, Parsek records vessel angular velocity at time warp boundaries. Ghost vessels spin during orbital playback, matching what the player saw with PersistentRotation active. Without it, ghosts hold their SAS-locked attitude (the correct behavior for stock KSP, which freezes rotation on rails). |
+| [Better Time Warp](https://github.com/linuxgurugamer/BetterTimeWarp) | Compatible — Parsek's recording and playback systems work correctly with custom time warp rates. |
 
 ## Installation
 
@@ -108,5 +109,6 @@ Parsek was inspired by and learned from the KSP modding community. The following
 - **[RemoteTech](https://github.com/RemoteTechnologiesGroup/RemoteTech)** (RemoteTechnologiesGroup) - CommNet replacement detection, graceful degradation patterns
 - **[Module Manager](https://github.com/sarbian/ModuleManager)** (sarbian) - essential config patching
 - **[Harmony (HarmonyKSP)](https://github.com/KSPModdingLibs/HarmonyKSP)** (KSPModdingLibs / pardeike) - runtime method patching
+- **[Better Time Warp](https://github.com/linuxgurugamer/BetterTimeWarp)** (linuxgurugamer) - custom time warp rate compatibility testing
 
 Special thanks to **[linuxgurugamer](https://github.com/linuxgurugamer/)** for maintaining so many essential KSP mods, and to the KSP modding community for making this kind of project possible.

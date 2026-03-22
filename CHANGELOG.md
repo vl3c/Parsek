@@ -25,7 +25,17 @@ All notable changes to Parsek are documented here.
 ### Bug Fixes
 
 - **#93**: Surface vehicle ghost slides away during on-rails playback — orbit segments with sub-surface SMA now skipped for LANDED/SPLASHED/PRELAUNCH vessels at recording time; playback uses `IsSurfaceAtUT` to suppress orbit interpolation for surface TrackSections; SMA < 90% body radius rejected as safety net
+- **#109**: Spawned vessels not cleaned up on second rewind — revert path overwrote rewind cleanup data with null; added guard to preserve already-set cleanup data
+- **#110**: Spawn collision retry ran every frame with no limit — added 150-frame (~2.5s) collision block limit for non-chain spawns, walkback exhaustion flag for chain-tip spawns, rate-limited collision log messages
+- **#111**: Auto-record not starting for spawned vessels — `lastLandedUT` not seeded on vessel switch to already-landed vessel
+- **Smoke trails** — engine and booster smoke trails invisible on ghosts; Unity emission was disabled on all particle systems but smoke FX have no KSPParticleEmitter to compensate; now only disables Unity emission on FX objects that have KSPParticleEmitter
 - **Terrain clamp** — ghost positions clamped above terrain in LateUpdate, preventing any ghost from appearing underground regardless of interpolation source
+- **Compound part ghost visuals** — fuel lines and struts now render correctly on ghosts via PARTDATA fixup (CModuleLinkedMesh replacement)
+
+### Improvements
+
+- **Spawn abandon UI** — spawn warnings show "walkback exhausted" / "spawn abandoned" status instead of silently retrying forever
+- Spawn collision overlap log demoted from Info to VerboseRateLimited (was ~24K lines/session)
 
 ---
 
