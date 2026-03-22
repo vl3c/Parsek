@@ -3871,7 +3871,7 @@ namespace Parsek
                 RecordingId = System.Guid.NewGuid().ToString("N"),
                 RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
 
-                VesselName = vesselName,
+                VesselName = Parsek.Recording.ResolveLocalizedName(vesselName),
                 Points = new List<TrajectoryPoint>(Recording),
                 OrbitSegments = new List<OrbitSegment>(OrbitSegments),
                 PartEvents = new List<PartEvent>(PartEvents),

@@ -1538,7 +1538,7 @@ namespace Parsek
                 {
                     Id = treeId,
                     TreeName = splitRecorder.CaptureAtStop?.VesselName
-                               ?? activeVessel?.vesselName ?? "Unknown",
+                               ?? Recording.ResolveLocalizedName(activeVessel?.vesselName) ?? "Unknown",
                     RootRecordingId = rootRecId,
                     ActiveRecordingId = null // will be set below
                 };
@@ -2385,7 +2385,7 @@ namespace Parsek
             {
                 Id = treeId,
                 TreeName = splitRecorder.CaptureAtStop.VesselName
-                           ?? FlightGlobals.ActiveVessel?.vesselName ?? "Unknown",
+                           ?? Recording.ResolveLocalizedName(FlightGlobals.ActiveVessel?.vesselName) ?? "Unknown",
                 RootRecordingId = rootRecId,
                 ActiveRecordingId = null // set below
             };
