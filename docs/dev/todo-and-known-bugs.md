@@ -1046,7 +1046,11 @@ Bug #68 fix limits material cloning to heat-animated transforms, but `FXModuleAn
 
 When a chain recording hits a boundary split (e.g., atmosphere exit), the committed segments appear as a nested group inside a group in the recordings UI. The RecordingGroup logic may be double-nesting chain segments.
 
-**Status:** Open — needs investigation of RecordingGroup assignment during chain boundary commits
+**Root cause:** `HandleAtmosphereBoundarySplit` and `HandleSoiChangeSplit` had no `activeTree != null` guard. During tree mode (after booster separation via `PromoteToTreeForBreakup`), boundary splits still fired and committed chain segments as standalone recordings with group names via `CommitBoundarySplit`, leaking data outside the tree. When `CommitTree` later added the same group name, recordings appeared in both a chain block and tree recordings under the same group.
+
+**Fix:** Added `activeTree != null` early-return guards to both handlers. In tree mode, the recorder keeps accumulating data into the tree recording continuously — boundary crossings are noted in the log but don't trigger standalone chain commits. `ClearBoundaryFlags()` method added to `FlightRecorder` to reset the flags without stopping the recorder.
+
+**Status:** Fixed
 
 ## 88. No merge/approval dialog shown on recording commit
 
@@ -1193,7 +1197,7 @@ Fix: disambiguate with a launch number suffix. Check existing group names via `R
 
 **Priority:** Medium — confusing UI when same craft is launched multiple times
 
-**Status:** Open
+**Status:** Fixed — `RecordingStore.GenerateUniqueGroupName` checks existing group names and appends ` (2)`, ` (3)` etc. Applied at all 4 call sites: `CommitTree`, EVA chain, dock/undock chain, boundary split chain.
 
 ## 105. Colored bubbles visible in ghost engine/RCS plume FX
 
@@ -1237,9 +1241,11 @@ Engine throttle/shutdown events not recorded for some engine types. Ghost engine
 
 Likely cause: `CheckEngineTransition` may not detect the `EngineIgnited → false` transition correctly, or the transition check polls `engine.EngineIgnited && engine.isOperational` which may remain true in certain states (e.g., fuel depletion vs. manual shutdown).
 
+**Partial fix:** `FlightRecorder.EmitTerminalEngineAndRcsEvents` emits synthetic `EngineShutdown`, `RCSStopped`, and `RoboticMotionStopped` events for all entries still in `activeEngineKeys`/`activeRcsKeys`/`activeRoboticKeys` at recording end. Called from `StopRecording()`, `StopRecordingForChainBoundary()`, and `BackgroundRecorder.FinalizeAllForCommit()`. This guarantees ghost plumes shut down at recording boundaries. The original Aeris-4A mid-flight detection issue (missing throttle events / missed shutdown transition during normal polling) may be a separate problem.
+
 **Priority:** Medium — ghost engines keep burning past cutoff, visually incorrect
 
-**Status:** Open
+**Status:** Partially fixed (terminal events added; mid-flight detection issue may remain)
 
 ## 109. Missing CleanupOrphanedSpawnedVessels on second Rewind flight-ready
 

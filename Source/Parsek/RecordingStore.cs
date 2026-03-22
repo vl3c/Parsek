@@ -304,9 +304,11 @@ namespace Parsek
 
             // Auto-group: assign all tree recordings to a group named after the tree
             // so they appear collapsed in the recordings window instead of as separate entries.
+            // Use GenerateUniqueGroupName to avoid merging multiple launches of the same vessel
+            // into one group (bug #104).
             if (!string.IsNullOrEmpty(tree.TreeName) && tree.Recordings.Count > 1)
             {
-                string groupName = tree.TreeName;
+                string groupName = GenerateUniqueGroupName(tree.TreeName);
                 foreach (var rec in tree.Recordings.Values)
                 {
                     if (rec.RecordingGroups == null)
@@ -718,6 +720,40 @@ namespace Parsek
             var result = new List<string>(names);
             result.Sort(StringComparer.OrdinalIgnoreCase);
             return result;
+        }
+
+        /// <summary>
+        /// Returns a group name that doesn't collide with existing group names.
+        /// If baseName is not already used, returns it unchanged.
+        /// Otherwise appends " (2)", " (3)", etc. until a unique name is found.
+        /// </summary>
+        internal static string GenerateUniqueGroupName(string baseName)
+        {
+            if (string.IsNullOrEmpty(baseName))
+            {
+                ParsekLog.Verbose("RecordingStore",
+                    "GenerateUniqueGroupName: baseName is null/empty, returning 'Chain'");
+                baseName = "Chain";
+            }
+
+            var existing = new HashSet<string>(GetGroupNames(), System.StringComparer.OrdinalIgnoreCase);
+            if (!existing.Contains(baseName))
+            {
+                ParsekLog.Verbose("RecordingStore",
+                    $"GenerateUniqueGroupName: '{baseName}' is unique, returning unchanged");
+                return baseName;
+            }
+
+            for (int n = 2; ; n++)
+            {
+                string candidate = $"{baseName} ({n})";
+                if (!existing.Contains(candidate))
+                {
+                    ParsekLog.Info("RecordingStore",
+                        $"GenerateUniqueGroupName: '{baseName}' already exists, using '{candidate}'");
+                    return candidate;
+                }
+            }
         }
 
         /// <summary>

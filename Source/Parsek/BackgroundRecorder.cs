@@ -1207,7 +1207,7 @@ namespace Parsek
                 }
             }
 
-            // Close and flush TrackSections for all loaded vessels
+            // Close and flush TrackSections for all loaded vessels, emit terminal engine/RCS/robotic events (bug #108)
             foreach (var kvp in loadedStates)
             {
                 var state = kvp.Value;
@@ -1217,6 +1217,11 @@ namespace Parsek
                 if (tree.Recordings.TryGetValue(state.recordingId, out flushRec))
                 {
                     FlushTrackSectionsToRecording(state, flushRec);
+
+                    var terminalEvents = FlightRecorder.EmitTerminalEngineAndRcsEvents(
+                        state.activeEngineKeys, state.activeRcsKeys, state.activeRoboticKeys,
+                        state.lastRoboticPosition, commitUT, "BgRecorder");
+                    flushRec.PartEvents.AddRange(terminalEvents);
                 }
             }
 

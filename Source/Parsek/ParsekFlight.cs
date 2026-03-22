@@ -2962,8 +2962,10 @@ namespace Parsek
             {
                 activeChainId = System.Guid.NewGuid().ToString("N");
                 activeChainNextIndex = 0;
-                // Auto-group chain under a group named after the starting vessel
-                string chainGroupName = RecordingStore.Pending.VesselName ?? "Chain";
+                // Auto-group chain under a group named after the starting vessel.
+                // Use GenerateUniqueGroupName to avoid merging multiple launches into one group (bug #104).
+                string chainGroupName = RecordingStore.GenerateUniqueGroupName(
+                    RecordingStore.Pending.VesselName ?? "Chain");
                 RecordingStore.Pending.RecordingGroups = new System.Collections.Generic.List<string> { chainGroupName };
                 Log($"Chain: started new chain (id={activeChainId}, group='{chainGroupName}')");
             }
@@ -3577,7 +3579,9 @@ namespace Parsek
             {
                 activeChainId = System.Guid.NewGuid().ToString("N");
                 activeChainNextIndex = 0;
-                string chainGroupName = RecordingStore.Pending.VesselName ?? "Chain";
+                // Use GenerateUniqueGroupName to avoid merging multiple launches into one group (bug #104).
+                string chainGroupName = RecordingStore.GenerateUniqueGroupName(
+                    RecordingStore.Pending.VesselName ?? "Chain");
                 RecordingStore.Pending.RecordingGroups = new System.Collections.Generic.List<string> { chainGroupName };
                 Log($"Dock/Undock chain: started new chain (id={activeChainId}, group='{chainGroupName}')");
             }
@@ -3739,7 +3743,9 @@ namespace Parsek
             {
                 activeChainId = System.Guid.NewGuid().ToString("N");
                 activeChainNextIndex = 0;
-                string chainGroupName = RecordingStore.Pending.VesselName ?? "Chain";
+                // Use GenerateUniqueGroupName to avoid merging multiple launches into one group (bug #104).
+                string chainGroupName = RecordingStore.GenerateUniqueGroupName(
+                    RecordingStore.Pending.VesselName ?? "Chain");
                 RecordingStore.Pending.RecordingGroups = new System.Collections.Generic.List<string> { chainGroupName };
                 ParsekLog.Info("Flight", $"Boundary split: started new chain (id={activeChainId}, group='{chainGroupName}')");
             }
@@ -4592,6 +4598,20 @@ namespace Parsek
             if (recorder == null || !recorder.IsRecording || !recorder.AtmosphereBoundaryCrossed)
                 return;
 
+            // Bug #87: In tree mode, boundary splits must not commit standalone chain segments.
+            // The recorder keeps accumulating data into the tree recording — just clear the
+            // boundary flags so they don't re-trigger.
+            if (activeTree != null)
+            {
+                string skipPhase = recorder.EnteredAtmosphere ? "atmo" : "exo";
+                string skipBody = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
+                ParsekLog.Info("Flight", $"Atmosphere boundary suppressed in tree mode: " +
+                    $"{skipBody} entering {skipPhase} (tree={activeTree.Id}, " +
+                    $"activeRec={activeTree.ActiveRecordingId})");
+                recorder.ClearBoundaryFlags();
+                return;
+            }
+
             string phase = recorder.EnteredAtmosphere ? "exo" : "atmo";
             string newPhase = recorder.EnteredAtmosphere ? "atmo" : "exo";
             string bodyName = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
@@ -4618,6 +4638,20 @@ namespace Parsek
         {
             if (recorder == null || !recorder.IsRecording || !recorder.SoiChangePending)
                 return;
+
+            // Bug #87: In tree mode, boundary splits must not commit standalone chain segments.
+            // The recorder keeps accumulating data into the tree recording — just clear the
+            // boundary flags so they don't re-trigger.
+            if (activeTree != null)
+            {
+                string skipFrom = recorder.SoiChangeFromBody ?? "Unknown";
+                string skipTo = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
+                ParsekLog.Info("Flight", $"SOI change boundary suppressed in tree mode: " +
+                    $"{skipFrom} to {skipTo} (tree={activeTree.Id}, " +
+                    $"activeRec={activeTree.ActiveRecordingId})");
+                recorder.ClearBoundaryFlags();
+                return;
+            }
 
             string fromBody = recorder.SoiChangeFromBody ?? "Unknown";
             string toBody = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
