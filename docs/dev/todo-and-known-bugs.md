@@ -1193,17 +1193,15 @@ Fix: disambiguate with a launch number suffix. Check existing group names via `R
 
 **Status:** Open
 
-## 105. Colored bubbles visible in ghost engine plume FX
+## 105. Colored bubbles visible in ghost engine/RCS plume FX
 
-Ghost engine plumes show colored bubble/sphere artifacts instead of smooth exhaust trails. Most likely cause: KSP FX controller components (`ModelMultiParticlePersistFX`, `KSPParticleEmitter`) survive the `Object.Instantiate` clone and interfere with particle system state at runtime. `ConfigureGhostEngineParticleSystems` (GhostVisualBuilder.cs:919) correctly configures the cloned systems, but surviving KSP components may re-initialize materials or override emission shape afterward.
+Ghost engine and RCS plumes showed colored bubble/sphere artifacts. Root cause: ghost plumes had TWO particle emission sources fighting each other — `KSPParticleEmitter.EmitParticle()` (creates correctly-textured particles) and Unity's emission module (`emission.rateOverTimeMultiplier`) which creates particles using `ParticleSystem.main.startSize` and `ParticleSystemRenderer.material`, neither of which are set from KSP values, producing huge material-less "bubbles".
 
-The code only strips `SmokeTrailControl` (lines 2305, 2335, 2501) but does not strip other KSP FX management components. A secondary possibility: `TextureSheetAnimation` UV state lost if materials are cloned or replaced after instantiation, causing particles to render the full sprite atlas as a colored circle.
+Fix: Permanently disable Unity's emission module (`emission.enabled = false`) at build time. Keep `KSPParticleEmitter` alive (it handles material setup and particle creation) but control it via reflection (`emit` field) in `SetEngineEmission`/`SetRcsEmission`. `StripKspFxControllers` captures `KSPParticleEmitter` references into `kspEmitters` lists on `EngineGhostInfo`/`RcsGhostInfo` instead of destroying them. `SmokeTrailControl` and `FXPrefab` are still stripped.
 
-**Fix approach:** Strip all `ModelMultiParticlePersistFX` and `KSPParticleEmitter` components from the cloned FX hierarchy after instantiation (similar to `SmokeTrailControl` stripping). Verify `ParticleSystemRenderer.renderMode` is `Billboard` or `StretchedBillboard` (not `Mesh`).
+**Priority:** Medium — visually distracting on every engine/RCS ghost
 
-**Priority:** Medium — visually distracting on every engine ghost
-
-**Status:** Open
+**Status:** Fixed
 
 ## 106. Watch mode camera follows booster instead of main vessel at BREAKUP
 

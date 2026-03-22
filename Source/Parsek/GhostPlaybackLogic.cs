@@ -1220,29 +1220,22 @@ namespace Parsek
             EngineGhostInfo info;
             if (!state.engineInfos.TryGetValue(key, out info)) return;
 
+            // Control KSPParticleEmitter.emit via reflection — this is the ONLY particle
+            // creation source. Unity's emission module is permanently disabled (bug #105).
+            SetKspEmittersEnabled(info.kspEmitters, power > 0f);
+
             for (int i = 0; i < info.particleSystems.Count; i++)
             {
                 var ps = info.particleSystems[i];
                 if (ps == null) continue;
 
-                var emission = ps.emission;
                 if (power > 0f)
                 {
-                    emission.enabled = true;
-                    float emRate = info.emissionCurve != null ? info.emissionCurve.Evaluate(power) : power * 100f;
-                    emission.rateOverTimeMultiplier = emRate;
-
-                    var main = ps.main;
-                    float spd = info.speedCurve != null ? info.speedCurve.Evaluate(power) : power * 10f;
-                    main.startSpeedMultiplier = spd;
-
                     SetParticleRenderersEnabled(ps, true);
                     if (!ps.isPlaying) ps.Play();
                 }
                 else
                 {
-                    emission.enabled = false;
-                    emission.rateOverTimeMultiplier = 0;
                     ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                     ps.Clear(true);
                     SetParticleRenderersEnabled(ps, false);
@@ -1253,6 +1246,7 @@ namespace Parsek
                     Transform t = ps.transform;
                     string parentName = t != null && t.parent != null ? t.parent.name : "<none>";
                     var diagMain = ps.main;
+                    var diagEmission = ps.emission;
                     string diagLine = BuildEngineFxEmissionDiagnostic(
                         evt.partName,
                         evt.partPersistentId,
@@ -1265,7 +1259,7 @@ namespace Parsek
                         t != null ? t.position : Vector3.zero,
                         t != null ? t.forward : Vector3.zero,
                         t != null ? t.up : Vector3.zero,
-                        emission.rateOverTimeMultiplier,
+                        diagEmission.rateOverTimeMultiplier,
                         diagMain.startSpeedMultiplier,
                         ps.isPlaying);
                     string diagKey = $"engine-fx-{evt.partPersistentId}-{evt.moduleIndex}-{ps.GetInstanceID()}";
@@ -1284,13 +1278,11 @@ namespace Parsek
             foreach (var info in state.engineInfos.Values)
             {
                 if (info.partPersistentId != partPersistentId) continue;
+                SetKspEmittersEnabled(info.kspEmitters, false);
                 for (int i = 0; i < info.particleSystems.Count; i++)
                 {
                     var ps = info.particleSystems[i];
                     if (ps == null) continue;
-                    var emission = ps.emission;
-                    emission.enabled = false;
-                    emission.rateOverTimeMultiplier = 0;
                     ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                     ps.Clear(true);
                     SetParticleRenderersEnabled(ps, false);
@@ -1308,13 +1300,11 @@ namespace Parsek
             foreach (var info in state.rcsInfos.Values)
             {
                 if (info.partPersistentId != partPersistentId) continue;
+                SetKspEmittersEnabled(info.kspEmitters, false);
                 for (int i = 0; i < info.particleSystems.Count; i++)
                 {
                     var ps = info.particleSystems[i];
                     if (ps == null) continue;
-                    var emission = ps.emission;
-                    emission.enabled = false;
-                    emission.rateOverTimeMultiplier = 0;
                     ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                     ps.Clear(true);
                     SetParticleRenderersEnabled(ps, false);
@@ -1335,6 +1325,23 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Enable or disable KSPParticleEmitter.emit on all captured emitters via reflection.
+        /// KSPParticleEmitter is the ONLY particle creation source on ghost FX objects —
+        /// Unity's emission module is permanently disabled to prevent bubble artifacts (bug #105).
+        /// </summary>
+        private static void SetKspEmittersEnabled(List<MonoBehaviour> kspEmitters, bool enabled)
+        {
+            if (kspEmitters == null) return;
+            for (int i = 0; i < kspEmitters.Count; i++)
+            {
+                if (kspEmitters[i] == null) continue;
+                var emitField = kspEmitters[i].GetType().GetField("emit");
+                if (emitField != null)
+                    emitField.SetValue(kspEmitters[i], enabled);
+            }
+        }
+
         #endregion
 
         #region RCS FX
@@ -1347,10 +1354,13 @@ namespace Parsek
             RcsGhostInfo info;
             if (!state.rcsInfos.TryGetValue(key, out info)) return;
 
+            // Control KSPParticleEmitter.emit via reflection — this is the ONLY particle
+            // creation source. Unity's emission module is permanently disabled (bug #105).
+            SetKspEmittersEnabled(info.kspEmitters, power > 0f);
+
             int configuredSystems = 0;
             int enabledRenderers = 0;
             int playingSystems = 0;
-            float sampleRate = 0f;
             float sampleSpeed = 0f;
             float sampleSize = 0f;
             float sampleLifetime = 0f;
@@ -1361,32 +1371,21 @@ namespace Parsek
                 if (ps == null) continue;
 
                 configuredSystems++;
-                var emission = ps.emission;
                 if (power > 0f)
                 {
-                    emission.enabled = true;
-                    float emRate = ComputeScaledRcsEmissionRate(info.emissionCurve, power, info.emissionScale);
-                    emission.rateOverTimeMultiplier = emRate;
-
-                    var main = ps.main;
-                    float spd = ComputeScaledRcsSpeed(info.speedCurve, power, info.speedScale);
-                    main.startSpeedMultiplier = spd;
-
                     SetParticleRenderersEnabled(ps, true);
                     if (!ps.isPlaying) ps.Play();
 
-                    if (sampleRate <= 0f)
+                    if (sampleSpeed <= 0f)
                     {
-                        sampleRate = emRate;
-                        sampleSpeed = spd;
+                        var main = ps.main;
+                        sampleSpeed = main.startSpeedMultiplier;
                         sampleSize = main.startSizeMultiplier;
                         sampleLifetime = main.startLifetimeMultiplier;
                     }
                 }
                 else
                 {
-                    emission.enabled = false;
-                    emission.rateOverTimeMultiplier = 0;
                     ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                     ps.Clear(true);
                     SetParticleRenderersEnabled(ps, false);
@@ -1401,7 +1400,7 @@ namespace Parsek
             {
                 ParsekLog.Verbose("Flight", $"RCS showcase diagnostics: part='{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} " +
                     $"power={power:F2} systems={configuredSystems} playing={playingSystems} renderers={enabledRenderers} " +
-                    $"rate={sampleRate:F1} speed={sampleSpeed:F1} size={sampleSize:F2} life={sampleLifetime:F2}");
+                    $"speed={sampleSpeed:F1} size={sampleSize:F2} life={sampleLifetime:F2}");
             }
         }
 
@@ -1437,15 +1436,18 @@ namespace Parsek
             if (state.rcsSuppressed) return;
             state.rcsSuppressed = true;
             foreach (var info in state.rcsInfos.Values)
+            {
+                SetKspEmittersEnabled(info.kspEmitters, false);
                 for (int j = 0; j < info.particleSystems.Count; j++)
                 {
                     var ps = info.particleSystems[j];
                     if (ps != null)
                     {
-                        var em = ps.emission;
-                        if (em.enabled) em.enabled = false;
+                        ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                        ps.Clear(true);
                     }
                 }
+            }
         }
 
         internal static void RestoreAllRcsEmissions(GhostPlaybackState state)
@@ -1454,25 +1456,36 @@ namespace Parsek
             if (!state.rcsSuppressed) return;
             state.rcsSuppressed = false;
             foreach (var info in state.rcsInfos.Values)
+            {
+                // Only restore emission for RCS that had active KSP emitters.
+                // Check if any KSPParticleEmitter was playing before suppression
+                // by looking at whether the particle system was playing (ps.isPlaying
+                // stays true after Stop with StopEmittingAndClear until particles expire).
+                // Since we call Clear(), isPlaying is false after suppress. Instead, check
+                // if any renderers are enabled — SetRcsEmission enables renderers when active.
+                bool wasActive = false;
                 for (int j = 0; j < info.particleSystems.Count; j++)
                 {
                     var ps = info.particleSystems[j];
-                    if (ps != null)
+                    if (ps == null) continue;
+                    var renderer = ps.GetComponent<ParticleSystemRenderer>();
+                    if (renderer != null && renderer.enabled)
                     {
-                        var em = ps.emission;
-                        // Only restore emission for RCS that was actually activated by an event.
-                        // The ghost builder initializes rateOverTimeMultiplier=0 and calls Stop().
-                        // SetRcsEmission sets rate>0 when an RCSActivated event fires.
-                        // Without this check, suppression cycling (warp on/off) would blindly
-                        // Play() all particle systems — including those never activated.
-                        float rate = em.rateOverTimeMultiplier;
-                        if (rate > 0f)
-                        {
-                            em.enabled = true;
-                            if (!ps.isPlaying) ps.Play();
-                        }
+                        wasActive = true;
+                        break;
                     }
                 }
+                if (wasActive)
+                {
+                    SetKspEmittersEnabled(info.kspEmitters, true);
+                    for (int j = 0; j < info.particleSystems.Count; j++)
+                    {
+                        var ps = info.particleSystems[j];
+                        if (ps != null && !ps.isPlaying)
+                            ps.Play();
+                    }
+                }
+            }
         }
 
         #endregion
