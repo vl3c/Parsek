@@ -1,12 +1,18 @@
+using System;
 using Xunit;
 
 namespace Parsek.Tests
 {
-    public class ResolveLocalizedNameTests
+    public class ResolveLocalizedNameTests : IDisposable
     {
         public ResolveLocalizedNameTests()
         {
             ParsekLog.SuppressLogging = true;
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.SuppressLogging = false;
         }
 
         [Fact]

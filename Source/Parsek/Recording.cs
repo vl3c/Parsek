@@ -238,9 +238,9 @@ namespace Parsek
                     return resolved;
                 }
             }
-            catch
+            catch (System.Exception ex)
             {
-                // KSP Localizer not available (unit tests) — return raw name
+                ParsekLog.Verbose("Recording", $"Localizer unavailable for '{name}': {ex.GetType().Name}");
             }
             return name;
         }
