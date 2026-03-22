@@ -916,6 +916,44 @@ namespace Parsek
                 $"sourceToFx=({sourceToFx}) parentToFx=({parentToFx})", 60.0);
         }
 
+        /// <summary>
+        /// Strip KSP FX controller components from cloned particle system GameObjects.
+        /// KSPParticleEmitter.Update() overwrites renderer materials, colors, and renderMode
+        /// on cloned particle systems, producing colored bubble artifacts (bug #105).
+        /// ModelMultiParticleFX/ModelParticleFX can re-initialize emitters via the effect system.
+        /// SmokeTrailControl modifies material color every frame based on atmospheric density.
+        /// FXPrefab registers particles with FloatingOrigin — pollutes global state on ghosts.
+        /// </summary>
+        private static void StripKspFxControllers(GameObject fxClone)
+        {
+            if (fxClone == null) return;
+
+            MonoBehaviour[] behaviours = fxClone.GetComponentsInChildren<MonoBehaviour>(true);
+            for (int i = 0; i < behaviours.Length; i++)
+            {
+                if (behaviours[i] == null) continue;
+                string typeName = behaviours[i].GetType().Name;
+                switch (typeName)
+                {
+                    case "KSPParticleEmitter":
+                    case "ModelMultiParticleFX":
+                    case "ModelParticleFX":
+                    case "SmokeTrailControl":
+                    case "FXPrefab":
+                        ParsekLog.Verbose("GhostVisual",
+                            $"Stripped {typeName} from '{fxClone.name}'");
+                        Object.Destroy(behaviours[i]);
+                        break;
+                    default:
+                        // Diagnostic: log surviving MonoBehaviours to confirm what's on cloned FX objects.
+                        // Remove this default case after in-game verification.
+                        ParsekLog.Verbose("GhostVisual",
+                            $"Kept {typeName} on '{fxClone.name}'");
+                        break;
+                }
+            }
+        }
+
         private static int ConfigureGhostEngineParticleSystems(
             GameObject fxInstance, List<ParticleSystem> sink)
         {
@@ -2302,9 +2340,7 @@ namespace Parsek
                         fxClone.transform.localRotation = legacyLocalRot;
                         fxClone.transform.localScale = child.localScale;
 
-                        var smokeTrail = fxClone.GetComponent("SmokeTrailControl");
-                        if (smokeTrail != null)
-                            Object.Destroy(smokeTrail);
+                        StripKspFxControllers(fxClone);
 
                         int addedSystems = ConfigureGhostEngineParticleSystems(fxClone, info.particleSystems);
                         if (addedSystems > 0)
@@ -2332,9 +2368,7 @@ namespace Parsek
                     fxClone.transform.localRotation = child.localRotation;
                     fxClone.transform.localScale = child.localScale;
 
-                    var smokeTrail = fxClone.GetComponent("SmokeTrailControl");
-                    if (smokeTrail != null)
-                        Object.Destroy(smokeTrail);
+                    StripKspFxControllers(fxClone);
 
                     int addedSystems = ConfigureGhostEngineParticleSystems(fxClone, info.particleSystems);
                     if (addedSystems > 0)
@@ -2399,6 +2433,8 @@ namespace Parsek
                             fxInstance.transform.SetParent(ghostFxParent, false);
                             fxInstance.transform.localPosition = mmpLocalPos;
                             fxInstance.transform.localRotation = mmpLocalRot;
+
+                            StripKspFxControllers(fxInstance);
 
                             int addedSystems = ConfigureGhostEngineParticleSystems(fxInstance, info.particleSystems);
                             if (addedSystems > 0)
@@ -2486,6 +2522,8 @@ namespace Parsek
                     if (hasLocalRot)
                         fxInstance.transform.localRotation = localRot;
 
+                    StripKspFxControllers(fxInstance);
+
                     if (isRapierWhiteFlame)
                     {
                         fxInstance.transform.localScale *= 0.35f;
@@ -2497,10 +2535,6 @@ namespace Parsek
                             main.startSpeedMultiplier *= 0.75f;
                         }
                     }
-
-                    var smokeTrail = fxInstance.GetComponent("SmokeTrailControl");
-                    if (smokeTrail != null)
-                        Object.Destroy(smokeTrail);
 
                     int addedSystems = ConfigureGhostEngineParticleSystems(fxInstance, info.particleSystems);
                     if (addedSystems > 0)
@@ -3343,6 +3377,8 @@ namespace Parsek
                                 fxInstance.transform.localPosition = fxDefinitions[f].localOffset;
                                 fxInstance.transform.localRotation = fxDefinitions[f].localRotation;
                                 fxInstance.transform.localScale = fxDefinitions[f].localScale;
+
+                                StripKspFxControllers(fxInstance);
 
                                 // Configure ALL particle systems in the FX hierarchy (not just the first).
                                 // KSP RCS FX models have multiple child systems (plume + glow/smoke).

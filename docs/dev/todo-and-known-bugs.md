@@ -1197,15 +1197,13 @@ Fix: disambiguate with a launch number suffix. Check existing group names via `R
 
 ## 105. Colored bubbles visible in ghost engine plume FX
 
-Ghost engine plumes show colored bubble/sphere artifacts instead of smooth exhaust trails. Most likely cause: KSP FX controller components (`ModelMultiParticlePersistFX`, `KSPParticleEmitter`) survive the `Object.Instantiate` clone and interfere with particle system state at runtime. `ConfigureGhostEngineParticleSystems` (GhostVisualBuilder.cs:919) correctly configures the cloned systems, but surviving KSP components may re-initialize materials or override emission shape afterward.
+Ghost engine plumes show colored bubble/sphere artifacts instead of smooth exhaust trails. Root cause: `KSPParticleEmitter` (actual class name, not `ModelMultiParticlePersistFX` as originally noted) survives `Object.Instantiate`. Its `Awake()` marks `dirty=true`, then `Update()` calls `SetupProperties()` which overwrites renderer materials, colors, and renderMode on the cloned particle systems.
 
-The code only strips `SmokeTrailControl` (lines 2305, 2335, 2501) but does not strip other KSP FX management components. A secondary possibility: `TextureSheetAnimation` UV state lost if materials are cloned or replaced after instantiation, causing particles to render the full sprite atlas as a colored circle.
-
-**Fix approach:** Strip all `ModelMultiParticlePersistFX` and `KSPParticleEmitter` components from the cloned FX hierarchy after instantiation (similar to `SmokeTrailControl` stripping). Verify `ParticleSystemRenderer.renderMode` is `Billboard` or `StretchedBillboard` (not `Mesh`).
+Fix: `StripKspFxControllers` helper strips `KSPParticleEmitter`, `ModelMultiParticleFX`, `ModelParticleFX`, `SmokeTrailControl`, and `FXPrefab` from all 5 FX clone sites (engine legacy, engine model, engine prefab, RCS). Previously only `SmokeTrailControl` was stripped at 3 of 5 sites.
 
 **Priority:** Medium — visually distracting on every engine ghost
 
-**Status:** Open
+**Status:** Fixed
 
 ## 106. Watch mode camera follows booster instead of main vessel at BREAKUP
 
