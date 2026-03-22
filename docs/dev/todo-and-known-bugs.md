@@ -1172,3 +1172,53 @@ The Recordings Manager has three columns that all describe where a recording sit
 `CreateSplitBranch` (ParsekFlight.cs ~line 1515-1518) copies Points, OrbitSegments, PartEvents, and TrackSections from `CaptureAtStop` into the root recording but omits `FlagEvents` and `SegmentEvents`. If flags were planted or segment events occurred before the first tree split, they are lost from the root recording. The newer `PromoteToTreeForBreakup` method copies all six data lists.
 
 **Status:** Open — low priority (flag planting before first EVA split is rare)
+
+## 103. Group headers show raw #autoLOC keys instead of resolved vessel names
+
+KSP stock vessels use `#autoLOC_XXXXX` localization keys as vessel names (e.g., `#autoLOC_501220` = GDLV3). These keys propagate into `Recording.VesselName`, `RecordingTree.TreeName`, and group names without resolution. The recordings window shows `#autoLOC_501220 (6)` as the group header instead of `GDLV3 (6)`.
+
+`KSP.Localization.Localizer.Format()` is never called anywhere in the codebase. The fix should resolve names at storage time (when `VesselName`/`TreeName` are assigned from `Vessel.vesselName`) so all 9+ display sites get human-readable names. A `ResolveVesselName(string)` helper that calls `Localizer.Format()` when the name starts with `#` would cover all input sites.
+
+**Priority:** Medium — every stock vessel shows unreadable group headers
+
+**Status:** Open
+
+## 104. Multiple launches of same vessel merge into one recording group
+
+`RecordingStore.CommitTree` (line ~309) uses `tree.TreeName` verbatim as the group name. When the same craft is launched multiple times, all trees get the same group name and their recordings collapse into a single group. No way to tell which launch a recording belongs to.
+
+Same issue affects chain recordings: `chainGroupName = RecordingStore.Pending.VesselName` (lines ~2940, ~3554, ~3716 in ParsekFlight.cs).
+
+Fix: disambiguate with a launch number suffix. Check existing group names via `RecordingStore.GetGroupNames()` and append ` (2)`, ` (3)`, etc. Similar to `ParsekUI.GenerateUniqueGroupName` which already implements this pattern for manually-created groups.
+
+**Priority:** Medium — confusing UI when same craft is launched multiple times
+
+**Status:** Open
+
+## 105. Colored bubbles visible in ghost engine plume FX
+
+Ghost engine plumes show colored bubble/sphere artifacts instead of smooth exhaust trails. Most likely cause: KSP FX controller components (`ModelMultiParticlePersistFX`, `KSPParticleEmitter`) survive the `Object.Instantiate` clone and interfere with particle system state at runtime. `ConfigureGhostEngineParticleSystems` (GhostVisualBuilder.cs:919) correctly configures the cloned systems, but surviving KSP components may re-initialize materials or override emission shape afterward.
+
+The code only strips `SmokeTrailControl` (lines 2305, 2335, 2501) but does not strip other KSP FX management components. A secondary possibility: `TextureSheetAnimation` UV state lost if materials are cloned or replaced after instantiation, causing particles to render the full sprite atlas as a colored circle.
+
+**Fix approach:** Strip all `ModelMultiParticlePersistFX` and `KSPParticleEmitter` components from the cloned FX hierarchy after instantiation (similar to `SmokeTrailControl` stripping). Verify `ParticleSystemRenderer.renderMode` is `Billboard` or `StretchedBillboard` (not `Mesh`).
+
+**Priority:** Medium — visually distracting on every engine ghost
+
+**Status:** Open
+
+## 106. Watch mode camera follows booster instead of main vessel at BREAKUP
+
+When watching a ghost via Watch mode (W button), at booster separation the camera jumps to follow a separated booster instead of staying with the main core stage.
+
+**Root cause:** `FindNextWatchTarget` (ParsekFlight.cs:8500) correctly prefers children matching the root's `VesselPersistentId`. But the continuation recording often has 0 trajectory points (data flushed at commit time via `FlushRecorderToTreeRecording`, but if the vessel was destroyed shortly after promotion, the continuation may be empty). Ghost spawning skips recordings with `Points.Count < 2` (line 6090-6093), so the continuation ghost is never created. `FindNextWatchTarget` falls back to the first debris child with an active ghost.
+
+**Secondary causes:**
+1. Dictionary iteration order in `CommitTree` (`tree.Recordings.Values`) is non-deterministic — a debris recording may appear at a lower committed index than the continuation
+2. Brief `watchedRecordingIndex = -1` gap during `TransferWatchToNextSegment` between `ExitWatchMode` and re-assignment could allow KSP camera to re-target
+
+**Fix approach:** Ensure the continuation has trajectory data even when the vessel is short-lived. The root recording's points extend past `ExplicitEndUT` (they cover the 0.5s coalescing window) — the continuation could inherit the post-BREAKUP subset of the root's points at promotion time. Alternatively, `FindNextWatchTarget` could fall back to PID-matching against committed recordings directly (not requiring an active ghost).
+
+**Priority:** Medium — camera behavior surprise during watched booster separations
+
+**Status:** Open
