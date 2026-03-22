@@ -1228,3 +1228,13 @@ When a ghost vessel is destroyed (recording ends, zone exit, loop cycle boundary
 **Priority:** Low — cosmetic polish, no functional impact
 
 **Status:** Open
+
+## 108. EngineShutdown event not recorded when engine cuts off
+
+Recordings contain `EngineIgnited` and `EngineThrottle` events but no `EngineShutdown` when the engine is turned off. Ghost engine plumes continue firing past the point where the real engine was shut down. Verified by inspecting a recording file: type 5 (`EngineIgnited`) = 2 events, type 7 (`EngineThrottle`) = 238 events, type 6 (`EngineShutdown`) = 0 events despite the engine being shut down during the recorded flight.
+
+Likely cause: `CheckEngineTransition` may not detect the `EngineIgnited → false` transition correctly, or the transition check polls `engine.EngineIgnited && engine.isOperational` which may remain true in certain states (e.g., fuel depletion vs. manual shutdown).
+
+**Priority:** Medium — ghost engines keep burning past cutoff, visually incorrect
+
+**Status:** Open
