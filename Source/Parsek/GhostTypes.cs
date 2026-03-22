@@ -187,6 +187,15 @@ namespace Parsek
         public List<(string key, string value)> properties;
     }
 
+    internal struct CompoundPartData
+    {
+        public Vector3 targetPos;
+        public Quaternion targetRot;
+        public string lineObjName;
+        public string targetAnchorName;
+        public string targetCapName;
+    }
+
     /// <summary>
     /// Bundles all output from BuildTimelineGhostFromSnapshot: the root GameObject
     /// plus per-module-type ghost info lists. Replaces the previous 10 out-parameters.

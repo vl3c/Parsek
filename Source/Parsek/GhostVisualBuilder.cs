@@ -5534,6 +5534,70 @@ namespace Parsek
         #endregion
 
         /// <summary>
+        /// Parses compound part target data from a snapshot PART node.
+        /// Returns false (no-op) for non-compound parts or corrupt data.
+        /// Pure method — no Unity Transform access, directly testable.
+        /// </summary>
+        internal static bool TryParseCompoundPartData(
+            ConfigNode partNode, ConfigNode partConfig, bool isCompoundPart,
+            uint persistentId, string partName,
+            out CompoundPartData data)
+        {
+            data = new CompoundPartData
+            {
+                lineObjName = "obj_line",
+                targetAnchorName = "obj_targetAnchor",
+                targetCapName = "obj_targetCap"
+            };
+
+            ConfigNode partData = partNode.GetNode("PARTDATA");
+            if (partData == null)
+            {
+                // Expected no-op for non-compound parts. Log if the prefab IS a compound
+                // part — that would indicate corrupt/missing snapshot data.
+                if (isCompoundPart)
+                {
+                    ParsekLog.Verbose("GhostVisual", $"  CompoundPart fixup WARNING: '{partName}' pid={persistentId} " +
+                        $"is a CompoundPart but snapshot has no PARTDATA node");
+                }
+                return false;
+            }
+
+            if (!TryParseVector3(partData.GetValue("pos"), out data.targetPos))
+            {
+                ParsekLog.Verbose("GhostVisual", $"  CompoundPart fixup skipped: '{partName}' pid={persistentId} " +
+                    $"PARTDATA has no parseable 'pos'");
+                return false;
+            }
+
+            if (!TryParseQuaternion(partData.GetValue("rot"), out data.targetRot))
+            {
+                data.targetRot = Quaternion.identity;
+                ParsekLog.Verbose("GhostVisual", $"  CompoundPart fixup: '{partName}' pid={persistentId} " +
+                    $"PARTDATA has no parseable 'rot', defaulting to identity");
+            }
+
+            // Read transform names from CModuleLinkedMesh part config (varies: fuel line
+            // uses obj_line, strut uses obj_strut).
+            if (partConfig != null)
+            {
+                ConfigNode[] modules = partConfig.GetNodes("MODULE");
+                for (int m = 0; m < modules.Length; m++)
+                {
+                    if (modules[m].GetValue("name") == "CModuleLinkedMesh")
+                    {
+                        data.lineObjName = modules[m].GetValue("lineObjName") ?? data.lineObjName;
+                        data.targetAnchorName = modules[m].GetValue("targetAnchorName") ?? data.targetAnchorName;
+                        data.targetCapName = modules[m].GetValue("targetCapName") ?? data.targetCapName;
+                        break;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>
         /// Fixes up compound part visuals (fuel lines, struts) by repositioning the
         /// target anchor and stretching the line mesh using PARTDATA from the snapshot.
         /// In KSP, CModuleLinkedMesh handles this at runtime; ghosts need manual fixup.
@@ -5543,58 +5607,15 @@ namespace Parsek
             Dictionary<Transform, Transform> cloneMap,
             uint persistentId, string partName)
         {
-            // Compound parts store target connection data in PARTDATA
-            ConfigNode partData = partNode.GetNode("PARTDATA");
-            if (partData == null)
-            {
-                // Expected no-op for non-compound parts. Log if the prefab IS a compound
-                // part — that would indicate corrupt/missing snapshot data.
-                if (prefab is CompoundPart)
-                {
-                    ParsekLog.Verbose("GhostVisual", $"  CompoundPart fixup WARNING: '{partName}' pid={persistentId} " +
-                        $"is a CompoundPart but snapshot has no PARTDATA node");
-                }
+            CompoundPartData data;
+            if (!TryParseCompoundPartData(partNode, prefab.partInfo?.partConfig,
+                    prefab is CompoundPart, persistentId, partName, out data))
                 return;
-            }
-
-            Vector3 targetPos;
-            if (!TryParseVector3(partData.GetValue("pos"), out targetPos))
-            {
-                ParsekLog.Verbose("GhostVisual", $"  CompoundPart fixup skipped: '{partName}' pid={persistentId} " +
-                    $"PARTDATA has no parseable 'pos'");
-                return;
-            }
-
-            Quaternion targetRot;
-            if (!TryParseQuaternion(partData.GetValue("rot"), out targetRot))
-                targetRot = Quaternion.identity;
-
-            // Read transform names from CModuleLinkedMesh part config (varies: fuel line
-            // uses obj_line, strut uses obj_strut).
-            string lineObjName = "obj_line";
-            string targetAnchorName = "obj_targetAnchor";
-            string targetCapName = "obj_targetCap";
-
-            ConfigNode partConfig = prefab.partInfo?.partConfig;
-            if (partConfig != null)
-            {
-                ConfigNode[] modules = partConfig.GetNodes("MODULE");
-                for (int m = 0; m < modules.Length; m++)
-                {
-                    if (modules[m].GetValue("name") == "CModuleLinkedMesh")
-                    {
-                        lineObjName = modules[m].GetValue("lineObjName") ?? lineObjName;
-                        targetAnchorName = modules[m].GetValue("targetAnchorName") ?? targetAnchorName;
-                        targetCapName = modules[m].GetValue("targetCapName") ?? targetCapName;
-                        break;
-                    }
-                }
-            }
 
             // Find source transforms on prefab, then look up ghost clones in cloneMap
-            Transform srcLine = prefab.FindModelTransform(lineObjName);
-            Transform srcTargetAnchor = prefab.FindModelTransform(targetAnchorName);
-            Transform srcTargetCap = prefab.FindModelTransform(targetCapName);
+            Transform srcLine = prefab.FindModelTransform(data.lineObjName);
+            Transform srcTargetAnchor = prefab.FindModelTransform(data.targetAnchorName);
+            Transform srcTargetCap = prefab.FindModelTransform(data.targetCapName);
 
             Transform ghostLine = null, ghostTargetAnchor = null, ghostTargetCap = null;
             if (srcLine != null) cloneMap.TryGetValue(srcLine, out ghostLine);
@@ -5604,7 +5625,7 @@ namespace Parsek
             if (ghostLine == null)
             {
                 ParsekLog.Verbose("GhostVisual", $"  CompoundPart fixup skipped: '{partName}' pid={persistentId} " +
-                    $"line transform '{lineObjName}' not in cloneMap " +
+                    $"line transform '{data.lineObjName}' not in cloneMap " +
                     $"(srcLine={(srcLine != null ? "found" : "null")})");
                 return;
             }
@@ -5613,8 +5634,8 @@ namespace Parsek
             // Move target anchor to the correct position — endCap is a child, moves with it.
             if (ghostTargetAnchor != null)
             {
-                ghostTargetAnchor.position = partRoot.TransformPoint(targetPos);
-                ghostTargetAnchor.rotation = partRoot.rotation * targetRot;
+                ghostTargetAnchor.position = partRoot.TransformPoint(data.targetPos);
+                ghostTargetAnchor.rotation = partRoot.rotation * data.targetRot;
             }
 
             // Stretch line mesh from its position to the target end.
@@ -5626,7 +5647,7 @@ namespace Parsek
             else if (ghostTargetAnchor != null)
                 targetWorldPos = ghostTargetAnchor.position;
             else
-                targetWorldPos = partRoot.TransformPoint(targetPos);
+                targetWorldPos = partRoot.TransformPoint(data.targetPos);
 
             // NOTE: delta points from target toward source (line - target), matching
             // CModuleLinkedMesh.TrackAnchor which computes (line.position - endCap.position).
@@ -5639,6 +5660,9 @@ namespace Parsek
             if (distance > lineMinimumLength)
             {
                 ghostLine.rotation = Quaternion.LookRotation(delta.normalized, partRoot.forward);
+                // prefab.scaleFactor is the stock prefab value (typically rescaleFactor, default
+                // 1.25). Mods like TweakScale may change scaleFactor on the live part, but the
+                // prefab retains the original value — acceptable for ghost visuals.
                 ghostLine.localScale = new Vector3(
                     ghostLine.localScale.x,
                     ghostLine.localScale.y,
@@ -5648,7 +5672,7 @@ namespace Parsek
                     ghostTargetCap.rotation = ghostLine.rotation;
 
                 ParsekLog.Verbose("GhostVisual", $"  CompoundPart fixup: '{partName}' pid={persistentId} " +
-                    $"line='{lineObjName}' targetPos={targetPos} distance={distance:F3} " +
+                    $"line='{data.lineObjName}' targetPos={data.targetPos} distance={distance:F3} " +
                     $"scaleFactor={prefab.scaleFactor} zScale={(distance * prefab.scaleFactor):F3}");
             }
             else
