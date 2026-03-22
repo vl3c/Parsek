@@ -1356,17 +1356,6 @@ namespace Parsek
                 return false;
             }
 
-            double now = Planetarium.GetUniversalTime();
-            if (now >= rec.StartUT)
-            {
-                reason = "Recording is not in the future";
-                ParsekLog.Verbose("Store",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "CanFastForward: blocked for '{0}' — {1} (now={2:F1} startUT={3:F1})",
-                        rec.VesselName, reason, now, rec.StartUT));
-                return false;
-            }
-
             if (isRecording)
             {
                 reason = "Stop recording before fast-forwarding";
@@ -1385,6 +1374,18 @@ namespace Parsek
             {
                 reason = "Merge or discard pending tree first";
                 ParsekLog.Verbose("Store", $"CanFastForward: blocked — {reason}");
+                return false;
+            }
+
+            // Timing check last — requires KSP runtime (Planetarium)
+            double now = Planetarium.GetUniversalTime();
+            if (now >= rec.StartUT)
+            {
+                reason = "Recording is not in the future";
+                ParsekLog.Verbose("Store",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "CanFastForward: blocked for '{0}' — {1} (now={2:F1} startUT={3:F1})",
+                        rec.VesselName, reason, now, rec.StartUT));
                 return false;
             }
 
