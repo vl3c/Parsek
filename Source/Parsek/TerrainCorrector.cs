@@ -47,6 +47,19 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Clamps a ghost altitude so it stays above terrain surface.
+        /// Pure math — testable without KSP runtime.
+        /// Returns ghostAltitude unchanged if already above terrain + minClearance,
+        /// otherwise returns terrainHeight + minClearance.
+        /// </summary>
+        internal static double ClampAltitude(double ghostAltitude, double terrainHeight,
+            double minClearance = 0.5)
+        {
+            double minAlt = terrainHeight + minClearance;
+            return ghostAltitude < minAlt ? minAlt : ghostAltitude;
+        }
+
+        /// <summary>
         /// Pure decision: should terrain correction apply to this recording?
         ///
         /// Returns true when:

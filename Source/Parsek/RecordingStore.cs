@@ -912,6 +912,8 @@ namespace Parsek
             RewindBaselineScience = 0;
             RewindBaselineRep = 0;
             GameStateRecorder.PendingScienceSubjects.Clear();
+            PendingCleanupPids = null;
+            PendingCleanupNames = null;
         }
 
         internal static void DeleteRecordingFiles(Recording rec)
@@ -1122,12 +1124,101 @@ namespace Parsek
 
         private static void ResetRecordingPlaybackFields(Recording rec)
         {
+            // If the vessel had spawned, any terminal state change (Recovered/Destroyed)
+            // was on the spawned real vessel, not the recording. Clear it so the recording
+            // can spawn again after revert/rewind.
+            if (rec.VesselSpawned && rec.TerminalStateValue.HasValue)
+            {
+                var ts = rec.TerminalStateValue.Value;
+                if (ts == TerminalState.Recovered || ts == TerminalState.Destroyed)
+                {
+                    if (!SuppressLogging)
+                        ParsekLog.Verbose("Rewind",
+                            $"Clearing post-spawn terminal state {ts} for '{rec.VesselName}' (id={rec.RecordingId})");
+                    rec.TerminalStateValue = null;
+                }
+            }
+
             rec.VesselSpawned = false;
             rec.SpawnAttempts = 0;
             rec.SpawnedVesselPersistentId = 0;
             rec.LastAppliedResourceIndex = -1;
 
             rec.SceneExitSituation = -1;
+        }
+
+        /// <summary>
+        /// Collects SpawnedVesselPersistentId values and vessel names from all committed
+        /// recordings (standalone + tree) that currently have a spawned vessel.
+        /// Must be called BEFORE ResetAllPlaybackState or RestoreStandaloneMutableState
+        /// zeroes the PIDs.
+        /// </summary>
+        internal static (HashSet<uint> pids, HashSet<string> names) CollectSpawnedVesselInfo()
+        {
+            var pids = new HashSet<uint>();
+            var names = new HashSet<string>();
+
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                uint pid = committedRecordings[i].SpawnedVesselPersistentId;
+                if (pid != 0)
+                {
+                    pids.Add(pid);
+                    if (!string.IsNullOrEmpty(committedRecordings[i].VesselName))
+                        names.Add(committedRecordings[i].VesselName);
+                }
+            }
+
+            for (int i = 0; i < committedTrees.Count; i++)
+            {
+                foreach (var rec in committedTrees[i].Recordings.Values)
+                {
+                    if (rec.SpawnedVesselPersistentId != 0)
+                    {
+                        pids.Add(rec.SpawnedVesselPersistentId);
+                        if (!string.IsNullOrEmpty(rec.VesselName))
+                            names.Add(rec.VesselName);
+                    }
+                }
+            }
+
+            if (!SuppressLogging && pids.Count > 0)
+                ParsekLog.Info("RecordingStore",
+                    $"CollectSpawnedVesselInfo: {pids.Count} PID(s), {names.Count} name(s)");
+
+            return (pids, names);
+        }
+
+        // One-shot cleanup data: populated in ParsekScenario.OnLoad revert/rewind path
+        // (before spawn state reset), consumed and cleared in ParsekFlight.OnFlightReady.
+        internal static HashSet<uint> PendingCleanupPids { get; set; }
+        internal static HashSet<string> PendingCleanupNames { get; set; }
+
+        /// <summary>
+        /// Collects vessel names from ALL committed recordings (regardless of spawn state).
+        /// Used during rewind to strip every vessel matching a recording name from flightState —
+        /// on rewind, any such vessel is from the future and incompatible with the rewound state.
+        /// </summary>
+        internal static HashSet<string> CollectAllRecordingVesselNames()
+        {
+            var names = new HashSet<string>();
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                if (!string.IsNullOrEmpty(committedRecordings[i].VesselName))
+                    names.Add(committedRecordings[i].VesselName);
+            }
+            for (int i = 0; i < committedTrees.Count; i++)
+            {
+                foreach (var rec in committedTrees[i].Recordings.Values)
+                {
+                    if (!string.IsNullOrEmpty(rec.VesselName))
+                        names.Add(rec.VesselName);
+                }
+            }
+            if (!SuppressLogging && names.Count > 0)
+                ParsekLog.Info("RecordingStore",
+                    $"CollectAllRecordingVesselNames: {names.Count} unique name(s)");
+            return names;
         }
 
         /// <summary>
@@ -1316,7 +1407,10 @@ namespace Parsek
                         ParsekLog.Info("Rewind",
                             $"Rewind strip includes {stripNames.Count - 1} EVA child vessel name(s) from chain '{rec.ChainId}'");
                 }
-                PreProcessRewindSave(tempPath, stripNames, rewindLeadTime);
+                // Collect spawned vessel PIDs for PID-based stripping (belt-and-suspenders
+                // alongside name matching — catches renamed vessels or debris)
+                var (stripPids, _) = CollectSpawnedVesselInfo();
+                PreProcessRewindSave(tempPath, stripNames, stripPids, rewindLeadTime);
 
                 Game game = GamePersistence.LoadGame(tempCopyName, HighLogic.SaveFolder, true, false);
 
@@ -1454,6 +1548,88 @@ namespace Parsek
                     ParsekLog.Info("Rewind",
                         $"Stripped {removed} vessel(s) matching [{namesStr}] from save");
                 }
+            }
+
+            root.Save(sfsPath);
+        }
+
+        /// <summary>
+        /// Extended overload that strips vessels by both name AND persistent ID.
+        /// PID matching catches renamed vessels or debris that name matching misses.
+        /// The .sfs ConfigNode reliably has "persistentId" as a text field.
+        /// </summary>
+        internal static void PreProcessRewindSave(
+            string sfsPath, HashSet<string> vesselNames, HashSet<uint> vesselPids, double leadTime)
+        {
+            ConfigNode root = ConfigNode.Load(sfsPath);
+            if (root == null)
+                return;
+
+            ConfigNode gameNode = root.HasNode("GAME") ? root.GetNode("GAME") : root;
+            ConfigNode flightState = gameNode.GetNode("FLIGHTSTATE");
+            if (flightState == null)
+            {
+                if (!SuppressLogging)
+                    ParsekLog.Warn("Rewind",
+                        $"PreProcessRewindSave: no FLIGHTSTATE node in save '{sfsPath}'");
+                root.Save(sfsPath);
+                return;
+            }
+
+            // Wind back UT
+            string utStr = flightState.GetValue("UT");
+            double ut;
+            if (!string.IsNullOrEmpty(utStr) &&
+                double.TryParse(utStr, NumberStyles.Any, CultureInfo.InvariantCulture, out ut))
+            {
+                double newUT = Math.Max(0, ut - leadTime);
+                flightState.SetValue("UT", newUT.ToString("R", CultureInfo.InvariantCulture));
+                if (!SuppressLogging)
+                    ParsekLog.Info("Rewind",
+                        $"UT adjusted: {ut:F1} → {newUT:F1} (lead time {leadTime}s)");
+            }
+            else if (!SuppressLogging)
+            {
+                ParsekLog.Warn("Rewind",
+                    $"PreProcessRewindSave: missing or invalid UT value '{utStr ?? "(null)"}' in FLIGHTSTATE");
+            }
+
+            // Remove vessels matching name OR persistentId
+            bool hasPids = vesselPids != null && vesselPids.Count > 0;
+            int removedByName = 0;
+            int removedByPid = 0;
+            var vesselNodes = flightState.GetNodes("VESSEL");
+            for (int i = vesselNodes.Length - 1; i >= 0; i--)
+            {
+                string name = vesselNodes[i].GetValue("name");
+                if (vesselNames.Contains(name))
+                {
+                    flightState.RemoveNode(vesselNodes[i]);
+                    removedByName++;
+                    continue;
+                }
+
+                if (hasPids)
+                {
+                    string pidStr = vesselNodes[i].GetValue("persistentId");
+                    uint pid;
+                    if (pidStr != null
+                        && uint.TryParse(pidStr, NumberStyles.Integer,
+                            CultureInfo.InvariantCulture, out pid)
+                        && vesselPids.Contains(pid))
+                    {
+                        flightState.RemoveNode(vesselNodes[i]);
+                        removedByPid++;
+                    }
+                }
+            }
+
+            if (!SuppressLogging)
+            {
+                string namesStr = string.Join(", ", vesselNames);
+                ParsekLog.Info("Rewind",
+                    $"Stripped {removedByName + removedByPid} vessel(s) from save " +
+                    $"({removedByName} by name [{namesStr}], {removedByPid} by PID)");
             }
 
             root.Save(sfsPath);

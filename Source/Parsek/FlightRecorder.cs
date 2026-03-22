@@ -4419,6 +4419,18 @@ namespace Parsek
             // Record a boundary TrajectoryPoint at current UT (stitching point)
             SamplePosition(v);
 
+            // Layer 1: Surface vessels (LANDED/SPLASHED/PRELAUNCH) stay in place on rails —
+            // their Keplerian orbit is a sub-surface path through the planet, not a valid trajectory.
+            // Skip orbit segment creation and keep the current Absolute track section.
+            if (v.situation == Vessel.Situations.LANDED ||
+                v.situation == Vessel.Situations.SPLASHED ||
+                v.situation == Vessel.Situations.PRELAUNCH)
+            {
+                ParsekLog.Info("Recorder",
+                    $"Vessel went on rails (surface, sit={v.situation}) — skipping orbit segment, position unchanged");
+                return;
+            }
+
             currentOrbitSegment = new OrbitSegment
             {
                 startUT = Planetarium.GetUniversalTime(),
@@ -4485,7 +4497,7 @@ namespace Parsek
 
         public void OnVesselGoOffRails(Vessel v)
         {
-            if (!IsRecording || !isOnRails) return;
+            if (!IsRecording) return;
             if (v != FlightGlobals.ActiveVessel)
             {
                 ParsekLog.VerboseRateLimited("Recorder", "off-rails-other-vessel",
@@ -4493,6 +4505,13 @@ namespace Parsek
                 return;
             }
             if (v.persistentId != RecordingVesselId) return;
+
+            // Surface vessel went on rails without orbit segment — sample boundary point for continuity
+            if (!isOnRails)
+            {
+                SamplePosition(v);
+                return;
+            }
 
             // Finalize orbit segment
             currentOrbitSegment.endUT = Planetarium.GetUniversalTime();
@@ -4673,8 +4692,13 @@ namespace Parsek
             // Close current TrackSection before backgrounding (v6+)
             CloseCurrentTrackSection(Planetarium.GetUniversalTime());
 
-            // Start a new orbit segment for the background phase
-            if (v != null && v.orbit != null)
+            // Start a new orbit segment for the background phase.
+            // Layer 1: Skip for surface vessels — their Keplerian orbit is sub-surface.
+            bool isSurfaceVessel = v != null &&
+                (v.situation == Vessel.Situations.LANDED ||
+                 v.situation == Vessel.Situations.SPLASHED ||
+                 v.situation == Vessel.Situations.PRELAUNCH);
+            if (v != null && v.orbit != null && !isSurfaceVessel)
             {
                 currentOrbitSegment = new OrbitSegment
                 {
@@ -4689,6 +4713,11 @@ namespace Parsek
                     bodyName = v.mainBody?.name ?? "Kerbin"
                 };
                 isOnRails = true;
+            }
+            else if (isSurfaceVessel)
+            {
+                ParsekLog.Info("Recorder",
+                    $"Background transition: surface vessel (sit={v.situation}), skipping orbit segment");
             }
 
             // Disconnect from Harmony patch (stop physics-frame sampling)

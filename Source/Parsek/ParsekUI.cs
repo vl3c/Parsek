@@ -119,7 +119,7 @@ namespace Parsek
         private GUIStyle phaseStyleSpace;
 
         // Sort state
-        internal enum SortColumn { Index, Phase, Name, LaunchTime, Countdown, Duration, Status }
+        internal enum SortColumn { Index, Phase, Name, LaunchTime, Duration, Status }
         private SortColumn sortColumn = SortColumn.Index;
         private bool sortAscending = true;
         private int[] sortedIndices; // maps display row → CommittedRecordings index
@@ -166,9 +166,17 @@ namespace Parsek
         private const string SpawnControlInputLockId = "Parsek_SpawnControlWindow";
 
         // Spawn Control sort state
-        private enum SpawnSortColumn { Distance, Countdown }
+        private enum SpawnSortColumn { Name, Distance, SpawnTime }
         private SpawnSortColumn spawnSortColumn = SpawnSortColumn.Distance;
         private bool spawnSortAscending = true;
+        private bool isResizingSpawnControlWindow;
+        private Vector2 spawnControlScrollPos;
+
+        // Cached sorted candidate list -- re-sorted only when source data or sort state changes
+        private List<NearbySpawnCandidate> cachedSortedCandidates = new List<NearbySpawnCandidate>();
+        private int cachedCandidateCount = -1;
+        private SpawnSortColumn cachedSortColumn = SpawnSortColumn.Distance;
+        private bool cachedSortAscending = true;
 
         public ParsekUI(ParsekFlight flight)
         {
@@ -212,11 +220,13 @@ namespace Parsek
             }
 
             // --- Real Spawn Control toggle (in the window group, after Game Actions) ---
-            if (InFlight && flight != null && flight.NearbySpawnCandidates.Count > 0)
+            if (InFlight && flight != null)
             {
+                int spawnCount = flight.NearbySpawnCandidates.Count;
+                GUI.enabled = spawnCount > 0;
                 if (GUILayout.Button(string.Format(
                     System.Globalization.CultureInfo.InvariantCulture,
-                    "Real Spawn Control ({0})", flight.NearbySpawnCandidates.Count)))
+                    "Real Spawn Control ({0})", spawnCount)))
                 {
                     showSpawnControlWindow = !showSpawnControlWindow;
                     ParsekLog.Verbose("UI",
@@ -224,6 +234,7 @@ namespace Parsek
                             "Real Spawn Control window toggled: {0}",
                             showSpawnControlWindow ? "open" : "closed"));
                 }
+                GUI.enabled = true;
             }
 
             if (InFlight)
@@ -637,8 +648,8 @@ namespace Parsek
                 GUILayout.Label("No actions recorded.");
             }
 
-            // C. Bottom Bar
-            GUILayout.Space(5);
+            // C. Bottom Bar — pinned to window bottom
+            GUILayout.FlexibleSpace();
 
             uint epoch = MilestoneStore.CurrentEpoch;
             if (epoch > 0)
@@ -787,7 +798,7 @@ namespace Parsek
                 recordingsWindowRect = new Rect(
                     mainWindowRect.x + mainWindowRect.width + 10,
                     mainWindowRect.y,
-                    883, recHeight);
+                    1106, recHeight);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI", $"Recordings window initial position: x={recordingsWindowRect.x.ToString("F0", ic)} y={recordingsWindowRect.y.ToString("F0", ic)}");
             }
@@ -981,7 +992,7 @@ namespace Parsek
                 DrawSortableHeader("Name", SortColumn.Name, 0, true);
                 DrawSortableHeader("Phase", SortColumn.Phase, ColW_Phase);
                 DrawSortableHeader("Launch", SortColumn.LaunchTime, ColW_Launch);
-                DrawSortableHeader("Countdown", SortColumn.Countdown, ColW_Countdown);
+                DrawSortableHeader("Countdown", SortColumn.LaunchTime, ColW_Countdown);
                 DrawSortableHeader("Duration", SortColumn.Duration, ColW_Dur);
 
                 if (showExpandedStats)
@@ -1173,8 +1184,8 @@ namespace Parsek
                     scrollViewRect = GUILayoutUtility.GetLastRect();
             }
 
-            // Bottom button bar
-            GUILayout.Space(5);
+            // Bottom button bar — pinned to window bottom
+            GUILayout.FlexibleSpace();
             GUILayout.BeginHorizontal();
 
             if (committed.Count > 0)
@@ -1184,10 +1195,10 @@ namespace Parsek
                 {
                     showExpandedStats = !showExpandedStats;
                     ParsekLog.Verbose("UI", $"Recordings Stats toggled: {(showExpandedStats ? "expanded" : "collapsed")}");
-                    if (showExpandedStats && recordingsWindowRect.width < 1150f)
-                        recordingsWindowRect.width = 1150f;
+                    if (showExpandedStats && recordingsWindowRect.width < 1324f)
+                        recordingsWindowRect.width = 1324f;
                     else if (!showExpandedStats)
-                        recordingsWindowRect.width = 883f;
+                        recordingsWindowRect.width = 1106f;
                 }
             }
 
@@ -2444,11 +2455,6 @@ namespace Parsek
                 case SortColumn.LaunchTime:
                     cmp = ra.StartUT.CompareTo(rb.StartUT);
                     break;
-                case SortColumn.Countdown:
-                    // Sort by time remaining until launch (StartUT - now).
-                    // Past recordings (negative delta) sort after future ones.
-                    cmp = (ra.StartUT - now).CompareTo(rb.StartUT - now);
-                    break;
                 case SortColumn.Duration:
                     cmp = (ra.EndUT - ra.StartUT).CompareTo(rb.EndUT - rb.StartUT);
                     break;
@@ -2860,13 +2866,32 @@ namespace Parsek
 
             if (spawnControlWindowRect.width < 1f)
             {
-                spawnControlWindowRect = new Rect(
-                    mainWindowRect.x + mainWindowRect.width + 10,
-                    mainWindowRect.y + mainWindowRect.height + 10,
-                    340, 10);
+                float x = mainWindowRect.x + mainWindowRect.width + 10;
+                spawnControlWindowRect = new Rect(x, mainWindowRect.y, 528, 200);
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
                 ParsekLog.Verbose("UI",
                     $"Real Spawn Control window initial position: x={spawnControlWindowRect.x.ToString("F0", ic)} y={spawnControlWindowRect.y.ToString("F0", ic)}");
+            }
+
+            // Handle resize drag
+            if (isResizingSpawnControlWindow)
+            {
+                if (Event.current.type == EventType.MouseDrag || Event.current.type == EventType.MouseUp)
+                {
+                    float newW = Mathf.Max(MinWindowWidth, Event.current.mousePosition.x - spawnControlWindowRect.x);
+                    float newH = Mathf.Max(MinWindowHeight, Event.current.mousePosition.y - spawnControlWindowRect.y);
+                    spawnControlWindowRect.width = newW;
+                    spawnControlWindowRect.height = newH;
+                }
+                if (Event.current.type == EventType.MouseUp)
+                {
+                    isResizingSpawnControlWindow = false;
+                    var ic = System.Globalization.CultureInfo.InvariantCulture;
+                    ParsekLog.Verbose("UI",
+                        $"Real Spawn Control window resize ended: w={spawnControlWindowRect.width.ToString("F0", ic)} h={spawnControlWindowRect.height.ToString("F0", ic)}");
+                }
+                if (Event.current.type == EventType.MouseDrag)
+                    Event.current.Use();
             }
 
             EnsureOpaqueWindowStyle();
@@ -2876,7 +2901,8 @@ namespace Parsek
                 DrawSpawnControlWindow,
                 "Parsek \u2014 Real Spawn Control",
                 opaqueWindowStyle,
-                GUILayout.Width(340)
+                GUILayout.Width(spawnControlWindowRect.width),
+                GUILayout.Height(spawnControlWindowRect.height)
             );
             LogWindowPosition("SpawnControl", ref lastSpawnControlWindowRect, spawnControlWindowRect);
 
@@ -2910,17 +2936,57 @@ namespace Parsek
 
         private void DrawSpawnSortableHeader(string label, SpawnSortColumn col, float width)
         {
+            DrawSpawnSortableHeader(label, col, false, width);
+        }
+
+        private void DrawSpawnSortableHeader(string label, SpawnSortColumn col, bool expand)
+        {
+            DrawSpawnSortableHeader(label, col, expand, 0);
+        }
+
+        private void DrawSpawnSortableHeader(string label, SpawnSortColumn col, bool expand, float width)
+        {
             string arrow = spawnSortColumn == col ? (spawnSortAscending ? " \u25b2" : " \u25bc") : "";
-            if (GUILayout.Button(label + arrow, GUI.skin.label, GUILayout.Width(width)))
+            if (expand)
             {
-                if (spawnSortColumn == col)
-                    spawnSortAscending = !spawnSortAscending;
-                else
-                {
-                    spawnSortColumn = col;
-                    spawnSortAscending = true;
-                }
+                if (GUILayout.Button(label + arrow, GUI.skin.label, GUILayout.ExpandWidth(true)))
+                    ToggleSpawnSort(col);
             }
+            else
+            {
+                if (GUILayout.Button(label + arrow, GUI.skin.label, GUILayout.Width(width)))
+                    ToggleSpawnSort(col);
+            }
+        }
+
+        private void ToggleSpawnSort(SpawnSortColumn col)
+        {
+            if (spawnSortColumn == col)
+                spawnSortAscending = !spawnSortAscending;
+            else
+            {
+                spawnSortColumn = col;
+                spawnSortAscending = true;
+            }
+        }
+
+        private int CompareSpawnCandidates(NearbySpawnCandidate a, NearbySpawnCandidate b)
+        {
+            int cmp;
+            switch (spawnSortColumn)
+            {
+                case SpawnSortColumn.Name:
+                    cmp = string.Compare(a.vesselName, b.vesselName,
+                        System.StringComparison.OrdinalIgnoreCase);
+                    break;
+                case SpawnSortColumn.SpawnTime:
+                    cmp = a.endUT.CompareTo(b.endUT);
+                    break;
+                default: // Distance
+                    cmp = a.distance.CompareTo(b.distance);
+                    break;
+            }
+            return spawnSortAscending ? cmp : -cmp;
         }
 
         private void DrawSpawnControlWindow(int windowID)
@@ -2940,25 +3006,30 @@ namespace Parsek
 
             // Header row with sortable columns
             GUILayout.BeginHorizontal();
-            GUILayout.Label("Craft", GUILayout.ExpandWidth(true));
+            DrawSpawnSortableHeader("Craft", SpawnSortColumn.Name, true);
             DrawSpawnSortableHeader("Dist", SpawnSortColumn.Distance, SpawnColW_Dist);
-            GUILayout.Label("Spawns at", GUILayout.Width(SpawnColW_SpawnTime));
-            DrawSpawnSortableHeader("In T-", SpawnSortColumn.Countdown, SpawnColW_Countdown);
+            DrawSpawnSortableHeader("Spawns at", SpawnSortColumn.SpawnTime, SpawnColW_SpawnTime);
+            DrawSpawnSortableHeader("In T-", SpawnSortColumn.SpawnTime, SpawnColW_Countdown);
             GUILayout.Label("", GUILayout.Width(SpawnColW_Warp));
             GUILayout.EndHorizontal();
 
-            // Sort candidates for display
-            var sorted = new List<NearbySpawnCandidate>(candidates);
-            if (spawnSortColumn == SpawnSortColumn.Countdown)
-                sorted.Sort((a, b) => spawnSortAscending
-                    ? a.endUT.CompareTo(b.endUT)
-                    : b.endUT.CompareTo(a.endUT));
-            else
-                sorted.Sort((a, b) => spawnSortAscending
-                    ? a.distance.CompareTo(b.distance)
-                    : b.distance.CompareTo(a.distance));
+            // Re-sort only when candidate list or sort state changes
+            if (candidates.Count != cachedCandidateCount
+                || spawnSortColumn != cachedSortColumn
+                || spawnSortAscending != cachedSortAscending)
+            {
+                cachedSortedCandidates.Clear();
+                for (int ci = 0; ci < candidates.Count; ci++)
+                    cachedSortedCandidates.Add(candidates[ci]);
+                cachedSortedCandidates.Sort(CompareSpawnCandidates);
+                cachedCandidateCount = candidates.Count;
+                cachedSortColumn = spawnSortColumn;
+                cachedSortAscending = spawnSortAscending;
+            }
+            var sorted = cachedSortedCandidates;
 
-            // Per-craft rows
+            // Scrollable per-craft rows
+            spawnControlScrollPos = GUILayout.BeginScrollView(spawnControlScrollPos, GUILayout.ExpandHeight(true));
             for (int i = 0; i < sorted.Count; i++)
             {
                 var cand = sorted[i];
@@ -2989,31 +3060,47 @@ namespace Parsek
                 GUI.enabled = true;
                 GUILayout.EndHorizontal();
             }
+            GUILayout.EndScrollView();
 
-            // Bottom section
-            GUILayout.Space(SpacingLarge);
+            // Bottom section -- pinned to window bottom
+            GUILayout.FlexibleSpace();
 
+            GUILayout.BeginHorizontal();
             var next = SelectiveSpawnUI.FindNextSpawnCandidate(candidates, currentUT);
-            if (next != null)
+            GUI.enabled = next != null;
+            string tooltip = next != null
+                ? SelectiveSpawnUI.FormatNextSpawnTooltip(next, currentUT) : "";
+            if (GUILayout.Button(new GUIContent("Warp to Next Real Spawn", tooltip),
+                GUILayout.ExpandWidth(true)))
             {
-                string tooltip = SelectiveSpawnUI.FormatNextSpawnTooltip(next, currentUT);
-                if (GUILayout.Button(new GUIContent("Warp to Next Spawn", tooltip)))
-                {
-                    ParsekLog.Info("UI", "Real Spawn Control: Warp to Next Spawn clicked");
-                    flight.WarpToNextCraftSpawn();
-                }
+                ParsekLog.Info("UI", "Real Spawn Control: Warp to Next Real Spawn clicked");
+                flight.WarpToNextCraftSpawn();
             }
-
-            if (GUILayout.Button("Close"))
+            GUI.enabled = true;
+            if (GUILayout.Button("Close", GUILayout.Width(132)))
             {
                 showSpawnControlWindow = false;
                 ParsekLog.Verbose("UI", "Real Spawn Control window closed");
             }
+            GUILayout.EndHorizontal();
 
             if (!string.IsNullOrEmpty(GUI.tooltip))
             {
                 GUILayout.Space(SpacingSmall);
                 GUILayout.Label(GUI.tooltip, GUI.skin.box);
+            }
+
+            // Resize handle (bottom-right corner)
+            Rect handleRect = new Rect(
+                spawnControlWindowRect.width - ResizeHandleSize,
+                spawnControlWindowRect.height - ResizeHandleSize,
+                ResizeHandleSize, ResizeHandleSize);
+            GUI.Label(handleRect, "\u25e2");
+            if (Event.current.type == EventType.MouseDown && handleRect.Contains(Event.current.mousePosition))
+            {
+                isResizingSpawnControlWindow = true;
+                ParsekLog.Verbose("UI", "Real Spawn Control window resize started");
+                Event.current.Use();
             }
 
             GUI.DragWindow();

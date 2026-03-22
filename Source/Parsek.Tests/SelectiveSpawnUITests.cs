@@ -13,11 +13,14 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             ParsekLog.VerboseOverrideForTesting = true;
+            // Default to Earth time for existing tests
+            SelectiveSpawnUI.KerbinTimeOverrideForTesting = false;
         }
 
         public void Dispose()
         {
             ParsekLog.ResetTestOverrides();
+            SelectiveSpawnUI.KerbinTimeOverrideForTesting = null;
         }
 
         // ── IsSpawnCandidate ──
@@ -220,6 +223,51 @@ namespace Parsek.Tests
         public void FormatCountdown_Zero()
         {
             Assert.Equal("T-0s", SelectiveSpawnUI.FormatCountdown(0));
+        }
+
+        // ── FormatCountdown (Kerbin time) ──
+
+        [Fact]
+        public void FormatCountdown_KerbinTime_DaysUse6HourDay()
+        {
+            SelectiveSpawnUI.KerbinTimeOverrideForTesting = true;
+            // 21600s = 1 Kerbin day (6 hours)
+            Assert.Equal("T-1d 0h 0m 0s", SelectiveSpawnUI.FormatCountdown(21600));
+        }
+
+        [Fact]
+        public void FormatCountdown_KerbinTime_YearsUse426Days()
+        {
+            SelectiveSpawnUI.KerbinTimeOverrideForTesting = true;
+            // 1 Kerbin year = 426 * 21600 = 9,201,600s
+            double oneKerbinYear = 426.0 * 21600;
+            Assert.Equal("T-1y 0d 0h 0m 0s", SelectiveSpawnUI.FormatCountdown(oneKerbinYear));
+        }
+
+        [Fact]
+        public void FormatCountdown_KerbinTime_MixedComponents()
+        {
+            SelectiveSpawnUI.KerbinTimeOverrideForTesting = true;
+            // 1 day (21600) + 2h (7200) + 3m (180) + 4s = 28984s
+            Assert.Equal("T-1d 2h 3m 4s", SelectiveSpawnUI.FormatCountdown(28984));
+        }
+
+        [Fact]
+        public void FormatCountdown_EarthTime_DaysUse24HourDay()
+        {
+            SelectiveSpawnUI.KerbinTimeOverrideForTesting = false;
+            // 86400s = 1 Earth day
+            Assert.Equal("T-1d 0h 0m 0s", SelectiveSpawnUI.FormatCountdown(86400));
+        }
+
+        [Fact]
+        public void FormatCountdown_LargeValue_NoIntOverflow()
+        {
+            // Value larger than int.MaxValue seconds (~68 years Earth time)
+            double hugeSeconds = 3_000_000_000.0;
+            string result = SelectiveSpawnUI.FormatCountdown(hugeSeconds);
+            Assert.StartsWith("T-", result);
+            Assert.Contains("y", result);
         }
 
         // ── FormatNextSpawnTooltip ──

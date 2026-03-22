@@ -138,6 +138,65 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region ClampAltitude
+
+        [Fact]
+        public void ClampAltitude_AboveTerrain_NoChange()
+        {
+            // Ghost at 75m, terrain at 70m — already above terrain + 0.5m
+            double result = TerrainCorrector.ClampAltitude(75.0, 70.0);
+            Assert.Equal(75.0, result);
+        }
+
+        [Fact]
+        public void ClampAltitude_BelowTerrain_ClampsUp()
+        {
+            // Ghost at 65m, terrain at 70m — below terrain
+            double result = TerrainCorrector.ClampAltitude(65.0, 70.0);
+            Assert.Equal(70.5, result);
+        }
+
+        [Fact]
+        public void ClampAltitude_AtTerrain_ClampsUp()
+        {
+            // Ghost exactly at terrain height — needs clearance
+            double result = TerrainCorrector.ClampAltitude(70.0, 70.0);
+            Assert.Equal(70.5, result);
+        }
+
+        [Fact]
+        public void ClampAltitude_NegativeTerrain_Ocean_NoChange()
+        {
+            // Ghost at sea level (0m), ocean floor at -500m — already above
+            double result = TerrainCorrector.ClampAltitude(0.0, -500.0);
+            Assert.Equal(0.0, result);
+        }
+
+        [Fact]
+        public void ClampAltitude_DeepUnderground_ClampsUp()
+        {
+            // Ghost at -8444m (orbit reconstruction underground), terrain at 70m
+            double result = TerrainCorrector.ClampAltitude(-8444.0, 70.0);
+            Assert.Equal(70.5, result);
+        }
+
+        [Fact]
+        public void ClampAltitude_CustomClearance()
+        {
+            double result = TerrainCorrector.ClampAltitude(70.0, 70.0, 1.0);
+            Assert.Equal(71.0, result);
+        }
+
+        [Fact]
+        public void ClampAltitude_JustAboveClearance_NoChange()
+        {
+            // Ghost at 70.6m, terrain at 70m, clearance 0.5m — just above threshold
+            double result = TerrainCorrector.ClampAltitude(70.6, 70.0);
+            Assert.Equal(70.6, result);
+        }
+
+        #endregion
+
         #region Serialization round-trip
 
         [Fact]

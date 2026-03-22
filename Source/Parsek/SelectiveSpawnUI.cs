@@ -26,8 +26,37 @@ namespace Parsek
     /// </summary>
     internal static class SelectiveSpawnUI
     {
-        private const string Tag = "SpawnControl";
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+        private static readonly System.Text.StringBuilder SharedSB = new System.Text.StringBuilder(64);
+
+        // Kerbin time: 6-hour days (21600s), 426-day years
+        // Earth time: 24-hour days (86400s), 365-day years
+        private const int KerbinDaySec = 21600;
+        private const int KerbinYearDays = 426;
+        private const int EarthDaySec = 86400;
+        private const int EarthYearDays = 365;
+
+        /// <summary>
+        /// Test hook: when non-null, overrides GameSettings.KERBIN_TIME for unit tests.
+        /// </summary>
+        internal static bool? KerbinTimeOverrideForTesting;
+
+        internal static bool UseKerbinTime =>
+            KerbinTimeOverrideForTesting ?? GameSettings.KERBIN_TIME;
+
+        internal static void GetDayAndYearConstants(out int daySec, out int yearDays)
+        {
+            if (UseKerbinTime)
+            {
+                daySec = KerbinDaySec;
+                yearDays = KerbinYearDays;
+            }
+            else
+            {
+                daySec = EarthDaySec;
+                yearDays = EarthYearDays;
+            }
+        }
 
         /// <summary>
         /// Pure: determine whether a ghost qualifies as a spawn candidate.
@@ -69,30 +98,33 @@ namespace Parsek
         /// <summary>
         /// Pure: format a time delta as human-readable string.
         /// Under 60s: "{s}s". Under 3600s: "{m}m {s}s". Otherwise: "{h}h {m}m".
+        /// Uses Kerbin or Earth time based on GameSettings.KERBIN_TIME for day/year boundaries.
+        /// (Currently only shows up to hours, so day length doesn't affect output.)
         /// </summary>
         internal static string FormatTimeDelta(double seconds)
         {
             if (seconds < 0) seconds = 0;
 
             if (seconds < 60)
-                return string.Format(IC, "{0}s", ((int)seconds).ToString(IC));
+                return string.Format(IC, "{0}s", ((long)seconds).ToString(IC));
 
             if (seconds < 3600)
             {
-                int m = (int)(seconds / 60);
-                int s = (int)(seconds % 60);
+                long m = (long)(seconds / 60);
+                long s = (long)(seconds % 60);
                 return string.Format(IC, "{0}m {1}s", m.ToString(IC), s.ToString(IC));
             }
 
-            int h = (int)(seconds / 3600);
-            int min = (int)((seconds % 3600) / 60);
+            long h = (long)(seconds / 3600);
+            long min = (long)((seconds % 3600) / 60);
             return string.Format(IC, "{0}h {1}m", h.ToString(IC), min.ToString(IC));
         }
 
         /// <summary>
         /// Pure: format a countdown string "T-Xd Xh Xm Xs" from a time delta.
         /// Hides zero leading components (no years if 0, no days if 0, etc.).
-        /// Uses 365-day years, 24-hour days.
+        /// Uses Kerbin time (6h days, 426-day years) or Earth time (24h days, 365-day years)
+        /// based on GameSettings.KERBIN_TIME.
         /// Returns "T+..." for negative deltas (event in the past).
         /// </summary>
         internal static string FormatCountdown(double deltaSeconds)
@@ -104,17 +136,22 @@ namespace Parsek
                 deltaSeconds = -deltaSeconds;
             }
 
-            int totalSec = (int)deltaSeconds;
-            int years = totalSec / (365 * 86400);
-            totalSec %= 365 * 86400;
-            int days = totalSec / 86400;
-            totalSec %= 86400;
-            int hours = totalSec / 3600;
-            totalSec %= 3600;
-            int minutes = totalSec / 60;
-            int seconds = totalSec % 60;
+            GetDayAndYearConstants(out int daySec, out int yearDays);
+            long yearSec = (long)yearDays * daySec;
 
-            var parts = new System.Text.StringBuilder(prefix);
+            long totalSec = (long)deltaSeconds;
+            long years = totalSec / yearSec;
+            totalSec %= yearSec;
+            long days = totalSec / daySec;
+            totalSec %= daySec;
+            long hours = totalSec / 3600;
+            totalSec %= 3600;
+            long minutes = totalSec / 60;
+            long seconds = totalSec % 60;
+
+            var parts = SharedSB;
+            parts.Clear();
+            parts.Append(prefix);
             bool started = false;
 
             if (years > 0)

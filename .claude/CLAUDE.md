@@ -23,7 +23,8 @@ docs/                   # Design docs, roadmap, reference analyses
 Key source files and what they do - read the relevant one before modifying:
 - `ParsekFlight.cs` - main flight-scene controller (playback, timeline, input)
 - `FlightRecorder.cs` - recording state + sampling (called by Harmony patch)
-- `ParsekUI.cs` - UI windows (main, recordings, actions, settings) and map markers
+- `ParsekUI.cs` - UI windows (main, recordings, actions, settings, Real Spawn Control) and map markers
+- `SelectiveSpawnUI.cs` - pure static methods for Real Spawn Control (proximity candidates, countdown formatting)
 - `ParsekScenario.cs` - ScenarioModule for save/load, crew reservation & replacement
 - `RecordingStore.cs` - static recording storage surviving scene changes
 - `GhostVisualBuilder.cs` - ghost mesh building from vessel snapshots

@@ -91,6 +91,24 @@ Click any column header to sort by that column. Click again to reverse the sort 
 
 The select-all checkbox in the Loop column header toggles looping for all recordings at once. The Hide checkbox in the column header controls whether hidden recordings are shown — when checked (default), hidden recordings are filtered out; uncheck it to see and manage hidden recordings.
 
+The **Countdown** column shows how long until each recording's vessel spawns, formatted as `T-Xd Xh Xm Xs`. It updates live during playback and shows `-` for recordings already past their spawn time.
+
+### Real Spawn Control
+
+Click the "Real Spawn Control (N)" button in the main Parsek window to open the spawn control window. This button shows the number of nearby spawn candidates and is grayed out when none are detected.
+
+The window shows ghost craft within 500m whose recording ends in the future — these are vessels that will become real when their ghost playback finishes. Each row shows:
+
+- **Craft** — vessel name
+- **Dist** — distance in meters from your active vessel
+- **Spawns at** — the KSP calendar time when the ghost becomes real
+- **In T-** — countdown to spawn time
+- **Warp** — button to time-warp directly to that vessel's spawn time
+
+Click column headers (Dist, In T-) to sort. Default sort is by distance. Click again to reverse order.
+
+The **Warp to Next Spawn** button at the bottom warps to whichever candidate spawns soonest. A screen notification appears when a new ghost craft enters the 500m range.
+
 ### Settings
 
 Click the "Settings" button in the main Parsek window to open the Settings panel. Settings are saved per-save and can also be accessed from KSP's Difficulty Settings screen (Esc > Settings > Parsek).

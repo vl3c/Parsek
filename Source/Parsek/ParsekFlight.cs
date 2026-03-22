@@ -19,6 +19,9 @@ namespace Parsek
         internal const string MODID = "Parsek_NS";
         internal const string MODNAME = "Parsek";
 
+        /// <summary>Above this altitude, skip the per-frame terrain clamp (no terrain risk in flight).</summary>
+        const double TerrainClampAltitudeLimit = 10000;
+
         #region State
 
         // Recording (delegated to FlightRecorder)
@@ -577,6 +580,35 @@ namespace Parsek
                     }
                 }
             }
+
+            // Terrain clamp: prevent ghosts from appearing below terrain surface.
+            // Sub-orbital orbit reconstruction can place ghosts underground (periapsis
+            // below surface), and procedural terrain height varies between sessions.
+            for (int i = 0; i < ghostPosEntries.Count; i++)
+            {
+                var e = ghostPosEntries[i];
+                if (e.ghost == null || !e.ghost.activeSelf) continue;
+                if (e.mode == GhostPosMode.Relative) continue;
+
+                CelestialBody body = (e.mode == GhostPosMode.Orbit) ? e.orbitBody : e.bodyBefore;
+                if (body == null || body.pqsController == null) continue;
+
+                Vector3d pos = e.ghost.transform.position;
+                double alt = body.GetAltitude(pos);
+                if (alt > TerrainClampAltitudeLimit) continue;
+
+                double lat = body.GetLatitude(pos);
+                double lon = body.GetLongitude(pos);
+                double terrainHeight = body.TerrainAltitude(lat, lon, true);
+                double clamped = TerrainCorrector.ClampAltitude(alt, terrainHeight);
+                if (clamped > alt)
+                {
+                    e.ghost.transform.position = body.GetWorldSurfacePosition(lat, lon, clamped);
+                    ParsekLog.VerboseRateLimited("TerrainCorrect", "clamp-ghost",
+                        $"Ghost terrain clamp: alt={alt:F1} terrain={terrainHeight:F1} -> {clamped:F1}");
+                }
+            }
+
             ghostPosEntries.Clear();
 
             UpdateWatchCamera();
@@ -3897,6 +3929,19 @@ namespace Parsek
 
             ResetFlightReadyState();
 
+            // Belt-and-suspenders: recover orphaned spawned vessels that survived
+            // the protoVessel stripping in OnLoad (e.g., FLIGHT→FLIGHT revert where
+            // SpaceCenter was never visited, or name change edge cases).
+            // Here FlightGlobals.Vessels is populated and vessel.persistentId is reliable.
+            if (RecordingStore.PendingCleanupPids != null || RecordingStore.PendingCleanupNames != null)
+            {
+                CleanupOrphanedSpawnedVessels(
+                    RecordingStore.PendingCleanupPids,
+                    RecordingStore.PendingCleanupNames);
+                RecordingStore.PendingCleanupPids = null;
+                RecordingStore.PendingCleanupNames = null;
+            }
+
             // Apply ghost soft cap settings from persisted game parameters
             var capSettings = ParsekSettings.Current;
             if (capSettings != null)
@@ -3992,6 +4037,30 @@ namespace Parsek
                     Log($"Found pending recording from {pending.VesselName} ({pending.Points.Count} points)");
                     CommitOrShowDialog(pending);
                 }
+            }
+
+            // Mark all committed recordings that share the active vessel's PID for fresh spawn.
+            // After revert, the pad vessel has the same PID as previously-recorded vessels.
+            // Without this, the PID dedup in SpawnVesselOrChainTip would skip spawning
+            // because it finds the pad vessel and thinks the recorded vessel already exists.
+            // ForceSpawnNewVessel is transient (not serialized), so this must run every flight entry.
+            if (activeVessel != null && activeVessel.persistentId != 0)
+            {
+                uint activePid = activeVessel.persistentId;
+                var allCommitted = RecordingStore.CommittedRecordings;
+                int forceCount = 0;
+                for (int ci = 0; ci < allCommitted.Count; ci++)
+                {
+                    if (allCommitted[ci].VesselPersistentId == activePid && !allCommitted[ci].VesselSpawned)
+                    {
+                        allCommitted[ci].ForceSpawnNewVessel = true;
+                        forceCount++;
+                    }
+                }
+                if (forceCount > 0)
+                    ParsekLog.Verbose("Flight",
+                        $"Marked {forceCount} committed recording(s) with ForceSpawnNewVessel " +
+                        $"(active vessel pid={activePid})");
             }
 
             // Swap reserved crew out of the active vessel so the player
@@ -5315,6 +5384,44 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Recovers orphaned spawned vessels after a revert/rewind. Matches by
+        /// persistentId (reliable in Flight) and vessel name (fallback).
+        /// Skips the active vessel.
+        /// </summary>
+        void CleanupOrphanedSpawnedVessels(HashSet<uint> pids, HashSet<string> names)
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            uint activePid = activeVessel != null ? activeVessel.persistentId : 0;
+            bool hasPids = pids != null && pids.Count > 0;
+            bool hasNames = names != null && names.Count > 0;
+            int recovered = 0;
+
+            for (int i = FlightGlobals.Vessels.Count - 1; i >= 0; i--)
+            {
+                var vessel = FlightGlobals.Vessels[i];
+                if (vessel.persistentId == activePid) continue;
+
+                bool matchByPid = hasPids && pids.Contains(vessel.persistentId);
+                bool matchByName = hasNames && names.Contains(vessel.vesselName);
+
+                if (matchByPid || matchByName)
+                {
+                    string matchMethod = matchByPid ? "PID" : "name";
+                    ParsekLog.Info("Flight",
+                        $"CleanupOrphanedSpawnedVessels: recovering '{vessel.vesselName}' " +
+                        $"pid={vessel.persistentId} (matched by {matchMethod})");
+                    ShipConstruction.RecoverVesselFromFlight(
+                        vessel.protoVessel, HighLogic.CurrentGame.flightState, true);
+                    recovered++;
+                }
+            }
+
+            if (recovered > 0)
+                ParsekLog.Info("Flight",
+                    $"CleanupOrphanedSpawnedVessels: recovered {recovered} orphaned vessel(s)");
+        }
+
+        /// <summary>
         /// Finds and recovers any in-scene vessel that was timeline-spawned from a
         /// committed recording with the given name. Prevents overlap collisions when
         /// a tree commit spawns a vessel on top of an already-spawned timeline vessel.
@@ -5602,9 +5709,11 @@ namespace Parsek
 
             InterpolationResult interpResult;
             bool srfRel = previewRecording != null && previewRecording.RecordingFormatVersion >= 5;
+            bool surfaceSkip = previewRecording != null &&
+                TrajectoryMath.IsSurfaceAtUT(previewRecording.TrackSections, recordingTime);
             InterpolateAndPosition(ghostObject, recording, orbitSegments,
                 ref lastPlaybackIndex, recordingTime, 10000, out interpResult,
-                surfaceRelativeRotation: srfRel);
+                surfaceRelativeRotation: srfRel, skipOrbitSegments: surfaceSkip);
 
             if (previewGhostState != null && previewRecording != null)
             {
@@ -5752,10 +5861,11 @@ namespace Parsek
                     // TODO: cachedIdx resets to 0 each frame — when ghost GO creation is implemented
                     // (6b-4), cache this on the ghost state or chain for O(1) amortized lookup.
                     bool srfRel = bgRec.RecordingFormatVersion >= 5;
+                    bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(bgRec.TrackSections, currentUT);
                     int cachedIdx = 0;
                     InterpolateAndPosition(info.ghostGO, bgRec.Points, bgRec.OrbitSegments,
                         ref cachedIdx, currentUT, (int)(chain.OriginalVesselPid * 10000),
-                        out _, surfaceRelativeRotation: srfRel);
+                        out _, surfaceRelativeRotation: srfRel, skipOrbitSegments: surfaceSkip);
 
                     ParsekLog.VerboseRateLimited("Flight", "chain-ghost-trajectory-" + chain.OriginalVesselPid,
                         string.Format(CultureInfo.InvariantCulture,
@@ -6096,6 +6206,31 @@ namespace Parsek
                     Log($"Vessel already spawned (pid={rec.SpawnedVesselPersistentId}) — marked VesselSpawned=true for recording #{i}");
                 }
 
+                // Reverse: if marked as spawned but the real vessel no longer exists
+                // (recovered, destroyed, or cleared), reset spawn state so the recording
+                // can be spawned again via Real Spawn Control or natural playback.
+                if (!needsSpawn && (rec.VesselSpawned || rec.SpawnedVesselPersistentId != 0))
+                {
+                    uint checkPid = rec.SpawnedVesselPersistentId != 0
+                        ? rec.SpawnedVesselPersistentId : rec.VesselPersistentId;
+                    if (checkPid != 0 && !GhostPlaybackLogic.RealVesselExists(checkPid))
+                    {
+                        rec.VesselSpawned = false;
+                        rec.SpawnedVesselPersistentId = 0;
+                        Log($"Spawned vessel gone (pid={checkPid}) — reset spawn state for recording #{i} \"{rec.VesselName}\"");
+                    }
+                }
+
+                // Recover missing VesselSnapshot from GhostVisualSnapshot.
+                // VesselSnapshot can be lost if it was null during a save (file gets deleted).
+                // GhostVisualSnapshot persists separately and contains the same vessel data.
+                if (!needsSpawn && rec.VesselSnapshot == null && rec.GhostVisualSnapshot != null
+                    && !rec.VesselDestroyed)
+                {
+                    rec.VesselSnapshot = rec.GhostVisualSnapshot.CreateCopy();
+                    Log($"Recovered VesselSnapshot from GhostVisualSnapshot for recording #{i} \"{rec.VesselName}\"");
+                }
+
                 // External vessel suppression: skip ghost visuals while in-range,
                 // but allow spawn-at-end evaluation when past-end.
                 if (externalVesselSuppressed && inRange)
@@ -6195,9 +6330,12 @@ namespace Parsek
 
                         if (!usedRelative)
                         {
+                            // Layer 2: Skip orbit segments when the current TrackSection
+                            // is a surface environment — use point interpolation instead.
+                            bool surfaceSkip = TrajectoryMath.IsSurfaceAtUT(rec.TrackSections, currentUT);
                             InterpolateAndPosition(state.ghost, rec.Points, rec.OrbitSegments,
                                 ref playbackIdx, currentUT, i * 10000, out interpResult,
-                                surfaceRelativeRotation: srfRel);
+                                surfaceRelativeRotation: srfRel, skipOrbitSegments: surfaceSkip);
                         }
 
                         state.SetInterpolated(interpResult);
@@ -6257,7 +6395,11 @@ namespace Parsek
 
                         if (state != null && state.ghost != null)
                         {
-                            if (hasOrbitData)
+                            // Layer 2: Prefer surface positioning over orbit for surface recordings.
+                            // Orbit data from surface vessels is sub-surface and produces wrong positions.
+                            if (hasSurfaceData && TrajectoryMath.IsSurfaceAtUT(rec.TrackSections, currentUT))
+                                PositionGhostAtSurface(state.ghost, rec.SurfacePos.Value);
+                            else if (hasOrbitData)
                                 PositionGhostFromOrbitOnly(state.ghost, rec, currentUT, i * 10000);
                             else if (hasSurfaceData)
                                 PositionGhostAtSurface(state.ghost, rec.SurfacePos.Value);
@@ -9144,29 +9286,44 @@ namespace Parsek
 
         void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points,
             List<OrbitSegment> segments, ref int cachedIndex, double targetUT, int orbitCacheBase,
-            out InterpolationResult interpResult, bool surfaceRelativeRotation = false)
+            out InterpolationResult interpResult, bool surfaceRelativeRotation = false,
+            bool skipOrbitSegments = false)
         {
-            // Check orbit segments first
-            if (segments != null && segments.Count > 0)
+            // Check orbit segments first (unless suppressed for surface vehicles)
+            if (!skipOrbitSegments && segments != null && segments.Count > 0)
             {
                 OrbitSegment? seg = FindOrbitSegment(segments, targetUT);
                 if (seg.HasValue)
                 {
-                    // Use segment index as cache key offset
-                    int segIdx = segments.IndexOf(seg.Value);
-                    int cacheKey = orbitCacheBase + segIdx;
-                    if (loggedOrbitSegments.Add(cacheKey))
-                        Log($"Orbit segment activated: cache={cacheKey}, body={seg.Value.bodyName}, " +
-                            $"sma={seg.Value.semiMajorAxis:F0}, UT {seg.Value.startUT:F0}-{seg.Value.endUT:F0}");
-                    PositionGhostFromOrbit(ghost, seg.Value, targetUT, cacheKey);
-                    Vector3 vel = Vector3.zero;
-                    Orbit orbit;
-                    if (orbitCache.TryGetValue(cacheKey, out orbit))
-                        vel = orbit.getOrbitalVelocityAtUT(targetUT);
+                    // Layer 3: SMA sanity check — reject orbit segments where the orbit
+                    // is mostly sub-surface (SMA < 90% of body radius). This catches
+                    // old recordings that have invalid orbit segments for surface vessels.
                     CelestialBody segBody = FlightGlobals.Bodies?.Find(b => b.name == seg.Value.bodyName);
-                    double segAlt = segBody != null ? segBody.GetAltitude(ghost.transform.position) : 0;
-                    interpResult = new InterpolationResult(vel, seg.Value.bodyName, segAlt);
-                    return;
+                    double bodyRadius = segBody?.Radius ?? 600000;
+                    if (seg.Value.semiMajorAxis < bodyRadius * 0.9)
+                    {
+                        int smaKey = ~orbitCacheBase; // bitwise complement — guaranteed no collision with positive cache keys
+                        if (loggedOrbitSegments.Add(smaKey))
+                            Log($"Orbit segment rejected (sub-surface): sma={seg.Value.semiMajorAxis:F0} < " +
+                                $"bodyRadius*0.9={bodyRadius * 0.9:F0}, falling through to point interpolation");
+                    }
+                    else
+                    {
+                        // Use segment index as cache key offset
+                        int segIdx = segments.IndexOf(seg.Value);
+                        int cacheKey = orbitCacheBase + segIdx;
+                        if (loggedOrbitSegments.Add(cacheKey))
+                            Log($"Orbit segment activated: cache={cacheKey}, body={seg.Value.bodyName}, " +
+                                $"sma={seg.Value.semiMajorAxis:F0}, UT {seg.Value.startUT:F0}-{seg.Value.endUT:F0}");
+                        PositionGhostFromOrbit(ghost, seg.Value, targetUT, cacheKey);
+                        Vector3 vel = Vector3.zero;
+                        Orbit orbit;
+                        if (orbitCache.TryGetValue(cacheKey, out orbit))
+                            vel = orbit.getOrbitalVelocityAtUT(targetUT);
+                        double segAlt = segBody != null ? segBody.GetAltitude(ghost.transform.position) : 0;
+                        interpResult = new InterpolationResult(vel, seg.Value.bodyName, segAlt);
+                        return;
+                    }
                 }
             }
 
@@ -9421,7 +9578,7 @@ namespace Parsek
                     ParsekLog.ScreenMessage(
                         string.Format(CultureInfo.InvariantCulture,
                             "Nearby craft: {0}. Open the Real Spawn Control window to fast forward and interact.",
-                            cand.vesselName), 5f);
+                            cand.vesselName), 10f);
                     ParsekLog.Info("Flight",
                         string.Format(CultureInfo.InvariantCulture,
                             "Proximity notification: '{0}' recording #{1} distance={2:F0}m endUT={3:F1}",

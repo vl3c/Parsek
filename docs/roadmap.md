@@ -6,6 +6,8 @@ Parsek is a **git-like recording system** for KSP missions. You record flights s
 
 Like git, you can go back to any earlier point and start new work. Existing recordings don't change - they play out as ghosts alongside your new missions. There is no branching, no state reversal, and no paradoxes. Conflicts are prevented through resource budgeting: committed recordings have already claimed their costs, so the player can only spend what's actually available.
 
+Time travel paradoxes are avoided by two invariants: **causality** (events are always processed in time-axis order) and **additivity** (the timeline is append-only — recordings and game state changes can be added but never deleted or retroactively modified). The world state at any point in time is fully determined by the ordered sequence of committed events before it.
+
 ---
 
 ## Completed
@@ -179,6 +181,7 @@ Comprehensive redesign of the recording and playback systems, built on the `reco
 - **KSC ghost playback** — ghosts visible in KSC scene with distance-based part event culling
 - **Ghost soft cap manager** — zone-based priority despawn (partial, see Phase 4)
 - **Log spam mitigation** — rate-limited high-volume diagnostics (SoftCap, GhostVisual, ShouldTriggerExplosion, CanRewind)
+- **Real Spawn Control** — proximity-based UI (500m range) for warping to when nearby ghost craft become real vessels. Per-craft warp buttons, sortable columns, countdown display, screen notifications. Countdown column also added to Recordings Manager.
 - **59 bugs documented** — 44 fixed, see `docs/dev/todo-and-known-bugs.md`
 
 ### What remains

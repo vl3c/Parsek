@@ -10,11 +10,8 @@ namespace Parsek
     /// </summary>
     public static class VesselSpawner
     {
-        /// <summary>
-        /// When false, vessels always spawn at the exact recorded end position
-        /// (no proximity offset). Set true to re-enable the 200m/250m offset logic.
-        /// </summary>
-        public static bool ProximityOffsetEnabled = false;
+        // Proximity offset removed — spawn collision detection now uses bounding box
+        // overlap check via SpawnCollisionDetector (same system as chain-tip spawns).
 
         public static ConfigNode TryBackupSnapshot(Vessel vessel)
         {
@@ -132,57 +129,6 @@ namespace Parsek
                 SaveOrbitToNode(orbit, orbitNode, body);
                 spawnNode.AddNode(orbitNode);
 
-                // Proximity check against nearby vessels
-                Vector3d spawnPos = worldPos;
-                double closestDist = double.MaxValue;
-                Vector3d closestPos = Vector3d.zero;
-                if (FlightGlobals.Vessels != null)
-                {
-                    for (int v = 0; v < FlightGlobals.Vessels.Count; v++)
-                    {
-                        Vessel other = FlightGlobals.Vessels[v];
-                        if (other.mainBody != body) continue;
-                        double dist = Vector3d.Distance(spawnPos, other.GetWorldPos3D());
-                        if (dist < closestDist)
-                        {
-                            closestDist = dist;
-                            closestPos = other.GetWorldPos3D();
-                        }
-                    }
-                }
-
-                if (ProximityOffsetEnabled && closestDist < 100.0)
-                {
-                    Vector3d diff = spawnPos - closestPos;
-                    Vector3d normal = body.GetSurfaceNVector(lat, lon).normalized;
-                    Vector3d tangent = diff - Vector3d.Dot(diff, normal) * normal;
-                    if (tangent.magnitude < 0.001)
-                        tangent = Vector3d.Cross(normal, Vector3d.up);
-                    if (tangent.magnitude < 0.001)
-                        tangent = Vector3d.Cross(normal, Vector3d.right);
-                    tangent = tangent.normalized;
-
-                    double angularDistance = 250.0 / body.Radius;
-                    Vector3d rotatedNormal =
-                        (normal * Math.Cos(angularDistance) + tangent * Math.Sin(angularDistance)).normalized;
-                    Vector3d surfacePos = body.position + rotatedNormal * (body.Radius + alt);
-
-                    double newLat = body.GetLatitude(surfacePos);
-                    double newLon = body.GetLongitude(surfacePos);
-                    spawnNode.SetValue("lat", newLat.ToString("R"), true);
-                    spawnNode.SetValue("lon", newLon.ToString("R"), true);
-
-                    // Recompute orbit for new position
-                    Vector3d newWorldPos = body.GetWorldSurfacePosition(newLat, newLon, alt);
-                    orbit.UpdateFromStateVectors(newWorldPos, velocity, body, ut);
-                    spawnNode.RemoveNode("ORBIT");
-                    orbitNode = new ConfigNode("ORBIT");
-                    SaveOrbitToNode(orbit, orbitNode, body);
-                    spawnNode.AddNode(orbitNode);
-
-                    ParsekLog.Info("Spawner", $"SpawnAtPosition: offset from {closestDist:F0}m to 250m from nearest vessel");
-                }
-
                 // Crew handling
                 RemoveDeadCrewFromSnapshot(spawnNode);
                 EnsureCrewExistInRoster(spawnNode);
@@ -276,8 +222,26 @@ namespace Parsek
             Vector3d spawnPos = body.GetWorldSurfacePosition(
                 lastPt.latitude, lastPt.longitude, lastPt.altitude);
 
-            // Check proximity against all loaded vessels on the same body
-            Vector3d closestPos = Vector3d.zero;
+            // Bounding box overlap check — block spawn if overlapping a loaded vessel.
+            // Ghost continues at its last position; next frame retries via UpdateTimelinePlayback.
+            // Same collision detection system used by chain-tip spawns (SpawnCollisionDetector).
+            // EVA kerbals skip this (they spawn where recorded, too small to collide).
+            bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
+            if (!isEva)
+            {
+                Bounds spawnBounds = SpawnCollisionDetector.ComputeVesselBounds(rec.VesselSnapshot);
+                var (overlap, overlapDist, blockerName) =
+                    SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(spawnPos, spawnBounds, 5f);
+                if (overlap)
+                {
+                    ParsekLog.Info("Spawner",
+                        $"Spawn blocked for #{index} ({rec.VesselName}): overlaps '{blockerName}' at {overlapDist:F0}m — " +
+                        $"will retry next frame");
+                    return;
+                }
+            }
+
+            // Find nearest vessel for spawn context logging
             double closestDist = double.MaxValue;
             for (int v = 0; v < FlightGlobals.Vessels.Count; v++)
             {
@@ -285,77 +249,7 @@ namespace Parsek
                 if (other.mainBody != body) continue;
                 double dist = Vector3d.Distance(spawnPos, other.GetWorldPos3D());
                 if (dist < closestDist)
-                {
                     closestDist = dist;
-                    closestPos = other.GetWorldPos3D();
-                }
-            }
-
-            // Also check final positions of other committed recordings that have
-            // already spawned (may not be in FlightGlobals yet) or will spawn later,
-            // to prevent overlapping spawn positions.
-            var committed = RecordingStore.CommittedRecordings;
-            for (int r = 0; r < committed.Count; r++)
-            {
-                if (r == index) continue;
-                var other = committed[r];
-                if (other.VesselSnapshot == null) continue;
-                if (other.Points.Count == 0) continue;
-                var otherLastPt = other.Points[other.Points.Count - 1];
-                CelestialBody otherBody = FlightGlobals.Bodies?.Find(b => b.name == otherLastPt.bodyName);
-                if (otherBody != body) continue;
-                Vector3d otherPos = otherBody.GetWorldSurfacePosition(
-                    otherLastPt.latitude, otherLastPt.longitude, otherLastPt.altitude);
-                double dist = Vector3d.Distance(spawnPos, otherPos);
-                if (dist < closestDist)
-                {
-                    closestDist = dist;
-                    closestPos = otherPos;
-                }
-            }
-
-            // Skip proximity offset for EVA kerbals — let them spawn where recorded
-            bool isEva = !string.IsNullOrEmpty(rec.EvaCrewName);
-
-            if (ProximityOffsetEnabled && closestDist < 100.0 && !isEva)
-            {
-                // Offset away from the closest vessel along the body surface to avoid
-                // injecting vertical error that can produce hovering landed spawns.
-                Vector3d diff = spawnPos - closestPos;
-                Vector3d normal = body.GetSurfaceNVector(lastPt.latitude, lastPt.longitude).normalized;
-                Vector3d tangent = diff - Vector3d.Dot(diff, normal) * normal;
-                if (tangent.magnitude < 0.001)
-                    tangent = Vector3d.Cross(normal, Vector3d.up);
-                if (tangent.magnitude < 0.001)
-                    tangent = Vector3d.Cross(normal, Vector3d.right);
-                tangent = tangent.normalized;
-
-                double angularDistance = 250.0 / body.Radius;
-                Vector3d rotatedNormal =
-                    (normal * Math.Cos(angularDistance) + tangent * Math.Sin(angularDistance)).normalized;
-                Vector3d surfacePos = body.position + rotatedNormal * (body.Radius + 1.0);
-
-                double newLat = body.GetLatitude(surfacePos);
-                double newLon = body.GetLongitude(surfacePos);
-                double newAlt = ResolveRelocatedAltitude(rec, body, newLat, newLon);
-
-                rec.VesselSnapshot.SetValue("lat", newLat.ToString("R"));
-                rec.VesselSnapshot.SetValue("lon", newLon.ToString("R"));
-                rec.VesselSnapshot.SetValue("alt", newAlt.ToString("R"));
-
-                // Rebuild ORBIT node for new position — map view uses ORBIT for icon placement.
-                // Use last recorded velocity (inertial frame) to preserve flight dynamics
-                // for any vessel situation, not just landed.
-                Vector3d newWorldPos = body.GetWorldSurfacePosition(newLat, newLon, newAlt);
-                Vector3d lastVel = new Vector3d(lastPt.velocity.x, lastPt.velocity.y, lastPt.velocity.z);
-                var relocOrbit = new Orbit();
-                relocOrbit.UpdateFromStateVectors(newWorldPos, lastVel, body, Planetarium.GetUniversalTime());
-                rec.VesselSnapshot.RemoveNode("ORBIT");
-                var relocOrbitNode = new ConfigNode("ORBIT");
-                SaveOrbitToNode(relocOrbit, relocOrbitNode, body);
-                rec.VesselSnapshot.AddNode(relocOrbitNode);
-
-                ParsekLog.Info("Spawner", $"Offset vessel #{index} ({rec.VesselName}) from {closestDist:F0}m to 250m from nearest vessel/recording");
             }
 
             LogSpawnContext(rec, closestDist);

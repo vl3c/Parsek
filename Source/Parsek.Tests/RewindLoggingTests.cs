@@ -188,6 +188,81 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PreProcessRewindSave_WithPids_StripsByPersistentId()
+        {
+            string sfs = WriteTempSave(
+                "FLIGHTSTATE\n{\n  UT = 17000\n" +
+                "  VESSEL\n  {\n    name = Rocket\n    persistentId = 42\n  }\n" +
+                "  VESSEL\n  {\n    name = Station\n    persistentId = 99\n  }\n}\n");
+
+            var names = new HashSet<string> { "NoMatch" };
+            var pids = new HashSet<uint> { 42 };
+            RecordingStore.PreProcessRewindSave(sfs, names, pids, 10.0);
+
+            ConfigNode root = ConfigNode.Load(sfs);
+            var fs = root.GetNode("FLIGHTSTATE");
+            var vessels = fs.GetNodes("VESSEL");
+            Assert.Single(vessels);
+            Assert.Equal("Station", vessels[0].GetValue("name"));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]") && l.Contains("1 by PID"));
+        }
+
+        [Fact]
+        public void PreProcessRewindSave_WithPids_PidOnlyMatch_DifferentName_Strips()
+        {
+            string sfs = WriteTempSave(
+                "FLIGHTSTATE\n{\n  UT = 17000\n" +
+                "  VESSEL\n  {\n    name = Renamed Vessel\n    persistentId = 55\n  }\n" +
+                "  VESSEL\n  {\n    name = Debris\n    persistentId = 100\n  }\n}\n");
+
+            var names = new HashSet<string> { "Original Name" };
+            var pids = new HashSet<uint> { 55 };
+            RecordingStore.PreProcessRewindSave(sfs, names, pids, 10.0);
+
+            ConfigNode root = ConfigNode.Load(sfs);
+            var fs = root.GetNode("FLIGHTSTATE");
+            var vessels = fs.GetNodes("VESSEL");
+            Assert.Single(vessels);
+            Assert.Equal("Debris", vessels[0].GetValue("name"));
+        }
+
+        [Fact]
+        public void PreProcessRewindSave_WithPids_NoPidField_SkipsGracefully()
+        {
+            string sfs = WriteTempSave(
+                "FLIGHTSTATE\n{\n  UT = 17000\n" +
+                "  VESSEL\n  {\n    name = OldVessel\n  }\n}\n");
+
+            var names = new HashSet<string> { "NoMatch" };
+            var pids = new HashSet<uint> { 42 };
+            RecordingStore.PreProcessRewindSave(sfs, names, pids, 10.0);
+
+            ConfigNode root = ConfigNode.Load(sfs);
+            var fs = root.GetNode("FLIGHTSTATE");
+            Assert.Single(fs.GetNodes("VESSEL"));
+        }
+
+        [Fact]
+        public void PreProcessRewindSave_WithPids_EmptyPidSet_StillStripsByName()
+        {
+            string sfs = WriteTempSave(
+                "FLIGHTSTATE\n{\n  UT = 17000\n" +
+                "  VESSEL\n  {\n    name = Rocket\n    persistentId = 42\n  }\n}\n");
+
+            var names = new HashSet<string> { "Rocket" };
+            RecordingStore.PreProcessRewindSave(sfs, names, new HashSet<uint>(), 10.0);
+
+            ConfigNode root = ConfigNode.Load(sfs);
+            var fs = root.GetNode("FLIGHTSTATE");
+            Assert.Empty(fs.GetNodes("VESSEL"));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]") && l.Contains("1 by name"));
+        }
+
+        [Fact]
         public void PreProcessRewindSave_GameWrapper_HandlesCorrectly()
         {
             // Some save files have a GAME wrapper node

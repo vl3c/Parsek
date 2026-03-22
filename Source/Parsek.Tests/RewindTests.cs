@@ -179,5 +179,141 @@ namespace Parsek.Tests
             Assert.Equal(0.0, RecordingStore.RewindUT);
             Assert.Equal(0.0, RecordingStore.RewindReserved.reservedFunds);
         }
+
+        [Fact]
+        public void ResetAllPlaybackState_ClearsPostSpawnRecoveredTerminalState()
+        {
+            var rec = new Recording
+            {
+                VesselName = "TestVessel",
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = 100,
+                TerminalStateValue = TerminalState.Recovered
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100 });
+            RecordingStore.CommittedRecordings.Add(rec);
+
+            RecordingStore.ResetAllPlaybackState();
+
+            Assert.Null(rec.TerminalStateValue);
+            Assert.False(rec.VesselSpawned);
+        }
+
+        [Fact]
+        public void ResetAllPlaybackState_ClearsPostSpawnDestroyedTerminalState()
+        {
+            var rec = new Recording
+            {
+                VesselName = "TestVessel",
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = 200,
+                TerminalStateValue = TerminalState.Destroyed
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100 });
+            RecordingStore.CommittedRecordings.Add(rec);
+
+            RecordingStore.ResetAllPlaybackState();
+
+            Assert.Null(rec.TerminalStateValue);
+        }
+
+        [Fact]
+        public void ResetAllPlaybackState_PreservesRecordingTimeTerminalState()
+        {
+            // Recording committed as ghost-only (destroyed during recording, never spawned)
+            var rec = new Recording
+            {
+                VesselName = "TestVessel",
+                VesselSpawned = false,
+                TerminalStateValue = TerminalState.Destroyed
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100 });
+            RecordingStore.CommittedRecordings.Add(rec);
+
+            RecordingStore.ResetAllPlaybackState();
+
+            // Terminal state should persist — it was set during recording, not post-spawn
+            Assert.Equal(TerminalState.Destroyed, rec.TerminalStateValue);
+        }
+
+        [Fact]
+        public void ResetAllPlaybackState_PreservesSituationBasedTerminalState()
+        {
+            // Spawned recording with Landed terminal state (set at commit, not suppressing)
+            var rec = new Recording
+            {
+                VesselName = "TestVessel",
+                VesselSpawned = true,
+                TerminalStateValue = TerminalState.Landed
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 100 });
+            RecordingStore.CommittedRecordings.Add(rec);
+
+            RecordingStore.ResetAllPlaybackState();
+
+            // Situation-based states (Landed, Orbiting, etc.) are preserved —
+            // only Recovered/Destroyed are cleared as post-spawn lifecycle events
+            Assert.Equal(TerminalState.Landed, rec.TerminalStateValue);
+        }
+
+        [Fact]
+        public void CollectSpawnedVesselInfo_NoSpawnedRecordings_ReturnsEmpty()
+        {
+            var rec = new Recording { VesselName = "Rocket", SpawnedVesselPersistentId = 0 };
+            RecordingStore.CommittedRecordings.Add(rec);
+
+            var (pids, names) = RecordingStore.CollectSpawnedVesselInfo();
+
+            Assert.Empty(pids);
+            Assert.Empty(names);
+        }
+
+        [Fact]
+        public void CollectSpawnedVesselInfo_ReturnsNonZeroPidsAndNames()
+        {
+            RecordingStore.CommittedRecordings.Add(new Recording
+                { VesselName = "Rocket", SpawnedVesselPersistentId = 42 });
+            RecordingStore.CommittedRecordings.Add(new Recording
+                { VesselName = "Shuttle", SpawnedVesselPersistentId = 99 });
+
+            var (pids, names) = RecordingStore.CollectSpawnedVesselInfo();
+
+            Assert.Equal(2, pids.Count);
+            Assert.Contains(42u, pids);
+            Assert.Contains(99u, pids);
+            Assert.Equal(2, names.Count);
+            Assert.Contains("Rocket", names);
+            Assert.Contains("Shuttle", names);
+        }
+
+        [Fact]
+        public void CollectSpawnedVesselInfo_SkipsZeroPids()
+        {
+            RecordingStore.CommittedRecordings.Add(new Recording
+                { VesselName = "Rocket", SpawnedVesselPersistentId = 42 });
+            RecordingStore.CommittedRecordings.Add(new Recording
+                { VesselName = "Shuttle", SpawnedVesselPersistentId = 0 });
+
+            var (pids, names) = RecordingStore.CollectSpawnedVesselInfo();
+
+            Assert.Single(pids);
+            Assert.Contains(42u, pids);
+            Assert.Single(names);
+            Assert.Contains("Rocket", names);
+        }
+
+        [Fact]
+        public void CollectSpawnedVesselInfo_DeduplicatesSameName()
+        {
+            RecordingStore.CommittedRecordings.Add(new Recording
+                { VesselName = "Rocket", SpawnedVesselPersistentId = 42 });
+            RecordingStore.CommittedRecordings.Add(new Recording
+                { VesselName = "Rocket", SpawnedVesselPersistentId = 99 });
+
+            var (pids, names) = RecordingStore.CollectSpawnedVesselInfo();
+
+            Assert.Equal(2, pids.Count);
+            Assert.Single(names); // "Rocket" deduplicated
+        }
     }
 }

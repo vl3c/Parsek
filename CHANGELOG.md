@@ -4,6 +4,31 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 0.5.2
+
+### New Features
+
+- **Real Spawn Control window** — proximity-based UI for warping to when nearby ghost craft become real vessels. Detects ghosts within 500m whose recording ends in the future. Per-craft Warp button, sortable columns (Craft, Dist, Spawns at, In T-), and "Warp to Next Spawn" quick-jump button.
+- **Countdown column in Recordings Manager** — shows `T-Xd Xh Xm Xs` until each recording's vessel spawns. Updates live during playback, shows `-` when past.
+- **Screen notification** when a new ghost craft enters spawn proximity range.
+- **Toggle button in main window** — "Real Spawn Control (N)" under the Recordings/Game Actions group, grayed out when no candidates are nearby.
+
+### UI Improvements
+
+- Bottom buttons (Warp, Close, etc.) pinned to window bottom in Actions, Recordings, and Spawn Control windows.
+- Recordings window widened for better readability (1106 collapsed, 1324 expanded).
+
+---
+
+## 0.5.1
+
+### Bug Fixes
+
+- **#93**: Surface vehicle ghost slides away during on-rails playback — orbit segments with sub-surface SMA now skipped for LANDED/SPLASHED/PRELAUNCH vessels at recording time; playback uses `IsSurfaceAtUT` to suppress orbit interpolation for surface TrackSections; SMA < 90% body radius rejected as safety net
+- **Terrain clamp** — ghost positions clamped above terrain in LateUpdate, preventing any ghost from appearing underground regardless of interpolation source
+
+---
+
 ## 0.5.0
 
 Recording system redesign: multi-vessel sessions, ghost chain paradox prevention, spawn safety, time jump, and rendering zones. Recording format v5 → v7 (backward compatible).
