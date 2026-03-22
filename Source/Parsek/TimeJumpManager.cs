@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Reflection;
 using UnityEngine;
 
 namespace Parsek
@@ -373,6 +374,164 @@ namespace Parsek
                 string.Format(ic,
                     "TIME_JUMP SegmentEvent emitted for recording vessel pid={0} name={1}",
                     v.persistentId, v.vesselName));
+        }
+
+        /// <summary>
+        /// Executes a forward UT jump WITHOUT epoch-shifting orbits.
+        /// Unlike ExecuteJump (which freezes relative positions for Real Spawn Control),
+        /// this lets orbits propagate naturally — vessels advance along their Keplerian paths.
+        /// Used for the FF button to skip ahead to a future recording's start.
+        ///
+        /// After advancing UT, fixes ModuleResourceConverter.lastUpdateTime on all loaded
+        /// vessels to prevent burst resource production/consumption from the large time delta.
+        /// </summary>
+        internal static void ExecuteForwardJump(double targetUT)
+        {
+            double t0 = Planetarium.GetUniversalTime();
+            double jumpDelta = targetUT - t0;
+
+            if (!IsValidJump(t0, targetUT))
+            {
+                ParsekLog.Warn(Tag,
+                    string.Format(ic,
+                        "ExecuteForwardJump: invalid jump t0={0:F1} target={1:F1} — aborted",
+                        t0, targetUT));
+                return;
+            }
+
+            int objectCount = FlightGlobals.VesselsLoaded != null
+                ? FlightGlobals.VesselsLoaded.Count
+                : 0;
+
+            ParsekLog.Info(Tag,
+                string.Format(ic,
+                    "Forward jump initiated: T0={0:F1} target={1:F1} delta={2:F1}s objects={3}",
+                    t0, targetUT, jumpDelta, objectCount));
+
+            // Put in-physics vessels on rails temporarily so SetUniversalTime doesn't
+            // cause physics interactions during the jump
+            var onRailsVessels = new List<Vessel>();
+            if (FlightGlobals.VesselsLoaded != null)
+            {
+                foreach (Vessel v in FlightGlobals.VesselsLoaded)
+                {
+                    if (v == null) continue;
+                    if (!v.packed && v.loaded)
+                    {
+                        try
+                        {
+                            v.GoOnRails();
+                            onRailsVessels.Add(v);
+                            ParsekLog.Verbose(Tag,
+                                string.Format(ic,
+                                    "Put vessel on rails: pid={0} name={1}",
+                                    v.persistentId, v.vesselName));
+                        }
+                        catch (Exception ex)
+                        {
+                            ParsekLog.Warn(Tag,
+                                string.Format(ic,
+                                    "Failed to put vessel on rails: pid={0} name={1} error={2}",
+                                    v.persistentId, v.vesselName, ex.Message));
+                        }
+                    }
+                }
+            }
+
+            // Advance UT — orbits propagate naturally (no epoch shift)
+            Planetarium.SetUniversalTime(targetUT);
+
+            ParsekLog.Verbose(Tag,
+                string.Format(ic, "Forward jump: UT set to {0:F1}", targetUT));
+
+            // Fix resource converter timestamps to prevent burst production/consumption.
+            // BaseConverter.lastUpdateTime tracks when the converter last ran; after a large
+            // UT jump, converters see a massive deltaTime and drain/produce in one burst.
+            FixResourceConverterTimestamps(targetUT);
+
+            // Take vessels off rails
+            foreach (Vessel v in onRailsVessels)
+            {
+                if (v == null) continue;
+                try
+                {
+                    v.GoOffRails();
+                    ParsekLog.Verbose(Tag,
+                        string.Format(ic,
+                            "Took vessel off rails: pid={0} name={1}",
+                            v.persistentId, v.vesselName));
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn(Tag,
+                        string.Format(ic,
+                            "Failed to take vessel off rails: pid={0} name={1} error={2}",
+                            v.persistentId, v.vesselName, ex.Message));
+                }
+            }
+
+            ParsekLog.Info(Tag,
+                string.Format(ic,
+                    "Forward jump complete: delta={0:F1}s, {1} vessels temporarily on-railed",
+                    jumpDelta, onRailsVessels.Count));
+        }
+
+        /// <summary>
+        /// Resets lastUpdateTime on all BaseConverter (ModuleResourceConverter) modules
+        /// across all loaded vessels to the given UT. This prevents converters from seeing
+        /// the full time jump delta and producing/consuming resources in a single burst.
+        /// lastUpdateTime is protected, so we use reflection.
+        /// </summary>
+        private static readonly FieldInfo lastUpdateTimeField =
+            typeof(BaseConverter).GetField("lastUpdateTime",
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+
+        private static void FixResourceConverterTimestamps(double newUT)
+        {
+            if (FlightGlobals.VesselsLoaded == null) return;
+
+            if (lastUpdateTimeField == null)
+            {
+                ParsekLog.Warn(Tag,
+                    "FixResourceConverterTimestamps: lastUpdateTime field not found via reflection — skipping");
+                return;
+            }
+
+            int fixedCount = 0;
+            foreach (Vessel v in FlightGlobals.VesselsLoaded)
+            {
+                if (v == null || v.parts == null) continue;
+
+                foreach (Part p in v.parts)
+                {
+                    if (p == null || p.Modules == null) continue;
+
+                    for (int m = 0; m < p.Modules.Count; m++)
+                    {
+                        var converter = p.Modules[m] as BaseConverter;
+                        if (converter != null)
+                        {
+                            double oldTime = (double)lastUpdateTimeField.GetValue(converter);
+                            lastUpdateTimeField.SetValue(converter, newUT);
+                            fixedCount++;
+
+                            ParsekLog.Verbose(Tag,
+                                string.Format(ic,
+                                    "Fixed converter timestamp: vessel={0} part={1} module={2} old={3:F1} new={4:F1}",
+                                    v.vesselName, p.partInfo?.name ?? "?", converter.GetType().Name,
+                                    oldTime, newUT));
+                        }
+                    }
+                }
+            }
+
+            if (fixedCount > 0)
+            {
+                ParsekLog.Info(Tag,
+                    string.Format(ic,
+                        "Fixed {0} resource converter timestamp(s) to UT={1:F1}",
+                        fixedCount, newUT));
+            }
         }
     }
 }

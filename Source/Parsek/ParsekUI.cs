@@ -1391,17 +1391,31 @@ namespace Parsek
                 bool isFuture = now < rec.StartUT;
                 bool isActive = now >= rec.StartUT && now <= rec.EndUT;
                 bool hasRewindSave = !string.IsNullOrEmpty(rec.RewindSaveFileName);
-                if (hasRewindSave)
+                if (isFuture)
                 {
+                    // Future recording: FF button advances UT to recording start
+                    string ffReason;
+                    bool isRecording = InFlight && flight.IsRecording;
+                    bool canFF = RecordingStore.CanFastForward(rec, out ffReason, isRecording: isRecording);
+                    GUI.enabled = canFF;
+                    string tooltip = canFF
+                        ? "Fast-forward to this launch"
+                        : ffReason;
+                    if (GUILayout.Button(new GUIContent("FF", tooltip), GUILayout.Width(ColW_Rewind)))
+                        ShowFastForwardConfirmation(rec);
+                    GUI.enabled = true;
+                }
+                else if (hasRewindSave)
+                {
+                    // Past/active recording with save: R button loads quicksave
                     string rewindReason;
                     bool isRecording = InFlight && flight.IsRecording;
                     bool canRewind = RecordingStore.CanRewind(rec, out rewindReason, isRecording: isRecording);
                     GUI.enabled = canRewind;
-                    string label = isFuture ? "FF" : "R";
                     string tooltip = canRewind
-                        ? (isFuture ? "Fast-forward to this launch" : "Rewind to this launch")
+                        ? "Rewind to this launch"
                         : rewindReason;
-                    if (GUILayout.Button(new GUIContent(label, tooltip), GUILayout.Width(ColW_Rewind)))
+                    if (GUILayout.Button(new GUIContent("R", tooltip), GUILayout.Width(ColW_Rewind)))
                         ShowRewindConfirmation(rec);
                     GUI.enabled = true;
                 }
@@ -2292,6 +2306,45 @@ namespace Parsek
                     new DialogGUIButton("Cancel", () =>
                     {
                         ParsekLog.Info("Rewind", "User cancelled rewind confirmation");
+                    })
+                ),
+                false, HighLogic.UISkin);
+        }
+
+        private void ShowFastForwardConfirmation(Recording rec)
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            double now = Planetarium.GetUniversalTime();
+            double delta = rec.StartUT - now;
+            string launchDate = KSPUtil.PrintDateCompact(rec.StartUT, true);
+            string message = string.Format(ic,
+                "Fast-forward to \"{0}\" launch at {1}?\n\nTime will advance by {2:F0} seconds.",
+                rec.VesselName, launchDate, delta);
+
+            var capturedRec = rec;
+            PopupDialog.SpawnPopupDialog(
+                new Vector2(0.5f, 0.5f),
+                new Vector2(0.5f, 0.5f),
+                new MultiOptionDialog(
+                    "ParsekFastForwardConfirm",
+                    message,
+                    "Confirm Fast-Forward",
+                    HighLogic.UISkin,
+                    new DialogGUIButton("Fast-Forward", () =>
+                    {
+                        ParsekLog.Info("FastForward",
+                            string.Format(ic,
+                                "User confirmed fast-forward to \"{0}\" at UT {1:F1}",
+                                capturedRec.VesselName, capturedRec.StartUT));
+                        if (InFlight && flight != null)
+                            flight.FastForwardToRecording(capturedRec);
+                        else
+                            ParsekLog.Warn("FastForward",
+                                "Fast-forward requires flight scene — aborted");
+                    }),
+                    new DialogGUIButton("Cancel", () =>
+                    {
+                        ParsekLog.Info("FastForward", "User cancelled fast-forward confirmation");
                     })
                 ),
                 false, HighLogic.UISkin);

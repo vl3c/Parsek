@@ -1337,6 +1337,62 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Validates whether the player can fast-forward to a future recording's start.
+        /// Subset of CanRewind — no save file required (FF advances UT, doesn't load a save).
+        /// </summary>
+        internal static bool CanFastForward(Recording rec, out string reason, bool isRecording)
+        {
+            if (IsRewinding)
+            {
+                reason = "Rewind already in progress";
+                ParsekLog.Verbose("Store", $"CanFastForward: blocked — {reason}");
+                return false;
+            }
+
+            if (rec == null || rec.Points.Count == 0)
+            {
+                reason = "Recording not available";
+                ParsekLog.Verbose("Store", $"CanFastForward: blocked — {reason}");
+                return false;
+            }
+
+            double now = Planetarium.GetUniversalTime();
+            if (now >= rec.StartUT)
+            {
+                reason = "Recording is not in the future";
+                ParsekLog.Verbose("Store",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "CanFastForward: blocked for '{0}' — {1} (now={2:F1} startUT={3:F1})",
+                        rec.VesselName, reason, now, rec.StartUT));
+                return false;
+            }
+
+            if (isRecording)
+            {
+                reason = "Stop recording before fast-forwarding";
+                ParsekLog.Verbose("Store", $"CanFastForward: blocked — {reason}");
+                return false;
+            }
+
+            if (HasPending)
+            {
+                reason = "Merge or discard pending recording first";
+                ParsekLog.Verbose("Store", $"CanFastForward: blocked — {reason}");
+                return false;
+            }
+
+            if (HasPendingTree)
+            {
+                reason = "Merge or discard pending tree first";
+                ParsekLog.Verbose("Store", $"CanFastForward: blocked — {reason}");
+                return false;
+            }
+
+            reason = "";
+            return true;
+        }
+
+        /// <summary>
         /// Initiates a rewind to the given recording's launch point.
         /// Sets rewind flags, copies the save file to the root saves dir (KSP's LoadGame
         /// doesn't support subdirectory paths), loads it, then deletes the temp copy.
