@@ -189,7 +189,8 @@ namespace Parsek
 
             // Crew protection: strip crew from spawn snapshot when recording ended in
             // destruction to prevent killing crew during spawn-death cycles (#114).
-            // Uses a working copy so the original snapshot is not modified.
+            // Modifies the snapshot in-place — acceptable for Destroyed recordings
+            // since they won't be re-spawned (blocked by FLYING/non-leaf checks).
             if (ShouldStripCrewForSpawn(rec))
             {
                 if (rec.VesselSnapshot != null)
