@@ -5519,6 +5519,119 @@ namespace Parsek
 
         #endregion
 
+        /// <summary>
+        /// Fixes up compound part visuals (fuel lines, struts) by repositioning the
+        /// target anchor and stretching the line mesh using PARTDATA from the snapshot.
+        /// In KSP, CModuleLinkedMesh handles this at runtime; ghosts need manual fixup.
+        /// </summary>
+        private static void TryFixupCompoundPartVisuals(
+            Part prefab, ConfigNode partNode, Transform partRoot,
+            Transform prefabModelRoot, Transform ghostModelNode,
+            Dictionary<Transform, Transform> cloneMap,
+            uint persistentId, string partName)
+        {
+            // Compound parts store target connection data in PARTDATA
+            ConfigNode partData = partNode.GetNode("PARTDATA");
+            if (partData == null) return;
+
+            Vector3 targetPos;
+            if (!TryParseVector3(partData.GetValue("pos"), out targetPos))
+            {
+                ParsekLog.Verbose("GhostVisual", $"  CompoundPart fixup skipped: '{partName}' pid={persistentId} " +
+                    $"PARTDATA has no parseable 'pos'");
+                return;
+            }
+
+            Quaternion targetRot;
+            if (!TryParseQuaternion(partData.GetValue("rot"), out targetRot))
+                targetRot = Quaternion.identity;
+
+            // Read transform names from CModuleLinkedMesh part config (varies: fuel line
+            // uses obj_line, strut uses obj_strut).
+            string lineObjName = "obj_line";
+            string targetAnchorName = "obj_targetAnchor";
+            string targetCapName = "obj_targetCap";
+
+            ConfigNode partConfig = prefab.partInfo?.partConfig;
+            if (partConfig != null)
+            {
+                ConfigNode[] modules = partConfig.GetNodes("MODULE");
+                for (int m = 0; m < modules.Length; m++)
+                {
+                    if (modules[m].GetValue("name") == "CModuleLinkedMesh")
+                    {
+                        lineObjName = modules[m].GetValue("lineObjName") ?? lineObjName;
+                        targetAnchorName = modules[m].GetValue("targetAnchorName") ?? targetAnchorName;
+                        targetCapName = modules[m].GetValue("targetCapName") ?? targetCapName;
+                        break;
+                    }
+                }
+            }
+
+            // Find source transforms on prefab, then look up ghost clones in cloneMap
+            Transform srcLine = prefab.FindModelTransform(lineObjName);
+            Transform srcTargetAnchor = prefab.FindModelTransform(targetAnchorName);
+            Transform srcTargetCap = prefab.FindModelTransform(targetCapName);
+
+            Transform ghostLine = null, ghostTargetAnchor = null, ghostTargetCap = null;
+            if (srcLine != null) cloneMap.TryGetValue(srcLine, out ghostLine);
+            if (srcTargetAnchor != null) cloneMap.TryGetValue(srcTargetAnchor, out ghostTargetAnchor);
+            if (srcTargetCap != null) cloneMap.TryGetValue(srcTargetCap, out ghostTargetCap);
+
+            if (ghostLine == null)
+            {
+                ParsekLog.Verbose("GhostVisual", $"  CompoundPart fixup skipped: '{partName}' pid={persistentId} " +
+                    $"line transform '{lineObjName}' not in cloneMap " +
+                    $"(srcLine={(srcLine != null ? "found" : "null")})");
+                return;
+            }
+
+            // PARTDATA.pos is in compound part local space (= partRoot space).
+            // Move target anchor to the correct position — endCap is a child, moves with it.
+            if (ghostTargetAnchor != null)
+            {
+                ghostTargetAnchor.position = partRoot.TransformPoint(targetPos);
+                ghostTargetAnchor.rotation = partRoot.rotation * targetRot;
+            }
+
+            // Stretch line mesh from its position to the target end.
+            // Mirrors CModuleLinkedMesh.TrackAnchor: LookRotation + Z-scale.
+            Vector3 lineWorldPos = ghostLine.position;
+            Vector3 targetWorldPos;
+            if (ghostTargetCap != null)
+                targetWorldPos = ghostTargetCap.position;
+            else if (ghostTargetAnchor != null)
+                targetWorldPos = ghostTargetAnchor.position;
+            else
+                targetWorldPos = partRoot.TransformPoint(targetPos);
+
+            Vector3 delta = lineWorldPos - targetWorldPos;
+            float distance = delta.magnitude;
+            const float lineMinimumLength = 0.01f;
+
+            if (distance > lineMinimumLength)
+            {
+                ghostLine.rotation = Quaternion.LookRotation(delta.normalized, partRoot.forward);
+                ghostLine.localScale = new Vector3(
+                    ghostLine.localScale.x,
+                    ghostLine.localScale.y,
+                    distance * prefab.scaleFactor);
+
+                if (ghostTargetCap != null)
+                    ghostTargetCap.rotation = ghostLine.rotation;
+
+                ParsekLog.Verbose("GhostVisual", $"  CompoundPart fixup: '{partName}' pid={persistentId} " +
+                    $"line='{lineObjName}' targetPos={targetPos} distance={distance:F3} " +
+                    $"scaleFactor={prefab.scaleFactor} zScale={(distance * prefab.scaleFactor):F3}");
+            }
+            else
+            {
+                ghostLine.gameObject.SetActive(false);
+                ParsekLog.Verbose("GhostVisual", $"  CompoundPart fixup: '{partName}' pid={persistentId} " +
+                    $"line hidden (distance={distance:F4} < {lineMinimumLength})");
+            }
+        }
+
         private static bool AddPartVisuals(Transform root, ConfigNode partNode, Part prefab,
             uint persistentId, string partName, out int meshCount,
             out ParachuteGhostInfo parachuteInfo, out JettisonGhostInfo jettisonInfo,
@@ -5774,6 +5887,11 @@ namespace Parsek
                         $"applied {applied} variant texture properties");
                 }
             }
+
+            // Fix up compound part visuals (fuel lines, struts) — CModuleLinkedMesh
+            // normally stretches the line mesh at runtime; ghosts need manual fixup.
+            TryFixupCompoundPartVisuals(prefab, partNode, partRoot.transform,
+                modelRoot, modelNode.transform, cloneMap, persistentId, partName);
 
             // Detect parachute parts via cloneMap (after cloneMap is fully populated)
             ModuleParachute chute = prefab.FindModuleImplementing<ModuleParachute>();
