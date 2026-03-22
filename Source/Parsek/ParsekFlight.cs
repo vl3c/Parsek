@@ -3764,6 +3764,30 @@ namespace Parsek
                 }
             }
 
+            // Mark all committed recordings that share the active vessel's PID for fresh spawn.
+            // After revert, the pad vessel has the same PID as previously-recorded vessels.
+            // Without this, the PID dedup in SpawnVesselOrChainTip would skip spawning
+            // because it finds the pad vessel and thinks the recorded vessel already exists.
+            // ForceSpawnNewVessel is transient (not serialized), so this must run every flight entry.
+            if (activeVessel != null && activeVessel.persistentId != 0)
+            {
+                uint activePid = activeVessel.persistentId;
+                var allCommitted = RecordingStore.CommittedRecordings;
+                int forceCount = 0;
+                for (int ci = 0; ci < allCommitted.Count; ci++)
+                {
+                    if (allCommitted[ci].VesselPersistentId == activePid && !allCommitted[ci].VesselSpawned)
+                    {
+                        allCommitted[ci].ForceSpawnNewVessel = true;
+                        forceCount++;
+                    }
+                }
+                if (forceCount > 0)
+                    ParsekLog.Verbose("Flight",
+                        $"Marked {forceCount} committed recording(s) with ForceSpawnNewVessel " +
+                        $"(active vessel pid={activePid})");
+            }
+
             // Swap reserved crew out of the active vessel so the player
             // can't record with them again (they belong to deferred-spawn vessels)
             int swapResult = ParsekScenario.SwapReservedCrewInFlight();
