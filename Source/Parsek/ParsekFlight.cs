@@ -2448,11 +2448,24 @@ namespace Parsek
                 GhostVisualSnapshot = activeSnapshot,
                 VesselSnapshot = activeSnapshot != null ? activeSnapshot.CreateCopy() : null
             };
+            // Seed continuation with post-breakup points from root recording.
+            // The root's Points extend ~0.5s past breakupBp.UT (coalescing window).
+            // Without this, the continuation has 0 points if the vessel is destroyed
+            // before FlushRecorderToTreeRecording runs — causing ghost spawn skip
+            // and watch mode camera falling back to a debris child (#106).
+            double breakupUT = breakupBp.UT;
+            for (int i = 0; i < rootRec.Points.Count; i++)
+            {
+                if (rootRec.Points[i].ut >= breakupUT)
+                    contRec.Points.Add(rootRec.Points[i]);
+            }
+
             activeTree.Recordings[contRecId] = contRec;
 
             ParsekLog.Info("Coalescer",
                 $"PromoteToTreeForBreakup: continuation recording created: id={contRecId}, " +
-                $"vesselPid={contRec.VesselPersistentId}, snapshot={activeSnapshot != null}");
+                $"vesselPid={contRec.VesselPersistentId}, snapshot={activeSnapshot != null}, " +
+                $"seededPoints={contRec.Points.Count}");
 
             // 6. Wire BREAKUP into tree
             breakupBp.ParentRecordingIds.Add(rootRecId);
