@@ -1221,7 +1221,7 @@ When watching a ghost via Watch mode (W button), at booster separation the camer
 
 **Priority:** Medium — camera behavior surprise during watched booster separations
 
-**Status:** Partially fixed — continuation now seeded with post-breakup points at promotion time (`3bd66ea`). Existing saves with 0-point continuations still affected.
+**Status:** Fixed (`3bd66ea`) — continuation now seeded with post-breakup points at promotion time. Pre-fix saves with 0-point continuations are not migrated; creating a new career save resolves the issue.
 
 ## 107. Engine/SRB smoke trails vanish instantly when ghost despawns
 
