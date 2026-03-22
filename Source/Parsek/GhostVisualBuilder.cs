@@ -917,14 +917,25 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Strip KSP FX controller components from cloned particle system GameObjects.
+        /// Configure KSP FX controller components on cloned particle system GameObjects.
         /// KSPParticleEmitter is KEPT alive (it handles material setup and particle creation)
         /// but set to emit=false initially. It is collected into kspEmitterSink for later
         /// control via reflection in SetEngineEmission/SetRcsEmission.
         /// Unity's emission module is disabled separately (in ConfigureGhostEngineParticleSystems)
         /// to prevent Unity from creating its own material-less "bubble" particles.
-        /// SmokeTrailControl modifies material color every frame based on atmospheric density.
+        /// SmokeTrailControl is STRIPPED — tested keeping alive (audit #113) but it sets material
+        /// alpha to 0 on ghosts, making smoke invisible. Needs vessel context to work correctly.
+        /// ModelMultiParticlePersistFX/ModelParticleFX are EffectBehaviour subclasses that reference
+        /// Host (the Part) — stripped because they NRE without Part context.
         /// FXPrefab registers particles with FloatingOrigin — pollutes global state on ghosts.
+        ///
+        /// Audit #113: FXModuleAnimateThrottle and FXModuleAnimateRCS are PartModules (not
+        /// MonoBehaviours) requiring Part/Vessel context. They are reimplemented via HeatGhostInfo
+        /// animation sampling, which is architecturally correct: one-shot build cost cached per
+        /// part type, near-zero runtime cost (3-level quantized transform/material snaps on event
+        /// boundaries), correct multi-instance disambiguation. Native modules are infeasible on
+        /// ghosts and the reimplementation is intentionally minimal per the visual efficiency
+        /// design principle.
         /// </summary>
         private static void StripKspFxControllers(GameObject fxClone, List<KspEmitterRef> kspEmitterSink)
         {
@@ -954,6 +965,21 @@ namespace Parsek
                             $"Captured KSPParticleEmitter on '{fxClone.name}' (emit=false)");
                         break;
                     case "SmokeTrailControl":
+                        // Stripped — tested keeping alive (audit #113) but it makes smoke
+                        // invisible on ghosts. SmokeTrailControl sets material alpha to 0
+                        // without valid vessel context.
+                        ParsekLog.Verbose("GhostVisual",
+                            $"Stripped {typeName} from '{fxClone.name}'");
+                        Object.Destroy(behaviours[i]);
+                        break;
+                    case "ModelMultiParticlePersistFX":
+                    case "ModelParticleFX":
+                        // EffectBehaviour subclasses that reference Host (Part).
+                        // NRE without Part context — strip them.
+                        ParsekLog.Verbose("GhostVisual",
+                            $"Stripped {typeName} from '{fxClone.name}'");
+                        Object.Destroy(behaviours[i]);
+                        break;
                     case "FXPrefab":
                         ParsekLog.Verbose("GhostVisual",
                             $"Stripped {typeName} from '{fxClone.name}'");
@@ -5533,6 +5559,173 @@ namespace Parsek
 
         #endregion
 
+        private static bool HasCModuleLinkedMesh(ConfigNode partConfig)
+        {
+            if (partConfig == null) return false;
+            ConfigNode[] modules = partConfig.GetNodes("MODULE");
+            for (int m = 0; m < modules.Length; m++)
+            {
+                if (modules[m].GetValue("name") == "CModuleLinkedMesh")
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Parses compound part target data from a snapshot PART node.
+        /// Returns false (no-op) for non-compound parts or corrupt data.
+        /// Pure method — no Unity Transform access, directly testable.
+        /// </summary>
+        internal static bool TryParseCompoundPartData(
+            ConfigNode partNode, ConfigNode partConfig, bool isCompoundPart,
+            uint persistentId, string partName,
+            out CompoundPartData data)
+        {
+            data = new CompoundPartData
+            {
+                lineObjName = "obj_line",
+                targetAnchorName = "obj_targetAnchor",
+                targetCapName = "obj_targetCap"
+            };
+
+            // Only process parts that have CModuleLinkedMesh — avoids false positives
+            // from non-compound parts that happen to have a PARTDATA node.
+            if (!HasCModuleLinkedMesh(partConfig))
+                return false;
+
+            ConfigNode partData = partNode.GetNode("PARTDATA");
+            if (partData == null)
+            {
+                // Expected no-op for non-compound parts. Log if the prefab IS a compound
+                // part — that would indicate corrupt/missing snapshot data.
+                if (isCompoundPart)
+                {
+                    ParsekLog.Verbose("GhostVisual", $"  CompoundPart fixup WARNING: '{partName}' pid={persistentId} " +
+                        $"is a CompoundPart but snapshot has no PARTDATA node");
+                }
+                return false;
+            }
+
+            if (!TryParseVector3(partData.GetValue("pos"), out data.targetPos))
+            {
+                ParsekLog.Verbose("GhostVisual", $"  CompoundPart fixup skipped: '{partName}' pid={persistentId} " +
+                    $"PARTDATA has no parseable 'pos'");
+                return false;
+            }
+
+            if (!TryParseQuaternion(partData.GetValue("rot"), out data.targetRot))
+            {
+                data.targetRot = Quaternion.identity;
+                ParsekLog.Verbose("GhostVisual", $"  CompoundPart fixup: '{partName}' pid={persistentId} " +
+                    $"PARTDATA has no parseable 'rot', defaulting to identity");
+            }
+
+            // Read transform names from CModuleLinkedMesh part config (varies: fuel line
+            // uses obj_line, strut uses obj_strut).
+            if (partConfig != null)
+            {
+                ConfigNode[] modules = partConfig.GetNodes("MODULE");
+                for (int m = 0; m < modules.Length; m++)
+                {
+                    if (modules[m].GetValue("name") == "CModuleLinkedMesh")
+                    {
+                        data.lineObjName = modules[m].GetValue("lineObjName") ?? data.lineObjName;
+                        data.targetAnchorName = modules[m].GetValue("targetAnchorName") ?? data.targetAnchorName;
+                        data.targetCapName = modules[m].GetValue("targetCapName") ?? data.targetCapName;
+                        break;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Fixes up compound part visuals (fuel lines, struts) by repositioning the
+        /// target anchor and stretching the line mesh using PARTDATA from the snapshot.
+        /// In KSP, CModuleLinkedMesh handles this at runtime; ghosts need manual fixup.
+        /// </summary>
+        private static void TryFixupCompoundPartVisuals(
+            Part prefab, ConfigNode partNode, Transform partRoot,
+            Dictionary<Transform, Transform> cloneMap,
+            uint persistentId, string partName)
+        {
+            CompoundPartData data;
+            if (!TryParseCompoundPartData(partNode, prefab.partInfo?.partConfig,
+                    prefab is CompoundPart, persistentId, partName, out data))
+                return;
+
+            // Find source transforms on prefab, then look up ghost clones in cloneMap
+            Transform srcLine = prefab.FindModelTransform(data.lineObjName);
+            Transform srcTargetAnchor = prefab.FindModelTransform(data.targetAnchorName);
+            Transform srcTargetCap = prefab.FindModelTransform(data.targetCapName);
+
+            Transform ghostLine = null, ghostTargetAnchor = null, ghostTargetCap = null;
+            if (srcLine != null) cloneMap.TryGetValue(srcLine, out ghostLine);
+            if (srcTargetAnchor != null) cloneMap.TryGetValue(srcTargetAnchor, out ghostTargetAnchor);
+            if (srcTargetCap != null) cloneMap.TryGetValue(srcTargetCap, out ghostTargetCap);
+
+            if (ghostLine == null)
+            {
+                ParsekLog.Verbose("GhostVisual", $"  CompoundPart fixup skipped: '{partName}' pid={persistentId} " +
+                    $"line transform '{data.lineObjName}' not in cloneMap " +
+                    $"(srcLine={(srcLine != null ? "found" : "null")})");
+                return;
+            }
+
+            // PARTDATA.pos is in compound part local space (= partRoot space).
+            // Move target anchor to the correct position — endCap is a child, moves with it.
+            if (ghostTargetAnchor != null)
+            {
+                ghostTargetAnchor.position = partRoot.TransformPoint(data.targetPos);
+                ghostTargetAnchor.rotation = partRoot.rotation * data.targetRot;
+            }
+
+            // Stretch line mesh from its position to the target end.
+            // Mirrors CModuleLinkedMesh.TrackAnchor: LookRotation + Z-scale.
+            Vector3 lineWorldPos = ghostLine.position;
+            Vector3 targetWorldPos;
+            if (ghostTargetCap != null)
+                targetWorldPos = ghostTargetCap.position;
+            else if (ghostTargetAnchor != null)
+                targetWorldPos = ghostTargetAnchor.position;
+            else
+                targetWorldPos = partRoot.TransformPoint(data.targetPos);
+
+            // NOTE: delta points from target toward source (line - target), matching
+            // CModuleLinkedMesh.TrackAnchor which computes (line.position - endCap.position).
+            // The stock line mesh faces -Z in the prefab, so LookRotation along this reversed
+            // vector produces the correct orientation. Do not "fix" by swapping operands.
+            Vector3 delta = lineWorldPos - targetWorldPos;
+            float distance = delta.magnitude;
+            const float lineMinimumLength = 0.01f;
+
+            if (distance > lineMinimumLength)
+            {
+                ghostLine.rotation = Quaternion.LookRotation(delta.normalized, partRoot.forward);
+                // prefab.scaleFactor is the stock prefab value (typically rescaleFactor, default
+                // 1.25). Mods like TweakScale may change scaleFactor on the live part, but the
+                // prefab retains the original value — acceptable for ghost visuals.
+                ghostLine.localScale = new Vector3(
+                    ghostLine.localScale.x,
+                    ghostLine.localScale.y,
+                    distance * prefab.scaleFactor);
+
+                if (ghostTargetCap != null)
+                    ghostTargetCap.rotation = ghostLine.rotation;
+
+                ParsekLog.Verbose("GhostVisual", $"  CompoundPart fixup: '{partName}' pid={persistentId} " +
+                    $"line='{data.lineObjName}' targetPos={data.targetPos} distance={distance:F3} " +
+                    $"scaleFactor={prefab.scaleFactor} zScale={(distance * prefab.scaleFactor):F3}");
+            }
+            else
+            {
+                ghostLine.gameObject.SetActive(false);
+                ParsekLog.Verbose("GhostVisual", $"  CompoundPart fixup: '{partName}' pid={persistentId} " +
+                    $"line hidden (distance={distance:F4} < {lineMinimumLength})");
+            }
+        }
+
         private static bool AddPartVisuals(Transform root, ConfigNode partNode, Part prefab,
             uint persistentId, string partName, out int meshCount,
             out ParachuteGhostInfo parachuteInfo, out JettisonGhostInfo jettisonInfo,
@@ -5788,6 +5981,11 @@ namespace Parsek
                         $"applied {applied} variant texture properties");
                 }
             }
+
+            // Fix up compound part visuals (fuel lines, struts) — CModuleLinkedMesh
+            // normally stretches the line mesh at runtime; ghosts need manual fixup.
+            TryFixupCompoundPartVisuals(prefab, partNode, partRoot.transform,
+                cloneMap, persistentId, partName);
 
             // Detect parachute parts via cloneMap (after cloneMap is fully populated)
             ModuleParachute chute = prefab.FindModuleImplementing<ModuleParachute>();
@@ -6219,6 +6417,9 @@ namespace Parsek
             }
 
             // Detect ModuleAnimateHeat / FXModuleAnimateThrottle visual states (thermal glow / heat-driven animation).
+            // Audit #113: these are PartModules requiring Part/Vessel context that ghosts don't have.
+            // Reimplemented via animation sampling (SampleHeatAnimation3State) + 3-level quantized
+            // HeatGhostInfo playback (ApplyHeatState). Same applies to FXModuleAnimateRCS.
             if (hasAnyHeatAnim)
             {
                 string heatSource = hasAnimateHeat ? "ModuleAnimateHeat"
