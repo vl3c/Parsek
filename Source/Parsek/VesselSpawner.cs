@@ -187,6 +187,20 @@ namespace Parsek
             if (rec.SpawnAttempts >= maxSpawnAttempts)
                 return;
 
+            // Crew protection: strip crew from spawn snapshot when recording ended in
+            // destruction to prevent killing crew during spawn-death cycles (#114).
+            // Uses a working copy so the original snapshot is not modified.
+            if (ShouldStripCrewForSpawn(rec))
+            {
+                if (rec.VesselSnapshot != null)
+                {
+                    int stripped = StripAllCrewFromSnapshot(rec.VesselSnapshot);
+                    ParsekLog.Info("Spawner",
+                        $"Stripped {stripped} crew from spawn snapshot for destroyed recording " +
+                        $"#{index} ({rec.VesselName}) — prevents crew death on spawn");
+                }
+            }
+
             // Build exclude set once for all spawn paths (EVA'd crew spawn via child recordings)
             HashSet<string> excludeCrew = BuildExcludeCrewSet(rec);
 
@@ -543,6 +557,44 @@ namespace Parsek
                         partNode.AddValue("crew", name);
                 }
             }
+        }
+
+        /// <summary>
+        /// Pure decision: should crew be stripped from the spawn snapshot?
+        /// Returns true when the recording's terminal state is Destroyed,
+        /// preventing crew deaths during spawn-death cycles. (#114)
+        /// </summary>
+        internal static bool ShouldStripCrewForSpawn(Recording rec)
+        {
+            return rec.TerminalStateValue.HasValue
+                && rec.TerminalStateValue.Value == TerminalState.Destroyed;
+        }
+
+        /// <summary>
+        /// Strips ALL crew from a vessel snapshot. Removes crew values from PART
+        /// nodes and resets the crewAssignment field. Returns the number of crew removed.
+        /// Modifies the snapshot in-place. (#114)
+        /// </summary>
+        internal static int StripAllCrewFromSnapshot(ConfigNode snapshot)
+        {
+            if (snapshot == null) return 0;
+
+            int removedCount = 0;
+            foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
+            {
+                var crewNames = partNode.GetValues("crew");
+                if (crewNames.Length > 0)
+                {
+                    for (int c = 0; c < crewNames.Length; c++)
+                    {
+                        ParsekLog.Verbose("Spawner",
+                            $"StripAllCrewFromSnapshot: removing '{crewNames[c]}'");
+                    }
+                    removedCount += crewNames.Length;
+                    partNode.RemoveValues("crew");
+                }
+            }
+            return removedCount;
         }
 
         public static void RemoveDeadCrewFromSnapshot(ConfigNode snapshot)

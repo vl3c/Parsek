@@ -2003,6 +2003,12 @@ namespace Parsek
             if (rec.ChildBranchPointId != null)
                 return (false, "non-leaf tree recording");
 
+            // Safety net: even if ChildBranchPointId is null, check committed trees
+            // for recordings that are parents of a branch point. Covers edge cases where
+            // ChildBranchPointId was not set (e.g., serialization gaps). (#114)
+            if (IsNonLeafInCommittedTree(rec))
+                return (false, "non-leaf in committed tree (safety net)");
+
             // Debris recordings are visual-only (short TTL, no meaningful vessel to persist)
             if (rec.IsDebris)
                 return (false, "debris recording (visual-only)");
@@ -2018,12 +2024,76 @@ namespace Parsek
                     return (false, $"terminal state {ts}");
             }
 
+            // Snapshot situation check: if the snapshot's sit field is FLYING or SUB_ORBITAL,
+            // KSP's on-rails aero check (101.3 kPa) immediately destroys spawned vessels.
+            // This catches cases where TerminalState is null/Landed but the snapshot was
+            // captured mid-flight. (#114)
+            if (IsSnapshotSituationUnsafe(rec.VesselSnapshot))
+                return (false, "snapshot situation unsafe (FLYING/SUB_ORBITAL)");
+
             // PID dedup: if vessel was already spawned (PID recorded), never re-spawn.
             // On revert, SpawnedVesselPersistentId resets to 0 from quicksave so reverts still work.
             if (rec.SpawnedVesselPersistentId != 0)
                 return (false, $"already spawned (pid={rec.SpawnedVesselPersistentId})");
 
             return (true, "");
+        }
+
+        /// <summary>
+        /// Safety-net check: determines whether a recording is a non-leaf node in a
+        /// committed tree by scanning the tree's branch points for parent references.
+        /// This catches cases where ChildBranchPointId was not set on the recording
+        /// (e.g., serialization gaps, edge-case commit paths) but the tree structure
+        /// shows the recording has children. (#114)
+        /// Pure static method for testability.
+        /// </summary>
+        internal static bool IsNonLeafInCommittedTree(Recording rec)
+        {
+            if (string.IsNullOrEmpty(rec.TreeId) || string.IsNullOrEmpty(rec.RecordingId))
+                return false;
+
+            var trees = RecordingStore.CommittedTrees;
+            for (int t = 0; t < trees.Count; t++)
+            {
+                var tree = trees[t];
+                if (tree.Id != rec.TreeId) continue;
+
+                // Check if any branch point lists this recording as a parent
+                for (int b = 0; b < tree.BranchPoints.Count; b++)
+                {
+                    var bp = tree.BranchPoints[b];
+                    if (bp.ParentRecordingIds != null && bp.ParentRecordingIds.Contains(rec.RecordingId))
+                    {
+                        ParsekLog.Info("Spawner",
+                            string.Format(CultureInfo.InvariantCulture,
+                                "IsNonLeafInCommittedTree: recording {0} is parent of branch point {1} " +
+                                "in tree {2} (ChildBranchPointId was null — safety net triggered)",
+                                rec.RecordingId, bp.Id, tree.Id));
+                        return true;
+                    }
+                }
+                break; // Found the tree, no need to check others
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Checks whether a vessel snapshot's situation is unsafe for spawning.
+        /// FLYING and SUB_ORBITAL vessels are immediately killed by KSP's on-rails
+        /// atmospheric pressure check (101.3 kPa at sea level). (#114)
+        /// Pure static method for testability.
+        /// </summary>
+        internal static bool IsSnapshotSituationUnsafe(ConfigNode vesselSnapshot)
+        {
+            if (vesselSnapshot == null) return false;
+
+            string sit = vesselSnapshot.GetValue("sit");
+            if (string.IsNullOrEmpty(sit)) return false;
+
+            // KSP situation strings: LANDED, SPLASHED, PRELAUNCH, FLYING,
+            // SUB_ORBITAL, ORBITING, ESCAPING, DOCKED
+            return sit.Equals("FLYING", System.StringComparison.OrdinalIgnoreCase)
+                || sit.Equals("SUB_ORBITAL", System.StringComparison.OrdinalIgnoreCase);
         }
 
         #endregion

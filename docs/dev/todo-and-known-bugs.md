@@ -1335,29 +1335,36 @@ When a recording tree ends because the vessel crashed, recording #0 (the root, p
 
 **Observed in:** Session 3 (2026-03-22). Aeris 4A crash tree: root recording UT 53-78, crash at UT 100-102. Ghost exits range at UT 78 → spawns vessel → immediate explosion. Happened twice (once after revert, with crew dedup removing Jeb too).
 
-**Root cause:** `ShouldSpawnAtRecordingEnd` does not check whether the recording is a non-leaf node in a committed tree. Non-leaf recordings are superseded by their children and should never spawn.
+**Root cause:** `ShouldSpawnAtRecordingEnd` had a `ChildBranchPointId` check but this could be null in edge cases (serialization gaps, commit-path variations). Additionally, the snapshot's `sit=FLYING` was not checked independently of `TerminalState`.
+
+**Fix:** Three-layer defense in `ShouldSpawnAtRecordingEnd`:
+1. Safety-net tree check: `IsNonLeafInCommittedTree` scans committed tree branch points for parent references, catching non-leaf recordings even when `ChildBranchPointId` is null.
+2. Snapshot situation check: `IsSnapshotSituationUnsafe` blocks spawn when snapshot `sit` is FLYING or SUB_ORBITAL, independent of `TerminalState`.
+3. Crew protection: `ShouldStripCrewForSpawn` / `StripAllCrewFromSnapshot` strips all crew from spawn snapshots for `TerminalState.Destroyed` recordings, preventing crew death during spawn-death cycles.
+
+28 new tests in `SpawnSafetyNetTests.cs` covering all three mechanisms.
 
 **Priority:** Critical — causes cascading destruction, crew death, and confusing UX
 
-**Status:** Open
+**Status:** Fixed (branch `fix-spawn-cleanup`)
 
 ## 115. Crew dedup removes pilot from spawned vessel after revert
 
 After revert, the pilot (Jebediah) is already on the pad vessel from the quicksave. When Parsek spawns the Aeris 4A at recording endpoint, crew dedup finds Jeb "already on a vessel in the scene" and removes him from the spawn snapshot. The vessel spawns crewless.
 
-**Root cause:** The crew reservation system should have replaced Jeb with a temporary kerbal on the pad vessel, but after revert + tree commit, the reservation may have been cleared.
+**Root cause:** The crew reservation system should have replaced Jeb with a temporary kerbal on the pad vessel, but after revert + tree commit, the reservation may have been cleared. Partially mitigated by #114 fix: non-leaf and FLYING recordings no longer spawn, eliminating the primary trigger for this bug.
 
 **Priority:** Medium
 
-**Status:** Open
+**Status:** Open (mitigated by #114 fix — primary trigger eliminated)
 
 ## 116. Valentina Kerman lost to Missing status after rewind vessel strip
 
-Rewind stripped 8 orphaned spawned vessels from the save. Valentina was assigned to one of them but wasn't in Parsek's crew reservation system. KSP set her to Missing. Parsek's crew rescue only handles reserved crew (Bill, Dudfrid were rescued), not all crew affected by the strip.
+Rewind stripped 8 orphaned spawned vessels from the save. Valentina was assigned to one of them but wasn't in Parsek's crew reservation system. KSP set her to Missing. Parsek's crew rescue only handles reserved crew (Bill, Dudfrid were rescued), not all crew affected by the strip. Partially mitigated by #114 crew protection: destroyed-vessel spawns now strip crew from snapshot, preventing crew from being placed on doomed vessels.
 
 **Priority:** Medium
 
-**Status:** Open
+**Status:** Open (mitigated by #114 crew protection — fewer crew placed on doomed vessels)
 
 ## 117. CanRewind/CanFastForward VERBOSE log spam — 578K lines/session
 
