@@ -1256,3 +1256,8 @@ When a spawn is permanently blocked by an immovable vessel (e.g., a landed spawn
 **Priority:** High
 
 **Status:** Open
+
+# In-Game Tests
+
+- [ ] Vessels propagate naturally along orbits after FF (no position freezing)
+- [ ] Resource converters don't burst after FF jump
