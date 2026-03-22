@@ -31,12 +31,23 @@ All notable changes to Parsek are documented here.
 - **#111**: Auto-record not starting for spawned vessels — `lastLandedUT` not seeded on vessel switch to already-landed vessel
 - **Smoke trails** — engine and booster smoke trails invisible on ghosts; Unity emission was disabled on all particle systems but smoke FX have no KSPParticleEmitter to compensate; now only disables Unity emission on FX objects that have KSPParticleEmitter
 - **Terrain clamp** — ghost positions clamped above terrain in LateUpdate, preventing any ghost from appearing underground regardless of interpolation source
+- **#87**: Chain boundary commits no longer create nested groups — boundary splits skip standalone chain commits during tree mode
+- **#104**: Multiple launches of same craft get unique group names — "Flea (2)", "Flea (3)" etc.
+- **#108**: Synthetic EngineShutdown/RCSStopped events emitted at recording stop for all active engines/RCS, preventing ghost plumes from persisting past recording end
+- **#114**: Non-leaf tree recordings and FLYING/SUB_ORBITAL snapshot situations blocked from spawning; crew stripped from Destroyed-terminal-state spawn snapshots
+- **#119**: Watch mode no longer exits when ghost exceeds 120km from active vessel — watched ghosts are exempt from zone distance hiding
+- **#120**: Tree recordings correctly set ForceSpawnNewVessel on merge, preventing PID dedup from skipping spawn after revert
+- **Smoke trails** — engine and booster smoke trails invisible on ghosts; Unity emission was disabled on all particle systems but smoke FX have no KSPParticleEmitter to compensate; now only disables Unity emission on FX objects that have KSPParticleEmitter
+- **Engine plumes** — ModelMultiParticlePersistFX/ModelParticleFX kept alive for native KSP plume visuals
+- **Terrain clamp** — ghost positions clamped above terrain in LateUpdate, preventing any ghost from appearing underground regardless of interpolation source
 - **Compound part ghost visuals** — fuel lines and struts now render correctly on ghosts via PARTDATA fixup (CModuleLinkedMesh replacement)
 
 ### Improvements
 
 - **Spawn abandon UI** — spawn warnings show "walkback exhausted" / "spawn abandoned" status instead of silently retrying forever
 - Spawn collision overlap log demoted from Info to VerboseRateLimited (was ~24K lines/session)
+- CanRewind/CanFastForward per-frame VERBOSE log spam removed (was 578K lines/session)
+- "Failed to register main menu hook" downgraded from WARN to VERBOSE
 
 ---
 
