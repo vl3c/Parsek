@@ -850,9 +850,11 @@ Tagged as Phase 6f-1 in code. Requires in-game API investigation.
 
 ## 61. Controlled children have no recording segments after breakup
 
-`ParsekFlight.cs:2225` — when a crash/breakup creates a recording tree, controlled children (non-debris parts that survive) have no recording segments created for them. The code logs their PIDs but does not start background recordings. Full implementation requires multi-vessel background recording infrastructure.
+`ParsekFlight.cs:2225` — when a crash/breakup creates a recording tree, controlled children (non-debris parts that survive) had no recording segments created for them. The code logged "deferred to Phase 2" but the multi-vessel background recording infrastructure already existed.
 
-**Status:** Open — deferred
+**Fix:** `ProcessBreakupEvent` now creates child recordings for controlled children (same pattern as debris but `IsDebris = false`, no TTL). They are added to BackgroundRecorder for trajectory sampling. This also fixes the RELATIVE anchor issue — controlled children now have recordings and can be spawned during playback, making them available as anchor vessels. `PromoteToTreeForBreakup` already handled this case correctly; only the in-tree breakup path was missing.
+
+**Status:** Fixed
 
 ## 62. Background ghost positioning cachedIdx not persistent
 
