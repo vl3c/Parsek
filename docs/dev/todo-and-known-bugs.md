@@ -1488,6 +1488,16 @@ Likely same root cause as the original procedural fairing work: the fairing mesh
 
 **Status:** Fixed
 
+## 128. Crew replacement not found in roster on second rewind
+
+On the second rewind in session 7, `UnreserveCrewIn` logs `Replacement 'Hadfry Kerman' not found in roster (already removed?)`. Hadfry was hired as a replacement for Jebediah at the start of the second rewind cycle, but by the time unreservation runs after load, Hadfry is gone from the roster. The first rewind cycle (Cerlan Kerman) works fine. The code handles it gracefully (no crash), but the missing replacement may leave stale crew reservation state that accumulates across rewinds.
+
+**Fix:** Investigate ordering between rewind save-load and crew roster cleanup. The replacement may be getting removed by KSP's own roster management before Parsek's unreservation runs.
+
+**Priority:** Low — no crash, handled gracefully, but may cause crew roster drift over many rewinds
+
+**Status:** Open
+
 # In-Game Tests
 
 - [ ] Vessels propagate naturally along orbits after FF (no position freezing)
