@@ -46,6 +46,10 @@ namespace Parsek
                 return new Dictionary<uint, GhostChain>();
             }
 
+            ParsekLog.Verbose(Tag,
+                string.Format(ic, "Found claims for {0} vessel(s) across {1} committed trees",
+                    claimsByPid.Count, committedTrees.Count));
+
             // Step 4: Build chains from sorted claims
             var chains = new Dictionary<uint, GhostChain>();
             foreach (var kvp in claimsByPid)
@@ -90,8 +94,13 @@ namespace Parsek
         internal static bool IsIntermediateChainLink(
             Dictionary<uint, GhostChain> chains, Recording rec)
         {
+            var ic = CultureInfo.InvariantCulture;
+
             if (chains == null || chains.Count == 0 || rec == null)
+            {
+                ParsekLog.Verbose(Tag, "IsIntermediateChainLink: null/empty chains or null rec — returning false");
                 return false;
+            }
 
             // Check if rec's RecordingId matches any non-final link in any chain
             foreach (var kvp in chains)
@@ -103,9 +112,19 @@ namespace Parsek
                     {
                         // If this is the last link AND it is the tip, not intermediate
                         if (i == chain.Links.Count - 1 && chain.TipRecordingId == rec.RecordingId)
+                        {
+                            ParsekLog.Verbose(Tag,
+                                string.Format(ic,
+                                    "IsIntermediateChainLink: rec={0} is tip of chain vessel={1} — not intermediate",
+                                    rec.RecordingId, chain.OriginalVesselPid));
                             return false;
+                        }
 
                         // Non-final link — intermediate
+                        ParsekLog.Verbose(Tag,
+                            string.Format(ic,
+                                "IsIntermediateChainLink: rec={0} is link {1}/{2} in chain vessel={3} — intermediate",
+                                rec.RecordingId, i, chain.Links.Count, chain.OriginalVesselPid));
                         return true;
                     }
                 }
@@ -117,10 +136,18 @@ namespace Parsek
                     && chain.SpawnUT > rec.EndUT
                     && chain.TipRecordingId != rec.RecordingId)
                 {
+                    ParsekLog.Verbose(Tag,
+                        string.Format(ic,
+                            "IsIntermediateChainLink: rec={0} pid={1} superseded by chain spawnUT={2:F1} > endUT={3:F1} — intermediate",
+                            rec.RecordingId, rec.VesselPersistentId, chain.SpawnUT, rec.EndUT));
                     return true;
                 }
             }
 
+            ParsekLog.Verbose(Tag,
+                string.Format(ic,
+                    "IsIntermediateChainLink: rec={0} not found in any chain — not intermediate",
+                    rec.RecordingId));
             return false;
         }
 
@@ -301,7 +328,13 @@ namespace Parsek
             visited.Add(rec.RecordingId);
 
             if (rec.VesselPersistentId != 0)
+            {
                 pids.Add(rec.VesselPersistentId);
+                ParsekLog.Verbose(Tag,
+                    string.Format(CultureInfo.InvariantCulture,
+                        "TraceLineagePids: rec={0} → added vessel pid={1}",
+                        rec.RecordingId, rec.VesselPersistentId));
+            }
 
             // Follow ChildBranchPointId to find child recordings
             if (rec.ChildBranchPointId != null)
@@ -331,8 +364,6 @@ namespace Parsek
         private static void ResolveTipsAndCrossTreeLinks(
             Dictionary<uint, GhostChain> chains, List<RecordingTree> committedTrees)
         {
-            var ic = CultureInfo.InvariantCulture;
-
             // First pass: resolve tip for each chain
             foreach (var kvp in chains)
             {
@@ -340,9 +371,19 @@ namespace Parsek
                 ResolveChainTip(chain, committedTrees);
             }
 
-            // Second pass: cross-tree linking
-            // If a chain's tip recording has a VesselPersistentId that matches another chain's
-            // OriginalVesselPid, merge the second chain's links into the first chain.
+            // Second pass: cross-tree linking and merge
+            MergeCrossTreeLinks(chains, committedTrees);
+        }
+
+        /// <summary>
+        /// Cross-tree linking: if a chain's tip recording has a VesselPersistentId that
+        /// matches another chain's OriginalVesselPid, merges the second chain's links into
+        /// the first. Removes absorbed chains from the dictionary.
+        /// </summary>
+        private static void MergeCrossTreeLinks(
+            Dictionary<uint, GhostChain> chains, List<RecordingTree> committedTrees)
+        {
+            var ic = CultureInfo.InvariantCulture;
             var visited = new HashSet<uint>();
             var pidsToMerge = new List<uint>();
 
@@ -414,6 +455,12 @@ namespace Parsek
             {
                 chains.Remove(pidsToMerge[i]);
             }
+
+            if (pidsToMerge.Count > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic, "MergeCrossTreeLinks: absorbed {0} chain(s)", pidsToMerge.Count));
+            }
         }
 
         /// <summary>
@@ -458,11 +505,18 @@ namespace Parsek
         /// </summary>
         private static Recording WalkToLeaf(Recording rec, RecordingTree tree)
         {
+            var ic = CultureInfo.InvariantCulture;
+
             if (tree == null)
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic, "WalkToLeaf: tree is null — returning rec={0}", rec.RecordingId));
                 return rec;
+            }
 
             var visited = new HashSet<string>();
             var current = rec;
+            int steps = 0;
 
             while (current.ChildBranchPointId != null && !visited.Contains(current.RecordingId))
             {
@@ -479,7 +533,13 @@ namespace Parsek
                 }
 
                 if (bp == null || bp.ChildRecordingIds.Count == 0)
+                {
+                    ParsekLog.Verbose(Tag,
+                        string.Format(ic,
+                            "WalkToLeaf: no branch point or children for rec={0} bp={1} — stopping",
+                            current.RecordingId, current.ChildBranchPointId));
                     break;
+                }
 
                 // Prefer the child whose VesselPersistentId matches the current recording's PID.
                 // This ensures we follow the same vessel through splits rather than arbitrarily
@@ -502,11 +562,28 @@ namespace Parsek
 
                 Recording child;
                 if (tree.Recordings.TryGetValue(bestChildId, out child))
+                {
+                    steps++;
+                    ParsekLog.Verbose(Tag,
+                        string.Format(ic,
+                            "WalkToLeaf: step {0}: rec={1} → child={2} via bp={3}",
+                            steps, current.RecordingId, bestChildId, bp.Id));
                     current = child;
+                }
                 else
+                {
+                    ParsekLog.Verbose(Tag,
+                        string.Format(ic,
+                            "WalkToLeaf: child recording '{0}' not found in tree — stopping",
+                            bestChildId));
                     break;
+                }
             }
 
+            ParsekLog.Verbose(Tag,
+                string.Format(ic,
+                    "WalkToLeaf: reached leaf={0} after {1} steps from start={2}",
+                    current.RecordingId, steps, rec.RecordingId));
             return current;
         }
 
@@ -516,20 +593,38 @@ namespace Parsek
         private static void ResolveTermination(
             GhostChain chain, List<RecordingTree> committedTrees)
         {
+            var ic = CultureInfo.InvariantCulture;
+
             if (chain.TipRecordingId == null)
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic, "ResolveTermination: vessel={0} has null tip — skipping",
+                        chain.OriginalVesselPid));
                 return;
+            }
 
             Recording tipRec = FindRecording(
                 chain.TipRecordingId, chain.TipTreeId, committedTrees);
 
             if (tipRec == null)
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic, "ResolveTermination: tip recording '{0}' not found — skipping",
+                        chain.TipRecordingId));
                 return;
+            }
 
             if (tipRec.TerminalStateValue.HasValue)
             {
                 var ts = tipRec.TerminalStateValue.Value;
                 if (ts == TerminalState.Destroyed || ts == TerminalState.Recovered)
+                {
                     chain.IsTerminated = true;
+                    ParsekLog.Verbose(Tag,
+                        string.Format(ic,
+                            "ResolveTermination: vessel={0} tip={1} terminalState={2} — marked terminated",
+                            chain.OriginalVesselPid, chain.TipRecordingId, ts));
+                }
             }
         }
 

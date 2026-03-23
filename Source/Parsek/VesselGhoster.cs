@@ -181,41 +181,7 @@ namespace Parsek
             // Collision check: use snapshot lat/lon/alt (where RespawnVessel actually places
             // the vessel), falling back to trajectory/terminal position (#127).
             Bounds spawnBounds = SpawnCollisionDetector.ComputeVesselBounds(vesselSnapshot);
-            double snapLat = 0, snapLon = 0, snapAlt = 0;
-            bool hasSnapPos = VesselSpawner.TryGetSnapshotDouble(vesselSnapshot, "lat", out snapLat)
-                           && VesselSpawner.TryGetSnapshotDouble(vesselSnapshot, "lon", out snapLon)
-                           && VesselSpawner.TryGetSnapshotDouble(vesselSnapshot, "alt", out snapAlt);
-            Vector3d spawnPos;
-            if (hasSnapPos)
-            {
-                string bodyName = tipRecording?.Points != null && tipRecording.Points.Count > 0
-                    ? tipRecording.Points[tipRecording.Points.Count - 1].bodyName : null;
-                if (string.IsNullOrEmpty(bodyName)) bodyName = "Kerbin";
-                CelestialBody snapBody = FlightGlobals.GetBodyByName(bodyName);
-                if (snapBody != null)
-                {
-                    spawnPos = snapBody.GetWorldSurfacePosition(snapLat, snapLon, snapAlt);
-                    ParsekLog.Verbose(Tag,
-                        string.Format(ic,
-                            "SpawnAtChainTip: collision check using snapshot pos lat={0} lon={1} alt={2} body={3}",
-                            snapLat.ToString("F4", ic), snapLon.ToString("F4", ic),
-                            snapAlt.ToString("F1", ic), bodyName));
-                }
-                else
-                {
-                    spawnPos = ComputeSpawnWorldPosition(tipRecording);
-                    ParsekLog.Verbose(Tag,
-                        string.Format(ic,
-                            "SpawnAtChainTip: body '{0}' not found — falling back to ComputeSpawnWorldPosition",
-                            bodyName));
-                }
-            }
-            else
-            {
-                spawnPos = ComputeSpawnWorldPosition(tipRecording);
-                ParsekLog.Verbose(Tag,
-                    "SpawnAtChainTip: no snapshot lat/lon/alt — falling back to ComputeSpawnWorldPosition");
-            }
+            Vector3d spawnPos = ResolveSpawnPosition(tipRecording, vesselSnapshot);
             var (overlap, distance, blockerName) =
                 SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(spawnPos, spawnBounds, SpawnCollisionPadding);
 
@@ -316,62 +282,10 @@ namespace Parsek
                         chain.BlockedSinceUT, currentUT, 5.0, distanceChange, 1.0f)
                     && tipRecording.Points != null && tipRecording.Points.Count > 1)
                 {
-                    int validIdx = SpawnCollisionDetector.WalkbackAlongTrajectory(
-                        tipRecording.Points,
-                        spawnBounds,
-                        SpawnCollisionPadding,
-                        pt =>
-                        {
-                            string bodyName = pt.bodyName;
-                            if (string.IsNullOrEmpty(bodyName)) bodyName = "Kerbin";
-                            CelestialBody body = FlightGlobals.GetBodyByName(bodyName);
-                            return body != null
-                                ? body.GetWorldSurfacePosition(pt.latitude, pt.longitude, pt.altitude)
-                                : Vector3d.zero;
-                        },
-                        pos =>
-                        {
-                            var (ov, _, _) = SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
-                                pos, spawnBounds, SpawnCollisionPadding);
-                            return ov;
-                        });
-
-                    if (validIdx >= 0)
-                    {
-                        ParsekLog.Info("SpawnCollision",
-                            string.Format(ic,
-                                "Trajectory walkback: vessel={0} — found valid position {1} frames back at UT={2}",
-                                tipRecording.VesselName ?? "(unknown)", tipRecording.Points.Count - 1 - validIdx,
-                                tipRecording.Points[validIdx].ut.ToString("F1", ic)));
-
-                        // Update snapshot position to walkback point coordinates
-                        var walkPt = tipRecording.Points[validIdx];
-                        vesselSnapshot.SetValue("lat", walkPt.latitude.ToString("R", ic));
-                        vesselSnapshot.SetValue("lon", walkPt.longitude.ToString("R", ic));
-                        vesselSnapshot.SetValue("alt", walkPt.altitude.ToString("R", ic));
-
-                        // Spawn at walkback position
-                        if (TerrainCorrector.ShouldCorrectTerrain(
-                                tipRecording.TerminalStateValue, tipRecording.TerrainHeightAtEnd))
-                            ApplyTerrainCorrection(tipRecording, vesselSnapshot);
-
-                        uint walkbackPid = VesselSpawner.RespawnVessel(vesselSnapshot, preserveIdentity: true);
-                        if (walkbackPid != 0)
-                        {
-                            chain.SpawnBlocked = false;
-                            CleanupGhostedVessel(chain.OriginalVesselPid);
-                            return walkbackPid;
-                        }
-                    }
-                    else
-                    {
-                        chain.WalkbackExhausted = true;
-                        ParsekLog.Warn("SpawnCollision",
-                            string.Format(ic,
-                                "Trajectory walkback EXHAUSTED: vessel={0} — entire trajectory overlaps with {1}. " +
-                                "Manual placement required. Walkback will not re-scan.",
-                                tipRecording.VesselName ?? "(unknown)", blockerName ?? "(unknown)"));
-                    }
+                    uint walkbackResult = TryWalkbackSpawn(
+                        chain, tipRecording, vesselSnapshot, spawnBounds, blockerName);
+                    if (walkbackResult != 0)
+                        return walkbackResult;
                 }
 
                 string exhaustedSuffix = chain.WalkbackExhausted ? " [walkback exhausted]" : "";
@@ -422,6 +336,119 @@ namespace Parsek
         }
 
         // --- Private helpers ---
+
+        /// <summary>
+        /// Resolves the world-space spawn position for a chain tip spawn.
+        /// Prefers snapshot lat/lon/alt (where RespawnVessel actually places the vessel),
+        /// falls back to trajectory endpoint or terminal position.
+        /// </summary>
+        private static Vector3d ResolveSpawnPosition(Recording tipRecording, ConfigNode vesselSnapshot)
+        {
+            double snapLat = 0, snapLon = 0, snapAlt = 0;
+            bool hasSnapPos = VesselSpawner.TryGetSnapshotDouble(vesselSnapshot, "lat", out snapLat)
+                           && VesselSpawner.TryGetSnapshotDouble(vesselSnapshot, "lon", out snapLon)
+                           && VesselSpawner.TryGetSnapshotDouble(vesselSnapshot, "alt", out snapAlt);
+
+            if (hasSnapPos)
+            {
+                string bodyName = tipRecording?.Points != null && tipRecording.Points.Count > 0
+                    ? tipRecording.Points[tipRecording.Points.Count - 1].bodyName : null;
+                if (string.IsNullOrEmpty(bodyName)) bodyName = "Kerbin";
+                CelestialBody snapBody = FlightGlobals.GetBodyByName(bodyName);
+                if (snapBody != null)
+                {
+                    ParsekLog.Verbose(Tag,
+                        string.Format(ic,
+                            "ResolveSpawnPosition: using snapshot pos lat={0} lon={1} alt={2} body={3}",
+                            snapLat.ToString("F4", ic), snapLon.ToString("F4", ic),
+                            snapAlt.ToString("F1", ic), bodyName));
+                    return snapBody.GetWorldSurfacePosition(snapLat, snapLon, snapAlt);
+                }
+                else
+                {
+                    ParsekLog.Verbose(Tag,
+                        string.Format(ic,
+                            "ResolveSpawnPosition: body '{0}' not found — falling back to ComputeSpawnWorldPosition",
+                            bodyName));
+                    return ComputeSpawnWorldPosition(tipRecording);
+                }
+            }
+            else
+            {
+                ParsekLog.Verbose(Tag,
+                    "ResolveSpawnPosition: no snapshot lat/lon/alt — falling back to ComputeSpawnWorldPosition");
+                return ComputeSpawnWorldPosition(tipRecording);
+            }
+        }
+
+        /// <summary>
+        /// Attempts a trajectory walkback spawn: scans backward along the recorded trajectory
+        /// to find a position free of collision. Returns the spawned vessel PID, or 0 if
+        /// walkback found no valid position or spawn failed.
+        /// </summary>
+        private uint TryWalkbackSpawn(
+            GhostChain chain, Recording tipRecording,
+            ConfigNode vesselSnapshot, Bounds spawnBounds, string blockerName)
+        {
+            int validIdx = SpawnCollisionDetector.WalkbackAlongTrajectory(
+                tipRecording.Points,
+                spawnBounds,
+                SpawnCollisionPadding,
+                pt =>
+                {
+                    string bodyName = pt.bodyName;
+                    if (string.IsNullOrEmpty(bodyName)) bodyName = "Kerbin";
+                    CelestialBody body = FlightGlobals.GetBodyByName(bodyName);
+                    return body != null
+                        ? body.GetWorldSurfacePosition(pt.latitude, pt.longitude, pt.altitude)
+                        : Vector3d.zero;
+                },
+                pos =>
+                {
+                    var (ov, _, _) = SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(
+                        pos, spawnBounds, SpawnCollisionPadding);
+                    return ov;
+                });
+
+            if (validIdx >= 0)
+            {
+                ParsekLog.Info("SpawnCollision",
+                    string.Format(ic,
+                        "Trajectory walkback: vessel={0} — found valid position {1} frames back at UT={2}",
+                        tipRecording.VesselName ?? "(unknown)", tipRecording.Points.Count - 1 - validIdx,
+                        tipRecording.Points[validIdx].ut.ToString("F1", ic)));
+
+                // Update snapshot position to walkback point coordinates
+                var walkPt = tipRecording.Points[validIdx];
+                vesselSnapshot.SetValue("lat", walkPt.latitude.ToString("R", ic));
+                vesselSnapshot.SetValue("lon", walkPt.longitude.ToString("R", ic));
+                vesselSnapshot.SetValue("alt", walkPt.altitude.ToString("R", ic));
+
+                // Spawn at walkback position
+                if (TerrainCorrector.ShouldCorrectTerrain(
+                        tipRecording.TerminalStateValue, tipRecording.TerrainHeightAtEnd))
+                    ApplyTerrainCorrection(tipRecording, vesselSnapshot);
+
+                uint walkbackPid = VesselSpawner.RespawnVessel(vesselSnapshot, preserveIdentity: true);
+                if (walkbackPid != 0)
+                {
+                    chain.SpawnBlocked = false;
+                    CleanupGhostedVessel(chain.OriginalVesselPid);
+                    return walkbackPid;
+                }
+            }
+            else
+            {
+                chain.WalkbackExhausted = true;
+                ParsekLog.Warn("SpawnCollision",
+                    string.Format(ic,
+                        "Trajectory walkback EXHAUSTED: vessel={0} — entire trajectory overlaps with {1}. " +
+                        "Manual placement required. Walkback will not re-scan.",
+                        tipRecording.VesselName ?? "(unknown)", blockerName ?? "(unknown)"));
+            }
+
+            return 0;
+        }
 
         /// <summary>
         /// Find the tip recording by ID from committed recordings.

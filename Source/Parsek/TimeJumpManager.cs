@@ -188,38 +188,7 @@ namespace Parsek
             // Step 1: Capture state vectors for all loaded vessels BEFORE changing UT.
             // If UT is set first, KSP's orbit propagation runs at the new UT with old epochs,
             // moving vessels before we can freeze them.
-            var capturedStates = new List<(Vessel v, Vector3d pos, Vector3d vel, CelestialBody body, double oldMeanAnomaly)>();
-            if (FlightGlobals.VesselsLoaded != null)
-            {
-                foreach (Vessel v in FlightGlobals.VesselsLoaded)
-                {
-                    if (v == null || v.orbit == null) continue;
-
-                    // Surface vessels: no epoch shift needed (surface-fixed coords are UT-independent)
-                    if (v.situation == Vessel.Situations.LANDED ||
-                        v.situation == Vessel.Situations.SPLASHED ||
-                        v.situation == Vessel.Situations.PRELAUNCH)
-                    {
-                        ParsekLog.Verbose(Tag,
-                            string.Format(ic,
-                                "Epoch shift skipped (surface): pid={0} name={1} situation={2}",
-                                v.persistentId, v.vesselName, v.situation));
-                        continue;
-                    }
-
-                    // Atmospheric warning
-                    if (v.mainBody != null && v.mainBody.atmosphere &&
-                        v.altitude < v.mainBody.atmosphereDepth)
-                    {
-                        ParsekLog.Warn(Tag,
-                            string.Format(ic,
-                                "WARNING: vessel '{0}' is in atmosphere — epoch shift is approximate",
-                                v.vesselName));
-                    }
-
-                    capturedStates.Add((v, v.orbit.pos, v.orbit.vel, v.orbit.referenceBody, v.orbit.meanAnomalyAtEpoch));
-                }
-            }
+            var capturedStates = CaptureOrbitalStates();
 
             // Step 2: Set game clock to target UT
             Planetarium.SetUniversalTime(targetUT);
@@ -229,77 +198,12 @@ namespace Parsek
 
             // Step 3: Epoch-shift all captured vessel orbits.
             // Recompute orbital elements at the new epoch from the pre-jump state vectors.
-            for (int i = 0; i < capturedStates.Count; i++)
-            {
-                var (v, pos, vel, body, oldMeanAnomaly) = capturedStates[i];
-                try
-                {
-                    // Recompute orbital elements at new UT from same state vectors
-                    v.orbit.UpdateFromStateVectors(pos, vel, body, targetUT);
+            ApplyEpochShifts(capturedStates, targetUT);
 
-                    double shift = v.orbit.meanAnomalyAtEpoch - oldMeanAnomaly;
+            // Step 4: Process crossed chain tips — spawn real vessels
+            int spawnCount = SpawnCrossedChainTips(chains, ghoster, t0, targetUT);
 
-                    ParsekLog.Verbose(Tag,
-                        string.Format(ic,
-                            "Epoch-shifted vessel: pid={0} name={1} body={2} dMeanAnomaly={3:F6}",
-                            v.persistentId, v.vesselName,
-                            body != null ? body.bodyName : "null",
-                            shift));
-                }
-                catch (Exception ex)
-                {
-                    ParsekLog.Error(Tag,
-                        string.Format(ic,
-                            "Epoch shift failed: pid={0} name={1} error={2}",
-                            v.persistentId, v.vesselName, ex.Message));
-                }
-            }
-
-            // Step 3: Process crossed chain tips — spawn real vessels
-            var crossed = FindCrossedChainTips(chains, t0, targetUT);
-            int spawnCount = 0;
-
-            foreach (GhostChain chain in crossed)
-            {
-                if (ghoster == null)
-                {
-                    ParsekLog.Warn(Tag,
-                        string.Format(ic,
-                            "Spawn skipped (no ghoster): vessel={0}",
-                            chain.OriginalVesselPid));
-                    continue;
-                }
-
-                try
-                {
-                    uint spawnedPid = ghoster.SpawnAtChainTip(chain);
-                    if (spawnedPid != 0)
-                    {
-                        spawnCount++;
-                        chains.Remove(chain.OriginalVesselPid);
-                        ParsekLog.Info(Tag,
-                            string.Format(ic,
-                                "Chain tip spawned during jump: vessel={0} spawnedPid={1}",
-                                chain.OriginalVesselPid, spawnedPid));
-                    }
-                    else if (chain.SpawnBlocked)
-                    {
-                        ParsekLog.Warn(Tag,
-                            string.Format(ic,
-                                "Chain tip spawn blocked during jump: vessel={0} — ghost continues",
-                                chain.OriginalVesselPid));
-                    }
-                }
-                catch (Exception ex)
-                {
-                    ParsekLog.Error(Tag,
-                        string.Format(ic,
-                            "Chain tip spawn failed during jump: vessel={0} error={1}",
-                            chain.OriginalVesselPid, ex.Message));
-                }
-            }
-
-            // Step 4: Game actions recalculation
+            // Step 5: Game actions recalculation
             // The game actions system is a future dependency. If not available, skip with warning.
             ParsekLog.Warn(Tag,
                 "Time jump: game actions system not available, skipping recalculation");
@@ -410,47 +314,7 @@ namespace Parsek
 
             // Put in-physics vessels on rails temporarily so SetUniversalTime doesn't
             // cause physics interactions during the jump.
-            // Copy to list first — GoOnRails callbacks could mutate VesselsLoaded.
-            var onRailsVessels = new List<Vessel>();
-            if (FlightGlobals.VesselsLoaded != null)
-            {
-                var loadedSnapshot = new List<Vessel>(FlightGlobals.VesselsLoaded);
-                foreach (Vessel v in loadedSnapshot)
-                {
-                    if (v == null) continue;
-
-                    // Atmospheric warning: Keplerian propagation ignores drag,
-                    // vessel may end up underground after forward jump
-                    if (v.mainBody != null && v.mainBody.atmosphere &&
-                        v.altitude < v.mainBody.atmosphereDepth)
-                    {
-                        ParsekLog.Warn(Tag,
-                            string.Format(ic,
-                                "WARNING: vessel '{0}' is in atmosphere — orbit propagation is approximate",
-                                v.vesselName));
-                    }
-
-                    if (!v.packed && v.loaded)
-                    {
-                        try
-                        {
-                            v.GoOnRails();
-                            onRailsVessels.Add(v);
-                            ParsekLog.Verbose(Tag,
-                                string.Format(ic,
-                                    "Put vessel on rails: pid={0} name={1}",
-                                    v.persistentId, v.vesselName));
-                        }
-                        catch (Exception ex)
-                        {
-                            ParsekLog.Warn(Tag,
-                                string.Format(ic,
-                                    "Failed to put vessel on rails: pid={0} name={1} error={2}",
-                                    v.persistentId, v.vesselName, ex.Message));
-                        }
-                    }
-                }
-            }
+            var onRailsVessels = PutLoadedVesselsOnRails();
 
             // Advance UT — orbits propagate naturally (no epoch shift)
             Planetarium.SetUniversalTime(targetUT);
@@ -464,6 +328,208 @@ namespace Parsek
             FixResourceConverterTimestamps(targetUT);
 
             // Take vessels off rails
+            TakeVesselsOffRails(onRailsVessels);
+
+            ParsekLog.Info(Tag,
+                string.Format(ic,
+                    "Forward jump complete: delta={0:F1}s, {1} vessels temporarily on-railed",
+                    jumpDelta, onRailsVessels.Count));
+        }
+
+        /// <summary>
+        /// Captures orbital state vectors (position, velocity, body, meanAnomaly) for all
+        /// loaded vessels that are in orbital flight. Surface vessels are skipped (surface-fixed
+        /// coords are UT-independent). Atmospheric vessels emit a warning.
+        /// </summary>
+        private static List<(Vessel v, Vector3d pos, Vector3d vel, CelestialBody body, double oldMeanAnomaly)> CaptureOrbitalStates()
+        {
+            var capturedStates = new List<(Vessel v, Vector3d pos, Vector3d vel, CelestialBody body, double oldMeanAnomaly)>();
+            if (FlightGlobals.VesselsLoaded == null) return capturedStates;
+
+            foreach (Vessel v in FlightGlobals.VesselsLoaded)
+            {
+                if (v == null || v.orbit == null) continue;
+
+                // Surface vessels: no epoch shift needed (surface-fixed coords are UT-independent)
+                if (v.situation == Vessel.Situations.LANDED ||
+                    v.situation == Vessel.Situations.SPLASHED ||
+                    v.situation == Vessel.Situations.PRELAUNCH)
+                {
+                    ParsekLog.Verbose(Tag,
+                        string.Format(ic,
+                            "Epoch shift skipped (surface): pid={0} name={1} situation={2}",
+                            v.persistentId, v.vesselName, v.situation));
+                    continue;
+                }
+
+                // Atmospheric warning
+                if (v.mainBody != null && v.mainBody.atmosphere &&
+                    v.altitude < v.mainBody.atmosphereDepth)
+                {
+                    ParsekLog.Warn(Tag,
+                        string.Format(ic,
+                            "WARNING: vessel '{0}' is in atmosphere — epoch shift is approximate",
+                            v.vesselName));
+                }
+
+                capturedStates.Add((v, v.orbit.pos, v.orbit.vel, v.orbit.referenceBody, v.orbit.meanAnomalyAtEpoch));
+            }
+
+            ParsekLog.Verbose(Tag,
+                string.Format(ic, "CaptureOrbitalStates: captured {0} orbital vessel state(s)",
+                    capturedStates.Count));
+            return capturedStates;
+        }
+
+        /// <summary>
+        /// Applies epoch shifts to all captured orbital states by recomputing orbital
+        /// elements at the new UT from the pre-jump state vectors.
+        /// </summary>
+        private static void ApplyEpochShifts(
+            List<(Vessel v, Vector3d pos, Vector3d vel, CelestialBody body, double oldMeanAnomaly)> capturedStates,
+            double targetUT)
+        {
+            for (int i = 0; i < capturedStates.Count; i++)
+            {
+                var (v, pos, vel, body, oldMeanAnomaly) = capturedStates[i];
+                try
+                {
+                    // Recompute orbital elements at new UT from same state vectors
+                    v.orbit.UpdateFromStateVectors(pos, vel, body, targetUT);
+
+                    double shift = v.orbit.meanAnomalyAtEpoch - oldMeanAnomaly;
+
+                    ParsekLog.Verbose(Tag,
+                        string.Format(ic,
+                            "Epoch-shifted vessel: pid={0} name={1} body={2} dMeanAnomaly={3:F6}",
+                            v.persistentId, v.vesselName,
+                            body != null ? body.bodyName : "null",
+                            shift));
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Error(Tag,
+                        string.Format(ic,
+                            "Epoch shift failed: pid={0} name={1} error={2}",
+                            v.persistentId, v.vesselName, ex.Message));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Spawns real vessels for all chain tips crossed during a time jump.
+        /// Returns the number of successfully spawned vessels.
+        /// </summary>
+        private static int SpawnCrossedChainTips(
+            Dictionary<uint, GhostChain> chains,
+            VesselGhoster ghoster,
+            double t0, double targetUT)
+        {
+            var crossed = FindCrossedChainTips(chains, t0, targetUT);
+            int spawnCount = 0;
+
+            foreach (GhostChain chain in crossed)
+            {
+                if (ghoster == null)
+                {
+                    ParsekLog.Warn(Tag,
+                        string.Format(ic,
+                            "Spawn skipped (no ghoster): vessel={0}",
+                            chain.OriginalVesselPid));
+                    continue;
+                }
+
+                try
+                {
+                    uint spawnedPid = ghoster.SpawnAtChainTip(chain);
+                    if (spawnedPid != 0)
+                    {
+                        spawnCount++;
+                        chains.Remove(chain.OriginalVesselPid);
+                        ParsekLog.Info(Tag,
+                            string.Format(ic,
+                                "Chain tip spawned during jump: vessel={0} spawnedPid={1}",
+                                chain.OriginalVesselPid, spawnedPid));
+                    }
+                    else if (chain.SpawnBlocked)
+                    {
+                        ParsekLog.Warn(Tag,
+                            string.Format(ic,
+                                "Chain tip spawn blocked during jump: vessel={0} — ghost continues",
+                                chain.OriginalVesselPid));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Error(Tag,
+                        string.Format(ic,
+                            "Chain tip spawn failed during jump: vessel={0} error={1}",
+                            chain.OriginalVesselPid, ex.Message));
+                }
+            }
+
+            return spawnCount;
+        }
+
+        /// <summary>
+        /// Puts all loaded in-physics vessels on rails to prevent physics interactions
+        /// during a UT jump. Returns the list of vessels that were put on rails
+        /// (for later off-rails restoration).
+        /// </summary>
+        private static List<Vessel> PutLoadedVesselsOnRails()
+        {
+            var onRailsVessels = new List<Vessel>();
+            if (FlightGlobals.VesselsLoaded == null) return onRailsVessels;
+
+            // Copy to list first — GoOnRails callbacks could mutate VesselsLoaded.
+            var loadedSnapshot = new List<Vessel>(FlightGlobals.VesselsLoaded);
+            foreach (Vessel v in loadedSnapshot)
+            {
+                if (v == null) continue;
+
+                // Atmospheric warning: Keplerian propagation ignores drag,
+                // vessel may end up underground after forward jump
+                if (v.mainBody != null && v.mainBody.atmosphere &&
+                    v.altitude < v.mainBody.atmosphereDepth)
+                {
+                    ParsekLog.Warn(Tag,
+                        string.Format(ic,
+                            "WARNING: vessel '{0}' is in atmosphere — orbit propagation is approximate",
+                            v.vesselName));
+                }
+
+                if (!v.packed && v.loaded)
+                {
+                    try
+                    {
+                        v.GoOnRails();
+                        onRailsVessels.Add(v);
+                        ParsekLog.Verbose(Tag,
+                            string.Format(ic,
+                                "Put vessel on rails: pid={0} name={1}",
+                                v.persistentId, v.vesselName));
+                    }
+                    catch (Exception ex)
+                    {
+                        ParsekLog.Warn(Tag,
+                            string.Format(ic,
+                                "Failed to put vessel on rails: pid={0} name={1} error={2}",
+                                v.persistentId, v.vesselName, ex.Message));
+                    }
+                }
+            }
+
+            ParsekLog.Verbose(Tag,
+                string.Format(ic, "PutLoadedVesselsOnRails: {0} vessel(s) put on rails",
+                    onRailsVessels.Count));
+            return onRailsVessels;
+        }
+
+        /// <summary>
+        /// Takes a list of vessels off rails after a UT jump.
+        /// </summary>
+        private static void TakeVesselsOffRails(List<Vessel> onRailsVessels)
+        {
             foreach (Vessel v in onRailsVessels)
             {
                 if (v == null) continue;
@@ -483,11 +549,6 @@ namespace Parsek
                             v.persistentId, v.vesselName, ex.Message));
                 }
             }
-
-            ParsekLog.Info(Tag,
-                string.Format(ic,
-                    "Forward jump complete: delta={0:F1}s, {1} vessels temporarily on-railed",
-                    jumpDelta, onRailsVessels.Count));
         }
 
         /// <summary>
