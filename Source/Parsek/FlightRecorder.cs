@@ -2043,6 +2043,27 @@ namespace Parsek
             return result;
         }
 
+        /// <summary>
+        /// Builds an OrbitSegment from the vessel's current orbital parameters.
+        /// Extracted to deduplicate the identical construction in StartRecording,
+        /// OnVesselGoOnRails, OnVesselSOIChanged, and TransitionToBackground.
+        /// </summary>
+        internal static OrbitSegment CreateOrbitSegmentFromVessel(Vessel v, double startUT)
+        {
+            return new OrbitSegment
+            {
+                startUT = startUT,
+                inclination = v.orbit.inclination,
+                eccentricity = v.orbit.eccentricity,
+                semiMajorAxis = v.orbit.semiMajorAxis,
+                longitudeOfAscendingNode = v.orbit.LAN,
+                argumentOfPeriapsis = v.orbit.argumentOfPeriapsis,
+                meanAnomalyAtEpoch = v.orbit.meanAnomalyAtEpoch,
+                epoch = v.orbit.epoch,
+                bodyName = v.mainBody?.name ?? "Kerbin"
+            };
+        }
+
         internal static ulong EncodeEngineKey(uint pid, int moduleIndex)
         {
             return ((ulong)pid << 8) | (uint)moduleIndex;
@@ -3661,7 +3682,85 @@ namespace Parsek
 
                 vesselInfoBuffer.Add((vessel.persistentId, (Vector3d)vessel.transform.position));
             }
+            if (ParsekLog.IsVerboseEnabled)
+                ParsekLog.Verbose("Anchor", $"Vessel info list: {vesselInfoBuffer.Count} candidates");
             return vesselInfoBuffer;
+        }
+
+        /// <summary>
+        /// Per-physics-frame anchor detection state machine for RELATIVE frame (Phase 3a).
+        /// Detects proximity to pre-existing vessels, enters/exits RELATIVE mode, and
+        /// transitions TrackSections accordingly. Extracted from OnPhysicsFrame.
+        /// </summary>
+        private void UpdateAnchorDetection(Vessel v)
+        {
+            // Skip anchor detection while on the surface — RELATIVE mode is for orbital
+            // docking approaches, not pad neighbors. Surface vessels are pinned to the
+            // ground and don't need relative positioning. Also handles the case where a
+            // vessel lands near a base — exits RELATIVE mode on landing.
+            bool onSurface = v.situation == Vessel.Situations.LANDED
+                          || v.situation == Vessel.Situations.SPLASHED
+                          || v.situation == Vessel.Situations.PRELAUNCH;
+            if (onSurface && isRelativeMode)
+            {
+                // Was flying in RELATIVE mode, just landed — exit RELATIVE
+                var ic = CultureInfo.InvariantCulture;
+                var oldAnchor = currentAnchorPid;
+                isRelativeMode = false;
+                currentAnchorPid = 0;
+                CloseCurrentTrackSection(Planetarium.GetUniversalTime());
+                var env = environmentHysteresis != null
+                    ? environmentHysteresis.CurrentEnvironment
+                    : SegmentEnvironment.Atmospheric;
+                StartNewTrackSection(env, ReferenceFrame.Absolute, Planetarium.GetUniversalTime());
+                ParsekLog.Info("Anchor",
+                    $"RELATIVE mode exited on landing: previousAnchorPid={oldAnchor} " +
+                    $"situation={v.situation} vesselPid={RecordingVesselId}");
+            }
+            else if (!onSurface)
+            {
+                var vesselInfos = BuildVesselInfoList();
+                var (anchorPid, anchorDist) = AnchorDetector.FindNearestAnchor(
+                    RecordingVesselId, (Vector3d)v.transform.position, vesselInfos, treeVesselPids);
+
+                bool shouldBeRelative = anchorPid != 0 &&
+                    AnchorDetector.ShouldUseRelativeFrame(anchorDist, isRelativeMode);
+
+                if (shouldBeRelative && !isRelativeMode)
+                {
+                    // Entering RELATIVE mode
+                    var ic = CultureInfo.InvariantCulture;
+                    isRelativeMode = true;
+                    currentAnchorPid = anchorPid;
+                    CloseCurrentTrackSection(Planetarium.GetUniversalTime());
+                    var env = environmentHysteresis != null
+                        ? environmentHysteresis.CurrentEnvironment
+                        : SegmentEnvironment.Atmospheric;
+                    StartNewTrackSection(env, ReferenceFrame.Relative, Planetarium.GetUniversalTime());
+                    currentTrackSection.anchorVesselId = currentAnchorPid;
+                    ParsekLog.Info("Anchor",
+                        $"RELATIVE mode entered: anchorPid={currentAnchorPid} " +
+                        $"dist={anchorDist.ToString("F1", ic)}m " +
+                        $"vesselPid={RecordingVesselId}");
+                }
+                else if (!shouldBeRelative && isRelativeMode)
+                {
+                    // Exiting RELATIVE mode
+                    var ic = CultureInfo.InvariantCulture;
+                    var oldAnchor = currentAnchorPid;
+                    isRelativeMode = false;
+                    currentAnchorPid = 0;
+                    CloseCurrentTrackSection(Planetarium.GetUniversalTime());
+                    var env = environmentHysteresis != null
+                        ? environmentHysteresis.CurrentEnvironment
+                        : SegmentEnvironment.Atmospheric;
+                    StartNewTrackSection(env, ReferenceFrame.Absolute, Planetarium.GetUniversalTime());
+                    ParsekLog.Info("Anchor",
+                        $"RELATIVE mode exited: previousAnchorPid={oldAnchor} " +
+                        $"dist={anchorDist.ToString("F1", ic)}m " +
+                        $"vesselPid={RecordingVesselId}");
+                }
+            }
         }
 
         #endregion
@@ -3707,7 +3806,7 @@ namespace Parsek
                     if (Reputation.Instance != null)
                         PreLaunchReputation = Reputation.Instance.reputation;
                 }
-                catch { }
+                catch (Exception ex) { ParsekLog.Verbose("Recorder", $"Pre-launch resource capture failed: {ex.Message}"); }
                 ParsekLog.Verbose("Recorder",
                     $"Pre-launch resources captured: funds={PreLaunchFunds:F0}, science={PreLaunchScience:F1}, rep={PreLaunchReputation:F1}");
             }
@@ -3788,37 +3887,7 @@ namespace Parsek
                 // Take one boundary point first
                 SamplePosition(v);
 
-                currentOrbitSegment = new OrbitSegment
-                {
-                    startUT = Planetarium.GetUniversalTime(),
-                    inclination = v.orbit.inclination,
-                    eccentricity = v.orbit.eccentricity,
-                    semiMajorAxis = v.orbit.semiMajorAxis,
-                    longitudeOfAscendingNode = v.orbit.LAN,
-                    argumentOfPeriapsis = v.orbit.argumentOfPeriapsis,
-                    meanAnomalyAtEpoch = v.orbit.meanAnomalyAtEpoch,
-                    epoch = v.orbit.epoch,
-                    bodyName = v.mainBody.name
-                };
-
-                // Capture orbital-frame rotation (vessel is packed, so rb is null — no angular velocity)
-                Vector3d orbVel = v.obt_velocity;
-                Vector3d radialOut = (v.CoMD - v.mainBody.position).normalized;
-                currentOrbitSegment.orbitalFrameRotation =
-                    TrajectoryMath.ComputeOrbitalFrameRotation(v.transform.rotation, orbVel, radialOut);
-
-                isOnRails = true;
-
-                // Recording started on rails — switch initial ABSOLUTE section to ORBITAL_CHECKPOINT
-                double packedUT = Planetarium.GetUniversalTime();
-                CloseCurrentTrackSection(packedUT);
-                StartNewTrackSection(initialEnv, ReferenceFrame.OrbitalCheckpoint, packedUT,
-                    TrackSectionSource.Checkpoint);
-                ParsekLog.Info("Recorder",
-                    $"Reference frame transition: Absolute -> OrbitalCheckpoint (started on rails) at UT={packedUT.ToString("F2", CultureInfo.InvariantCulture)}");
-
-                ParsekLog.Info("Recorder",
-                    $"Recording started on rails — orbit segment (body={v.mainBody.name}, ofrRot={currentOrbitSegment.orbitalFrameRotation})");
+                InitializeOnRailsOrbitSegment(v, initialEnv);
             }
 
             // Register the Harmony patch to call us each physics frame
@@ -3902,7 +3971,20 @@ namespace Parsek
                         partNamesByPid[p.persistentId] = p.partInfo?.name ?? "unknown";
                 }
             }
-            var seedSets = new PartTrackingSets
+            var seedSets = BuildCurrentTrackingSets();
+            double seedUT = Planetarium.GetUniversalTime();
+            var seedEvents = PartStateSeeder.EmitSeedEvents(seedSets, partNamesByPid, seedUT, "Recorder");
+            PartEvents.AddRange(seedEvents);
+        }
+
+        /// <summary>
+        /// Builds the PartTrackingSets struct from current instance tracking state.
+        /// Extracted to deduplicate the identical struct literal in ResetPartEventTrackingState
+        /// and SeedExistingPartStates.
+        /// </summary>
+        private PartTrackingSets BuildCurrentTrackingSets()
+        {
+            return new PartTrackingSets
             {
                 deployedFairings = deployedFairings,
                 jettisonedShrouds = jettisonedShrouds,
@@ -3925,9 +4007,6 @@ namespace Parsek
                 activeRcsKeys = activeRcsKeys,
                 lastRcsThrottle = lastRcsThrottle,
             };
-            double seedUT = Planetarium.GetUniversalTime();
-            var seedEvents = PartStateSeeder.EmitSeedEvents(seedSets, partNamesByPid, seedUT, "Recorder");
-            PartEvents.AddRange(seedEvents);
         }
 
         /// <summary>
@@ -3939,29 +4018,7 @@ namespace Parsek
         internal void SeedExistingPartStates(Vessel v)
         {
             PartStateSeeder.SeedPartStates(v,
-                new PartTrackingSets
-                {
-                    deployedFairings = deployedFairings,
-                    jettisonedShrouds = jettisonedShrouds,
-                    parachuteStates = parachuteStates,
-                    extendedDeployables = extendedDeployables,
-                    lightsOn = lightsOn,
-                    blinkingLights = blinkingLights,
-                    lightBlinkRates = lightBlinkRates,
-                    deployedGear = deployedGear,
-                    openCargoBays = openCargoBays,
-                    deployedLadders = deployedLadders,
-                    deployedAnimationGroups = deployedAnimationGroups,
-                    deployedAnimateGenericModules = deployedAnimateGenericModules,
-                    deployedAeroSurfaceModules = deployedAeroSurfaceModules,
-                    deployedControlSurfaceModules = deployedControlSurfaceModules,
-                    deployedRobotArmScannerModules = deployedRobotArmScannerModules,
-                    animateHeatLevels = animateHeatLevels,
-                    activeEngineKeys = activeEngineKeys,
-                    lastThrottle = lastThrottle,
-                    activeRcsKeys = activeRcsKeys,
-                    lastRcsThrottle = lastRcsThrottle,
-                },
+                BuildCurrentTrackingSets(),
                 cachedEngines, cachedRcsModules,
                 seedColorChangerLights: true, logTag: "Recorder");
         }
@@ -4017,7 +4074,18 @@ namespace Parsek
             return capture;
         }
 
-        public void StopRecording()
+        /// <summary>
+        /// Shared finalization logic for StopRecording, StopRecordingForChainBoundary, and ForceStop.
+        /// Finalizes orbit segments, closes TrackSection, disconnects Harmony, and optionally
+        /// emits terminal events and clears RELATIVE mode state.
+        /// </summary>
+        /// <param name="emitTerminalEvents">True to emit terminal engine/RCS/robotic shutdown events.</param>
+        /// <param name="clearRelativeMode">True to clear RELATIVE mode state (ForceStop passes false
+        /// to preserve current behavior — it did not have RELATIVE cleanup before extraction).</param>
+        /// <param name="sampleBoundaryOnRails">True to sample a boundary point if on rails at stop time.</param>
+        /// <param name="logTag">Tag for the RELATIVE mode cleared log message.</param>
+        private void FinalizeRecordingState(bool emitTerminalEvents, bool clearRelativeMode,
+            bool sampleBoundaryOnRails, string logTag)
         {
             // Finalize in-progress orbit segment
             if (isOnRails)
@@ -4027,38 +4095,55 @@ namespace Parsek
                 AddOrbitSegmentToCurrentTrackSection(currentOrbitSegment);
                 isOnRails = false;
 
-                // Record a boundary point at stop time
-                Vessel v = FlightGlobals.ActiveVessel;
-                if (v != null) SamplePosition(v);
+                if (sampleBoundaryOnRails)
+                {
+                    Vessel v = FlightGlobals.ActiveVessel;
+                    if (v != null) SamplePosition(v);
+                }
             }
 
             // Close final TrackSection (v6+)
             CloseCurrentTrackSection(Planetarium.GetUniversalTime());
 
             // Clear RELATIVE mode state
-            if (isRelativeMode)
+            if (clearRelativeMode)
             {
-                ParsekLog.Info("Anchor",
-                    $"RELATIVE mode cleared on recording stop: anchorPid={currentAnchorPid}");
+                if (isRelativeMode)
+                {
+                    ParsekLog.Info("Anchor",
+                        $"RELATIVE mode cleared on {logTag}: anchorPid={currentAnchorPid}");
+                }
+                isRelativeMode = false;
+                currentAnchorPid = 0;
             }
-            isRelativeMode = false;
-            currentAnchorPid = 0;
 
             // Disconnect from Harmony patch
             Patches.PhysicsFramePatch.ActiveRecorder = null;
             UnsubscribePartEvents();
             IsRecording = false;
 
-            // Emit terminal shutdown events for engines/RCS/robotics still active at recording end (bug #108)
-            double stopUT = Planetarium.GetUniversalTime();
-            var terminalEvents = EmitTerminalEngineAndRcsEvents(
-                activeEngineKeys, activeRcsKeys, activeRoboticKeys,
-                lastRoboticPosition, stopUT, "Recorder");
-            PartEvents.AddRange(terminalEvents);
+            // Optionally emit terminal shutdown events for engines/RCS/robotics still active (bug #108)
+            if (emitTerminalEvents)
+            {
+                double terminalUT = Planetarium.GetUniversalTime();
+                var terminalEvts = EmitTerminalEngineAndRcsEvents(
+                    activeEngineKeys, activeRcsKeys, activeRoboticKeys,
+                    lastRoboticPosition, terminalUT, "Recorder");
+                PartEvents.AddRange(terminalEvts);
+            }
 
             // Sort part/flag events chronologically (mixed event sources may produce non-chronological order)
             PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
             FlagEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+        }
+
+        public void StopRecording()
+        {
+            FinalizeRecordingState(
+                emitTerminalEvents: true,
+                clearRelativeMode: true,
+                sampleBoundaryOnRails: true,
+                logTag: "recording stop");
 
             // Capture persistence artifacts at stop-time so later scene changes
             // don't depend on whatever vessel is currently active.
@@ -4082,43 +4167,11 @@ namespace Parsek
         /// </summary>
         public void StopRecordingForChainBoundary()
         {
-            // Finalize in-progress orbit segment
-            if (isOnRails)
-            {
-                currentOrbitSegment.endUT = Planetarium.GetUniversalTime();
-                OrbitSegments.Add(currentOrbitSegment);
-                AddOrbitSegmentToCurrentTrackSection(currentOrbitSegment);
-                isOnRails = false;
-
-                Vessel v = FlightGlobals.ActiveVessel;
-                if (v != null) SamplePosition(v);
-            }
-
-            // Close final TrackSection (v6+)
-            CloseCurrentTrackSection(Planetarium.GetUniversalTime());
-
-            // Clear RELATIVE mode state
-            if (isRelativeMode)
-            {
-                ParsekLog.Info("Anchor",
-                    $"RELATIVE mode cleared on chain boundary stop: anchorPid={currentAnchorPid}");
-            }
-            isRelativeMode = false;
-            currentAnchorPid = 0;
-
-            Patches.PhysicsFramePatch.ActiveRecorder = null;
-            UnsubscribePartEvents();
-            IsRecording = false;
-
-            // Emit terminal shutdown events for engines/RCS/robotics still active at recording end (bug #108)
-            double chainStopUT = Planetarium.GetUniversalTime();
-            var terminalEvents = EmitTerminalEngineAndRcsEvents(
-                activeEngineKeys, activeRcsKeys, activeRoboticKeys,
-                lastRoboticPosition, chainStopUT, "Recorder");
-            PartEvents.AddRange(terminalEvents);
-
-            PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
-            FlagEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+            FinalizeRecordingState(
+                emitTerminalEvents: true,
+                clearRelativeMode: true,
+                sampleBoundaryOnRails: true,
+                logTag: "chain boundary stop");
 
             CaptureAtStop = BuildCaptureRecording(
                 FlightGlobals.ActiveVessel != null
@@ -4326,78 +4379,7 @@ namespace Parsek
                 }
             }
 
-            // Anchor detection for RELATIVE frame (Phase 3a)
-            // Runs every physics frame to detect proximity to pre-existing vessels.
-            // treeVesselPids is null when no recording tree is active — anchor detection
-            // still works but excludes nothing (solo recording can anchor to any vessel).
-            //
-            // Skip anchor detection while on the surface — RELATIVE mode is for orbital
-            // docking approaches, not pad neighbors. Surface vessels are pinned to the
-            // ground and don't need relative positioning. Also handles the case where a
-            // vessel lands near a base — exits RELATIVE mode on landing.
-            bool onSurface = v.situation == Vessel.Situations.LANDED
-                          || v.situation == Vessel.Situations.SPLASHED
-                          || v.situation == Vessel.Situations.PRELAUNCH;
-            if (onSurface && isRelativeMode)
-            {
-                // Was flying in RELATIVE mode, just landed — exit RELATIVE
-                var ic = CultureInfo.InvariantCulture;
-                var oldAnchor = currentAnchorPid;
-                isRelativeMode = false;
-                currentAnchorPid = 0;
-                CloseCurrentTrackSection(Planetarium.GetUniversalTime());
-                var env = environmentHysteresis != null
-                    ? environmentHysteresis.CurrentEnvironment
-                    : SegmentEnvironment.Atmospheric;
-                StartNewTrackSection(env, ReferenceFrame.Absolute, Planetarium.GetUniversalTime());
-                ParsekLog.Info("Anchor",
-                    $"RELATIVE mode exited on landing: previousAnchorPid={oldAnchor} " +
-                    $"situation={v.situation} vesselPid={RecordingVesselId}");
-            }
-            else if (!onSurface)
-            {
-                var vesselInfos = BuildVesselInfoList();
-                var (anchorPid, anchorDist) = AnchorDetector.FindNearestAnchor(
-                    RecordingVesselId, (Vector3d)v.transform.position, vesselInfos, treeVesselPids);
-
-                bool shouldBeRelative = anchorPid != 0 &&
-                    AnchorDetector.ShouldUseRelativeFrame(anchorDist, isRelativeMode);
-
-                if (shouldBeRelative && !isRelativeMode)
-                {
-                    // Entering RELATIVE mode
-                    var ic = CultureInfo.InvariantCulture;
-                    isRelativeMode = true;
-                    currentAnchorPid = anchorPid;
-                    CloseCurrentTrackSection(Planetarium.GetUniversalTime());
-                    var env = environmentHysteresis != null
-                        ? environmentHysteresis.CurrentEnvironment
-                        : SegmentEnvironment.Atmospheric;
-                    StartNewTrackSection(env, ReferenceFrame.Relative, Planetarium.GetUniversalTime());
-                    currentTrackSection.anchorVesselId = currentAnchorPid;
-                    ParsekLog.Info("Anchor",
-                        $"RELATIVE mode entered: anchorPid={currentAnchorPid} " +
-                        $"dist={anchorDist.ToString("F1", ic)}m " +
-                        $"vesselPid={RecordingVesselId}");
-                }
-                else if (!shouldBeRelative && isRelativeMode)
-                {
-                    // Exiting RELATIVE mode
-                    var ic = CultureInfo.InvariantCulture;
-                    var oldAnchor = currentAnchorPid;
-                    isRelativeMode = false;
-                    currentAnchorPid = 0;
-                    CloseCurrentTrackSection(Planetarium.GetUniversalTime());
-                    var env = environmentHysteresis != null
-                        ? environmentHysteresis.CurrentEnvironment
-                        : SegmentEnvironment.Atmospheric;
-                    StartNewTrackSection(env, ReferenceFrame.Absolute, Planetarium.GetUniversalTime());
-                    ParsekLog.Info("Anchor",
-                        $"RELATIVE mode exited: previousAnchorPid={oldAnchor} " +
-                        $"dist={anchorDist.ToString("F1", ic)}m " +
-                        $"vesselPid={RecordingVesselId}");
-                }
-            }
+            UpdateAnchorDetection(v);
 
             // Krakensbane-corrected true velocity
             Vector3 currentVelocity = (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity());
@@ -4411,19 +4393,7 @@ namespace Parsek
                 return;
             }
 
-            TrajectoryPoint point = new TrajectoryPoint
-            {
-                ut = Planetarium.GetUniversalTime(),
-                latitude = v.latitude,
-                longitude = v.longitude,
-                altitude = v.altitude,
-                rotation = v.srfRelRotation,
-                velocity = currentVelocity,
-                bodyName = v.mainBody.name,
-                funds = Funding.Instance != null ? Funding.Instance.Funds : 0,
-                science = ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science : 0,
-                reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0
-            };
+            TrajectoryPoint point = BuildTrajectoryPoint(v, currentVelocity);
 
             // RELATIVE mode: reinterpret lat/lon/alt as (dx, dy, dz) offset from anchor vessel
             if (isRelativeMode && currentAnchorPid != 0)
@@ -4490,6 +4460,27 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Constructs a TrajectoryPoint from the vessel's current state and the given velocity.
+        /// Extracted to deduplicate the identical construction in OnPhysicsFrame and SamplePosition.
+        /// </summary>
+        private static TrajectoryPoint BuildTrajectoryPoint(Vessel v, Vector3 velocity)
+        {
+            return new TrajectoryPoint
+            {
+                ut = Planetarium.GetUniversalTime(),
+                latitude = v.latitude,
+                longitude = v.longitude,
+                altitude = v.altitude,
+                rotation = v.srfRelRotation,
+                velocity = velocity,
+                bodyName = v.mainBody.name,
+                funds = Funding.Instance != null ? Funding.Instance.Funds : 0,
+                science = ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science : 0,
+                reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0
+            };
+        }
+
+        /// <summary>
         /// Force-record a boundary point (used at on-rails/off-rails transitions).
         /// </summary>
         public void SamplePosition(Vessel v)
@@ -4505,29 +4496,47 @@ namespace Parsek
                 ? (Vector3)v.obt_velocity
                 : (Vector3)(v.rb_velocityD + Krakensbane.GetFrameVelocity());
 
-            TrajectoryPoint point = new TrajectoryPoint
-            {
-                ut = Planetarium.GetUniversalTime(),
-                latitude = v.latitude,
-                longitude = v.longitude,
-                altitude = v.altitude,
-                rotation = v.srfRelRotation,
-                velocity = currentVelocity,
-                bodyName = v.mainBody.name,
-                funds = Funding.Instance != null ? Funding.Instance.Funds : 0,
-                science = ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science : 0,
-                reputation = Reputation.Instance != null ? Reputation.CurrentRep : 0
-            };
+            TrajectoryPoint point = BuildTrajectoryPoint(v, currentVelocity);
 
             Recording.Add(point);
             lastRecordedUT = point.ut;
             lastRecordedVelocity = point.velocity;
+            ParsekLog.Verbose("Recorder", $"Boundary point sampled at UT={point.ut:F1}");
 
             // Dual-write: flat Points list (backward compat) + current TrackSection (v6+)
             if (trackSectionActive && currentTrackSection.frames != null)
             {
                 currentTrackSection.frames.Add(point);
             }
+        }
+
+        /// <summary>
+        /// Extracts the on-rails startup block from StartRecording: creates an orbit segment,
+        /// captures orbital-frame rotation, sets isOnRails, and transitions the TrackSection
+        /// from ABSOLUTE to ORBITAL_CHECKPOINT.
+        /// </summary>
+        private void InitializeOnRailsOrbitSegment(Vessel v, SegmentEnvironment initialEnv)
+        {
+            currentOrbitSegment = CreateOrbitSegmentFromVessel(v, Planetarium.GetUniversalTime());
+
+            // Capture orbital-frame rotation (vessel is packed, so rb is null — no angular velocity)
+            Vector3d orbVel = v.obt_velocity;
+            Vector3d radialOut = (v.CoMD - v.mainBody.position).normalized;
+            currentOrbitSegment.orbitalFrameRotation =
+                TrajectoryMath.ComputeOrbitalFrameRotation(v.transform.rotation, orbVel, radialOut);
+
+            isOnRails = true;
+
+            // Recording started on rails — switch initial ABSOLUTE section to ORBITAL_CHECKPOINT
+            double packedUT = Planetarium.GetUniversalTime();
+            CloseCurrentTrackSection(packedUT);
+            StartNewTrackSection(initialEnv, ReferenceFrame.OrbitalCheckpoint, packedUT,
+                TrackSectionSource.Checkpoint);
+            ParsekLog.Info("Recorder",
+                $"Reference frame transition: Absolute -> OrbitalCheckpoint (started on rails) at UT={packedUT.ToString("F2", CultureInfo.InvariantCulture)}");
+
+            ParsekLog.Info("Recorder",
+                $"Recording started on rails — orbit segment (body={v.mainBody.name}, ofrRot={currentOrbitSegment.orbitalFrameRotation})");
         }
 
         public void OnVesselGoOnRails(Vessel v)
@@ -4556,18 +4565,7 @@ namespace Parsek
                 return;
             }
 
-            currentOrbitSegment = new OrbitSegment
-            {
-                startUT = Planetarium.GetUniversalTime(),
-                inclination = v.orbit.inclination,
-                eccentricity = v.orbit.eccentricity,
-                semiMajorAxis = v.orbit.semiMajorAxis,
-                longitudeOfAscendingNode = v.orbit.LAN,
-                argumentOfPeriapsis = v.orbit.argumentOfPeriapsis,
-                meanAnomalyAtEpoch = v.orbit.meanAnomalyAtEpoch,
-                epoch = v.orbit.epoch,
-                bodyName = v.mainBody.name
-            };
+            currentOrbitSegment = CreateOrbitSegmentFromVessel(v, Planetarium.GetUniversalTime());
 
             // Capture orbital-frame-relative rotation
             Vector3d orbVel = v.obt_velocity;
@@ -4686,18 +4684,7 @@ namespace Parsek
 
             // Start new orbit segment in new SOI
             var v = data.host;
-            currentOrbitSegment = new OrbitSegment
-            {
-                startUT = Planetarium.GetUniversalTime(),
-                inclination = v.orbit.inclination,
-                eccentricity = v.orbit.eccentricity,
-                semiMajorAxis = v.orbit.semiMajorAxis,
-                longitudeOfAscendingNode = v.orbit.LAN,
-                argumentOfPeriapsis = v.orbit.argumentOfPeriapsis,
-                meanAnomalyAtEpoch = v.orbit.meanAnomalyAtEpoch,
-                epoch = v.orbit.epoch,
-                bodyName = v.mainBody.name
-            };
+            currentOrbitSegment = CreateOrbitSegmentFromVessel(v, Planetarium.GetUniversalTime());
 
             // Capture orbital-frame-relative rotation for new SOI
             Vector3d orbVel = v.obt_velocity;
@@ -4763,22 +4750,11 @@ namespace Parsek
             // Intentionally does not set CaptureAtStop. Forced stops happen during
             // scene transitions where vessel state may already be changing/unreliable;
             // ParsekFlight falls back to scene-change snapshot capture in that path.
-            if (isOnRails)
-            {
-                currentOrbitSegment.endUT = Planetarium.GetUniversalTime();
-                OrbitSegments.Add(currentOrbitSegment);
-                AddOrbitSegmentToCurrentTrackSection(currentOrbitSegment);
-                isOnRails = false;
-            }
-
-            // Close final TrackSection (v6+)
-            CloseCurrentTrackSection(Planetarium.GetUniversalTime());
-
-            Patches.PhysicsFramePatch.ActiveRecorder = null;
-            UnsubscribePartEvents();
-            IsRecording = false;
-            PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
-            FlagEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+            FinalizeRecordingState(
+                emitTerminalEvents: false,
+                clearRelativeMode: false,
+                sampleBoundaryOnRails: false,
+                logTag: "force stop");
 
             double duration = Recording.Count > 0
                 ? Recording[Recording.Count - 1].ut - Recording[0].ut
@@ -4825,18 +4801,7 @@ namespace Parsek
                  v.situation == Vessel.Situations.PRELAUNCH);
             if (v != null && v.orbit != null && !isSurfaceVessel)
             {
-                currentOrbitSegment = new OrbitSegment
-                {
-                    startUT = Planetarium.GetUniversalTime(),
-                    inclination = v.orbit.inclination,
-                    eccentricity = v.orbit.eccentricity,
-                    semiMajorAxis = v.orbit.semiMajorAxis,
-                    longitudeOfAscendingNode = v.orbit.LAN,
-                    argumentOfPeriapsis = v.orbit.argumentOfPeriapsis,
-                    meanAnomalyAtEpoch = v.orbit.meanAnomalyAtEpoch,
-                    epoch = v.orbit.epoch,
-                    bodyName = v.mainBody?.name ?? "Kerbin"
-                };
+                currentOrbitSegment = CreateOrbitSegmentFromVessel(v, Planetarium.GetUniversalTime());
                 isOnRails = true;
             }
             else if (isSurfaceVessel)
