@@ -304,9 +304,11 @@ namespace Parsek
 
             // Auto-group: assign all tree recordings to a group named after the tree
             // so they appear collapsed in the recordings window instead of as separate entries.
+            // Use GenerateUniqueGroupName to avoid merging multiple launches of the same vessel
+            // into one group (bug #104).
             if (!string.IsNullOrEmpty(tree.TreeName) && tree.Recordings.Count > 1)
             {
-                string groupName = tree.TreeName;
+                string groupName = GenerateUniqueGroupName(tree.TreeName);
                 foreach (var rec in tree.Recordings.Values)
                 {
                     if (rec.RecordingGroups == null)
@@ -718,6 +720,46 @@ namespace Parsek
             var result = new List<string>(names);
             result.Sort(StringComparer.OrdinalIgnoreCase);
             return result;
+        }
+
+        /// <summary>
+        /// Returns a group name that doesn't collide with existing group names.
+        /// If baseName is not already used, returns it unchanged.
+        /// Otherwise appends " (2)", " (3)", etc. until a unique name is found.
+        /// </summary>
+        internal static string GenerateUniqueGroupName(string baseName)
+        {
+            if (string.IsNullOrEmpty(baseName))
+            {
+                ParsekLog.Verbose("RecordingStore",
+                    "GenerateUniqueGroupName: baseName is null/empty, returning 'Chain'");
+                baseName = "Chain";
+            }
+
+            var existing = new HashSet<string>(GetGroupNames(), System.StringComparer.OrdinalIgnoreCase);
+            if (!existing.Contains(baseName))
+            {
+                ParsekLog.Verbose("RecordingStore",
+                    $"GenerateUniqueGroupName: '{baseName}' is unique, returning unchanged");
+                return baseName;
+            }
+
+            for (int n = 2; n < 1000; n++)
+            {
+                string candidate = $"{baseName} ({n})";
+                if (!existing.Contains(candidate))
+                {
+                    ParsekLog.Info("RecordingStore",
+                        $"GenerateUniqueGroupName: '{baseName}' already exists, using '{candidate}'");
+                    return candidate;
+                }
+            }
+
+            // Safety fallback — should never happen in practice
+            string fallback = $"{baseName} ({Guid.NewGuid().ToString("N").Substring(0, 6)})";
+            ParsekLog.Warn("RecordingStore",
+                $"GenerateUniqueGroupName: exhausted 999 candidates for '{baseName}', using fallback '{fallback}'");
+            return fallback;
         }
 
         /// <summary>
@@ -1141,6 +1183,7 @@ namespace Parsek
 
             rec.VesselSpawned = false;
             rec.SpawnAttempts = 0;
+            rec.SpawnDeathCount = 0;
             rec.SpawnedVesselPersistentId = 0;
             rec.LastAppliedResourceIndex = -1;
 
@@ -1290,35 +1333,30 @@ namespace Parsek
             if (IsRewinding)
             {
                 reason = "Rewind already in progress";
-                ParsekLog.Verbose("Store", $"CanRewind: blocked — {reason}");
                 return false;
             }
 
             if (string.IsNullOrEmpty(rec.RewindSaveFileName))
             {
                 reason = "No rewind save available";
-                ParsekLog.Verbose("Store", $"CanRewind: blocked for '{rec.VesselName}' — {reason}");
                 return false;
             }
 
             if (isRecording)
             {
                 reason = "Stop recording before rewinding";
-                ParsekLog.Verbose("Store", $"CanRewind: blocked — {reason}");
                 return false;
             }
 
             if (HasPending)
             {
                 reason = "Merge or discard pending recording first";
-                ParsekLog.Verbose("Store", $"CanRewind: blocked — {reason}");
                 return false;
             }
 
             if (HasPendingTree)
             {
                 reason = "Merge or discard pending tree first";
-                ParsekLog.Verbose("Store", $"CanRewind: blocked — {reason}");
                 return false;
             }
 
@@ -1328,7 +1366,6 @@ namespace Parsek
             if (string.IsNullOrEmpty(savePath) || !File.Exists(savePath))
             {
                 reason = "Rewind save file missing";
-                ParsekLog.Verbose("Store", $"CanRewind: blocked for '{rec.VesselName}' — {reason} (path={savePath ?? "null"})");
                 return false;
             }
 
@@ -1345,35 +1382,30 @@ namespace Parsek
             if (IsRewinding)
             {
                 reason = "Rewind already in progress";
-                ParsekLog.Verbose("Store", $"CanFastForward: blocked — {reason}");
                 return false;
             }
 
             if (rec == null || rec.Points.Count == 0)
             {
                 reason = "Recording not available";
-                ParsekLog.Verbose("Store", $"CanFastForward: blocked — {reason}");
                 return false;
             }
 
             if (isRecording)
             {
                 reason = "Stop recording before fast-forwarding";
-                ParsekLog.Verbose("Store", $"CanFastForward: blocked — {reason}");
                 return false;
             }
 
             if (HasPending)
             {
                 reason = "Merge or discard pending recording first";
-                ParsekLog.Verbose("Store", $"CanFastForward: blocked — {reason}");
                 return false;
             }
 
             if (HasPendingTree)
             {
                 reason = "Merge or discard pending tree first";
-                ParsekLog.Verbose("Store", $"CanFastForward: blocked — {reason}");
                 return false;
             }
 
@@ -1382,10 +1414,6 @@ namespace Parsek
             if (now >= rec.StartUT)
             {
                 reason = "Recording is not in the future";
-                ParsekLog.Verbose("Store",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "CanFastForward: blocked for '{0}' — {1} (now={2:F1} startUT={3:F1})",
-                        rec.VesselName, reason, now, rec.StartUT));
                 return false;
             }
 

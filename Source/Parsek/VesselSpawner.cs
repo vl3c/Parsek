@@ -13,6 +13,13 @@ namespace Parsek
         // Proximity offset removed — spawn collision detection now uses bounding box
         // overlap check via SpawnCollisionDetector (same system as chain-tip spawns).
 
+        /// <summary>
+        /// Maximum consecutive collision-blocked frames before abandoning spawn.
+        /// ~2.5 seconds at 60fps. After this many frames the spawn is abandoned
+        /// to prevent infinite retry loops (bug #110).
+        /// </summary>
+        internal const int MaxCollisionBlocks = 150;
+
         public static ConfigNode TryBackupSnapshot(Vessel vessel)
         {
             if (vessel == null) return null;
@@ -180,6 +187,21 @@ namespace Parsek
             if (rec.SpawnAttempts >= maxSpawnAttempts)
                 return;
 
+            // Crew protection: strip crew from spawn snapshot when recording ended in
+            // destruction to prevent killing crew during spawn-death cycles (#114).
+            // Modifies the snapshot in-place — acceptable for Destroyed recordings
+            // since they won't be re-spawned (blocked by FLYING/non-leaf checks).
+            if (ShouldStripCrewForSpawn(rec))
+            {
+                if (rec.VesselSnapshot != null)
+                {
+                    int stripped = StripAllCrewFromSnapshot(rec.VesselSnapshot);
+                    ParsekLog.Info("Spawner",
+                        $"Stripped {stripped} crew from spawn snapshot for destroyed recording " +
+                        $"#{index} ({rec.VesselName}) — prevents crew death on spawn");
+                }
+            }
+
             // Build exclude set once for all spawn paths (EVA'd crew spawn via child recordings)
             HashSet<string> excludeCrew = BuildExcludeCrewSet(rec);
 
@@ -234,12 +256,29 @@ namespace Parsek
                     SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(spawnPos, spawnBounds, 5f);
                 if (overlap)
                 {
-                    ParsekLog.Info("Spawner",
-                        $"Spawn blocked for #{index} ({rec.VesselName}): overlaps '{blockerName}' at {overlapDist:F0}m — " +
-                        $"will retry next frame");
+                    rec.CollisionBlockCount++;
+                    if (ShouldAbandonCollisionBlockedSpawn(rec.CollisionBlockCount, MaxCollisionBlocks))
+                    {
+                        rec.VesselSpawned = true;   // prevent ShouldSpawnAtRecordingEnd from returning true
+                        rec.SpawnAbandoned = true;  // prevent vessel-gone check from resetting VesselSpawned
+                        ParsekLog.Warn("Spawner",
+                            $"Spawn ABANDONED for #{index} ({rec.VesselName}): collision-blocked for " +
+                            $"{rec.CollisionBlockCount} consecutive frames by '{blockerName}' at {overlapDist:F0}m — " +
+                            $"giving up (max={MaxCollisionBlocks})");
+                    }
+                    else
+                    {
+                        ParsekLog.VerboseRateLimited("Spawner",
+                            "collision-block-" + index,
+                            $"Spawn blocked for #{index} ({rec.VesselName}): overlaps '{blockerName}' at {overlapDist:F0}m — " +
+                            $"will retry next frame (block={rec.CollisionBlockCount}/{MaxCollisionBlocks})");
+                    }
                     return;
                 }
             }
+
+            // Reset collision block counter on successful spawn path
+            rec.CollisionBlockCount = 0;
 
             // Find nearest vessel for spawn context logging
             double closestDist = double.MaxValue;
@@ -269,6 +308,31 @@ namespace Parsek
                 else
                     ParsekLog.Warn("Spawner", $"Vessel spawn failed for recording #{index} ({rec.VesselName}) — will retry (attempt {rec.SpawnAttempts}/{maxSpawnAttempts})");
             }
+        }
+
+        /// <summary>
+        /// Pure decision: should we abandon a collision-blocked spawn?
+        /// Returns true when the collision block count has reached or exceeded the maximum.
+        /// </summary>
+        internal static bool ShouldAbandonCollisionBlockedSpawn(int collisionBlockCount, int maxBlocks)
+        {
+            return collisionBlockCount >= maxBlocks;
+        }
+
+        /// <summary>
+        /// Maximum spawn-then-die cycles before abandoning spawn.
+        /// A vessel that spawns and immediately dies (e.g., FLYING at sea level,
+        /// destroyed by KSP on-rails aero check) should not retry forever.
+        /// </summary>
+        internal const int MaxSpawnDeathCycles = 3;
+
+        /// <summary>
+        /// Pure decision: should we abandon a spawn that keeps dying immediately?
+        /// Returns true when the spawn-death count has reached or exceeded the maximum.
+        /// </summary>
+        internal static bool ShouldAbandonSpawnDeathLoop(int spawnDeathCount, int maxCycles)
+        {
+            return spawnDeathCount >= maxCycles;
         }
 
         internal static HashSet<string> BuildExcludeCrewSet(Recording rec)
@@ -494,6 +558,44 @@ namespace Parsek
                         partNode.AddValue("crew", name);
                 }
             }
+        }
+
+        /// <summary>
+        /// Pure decision: should crew be stripped from the spawn snapshot?
+        /// Returns true when the recording's terminal state is Destroyed,
+        /// preventing crew deaths during spawn-death cycles. (#114)
+        /// </summary>
+        internal static bool ShouldStripCrewForSpawn(Recording rec)
+        {
+            return rec.TerminalStateValue.HasValue
+                && rec.TerminalStateValue.Value == TerminalState.Destroyed;
+        }
+
+        /// <summary>
+        /// Strips ALL crew from a vessel snapshot. Removes crew values from PART
+        /// nodes and resets the crewAssignment field. Returns the number of crew removed.
+        /// Modifies the snapshot in-place. (#114)
+        /// </summary>
+        internal static int StripAllCrewFromSnapshot(ConfigNode snapshot)
+        {
+            if (snapshot == null) return 0;
+
+            int removedCount = 0;
+            foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
+            {
+                var crewNames = partNode.GetValues("crew");
+                if (crewNames.Length > 0)
+                {
+                    for (int c = 0; c < crewNames.Length; c++)
+                    {
+                        ParsekLog.Verbose("Spawner",
+                            $"StripAllCrewFromSnapshot: removing '{crewNames[c]}'");
+                    }
+                    removedCount += crewNames.Length;
+                    partNode.RemoveValues("crew");
+                }
+            }
+            return removedCount;
         }
 
         public static void RemoveDeadCrewFromSnapshot(ConfigNode snapshot)

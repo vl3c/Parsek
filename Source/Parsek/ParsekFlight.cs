@@ -2348,17 +2348,109 @@ namespace Parsek
             // Set ChildBranchPointId on the active recording to link to this breakup
             activeRec.ChildBranchPointId = breakupBp.Id;
 
-            // TODO Phase 2: Create child recording segments for controlled children.
-            // Currently, controlled children survive the breakup but have no recording
-            // segments created for them. Full implementation requires the background
-            // recording infrastructure for multiple vessels (Phase 2 multi-vessel sessions).
+            // Create child recording segments for controlled children (vessels with probe
+            // cores that survive the breakup). Same pattern as PromoteToTreeForBreakup step 8.
+            // These are NOT debris — they record indefinitely (no TTL) and can serve as
+            // RELATIVE anchors during playback.
             var controlledChildren = crashCoalescer.LastEmittedControlledChildPids;
             if (controlledChildren != null && controlledChildren.Count > 0)
             {
                 for (int i = 0; i < controlledChildren.Count; i++)
                 {
-                    ParsekLog.Warn("Coalescer",
-                        $"BREAKUP controlled child pid={controlledChildren[i]} — child segment creation deferred to Phase 2");
+                    uint pid = controlledChildren[i];
+                    Vessel childVessel = FlightRecorder.FindVesselByPid(pid);
+                    string childRecId = Guid.NewGuid().ToString("N");
+                    string vesselName = childVessel?.vesselName ?? "Unknown";
+
+                    var childRec = new Recording
+                    {
+                        RecordingId = childRecId,
+                        TreeId = activeTree.Id,
+                        VesselPersistentId = pid,
+                        VesselName = vesselName,
+                        ParentBranchPointId = breakupBp.Id,
+                        ExplicitStartUT = breakupBp.UT,
+                        IsDebris = false
+                    };
+
+                    if (childVessel != null)
+                    {
+                        ConfigNode childSnapshot = VesselSpawner.TryBackupSnapshot(childVessel);
+                        childRec.GhostVisualSnapshot = childSnapshot;
+                        childRec.VesselSnapshot = childSnapshot != null ? childSnapshot.CreateCopy() : null;
+                    }
+                    else
+                    {
+                        childRec.TerminalStateValue = TerminalState.Destroyed;
+                        childRec.ExplicitEndUT = breakupBp.UT;
+                    }
+
+                    activeTree.Recordings[childRecId] = childRec;
+                    breakupBp.ChildRecordingIds.Add(childRecId);
+
+                    // Add to BackgroundRecorder for trajectory sampling (no TTL — records indefinitely)
+                    if (childVessel != null && backgroundRecorder != null)
+                    {
+                        activeTree.BackgroundMap[pid] = childRecId;
+                        backgroundRecorder.OnVesselBackgrounded(pid);
+                    }
+
+                    ParsekLog.Info("Coalescer",
+                        $"ProcessBreakupEvent: controlled child created: pid={pid}, " +
+                        $"name='{vesselName}', recId={childRecId}, " +
+                        $"alive={childVessel != null}, bgRecorder={backgroundRecorder != null}");
+                }
+            }
+
+            // Also create debris child recordings for new debris from this breakup
+            var debrisPids = crashCoalescer.LastEmittedDebrisPids;
+            if (debrisPids != null && debrisPids.Count > 0)
+            {
+                double debrisExpiryUT = breakupBp.UT + BackgroundRecorder.DebrisTTLSeconds;
+                for (int i = 0; i < debrisPids.Count; i++)
+                {
+                    uint pid = debrisPids[i];
+                    Vessel debrisVessel = FlightRecorder.FindVesselByPid(pid);
+                    string childRecId = Guid.NewGuid().ToString("N");
+                    string vesselName = debrisVessel?.vesselName ?? "Debris";
+
+                    var childRec = new Recording
+                    {
+                        RecordingId = childRecId,
+                        TreeId = activeTree.Id,
+                        VesselPersistentId = pid,
+                        VesselName = vesselName,
+                        ParentBranchPointId = breakupBp.Id,
+                        ExplicitStartUT = breakupBp.UT,
+                        IsDebris = true
+                    };
+
+                    if (debrisVessel != null)
+                    {
+                        ConfigNode debrisSnapshot = VesselSpawner.TryBackupSnapshot(debrisVessel);
+                        childRec.GhostVisualSnapshot = debrisSnapshot;
+                        childRec.VesselSnapshot = debrisSnapshot != null ? debrisSnapshot.CreateCopy() : null;
+                    }
+                    else
+                    {
+                        childRec.TerminalStateValue = TerminalState.Destroyed;
+                        childRec.ExplicitEndUT = breakupBp.UT;
+                    }
+
+                    activeTree.Recordings[childRecId] = childRec;
+                    breakupBp.ChildRecordingIds.Add(childRecId);
+
+                    if (debrisVessel != null && backgroundRecorder != null)
+                    {
+                        activeTree.BackgroundMap[pid] = childRecId;
+                        backgroundRecorder.OnVesselBackgrounded(pid);
+                        backgroundRecorder.SetDebrisExpiry(pid, debrisExpiryUT);
+                    }
+
+                    ParsekLog.Info("Coalescer",
+                        $"ProcessBreakupEvent: debris child created: pid={pid}, " +
+                        $"name='{vesselName}', recId={childRecId}, " +
+                        $"alive={debrisVessel != null}");
                 }
             }
 
@@ -2962,8 +3054,10 @@ namespace Parsek
             {
                 activeChainId = System.Guid.NewGuid().ToString("N");
                 activeChainNextIndex = 0;
-                // Auto-group chain under a group named after the starting vessel
-                string chainGroupName = RecordingStore.Pending.VesselName ?? "Chain";
+                // Auto-group chain under a group named after the starting vessel.
+                // Use GenerateUniqueGroupName to avoid merging multiple launches into one group (bug #104).
+                string chainGroupName = RecordingStore.GenerateUniqueGroupName(
+                    RecordingStore.Pending.VesselName ?? "Chain");
                 RecordingStore.Pending.RecordingGroups = new System.Collections.Generic.List<string> { chainGroupName };
                 Log($"Chain: started new chain (id={activeChainId}, group='{chainGroupName}')");
             }
@@ -3577,7 +3671,9 @@ namespace Parsek
             {
                 activeChainId = System.Guid.NewGuid().ToString("N");
                 activeChainNextIndex = 0;
-                string chainGroupName = RecordingStore.Pending.VesselName ?? "Chain";
+                // Use GenerateUniqueGroupName to avoid merging multiple launches into one group (bug #104).
+                string chainGroupName = RecordingStore.GenerateUniqueGroupName(
+                    RecordingStore.Pending.VesselName ?? "Chain");
                 RecordingStore.Pending.RecordingGroups = new System.Collections.Generic.List<string> { chainGroupName };
                 Log($"Dock/Undock chain: started new chain (id={activeChainId}, group='{chainGroupName}')");
             }
@@ -3739,7 +3835,9 @@ namespace Parsek
             {
                 activeChainId = System.Guid.NewGuid().ToString("N");
                 activeChainNextIndex = 0;
-                string chainGroupName = RecordingStore.Pending.VesselName ?? "Chain";
+                // Use GenerateUniqueGroupName to avoid merging multiple launches into one group (bug #104).
+                string chainGroupName = RecordingStore.GenerateUniqueGroupName(
+                    RecordingStore.Pending.VesselName ?? "Chain");
                 RecordingStore.Pending.RecordingGroups = new System.Collections.Generic.List<string> { chainGroupName };
                 ParsekLog.Info("Flight", $"Boundary split: started new chain (id={activeChainId}, group='{chainGroupName}')");
             }
@@ -3970,6 +4068,11 @@ namespace Parsek
                 RecordingStore.PendingCleanupPids = null;
                 RecordingStore.PendingCleanupNames = null;
             }
+            else
+            {
+                ParsekLog.Verbose("Flight",
+                    "OnFlightReady: no pending cleanup data — skipping CleanupOrphanedSpawnedVessels");
+            }
 
             // Apply ghost soft cap settings from persisted game parameters
             var capSettings = ParsekSettings.Current;
@@ -4001,6 +4104,12 @@ namespace Parsek
             if (RecordingStore.HasPendingTree)
             {
                 var pt = RecordingStore.PendingTree;
+                // Belt-and-suspenders: mark tree recordings for force-spawn before dialog.
+                // The merge dialog callbacks also call MarkForceSpawnOnTreeRecordings,
+                // but this covers the case where the tree is committed without a dialog
+                // (e.g., auto-merge setting, or future code paths).
+                if (activeVessel != null && activeVessel.persistentId != 0)
+                    MergeDialog.MarkForceSpawnOnTreeRecordings(pt, activeVessel.persistentId);
                 ParsekLog.Warn("Flight", $"Pending tree '{pt.TreeName}' reached OnFlightReady — showing tree merge dialog (fallback)");
                 MergeDialog.ShowTreeDialog(pt);
             }
@@ -4581,6 +4690,20 @@ namespace Parsek
             if (recorder == null || !recorder.IsRecording || !recorder.AtmosphereBoundaryCrossed)
                 return;
 
+            // Bug #87: In tree mode, boundary splits must not commit standalone chain segments.
+            // The recorder keeps accumulating data into the tree recording — just clear the
+            // boundary flags so they don't re-trigger.
+            if (activeTree != null)
+            {
+                string skipPhase = recorder.EnteredAtmosphere ? "atmo" : "exo";
+                string skipBody = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
+                ParsekLog.Info("Flight", $"Atmosphere boundary suppressed in tree mode: " +
+                    $"{skipBody} entering {skipPhase} (tree={activeTree.Id}, " +
+                    $"activeRec={activeTree.ActiveRecordingId})");
+                recorder.ClearBoundaryFlags();
+                return;
+            }
+
             string phase = recorder.EnteredAtmosphere ? "exo" : "atmo";
             string newPhase = recorder.EnteredAtmosphere ? "atmo" : "exo";
             string bodyName = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
@@ -4607,6 +4730,20 @@ namespace Parsek
         {
             if (recorder == null || !recorder.IsRecording || !recorder.SoiChangePending)
                 return;
+
+            // Bug #87: In tree mode, boundary splits must not commit standalone chain segments.
+            // The recorder keeps accumulating data into the tree recording — just clear the
+            // boundary flags so they don't re-trigger.
+            if (activeTree != null)
+            {
+                string skipFrom = recorder.SoiChangeFromBody ?? "Unknown";
+                string skipTo = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
+                ParsekLog.Info("Flight", $"SOI change boundary suppressed in tree mode: " +
+                    $"{skipFrom} to {skipTo} (tree={activeTree.Id}, " +
+                    $"activeRec={activeTree.ActiveRecordingId})");
+                recorder.ClearBoundaryFlags();
+                return;
+            }
 
             string fromBody = recorder.SoiChangeFromBody ?? "Unknown";
             string toBody = FlightGlobals.ActiveVessel?.mainBody?.name ?? "Unknown";
@@ -4750,8 +4887,10 @@ namespace Parsek
 
         void HandleInput()
         {
-            // Backspace - Exit watch mode (return to vessel)
-            if (watchedRecordingIndex >= 0 && Input.GetKeyDown(KeyCode.Backspace))
+            // [ or ] — Exit watch mode (return to vessel)
+            // Avoids Backspace which is KSP's Abort action group key
+            if (watchedRecordingIndex >= 0
+                && (Input.GetKeyDown(KeyCode.LeftBracket) || Input.GetKeyDown(KeyCode.RightBracket)))
             {
                 ExitWatchMode();
             }
@@ -5419,6 +5558,10 @@ namespace Parsek
         /// </summary>
         void CleanupOrphanedSpawnedVessels(HashSet<uint> pids, HashSet<string> names)
         {
+            ParsekLog.Info("Flight",
+                $"CleanupOrphanedSpawnedVessels: starting with " +
+                $"{pids?.Count ?? 0} pid(s), {names?.Count ?? 0} name(s), " +
+                $"{FlightGlobals.Vessels.Count} loaded vessel(s)");
             var activeVessel = FlightGlobals.ActiveVessel;
             uint activePid = activeVessel != null ? activeVessel.persistentId : 0;
             bool hasPids = pids != null && pids.Count > 0;
@@ -6238,15 +6381,31 @@ namespace Parsek
                 // Reverse: if marked as spawned but the real vessel no longer exists
                 // (recovered, destroyed, or cleared), reset spawn state so the recording
                 // can be spawned again via Real Spawn Control or natural playback.
-                if (!needsSpawn && (rec.VesselSpawned || rec.SpawnedVesselPersistentId != 0))
+                if (!needsSpawn && !rec.SpawnAbandoned
+                    && (rec.VesselSpawned || rec.SpawnedVesselPersistentId != 0))
                 {
                     uint checkPid = rec.SpawnedVesselPersistentId != 0
                         ? rec.SpawnedVesselPersistentId : rec.VesselPersistentId;
                     if (checkPid != 0 && !GhostPlaybackLogic.RealVesselExists(checkPid))
                     {
-                        rec.VesselSpawned = false;
-                        rec.SpawnedVesselPersistentId = 0;
-                        Log($"Spawned vessel gone (pid={checkPid}) — reset spawn state for recording #{i} \"{rec.VesselName}\"");
+                        rec.SpawnDeathCount++;
+                        if (VesselSpawner.ShouldAbandonSpawnDeathLoop(
+                                rec.SpawnDeathCount, VesselSpawner.MaxSpawnDeathCycles))
+                        {
+                            rec.VesselSpawned = true;
+                            rec.SpawnAbandoned = true;
+                            ParsekLog.Warn("Flight",
+                                $"Spawn ABANDONED for #{i} \"{rec.VesselName}\": vessel died immediately " +
+                                $"after spawn {rec.SpawnDeathCount} times (pid={checkPid}) — giving up");
+                        }
+                        else
+                        {
+                            rec.VesselSpawned = false;
+                            rec.SpawnedVesselPersistentId = 0;
+                            rec.CollisionBlockCount = 0;
+                            Log($"Spawned vessel gone (pid={checkPid}) — reset spawn state for recording #{i} " +
+                                $"\"{rec.VesselName}\" (spawnDeathCount={rec.SpawnDeathCount}/{VesselSpawner.MaxSpawnDeathCycles})");
+                        }
                     }
                 }
 
@@ -8259,7 +8418,7 @@ namespace Parsek
             GUI.color = Color.white;
 
             GUI.Label(new Rect(x, y + 5, boxW, 22f), "Watching: " + vesselName, watchOverlayStyle);
-            GUI.Label(new Rect(x, y + 27, boxW, 18f), "[Backspace] Return to vessel", watchOverlayHintStyle);
+            GUI.Label(new Rect(x, y + 27, boxW, 18f), "Press [ or ] to return to vessel", watchOverlayHintStyle);
         }
 
         /// <summary>
@@ -8644,11 +8803,16 @@ namespace Parsek
 
             watchEndHoldUntilUT = -1;
 
+            // Reset watch start time so the zone-exemption logging starts fresh
+            // for the new segment (no stale elapsed time from the previous segment)
+            watchStartTime = Time.time;
+
             ParsekLog.Info("CameraFollow",
                 $"TransferWatch re-target: ghost #{nextIndex} \"{newName}\"" +
                 $" target='{segTarget.name}' pivotLocal=({segTarget.localPosition.x:F2},{segTarget.localPosition.y:F2},{segTarget.localPosition.z:F2})" +
                 $" ghostPos=({gs.ghost.transform.position.x:F1},{gs.ghost.transform.position.y:F1},{gs.ghost.transform.position.z:F1})" +
-                $" camDist={FlightCamera.fetch.Distance:F1}");
+                $" camDist={FlightCamera.fetch.Distance:F1}" +
+                $" watchStartTime={watchStartTime.ToString("F2", CultureInfo.InvariantCulture)}");
         }
 
         #endregion
@@ -8707,35 +8871,23 @@ namespace Parsek
                 GhostPlaybackLogic.GetZoneRenderingPolicy(zone);
 
             // Beyond zone: hide mesh for non-watched ghosts.
-            // Watched ghost gets a grace period: when Watch starts, the ghost may be near
-            // the player. As it flies away and crosses ~120km from the active vessel,
-            // terrain unloads and jitter occurs. Exit Watch after a 2s grace period so
-            // the camera has time to lock on before zone checks kick in. This also avoids
-            // the original bug where Watch on a chain segment already beyond 120km would
-            // exit instantly before the player saw anything.
+            // Watched ghost is NEVER hidden by zone distance — the camera is at the ghost,
+            // so the user can always see it regardless of distance from ActiveVessel.
+            // The old grace-period approach (bug #54) was wrong: it exited watch mode after
+            // 2 seconds, but ascending rockets naturally exceed 120km and the camera is
+            // right there watching them. Skip the hide entirely for the watched ghost.
+            if (shouldHideMesh && isWatchedGhost)
+            {
+                // Watched ghost is never hidden by zone — camera is at the ghost
+                shouldHideMesh = false;
+                ParsekLog.VerboseRateLimited("Zone", $"watched-zone-exempt-{recIdx}",
+                    $"Ghost #{recIdx} \"{rec.VesselName}\" beyond visual range " +
+                    $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m) but watched — exempt from zone hide",
+                    5.0);
+            }
+
             if (shouldHideMesh)
             {
-                if (isWatchedGhost)
-                {
-                    if (Time.time - watchStartTime > GhostPlaybackLogic.WatchModeZoneGraceSeconds)
-                    {
-                        ExitWatchMode();
-                        ParsekLog.Info("Zone",
-                            $"Watch exited: ghost #{recIdx} exceeded visual range " +
-                            $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m)");
-                        // Fall through to hide the ghost normally
-                    }
-                    else
-                    {
-                        // Grace period: keep watching, don't hide
-                        ParsekLog.VerboseRateLimited("Zone", $"watched-zone-{recIdx}",
-                            $"Ghost #{recIdx} \"{rec.VesselName}\" beyond visual range " +
-                            $"({ghostDistance.ToString("F0", CultureInfo.InvariantCulture)}m) but watched (grace period) — keeping visible",
-                            5.0);
-                        return new ZoneRenderingResult { hiddenByZone = false, skipPartEvents = shouldSkipPartEvents };
-                    }
-                }
-
                 if (state != null && state.ghost != null && state.ghost.activeSelf)
                 {
                     state.ghost.SetActive(false);
@@ -9248,18 +9400,19 @@ namespace Parsek
             }
             else
             {
-                // Anchor not found — hide ghost entirely.
-                // RELATIVE frames store dx/dy/dz meter offsets in lat/lon/alt fields,
-                // so interpreting them as geographic coordinates would place the ghost
-                // at completely wrong positions. Hiding is the safe fallback.
+                // Anchor not found — keep ghost at its last position instead of hiding.
+                // RELATIVE frames store dx/dy/dz meter offsets, not geographic coordinates,
+                // so we can't position the ghost. But hiding it during watch mode is worse
+                // than freezing it in place. The ghost stays visible at its last known
+                // position from the previous ABSOLUTE section.
                 long key = ((long)anchorVesselId << 32);
                 if (loggedAnchorNotFound.Add(key))
                     ParsekLog.Warn("Anchor",
-                        $"RELATIVE playback: anchor vessel pid={anchorVesselId} not found, " +
-                        $"hiding ghost until anchor loads");
+                        $"RELATIVE playback: anchor vessel pid={anchorVesselId} not found — " +
+                        $"ghost frozen at last known position (RELATIVE offsets unusable without anchor)");
 
+                // Return zero result — the ghost stays where it was positioned last frame
                 interpResult = InterpolationResult.Zero;
-                ghost.SetActive(false);
             }
         }
 
@@ -9300,16 +9453,14 @@ namespace Parsek
             }
             else
             {
-                // Anchor not found — hide ghost entirely.
-                // RELATIVE frames store dx/dy/dz meter offsets in lat/lon/alt fields,
-                // so interpreting them as geographic coordinates would place the ghost
-                // at completely wrong positions. Hiding is the safe fallback.
+                // Anchor not found — keep ghost at its last position instead of hiding.
+                // Same rationale as InterpolateAndPositionRelative: freezing in place is
+                // better than disappearing during watch mode.
                 long key = ((long)anchorVesselId << 32);
                 if (loggedAnchorNotFound.Add(key))
                     ParsekLog.Warn("Anchor",
-                        $"PositionGhostRelativeAt: anchor vessel pid={anchorVesselId} not found, " +
-                        $"hiding ghost until anchor loads");
-                ghost.SetActive(false);
+                        $"PositionGhostRelativeAt: anchor vessel pid={anchorVesselId} not found — " +
+                        $"ghost frozen at last known position");
             }
         }
 
@@ -9469,7 +9620,8 @@ namespace Parsek
                 string vesselName = info != null ? info.vesselName : "(unknown)";
 
                 string labelText = SpawnWarningUI.ComputeGhostLabelText(
-                    vesselName, chain.SpawnUT, chain.IsTerminated, chain.SpawnBlocked);
+                    vesselName, chain.SpawnUT, chain.IsTerminated, chain.SpawnBlocked,
+                    chain.WalkbackExhausted);
 
                 // Unity screen coordinates have Y=0 at bottom; GUI has Y=0 at top
                 float guiY = Screen.height - screenPos.y;

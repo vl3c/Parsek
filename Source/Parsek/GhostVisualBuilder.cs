@@ -926,7 +926,7 @@ namespace Parsek
         /// SmokeTrailControl is STRIPPED — tested keeping alive (audit #113) but it sets material
         /// alpha to 0 on ghosts, making smoke invisible. Needs vessel context to work correctly.
         /// ModelMultiParticlePersistFX/ModelParticleFX are EffectBehaviour subclasses that reference
-        /// Host (the Part) — stripped because they NRE without Part context.
+        /// Host (the Part). KEPT ALIVE — stripping kills smoke trails. Any NREs are non-fatal.
         /// FXPrefab registers particles with FloatingOrigin — pollutes global state on ghosts.
         ///
         /// Audit #113: FXModuleAnimateThrottle and FXModuleAnimateRCS are PartModules (not
@@ -975,10 +975,11 @@ namespace Parsek
                     case "ModelMultiParticlePersistFX":
                     case "ModelParticleFX":
                         // EffectBehaviour subclasses that reference Host (Part).
-                        // NRE without Part context — strip them.
+                        // Audit #113 stripped these assuming NRE, but they were alive
+                        // pre-audit and smoke trails worked. Stripping kills smoke.
+                        // Keep alive — any NREs are caught by Unity and don't crash.
                         ParsekLog.Verbose("GhostVisual",
-                            $"Stripped {typeName} from '{fxClone.name}'");
-                        Object.Destroy(behaviours[i]);
+                            $"Kept {typeName} alive on '{fxClone.name}' (smoke trail driver)");
                         break;
                     case "FXPrefab":
                         ParsekLog.Verbose("GhostVisual",
@@ -1007,13 +1008,15 @@ namespace Parsek
                 main.playOnAwake = false;
                 main.prewarm = false;
 
-                // Permanently disable Unity's emission module — all particle creation
-                // is handled by KSPParticleEmitter.EmitParticle(). Leaving emission.enabled=true
-                // causes Unity to create its own particles using main.startSize and
-                // ParticleSystemRenderer.material, which are never set from KSP values,
-                // producing huge material-less "bubble" artifacts (bug #105).
+                // Only disable Unity's emission module when KSPParticleEmitter is present
+                // on this FX object — KSPParticleEmitter handles particle creation via
+                // EmitParticle(), so Unity's emission produces duplicate "bubble" artifacts
+                // (bug #105). Smoke trail FX (fx_smokeTrail_*) have NO KSPParticleEmitter
+                // and rely on Unity's emission module — disabling it kills all smoke.
+                bool hasKspEmitter = fxInstance.GetComponent("KSPParticleEmitter") != null;
                 var emission = ps.emission;
-                emission.enabled = false;
+                if (hasKspEmitter)
+                    emission.enabled = false;
 
                 ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                 ps.Clear(true);
@@ -3431,10 +3434,12 @@ namespace Parsek
                                     main.playOnAwake = false;
                                     main.prewarm = false;
 
-                                    // Permanently disable Unity's emission module — all particle
-                                    // creation is handled by KSPParticleEmitter (bug #105 fix).
+                                    // Only disable Unity emission when KSPParticleEmitter is present
+                                    // (same logic as engine FX — smoke FX need Unity emission).
+                                    bool hasKspEmitter = fxInstance.GetComponent("KSPParticleEmitter") != null;
                                     var emission = ps.emission;
-                                    emission.enabled = false;
+                                    if (hasKspEmitter)
+                                        emission.enabled = false;
                                     ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                                     ps.Clear(true);
 

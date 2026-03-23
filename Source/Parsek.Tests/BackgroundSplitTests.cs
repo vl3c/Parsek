@@ -265,9 +265,9 @@ namespace Parsek.Tests
         #region TTL Constant
 
         [Fact]
-        public void DebrisTTLSeconds_Is30()
+        public void DebrisTTLSeconds_Is60()
         {
-            Assert.Equal(30.0, BackgroundRecorder.DebrisTTLSeconds);
+            Assert.Equal(60.0, BackgroundRecorder.DebrisTTLSeconds);
         }
 
         #endregion

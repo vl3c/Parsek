@@ -274,8 +274,10 @@ namespace Parsek
 
                 // Trajectory walkback: if blocked for > 5s and blocker hasn't moved,
                 // walk backward along the recorded trajectory to find a valid spawn position.
+                // Skip walkback if already exhausted (entire trajectory was scanned with no valid spot).
                 float distanceChange = Math.Abs(distance - chain.BlockedInitialDistance);
-                if (SpawnCollisionDetector.ShouldTriggerWalkback(
+                if (!chain.WalkbackExhausted
+                    && SpawnCollisionDetector.ShouldTriggerWalkback(
                         chain.BlockedSinceUT, currentUT, 5.0, distanceChange, 1.0f)
                     && tipRecording.Points != null && tipRecording.Points.Count > 1)
                 {
@@ -328,18 +330,22 @@ namespace Parsek
                     }
                     else
                     {
+                        chain.WalkbackExhausted = true;
                         ParsekLog.Warn("SpawnCollision",
                             string.Format(ic,
-                                "Trajectory walkback EXHAUSTED: vessel={0} — entire trajectory overlaps with {1}. Manual placement required.",
+                                "Trajectory walkback EXHAUSTED: vessel={0} — entire trajectory overlaps with {1}. " +
+                                "Manual placement required. Walkback will not re-scan.",
                                 tipRecording.VesselName ?? "(unknown)", blockerName ?? "(unknown)"));
                     }
                 }
 
+                string exhaustedSuffix = chain.WalkbackExhausted ? " [walkback exhausted]" : "";
                 ParsekLog.VerboseRateLimited("SpawnCollision", "blocked-recheck-" + chain.OriginalVesselPid,
                     string.Format(ic,
-                        "Spawn still blocked: vessel={0} overlaps with {1} at {2}m (blocked {3}s)",
+                        "Spawn still blocked: vessel={0} overlaps with {1} at {2}m (blocked {3}s){4}",
                         tipRecording.VesselName ?? "(unknown)", blockerName ?? "(unknown)",
-                        distance.ToString("F1", ic), blockedDuration.ToString("F1", ic)));
+                        distance.ToString("F1", ic), blockedDuration.ToString("F1", ic),
+                        exhaustedSuffix));
                 return 0;
             }
 

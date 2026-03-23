@@ -245,7 +245,7 @@ namespace Parsek
                 }
                 catch (System.NullReferenceException)
                 {
-                    ParsekLog.Warn("Scenario",
+                    ParsekLog.Verbose("Scenario",
                         "Failed to register main menu hook (GameEvents not ready) — will retry on next OnLoad");
                 }
             }
@@ -379,6 +379,9 @@ namespace Parsek
                     // (PIDs may already be zero from a previous rewind's ResetAllPlaybackState.)
                     var allRecordingNames = RecordingStore.CollectAllRecordingVesselNames();
                     RecordingStore.PendingCleanupNames = allRecordingNames.Count > 0 ? allRecordingNames : null;
+                    ParsekLog.Info("Rewind",
+                        $"OnLoad: rewind cleanup data set — " +
+                        $"{rewindSpawnedPids.Count} pid(s), {allRecordingNames.Count} name(s)");
 
                     // Reset ALL playback state (recordings + trees)
                     var (standaloneCount, treeCount) = RecordingStore.ResetAllPlaybackState();
@@ -462,15 +465,33 @@ namespace Parsek
                 // Collect spawned vessel PIDs + names BEFORE restore resets them.
                 // Only on revert — on normal scene changes the spawned vessels are
                 // legitimate and must not be cleaned up.
-                HashSet<uint> spawnedPids = null;
-                HashSet<string> spawnedNames = null;
+                // Guard: if cleanup data was already set by a prior rewind path,
+                // do NOT overwrite — the rewind path's data is authoritative.
+                // (After rewind, ResetAllPlaybackState zeros spawn tracking, so
+                // CollectSpawnedVesselInfo returns empty here and would clobber
+                // the rewind data with null.)
                 if (isRevert)
                 {
-                    var info = RecordingStore.CollectSpawnedVesselInfo();
-                    spawnedPids = info.pids.Count > 0 ? info.pids : null;
-                    spawnedNames = info.names.Count > 0 ? info.names : null;
-                    RecordingStore.PendingCleanupPids = spawnedPids;
-                    RecordingStore.PendingCleanupNames = spawnedNames;
+                    bool alreadyHasCleanupData = RecordingStore.PendingCleanupPids != null
+                                                  || RecordingStore.PendingCleanupNames != null;
+                    if (alreadyHasCleanupData)
+                    {
+                        ParsekLog.Info("Scenario",
+                            $"OnLoad: revert path skipping cleanup collection — " +
+                            $"already set ({RecordingStore.PendingCleanupPids?.Count ?? 0} pid(s), " +
+                            $"{RecordingStore.PendingCleanupNames?.Count ?? 0} name(s)) from prior rewind/revert");
+                    }
+                    else
+                    {
+                        var info = RecordingStore.CollectSpawnedVesselInfo();
+                        var spawnedPids = info.pids.Count > 0 ? info.pids : null;
+                        var spawnedNames = info.names.Count > 0 ? info.names : null;
+                        RecordingStore.PendingCleanupPids = spawnedPids;
+                        RecordingStore.PendingCleanupNames = spawnedNames;
+                        ParsekLog.Verbose("Scenario",
+                            $"OnLoad: revert cleanup collected — " +
+                            $"{spawnedPids?.Count ?? 0} pid(s), {spawnedNames?.Count ?? 0} name(s)");
+                    }
                 }
 
                 // Restore mutable state from save. On revert the launch quicksave has
@@ -508,6 +529,7 @@ namespace Parsek
 
                     recordings[i].VesselSpawned = false;
                     recordings[i].SpawnAttempts = 0;
+                    recordings[i].SpawnDeathCount = 0;
                     recordings[i].SpawnedVesselPersistentId = 0;
 
                     recordings[i].LastAppliedResourceIndex = -1;
@@ -517,11 +539,14 @@ namespace Parsek
                 // These vessels were spawned by Parsek in a previous flight but their
                 // tracking was lost when spawn flags were reset. Without stripping,
                 // they contaminate the next launch quicksave and persist across reverts.
-                if (isRevert && spawnedNames != null && spawnedNames.Count > 0)
+                // Use RecordingStore.PendingCleanupNames as the authoritative source —
+                // the local collection may have been skipped by the guard above.
+                var cleanupNames = RecordingStore.PendingCleanupNames;
+                if (isRevert && cleanupNames != null && cleanupNames.Count > 0)
                 {
                     var flightState = HighLogic.CurrentGame?.flightState;
                     if (flightState != null)
-                        StripOrphanedSpawnedVessels(flightState.protoVessels, spawnedNames,
+                        StripOrphanedSpawnedVessels(flightState.protoVessels, cleanupNames,
                             skipPrelaunch: true);
                 }
 
@@ -1451,6 +1476,7 @@ namespace Parsek
 
                 recordings[i].VesselSpawned = false;
                 recordings[i].SpawnAttempts = 0;
+                recordings[i].SpawnDeathCount = 0;
 
                 uint savedPid = 0;
                 int resIdx = -1;

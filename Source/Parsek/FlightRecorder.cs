@@ -125,6 +125,22 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Clears atmosphere-boundary and SOI-change flags without stopping or restarting
+        /// the recorder. Used when tree mode intercepts a boundary crossing — the recorder
+        /// keeps accumulating data into the tree recording, but the standalone chain-commit
+        /// path is suppressed.
+        /// </summary>
+        public void ClearBoundaryFlags()
+        {
+            AtmosphereBoundaryCrossed = false;
+            EnteredAtmosphere = false;
+            atmosphereBoundaryPending = false;
+            SoiChangePending = false;
+            SoiChangeFromBody = null;
+            ParsekLog.Verbose("Recorder", "Boundary flags cleared (tree mode bypass)");
+        }
+
+        /// <summary>
         /// True when the recorder is conceptually recording but not actively sampling
         /// physics frames (e.g., vessel switched away in tree mode).
         /// </summary>
@@ -2038,6 +2054,101 @@ namespace Parsek
             moduleIndex = (int)(key & 0xFF);
         }
 
+        /// <summary>
+        /// Emits synthetic EngineShutdown, RCSStopped, and RoboticMotionStopped events
+        /// for all engines/RCS/robotics still active when a recording ends (user stop,
+        /// chain boundary, scene change). Without these, ghost plumes and FX may stay
+        /// frozen at the last throttle level instead of shutting down at recording end.
+        /// Bug #108.
+        /// </summary>
+        internal static List<PartEvent> EmitTerminalEngineAndRcsEvents(
+            HashSet<ulong> activeEngineKeys,
+            HashSet<ulong> activeRcsKeys,
+            HashSet<ulong> activeRoboticKeys,
+            Dictionary<ulong, float> lastRoboticPosition,
+            double finalUT,
+            string logTag)
+        {
+            var events = new List<PartEvent>();
+
+            // Terminal EngineShutdown for each active engine
+            if (activeEngineKeys != null && activeEngineKeys.Count > 0)
+            {
+                // Snapshot keys before iterating (we don't modify the set here, but defensive)
+                var keys = new List<ulong>(activeEngineKeys);
+                for (int i = 0; i < keys.Count; i++)
+                {
+                    uint pid; int midx;
+                    DecodeEngineKey(keys[i], out pid, out midx);
+                    events.Add(new PartEvent
+                    {
+                        ut = finalUT,
+                        partPersistentId = pid,
+                        eventType = PartEventType.EngineShutdown,
+                        partName = "unknown",
+                        moduleIndex = midx
+                    });
+                    ParsekLog.Verbose(logTag,
+                        $"Terminal event: EngineShutdown pid={pid} midx={midx} at UT={finalUT.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}");
+                }
+            }
+
+            // Terminal RCSStopped for each active RCS
+            if (activeRcsKeys != null && activeRcsKeys.Count > 0)
+            {
+                var keys = new List<ulong>(activeRcsKeys);
+                for (int i = 0; i < keys.Count; i++)
+                {
+                    uint pid; int midx;
+                    DecodeEngineKey(keys[i], out pid, out midx);
+                    events.Add(new PartEvent
+                    {
+                        ut = finalUT,
+                        partPersistentId = pid,
+                        eventType = PartEventType.RCSStopped,
+                        partName = "unknown",
+                        moduleIndex = midx
+                    });
+                    ParsekLog.Verbose(logTag,
+                        $"Terminal event: RCSStopped pid={pid} midx={midx} at UT={finalUT.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}");
+                }
+            }
+
+            // Terminal RoboticMotionStopped for each active robotic module
+            if (activeRoboticKeys != null && activeRoboticKeys.Count > 0)
+            {
+                var keys = new List<ulong>(activeRoboticKeys);
+                for (int i = 0; i < keys.Count; i++)
+                {
+                    uint pid; int midx;
+                    DecodeEngineKey(keys[i], out pid, out midx);
+                    float lastPos = 0f;
+                    if (lastRoboticPosition != null)
+                        lastRoboticPosition.TryGetValue(keys[i], out lastPos);
+                    events.Add(new PartEvent
+                    {
+                        ut = finalUT,
+                        partPersistentId = pid,
+                        eventType = PartEventType.RoboticMotionStopped,
+                        partName = "unknown",
+                        value = lastPos,
+                        moduleIndex = midx
+                    });
+                    ParsekLog.Verbose(logTag,
+                        $"Terminal event: RoboticMotionStopped pid={pid} midx={midx} pos={lastPos.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)} at UT={finalUT.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}");
+                }
+            }
+
+            if (events.Count > 0)
+            {
+                ParsekLog.Info(logTag,
+                    $"Emitted {events.Count} terminal events at UT={finalUT.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}" +
+                    $" (engines={activeEngineKeys?.Count ?? 0}, rcs={activeRcsKeys?.Count ?? 0}, robotics={activeRoboticKeys?.Count ?? 0})");
+            }
+
+            return events;
+        }
+
         private static string FormatCoverageEntries(List<string> entries, int maxEntries = 8)
         {
             if (entries == null || entries.Count == 0)
@@ -3938,6 +4049,13 @@ namespace Parsek
             UnsubscribePartEvents();
             IsRecording = false;
 
+            // Emit terminal shutdown events for engines/RCS/robotics still active at recording end (bug #108)
+            double stopUT = Planetarium.GetUniversalTime();
+            var terminalEvents = EmitTerminalEngineAndRcsEvents(
+                activeEngineKeys, activeRcsKeys, activeRoboticKeys,
+                lastRoboticPosition, stopUT, "Recorder");
+            PartEvents.AddRange(terminalEvents);
+
             // Sort part/flag events chronologically (mixed event sources may produce non-chronological order)
             PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
             FlagEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
@@ -3991,6 +4109,13 @@ namespace Parsek
             Patches.PhysicsFramePatch.ActiveRecorder = null;
             UnsubscribePartEvents();
             IsRecording = false;
+
+            // Emit terminal shutdown events for engines/RCS/robotics still active at recording end (bug #108)
+            double chainStopUT = Planetarium.GetUniversalTime();
+            var terminalEvents = EmitTerminalEngineAndRcsEvents(
+                activeEngineKeys, activeRcsKeys, activeRoboticKeys,
+                lastRoboticPosition, chainStopUT, "Recorder");
+            PartEvents.AddRange(terminalEvents);
 
             PartEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
             FlagEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
