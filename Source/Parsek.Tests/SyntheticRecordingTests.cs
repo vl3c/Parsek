@@ -1349,7 +1349,7 @@ namespace Parsek.Tests
             double rowCenterOffsetMeters = -((ShowcaseEntriesPerLine - 1) * spacingMeters * 0.5);
             lat = -0.0972 + ((lineRowIndex * spacingMeters + rowCenterOffsetMeters + rowOffsetMeters) / metersPerDegree);
             lon = -74.5575 + ((distanceFromPadMeters + lineIndex * ShowcaseLineSpacingMeters + distanceOffsetMeters) / metersPerDegree);
-            alt = 66.0;
+            alt = 116.0; // 50m above ground level so engine exhaust is visible from below
         }
 
         /// <summary>
