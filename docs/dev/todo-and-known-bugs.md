@@ -1472,21 +1472,21 @@ Likely same root cause as the original procedural fairing work: the fairing mesh
 
 `PreProcessRewindSave` searches for `name = Aeris 4A` in the quicksave .sfs, but the vessel is stored as `name = #autoLOC_501176`. The string comparison fails — zero vessels stripped. The original vessel survives rewind and sits on the runway. `CleanupOrphanedSpawnedVessels` also fails for the same reason: it compares `vessel.vesselName` (returns `#autoLOC_501176`) against recording names ("Aeris 4A").
 
-**Fix:** Resolve localization keys before comparing, or include the raw `#autoLOC` key in the strip set alongside the display name.
+**Fix:** Resolve localization keys before comparing via `Recording.ResolveLocalizedName()` at all 4 comparison sites (`PreProcessRewindSave` x2, `CleanupOrphanedSpawnedVessels`, `StripOrphanedSpawnedVessels`) and at all recording-creation sites that store `vessel.vesselName` without resolving.
 
 **Priority:** High — causes spawn-on-top-of-existing-vessel explosions after rewind
 
-**Status:** Open
+**Status:** Fixed
 
 ## 127. SpawnCollisionDetector checks wrong position — trajectory endpoint vs snapshot
 
 `SpawnOrRecoverIfTooClose` computes `spawnPos` from the recording's last trajectory point (the landing/crash site), but `RespawnVessel` spawns at the vessel snapshot's stored position (the runway). The collision check passes because nothing is at the trajectory endpoint, but the vessel materializes at the snapshot position where another vessel already exists.
 
-**Fix:** Use the snapshot's lat/lon/alt for the collision check, not the last trajectory point.
+**Fix:** Read `lat`/`lon`/`alt` from `rec.VesselSnapshot` for the collision check in both `SpawnOrRecoverIfTooClose` and `SpawnAtChainTip`, falling back to trajectory endpoint if snapshot lacks position data.
 
 **Priority:** High — direct cause of spawn-into-existing-vessel explosions
 
-**Status:** Open
+**Status:** Fixed
 
 # In-Game Tests
 

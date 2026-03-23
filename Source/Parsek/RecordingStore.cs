@@ -1620,7 +1620,7 @@ namespace Parsek
                 var vesselNodes = flightState.GetNodes("VESSEL");
                 for (int i = vesselNodes.Length - 1; i >= 0; i--)
                 {
-                    string name = vesselNodes[i].GetValue("name");
+                    string name = Recording.ResolveLocalizedName(vesselNodes[i].GetValue("name"));
                     if (vesselNames.Contains(name))
                     {
                         flightState.RemoveNode(vesselNodes[i]);
@@ -1686,7 +1686,7 @@ namespace Parsek
             var vesselNodes = flightState.GetNodes("VESSEL");
             for (int i = vesselNodes.Length - 1; i >= 0; i--)
             {
-                string name = vesselNodes[i].GetValue("name");
+                string name = Recording.ResolveLocalizedName(vesselNodes[i].GetValue("name"));
                 if (vesselNames.Contains(name))
                 {
                     flightState.RemoveNode(vesselNodes[i]);

@@ -221,7 +221,23 @@ namespace Parsek
                 return;
             }
 
+            // Use snapshot lat/lon/alt for collision check — this is where RespawnVessel
+            // actually places the vessel. Falls back to trajectory endpoint if snapshot
+            // lacks position data (#127).
             var lastPt = rec.Points[rec.Points.Count - 1];
+            double spawnLat = 0, spawnLon = 0, spawnAlt = 0;
+            bool hasSnapshotPos = TryGetSnapshotDouble(rec.VesselSnapshot, "lat", out spawnLat)
+                               && TryGetSnapshotDouble(rec.VesselSnapshot, "lon", out spawnLon)
+                               && TryGetSnapshotDouble(rec.VesselSnapshot, "alt", out spawnAlt);
+            if (!hasSnapshotPos)
+            {
+                spawnLat = lastPt.latitude;
+                spawnLon = lastPt.longitude;
+                spawnAlt = lastPt.altitude;
+                ParsekLog.Verbose("Spawner",
+                    $"No snapshot lat/lon/alt for #{index} ({rec.VesselName}) — using trajectory endpoint for collision check");
+            }
+
             CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == lastPt.bodyName);
             if (body == null)
             {
@@ -241,8 +257,7 @@ namespace Parsek
                 return;
             }
 
-            Vector3d spawnPos = body.GetWorldSurfacePosition(
-                lastPt.latitude, lastPt.longitude, lastPt.altitude);
+            Vector3d spawnPos = body.GetWorldSurfacePosition(spawnLat, spawnLon, spawnAlt);
 
             // Bounding box overlap check — block spawn if overlapping a loaded vessel.
             // Ghost continues at its last position; next frame retries via UpdateTimelinePlayback.
@@ -891,7 +906,7 @@ namespace Parsek
             return bool.TryParse(raw, out value);
         }
 
-        private static bool TryGetSnapshotDouble(ConfigNode node, string key, out double value)
+        internal static bool TryGetSnapshotDouble(ConfigNode node, string key, out double value)
         {
             value = 0.0;
             if (node == null) return false;

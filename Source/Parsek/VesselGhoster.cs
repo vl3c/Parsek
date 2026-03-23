@@ -178,9 +178,27 @@ namespace Parsek
                 return 0;
             }
 
-            // Collision check: compute bounds and check overlap against loaded vessels
+            // Collision check: use snapshot lat/lon/alt (where RespawnVessel actually places
+            // the vessel), falling back to trajectory/terminal position (#127).
             Bounds spawnBounds = SpawnCollisionDetector.ComputeVesselBounds(vesselSnapshot);
-            Vector3d spawnPos = ComputeSpawnWorldPosition(tipRecording);
+            double snapLat = 0, snapLon = 0, snapAlt = 0;
+            bool hasSnapPos = VesselSpawner.TryGetSnapshotDouble(vesselSnapshot, "lat", out snapLat)
+                           && VesselSpawner.TryGetSnapshotDouble(vesselSnapshot, "lon", out snapLon)
+                           && VesselSpawner.TryGetSnapshotDouble(vesselSnapshot, "alt", out snapAlt);
+            Vector3d spawnPos;
+            if (hasSnapPos)
+            {
+                string bodyName = tipRecording?.Points != null && tipRecording.Points.Count > 0
+                    ? tipRecording.Points[tipRecording.Points.Count - 1].bodyName : "Kerbin";
+                CelestialBody snapBody = FlightGlobals.GetBodyByName(bodyName);
+                spawnPos = snapBody != null
+                    ? snapBody.GetWorldSurfacePosition(snapLat, snapLon, snapAlt)
+                    : ComputeSpawnWorldPosition(tipRecording);
+            }
+            else
+            {
+                spawnPos = ComputeSpawnWorldPosition(tipRecording);
+            }
             var (overlap, distance, blockerName) =
                 SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(spawnPos, spawnBounds, SpawnCollisionPadding);
 

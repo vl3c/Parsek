@@ -1532,7 +1532,7 @@ namespace Parsek
             for (int i = protoVessels.Count - 1; i >= 0; i--)
             {
                 var pv = protoVessels[i];
-                if (!spawnedNames.Contains(pv.vesselName))
+                if (!spawnedNames.Contains(Recording.ResolveLocalizedName(pv.vesselName)))
                     continue;
 
                 // On KSP Revert, skip PRELAUNCH vessels — these are the user's launch

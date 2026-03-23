@@ -22,7 +22,12 @@ All notable changes to Parsek are documented here.
 
 ## 0.5.1
 
-Spawn safety hardening, ghost visual improvements, booster/debris tree recording, flag planting, and Fast Forward redesign. 20 PRs merged, 24 bugs fixed.
+Spawn safety hardening, ghost visual improvements, booster/debris tree recording, flag planting, and Fast Forward redesign. 20 PRs merged, 26 bugs fixed.
+
+### Bug Fixes (Late)
+
+- **Localization key mismatch on rewind** — stock vessels using `#autoLOC` keys (e.g., Aeris 4A stored as `#autoLOC_501176`) survived rewind vessel strip because name comparisons failed. Now resolves localization keys via `ResolveLocalizedName()` at all 4 strip/cleanup sites and all recording-creation sites (#126)
+- **Collision check at wrong position** — `SpawnOrRecoverIfTooClose` checked the trajectory endpoint for collisions but `RespawnVessel` spawned at the snapshot position, allowing vessels to materialize on top of existing vessels. Now reads lat/lon/alt from the vessel snapshot for the collision check, with trajectory fallback. Also fixed in chain-tip spawn path (#127)
 
 ### Spawn Safety & Reliability
 
