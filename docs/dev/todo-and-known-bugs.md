@@ -1456,6 +1456,16 @@ Backspace was used to exit watch mode and return to the active vessel. But Backs
 
 **Status:** Fixed
 
+## 125. Engine plate covers / fairings not visible on ghost
+
+Engine plates (`EnginePlate1` etc.) have protective covers (interstage fairings) that are built by `ModuleProceduralFairing` at runtime — similar to stock procedural fairings but integrated into the engine plate part. These covers are not visible on ghost vessels during playback. The ghost shows the engine plate base and attached engines but the fairing shell is missing.
+
+Likely same root cause as the original procedural fairing work: the fairing mesh is generated procedurally from XSECTION data at runtime by `ModuleProceduralFairing`, not stored as a static mesh on the prefab. The ghost builder's `GenerateFairingConeMesh` may not be triggered for engine plate fairings, or the engine plate's MODULE config may differ from standalone fairings.
+
+**Priority:** Medium — visually noticeable on any vessel using engine plates
+
+**Status:** Open
+
 # In-Game Tests
 
 - [ ] Vessels propagate naturally along orbits after FF (no position freezing)
