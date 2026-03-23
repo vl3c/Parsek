@@ -2045,7 +2045,7 @@ namespace Parsek
         /// This catches cases where ChildBranchPointId was not set on the recording
         /// (e.g., serialization gaps, edge-case commit paths) but the tree structure
         /// shows the recording has children. (#114)
-        /// Pure static method for testability.
+        /// Static method, testable via RecordingStore.CommittedTrees setup.
         /// </summary>
         internal static bool IsNonLeafInCommittedTree(Recording rec)
         {

@@ -744,7 +744,7 @@ namespace Parsek
                 return baseName;
             }
 
-            for (int n = 2; ; n++)
+            for (int n = 2; n < 1000; n++)
             {
                 string candidate = $"{baseName} ({n})";
                 if (!existing.Contains(candidate))
@@ -754,6 +754,12 @@ namespace Parsek
                     return candidate;
                 }
             }
+
+            // Safety fallback — should never happen in practice
+            string fallback = $"{baseName} ({Guid.NewGuid().ToString("N").Substring(0, 6)})";
+            ParsekLog.Warn("RecordingStore",
+                $"GenerateUniqueGroupName: exhausted 999 candidates for '{baseName}', using fallback '{fallback}'");
+            return fallback;
         }
 
         /// <summary>

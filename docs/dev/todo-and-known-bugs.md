@@ -1468,6 +1468,26 @@ Likely same root cause as the original procedural fairing work: the fairing mesh
 
 **Status:** Open
 
+## 126. Rewind vessel strip fails due to localization key mismatch
+
+`PreProcessRewindSave` searches for `name = Aeris 4A` in the quicksave .sfs, but the vessel is stored as `name = #autoLOC_501176`. The string comparison fails — zero vessels stripped. The original vessel survives rewind and sits on the runway. `CleanupOrphanedSpawnedVessels` also fails for the same reason: it compares `vessel.vesselName` (returns `#autoLOC_501176`) against recording names ("Aeris 4A").
+
+**Fix:** Resolve localization keys before comparing, or include the raw `#autoLOC` key in the strip set alongside the display name.
+
+**Priority:** High — causes spawn-on-top-of-existing-vessel explosions after rewind
+
+**Status:** Open
+
+## 127. SpawnCollisionDetector checks wrong position — trajectory endpoint vs snapshot
+
+`SpawnOrRecoverIfTooClose` computes `spawnPos` from the recording's last trajectory point (the landing/crash site), but `RespawnVessel` spawns at the vessel snapshot's stored position (the runway). The collision check passes because nothing is at the trajectory endpoint, but the vessel materializes at the snapshot position where another vessel already exists.
+
+**Fix:** Use the snapshot's lat/lon/alt for the collision check, not the last trajectory point.
+
+**Priority:** High — direct cause of spawn-into-existing-vessel explosions
+
+**Status:** Open
+
 # In-Game Tests
 
 - [ ] Vessels propagate naturally along orbits after FF (no position freezing)

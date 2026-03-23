@@ -8418,7 +8418,7 @@ namespace Parsek
             GUI.color = Color.white;
 
             GUI.Label(new Rect(x, y + 5, boxW, 22f), "Watching: " + vesselName, watchOverlayStyle);
-            GUI.Label(new Rect(x, y + 27, boxW, 18f), "[  ]  Return to vessel", watchOverlayHintStyle);
+            GUI.Label(new Rect(x, y + 27, boxW, 18f), "Press [ or ] to return to vessel", watchOverlayHintStyle);
         }
 
         /// <summary>
