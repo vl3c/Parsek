@@ -120,6 +120,40 @@ The shared core would need 3-4 parameters/flags to account for these differences
 
 **Why deferred:** Audit showed only 50-60% similarity (not 80% as initially estimated). Each has unique diagnostic code paths. Forced dedup would require conditional diagnostics that don't exist in either method.
 
+### D13. GhostVisualBuilder TryBuildEngineFX per-engine fallbacks
+
+**What:** 565-line method with 342 lines of per-engine-name fallback blocks.
+
+**Why deferred:** 6 local function closures capture loop-scoped variables. Extracting would require changing closures to parameters (forbidden).
+
+**Revisit when:** Pass 3 candidate: if engine FX moves to its own class, closures become instance state.
+
+### D14. GhostVisualBuilder BuildHeatMaterialStates inner loop
+
+**What:** Per-material loop interleaves with renderer-level cumulative state.
+
+**Why deferred:** Not cleanly bounded for extraction.
+
+### D15. GhostVisualBuilder SampleXxxStates full unification
+
+**What:** 4 methods share ~80% structure but differ in: animation lookup strategy, stowed/deployed endpoint logic, cache keys, and (for heat) sample point count. ~300 lines savings possible but risky.
+
+**Why deferred:** Differences in animation lookup, endpoint logic, cache keys, and sample point count prevent clean parameterization without introducing fragile conditionals.
+
+**Revisit when:** Pass 3 candidate.
+
+### D16. GhostVisualBuilder particle builder dedup
+
+**What:** SpawnPartPuffFx/SpawnExplosionFx/BuildExplosionSmokeChild share ~300 lines of ParticleSystem configuration template.
+
+**Why deferred:** Many differing numeric parameters make clean parameterization complex.
+
+### D17. SampleHeatAnimation3State snapshot pattern
+
+**What:** Uses `if (t == tempClone.transform) continue;` guard not present in other SampleXxxStates methods.
+
+**Why deferred:** Prevents sharing SnapshotTransformStates helper without adding a parameter.
+
 ---
 
 ## Summary
@@ -138,3 +172,8 @@ The shared core would need 3-4 parameters/flags to account for these differences
 | D10 | ParsekFlight | ~60 | Medium (API divergence) | No |
 | D11 | BackgroundRecorder | ~736 | High (call pattern) | Maybe |
 | D12 | GhostPlaybackLogic | ~110 | Medium (low similarity) | Maybe |
+| D13 | GhostVisualBuilder | ~565 | High (closure captures) | Yes |
+| D14 | GhostVisualBuilder | ~80 | Medium (interleaved state) | No |
+| D15 | GhostVisualBuilder | ~300 | Medium (divergent structure) | Yes |
+| D16 | GhostVisualBuilder | ~300 | Medium (numeric params) | No |
+| D17 | GhostVisualBuilder | ~30 | Low (guard param) | No |
