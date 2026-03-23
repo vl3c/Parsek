@@ -41,7 +41,8 @@ Spawn safety hardening, ghost visual improvements, booster/debris tree recording
 
 ### Recording Improvements
 
-- **Booster/debris tree recording** — `PromoteToTreeForBreakup` auto-promotes standalone recordings to trees on staging; creates root, continuation, and debris child recordings with 30s debris TTL. Continuation seeded with post-breakup points from root recording (#106 watch camera fix)
+- **Booster/debris tree recording** — `PromoteToTreeForBreakup` auto-promotes standalone recordings to trees on staging; creates root, continuation, and debris child recordings with 60s debris TTL. Continuation seeded with post-breakup points from root recording (#106 watch camera fix)
+- **Controlled child recording** — `ProcessBreakupEvent` now creates child recordings for controlled children (vessels with probe cores surviving breakup), not just debris. Added to BackgroundRecorder with no TTL. Fixes RELATIVE anchor availability during playback (#61)
 - **Flag planting recording/playback** — flag planting captured via `afterFlagPlanted`, stored as `FlagEvent` with position/rotation/flagUrl. Ghost flags built from stock flagPole prefab. Flags spawn as real vessels at playback end with world-space distance dedup
 - **Auto-record from LANDED** — recording now triggers from LANDED state (not just PRELAUNCH) with 5-second settle timer to filter physics bounces, enabling save-loaded pad vessels and Mun takeoffs
 - **Settle timer seed on vessel switch** — `lastLandedUT` seeded in `OnVesselSwitchComplete` for already-landed vessels, fixing auto-record for spawned vessels (#111)
@@ -61,6 +62,7 @@ Spawn safety hardening, ghost visual improvements, booster/debris tree recording
 - **Heat material fallback** — fallback path only clones materials that are tracked in `materialStates`, preventing red tint on non-heat parts (#86)
 - **Surface ghost slide fix** — orbit segments skipped for LANDED/SPLASHED/PRELAUNCH vessels; `IsSurfaceAtUT` suppresses orbit interpolation for surface TrackSections; SMA < 90% body radius rejected (#93)
 - **Terrain clamp** — ghost positions clamped above terrain in LateUpdate, preventing underground ghosts regardless of interpolation source
+- **RELATIVE anchor fallback** — ghosts freeze at last known position instead of hiding when RELATIVE section anchor vessel is missing
 - **Part events in Visual zone** — structural part events (fairing jettison, staging, destruction) now applied in the Visual zone (2.3-120km), not just Physics zone
 
 ### UI Improvements
@@ -73,6 +75,7 @@ Spawn safety hardening, ghost visual improvements, booster/debris tree recording
 - **Pinned bottom buttons** — Warp, Close, and action buttons pinned to window bottom in Actions, Recordings, and Spawn Control windows
 - **Recordings window widened** — 1106 collapsed, 1324 expanded for better readability
 - **Spawn abandon status** — spawn warnings show "walkback exhausted" / "spawn abandoned" status instead of silently retrying
+- **Watch exit key** — changed from Backspace (conflicts with KSP Abort action group) to `[` or `]` bracket keys (#124)
 - **Watch button guards** — disabled for out-of-range ghosts (tooltip: "Ghost is beyond visual range") and past recordings (#89, #90)
 - **Watch overlay repositioned** — moved to left half of screen to avoid altimeter overlap
 
@@ -111,6 +114,8 @@ Spawn safety hardening, ghost visual improvements, booster/debris tree recording
 - **#114**: Non-leaf and FLYING/SUB_ORBITAL recordings blocked from spawning; crew stripped from destroyed-vessel snapshots
 - **#119**: Watched ghosts exempt from zone distance hiding
 - **#120**: Tree recordings set ForceSpawnNewVessel on merge
+- **#61**: Controlled children now recorded after breakup (was "deferred to Phase 2")
+- **#124**: Watch exit key changed from Backspace to brackets (Abort action group conflict)
 
 ---
 
