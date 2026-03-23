@@ -1446,6 +1446,16 @@ Bug #103 fixed user-facing group headers, but some internal code paths (`TimeJum
 
 **Status:** Open
 
+## 124. Watch mode exit key conflicts with KSP Abort action group
+
+Backspace was used to exit watch mode and return to the active vessel. But Backspace is also KSP's default Abort action group key — pressing it during watch mode triggers abort on the active vessel (deploying parachutes, firing escape tower, etc.).
+
+**Fix:** Changed exit-watch keybinding from Backspace to `[` or `]` (either bracket key). Updated the on-screen overlay hint from `[Backspace] Return to vessel` to `[ ] Return to vessel`.
+
+**Priority:** Medium — caused unintended abort actions during normal watch mode use
+
+**Status:** Fixed
+
 # In-Game Tests
 
 - [ ] Vessels propagate naturally along orbits after FF (no position freezing)

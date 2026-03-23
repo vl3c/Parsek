@@ -4795,8 +4795,10 @@ namespace Parsek
 
         void HandleInput()
         {
-            // Backspace - Exit watch mode (return to vessel)
-            if (watchedRecordingIndex >= 0 && Input.GetKeyDown(KeyCode.Backspace))
+            // [ or ] — Exit watch mode (return to vessel)
+            // Avoids Backspace which is KSP's Abort action group key
+            if (watchedRecordingIndex >= 0
+                && (Input.GetKeyDown(KeyCode.LeftBracket) || Input.GetKeyDown(KeyCode.RightBracket)))
             {
                 ExitWatchMode();
             }
@@ -8324,7 +8326,7 @@ namespace Parsek
             GUI.color = Color.white;
 
             GUI.Label(new Rect(x, y + 5, boxW, 22f), "Watching: " + vesselName, watchOverlayStyle);
-            GUI.Label(new Rect(x, y + 27, boxW, 18f), "[Backspace] Return to vessel", watchOverlayHintStyle);
+            GUI.Label(new Rect(x, y + 27, boxW, 18f), "[  ]  Return to vessel", watchOverlayHintStyle);
         }
 
         /// <summary>
