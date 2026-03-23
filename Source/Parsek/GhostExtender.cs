@@ -96,74 +96,13 @@ namespace Parsek
                 return (0, 0, sma > 0 ? sma - bodyRadius : 0);
             }
 
-            // Step 1: Mean motion n = sqrt(GM / a^3)
-            double sma3 = sma * sma * sma;
-            double n = Math.Sqrt(bodyGravParam / sma3);
-
-            // Step 2: Mean anomaly at currentUT
+            // Compute body-centered inertial position from orbital elements
             double dt = currentUT - epoch;
-            double M = meanAnomalyAtEpoch + n * dt;
+            var (x, y, z, nu, E, M, r) = ComputeOrbitalPosition(
+                inc, ecc, sma, lan, argPe, meanAnomalyAtEpoch, dt, bodyGravParam);
 
-            // Step 3: Normalize M to [0, 2*pi]
-            M = NormalizeAngle(M);
-
-            // Step 4: Solve Kepler's equation M = E - ecc*sin(E)
-            double E;
-            if (ecc < 1e-6)
-            {
-                // Near-circular: E ~ M
-                E = M;
-            }
-            else
-            {
-                E = SolveKepler(M, ecc);
-            }
-
-            // Step 5: True anomaly
-            double sinHalfNu = Math.Sqrt(1.0 + ecc) * Math.Sin(E * 0.5);
-            double cosHalfNu = Math.Sqrt(1.0 - ecc) * Math.Cos(E * 0.5);
-            double nu = 2.0 * Math.Atan2(sinHalfNu, cosHalfNu);
-
-            // Step 6: Radius
-            double r = sma * (1.0 - ecc * Math.Cos(E));
-
-            // Step 7: Position in perifocal frame (PQW)
-            double cosNu = Math.Cos(nu);
-            double sinNu = Math.Sin(nu);
-            double xPeri = r * cosNu;
-            double yPeri = r * sinNu;
-            // zPeri = 0 (orbit lies in perifocal plane)
-
-            // Step 8: Rotate from perifocal to body-fixed (inertial) frame
-            // Rotation by argument of periapsis, inclination, and longitude of ascending node
-            double cosArgPe = Math.Cos(argPe);
-            double sinArgPe = Math.Sin(argPe);
-            double cosInc = Math.Cos(inc);
-            double sinInc = Math.Sin(inc);
-            double cosLan = Math.Cos(lan);
-            double sinLan = Math.Sin(lan);
-
-            // Rotation matrix elements (perifocal -> ECI)
-            // Column 1 (P direction):
-            double r11 = cosLan * cosArgPe - sinLan * sinArgPe * cosInc;
-            double r21 = sinLan * cosArgPe + cosLan * sinArgPe * cosInc;
-            double r31 = sinArgPe * sinInc;
-
-            // Column 2 (Q direction):
-            double r12 = -cosLan * sinArgPe - sinLan * cosArgPe * cosInc;
-            double r22 = -sinLan * sinArgPe + cosLan * cosArgPe * cosInc;
-            double r32 = cosArgPe * sinInc;
-
-            // Position in body-centered inertial frame
-            double x = r11 * xPeri + r12 * yPeri;
-            double y = r21 * xPeri + r22 * yPeri;
-            double z = r31 * xPeri + r32 * yPeri;
-
-            // Step 9: Convert to lat/lon/alt
-            double dist = Math.Sqrt(x * x + y * y + z * z);
-            double alt = dist - bodyRadius;
-            double lat = Math.Asin(Clamp(z / dist, -1.0, 1.0)) * (180.0 / Math.PI);
-            double lon = Math.Atan2(y, x) * (180.0 / Math.PI);
+            // Convert Cartesian position to lat/lon/alt
+            var (lat, lon, alt) = CartesianToGeodetic(x, y, z, bodyRadius);
 
             ParsekLog.VerboseRateLimited(Tag, "propagate-orbital",
                 string.Format(ic,
@@ -224,6 +163,97 @@ namespace Parsek
         }
 
         // --- Private helpers ---
+
+        /// <summary>
+        /// Computes body-centered inertial (x,y,z) position from Keplerian orbital elements.
+        /// Steps: mean motion, mean anomaly, Kepler solve, true anomaly, perifocal position,
+        /// rotation to inertial frame.
+        /// </summary>
+        private static (double x, double y, double z, double nu, double E, double M, double r)
+            ComputeOrbitalPosition(
+                double inc, double ecc, double sma, double lan,
+                double argPe, double meanAnomalyAtEpoch, double dt,
+                double bodyGravParam)
+        {
+            // Step 1: Mean motion n = sqrt(GM / a^3)
+            double sma3 = sma * sma * sma;
+            double n = Math.Sqrt(bodyGravParam / sma3);
+
+            // Step 2: Mean anomaly at currentUT
+            double M = meanAnomalyAtEpoch + n * dt;
+
+            // Step 3: Normalize M to [0, 2*pi]
+            M = NormalizeAngle(M);
+
+            // Step 4: Solve Kepler's equation M = E - ecc*sin(E)
+            double E;
+            if (ecc < 1e-6)
+            {
+                // Near-circular: E ~ M
+                E = M;
+            }
+            else
+            {
+                E = SolveKepler(M, ecc);
+            }
+
+            // Step 5: True anomaly
+            double sinHalfNu = Math.Sqrt(1.0 + ecc) * Math.Sin(E * 0.5);
+            double cosHalfNu = Math.Sqrt(1.0 - ecc) * Math.Cos(E * 0.5);
+            double nu = 2.0 * Math.Atan2(sinHalfNu, cosHalfNu);
+
+            // Step 6: Radius
+            double r = sma * (1.0 - ecc * Math.Cos(E));
+
+            // Step 7: Position in perifocal frame (PQW)
+            double cosNu = Math.Cos(nu);
+            double sinNu = Math.Sin(nu);
+            double xPeri = r * cosNu;
+            double yPeri = r * sinNu;
+            // zPeri = 0 (orbit lies in perifocal plane)
+
+            // Step 8: Rotate from perifocal to body-fixed (inertial) frame
+            // Rotation by argument of periapsis, inclination, and longitude of ascending node
+            double cosArgPe = Math.Cos(argPe);
+            double sinArgPe = Math.Sin(argPe);
+            double cosInc = Math.Cos(inc);
+            double sinInc = Math.Sin(inc);
+            double cosLan = Math.Cos(lan);
+            double sinLan = Math.Sin(lan);
+
+            // Rotation matrix elements (perifocal -> ECI)
+            // Column 1 (P direction):
+            double r11 = cosLan * cosArgPe - sinLan * sinArgPe * cosInc;
+            double r21 = sinLan * cosArgPe + cosLan * sinArgPe * cosInc;
+            double r31 = sinArgPe * sinInc;
+
+            // Column 2 (Q direction):
+            double r12 = -cosLan * sinArgPe - sinLan * cosArgPe * cosInc;
+            double r22 = -sinLan * sinArgPe + cosLan * cosArgPe * cosInc;
+            double r32 = cosArgPe * sinInc;
+
+            // Position in body-centered inertial frame
+            double x = r11 * xPeri + r12 * yPeri;
+            double y = r21 * xPeri + r22 * yPeri;
+            double z = r31 * xPeri + r32 * yPeri;
+
+            return (x, y, z, nu, E, M, r);
+        }
+
+        /// <summary>
+        /// Converts body-centered inertial Cartesian (x,y,z) position to geodetic
+        /// (latitude, longitude, altitude) coordinates.
+        /// </summary>
+        private static (double lat, double lon, double alt)
+            CartesianToGeodetic(double x, double y, double z, double bodyRadius)
+        {
+            double dist = Math.Sqrt(x * x + y * y + z * z);
+            double alt = dist - bodyRadius;
+            double lat = Math.Asin(Clamp(z / dist, -1.0, 1.0)) * (180.0 / Math.PI);
+            double lon = Math.Atan2(y, x) * (180.0 / Math.PI);
+
+            return (lat, lon, alt);
+        }
 
         /// <summary>
         /// Solve Kepler's equation M = E - ecc*sin(E) using Newton-Raphson.
