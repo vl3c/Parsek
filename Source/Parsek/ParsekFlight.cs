@@ -1786,7 +1786,7 @@ namespace Parsek
 
             // 4. Get merged vessel name
             Vessel mergedVessel = FlightRecorder.FindVesselByPid(mergedVesselPid);
-            string mergedVesselName = mergedVessel?.vesselName ?? "Merged Vessel";
+            string mergedVesselName = Recording.ResolveLocalizedName(mergedVessel?.vesselName) ?? "Merged Vessel";
 
             // 5. Build merge branch data
             var (bp, mergedChild) = BuildMergeBranchData(
@@ -2360,7 +2360,7 @@ namespace Parsek
                     uint pid = controlledChildren[i];
                     Vessel childVessel = FlightRecorder.FindVesselByPid(pid);
                     string childRecId = Guid.NewGuid().ToString("N");
-                    string vesselName = childVessel?.vesselName ?? "Unknown";
+                    string vesselName = Recording.ResolveLocalizedName(childVessel?.vesselName) ?? "Unknown";
 
                     var childRec = new Recording
                     {
@@ -2412,7 +2412,7 @@ namespace Parsek
                     uint pid = debrisPids[i];
                     Vessel debrisVessel = FlightRecorder.FindVesselByPid(pid);
                     string childRecId = Guid.NewGuid().ToString("N");
-                    string vesselName = debrisVessel?.vesselName ?? "Debris";
+                    string vesselName = Recording.ResolveLocalizedName(debrisVessel?.vesselName) ?? "Debris";
 
                     var childRec = new Recording
                     {
@@ -2547,7 +2547,7 @@ namespace Parsek
                 RecordingId = contRecId,
                 TreeId = treeId,
                 VesselPersistentId = splitRecorder.RecordingVesselId,
-                VesselName = activeVessel?.vesselName ?? cap.VesselName ?? "Unknown",
+                VesselName = Recording.ResolveLocalizedName(activeVessel?.vesselName) ?? cap.VesselName ?? "Unknown",
                 ParentBranchPointId = breakupBp.Id,
                 ExplicitStartUT = breakupBp.UT,
                 GhostVisualSnapshot = activeSnapshot,
@@ -2587,7 +2587,7 @@ namespace Parsek
                     uint pid = debrisPids[i];
                     Vessel debrisVessel = FlightRecorder.FindVesselByPid(pid);
                     string childRecId = Guid.NewGuid().ToString("N");
-                    string vesselName = debrisVessel?.vesselName ?? "Debris";
+                    string vesselName = Recording.ResolveLocalizedName(debrisVessel?.vesselName) ?? "Debris";
 
                     var childRec = new Recording
                     {
@@ -2632,7 +2632,7 @@ namespace Parsek
                     uint pid = controlledPids[i];
                     Vessel childVessel = FlightRecorder.FindVesselByPid(pid);
                     string childRecId = Guid.NewGuid().ToString("N");
-                    string vesselName = childVessel?.vesselName ?? "Unknown";
+                    string vesselName = Recording.ResolveLocalizedName(childVessel?.vesselName) ?? "Unknown";
 
                     var childRec = new Recording
                     {
@@ -3907,7 +3907,7 @@ namespace Parsek
 
             var contRec = new Recording
             {
-                VesselName = otherVessel.vesselName + " (undock continuation)",
+                VesselName = Recording.ResolveLocalizedName(otherVessel.vesselName) + " (undock continuation)",
                 ChainId = activeChainId,
                 ChainIndex = activeChainNextIndex - 1, // same index as the player's new segment
                 ChainBranch = 1, // parallel branch — ghost-only, never spawns
@@ -5574,7 +5574,7 @@ namespace Parsek
                 if (vessel.persistentId == activePid) continue;
 
                 bool matchByPid = hasPids && pids.Contains(vessel.persistentId);
-                bool matchByName = hasNames && names.Contains(vessel.vesselName);
+                bool matchByName = hasNames && names.Contains(Recording.ResolveLocalizedName(vessel.vesselName));
 
                 if (matchByPid || matchByName)
                 {

@@ -178,9 +178,44 @@ namespace Parsek
                 return 0;
             }
 
-            // Collision check: compute bounds and check overlap against loaded vessels
+            // Collision check: use snapshot lat/lon/alt (where RespawnVessel actually places
+            // the vessel), falling back to trajectory/terminal position (#127).
             Bounds spawnBounds = SpawnCollisionDetector.ComputeVesselBounds(vesselSnapshot);
-            Vector3d spawnPos = ComputeSpawnWorldPosition(tipRecording);
+            double snapLat = 0, snapLon = 0, snapAlt = 0;
+            bool hasSnapPos = VesselSpawner.TryGetSnapshotDouble(vesselSnapshot, "lat", out snapLat)
+                           && VesselSpawner.TryGetSnapshotDouble(vesselSnapshot, "lon", out snapLon)
+                           && VesselSpawner.TryGetSnapshotDouble(vesselSnapshot, "alt", out snapAlt);
+            Vector3d spawnPos;
+            if (hasSnapPos)
+            {
+                string bodyName = tipRecording?.Points != null && tipRecording.Points.Count > 0
+                    ? tipRecording.Points[tipRecording.Points.Count - 1].bodyName : null;
+                if (string.IsNullOrEmpty(bodyName)) bodyName = "Kerbin";
+                CelestialBody snapBody = FlightGlobals.GetBodyByName(bodyName);
+                if (snapBody != null)
+                {
+                    spawnPos = snapBody.GetWorldSurfacePosition(snapLat, snapLon, snapAlt);
+                    ParsekLog.Verbose(Tag,
+                        string.Format(ic,
+                            "SpawnAtChainTip: collision check using snapshot pos lat={0} lon={1} alt={2} body={3}",
+                            snapLat.ToString("F4", ic), snapLon.ToString("F4", ic),
+                            snapAlt.ToString("F1", ic), bodyName));
+                }
+                else
+                {
+                    spawnPos = ComputeSpawnWorldPosition(tipRecording);
+                    ParsekLog.Verbose(Tag,
+                        string.Format(ic,
+                            "SpawnAtChainTip: body '{0}' not found — falling back to ComputeSpawnWorldPosition",
+                            bodyName));
+                }
+            }
+            else
+            {
+                spawnPos = ComputeSpawnWorldPosition(tipRecording);
+                ParsekLog.Verbose(Tag,
+                    "SpawnAtChainTip: no snapshot lat/lon/alt — falling back to ComputeSpawnWorldPosition");
+            }
             var (overlap, distance, blockerName) =
                 SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels(spawnPos, spawnBounds, SpawnCollisionPadding);
 
