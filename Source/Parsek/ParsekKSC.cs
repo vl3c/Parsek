@@ -489,6 +489,33 @@ namespace Parsek
                 partTree = GhostVisualBuilder.BuildPartSubtreeMap(snapshot)
             };
 
+            PopulateGhostInfoDictionaries(state, buildResult);
+
+            GhostPlaybackLogic.InitializeInventoryPlacementVisibility(rec, state);
+
+            // Initialize flag event index — flags are spawned as real vessels on-demand by ApplyFlagEvents
+            GhostPlaybackLogic.InitializeFlagVisibility(rec, state);
+
+            ParsekLog.Info("KSCGhost",
+                $"Ghost #{index} \"{rec.VesselName}\" spawned" +
+                $" (engines={buildResult.engineInfos?.Count ?? 0}" +
+                $" rcs={buildResult.rcsInfos?.Count ?? 0}" +
+                $" lights={buildResult.lightInfos?.Count ?? 0}" +
+                $" deployables={buildResult.deployableInfos?.Count ?? 0}" +
+                $" fairings={buildResult.fairingInfos?.Count ?? 0}" +
+                $" parachutes={buildResult.parachuteInfos?.Count ?? 0})");
+
+            return state;
+        }
+
+        /// <summary>
+        /// Populate the GhostPlaybackState info dictionaries from a GhostBuildResult.
+        /// Transfers parachute, jettison, engine, deployable, heat, light, fairing,
+        /// RCS, robotic, and color changer infos into the state's lookup dictionaries.
+        /// </summary>
+        private static void PopulateGhostInfoDictionaries(
+            GhostPlaybackState state, GhostBuildResult buildResult)
+        {
             if (buildResult.parachuteInfos != null)
             {
                 state.parachuteInfos = new Dictionary<uint, ParachuteGhostInfo>();
@@ -572,22 +599,6 @@ namespace Parsek
 
             if (buildResult.colorChangerInfos != null)
                 state.colorChangerInfos = GhostVisualBuilder.GroupColorChangersByPartId(buildResult.colorChangerInfos);
-
-            GhostPlaybackLogic.InitializeInventoryPlacementVisibility(rec, state);
-
-            // Initialize flag event index — flags are spawned as real vessels on-demand by ApplyFlagEvents
-            GhostPlaybackLogic.InitializeFlagVisibility(rec, state);
-
-            ParsekLog.Info("KSCGhost",
-                $"Ghost #{index} \"{rec.VesselName}\" spawned" +
-                $" (engines={buildResult.engineInfos?.Count ?? 0}" +
-                $" rcs={buildResult.rcsInfos?.Count ?? 0}" +
-                $" lights={buildResult.lightInfos?.Count ?? 0}" +
-                $" deployables={buildResult.deployableInfos?.Count ?? 0}" +
-                $" fairings={buildResult.fairingInfos?.Count ?? 0}" +
-                $" parachutes={buildResult.parachuteInfos?.Count ?? 0})");
-
-            return state;
         }
 
         /// <summary>
