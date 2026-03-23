@@ -356,79 +356,8 @@ namespace Parsek
                 // .sfs data loading. In-memory state is the source of truth.
                 if (RecordingStore.IsRewinding)
                 {
-                    ParsekLog.Info("Rewind",
-                        $"OnLoad: rewind detected, skipping .sfs recording/crew load " +
-                        $"(using {recordings.Count} in-memory recordings)");
-
-                    // Increment epoch (in-memory, NOT from .sfs — the quicksave has stale epoch)
-                    MilestoneStore.CurrentEpoch++;
-                    ParsekLog.Info("Rewind",
-                        $"OnLoad: epoch incremented to {MilestoneStore.CurrentEpoch}");
-
-                    // Restore milestone mutable state with resetUnmatched=true
-                    // (milestones created after rewind point get reset to unreplayed)
-                    MilestoneStore.RestoreMutableState(node, resetUnmatched: true);
-
-                    // Collect spawned vessel PIDs for belt-and-suspenders in OnFlightReady
-                    var (rewindSpawnedPids, _) = RecordingStore.CollectSpawnedVesselInfo();
-                    RecordingStore.PendingCleanupPids = rewindSpawnedPids.Count > 0 ? rewindSpawnedPids : null;
-
-                    // Collect ALL recording vessel names for flightState stripping.
-                    // On rewind, ANY vessel matching a recording name is from the future
-                    // and must be stripped — not just those with non-zero SpawnedVesselPersistentId.
-                    // (PIDs may already be zero from a previous rewind's ResetAllPlaybackState.)
-                    var allRecordingNames = RecordingStore.CollectAllRecordingVesselNames();
-                    RecordingStore.PendingCleanupNames = allRecordingNames.Count > 0 ? allRecordingNames : null;
-                    ParsekLog.Info("Rewind",
-                        $"OnLoad: rewind cleanup data set — " +
-                        $"{rewindSpawnedPids.Count} pid(s), {allRecordingNames.Count} name(s)");
-
-                    // Reset ALL playback state (recordings + trees)
-                    var (standaloneCount, treeCount) = RecordingStore.ResetAllPlaybackState();
-                    ParsekLog.Info("Rewind",
-                        $"OnLoad: resetting playback state for {standaloneCount} recordings + {treeCount} trees");
-
-                    // Strip ALL vessels matching recording names from flightState.
-                    // The rewind save was preprocessed to strip the recorded vessel,
-                    // but KSP's scene transition may reintroduce vessels from the old
-                    // persistent.sfs. Strip unconditionally — on rewind, every matching
-                    // vessel is from the future.
-                    if (allRecordingNames.Count > 0)
-                    {
-                        var flightState = HighLogic.CurrentGame?.flightState;
-                        if (flightState != null)
-                            StripOrphanedSpawnedVessels(flightState.protoVessels, allRecordingNames,
-                                skipPrelaunch: false);
-                    }
-
-                    // Set budgetDeductionEpoch BEFORE scheduling coroutine
-                    // (prevents ApplyBudgetDeductionWhenReady from double-deducting)
-                    budgetDeductionEpoch = MilestoneStore.CurrentEpoch;
-
-                    // Schedule resource + UT adjustment (deferred — singletons from the OLD
-                    // scene may still be alive during OnLoad; we must yield at least one frame
-                    // so the new scene's Funding/R&D/Reputation/Planetarium are initialized).
-                    // Setting UT before LoadScene does NOT work — scene transition overwrites it.
-                    resourceTickingSuspended = true;
-                    StartCoroutine(ApplyRewindResourceAdjustment());
-                    ParsekLog.Info("Rewind",
-                        "OnLoad: resource + UT adjustment deferred (waiting for new scene singletons)");
-
-                    // Re-reserve crew from all recording snapshots
-                    ReserveSnapshotCrew();
-
-                    // Clear rewind flags — rewind loads into SpaceCenter, not Flight
-                    RecordingStore.IsRewinding = false;
-                    ParsekLog.Info("Rewind",
-                        $"OnLoad: rewind complete at UT {RecordingStore.RewindUT}. " +
-                        $"Timeline: {recordings.Count} recordings");
-                    RecordingStore.RewindUT = 0;
-                    RecordingStore.RewindAdjustedUT = 0;
-                    RecordingStore.RewindBaselineFunds = 0;
-                    RecordingStore.RewindBaselineScience = 0;
-                    RecordingStore.RewindBaselineRep = 0;
-
-                    return; // Skip ALL existing revert/scene-change logic
+                    HandleRewindOnLoad(node, recordings);
+                    return;
                 }
 
                 // Detect revert vs scene change. On a revert, the quicksave is older:
@@ -515,17 +444,7 @@ namespace Parsek
                 {
                     if (recordings[i].TreeId == null) continue;
 
-                    // Clear post-spawn terminal state before resetting spawn flags
-                    if (recordings[i].VesselSpawned && recordings[i].TerminalStateValue.HasValue)
-                    {
-                        var ts = recordings[i].TerminalStateValue.Value;
-                        if (ts == TerminalState.Recovered || ts == TerminalState.Destroyed)
-                        {
-                            ParsekLog.Verbose("Scenario",
-                                $"Clearing post-spawn terminal state {ts} for tree recording '{recordings[i].VesselName}'");
-                            recordings[i].TerminalStateValue = null;
-                        }
-                    }
+                    ClearPostSpawnTerminalState(recordings[i]);
 
                     recordings[i].VesselSpawned = false;
                     recordings[i].SpawnAttempts = 0;
@@ -644,34 +563,7 @@ namespace Parsek
 
             initialLoadDone = true;
 
-            // Clear any pending state leaked from a previous save.
-            // Static fields survive scene changes, so pending recordings/trees
-            // from save A would otherwise be auto-committed into save B's timeline.
-            if (RecordingStore.HasPending)
-            {
-                ParsekLog.Warn("Scenario",
-                    $"OnLoad initial: discarding pending recording " +
-                    $"'{RecordingStore.Pending.VesselName}' from previous save");
-                RecordingStore.DiscardPending();
-            }
-            if (RecordingStore.HasPendingTree)
-            {
-                ParsekLog.Warn("Scenario",
-                    "OnLoad initial: discarding pending tree from previous save");
-                RecordingStore.DiscardPendingTree();
-            }
-            if (RecordingStore.IsRewinding)
-            {
-                ParsekLog.Warn("Scenario",
-                    "OnLoad initial: clearing stale rewind flags from previous save");
-                RecordingStore.IsRewinding = false;
-                RecordingStore.RewindUT = 0;
-                RecordingStore.RewindAdjustedUT = 0;
-                RecordingStore.RewindReserved = default(ResourceBudget.BudgetSummary);
-                RecordingStore.RewindBaselineFunds = 0;
-                RecordingStore.RewindBaselineScience = 0;
-                RecordingStore.RewindBaselineRep = 0;
-            }
+            DiscardStalePendingState();
 
             recordings.Clear();
 
@@ -683,39 +575,7 @@ namespace Parsek
             // Validate chain integrity before any playback
             RecordingStore.ValidateChains();
 
-            // Load committed recording trees.
-            // Always clear CommittedTrees — if the new save has no trees, stale trees
-            // from the previous save would otherwise persist and contaminate this save.
-            ConfigNode[] treeNodes = node.GetNodes("RECORDING_TREE");
-            var committedTrees = RecordingStore.CommittedTrees;
-            committedTrees.Clear();
-            ParsekLog.Info("Scenario",
-                $"OnLoad initial: cleared CommittedTrees, loading {treeNodes.Length} tree(s)");
-
-            if (treeNodes.Length > 0)
-            {
-                for (int t = 0; t < treeNodes.Length; t++)
-                {
-                    var tree = RecordingTree.Load(treeNodes[t]);
-
-                    // Load bulk data from external files for each recording in the tree
-                    foreach (var rec in tree.Recordings.Values)
-                    {
-                        RecordingStore.LoadRecordingFiles(rec);
-                    }
-
-                    committedTrees.Add(tree);
-
-                    // Add tree recordings to CommittedRecordings for ghost playback
-                    foreach (var rec in tree.Recordings.Values)
-                    {
-                        recordings.Add(rec);
-                    }
-
-                    ScenarioLog($"[Parsek Scenario] Loaded tree '{tree.TreeName}': " +
-                        $"{tree.Recordings.Count} recordings, {tree.BranchPoints.Count} branch points");
-                }
-            }
+            LoadRecordingTrees(node, recordings);
 
             // Clean orphaned sidecar files (recordings deleted in previous sessions)
             RecordingStore.CleanOrphanFiles();
@@ -805,6 +665,161 @@ namespace Parsek
                     // autoMerge OFF: defer to merge dialog
                     mergeDialogPending = true;
                     StartCoroutine(ShowDeferredMergeDialog());
+                }
+            }
+        }
+
+        /// <summary>
+        /// Handles the rewind (go-back) path during OnLoad. Increments epoch, restores
+        /// milestone state, collects cleanup PIDs/names, resets playback state, strips
+        /// orphaned vessels, schedules budget coroutine, re-reserves crew, clears rewind flags.
+        /// </summary>
+        private void HandleRewindOnLoad(ConfigNode node, List<Recording> recordings)
+        {
+            ParsekLog.Info("Rewind",
+                $"OnLoad: rewind detected, skipping .sfs recording/crew load " +
+                $"(using {recordings.Count} in-memory recordings)");
+
+            // Increment epoch (in-memory, NOT from .sfs — the quicksave has stale epoch)
+            MilestoneStore.CurrentEpoch++;
+            ParsekLog.Info("Rewind",
+                $"OnLoad: epoch incremented to {MilestoneStore.CurrentEpoch}");
+
+            // Restore milestone mutable state with resetUnmatched=true
+            // (milestones created after rewind point get reset to unreplayed)
+            MilestoneStore.RestoreMutableState(node, resetUnmatched: true);
+
+            // Collect spawned vessel PIDs for belt-and-suspenders in OnFlightReady
+            var (rewindSpawnedPids, _) = RecordingStore.CollectSpawnedVesselInfo();
+            RecordingStore.PendingCleanupPids = rewindSpawnedPids.Count > 0 ? rewindSpawnedPids : null;
+
+            // Collect ALL recording vessel names for flightState stripping.
+            // On rewind, ANY vessel matching a recording name is from the future
+            // and must be stripped — not just those with non-zero SpawnedVesselPersistentId.
+            // (PIDs may already be zero from a previous rewind's ResetAllPlaybackState.)
+            var allRecordingNames = RecordingStore.CollectAllRecordingVesselNames();
+            RecordingStore.PendingCleanupNames = allRecordingNames.Count > 0 ? allRecordingNames : null;
+            ParsekLog.Info("Rewind",
+                $"OnLoad: rewind cleanup data set — " +
+                $"{rewindSpawnedPids.Count} pid(s), {allRecordingNames.Count} name(s)");
+
+            // Reset ALL playback state (recordings + trees)
+            var (standaloneCount, treeCount) = RecordingStore.ResetAllPlaybackState();
+            ParsekLog.Info("Rewind",
+                $"OnLoad: resetting playback state for {standaloneCount} recordings + {treeCount} trees");
+
+            // Strip ALL vessels matching recording names from flightState.
+            // The rewind save was preprocessed to strip the recorded vessel,
+            // but KSP's scene transition may reintroduce vessels from the old
+            // persistent.sfs. Strip unconditionally — on rewind, every matching
+            // vessel is from the future.
+            if (allRecordingNames.Count > 0)
+            {
+                var flightState = HighLogic.CurrentGame?.flightState;
+                if (flightState != null)
+                    StripOrphanedSpawnedVessels(flightState.protoVessels, allRecordingNames,
+                        skipPrelaunch: false);
+            }
+
+            // Set budgetDeductionEpoch BEFORE scheduling coroutine
+            // (prevents ApplyBudgetDeductionWhenReady from double-deducting)
+            budgetDeductionEpoch = MilestoneStore.CurrentEpoch;
+
+            // Schedule resource + UT adjustment (deferred — singletons from the OLD
+            // scene may still be alive during OnLoad; we must yield at least one frame
+            // so the new scene's Funding/R&D/Reputation/Planetarium are initialized).
+            // Setting UT before LoadScene does NOT work — scene transition overwrites it.
+            resourceTickingSuspended = true;
+            StartCoroutine(ApplyRewindResourceAdjustment());
+            ParsekLog.Info("Rewind",
+                "OnLoad: resource + UT adjustment deferred (waiting for new scene singletons)");
+
+            // Re-reserve crew from all recording snapshots
+            ReserveSnapshotCrew();
+
+            // Clear rewind flags — rewind loads into SpaceCenter, not Flight
+            RecordingStore.IsRewinding = false;
+            ParsekLog.Info("Rewind",
+                $"OnLoad: rewind complete at UT {RecordingStore.RewindUT}. " +
+                $"Timeline: {recordings.Count} recordings");
+            RecordingStore.RewindUT = 0;
+            RecordingStore.RewindAdjustedUT = 0;
+            RecordingStore.RewindBaselineFunds = 0;
+            RecordingStore.RewindBaselineScience = 0;
+            RecordingStore.RewindBaselineRep = 0;
+        }
+
+        /// <summary>
+        /// Clears pending recordings, pending trees, and stale rewind flags that may have
+        /// leaked from a previous save. Static fields survive scene changes, so without this
+        /// cleanup, pending state from save A would be auto-committed into save B's timeline.
+        /// </summary>
+        private void DiscardStalePendingState()
+        {
+            if (RecordingStore.HasPending)
+            {
+                ParsekLog.Warn("Scenario",
+                    $"OnLoad initial: discarding pending recording " +
+                    $"'{RecordingStore.Pending.VesselName}' from previous save");
+                RecordingStore.DiscardPending();
+            }
+            if (RecordingStore.HasPendingTree)
+            {
+                ParsekLog.Warn("Scenario",
+                    "OnLoad initial: discarding pending tree from previous save");
+                RecordingStore.DiscardPendingTree();
+            }
+            if (RecordingStore.IsRewinding)
+            {
+                ParsekLog.Warn("Scenario",
+                    "OnLoad initial: clearing stale rewind flags from previous save");
+                RecordingStore.IsRewinding = false;
+                RecordingStore.RewindUT = 0;
+                RecordingStore.RewindAdjustedUT = 0;
+                RecordingStore.RewindReserved = default(ResourceBudget.BudgetSummary);
+                RecordingStore.RewindBaselineFunds = 0;
+                RecordingStore.RewindBaselineScience = 0;
+                RecordingStore.RewindBaselineRep = 0;
+            }
+        }
+
+        /// <summary>
+        /// Loads committed recording trees from RECORDING_TREE ConfigNodes. Clears stale
+        /// trees, loads each tree and its bulk data, and adds tree recordings to the
+        /// committed recordings list for ghost playback.
+        /// </summary>
+        private static void LoadRecordingTrees(ConfigNode node, List<Recording> recordings)
+        {
+            // Always clear CommittedTrees — if the new save has no trees, stale trees
+            // from the previous save would otherwise persist and contaminate this save.
+            ConfigNode[] treeNodes = node.GetNodes("RECORDING_TREE");
+            var committedTrees = RecordingStore.CommittedTrees;
+            committedTrees.Clear();
+            ParsekLog.Info("Scenario",
+                $"OnLoad initial: cleared CommittedTrees, loading {treeNodes.Length} tree(s)");
+
+            if (treeNodes.Length > 0)
+            {
+                for (int t = 0; t < treeNodes.Length; t++)
+                {
+                    var tree = RecordingTree.Load(treeNodes[t]);
+
+                    // Load bulk data from external files for each recording in the tree
+                    foreach (var rec in tree.Recordings.Values)
+                    {
+                        RecordingStore.LoadRecordingFiles(rec);
+                    }
+
+                    committedTrees.Add(tree);
+
+                    // Add tree recordings to CommittedRecordings for ghost playback
+                    foreach (var rec in tree.Recordings.Values)
+                    {
+                        recordings.Add(rec);
+                    }
+
+                    ScenarioLog($"[Parsek Scenario] Loaded tree '{tree.TreeName}': " +
+                        $"{tree.Recordings.Count} recordings, {tree.BranchPoints.Count} branch points");
                 }
             }
         }
@@ -1447,6 +1462,24 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Clears terminal state (Recovered/Destroyed) that was set after a vessel was spawned.
+        /// On revert, the spawn is undone so the terminal state from the previous flight is stale.
+        /// </summary>
+        internal static void ClearPostSpawnTerminalState(Recording rec)
+        {
+            if (rec.VesselSpawned && rec.TerminalStateValue.HasValue)
+            {
+                var ts = rec.TerminalStateValue.Value;
+                if (ts == TerminalState.Recovered || ts == TerminalState.Destroyed)
+                {
+                    ParsekLog.Verbose("Scenario",
+                        $"Clearing post-spawn terminal state {ts} for recording '{rec.VesselName}'");
+                    rec.TerminalStateValue = null;
+                }
+            }
+        }
+
         private static void RestoreStandaloneMutableState(
             List<Recording> recordings, ConfigNode[] savedRecNodes)
         {
@@ -1462,17 +1495,7 @@ namespace Parsek
                 // Skip tree recordings — their mutable state is restored from tree nodes
                 if (recordings[i].TreeId != null) continue;
 
-                // Clear post-spawn terminal state before resetting spawn flags
-                if (recordings[i].VesselSpawned && recordings[i].TerminalStateValue.HasValue)
-                {
-                    var ts = recordings[i].TerminalStateValue.Value;
-                    if (ts == TerminalState.Recovered || ts == TerminalState.Destroyed)
-                    {
-                        ParsekLog.Verbose("Scenario",
-                            $"Clearing post-spawn terminal state {ts} for recording '{recordings[i].VesselName}'");
-                        recordings[i].TerminalStateValue = null;
-                    }
-                }
+                ClearPostSpawnTerminalState(recordings[i]);
 
                 recordings[i].VesselSpawned = false;
                 recordings[i].SpawnAttempts = 0;
@@ -1561,6 +1584,7 @@ namespace Parsek
 
         private static void SaveStandaloneRecordings(ConfigNode node, List<Recording> recordings)
         {
+            int count = 0;
             for (int r = 0; r < recordings.Count; r++)
             {
                 var rec = recordings[r];
@@ -1568,6 +1592,7 @@ namespace Parsek
                 // Skip tree recordings — they are saved under RECORDING_TREE nodes below
                 if (rec.TreeId != null)
                     continue;
+                count++;
 
                 ConfigNode recNode = node.AddNode("RECORDING");
 
@@ -1629,6 +1654,7 @@ namespace Parsek
                 // Persist resource index so quickload doesn't re-apply deltas
                 recNode.AddValue("lastResIdx", rec.LastAppliedResourceIndex);
             }
+            ParsekLog.Verbose("Scenario", $"Saved {count} standalone recordings");
         }
 
         /// <summary>
@@ -2226,9 +2252,18 @@ namespace Parsek
                 ScenarioLog($"[Parsek Scenario] Crew swap: 0 succeeded, {failCount} failed");
             }
 
-            // --- EVA vessel cleanup pass ---
-            // Reserved crew on EVA are separate vessels, not in ActiveVessel.parts.
-            // Remove their EVA vessels to prevent duplicates at ghost EndUT spawn.
+            RemoveReservedEvaVessels();
+
+            return swapCount;
+        }
+
+        /// <summary>
+        /// Removes EVA vessels whose crew is reserved (in the replacements dict).
+        /// Reserved crew on EVA are separate vessels, not in ActiveVessel.parts.
+        /// Removing them prevents duplicates at ghost EndUT spawn.
+        /// </summary>
+        private static void RemoveReservedEvaVessels()
+        {
             int evaRemoved = 0;
             var allVessels = FlightGlobals.Vessels;
             for (int v = allVessels.Count - 1; v >= 0; v--)
@@ -2262,8 +2297,6 @@ namespace Parsek
 
             if (evaRemoved > 0)
                 ScenarioLog($"[Parsek Scenario] Removed {evaRemoved} reserved EVA vessel(s)");
-
-            return swapCount;
         }
 
         /// <summary>
