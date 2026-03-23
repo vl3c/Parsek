@@ -9308,18 +9308,19 @@ namespace Parsek
             }
             else
             {
-                // Anchor not found — hide ghost entirely.
-                // RELATIVE frames store dx/dy/dz meter offsets in lat/lon/alt fields,
-                // so interpreting them as geographic coordinates would place the ghost
-                // at completely wrong positions. Hiding is the safe fallback.
+                // Anchor not found — keep ghost at its last position instead of hiding.
+                // RELATIVE frames store dx/dy/dz meter offsets, not geographic coordinates,
+                // so we can't position the ghost. But hiding it during watch mode is worse
+                // than freezing it in place. The ghost stays visible at its last known
+                // position from the previous ABSOLUTE section.
                 long key = ((long)anchorVesselId << 32);
                 if (loggedAnchorNotFound.Add(key))
                     ParsekLog.Warn("Anchor",
-                        $"RELATIVE playback: anchor vessel pid={anchorVesselId} not found, " +
-                        $"hiding ghost until anchor loads");
+                        $"RELATIVE playback: anchor vessel pid={anchorVesselId} not found — " +
+                        $"ghost frozen at last known position (RELATIVE offsets unusable without anchor)");
 
+                // Return zero result — the ghost stays where it was positioned last frame
                 interpResult = InterpolationResult.Zero;
-                ghost.SetActive(false);
             }
         }
 
@@ -9360,16 +9361,14 @@ namespace Parsek
             }
             else
             {
-                // Anchor not found — hide ghost entirely.
-                // RELATIVE frames store dx/dy/dz meter offsets in lat/lon/alt fields,
-                // so interpreting them as geographic coordinates would place the ghost
-                // at completely wrong positions. Hiding is the safe fallback.
+                // Anchor not found — keep ghost at its last position instead of hiding.
+                // Same rationale as InterpolateAndPositionRelative: freezing in place is
+                // better than disappearing during watch mode.
                 long key = ((long)anchorVesselId << 32);
                 if (loggedAnchorNotFound.Add(key))
                     ParsekLog.Warn("Anchor",
-                        $"PositionGhostRelativeAt: anchor vessel pid={anchorVesselId} not found, " +
-                        $"hiding ghost until anchor loads");
-                ghost.SetActive(false);
+                        $"PositionGhostRelativeAt: anchor vessel pid={anchorVesselId} not found — " +
+                        $"ghost frozen at last known position");
             }
         }
 

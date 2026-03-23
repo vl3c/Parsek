@@ -34,7 +34,7 @@ namespace Parsek
         private const double ExplicitEndUpdateInterval = 30.0;
 
         // Debris TTL: stop recording debris after this many seconds
-        internal const double DebrisTTLSeconds = 30.0;
+        internal const double DebrisTTLSeconds = 60.0;
 
         // Per-vessel debris TTL tracking (vesselPid -> UT at which to stop recording)
         // double.NaN = no TTL (controlled vessel, keep recording indefinitely)
