@@ -156,6 +156,19 @@ The shared core would need 3-4 parameters/flags to account for these differences
 
 ---
 
+## Deferred from ParsekUI.cs
+
+### D18. ParsekUI window resize drag duplication
+**What:** 4 windows (Recordings, Actions, Settings, Spawn Control) + Group Popup all have identical ~15-line resize drag blocks in their `*IfOpen` methods and identical ~10-line resize handle blocks in their draw methods.
+**Why deferred:** Extracting requires passing the rect, bool flag, and min dimensions through a shared helper. The IMGUI Event.current.Use() calls are order-sensitive — a shared helper could subtly break input consumption if the call order changes.
+**Revisit when:** Pass 3, if IMGUI code moves to its own subsystem.
+
+### D19. ParsekUI DrawSortableHeader / DrawSpawnSortableHeader near-duplicate
+**What:** Two near-identical sort header methods operating on different enum types (SortColumn vs SpawnSortColumn).
+**Why deferred:** Unifying requires a generic or interface, which changes the call pattern.
+
+---
+
 ## Summary
 
 | ID | File | Lines affected | Risk if attempted | Pass 3 candidate? |
@@ -177,3 +190,5 @@ The shared core would need 3-4 parameters/flags to account for these differences
 | D15 | GhostVisualBuilder | ~300 | Medium (divergent structure) | Yes |
 | D16 | GhostVisualBuilder | ~300 | Medium (numeric params) | No |
 | D17 | GhostVisualBuilder | ~30 | Low (guard param) | No |
+| D18 | ParsekUI | ~125 | Medium (IMGUI event order) | Yes |
+| D19 | ParsekUI | ~40 | Low (generic/interface) | Maybe |

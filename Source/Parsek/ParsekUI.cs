@@ -701,7 +701,7 @@ namespace Parsek
 
         /// <summary>
         /// Builds the sorted list of committed action events and the list of uncommitted events
-        /// for the actions window. ActionsSortColumn is private, so this must be private static.
+        /// for the actions window.
         /// </summary>
         private static void BuildSortedActionEvents(
             ActionsSortColumn sortColumn, bool sortAscending,
@@ -781,6 +781,106 @@ namespace Parsek
                 uncommittedEvents.Add(e);
             }
             uncommittedEvents.Sort((a, b) => a.ut.CompareTo(b.ut));
+        }
+
+        /// <summary>
+        /// Builds the group tree data structures used to render the recordings tree.
+        /// Pure data-computation — no IMGUI calls.
+        /// </summary>
+        internal static void BuildGroupTreeData(
+            List<Recording> committed, int[] sortedIndices,
+            List<string> knownEmptyGroups,
+            out Dictionary<string, List<int>> grpToRecs,
+            out Dictionary<string, List<int>> chainToRecs,
+            out Dictionary<string, List<string>> grpChildren,
+            out List<string> rootGrps,
+            out HashSet<string> rootChainIds)
+        {
+            // group name → list of recording indices directly in that group
+            grpToRecs = new Dictionary<string, List<int>>();
+            // chainId → list of recording indices
+            chainToRecs = new Dictionary<string, List<int>>();
+
+            for (int row = 0; row < sortedIndices.Length; row++)
+            {
+                int ri = sortedIndices[row];
+                var rec = committed[ri];
+
+                // Multi-group: recording appears in each group it belongs to
+                if (rec.RecordingGroups != null)
+                {
+                    for (int g = 0; g < rec.RecordingGroups.Count; g++)
+                    {
+                        string grp = rec.RecordingGroups[g];
+                        List<int> list;
+                        if (!grpToRecs.TryGetValue(grp, out list))
+                        {
+                            list = new List<int>();
+                            grpToRecs[grp] = list;
+                        }
+                        if (!list.Contains(ri)) list.Add(ri);
+                    }
+                }
+
+                // Build chain lookup
+                if (!string.IsNullOrEmpty(rec.ChainId))
+                {
+                    List<int> list;
+                    if (!chainToRecs.TryGetValue(rec.ChainId, out list))
+                    {
+                        list = new List<int>();
+                        chainToRecs[rec.ChainId] = list;
+                    }
+                    list.Add(ri);
+                }
+            }
+
+            // Build parent → children map from hierarchy
+            grpChildren = new Dictionary<string, List<string>>();
+            var allGrpNames = new HashSet<string>(grpToRecs.Keys);
+            foreach (var kvp in ParsekScenario.groupParents)
+            {
+                allGrpNames.Add(kvp.Key);
+                allGrpNames.Add(kvp.Value);
+            }
+            for (int i = 0; i < knownEmptyGroups.Count; i++)
+                allGrpNames.Add(knownEmptyGroups[i]);
+
+            foreach (var kvp in ParsekScenario.groupParents)
+            {
+                List<string> children;
+                if (!grpChildren.TryGetValue(kvp.Value, out children))
+                {
+                    children = new List<string>();
+                    grpChildren[kvp.Value] = children;
+                }
+                if (!children.Contains(kvp.Key)) children.Add(kvp.Key);
+            }
+            foreach (var ch in grpChildren.Values)
+                ch.Sort(System.StringComparer.OrdinalIgnoreCase);
+
+            // Root groups: in allGrpNames but not a child in groupParents
+            rootGrps = new List<string>();
+            foreach (var g in allGrpNames)
+            {
+                if (!ParsekScenario.groupParents.ContainsKey(g))
+                    rootGrps.Add(g);
+            }
+            rootGrps.Sort(System.StringComparer.OrdinalIgnoreCase);
+
+            // Root chains: chains where NO member has any RecordingGroups
+            rootChainIds = new HashSet<string>();
+            foreach (var kvp in chainToRecs)
+            {
+                bool anyInGrp = false;
+                for (int i = 0; i < kvp.Value.Count; i++)
+                {
+                    var rec = committed[kvp.Value[i]];
+                    if (rec.RecordingGroups != null && rec.RecordingGroups.Count > 0)
+                    { anyInGrp = true; break; }
+                }
+                if (!anyInGrp) rootChainIds.Add(kvp.Key);
+            }
         }
 
         public void DrawRecordingsWindowIfOpen(Rect mainWindowRect)
@@ -1057,91 +1157,14 @@ namespace Parsek
                 RebuildSortedIndices(committed, now);
 
                 // ── Build group tree data ──────────────────────────────────
-                // group name → list of recording indices directly in that group
-                var grpToRecs = new Dictionary<string, List<int>>();
-                // chainId → list of recording indices
-                var chainToRecs = new Dictionary<string, List<int>>();
-
-                for (int row = 0; row < sortedIndices.Length; row++)
-                {
-                    int ri = sortedIndices[row];
-                    var rec = committed[ri];
-
-                    // Multi-group: recording appears in each group it belongs to
-                    if (rec.RecordingGroups != null)
-                    {
-                        for (int g = 0; g < rec.RecordingGroups.Count; g++)
-                        {
-                            string grp = rec.RecordingGroups[g];
-                            List<int> list;
-                            if (!grpToRecs.TryGetValue(grp, out list))
-                            {
-                                list = new List<int>();
-                                grpToRecs[grp] = list;
-                            }
-                            if (!list.Contains(ri)) list.Add(ri);
-                        }
-                    }
-
-                    // Build chain lookup
-                    if (!string.IsNullOrEmpty(rec.ChainId))
-                    {
-                        List<int> list;
-                        if (!chainToRecs.TryGetValue(rec.ChainId, out list))
-                        {
-                            list = new List<int>();
-                            chainToRecs[rec.ChainId] = list;
-                        }
-                        list.Add(ri);
-                    }
-                }
-
-                // Build parent → children map from hierarchy
-                var grpChildren = new Dictionary<string, List<string>>();
-                var allGrpNames = new HashSet<string>(grpToRecs.Keys);
-                foreach (var kvp in ParsekScenario.groupParents)
-                {
-                    allGrpNames.Add(kvp.Key);
-                    allGrpNames.Add(kvp.Value);
-                }
-                for (int i = 0; i < knownEmptyGroups.Count; i++)
-                    allGrpNames.Add(knownEmptyGroups[i]);
-
-                foreach (var kvp in ParsekScenario.groupParents)
-                {
-                    List<string> children;
-                    if (!grpChildren.TryGetValue(kvp.Value, out children))
-                    {
-                        children = new List<string>();
-                        grpChildren[kvp.Value] = children;
-                    }
-                    if (!children.Contains(kvp.Key)) children.Add(kvp.Key);
-                }
-                foreach (var ch in grpChildren.Values)
-                    ch.Sort(System.StringComparer.OrdinalIgnoreCase);
-
-                // Root groups: in allGrpNames but not a child in groupParents
-                var rootGrps = new List<string>();
-                foreach (var g in allGrpNames)
-                {
-                    if (!ParsekScenario.groupParents.ContainsKey(g))
-                        rootGrps.Add(g);
-                }
-                rootGrps.Sort(System.StringComparer.OrdinalIgnoreCase);
-
-                // Root chains: chains where NO member has any RecordingGroups
-                var rootChainIds = new HashSet<string>();
-                foreach (var kvp in chainToRecs)
-                {
-                    bool anyInGrp = false;
-                    for (int i = 0; i < kvp.Value.Count; i++)
-                    {
-                        var rec = committed[kvp.Value[i]];
-                        if (rec.RecordingGroups != null && rec.RecordingGroups.Count > 0)
-                        { anyInGrp = true; break; }
-                    }
-                    if (!anyInGrp) rootChainIds.Add(kvp.Key);
-                }
+                Dictionary<string, List<int>> grpToRecs;
+                Dictionary<string, List<int>> chainToRecs;
+                Dictionary<string, List<string>> grpChildren;
+                List<string> rootGrps;
+                HashSet<string> rootChainIds;
+                BuildGroupTreeData(committed, sortedIndices, knownEmptyGroups,
+                    out grpToRecs, out chainToRecs, out grpChildren,
+                    out rootGrps, out rootChainIds);
 
                 // ── Draw tree ─────────────────────────────────────────────
                 bool deleted = false;
@@ -2236,6 +2259,7 @@ namespace Parsek
                 {
                     // Remove parent (root level)
                     ParsekScenario.SetGroupParent(groupPopupGroup, null);
+                    ParsekLog.Info("UI", $"Group '{groupPopupGroup}' moved to root level");
                 }
                 else
                 {
@@ -2243,6 +2267,7 @@ namespace Parsek
                     foreach (var parent in groupPopupChecked)
                     {
                         ParsekScenario.SetGroupParent(groupPopupGroup, parent);
+                        ParsekLog.Info("UI", $"Group '{groupPopupGroup}' parent set to '{parent}'");
                         break;
                     }
                 }
@@ -2259,6 +2284,7 @@ namespace Parsek
                     RecordingStore.AddChainToGroup(groupPopupChainId, g);
                 foreach (var g in removed)
                     RecordingStore.RemoveChainFromGroup(groupPopupChainId, g);
+                ParsekLog.Info("UI", $"Chain '{groupPopupChainId}' groups changed: +[{string.Join(", ", added)}] -[{string.Join(", ", removed)}]");
             }
             else if (groupPopupRecIdx >= 0 && groupPopupRecIdx < committed.Count)
             {
@@ -2272,6 +2298,7 @@ namespace Parsek
                     RecordingStore.AddRecordingToGroup(groupPopupRecIdx, g);
                 foreach (var g in removed)
                     RecordingStore.RemoveRecordingFromGroup(groupPopupRecIdx, g);
+                ParsekLog.Info("UI", $"Recording [{groupPopupRecIdx}] groups changed: +[{string.Join(", ", added)}] -[{string.Join(", ", removed)}]");
             }
         }
 
@@ -3036,6 +3063,7 @@ namespace Parsek
                 spawnSortColumn = col;
                 spawnSortAscending = true;
             }
+            ParsekLog.Verbose("UI", $"Spawn sort changed: column={spawnSortColumn}, ascending={spawnSortAscending}");
         }
 
         private int CompareSpawnCandidates(NearbySpawnCandidate a, NearbySpawnCandidate b)
@@ -3399,6 +3427,26 @@ namespace Parsek
             GUILayout.EndHorizontal();
         }
 
+        private void DrawGhostCapSlider(string label, string tooltip, ref int value,
+            int min, int max, string logKey, ParsekSettings s)
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(
+                new GUIContent($"{label}: {value}", tooltip),
+                GUILayout.Width(140));
+            int newValue = Mathf.RoundToInt(
+                GUILayout.HorizontalSlider(value, min, max));
+            if (newValue != value)
+            {
+                value = newValue;
+                GhostSoftCapManager.ApplySettings(
+                    s.ghostCapZone1Reduce, s.ghostCapZone1Despawn, s.ghostCapZone2Simplify);
+                ParsekLog.VerboseRateLimited("UI", logKey,
+                    $"Setting changed: {logKey}={value}", 1.0);
+            }
+            GUILayout.EndHorizontal();
+        }
+
         private void DrawGhostCapSettings(ParsekSettings s)
         {
             GUILayout.Label("Ghost Soft Caps", GUI.skin.box);
@@ -3417,56 +3465,12 @@ namespace Parsek
                 return;
             }
 
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(
-                new GUIContent($"Zone 1 reduce: {s.ghostCapZone1Reduce}",
-                    "Nearby ghosts above this count get reduced fidelity"),
-                GUILayout.Width(140));
-            int zone1Reduce = Mathf.RoundToInt(
-                GUILayout.HorizontalSlider(s.ghostCapZone1Reduce, 2, 30));
-            if (zone1Reduce != s.ghostCapZone1Reduce)
-            {
-                s.ghostCapZone1Reduce = zone1Reduce;
-                GhostSoftCapManager.ApplySettings(
-                    s.ghostCapZone1Reduce, s.ghostCapZone1Despawn, s.ghostCapZone2Simplify);
-                ParsekLog.VerboseRateLimited("UI", "ghostCap.zone1Reduce",
-                    $"Setting changed: ghostCapZone1Reduce={s.ghostCapZone1Reduce}", 1.0);
-            }
-            GUILayout.EndHorizontal();
-
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(
-                new GUIContent($"Zone 1 despawn: {s.ghostCapZone1Despawn}",
-                    "Nearby ghosts above this count get despawned (lowest priority first)"),
-                GUILayout.Width(140));
-            int zone1Despawn = Mathf.RoundToInt(
-                GUILayout.HorizontalSlider(s.ghostCapZone1Despawn, 5, 50));
-            if (zone1Despawn != s.ghostCapZone1Despawn)
-            {
-                s.ghostCapZone1Despawn = zone1Despawn;
-                GhostSoftCapManager.ApplySettings(
-                    s.ghostCapZone1Reduce, s.ghostCapZone1Despawn, s.ghostCapZone2Simplify);
-                ParsekLog.VerboseRateLimited("UI", "ghostCap.zone1Despawn",
-                    $"Setting changed: ghostCapZone1Despawn={s.ghostCapZone1Despawn}", 1.0);
-            }
-            GUILayout.EndHorizontal();
-
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(
-                new GUIContent($"Zone 2 simplify: {s.ghostCapZone2Simplify}",
-                    "Distant ghosts above this count get simplified to orbit lines"),
-                GUILayout.Width(140));
-            int zone2Simplify = Mathf.RoundToInt(
-                GUILayout.HorizontalSlider(s.ghostCapZone2Simplify, 5, 60));
-            if (zone2Simplify != s.ghostCapZone2Simplify)
-            {
-                s.ghostCapZone2Simplify = zone2Simplify;
-                GhostSoftCapManager.ApplySettings(
-                    s.ghostCapZone1Reduce, s.ghostCapZone1Despawn, s.ghostCapZone2Simplify);
-                ParsekLog.VerboseRateLimited("UI", "ghostCap.zone2Simplify",
-                    $"Setting changed: ghostCapZone2Simplify={s.ghostCapZone2Simplify}", 1.0);
-            }
-            GUILayout.EndHorizontal();
+            DrawGhostCapSlider("Zone 1 reduce", "Nearby ghosts above this count get reduced fidelity",
+                ref s.ghostCapZone1Reduce, 2, 30, "ghostCap.zone1Reduce", s);
+            DrawGhostCapSlider("Zone 1 despawn", "Nearby ghosts above this count get despawned (lowest priority first)",
+                ref s.ghostCapZone1Despawn, 5, 50, "ghostCap.zone1Despawn", s);
+            DrawGhostCapSlider("Zone 2 simplify", "Distant ghosts above this count get simplified to orbit lines",
+                ref s.ghostCapZone2Simplify, 5, 60, "ghostCap.zone2Simplify", s);
 
             // Enforce constraint: reduce must be less than despawn
             if (s.ghostCapZone1Reduce >= s.ghostCapZone1Despawn)
