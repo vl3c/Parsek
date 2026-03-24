@@ -48,6 +48,10 @@ namespace Parsek
         internal int lastPlaybackIndex = 0;
 
         private Dictionary<int, GhostPlaybackState> ghostStates = new Dictionary<int, GhostPlaybackState>();
+
+        // Cached TimelineGhosts dictionary — rebuilt once per frame on first access
+        private Dictionary<int, GameObject> cachedTimelineGhosts = new Dictionary<int, GameObject>();
+        private int cachedTimelineGhostsFrame = -1;
         private readonly MaterialPropertyBlock reentryShellMpb = new MaterialPropertyBlock();
         private readonly List<GameObject> activeExplosions = new List<GameObject>();
 
@@ -307,10 +311,17 @@ namespace Parsek
         {
             get
             {
-                var result = new Dictionary<int, GameObject>();
-                foreach (var kv in ghostStates)
-                    result[kv.Key] = kv.Value.ghost;
-                return result;
+                int currentFrame = Time.frameCount;
+                if (cachedTimelineGhostsFrame != currentFrame)
+                {
+                    cachedTimelineGhosts.Clear();
+                    foreach (var kv in ghostStates)
+                        cachedTimelineGhosts[kv.Key] = kv.Value.ghost;
+                    cachedTimelineGhostsFrame = currentFrame;
+                    ParsekLog.Verbose("Flight",
+                        $"TimelineGhosts: rebuilt cache, {cachedTimelineGhosts.Count} ghosts (frame {currentFrame})");
+                }
+                return cachedTimelineGhosts;
             }
         }
         public bool HasActiveChain => activeChainId != null;
