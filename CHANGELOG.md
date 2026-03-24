@@ -37,6 +37,18 @@ Second-pass structural refactoring. ~80 method extractions, ~105 logging additio
   - `IGhostPositioner` interface — 8 positioning methods implemented by ParsekFlight, delegates world-space placement to the host scene.
   - `GhostPlaybackEvents` — TrajectoryPlaybackFlags, FrameContext, lifecycle event types, CameraActionEvent for watch-mode decomposition.
   - 109 new tests (MockTrajectory, engine lifecycle, query API, interface isolation, log assertions)
+- **Pass 4 — Continued dedup**
+  - `SampleAnimationStates` unified core extracted from 4 near-identical methods (D15/T27, -139 lines)
+  - `AnimLookup` enum + `FindAnimation` resolver parameterize 3 animation lookup strategies
+  - 4 animation sample caches consolidated into 1 `animationSampleCache`
+  - `CommitBoundaryAndRestart` shared tail extracted from atmosphere/SOI split handlers (D7)
+- **Performance**
+  - Per-frame `List<PartEvent>` allocations eliminated — 4 transition-check methods now append to reusable buffer (T19)
+  - `TimelineGhosts` dictionary cached per-frame instead of allocating on every property access (T20)
+  - `ResourceBudget.ComputeTotal` cached per-frame, shared across `DrawResourceBudget` and `DrawCompactBudgetLine` (T21)
+- **Audits**
+  - C2: namespace consistency verified — all 73 files correct (`Parsek` or `Parsek.Patches`)
+  - C3: one-class-per-file verified — 5 files have multiple types but all are acceptable data-type bundles or tightly coupled enum+class pairs
 
 ### Bug Fixes
 
@@ -52,12 +64,16 @@ Second-pass structural refactoring. ~80 method extractions, ~105 logging additio
 - ParsePartPositions + WalkbackAlongTrajectory (14): spawn collision parsing and walkback
 - ReindexTests (7): ghost dict reindexing after deletion
 - AppendCapturedDataTests (7): recording data append + sort
+- GhostSoftCapManager Enabled=false guard (T22)
+- SessionMerger frame trimming verification (T23)
+- EnvironmentDetector ORBITING/ESCAPING situations (T24, 5 tests)
 
 ### Documentation
 
 - Refactor plan, inventory, review checklist, architecture analysis
 - 21 deferred items tracked in `refactor-2-deferred.md` with Open/Done/Closed status
 - 7 future TODO items (T25-T31) added to `todo-and-known-bugs.md`
+- C1, D7, D15, T22-T24, T27 marked done
 
 ---
 

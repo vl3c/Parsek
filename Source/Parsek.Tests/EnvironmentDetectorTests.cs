@@ -143,6 +143,85 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Classify — ORBITING and ESCAPING situations
+
+        [Fact]
+        public void Classify_OrbitingAboveAtmosphereNoThrust_ReturnsExoBallistic()
+        {
+            // Kerbin: hasAtmosphere=true, above atmosphere, ORBITING, coasting
+            var result = EnvironmentDetector.Classify(
+                hasAtmosphere: true,
+                altitude: 100000,
+                atmosphereDepth: 70000,
+                situation: 32, // ORBITING
+                srfSpeed: 2200,
+                hasActiveThrust: false);
+
+            Assert.Equal(SegmentEnvironment.ExoBallistic, result);
+        }
+
+        [Fact]
+        public void Classify_OrbitingAboveAtmosphereWithThrust_ReturnsExoPropulsive()
+        {
+            // Kerbin: hasAtmosphere=true, above atmosphere, ORBITING, engine firing
+            var result = EnvironmentDetector.Classify(
+                hasAtmosphere: true,
+                altitude: 100000,
+                atmosphereDepth: 70000,
+                situation: 32, // ORBITING
+                srfSpeed: 2200,
+                hasActiveThrust: true);
+
+            Assert.Equal(SegmentEnvironment.ExoPropulsive, result);
+        }
+
+        [Fact]
+        public void Classify_EscapingNoThrust_ReturnsExoBallistic()
+        {
+            // ESCAPING trajectory, no thrust — coasting on escape
+            var result = EnvironmentDetector.Classify(
+                hasAtmosphere: true,
+                altitude: 500000,
+                atmosphereDepth: 70000,
+                situation: 64, // ESCAPING
+                srfSpeed: 3000,
+                hasActiveThrust: false);
+
+            Assert.Equal(SegmentEnvironment.ExoBallistic, result);
+        }
+
+        [Fact]
+        public void Classify_EscapingWithThrust_ReturnsExoPropulsive()
+        {
+            // ESCAPING trajectory, engine firing
+            var result = EnvironmentDetector.Classify(
+                hasAtmosphere: true,
+                altitude: 500000,
+                atmosphereDepth: 70000,
+                situation: 64, // ESCAPING
+                srfSpeed: 3000,
+                hasActiveThrust: true);
+
+            Assert.Equal(SegmentEnvironment.ExoPropulsive, result);
+        }
+
+        [Fact]
+        public void Classify_OrbitingAirlessBodyNoThrust_ReturnsExoBallistic()
+        {
+            // Mun: no atmosphere, ORBITING, coasting
+            var result = EnvironmentDetector.Classify(
+                hasAtmosphere: false,
+                altitude: 50000,
+                atmosphereDepth: 0,
+                situation: 32, // ORBITING
+                srfSpeed: 500,
+                hasActiveThrust: false);
+
+            Assert.Equal(SegmentEnvironment.ExoBallistic, result);
+        }
+
+        #endregion
+
         #region Classify — SurfaceMobile
 
         [Fact]

@@ -75,7 +75,7 @@ Engine and RCS particle systems are instantiated per ghost. Pooling would reduce
 
 ### T10. RealVesselExists O(n) per frame (bug #49)
 
-`GhostPlaybackLogic.RealVesselExists` scans `FlightGlobals.Vessels` linearly. A HashSet lookup by PID would be O(1).
+`GhostPlaybackLogic.RealVesselExists` scans `FlightGlobals.Vessels` linearly. A HashSet lookup by PID would be O(1). Attempted frame-cached HashSet but `Time.frameCount` (Unity native) crashes in test environment. Needs a non-Unity cache invalidation approach (e.g., manual invalidation from the playback update loop).
 
 **Priority:** Low — only matters with many committed recordings
 
@@ -143,41 +143,29 @@ Redesign milestone capture, resource budgeting, and action replay validated per 
 
 **Priority:** Low — test infrastructure
 
-### T19. FlightRecorder per-frame List<PartEvent> allocations
+### ~~T19. FlightRecorder per-frame List&lt;PartEvent&gt; allocations~~ DONE
 
-`CheckLightBlinkTransition`, `CheckEngineTransition`, `CheckRcsTransition`, and `ProcessRcsDebounce` allocate `new List<PartEvent>()` every physics frame for every cached module. At 50Hz with e.g. 10 engines, that's 500 allocations/second producing zero events most of the time. Should use a caller-owned reusable list or return `PartEvent?` for the common single-event case.
+Methods now append to a caller-owned reusable buffer instead of allocating per call.
 
-**Priority:** Medium — GC pressure during recording
+### ~~T20. ParsekFlight.TimelineGhosts allocates new Dictionary on every access~~ DONE
 
-### T20. ParsekFlight.TimelineGhosts allocates new Dictionary on every access
+Cached per-frame via `Time.frameCount`.
 
-The `TimelineGhosts` property creates `new Dictionary<int, GameObject>()` every call. If accessed per-frame from UI code, generates garbage. Should cache or return a read-only view.
+### ~~T21. ParsekUI double ComputeTotal calls~~ DONE
 
-**Priority:** Low — UI-path only
+Cached per-frame via `GetCachedBudget()` helper.
 
-### T21. ParsekUI double ComputeTotal calls
+### ~~T22. GhostSoftCapManager.EvaluateCaps not tested when Enabled=false~~ DONE
 
-Both `DrawResourceBudget` and `DrawCompactBudgetLine` call `ResourceBudget.ComputeTotal(...)` independently. If both are drawn in the same OnGUI frame, budget is computed twice. Should compute once and pass the result.
+Added `EvaluateCaps_Disabled_ReturnsEmpty_EvenAboveAllThresholds` test.
 
-**Priority:** Low — minor perf
+### ~~T23. SessionMerger frame trimming not tested~~ DONE
 
-### T22. GhostSoftCapManager.EvaluateCaps not tested when Enabled=false
+Added `ResolveOverlaps_FramesTrimmedToResultBoundaries` test with multi-frame sections.
 
-No test verifies that `EvaluateCaps` returns empty actions when `Enabled = false`. This is the critical production toggle — if the guard were removed, no test would catch it.
+### ~~T24. EnvironmentDetector untested for ORBITING and ESCAPING situations~~ DONE
 
-**Priority:** Low — test gap
-
-### T23. SessionMerger frame trimming not tested
-
-Tests assert `startUT`/`endUT`/`source` after `ResolveOverlaps` but never check that the `frames` lists were actually trimmed. `TrimFrames` could be broken and tests would still pass.
-
-**Priority:** Low — test gap
-
-### T24. EnvironmentDetector untested for ORBITING and ESCAPING situations
-
-Tests only cover LANDED(1), SPLASHED(2), PRELAUNCH(4), FLYING(8), SUB_ORBITAL(16). The ORBITING(32) and ESCAPING(64) situations are untested. They fall through to the altitude/thrust check, which is likely correct but should be verified.
-
-**Priority:** Low — test gap
+Added 5 tests covering ORBITING(32) and ESCAPING(64) with thrust/no-thrust and airless body variants.
 
 ---
 
@@ -195,11 +183,9 @@ Extract chain state + 4 commit methods (~400-500 lines) into a `ChainSegmentMana
 
 **Priority:** Medium — T25 complete, chain state isolation still needed
 
-### T27. GhostVisualBuilder SampleXxxStates unification (D15)
+### ~~T27. GhostVisualBuilder SampleXxxStates unification (D15)~~ DONE (PR #82)
 
-Unify 4 animation sampling methods (`SampleDeployableStates`, `SampleGearStates`, `SampleLadderStates`, `SampleCargoBayStates`) that share ~80% structure. ~300 lines savings. Blocked by differences in animation lookup strategy, stowed/deployed endpoint logic, cache keys, and sample point count.
-
-**Priority:** Low — methods work correctly, just repetitive
+Extracted `SampleAnimationStates` core method with `AnimLookup` enum + `FindAnimation` resolver. 4 methods reduced to thin wrappers, 4 caches consolidated into 1 `animationSampleCache`. Net -139 lines.
 
 ### T28. ParsekFlight commit-pattern dedup (D2)
 
@@ -1593,6 +1579,56 @@ The pure predicates (`ShouldAbandonSpawnDeathLoop`, `ShouldFlushDeferredSpawns`,
 After T25 extraction, ParsekFlight still has forwarding properties (`ghostStates => engine.ghostStates`, `overlapGhosts => engine.overlapGhosts`, etc.) and bridge methods (`DestroyTimelineGhost`, `DestroyAllOverlapGhosts`, `UpdateReentryFx`, etc.) that external callers (scene change, camera follow, delete, preview) use. These add ~500 lines that could be eliminated by updating callers to use the engine query API directly.
 
 **Priority:** Low — tech debt, no functional impact
+
+**Status:** Open
+
+## 134. CleanupOrphanedSpawnedVessels destroys freshly-spawned past vessel on first flight after rewind
+
+After rewind to UT ~99.8, entering flight at UT ~111. The Aeris 4A recording (UT 53–78, **before** the rewind point) correctly spawns a LANDED vessel on frame 1 (`VesselSpawned=true`). Half a second later, `CleanupOrphanedSpawnedVessels` runs during `OnFlightReady` and **destroys** the just-spawned vessel because "Aeris 4A" matches the cleanup names list. The vessel-gone check resets `VesselSpawned=false` (spawnDeathCount 1/3), the re-spawn attempt is collision-blocked by Crater Crawler at 14m for 150 frames, and eventually abandoned.
+
+**Root cause:** The rewind path populates `PendingCleanupNames` with ALL recording vessel names (11 names) via `CollectAllRecordingVesselNames()`. This makes sense for stripping future vessels from the save, but `CleanupOrphanedSpawnedVessels` at `OnFlightReady` also uses these same names. By then, past-recording vessels have already been correctly spawned by `UpdateTimelinePlayback`, and the cleanup destroys them.
+
+Different from #109 (missing cleanup on second rewind) — here cleanup runs but is over-aggressive on the first flight. Different from #112 (self-overlap) — here the vessel is destroyed by cleanup, not blocked by its own copy.
+
+**Fix:** `CleanupOrphanedSpawnedVessels` should exclude vessels that were just spawned by Parsek in the current frame/scene (check `VesselSpawned=true` or `SpawnedVesselPersistentId` against loaded vessels). Or: clear `PendingCleanupNames` after `StripOrphanedSpawnedVessels` runs in OnLoad so the cleanup doesn't re-fire at OnFlightReady.
+
+**Priority:** High — destroys correctly-spawned vessels after rewind
+
+**Status:** Open
+
+## 135. ShouldSpawnAtRecordingEnd VERBOSE log spam — 377K lines/session
+
+`GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` logs a VERBOSE line for every suppressed recording on every call. Called from `UpdateTimelinePlayback()` → `Update()` per-recording per-frame. With 37 recordings and 60fps, this produces ~2,200 lines/second. In the analyzed session: 377,350 lines — 73% of all Parsek log output and the single largest spam source.
+
+Different from #117 (CanRewind/CanFastForward UI spam, now fixed) and #121 (Ghost SKIPPED during collision-blocked spawn).
+
+**Fix:** Remove all VERBOSE logs from `ShouldSpawnAtRecordingEnd`. Like CanRewind/CanFastForward (#117), this is a per-frame read-only check where the `reason` out-parameter already conveys the suppression reason to the caller.
+
+**Priority:** High — blocks effective log analysis
+
+**Status:** Open
+
+## 136. ParsePartPositions: 0/N parts parsed from vessel snapshot
+
+`SpawnCollisionDetector.ParsePartPositions` parsed 0 of 40 parts from the Aeris 4A vessel snapshot, falling back to a 2m bounds estimate. This makes the collision check unreliable — the actual vessel footprint is much larger than 2m but the detector can't compute it.
+
+Different from #127 (wrong position source for collision check, now fixed). This is about the part position parser itself failing to extract coordinates from snapshot PART nodes.
+
+**Fix:** Investigate why `ParsePartPositions` fails on the Aeris 4A snapshot. Likely the PART nodes use a different position format or key name than expected. Add a VERBOSE diagnostic log showing what keys/values the parser found vs expected.
+
+**Priority:** Low — fallback bounds work but are inaccurate
+
+**Status:** Open
+
+## 137. Crew status corruption: reserved kerbals become Missing after post-rewind EVA vessel removal
+
+After rewind, `OnFlightReady` removes reserved EVA vessels (Bob Kerman pid=2373555091, Halemy Kerman pid=2924298993). KSP's removal sets their status from Assigned to Missing. The crew rescue logic (`Rescued Missing crew → Available`) runs earlier during OnLoad but not after OnFlightReady, so these kerbals stay Missing for the rest of the session until the next save/load cycle.
+
+Log evidence: `CrewStatusChanged 'Bob Kerman' Assigned → Missing` at UT 115.6, and `CrewStatusChanged 'Halemy Kerman' Assigned → Missing` at UT 115.6. Similar to #116 (Valentina lost to Missing) but triggered by EVA vessel removal rather than vessel strip.
+
+**Fix:** Run crew status rescue after `OnFlightReady` EVA vessel removal, not just during OnLoad. Or: prevent EVA vessels for reserved crew from existing in the save in the first place.
+
+**Priority:** Medium — crew becomes unavailable until next load
 
 **Status:** Open
 
