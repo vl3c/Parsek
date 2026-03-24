@@ -47,18 +47,14 @@ namespace Parsek
         private Recording previewRecording;
         internal int lastPlaybackIndex = 0;
 
-        private Dictionary<int, GhostPlaybackState> ghostStates = new Dictionary<int, GhostPlaybackState>();
+        // Ghost state is owned by the engine (T25). These properties forward to engine fields
+        // so existing code continues to work during the incremental extraction.
+        private Dictionary<int, GhostPlaybackState> ghostStates => engine.ghostStates;
         private readonly MaterialPropertyBlock reentryShellMpb = new MaterialPropertyBlock();
-        private readonly List<GameObject> activeExplosions = new List<GameObject>();
-
-        // Older cycle ghosts still alive due to negative interval overlap
-        private Dictionary<int, List<GhostPlaybackState>> overlapGhosts = new Dictionary<int, List<GhostPlaybackState>>();
-        private const int MaxOverlapGhostsPerRecording = 5;
-
-        // Loop phase offsets: when Watch mode starts on a ghost that's currently beyond
-        // visual range, we shift the loop phase so the ghost starts from the beginning
-        // of its recording (at the pad). This avoids targeting a ghost 300km away.
-        private Dictionary<int, double> loopPhaseOffsets = new Dictionary<int, double>();
+        private List<GameObject> activeExplosions => engine.activeExplosions;
+        private Dictionary<int, List<GhostPlaybackState>> overlapGhosts => engine.overlapGhosts;
+        private const int MaxOverlapGhostsPerRecording = GhostPlaybackEngine.MaxOverlapGhostsPerRecording;
+        private Dictionary<int, double> loopPhaseOffsets => engine.loopPhaseOffsets;
 
         // Real Spawn Control: proximity-based nearby craft detection
         private readonly List<NearbySpawnCandidate> nearbySpawnCandidates = new List<NearbySpawnCandidate>();
@@ -240,13 +236,14 @@ namespace Parsek
         }
 
         // Diagnostic logging guards (log once per state transition, not per frame)
-        private HashSet<int> loggedGhostEnter = new HashSet<int>();
+        // loggedGhostEnter and loggedReshow moved to engine (T25).
+        private HashSet<int> loggedGhostEnter => engine.loggedGhostEnter;
         private HashSet<int> loggedOrbitSegments = new HashSet<int>();
         private HashSet<int> loggedOrbitRotationSegments = new HashSet<int>();
-        private HashSet<int> loggedReshow = new HashSet<int>();
+        private HashSet<int> loggedReshow => engine.loggedReshow;
 
-        // Anchor vessel tracking: which anchor vessels are currently loaded (for looped ghost lifecycle)
-        private readonly HashSet<uint> loadedAnchorVessels = new HashSet<uint>();
+        // Anchor vessel tracking moved to engine (T25).
+        private HashSet<uint> loadedAnchorVessels => engine.loadedAnchorVessels;
 
         // Phase 6b: Ghost chain evaluation + vessel ghosting
         private VesselGhoster vesselGhoster;
@@ -256,18 +253,14 @@ namespace Parsek
         private HashSet<string> pendingSpawnRecordingIds = new HashSet<string>();
         private string pendingWatchRecordingId = null;  // recording ID that was in watch mode when deferred
         private bool timelineResourceReplayPausedLogged = false;
-        // Loop constants are in GhostPlaybackLogic
-        private const double OverlapExplosionHoldSeconds = 3.0;
+        // Loop constants moved to engine (T25).
+        private const double OverlapExplosionHoldSeconds = GhostPlaybackEngine.OverlapExplosionHoldSeconds;
 
-        // Soft cap evaluation — cached lists to avoid per-frame allocation
-        private readonly List<(int recordingIndex, GhostPriority priority)> cachedZone1Ghosts =
-            new List<(int, GhostPriority)>();
-        private readonly List<(int recordingIndex, GhostPriority priority)> cachedZone2Ghosts =
-            new List<(int, GhostPriority)>();
-        private bool softCapTriggeredThisFrame; // rate-limit logging
-        // Ghosts despawned by soft cap are suppressed until ghost count drops below threshold
-        // to prevent spawn-despawn-spawn loops every frame
-        private readonly HashSet<int> softCapSuppressed = new HashSet<int>();
+        // Soft cap state moved to engine (T25). Forwarding properties for incremental extraction.
+        private List<(int recordingIndex, GhostPriority priority)> cachedZone1Ghosts => engine.cachedZone1Ghosts;
+        private List<(int recordingIndex, GhostPriority priority)> cachedZone2Ghosts => engine.cachedZone2Ghosts;
+        private bool softCapTriggeredThisFrame { get => engine.softCapTriggeredThisFrame; set => engine.softCapTriggeredThisFrame = value; }
+        private HashSet<int> softCapSuppressed => engine.softCapSuppressed;
 
         // Camera follow (watch mode) — transient, never serialized
         private const string WatchModeLockId = "ParsekWatch";
