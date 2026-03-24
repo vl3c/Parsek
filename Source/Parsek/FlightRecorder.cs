@@ -3682,8 +3682,7 @@ namespace Parsek
 
                 vesselInfoBuffer.Add((vessel.persistentId, (Vector3d)vessel.transform.position));
             }
-            if (ParsekLog.IsVerboseEnabled)
-                ParsekLog.Verbose("Anchor", $"Vessel info list: {vesselInfoBuffer.Count} candidates");
+            // Per-frame logging removed (was 0.4% of all log output)
             return vesselInfoBuffer;
         }
 

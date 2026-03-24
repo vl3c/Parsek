@@ -2045,31 +2045,31 @@ namespace Parsek
             // Base condition: must have a snapshot, not already spawned, not destroyed
             if (rec.VesselSnapshot == null)
             {
-                ParsekLog.Verbose("Spawner", $"ShouldSpawnAtRecordingEnd: '{rec.VesselName}' suppressed — no vessel snapshot");
+                // Reason returned to caller; per-frame logging removed (was 73% of all log output)no vessel snapshot");
                 return (false, "no vessel snapshot");
             }
             if (rec.VesselSpawned)
             {
-                ParsekLog.Verbose("Spawner", $"ShouldSpawnAtRecordingEnd: '{rec.VesselName}' suppressed — already spawned (VesselSpawned=true)");
+                // Reason returned to caller; per-frame logging removed (was 73% of all log output)already spawned (VesselSpawned=true)");
                 return (false, "already spawned (VesselSpawned=true)");
             }
             if (rec.VesselDestroyed)
             {
-                ParsekLog.Verbose("Spawner", $"ShouldSpawnAtRecordingEnd: '{rec.VesselName}' suppressed — vessel destroyed");
+                // Reason returned to caller; per-frame logging removed (was 73% of all log output)vessel destroyed");
                 return (false, "vessel destroyed");
             }
 
             // Branch > 0 recordings are ghost-only (undock continuations) — never spawn
             if (rec.ChainBranch > 0)
             {
-                ParsekLog.Verbose("Spawner", $"ShouldSpawnAtRecordingEnd: '{rec.VesselName}' suppressed — branch > 0 (ghost-only)");
+                // Reason returned to caller; per-frame logging removed (was 73% of all log output)branch > 0 (ghost-only)");
                 return (false, "branch > 0 (ghost-only)");
             }
 
             // Suppress spawning for recordings belonging to a chain currently being built
             if (isActiveChainMember)
             {
-                ParsekLog.Verbose("Spawner", $"ShouldSpawnAtRecordingEnd: '{rec.VesselName}' suppressed — active chain being built");
+                // Reason returned to caller; per-frame logging removed (was 73% of all log output)active chain being built");
                 return (false, "active chain being built");
             }
 
@@ -2081,14 +2081,14 @@ namespace Parsek
             // Suppress spawn for looping or fully-disabled chains
             if (isChainLoopingOrDisabled)
             {
-                ParsekLog.Verbose("Spawner", $"ShouldSpawnAtRecordingEnd: '{rec.VesselName}' suppressed — chain looping or fully disabled");
+                // Reason returned to caller; per-frame logging removed (was 73% of all log output)chain looping or fully disabled");
                 return (false, "chain looping or fully disabled");
             }
 
             // Non-leaf tree recordings should never spawn (they branched into children)
             if (rec.ChildBranchPointId != null)
             {
-                ParsekLog.Verbose("Spawner", $"ShouldSpawnAtRecordingEnd: '{rec.VesselName}' suppressed — non-leaf tree recording");
+                // Reason returned to caller; per-frame logging removed (was 73% of all log output)non-leaf tree recording");
                 return (false, "non-leaf tree recording");
             }
 
@@ -2097,14 +2097,14 @@ namespace Parsek
             // ChildBranchPointId was not set (e.g., serialization gaps). (#114)
             if (IsNonLeafInCommittedTree(rec))
             {
-                ParsekLog.Verbose("Spawner", $"ShouldSpawnAtRecordingEnd: '{rec.VesselName}' suppressed — non-leaf in committed tree (safety net)");
+                // Reason returned to caller; per-frame logging removed (was 73% of all log output)non-leaf in committed tree (safety net)");
                 return (false, "non-leaf in committed tree (safety net)");
             }
 
             // Debris recordings are visual-only (short TTL, no meaningful vessel to persist)
             if (rec.IsDebris)
             {
-                ParsekLog.Verbose("Spawner", $"ShouldSpawnAtRecordingEnd: '{rec.VesselName}' suppressed — debris recording (visual-only)");
+                // Reason returned to caller; per-frame logging removed (was 73% of all log output)debris recording (visual-only)");
                 return (false, "debris recording (visual-only)");
             }
 
@@ -2117,7 +2117,7 @@ namespace Parsek
                     || ts == TerminalState.Docked || ts == TerminalState.Boarded
                     || ts == TerminalState.SubOrbital)
                 {
-                    ParsekLog.Verbose("Spawner", $"ShouldSpawnAtRecordingEnd: '{rec.VesselName}' suppressed — terminal state {ts}");
+                    // Reason returned to caller; per-frame logging removed (was 73% of all log output)terminal state {ts}");
                     return (false, $"terminal state {ts}");
                 }
             }
@@ -2128,7 +2128,7 @@ namespace Parsek
             // captured mid-flight. (#114)
             if (IsSnapshotSituationUnsafe(rec.VesselSnapshot))
             {
-                ParsekLog.Verbose("Spawner", $"ShouldSpawnAtRecordingEnd: '{rec.VesselName}' suppressed — snapshot situation unsafe (FLYING/SUB_ORBITAL)");
+                // Reason returned to caller; per-frame logging removed (was 73% of all log output)snapshot situation unsafe (FLYING/SUB_ORBITAL)");
                 return (false, "snapshot situation unsafe (FLYING/SUB_ORBITAL)");
             }
 
@@ -2136,7 +2136,7 @@ namespace Parsek
             // On revert, SpawnedVesselPersistentId resets to 0 from quicksave so reverts still work.
             if (rec.SpawnedVesselPersistentId != 0)
             {
-                ParsekLog.Verbose("Spawner", $"ShouldSpawnAtRecordingEnd: '{rec.VesselName}' suppressed — already spawned (pid={rec.SpawnedVesselPersistentId})");
+                // Reason returned to caller; per-frame logging removed (was 73% of all log output)already spawned (pid={rec.SpawnedVesselPersistentId})");
                 return (false, $"already spawned (pid={rec.SpawnedVesselPersistentId})");
             }
 

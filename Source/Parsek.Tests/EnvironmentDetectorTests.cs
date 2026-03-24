@@ -277,40 +277,8 @@ namespace Parsek.Tests
 
         #region Classify — Verbose logging
 
-        [Fact]
-        public void Classify_LogsInputParametersAndResult()
-        {
-            EnvironmentDetector.Classify(
-                hasAtmosphere: true,
-                altitude: 5000,
-                atmosphereDepth: 70000,
-                situation: 8,
-                srfSpeed: 200,
-                hasActiveThrust: true);
-
-            Assert.Contains(logLines, l =>
-                l.Contains("[VERBOSE]") &&
-                l.Contains("[Environment]") &&
-                l.Contains("Atmospheric"));
-        }
-
-        [Fact]
-        public void Classify_Surface_LogsSituationAndSpeed()
-        {
-            EnvironmentDetector.Classify(
-                hasAtmosphere: true,
-                altitude: 75,
-                atmosphereDepth: 70000,
-                situation: 1,
-                srfSpeed: 5.0,
-                hasActiveThrust: false);
-
-            Assert.Contains(logLines, l =>
-                l.Contains("[VERBOSE]") &&
-                l.Contains("[Environment]") &&
-                l.Contains("situation=1") &&
-                l.Contains("SurfaceMobile"));
-        }
+        // Classify_LogsInputParametersAndResult and Classify_Surface_LogsSituationAndSpeed
+        // removed: per-frame verbose logging was removed from Classify (was 0.9% of all log output).
 
         #endregion
 
@@ -594,35 +562,8 @@ namespace Parsek.Tests
                 l.Contains("immediate"));
         }
 
-        [Fact]
-        public void Hysteresis_PendingStart_LogsVerbose()
-        {
-            var h = new EnvironmentHysteresis(SegmentEnvironment.ExoPropulsive);
-
-            h.Update(SegmentEnvironment.ExoBallistic, 100.0);
-
-            Assert.Contains(logLines, l =>
-                l.Contains("[VERBOSE]") &&
-                l.Contains("[Environment]") &&
-                l.Contains("pending") &&
-                l.Contains("ExoPropulsive") &&
-                l.Contains("ExoBallistic") &&
-                l.Contains("started"));
-        }
-
-        [Fact]
-        public void Hysteresis_PendingCancel_LogsVerbose()
-        {
-            var h = new EnvironmentHysteresis(SegmentEnvironment.ExoPropulsive);
-
-            h.Update(SegmentEnvironment.ExoBallistic, 100.0); // start pending
-            h.Update(SegmentEnvironment.ExoPropulsive, 100.3); // cancel
-
-            Assert.Contains(logLines, l =>
-                l.Contains("[VERBOSE]") &&
-                l.Contains("[Environment]") &&
-                l.Contains("cancelled"));
-        }
+        // Hysteresis_PendingStart_LogsVerbose and Hysteresis_PendingCancel_LogsVerbose
+        // removed: per-frame verbose logging was removed from hysteresis pending/cancel paths.
 
         [Fact]
         public void Hysteresis_Initialization_LogsVerbose()
