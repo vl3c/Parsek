@@ -53,6 +53,13 @@ namespace Parsek
         internal const int MaxOverlapGhostsPerRecording = 5;
         internal const double OverlapExplosionHoldSeconds = 3.0;
 
+        // Deferred event lists (reused per frame to avoid GC allocation)
+        private readonly List<PlaybackCompletedEvent> deferredCompletedEvents = new List<PlaybackCompletedEvent>();
+        private readonly List<GhostLifecycleEvent> deferredCreatedEvents = new List<GhostLifecycleEvent>();
+
+        // Dedup: prevent completed events from firing every frame for past-end recordings
+        private readonly HashSet<int> completedEventFired = new HashSet<int>();
+
         #endregion
 
         #region Lifecycle events
@@ -98,15 +105,25 @@ namespace Parsek
             if (suppressGhosts)
                 loggedReshow.Clear();
 
-            var deferredCompleted = new List<PlaybackCompletedEvent>();
-            var deferredCreated = new List<GhostLifecycleEvent>();
+            deferredCompletedEvents.Clear();
+            deferredCreatedEvents.Clear();
 
             for (int i = 0; i < trajectories.Count; i++)
             {
                 var traj = trajectories[i];
                 var f = flags[i];
 
-                if (f.skipGhost) continue;
+                // Disabled/suppressed: destroy any active ghost before skipping
+                if (f.skipGhost)
+                {
+                    if (ghostStates.ContainsKey(i))
+                    {
+                        DestroyAllOverlapGhosts(i);
+                        DestroyGhost(i);
+                        ParsekLog.Info("Engine", $"Ghost #{i} destroyed — recording skipped (disabled/suppressed)");
+                    }
+                    continue;
+                }
 
                 bool hasPoints = traj.Points != null && traj.Points.Count >= 2;
                 bool hasOrbitData = traj.OrbitSegments != null && traj.OrbitSegments.Count > 0;
@@ -158,7 +175,9 @@ namespace Parsek
                 // === Warp suppression: hide ghost during high warp ===
                 if (suppressGhosts && ghostActive)
                 {
-                    state.ghost.SetActive(false);
+                    if (state.ghost.activeSelf)
+                        state.ghost.SetActive(false);
+                    DestroyAllOverlapGhosts(i);
                     continue;
                 }
 
@@ -173,7 +192,7 @@ namespace Parsek
                         if (loggedGhostEnter.Add(i))
                             ParsekLog.Info("Engine", $"Ghost ENTERED range: #{i} \"{traj.VesselName}\" ({f.segmentLabel})");
 
-                        deferredCreated.Add(new GhostLifecycleEvent
+                        deferredCreatedEvents.Add(new GhostLifecycleEvent
                         {
                             Index = i, Trajectory = traj, State = state, Flags = f
                         });
@@ -199,7 +218,23 @@ namespace Parsek
                     // Position the ghost
                     if (hasPoints)
                     {
-                        positioner.InterpolateAndPosition(i, traj, state, ctx.currentUT, suppressVisualFx);
+                        // Check for relative frame positioning (Phase 3b: docking/rendezvous)
+                        bool usedRelative = false;
+                        if (traj.TrackSections != null && traj.TrackSections.Count > 0)
+                        {
+                            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, ctx.currentUT);
+                            if (sectionIdx >= 0 && traj.TrackSections[sectionIdx].referenceFrame == ReferenceFrame.Relative)
+                            {
+                                positioner.InterpolateAndPositionRelative(i, traj, state,
+                                    ctx.currentUT, suppressVisualFx,
+                                    traj.TrackSections[sectionIdx].anchorVesselId);
+                                usedRelative = true;
+                            }
+                        }
+                        if (!usedRelative)
+                        {
+                            positioner.InterpolateAndPosition(i, traj, state, ctx.currentUT, suppressVisualFx);
+                        }
                     }
                     else if (hasSurfaceData)
                     {
@@ -230,8 +265,9 @@ namespace Parsek
                 }
 
                 // === Past end: fire completed event, optionally destroy ===
-                if ((pastEnd || pastEffectiveEnd) && ghostActive)
+                if ((pastEnd || pastEffectiveEnd) && ghostActive && !completedEventFired.Contains(i))
                 {
+                    completedEventFired.Add(i);
                     // Position ghost at final point
                     if (hasPoints)
                     {
@@ -243,7 +279,7 @@ namespace Parsek
                     TriggerExplosionIfDestroyed(state, traj, i, ctx.warpRate);
 
                     // Fire completed event (policy handles spawn/resources/camera)
-                    deferredCompleted.Add(new PlaybackCompletedEvent
+                    deferredCompletedEvents.Add(new PlaybackCompletedEvent
                     {
                         Index = i,
                         Trajectory = traj,
@@ -265,9 +301,10 @@ namespace Parsek
                 }
 
                 // Past end, ghost not active: fire event for policy (deferred spawn, resources)
-                if (pastEnd || pastEffectiveEnd)
+                if ((pastEnd || pastEffectiveEnd) && !completedEventFired.Contains(i))
                 {
-                    deferredCompleted.Add(new PlaybackCompletedEvent
+                    completedEventFired.Add(i);
+                    deferredCompletedEvents.Add(new PlaybackCompletedEvent
                     {
                         Index = i,
                         Trajectory = traj,
@@ -292,11 +329,11 @@ namespace Parsek
             }
 
             // Fire deferred events AFTER loop completes
-            for (int i = 0; i < deferredCreated.Count; i++)
-                OnGhostCreated?.Invoke(deferredCreated[i]);
+            for (int i = 0; i < deferredCreatedEvents.Count; i++)
+                OnGhostCreated?.Invoke(deferredCreatedEvents[i]);
 
-            for (int i = 0; i < deferredCompleted.Count; i++)
-                OnPlaybackCompleted?.Invoke(deferredCompleted[i]);
+            for (int i = 0; i < deferredCompletedEvents.Count; i++)
+                OnPlaybackCompleted?.Invoke(deferredCompletedEvents[i]);
         }
 
         /// <summary>
@@ -1015,6 +1052,7 @@ namespace Parsek
             cachedZone1Ghosts.Clear();
             cachedZone2Ghosts.Clear();
             softCapTriggeredThisFrame = false;
+            completedEventFired.Clear();
 
             CleanupActiveExplosions();
         }
