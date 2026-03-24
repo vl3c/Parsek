@@ -16,6 +16,8 @@ namespace Parsek
         // Ghost threshold: 50x is the last level where ghost meshes update often enough to be useful.
         internal const float FxSuppressWarpThreshold = 10f;
         internal const float GhostHideWarpThreshold = 50f;
+        internal const double DefaultLoopIntervalSeconds = 10.0;
+        internal const double MinLoopDurationSeconds = 1.0;
         internal const double MinCycleDuration = 1.0;
         // Grace period before zone-based watch mode exit (wall-clock seconds).
         // Prevents immediate exit when a ghost briefly crosses a zone boundary at watch-mode start.
@@ -1316,6 +1318,50 @@ namespace Parsek
                 for (int i = 0; i < info.particleSystems.Count; i++)
                 {
                     var ps = info.particleSystems[i];
+                    if (ps == null) continue;
+                    ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                    ps.Clear(true);
+                    SetParticleRenderersEnabled(ps, false);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Stop and clear all engine FX particle systems across every engine info in the state.
+        /// Used during ghost teardown to ensure no orphaned particle effects remain.
+        /// </summary>
+        internal static void StopAllEngineFx(GhostPlaybackState state)
+        {
+            if (state?.engineInfos == null) return;
+            foreach (var kv in state.engineInfos)
+            {
+                SetKspEmittersEnabled(kv.Value.kspEmitters, false);
+                if (kv.Value.particleSystems == null) continue;
+                for (int i = 0; i < kv.Value.particleSystems.Count; i++)
+                {
+                    var ps = kv.Value.particleSystems[i];
+                    if (ps == null) continue;
+                    ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                    ps.Clear(true);
+                    SetParticleRenderersEnabled(ps, false);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Stop and clear all RCS FX particle systems across every RCS info in the state.
+        /// Used during ghost teardown to ensure no orphaned particle effects remain.
+        /// </summary>
+        internal static void StopAllRcsFx(GhostPlaybackState state)
+        {
+            if (state?.rcsInfos == null) return;
+            foreach (var kv in state.rcsInfos)
+            {
+                SetKspEmittersEnabled(kv.Value.kspEmitters, false);
+                if (kv.Value.particleSystems == null) continue;
+                for (int i = 0; i < kv.Value.particleSystems.Count; i++)
+                {
+                    var ps = kv.Value.particleSystems[i];
                     if (ps == null) continue;
                     ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
                     ps.Clear(true);

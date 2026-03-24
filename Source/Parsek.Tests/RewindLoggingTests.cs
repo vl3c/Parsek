@@ -308,7 +308,7 @@ namespace Parsek.Tests
             RecordingStore.IsRewinding = true;
             RecordingStore.RewindUT = 17000.0;
             RecordingStore.RewindAdjustedUT = 16990.0;
-            RecordingStore.RewindReserved = new ResourceBudget.BudgetSummary
+            RecordingStore.RewindReserved = new BudgetSummary
             {
                 reservedFunds = 100, reservedScience = 10, reservedReputation = 5
             };

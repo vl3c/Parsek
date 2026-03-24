@@ -37,9 +37,7 @@ namespace Parsek
         private HashSet<int> loggedGhostSpawn = new HashSet<int>();
         private HashSet<int> loggedReshow = new HashSet<int>();
 
-        private const double DefaultLoopIntervalSeconds = 10.0;
-        private const double MinLoopDurationSeconds = 1.0;
-        private const double MinCycleDuration = 1.0;
+        // Loop constants are in GhostPlaybackLogic
         // Safety cap for overlap ghosts. Natural phase expiration keeps count bounded for
         // well-behaved recordings, but pathological cases (very short duration, very negative
         // interval) could spawn many before expiration catches up.
@@ -53,7 +51,7 @@ namespace Parsek
         {
             ParsekLog.Info("KSC", "ParsekKSC starting in Space Center scene");
 
-            ui = new ParsekUI(ParsekUI.UIMode.KSC);
+            ui = new ParsekUI(UIMode.KSC);
 
             toolbarControl = gameObject.AddComponent<ToolbarControl>();
             toolbarControl.AddToAllToolbars(
@@ -166,7 +164,7 @@ namespace Parsek
                 if (rec.LoopPlayback)
                 {
                     double duration = rec.EndUT - rec.StartUT;
-                    if (duration <= MinLoopDurationSeconds) continue;
+                    if (duration <= GhostPlaybackLogic.MinLoopDurationSeconds) continue;
 
                     double intervalSeconds = GetLoopIntervalSeconds(rec);
                     if (intervalSeconds < 0)
@@ -311,7 +309,7 @@ namespace Parsek
             }
 
             double cycleDuration = duration + intervalSeconds;
-            if (cycleDuration < MinCycleDuration) cycleDuration = MinCycleDuration;
+            if (cycleDuration < GhostPlaybackLogic.MinCycleDuration) cycleDuration = GhostPlaybackLogic.MinCycleDuration;
 
             int firstCycle, lastCycle;
             GhostPlaybackLogic.GetActiveCycles(currentUT, rec.StartUT, rec.EndUT,
@@ -489,7 +487,7 @@ namespace Parsek
                 partTree = GhostVisualBuilder.BuildPartSubtreeMap(snapshot)
             };
 
-            PopulateGhostInfoDictionaries(state, buildResult);
+            GhostPlaybackLogic.PopulateGhostInfoDictionaries(state, buildResult);
 
             GhostPlaybackLogic.InitializeInventoryPlacementVisibility(rec, state);
 
@@ -509,99 +507,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Populate the GhostPlaybackState info dictionaries from a GhostBuildResult.
-        /// Transfers parachute, jettison, engine, deployable, heat, light, fairing,
-        /// RCS, robotic, and color changer infos into the state's lookup dictionaries.
-        /// </summary>
-        private static void PopulateGhostInfoDictionaries(
-            GhostPlaybackState state, GhostBuildResult buildResult)
-        {
-            if (buildResult.parachuteInfos != null)
-            {
-                state.parachuteInfos = new Dictionary<uint, ParachuteGhostInfo>();
-                for (int i = 0; i < buildResult.parachuteInfos.Count; i++)
-                    state.parachuteInfos[buildResult.parachuteInfos[i].partPersistentId] = buildResult.parachuteInfos[i];
-            }
-
-            if (buildResult.jettisonInfos != null)
-            {
-                state.jettisonInfos = new Dictionary<uint, JettisonGhostInfo>();
-                for (int i = 0; i < buildResult.jettisonInfos.Count; i++)
-                    state.jettisonInfos[buildResult.jettisonInfos[i].partPersistentId] = buildResult.jettisonInfos[i];
-            }
-
-            if (buildResult.engineInfos != null)
-            {
-                state.engineInfos = new Dictionary<ulong, EngineGhostInfo>();
-                for (int i = 0; i < buildResult.engineInfos.Count; i++)
-                {
-                    ulong key = FlightRecorder.EncodeEngineKey(
-                        buildResult.engineInfos[i].partPersistentId, buildResult.engineInfos[i].moduleIndex);
-                    state.engineInfos[key] = buildResult.engineInfos[i];
-                }
-            }
-
-            if (buildResult.deployableInfos != null)
-            {
-                state.deployableInfos = new Dictionary<uint, DeployableGhostInfo>();
-                for (int i = 0; i < buildResult.deployableInfos.Count; i++)
-                    state.deployableInfos[buildResult.deployableInfos[i].partPersistentId] = buildResult.deployableInfos[i];
-            }
-
-            if (buildResult.heatInfos != null)
-            {
-                state.heatInfos = new Dictionary<uint, HeatGhostInfo>();
-                for (int i = 0; i < buildResult.heatInfos.Count; i++)
-                    state.heatInfos[buildResult.heatInfos[i].partPersistentId] = buildResult.heatInfos[i];
-            }
-
-            if (buildResult.lightInfos != null)
-            {
-                state.lightInfos = new Dictionary<uint, LightGhostInfo>();
-                state.lightPlaybackStates =
-                    new Dictionary<uint, LightPlaybackState>();
-                for (int i = 0; i < buildResult.lightInfos.Count; i++)
-                {
-                    state.lightInfos[buildResult.lightInfos[i].partPersistentId] = buildResult.lightInfos[i];
-                    state.lightPlaybackStates[buildResult.lightInfos[i].partPersistentId] =
-                        new LightPlaybackState();
-                }
-            }
-
-            if (buildResult.fairingInfos != null)
-            {
-                state.fairingInfos = new Dictionary<uint, FairingGhostInfo>();
-                for (int i = 0; i < buildResult.fairingInfos.Count; i++)
-                    state.fairingInfos[buildResult.fairingInfos[i].partPersistentId] = buildResult.fairingInfos[i];
-            }
-
-            if (buildResult.rcsInfos != null)
-            {
-                state.rcsInfos = new Dictionary<ulong, RcsGhostInfo>();
-                for (int i = 0; i < buildResult.rcsInfos.Count; i++)
-                {
-                    ulong key = FlightRecorder.EncodeEngineKey(
-                        buildResult.rcsInfos[i].partPersistentId, buildResult.rcsInfos[i].moduleIndex);
-                    state.rcsInfos[key] = buildResult.rcsInfos[i];
-                }
-            }
-
-            if (buildResult.roboticInfos != null)
-            {
-                state.roboticInfos = new Dictionary<ulong, RoboticGhostInfo>();
-                for (int i = 0; i < buildResult.roboticInfos.Count; i++)
-                {
-                    ulong key = FlightRecorder.EncodeEngineKey(
-                        buildResult.roboticInfos[i].partPersistentId, buildResult.roboticInfos[i].moduleIndex);
-                    state.roboticInfos[key] = buildResult.roboticInfos[i];
-                }
-            }
-
-            if (buildResult.colorChangerInfos != null)
-                state.colorChangerInfos = GhostVisualBuilder.GroupColorChangersByPartId(buildResult.colorChangerInfos);
-        }
-
-        /// <summary>
         /// Position a ghost by interpolating between trajectory points.
         /// Simplified version — no FloatingOrigin GhostPosEntry registration
         /// (positions are recomputed from lat/lon/alt each frame, so origin
@@ -613,23 +518,29 @@ namespace Parsek
             ref int cachedIndex, double targetUT,
             bool surfaceRelativeRotation)
         {
-            if (points == null || points.Count == 0)
+            TrajectoryPoint before, after;
+            float t;
+            bool hasSegment = TrajectoryMath.InterpolatePoints(
+                points, ref cachedIndex, targetUT, out before, out after, out t);
+
+            if (!hasSegment)
             {
-                ghost.SetActive(false);
+                // Either empty list or before recording start
+                if (points == null || points.Count == 0)
+                {
+                    ghost.SetActive(false);
+                    return;
+                }
+                PositionGhostAtPoint(ghost, before, surfaceRelativeRotation);
                 return;
             }
 
-            int indexBefore = TrajectoryMath.FindWaypointIndex(points, ref cachedIndex, targetUT);
-
-            if (indexBefore < 0)
+            // Degenerate segment (t == 0 from zero-duration segment)
+            if (t == 0f && before.ut == after.ut)
             {
-                // Before recording start — position at first point
-                PositionGhostAtPoint(ghost, points[0], surfaceRelativeRotation);
+                PositionGhostAtPoint(ghost, before, surfaceRelativeRotation);
                 return;
             }
-
-            TrajectoryPoint before = points[indexBefore];
-            TrajectoryPoint after = points[indexBefore + 1];
 
             // Stop positioning when trajectory leaves Kerbin
             if (before.bodyName != "Kerbin" || after.bodyName != "Kerbin")
@@ -637,16 +548,6 @@ namespace Parsek
                 ghost.SetActive(false);
                 return;
             }
-
-            double segmentDuration = after.ut - before.ut;
-            if (segmentDuration <= 0.0001)
-            {
-                PositionGhostAtPoint(ghost, before, surfaceRelativeRotation);
-                return;
-            }
-
-            float t = (float)((targetUT - before.ut) / segmentDuration);
-            t = Mathf.Clamp01(t);
 
             CelestialBody bodyBefore = LookupBody(before.bodyName);
             CelestialBody bodyAfter = LookupBody(after.bodyName);
@@ -764,11 +665,11 @@ namespace Parsek
             if (currentUT < rec.StartUT) return false;
 
             double duration = rec.EndUT - rec.StartUT;
-            if (duration <= MinLoopDurationSeconds) return false;
+            if (duration <= GhostPlaybackLogic.MinLoopDurationSeconds) return false;
 
             double intervalSeconds = GetLoopIntervalSeconds(rec);
             double cycleDuration = duration + intervalSeconds;
-            if (cycleDuration <= MinLoopDurationSeconds)
+            if (cycleDuration <= GhostPlaybackLogic.MinLoopDurationSeconds)
                 cycleDuration = duration;
 
             double elapsed = currentUT - rec.StartUT;
@@ -789,15 +690,15 @@ namespace Parsek
 
         /// <summary>
         /// Get the loop interval for a recording. Matches ParsekFlight logic:
-        /// clamped so cycleDuration is always >= MinCycleDuration.
+        /// clamped so cycleDuration is always >= GhostPlaybackLogic.MinCycleDuration.
         /// Negative intervals mean shorter cycles (overlapping launches from KSC).
         /// </summary>
         internal static double GetLoopIntervalSeconds(Recording rec)
         {
             double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
-                                    ?? DefaultLoopIntervalSeconds;
+                                    ?? GhostPlaybackLogic.DefaultLoopIntervalSeconds;
             return GhostPlaybackLogic.ResolveLoopInterval(
-                rec, globalInterval, DefaultLoopIntervalSeconds, MinCycleDuration);
+                rec, globalInterval, GhostPlaybackLogic.DefaultLoopIntervalSeconds, GhostPlaybackLogic.MinCycleDuration);
         }
 
         /// <summary>
@@ -845,61 +746,14 @@ namespace Parsek
         {
             if (state == null) return;
 
-            // Stop engine particle systems
-            StopParticleSystems(state.engineInfos);
-
-            // Stop RCS particle systems
-            StopRcsParticleSystems(state.rcsInfos);
+            GhostPlaybackLogic.StopAllEngineFx(state);
+            GhostPlaybackLogic.StopAllRcsFx(state);
 
             GhostPlaybackLogic.DestroyAllFakeCanopies(state);
             if (state.ghost != null)
                 Destroy(state.ghost);
 
             ParsekLog.Verbose("KSCGhost", $"Ghost #{index} destroyed");
-        }
-
-        /// <summary>
-        /// Stop and clear all particle systems in engine ghost infos.
-        /// Extracted from DestroyKscGhost to deduplicate engine/RCS cleanup.
-        /// </summary>
-        private static void StopParticleSystems(Dictionary<ulong, EngineGhostInfo> infos)
-        {
-            if (infos == null) return;
-            foreach (var kv in infos)
-            {
-                if (kv.Value.particleSystems == null) continue;
-                for (int i = 0; i < kv.Value.particleSystems.Count; i++)
-                {
-                    var ps = kv.Value.particleSystems[i];
-                    if (ps != null)
-                    {
-                        ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                        ps.Clear(true);
-                    }
-                }
-            }
-        }
-
-        /// <summary>
-        /// Stop and clear all particle systems in RCS ghost infos.
-        /// Extracted from DestroyKscGhost to deduplicate engine/RCS cleanup.
-        /// </summary>
-        private static void StopRcsParticleSystems(Dictionary<ulong, RcsGhostInfo> infos)
-        {
-            if (infos == null) return;
-            foreach (var kv in infos)
-            {
-                if (kv.Value.particleSystems == null) continue;
-                for (int i = 0; i < kv.Value.particleSystems.Count; i++)
-                {
-                    var ps = kv.Value.particleSystems[i];
-                    if (ps != null)
-                    {
-                        ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                        ps.Clear(true);
-                    }
-                }
-            }
         }
 
         #endregion

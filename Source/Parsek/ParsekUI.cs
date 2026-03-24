@@ -4,13 +4,14 @@ using UnityEngine;
 
 namespace Parsek
 {
+    public enum UIMode { Flight, KSC }
+
     /// <summary>
     /// UI rendering for the Parsek window and map view markers.
     /// Receives a ParsekFlight reference for accessing flight state.
     /// </summary>
     public class ParsekUI
     {
-        public enum UIMode { Flight, KSC }
         private readonly UIMode mode;
         private bool InFlight => mode == UIMode.Flight;
 

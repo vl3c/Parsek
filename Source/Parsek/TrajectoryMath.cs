@@ -363,6 +363,50 @@ namespace Parsek
             return radius * c;
         }
 
+        /// <summary>
+        /// Performs point lookup and interpolation factor computation for trajectory playback.
+        /// Shared core between flight and KSC interpolation paths.
+        /// Returns true if a valid interpolation pair was found; false if targetUT is before
+        /// the first point or the list is empty/null (caller should handle single-point fallback).
+        /// When true, before/after/t are set for the caller to use with body-specific positioning.
+        /// When false and the list is non-empty, before is set to points[0] for single-point fallback.
+        /// </summary>
+        internal static bool InterpolatePoints(
+            List<TrajectoryPoint> points, ref int cachedIndex, double targetUT,
+            out TrajectoryPoint before, out TrajectoryPoint after, out float t)
+        {
+            before = default;
+            after = default;
+            t = 0f;
+
+            if (points == null || points.Count == 0)
+                return false;
+
+            int indexBefore = FindWaypointIndex(points, ref cachedIndex, targetUT);
+
+            if (indexBefore < 0)
+            {
+                // Before recording start — caller should position at first point
+                before = points[0];
+                return false;
+            }
+
+            before = points[indexBefore];
+            after = points[indexBefore + 1];
+
+            double segmentDuration = after.ut - before.ut;
+            if (segmentDuration <= 0.0001)
+            {
+                // Degenerate segment — treat as single point
+                t = 0f;
+                return true;
+            }
+
+            t = (float)((targetUT - before.ut) / segmentDuration);
+            t = Mathf.Clamp01(t);
+            return true;
+        }
+
         internal static double InterpolateAltitude(double altBefore, double altAfter, float t)
         {
             return altBefore + (altAfter - altBefore) * t;

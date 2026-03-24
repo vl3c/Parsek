@@ -25,7 +25,7 @@ namespace Parsek
         internal static bool IsRewinding;
         internal static double RewindUT;
         internal static double RewindAdjustedUT;
-        internal static ResourceBudget.BudgetSummary RewindReserved;
+        internal static BudgetSummary RewindReserved;
 
         // Baseline resource values from the rewind-target recording's PreLaunch snapshot.
         // Used by the deferred coroutine to compute absolute-target resource corrections
@@ -949,7 +949,7 @@ namespace Parsek
             IsRewinding = false;
             RewindUT = 0;
             RewindAdjustedUT = 0;
-            RewindReserved = default(ResourceBudget.BudgetSummary);
+            RewindReserved = default(BudgetSummary);
             RewindBaselineFunds = 0;
             RewindBaselineScience = 0;
             RewindBaselineRep = 0;
@@ -1440,7 +1440,7 @@ namespace Parsek
             IsRewinding = false;
             RewindUT = 0;
             RewindAdjustedUT = 0;
-            RewindReserved = default(ResourceBudget.BudgetSummary);
+            RewindReserved = default(BudgetSummary);
             RewindBaselineFunds = 0;
             RewindBaselineScience = 0;
             RewindBaselineRep = 0;
@@ -1455,7 +1455,7 @@ namespace Parsek
         {
             IsRewinding = true;
             RewindUT = rec.StartUT;
-            RewindReserved = new ResourceBudget.BudgetSummary
+            RewindReserved = new BudgetSummary
             {
                 reservedFunds = rec.RewindReservedFunds,
                 reservedScience = rec.RewindReservedScience,

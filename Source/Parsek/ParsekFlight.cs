@@ -256,9 +256,7 @@ namespace Parsek
         private HashSet<string> pendingSpawnRecordingIds = new HashSet<string>();
         private string pendingWatchRecordingId = null;  // recording ID that was in watch mode when deferred
         private bool timelineResourceReplayPausedLogged = false;
-        private const double DefaultLoopIntervalSeconds = 10.0;
-        private const double MinLoopDurationSeconds = 1.0;
-        // MinCycleDuration is now in GhostPlaybackLogic
+        // Loop constants are in GhostPlaybackLogic
         private const double OverlapExplosionHoldSeconds = 3.0;
 
         // Soft cap evaluation — cached lists to avoid per-frame allocation
@@ -6862,7 +6860,7 @@ namespace Parsek
         {
             if (rec == null || !rec.LoopPlayback || rec.Points == null || rec.Points.Count < 2)
                 return false;
-            return rec.EndUT - rec.StartUT > MinLoopDurationSeconds;
+            return rec.EndUT - rec.StartUT > GhostPlaybackLogic.MinLoopDurationSeconds;
         }
 
         /// <summary>
@@ -6886,8 +6884,8 @@ namespace Parsek
         private double GetLoopIntervalSeconds(Recording rec)
         {
             double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
-                                    ?? DefaultLoopIntervalSeconds;
-            return GhostPlaybackLogic.ResolveLoopInterval(rec, globalInterval, DefaultLoopIntervalSeconds, GhostPlaybackLogic.MinCycleDuration);
+                                    ?? GhostPlaybackLogic.DefaultLoopIntervalSeconds;
+            return GhostPlaybackLogic.ResolveLoopInterval(rec, globalInterval, GhostPlaybackLogic.DefaultLoopIntervalSeconds, GhostPlaybackLogic.MinCycleDuration);
         }
 
         private bool TryComputeLoopPlaybackUT(
@@ -6905,11 +6903,11 @@ namespace Parsek
             if (currentUT < rec.StartUT) return false;
 
             double duration = rec.EndUT - rec.StartUT;
-            if (duration <= MinLoopDurationSeconds) return false;
+            if (duration <= GhostPlaybackLogic.MinLoopDurationSeconds) return false;
 
             double intervalSeconds = GetLoopIntervalSeconds(rec);
             double cycleDuration = duration + intervalSeconds;
-            if (cycleDuration <= MinLoopDurationSeconds)
+            if (cycleDuration <= GhostPlaybackLogic.MinLoopDurationSeconds)
                 cycleDuration = duration;
 
             double elapsed = currentUT - rec.StartUT;
@@ -8480,7 +8478,7 @@ namespace Parsek
                 double duration = rec.EndUT - rec.StartUT;
                 double intervalSeconds = GetLoopIntervalSeconds(rec);
                 double cycleDuration = duration + intervalSeconds;
-                if (cycleDuration <= MinLoopDurationSeconds)
+                if (cycleDuration <= GhostPlaybackLogic.MinLoopDurationSeconds)
                     cycleDuration = duration;
 
                 // Current elapsed time (with any existing offset)
@@ -8957,30 +8955,32 @@ namespace Parsek
 
         void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points, ref int cachedIndex, double targetUT, out InterpolationResult interpResult, bool surfaceRelativeRotation = false)
         {
-            if (points == null || points.Count == 0) { interpResult = InterpolationResult.Zero; ghost.SetActive(false); return; }
+            TrajectoryPoint before, after;
+            float t;
+            bool hasSegment = TrajectoryMath.InterpolatePoints(
+                points, ref cachedIndex, targetUT, out before, out after, out t);
 
-            int indexBefore = TrajectoryMath.FindWaypointIndex(points, ref cachedIndex, targetUT);
-
-            if (indexBefore < 0)
+            if (!hasSegment)
             {
-                PositionGhostAt(ghost, points[0], surfaceRelativeRotation);
-                interpResult = new InterpolationResult(points[0].velocity, points[0].bodyName, points[0].altitude);
-                return;
-            }
-
-            TrajectoryPoint before = points[indexBefore];
-            TrajectoryPoint after = points[indexBefore + 1];
-
-            double segmentDuration = after.ut - before.ut;
-            if (segmentDuration <= 0.0001)
-            {
+                // Either empty list or before recording start
+                if (points == null || points.Count == 0)
+                {
+                    interpResult = InterpolationResult.Zero;
+                    ghost.SetActive(false);
+                    return;
+                }
                 PositionGhostAt(ghost, before, surfaceRelativeRotation);
                 interpResult = new InterpolationResult(before.velocity, before.bodyName, before.altitude);
                 return;
             }
 
-            float t = (float)((targetUT - before.ut) / segmentDuration);
-            t = Mathf.Clamp01(t);
+            // Degenerate segment (t == 0 from zero-duration segment)
+            if (t == 0f && before.ut == after.ut)
+            {
+                PositionGhostAt(ghost, before, surfaceRelativeRotation);
+                interpResult = new InterpolationResult(before.velocity, before.bodyName, before.altitude);
+                return;
+            }
 
             CelestialBody bodyBefore = FlightGlobals.Bodies.Find(b => b.name == before.bodyName);
             CelestialBody bodyAfter = FlightGlobals.Bodies.Find(b => b.name == after.bodyName);
