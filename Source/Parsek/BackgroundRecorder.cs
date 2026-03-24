@@ -52,6 +52,9 @@ namespace Parsek
         private Dictionary<uint, HashSet<uint>> preBreakVesselPidSnapshots
             = new Dictionary<uint, HashSet<uint>>();
 
+        // Reusable buffer for transition-check methods (avoids per-frame List<PartEvent> allocations)
+        private readonly List<PartEvent> reusableEventBuffer = new List<PartEvent>();
+
         // Robotic sampling constants (mirrors FlightRecorder)
         private const double roboticSampleIntervalSeconds = 0.25;
         private const float roboticAngularDeadbandDegrees = 0.5f;
@@ -1924,15 +1927,16 @@ namespace Parsek
                         $"pid={evt.Value.partPersistentId} (bg vessel {state.vesselPid})");
                 }
 
-                var blinkEvents = FlightRecorder.CheckLightBlinkTransition(
+                reusableEventBuffer.Clear();
+                FlightRecorder.CheckLightBlinkTransition(
                     p.persistentId, p.partInfo?.name ?? "unknown",
                     light.isBlinking, light.blinkRate,
-                    state.blinkingLights, state.lightBlinkRates, ut);
-                for (int e = 0; e < blinkEvents.Count; e++)
+                    state.blinkingLights, state.lightBlinkRates, ut, reusableEventBuffer);
+                for (int e = 0; e < reusableEventBuffer.Count; e++)
                 {
-                    treeRec.PartEvents.Add(blinkEvents[e]);
-                    ParsekLog.Verbose("BgRecorder", $"Part event: {blinkEvents[e].eventType} '{blinkEvents[e].partName}' " +
-                        $"pid={blinkEvents[e].partPersistentId} val={blinkEvents[e].value:F2} (bg vessel {state.vesselPid})");
+                    treeRec.PartEvents.Add(reusableEventBuffer[e]);
+                    ParsekLog.Verbose("BgRecorder", $"Part event: {reusableEventBuffer[e].eventType} '{reusableEventBuffer[e].partName}' " +
+                        $"pid={reusableEventBuffer[e].partPersistentId} val={reusableEventBuffer[e].value:F2} (bg vessel {state.vesselPid})");
                 }
             }
         }
@@ -2084,21 +2088,22 @@ namespace Parsek
                 bool ignited = engine.EngineIgnited && engine.isOperational;
                 float throttle = engine.currentThrottle;
 
-                var events = FlightRecorder.CheckEngineTransition(
+                reusableEventBuffer.Clear();
+                FlightRecorder.CheckEngineTransition(
                     key, part.persistentId, moduleIndex,
                     part.partInfo?.name ?? "unknown",
                     ignited, throttle,
-                    state.activeEngineKeys, state.lastThrottle, ut);
+                    state.activeEngineKeys, state.lastThrottle, ut, reusableEventBuffer);
 
-                for (int e = 0; e < events.Count; e++)
+                for (int e = 0; e < reusableEventBuffer.Count; e++)
                 {
-                    treeRec.PartEvents.Add(events[e]);
-                    ParsekLog.Verbose("BgRecorder", $"Part event: {events[e].eventType} '{events[e].partName}' " +
-                        $"pid={events[e].partPersistentId} midx={events[e].moduleIndex} " +
-                        $"val={events[e].value:F2} (bg vessel {state.vesselPid})");
+                    treeRec.PartEvents.Add(reusableEventBuffer[e]);
+                    ParsekLog.Verbose("BgRecorder", $"Part event: {reusableEventBuffer[e].eventType} '{reusableEventBuffer[e].partName}' " +
+                        $"pid={reusableEventBuffer[e].partPersistentId} midx={reusableEventBuffer[e].moduleIndex} " +
+                        $"val={reusableEventBuffer[e].value:F2} (bg vessel {state.vesselPid})");
 
                     // Engine-ignite jettison fallback (same as FlightRecorder)
-                    if (events[e].eventType == PartEventType.EngineIgnited &&
+                    if (reusableEventBuffer[e].eventType == PartEventType.EngineIgnited &&
                         part.FindModuleImplementing<ModuleJettison>() != null)
                     {
                         var shroudEvt = FlightRecorder.CheckJettisonTransition(
@@ -2133,16 +2138,17 @@ namespace Parsek
                 uint pid = part.persistentId;
                 string partName = part.partInfo?.name ?? "unknown";
 
-                var events = FlightRecorder.ProcessRcsDebounce(
+                reusableEventBuffer.Clear();
+                FlightRecorder.ProcessRcsDebounce(
                     key, pid, moduleIndex, partName,
                     active, rcs.thrustForces, rcs.thrusterPower, ut,
-                    state.rcsActiveFrameCount, state.activeRcsKeys, state.lastRcsThrottle);
-                for (int e = 0; e < events.Count; e++)
+                    state.rcsActiveFrameCount, state.activeRcsKeys, state.lastRcsThrottle, reusableEventBuffer);
+                for (int e = 0; e < reusableEventBuffer.Count; e++)
                 {
-                    treeRec.PartEvents.Add(events[e]);
-                    ParsekLog.Verbose("BgRecorder", $"Part event: {events[e].eventType} '{events[e].partName}' " +
-                        $"pid={events[e].partPersistentId} midx={events[e].moduleIndex} " +
-                        $"val={events[e].value:F2} (bg vessel {state.vesselPid})");
+                    treeRec.PartEvents.Add(reusableEventBuffer[e]);
+                    ParsekLog.Verbose("BgRecorder", $"Part event: {reusableEventBuffer[e].eventType} '{reusableEventBuffer[e].partName}' " +
+                        $"pid={reusableEventBuffer[e].partPersistentId} midx={reusableEventBuffer[e].moduleIndex} " +
+                        $"val={reusableEventBuffer[e].value:F2} (bg vessel {state.vesselPid})");
                 }
             }
         }
