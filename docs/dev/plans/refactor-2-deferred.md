@@ -169,26 +169,72 @@ The shared core would need 3-4 parameters/flags to account for these differences
 
 ---
 
+## Deferred from Phase 3B (structural splits attempted, correctly skipped)
+
+### D20. TimelinePlaybackController from ParsekFlight (~2443 lines)
+**What:** Extract the entire `#region Timeline Auto-Playback` section: UpdateTimelinePlayback (535 lines), UpdateLoopingTimelinePlayback, UpdateOverlapLoopPlayback, ghost spawn/destroy lifecycle, positioning methods, reentry FX, watch camera. Would reduce ParsekFlight from ~9900 to ~7500 lines.
+
+**Why deferred:** `ghostStates` dict referenced 31 times across 8 regions. Other playback fields (`overlapGhosts`, `ghostPosEntries`, `loopPhaseOffsets`, `activeExplosions`) have similarly broad cross-region usage. Every candidate method uses multiple instance fields AND instance helpers (`Log`, `SanitizeQuaternion`, `CreateGhostSphere`). Extraction requires either:
+- (a) Back-reference to ParsekFlight → circular dependency
+- (b) 10+ parameters per method → changes all signatures
+- (c) Shared state interface → architectural redesign
+
+All three violate zero-logic-changes constraint.
+
+**Revisit when:** Dedicated architectural redesign task. Would need to redesign ParsekFlight's field layout so playback state is isolated in a struct/class that can be passed to the controller. Not a refactor — a feature-level change.
+
+**Enables if done:** D2 (commit-pattern dedup becomes instance methods), D5 (frame application dedup), D8 (UpdateTimelinePlayback decomposition via instance fields).
+
+### D21. ChainSegmentManager from ParsekFlight (~400-500 lines)
+**What:** Extract chain state (`activeChainId`, `activeChainNextIndex`, `activeChainPrevId`, `activeChainCrewName`, continuation fields) and chain methods (`CommitChainSegment`, `CommitDockUndockSegment`, `CommitBoundarySplit`, `HandleVesselSwitchChainTermination`, `HandleDockUndockCommitRestart`, continuation methods).
+
+**Why deferred:** `activeChainId` referenced 50+ times across 5 regions (Scene Change, Split Event Detection, Update Helpers, Recording, Timeline Auto-Playback). Chain state is NOT localized to chain methods — it's read/written during recording start/stop, dock/undock handling, scene change, and tree mode logic. Same fundamental issue as D20.
+
+**Revisit when:** Same as D20. Requires isolating chain state into a struct that can be owned by either ParsekFlight or a dedicated manager.
+
+**Enables if done:** D2 (commit-pattern dedup — the 4 commit methods could share a core method on the manager instance).
+
+---
+
+## Phase 3C Remaining Tasks
+
+### C1. SanitizeQuaternion instance wrapper removal
+**What:** ParsekFlight has a 3-line instance method `SanitizeQuaternion(Quaternion q)` that just forwards to `TrajectoryMath.SanitizeQuaternion(q)`. ParsekKSC correctly calls TrajectoryMath directly. 4 call sites in ParsekFlight.
+**Action:** Replace 4 call sites with `TrajectoryMath.SanitizeQuaternion(q)`, delete the wrapper.
+
+### C2. Namespace consistency verification
+**Action:** Verify all files use `namespace Parsek` (or `namespace Parsek.Patches`). Verify new files (EngineFxBuilder.cs, MaterialCleanup.cs) match.
+
+### C3. One-class-per-file verification
+**Action:** Verify every .cs file has exactly one public/internal type. Exceptions: data-type files (GhostTypes.cs, GameStateEvent.cs) that bundle related types are acceptable.
+
+### C4. Inventory doc final update
+**Action:** Mark all files Pass3-Done where applicable. Update line counts to final values.
+
+---
+
 ## Summary
 
-| ID | File | Lines affected | Risk if attempted | Pass 3 candidate? |
-|----|------|---------------|-------------------|-------------------|
-| D1 | ParsekFlight | ~160 | Medium (conditional flags) | Yes |
-| D2 | ParsekFlight | ~316 | High (callback pattern) | Yes |
-| D3 | ParsekFlight+ParsekKSC | ~120 | Low (pure extraction) | Yes |
-| D4 | ParsekFlight+ParsekKSC | ~60 | Low (pure extraction) | Yes |
-| D5 | ParsekFlight | ~80 | Medium (many params) | Yes |
-| D6 | ParsekFlight | ~15 | N/A (below 5-line min) | No |
-| D7 | ParsekFlight | ~75 | Low | Maybe |
-| D8 | ParsekFlight | ~500 | High (loop coupling) | Yes |
-| D9 | ParsekFlight | ~194 | Low (but minimal gain) | No |
-| D10 | ParsekFlight | ~60 | Medium (API divergence) | No |
-| D11 | BackgroundRecorder | ~736 | High (call pattern) | Maybe |
-| D12 | GhostPlaybackLogic | ~110 | Medium (low similarity) | Maybe |
-| D13 | GhostVisualBuilder | ~565 | High (closure captures) | Yes |
-| D14 | GhostVisualBuilder | ~80 | Medium (interleaved state) | No |
-| D15 | GhostVisualBuilder | ~300 | Medium (divergent structure) | Yes |
-| D16 | GhostVisualBuilder | ~300 | Medium (numeric params) | No |
-| D17 | GhostVisualBuilder | ~30 | Low (guard param) | No |
-| D18 | ParsekUI | ~125 | Medium (IMGUI event order) | Yes |
-| D19 | ParsekUI | ~40 | Low (generic/interface) | Maybe |
+| ID | File | Lines affected | Risk | Status |
+|----|------|---------------|------|--------|
+| D1 | ParsekFlight | ~160 | Medium | Open — conditional flags needed |
+| D2 | ParsekFlight | ~316 | High | Open — needs D20 first (instance methods on controller) |
+| D3 | ParsekFlight+ParsekKSC | ~120 | Low | **DONE** (Phase 3A Split 4: TrajectoryMath.InterpolatePoints) |
+| D4 | ParsekFlight+ParsekKSC | ~60 | Low | **DONE** (Phase 3A Split 4: shared positioning) |
+| D5 | ParsekFlight | ~80 | Medium | Open — needs D20 first |
+| D6 | ParsekFlight | ~15 | N/A | Closed — below 5-line min |
+| D7 | ParsekFlight | ~75 | Low | Open |
+| D8 | ParsekFlight | ~500 | High | Open — needs D20 first |
+| D9 | ParsekFlight | ~194 | Low | Closed — minimal gain |
+| D10 | ParsekFlight | ~60 | Medium | Closed — API divergence |
+| D11 | BackgroundRecorder | ~736 | High | Open — intentional design |
+| D12 | GhostPlaybackLogic | ~110 | Medium | Closed — ~47% similarity not worth it |
+| D13 | GhostVisualBuilder | ~565 | High | **DONE** (Phase 3B Split 10: EngineFxBuilder) |
+| D14 | GhostVisualBuilder | ~80 | Medium | Closed — interleaved state |
+| D15 | GhostVisualBuilder | ~300 | Medium | Open — SampleXxxStates unification |
+| D16 | GhostVisualBuilder | ~300 | Medium | Closed — too many numeric params |
+| D17 | GhostVisualBuilder | ~30 | Low | Closed — guard param |
+| D18 | ParsekUI | ~125 | Medium | Open |
+| D19 | ParsekUI | ~40 | Low | Open |
+| D20 | ParsekFlight | ~2443 | High | Open — requires architectural redesign |
+| D21 | ParsekFlight | ~400-500 | High | Open — requires state isolation |
