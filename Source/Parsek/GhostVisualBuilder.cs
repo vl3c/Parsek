@@ -1299,6 +1299,9 @@ namespace Parsek
         /// transform deltas between stowed and deployed states.
         /// Returns null if no animation found, no AnimationState, or no deltas produced.
         /// Does NOT handle caching — callers manage their own cache read/write.
+        /// When <paramref name="useScoring"/> is true, <paramref name="stowedTime"/> and
+        /// <paramref name="deployedTime"/> are ignored — endpoints are determined by scoring
+        /// both animation endpoints against the prefab's default transform state.
         /// </summary>
         private static List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
             Vector3 dPos, Quaternion dRot, Vector3 dScale)> SampleAnimationStates(
