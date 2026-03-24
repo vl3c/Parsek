@@ -942,6 +942,99 @@ namespace Parsek.Tests
             Assert.False(CrewReservationManager.ShouldRemoveEvaVessel(
                 true, "Valentina Kerman", replacements));
         }
+
+        #region Serialization Log Assertions
+
+        [Fact]
+        public void LoadCrewReplacements_NullNode_LogsNoReplacementsMessage()
+        {
+            var logLines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekLog.SuppressLogging = false;
+            try
+            {
+                var node = new ConfigNode("SCENARIO");
+                CrewReservationManager.LoadCrewReplacements(node);
+                Assert.Contains(logLines, l => l.Contains("[CrewReservation]") && l.Contains("Loaded 0 crew replacements"));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        [Fact]
+        public void LoadCrewReplacements_WithEntries_LogsCount()
+        {
+            var logLines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekLog.SuppressLogging = false;
+            try
+            {
+                var node = new ConfigNode("SCENARIO");
+                var crNode = node.AddNode("CREW_REPLACEMENTS");
+                var entry = crNode.AddNode("ENTRY");
+                entry.AddValue("original", "Jeb");
+                entry.AddValue("replacement", "Bob");
+
+                CrewReservationManager.LoadCrewReplacements(node);
+                Assert.Contains(logLines, l => l.Contains("[CrewReservation]") && l.Contains("Loaded 1 crew replacement"));
+                Assert.Equal("Bob", CrewReservationManager.CrewReplacements["Jeb"]);
+            }
+            finally
+            {
+                CrewReservationManager.ResetReplacementsForTesting();
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        [Fact]
+        public void SaveCrewReplacements_Empty_WritesNoNode()
+        {
+            CrewReservationManager.ResetReplacementsForTesting();
+            var node = new ConfigNode("SCENARIO");
+            CrewReservationManager.SaveCrewReplacements(node);
+            Assert.Null(node.GetNode("CREW_REPLACEMENTS"));
+        }
+
+        [Fact]
+        public void SaveCrewReplacements_WithData_RoundTrips()
+        {
+            var logLines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekLog.SuppressLogging = false;
+            try
+            {
+                // Load some data
+                var loadNode = new ConfigNode("SCENARIO");
+                var crNode = loadNode.AddNode("CREW_REPLACEMENTS");
+                var e1 = crNode.AddNode("ENTRY");
+                e1.AddValue("original", "Jeb");
+                e1.AddValue("replacement", "Bob");
+                var e2 = crNode.AddNode("ENTRY");
+                e2.AddValue("original", "Val");
+                e2.AddValue("replacement", "Bill");
+                CrewReservationManager.LoadCrewReplacements(loadNode);
+
+                // Save
+                var saveNode = new ConfigNode("SCENARIO");
+                CrewReservationManager.SaveCrewReplacements(saveNode);
+
+                // Verify round-trip
+                var savedCr = saveNode.GetNode("CREW_REPLACEMENTS");
+                Assert.NotNull(savedCr);
+                var entries = savedCr.GetNodes("ENTRY");
+                Assert.Equal(2, entries.Length);
+                Assert.Contains(logLines, l => l.Contains("[CrewReservation]") && l.Contains("Saved 2 crew replacement"));
+            }
+            finally
+            {
+                CrewReservationManager.ResetReplacementsForTesting();
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        #endregion
     }
 
     [Collection("Sequential")]

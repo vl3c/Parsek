@@ -93,7 +93,11 @@ namespace Parsek
             {
                 var tree = trees[i];
                 if (tree.ResourcesApplied)
+                {
+                    ParsekLog.VerboseRateLimited("ResourceApplicator", $"tree-skip-{tree.TreeName}",
+                        $"TickTrees: skipping tree '{tree.TreeName}' — already applied");
                     continue;
+                }
 
                 double treeEndUT = 0;
                 foreach (var rec in tree.Recordings.Values)
@@ -103,7 +107,11 @@ namespace Parsek
                 }
 
                 if (currentUT <= treeEndUT)
+                {
+                    ParsekLog.VerboseRateLimited("ResourceApplicator", $"tree-wait-{tree.TreeName}",
+                        $"TickTrees: waiting for tree '{tree.TreeName}' — currentUT={currentUT:F1} treeEndUT={treeEndUT:F1}");
                     continue;
+                }
 
                 GameStateRecorder.SuppressResourceEvents = true;
                 try

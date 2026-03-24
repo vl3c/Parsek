@@ -209,6 +209,130 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region ResourceApplicator — TickStandalone
+
+        [Fact]
+        public void TickStandalone_EmptyList_NoAction()
+        {
+            var recordings = new List<Recording>();
+            ResourceApplicator.TickStandalone(recordings, 100);
+            // No exception, no-op
+        }
+
+        [Fact]
+        public void TickStandalone_SkipsTreeRecordings()
+        {
+            var rec = new Recording
+            {
+                TreeId = "some-tree",
+                Points = new List<TrajectoryPoint>(MakeResourcePoints(
+                    (10, 1000, 100, 50), (20, 900, 95, 48)))
+            };
+            rec.LastAppliedResourceIndex = -1;
+            var recordings = new List<Recording> { rec };
+
+            ResourceApplicator.TickStandalone(recordings, 25);
+            Assert.Equal(-1, rec.LastAppliedResourceIndex); // unchanged — was skipped
+        }
+
+        [Fact]
+        public void TickStandalone_SkipsLoopRecordings()
+        {
+            var rec = new Recording
+            {
+                LoopPlayback = true,
+                Points = new List<TrajectoryPoint>(MakeResourcePoints(
+                    (10, 1000, 100, 50), (20, 900, 95, 48)))
+            };
+            rec.LastAppliedResourceIndex = -1;
+            var recordings = new List<Recording> { rec };
+
+            ResourceApplicator.TickStandalone(recordings, 25);
+            Assert.Equal(-1, rec.LastAppliedResourceIndex); // unchanged
+        }
+
+        [Fact]
+        public void TickStandalone_SkipsShortRecordings()
+        {
+            var rec = new Recording
+            {
+                Points = new List<TrajectoryPoint>(MakeResourcePoints((10, 1000, 100, 50)))
+            };
+            rec.LastAppliedResourceIndex = -1;
+            var recordings = new List<Recording> { rec };
+
+            ResourceApplicator.TickStandalone(recordings, 25);
+            Assert.Equal(-1, rec.LastAppliedResourceIndex); // unchanged — only 1 point
+        }
+
+        [Fact]
+        public void TickStandalone_AdvancesLastAppliedIndex()
+        {
+            // TickStandalone calls Funding.Instance etc which are null in tests,
+            // but the index advancement and delta computation should still work.
+            // The AddFunds/AddScience/AddReputation calls are guarded by null checks.
+            var rec = new Recording
+            {
+                Points = new List<TrajectoryPoint>(MakeResourcePoints(
+                    (10, 1000, 100, 50), (20, 900, 95, 48), (30, 800, 90, 46)))
+            };
+            rec.LastAppliedResourceIndex = -1;
+            var recordings = new List<Recording> { rec };
+
+            ResourceApplicator.TickStandalone(recordings, 25);
+            Assert.Equal(1, rec.LastAppliedResourceIndex); // advanced to index 1 (UT=20 passed)
+        }
+
+        [Fact]
+        public void TickStandalone_NoAdvance_WhenBeforeNextPoint()
+        {
+            var rec = new Recording
+            {
+                Points = new List<TrajectoryPoint>(MakeResourcePoints(
+                    (10, 1000, 100, 50), (20, 900, 95, 48)))
+            };
+            rec.LastAppliedResourceIndex = 0;
+            var recordings = new List<Recording> { rec };
+
+            ResourceApplicator.TickStandalone(recordings, 15);
+            Assert.Equal(0, rec.LastAppliedResourceIndex); // unchanged
+        }
+
+        #endregion
+
+        #region ResourceApplicator — DeductBudget
+
+        [Fact]
+        public void DeductBudget_ZeroBudget_StillMarksRecordingsApplied()
+        {
+            var rec = new Recording
+            {
+                Points = new List<TrajectoryPoint>(MakeResourcePoints(
+                    (10, 1000, 100, 50), (20, 1000, 100, 50)))
+            };
+            rec.LastAppliedResourceIndex = -1;
+            var recordings = new List<Recording> { rec };
+            var trees = new List<RecordingTree>();
+            var budget = new BudgetSummary();
+
+            ResourceApplicator.DeductBudget(budget, recordings, trees);
+            Assert.Equal(1, rec.LastAppliedResourceIndex); // marked as fully applied
+        }
+
+        [Fact]
+        public void DeductBudget_MarksTreesAsApplied()
+        {
+            var tree = new RecordingTree { ResourcesApplied = false };
+            var recordings = new List<Recording>();
+            var trees = new List<RecordingTree> { tree };
+            var budget = new BudgetSummary();
+
+            ResourceApplicator.DeductBudget(budget, recordings, trees);
+            Assert.True(tree.ResourcesApplied);
+        }
+
+        #endregion
+
         [Fact]
         public void ComputeScaledRcsEmissionRate_ShowcaseEnforcesVisibilityFloor()
         {

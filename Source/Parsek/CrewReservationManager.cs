@@ -32,7 +32,11 @@ namespace Parsek
         public static void ReserveSnapshotCrew()
         {
             var roster = HighLogic.CurrentGame?.CrewRoster;
-            if (roster == null) return;
+            if (roster == null)
+            {
+                ParsekLog.Verbose("CrewReservation", "ReserveSnapshotCrew: no crew roster available — skipping");
+                return;
+            }
 
             GameStateRecorder.SuppressCrewEvents = true;
             try
@@ -59,9 +63,17 @@ namespace Parsek
         /// </summary>
         public static void UnreserveCrewInSnapshot(ConfigNode snapshot)
         {
-            if (snapshot == null) return;
+            if (snapshot == null)
+            {
+                ParsekLog.Verbose("CrewReservation", "UnreserveCrewInSnapshot: null snapshot — skipping");
+                return;
+            }
             var roster = HighLogic.CurrentGame?.CrewRoster;
-            if (roster == null) return;
+            if (roster == null)
+            {
+                ParsekLog.Verbose("CrewReservation", "UnreserveCrewInSnapshot: no crew roster — skipping");
+                return;
+            }
 
             GameStateRecorder.SuppressCrewEvents = true;
             try
@@ -94,7 +106,12 @@ namespace Parsek
 
         internal static void ReserveCrewIn(ConfigNode snapshot, bool alreadySpawned, KerbalRoster roster)
         {
-            if (snapshot == null || alreadySpawned) return;
+            if (snapshot == null || alreadySpawned)
+            {
+                if (snapshot == null)
+                    ParsekLog.Verbose("CrewReservation", "ReserveCrewIn: null snapshot — skipping");
+                return;
+            }
 
             foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
             {
@@ -187,11 +204,23 @@ namespace Parsek
         /// </summary>
         public static int SwapReservedCrewInFlight()
         {
-            if (FlightGlobals.ActiveVessel == null) return 0;
-            if (crewReplacements.Count == 0) return 0;
+            if (FlightGlobals.ActiveVessel == null)
+            {
+                ParsekLog.Verbose("CrewReservation", "SwapReservedCrewInFlight: no active vessel — skipping");
+                return 0;
+            }
+            if (crewReplacements.Count == 0)
+            {
+                ParsekLog.Verbose("CrewReservation", "SwapReservedCrewInFlight: no crew replacements — skipping");
+                return 0;
+            }
 
             var roster = HighLogic.CurrentGame?.CrewRoster;
-            if (roster == null) return 0;
+            if (roster == null)
+            {
+                ParsekLog.Verbose("CrewReservation", "SwapReservedCrewInFlight: no crew roster — skipping");
+                return 0;
+            }
 
             int swapCount = 0;
             int failCount = 0;
