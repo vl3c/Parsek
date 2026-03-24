@@ -716,17 +716,24 @@ namespace Parsek
             StopPlayback();
             ExitWatchMode();
             InputLockManager.RemoveControlLock(WatchModeLockId); // safety net
-            DestroyAllTimelineGhosts();
 
             // Phase 6b: Clean up ghost chain state
             vesselGhoster?.CleanupAll();
             vesselGhoster = null;
             activeGhostChains = null;
 
-
-            // Clean up engine + policy
+            // Clean up engine + policy (engine.Dispose calls DestroyAllGhosts internally)
             policy?.Dispose();
             engine?.Dispose();
+
+            // Clear ParsekFlight-local state after engine disposal
+            orbitCache.Clear();
+            loggedOrbitSegments.Clear();
+            loggedOrbitRotationSegments.Clear();
+            nearbySpawnCandidates.Clear();
+            notifiedSpawnRecordingIds.Clear();
+            loggedRelativeStart.Clear();
+            loggedAnchorNotFound.Clear();
 
             ui?.Cleanup();
         }
