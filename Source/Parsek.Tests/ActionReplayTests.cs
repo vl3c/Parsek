@@ -26,8 +26,7 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => { lock (logLock) { logLines.Add(line); } };
 
             // Ensure flags start clean
-            GameStateRecorder.SuppressActionReplay = false;
-            GameStateRecorder.SuppressBlockingPatches = false;
+            GameStateRecorder.IsReplayingActions = false;
             GameStateRecorder.SuppressCrewEvents = false;
         }
 
@@ -36,8 +35,7 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = null;
             ParsekLog.VerboseOverrideForTesting = null;
             ParsekLog.SuppressLogging = false;
-            GameStateRecorder.SuppressActionReplay = false;
-            GameStateRecorder.SuppressBlockingPatches = false;
+            GameStateRecorder.IsReplayingActions = false;
             GameStateRecorder.SuppressCrewEvents = false;
         }
 
@@ -46,8 +44,7 @@ namespace Parsek.Tests
             // Legacy — kept for existing try/finally blocks but Dispose handles cleanup
             ParsekLog.TestSinkForTesting = null;
             ParsekLog.VerboseOverrideForTesting = null;
-            GameStateRecorder.SuppressActionReplay = false;
-            GameStateRecorder.SuppressBlockingPatches = false;
+            GameStateRecorder.IsReplayingActions = false;
             GameStateRecorder.SuppressCrewEvents = false;
         }
 
@@ -326,10 +323,8 @@ namespace Parsek.Tests
                 ActionReplay.ReplayCommittedActions(milestones);
 
                 // All suppress flags must be false after the call
-                Assert.False(GameStateRecorder.SuppressActionReplay,
-                    "SuppressActionReplay should be false after replay");
-                Assert.False(GameStateRecorder.SuppressBlockingPatches,
-                    "SuppressBlockingPatches should be false after replay");
+                Assert.False(GameStateRecorder.IsReplayingActions,
+                    "IsReplayingActions should be false after replay");
                 Assert.False(GameStateRecorder.SuppressCrewEvents,
                     "SuppressCrewEvents should be false after replay");
             }
@@ -959,44 +954,44 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region ParseDetailField
+        #region ExtractDetailField (was ParseDetailField — deduplicated to GameStateEventDisplay)
 
         [Fact]
-        public void ParseDetailField_CostAndParts()
+        public void ExtractDetailField_CostAndParts()
         {
-            string result = ActionReplay.ParseDetailField("cost=5;parts=solidBooster.sm.v2,mk1pod.v2", "parts");
+            string result = GameStateEventDisplay.ExtractDetailField("cost=5;parts=solidBooster.sm.v2,mk1pod.v2", "parts");
             Assert.Equal("solidBooster.sm.v2,mk1pod.v2", result);
         }
 
         [Fact]
-        public void ParseDetailField_CostOnly_ReturnsNull()
+        public void ExtractDetailField_CostOnly_ReturnsNull()
         {
-            string result = ActionReplay.ParseDetailField("cost=5", "parts");
+            string result = GameStateEventDisplay.ExtractDetailField("cost=5", "parts");
             Assert.Null(result);
         }
 
         [Fact]
-        public void ParseDetailField_EmptyDetail_ReturnsNull()
+        public void ExtractDetailField_EmptyDetail_ReturnsNull()
         {
-            Assert.Null(ActionReplay.ParseDetailField("", "cost"));
+            Assert.Null(GameStateEventDisplay.ExtractDetailField("", "cost"));
         }
 
         [Fact]
-        public void ParseDetailField_NullDetail_ReturnsNull()
+        public void ExtractDetailField_NullDetail_ReturnsNull()
         {
-            Assert.Null(ActionReplay.ParseDetailField(null, "cost"));
+            Assert.Null(GameStateEventDisplay.ExtractDetailField(null, "cost"));
         }
 
         [Fact]
-        public void ParseDetailField_TraitField()
+        public void ExtractDetailField_TraitField()
         {
-            Assert.Equal("Pilot", ActionReplay.ParseDetailField("trait=Pilot", "trait"));
+            Assert.Equal("Pilot", GameStateEventDisplay.ExtractDetailField("trait=Pilot", "trait"));
         }
 
         [Fact]
-        public void ParseDetailField_CostField()
+        public void ExtractDetailField_CostField()
         {
-            Assert.Equal("45", ActionReplay.ParseDetailField("cost=45;parts=a,b", "cost"));
+            Assert.Equal("45", GameStateEventDisplay.ExtractDetailField("cost=45;parts=a,b", "cost"));
         }
 
         #endregion

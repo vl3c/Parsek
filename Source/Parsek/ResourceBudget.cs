@@ -11,6 +11,15 @@ namespace Parsek
         public double reservedReputation;
     }
 
+    internal struct ResourceDelta
+    {
+        public double funds;
+        public float science;
+        public float reputation;
+        public int targetIndex;
+        public bool hasChange;
+    }
+
     internal static class ResourceBudget
     {
         private static BudgetSummary cachedBudget;
@@ -239,6 +248,36 @@ namespace Parsek
 
             cachedBudget = result;
             return result;
+        }
+
+        // --- Standalone resource delta computation ---
+
+        /// <summary>
+        /// Computes resource deltas between two trajectory point indices.
+        /// Pure function — no KSP API calls, no side effects.
+        /// Caller must ensure points.Count >= 2 (existing guard in TickStandaloneResourceDeltas).
+        /// </summary>
+        internal static ResourceDelta ComputeStandaloneDelta(
+            List<TrajectoryPoint> points, int lastAppliedIndex, double currentUT)
+        {
+            int targetIndex = GhostPlaybackLogic.ComputeTargetResourceIndex(
+                points, lastAppliedIndex, currentUT);
+
+            if (targetIndex <= lastAppliedIndex)
+                return new ResourceDelta { targetIndex = lastAppliedIndex };
+
+            int startIdx = Math.Max(lastAppliedIndex, 0);
+            TrajectoryPoint fromPoint = points[startIdx];
+            TrajectoryPoint toPoint = points[targetIndex];
+
+            return new ResourceDelta
+            {
+                funds = toPoint.funds - fromPoint.funds,
+                science = toPoint.science - fromPoint.science,
+                reputation = toPoint.reputation - fromPoint.reputation,
+                targetIndex = targetIndex,
+                hasChange = true
+            };
         }
 
         // --- Full cost helpers (ignore application state) ---

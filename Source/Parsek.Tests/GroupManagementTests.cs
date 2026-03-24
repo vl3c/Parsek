@@ -19,8 +19,8 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
-            ParsekScenario.ResetGroupsForTesting();
-            ParsekScenario.ResetReplacementsForTesting();
+            GroupHierarchyStore.ResetGroupsForTesting();
+            CrewReservationManager.ResetReplacementsForTesting();
         }
 
         public void Dispose()
@@ -29,8 +29,8 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
-            ParsekScenario.ResetGroupsForTesting();
-            ParsekScenario.ResetReplacementsForTesting();
+            GroupHierarchyStore.ResetGroupsForTesting();
+            CrewReservationManager.ResetReplacementsForTesting();
         }
 
         // ─── IsInAncestorChain ──────────────────────────────────────────────
@@ -38,40 +38,40 @@ namespace Parsek.Tests
         [Fact]
         public void IsInAncestorChain_DirectParent_ReturnsTrue()
         {
-            ParsekScenario.groupParents["Child"] = "Parent";
+            GroupHierarchyStore.groupParents["Child"] = "Parent";
 
-            Assert.True(ParsekScenario.IsInAncestorChain("Child", "Parent"));
+            Assert.True(GroupHierarchyStore.IsInAncestorChain("Child", "Parent"));
         }
 
         [Fact]
         public void IsInAncestorChain_Grandparent_ReturnsTrue()
         {
-            ParsekScenario.groupParents["C"] = "B";
-            ParsekScenario.groupParents["B"] = "A";
+            GroupHierarchyStore.groupParents["C"] = "B";
+            GroupHierarchyStore.groupParents["B"] = "A";
 
-            Assert.True(ParsekScenario.IsInAncestorChain("C", "A"));
+            Assert.True(GroupHierarchyStore.IsInAncestorChain("C", "A"));
         }
 
         [Fact]
         public void IsInAncestorChain_Self_ReturnsTrue()
         {
-            Assert.True(ParsekScenario.IsInAncestorChain("X", "X"));
+            Assert.True(GroupHierarchyStore.IsInAncestorChain("X", "X"));
         }
 
         [Fact]
         public void IsInAncestorChain_Unrelated_ReturnsFalse()
         {
-            ParsekScenario.groupParents["A"] = "Root";
-            ParsekScenario.groupParents["B"] = "Root";
+            GroupHierarchyStore.groupParents["A"] = "Root";
+            GroupHierarchyStore.groupParents["B"] = "Root";
 
-            Assert.False(ParsekScenario.IsInAncestorChain("A", "B"));
+            Assert.False(GroupHierarchyStore.IsInAncestorChain("A", "B"));
         }
 
         [Fact]
         public void IsInAncestorChain_EmptyGroupParents_ReturnsFalse()
         {
             // groupParents is empty after ResetGroupsForTesting
-            Assert.False(ParsekScenario.IsInAncestorChain("Alpha", "Beta"));
+            Assert.False(GroupHierarchyStore.IsInAncestorChain("Alpha", "Beta"));
         }
 
         [Fact]
@@ -79,10 +79,10 @@ namespace Parsek.Tests
         {
             // Build a chain of 150 groups — exceeds the 100-depth guard
             for (int i = 0; i < 150; i++)
-                ParsekScenario.groupParents[$"G{i + 1}"] = $"G{i}";
+                GroupHierarchyStore.groupParents[$"G{i + 1}"] = $"G{i}";
 
             // Should hit max depth and return true (assumes cycle)
-            bool result = ParsekScenario.IsInAncestorChain("G150", "G0");
+            bool result = GroupHierarchyStore.IsInAncestorChain("G150", "G0");
             Assert.True(result);
             Assert.Contains(logLines, l => l.Contains("max depth reached"));
         }
@@ -90,13 +90,13 @@ namespace Parsek.Tests
         [Fact]
         public void IsInAncestorChain_NullGroup_ReturnsFalse()
         {
-            Assert.False(ParsekScenario.IsInAncestorChain(null, "A"));
+            Assert.False(GroupHierarchyStore.IsInAncestorChain(null, "A"));
         }
 
         [Fact]
         public void IsInAncestorChain_NullCandidate_ReturnsFalse()
         {
-            Assert.False(ParsekScenario.IsInAncestorChain("A", null));
+            Assert.False(GroupHierarchyStore.IsInAncestorChain("A", null));
         }
 
         // ─── SetGroupParent ────────────────────────────────────────────────
@@ -104,31 +104,31 @@ namespace Parsek.Tests
         [Fact]
         public void SetGroupParent_NormalAssignment_ReturnsTrue()
         {
-            bool result = ParsekScenario.SetGroupParent("Child", "Parent");
+            bool result = GroupHierarchyStore.SetGroupParent("Child", "Parent");
 
             Assert.True(result);
-            Assert.True(ParsekScenario.groupParents.ContainsKey("Child"));
+            Assert.True(GroupHierarchyStore.groupParents.ContainsKey("Child"));
             Assert.Contains(logLines, l => l.Contains("assigned to parent group"));
         }
 
         [Fact]
         public void SetGroupParent_NullParent_RemovesFromHierarchy()
         {
-            ParsekScenario.groupParents["Child"] = "Parent";
+            GroupHierarchyStore.groupParents["Child"] = "Parent";
 
-            bool result = ParsekScenario.SetGroupParent("Child", null);
+            bool result = GroupHierarchyStore.SetGroupParent("Child", null);
 
             Assert.True(result);
-            Assert.False(ParsekScenario.groupParents.ContainsKey("Child"));
+            Assert.False(GroupHierarchyStore.groupParents.ContainsKey("Child"));
             Assert.Contains(logLines, l => l.Contains("moved to root level"));
         }
 
         [Fact]
         public void SetGroupParent_CycleDetection_ReturnsFalse()
         {
-            ParsekScenario.SetGroupParent("B", "A");
+            GroupHierarchyStore.SetGroupParent("B", "A");
 
-            bool result = ParsekScenario.SetGroupParent("A", "B");
+            bool result = GroupHierarchyStore.SetGroupParent("A", "B");
 
             Assert.False(result);
             Assert.Contains(logLines, l => l.Contains("would create cycle"));
@@ -137,7 +137,7 @@ namespace Parsek.Tests
         [Fact]
         public void SetGroupParent_SelfAssignment_ReturnsFalse()
         {
-            bool result = ParsekScenario.SetGroupParent("X", "X");
+            bool result = GroupHierarchyStore.SetGroupParent("X", "X");
 
             Assert.False(result);
         }
@@ -145,7 +145,7 @@ namespace Parsek.Tests
         [Fact]
         public void SetGroupParent_EmptyChild_ReturnsFalse()
         {
-            bool result = ParsekScenario.SetGroupParent("", "Parent");
+            bool result = GroupHierarchyStore.SetGroupParent("", "Parent");
 
             Assert.False(result);
         }
@@ -155,32 +155,32 @@ namespace Parsek.Tests
         [Fact]
         public void RemoveGroupFromHierarchy_ReparentsChildrenToGrandparent()
         {
-            ParsekScenario.groupParents["Child1"] = "Middle";
-            ParsekScenario.groupParents["Child2"] = "Middle";
-            ParsekScenario.groupParents["Middle"] = "Root";
+            GroupHierarchyStore.groupParents["Child1"] = "Middle";
+            GroupHierarchyStore.groupParents["Child2"] = "Middle";
+            GroupHierarchyStore.groupParents["Middle"] = "Root";
 
-            ParsekScenario.RemoveGroupFromHierarchy("Middle");
+            GroupHierarchyStore.RemoveGroupFromHierarchy("Middle");
 
             // Middle should be gone
-            Assert.False(ParsekScenario.groupParents.ContainsKey("Middle"));
+            Assert.False(GroupHierarchyStore.groupParents.ContainsKey("Middle"));
             // Children reparented to grandparent "Root"
-            Assert.Equal("Root", ParsekScenario.groupParents["Child1"]);
-            Assert.Equal("Root", ParsekScenario.groupParents["Child2"]);
+            Assert.Equal("Root", GroupHierarchyStore.groupParents["Child1"]);
+            Assert.Equal("Root", GroupHierarchyStore.groupParents["Child2"]);
         }
 
         [Fact]
         public void RemoveGroupFromHierarchy_RootGroup_PromotesChildrenToRoot()
         {
-            ParsekScenario.groupParents["Sub1"] = "Parent";
-            ParsekScenario.groupParents["Sub2"] = "Parent";
-            ParsekScenario.groupParents["Sub3"] = "Parent";
+            GroupHierarchyStore.groupParents["Sub1"] = "Parent";
+            GroupHierarchyStore.groupParents["Sub2"] = "Parent";
+            GroupHierarchyStore.groupParents["Sub3"] = "Parent";
 
-            ParsekScenario.RemoveGroupFromHierarchy("Parent");
+            GroupHierarchyStore.RemoveGroupFromHierarchy("Parent");
 
             // Parent was root-level (no grandparent), so children become root
-            Assert.False(ParsekScenario.groupParents.ContainsKey("Sub1"));
-            Assert.False(ParsekScenario.groupParents.ContainsKey("Sub2"));
-            Assert.False(ParsekScenario.groupParents.ContainsKey("Sub3"));
+            Assert.False(GroupHierarchyStore.groupParents.ContainsKey("Sub1"));
+            Assert.False(GroupHierarchyStore.groupParents.ContainsKey("Sub2"));
+            Assert.False(GroupHierarchyStore.groupParents.ContainsKey("Sub3"));
             Assert.Contains(logLines, l =>
                 l.Contains("removed from hierarchy") && l.Contains("3 sub-groups promoted to root"));
         }
@@ -188,9 +188,9 @@ namespace Parsek.Tests
         [Fact]
         public void RemoveGroupFromHierarchy_NoChildren_LogsZero()
         {
-            ParsekScenario.groupParents["Leaf"] = "Root";
+            GroupHierarchyStore.groupParents["Leaf"] = "Root";
 
-            ParsekScenario.RemoveGroupFromHierarchy("Leaf");
+            GroupHierarchyStore.RemoveGroupFromHierarchy("Leaf");
 
             Assert.Contains(logLines, l =>
                 l.Contains("removed from hierarchy") && l.Contains("0 sub-groups"));
@@ -201,10 +201,10 @@ namespace Parsek.Tests
         [Fact]
         public void GetDescendantGroups_SingleLevel_ReturnsChildren()
         {
-            ParsekScenario.groupParents["Child1"] = "Root";
-            ParsekScenario.groupParents["Child2"] = "Root";
+            GroupHierarchyStore.groupParents["Child1"] = "Root";
+            GroupHierarchyStore.groupParents["Child2"] = "Root";
 
-            var descendants = ParsekScenario.GetDescendantGroups("Root");
+            var descendants = GroupHierarchyStore.GetDescendantGroups("Root");
 
             Assert.True(descendants.Count == 2);
             Assert.Contains("Child1", descendants);
@@ -214,10 +214,10 @@ namespace Parsek.Tests
         [Fact]
         public void GetDescendantGroups_MultiLevel_ReturnsGrandchildren()
         {
-            ParsekScenario.groupParents["B"] = "A";
-            ParsekScenario.groupParents["C"] = "B";
+            GroupHierarchyStore.groupParents["B"] = "A";
+            GroupHierarchyStore.groupParents["C"] = "B";
 
-            var descendants = ParsekScenario.GetDescendantGroups("A");
+            var descendants = GroupHierarchyStore.GetDescendantGroups("A");
 
             Assert.True(descendants.Count == 2);
             Assert.Contains("B", descendants);
@@ -227,9 +227,9 @@ namespace Parsek.Tests
         [Fact]
         public void GetDescendantGroups_NoDescendants_ReturnsEmptyList()
         {
-            ParsekScenario.groupParents["Leaf"] = "Root";
+            GroupHierarchyStore.groupParents["Leaf"] = "Root";
 
-            var descendants = ParsekScenario.GetDescendantGroups("Leaf");
+            var descendants = GroupHierarchyStore.GetDescendantGroups("Leaf");
 
             Assert.True(descendants.Count == 0);
         }
@@ -237,7 +237,7 @@ namespace Parsek.Tests
         [Fact]
         public void GetDescendantGroups_NullGroup_ReturnsEmptyList()
         {
-            var descendants = ParsekScenario.GetDescendantGroups(null);
+            var descendants = GroupHierarchyStore.GetDescendantGroups(null);
 
             Assert.True(descendants.Count == 0);
         }
@@ -247,25 +247,25 @@ namespace Parsek.Tests
         [Fact]
         public void RenameGroupInHierarchy_UpdatesAsChild()
         {
-            ParsekScenario.groupParents["OldName"] = "Parent";
+            GroupHierarchyStore.groupParents["OldName"] = "Parent";
 
-            ParsekScenario.RenameGroupInHierarchy("OldName", "NewName");
+            GroupHierarchyStore.RenameGroupInHierarchy("OldName", "NewName");
 
-            Assert.False(ParsekScenario.groupParents.ContainsKey("OldName"));
-            Assert.True(ParsekScenario.groupParents.ContainsKey("NewName"));
+            Assert.False(GroupHierarchyStore.groupParents.ContainsKey("OldName"));
+            Assert.True(GroupHierarchyStore.groupParents.ContainsKey("NewName"));
             Assert.Contains(logLines, l => l.Contains("RenameGroupInHierarchy"));
         }
 
         [Fact]
         public void RenameGroupInHierarchy_UpdatesAsParent()
         {
-            ParsekScenario.groupParents["Child"] = "OldParent";
+            GroupHierarchyStore.groupParents["Child"] = "OldParent";
 
-            ParsekScenario.RenameGroupInHierarchy("OldParent", "NewParent");
+            GroupHierarchyStore.RenameGroupInHierarchy("OldParent", "NewParent");
 
-            Assert.True(ParsekScenario.groupParents.ContainsKey("Child"));
+            Assert.True(GroupHierarchyStore.groupParents.ContainsKey("Child"));
             string parentVal;
-            ParsekScenario.groupParents.TryGetValue("Child", out parentVal);
+            GroupHierarchyStore.groupParents.TryGetValue("Child", out parentVal);
             Assert.Equal("NewParent", parentVal);
         }
 
@@ -273,27 +273,27 @@ namespace Parsek.Tests
         public void RenameGroupInHierarchy_BothKeyAndValue()
         {
             // "Mid" is both a child of "Top" and a parent of "Bottom"
-            ParsekScenario.groupParents["Mid"] = "Top";
-            ParsekScenario.groupParents["Bottom"] = "Mid";
+            GroupHierarchyStore.groupParents["Mid"] = "Top";
+            GroupHierarchyStore.groupParents["Bottom"] = "Mid";
 
-            ParsekScenario.RenameGroupInHierarchy("Mid", "Middle");
+            GroupHierarchyStore.RenameGroupInHierarchy("Mid", "Middle");
 
-            Assert.False(ParsekScenario.groupParents.ContainsKey("Mid"));
-            Assert.True(ParsekScenario.groupParents.ContainsKey("Middle"));
+            Assert.False(GroupHierarchyStore.groupParents.ContainsKey("Mid"));
+            Assert.True(GroupHierarchyStore.groupParents.ContainsKey("Middle"));
             string topParent;
-            ParsekScenario.groupParents.TryGetValue("Middle", out topParent);
+            GroupHierarchyStore.groupParents.TryGetValue("Middle", out topParent);
             Assert.Equal("Top", topParent);
             string bottomParent;
-            ParsekScenario.groupParents.TryGetValue("Bottom", out bottomParent);
+            GroupHierarchyStore.groupParents.TryGetValue("Bottom", out bottomParent);
             Assert.Equal("Middle", bottomParent);
         }
 
         [Fact]
         public void RenameGroupInHierarchy_SameName_NoOp()
         {
-            ParsekScenario.groupParents["X"] = "Root";
+            GroupHierarchyStore.groupParents["X"] = "Root";
 
-            ParsekScenario.RenameGroupInHierarchy("X", "X");
+            GroupHierarchyStore.RenameGroupInHierarchy("X", "X");
 
             // No log emitted since it's a no-op
             Assert.DoesNotContain(logLines, l => l.Contains("RenameGroupInHierarchy"));
@@ -807,15 +807,15 @@ namespace Parsek.Tests
         public void HiddenGroups_OnSave_WritesHiddenGroupsNode()
         {
             // Bug: hidden groups not persisted — all groups reappear after save/load
-            ParsekScenario.hiddenGroups.Add("Archived");
-            ParsekScenario.hiddenGroups.Add("Deprecated");
+            GroupHierarchyStore.hiddenGroups.Add("Archived");
+            GroupHierarchyStore.hiddenGroups.Add("Deprecated");
 
             // Simulate what OnSave does for HIDDEN_GROUPS
             var node = new ConfigNode("SCENARIO");
-            if (ParsekScenario.hiddenGroups.Count > 0)
+            if (GroupHierarchyStore.hiddenGroups.Count > 0)
             {
                 ConfigNode hiddenNode = node.AddNode("HIDDEN_GROUPS");
-                foreach (var g in ParsekScenario.hiddenGroups)
+                foreach (var g in GroupHierarchyStore.hiddenGroups)
                     hiddenNode.AddValue("group", g);
             }
 
@@ -836,52 +836,52 @@ namespace Parsek.Tests
             hiddenNode.AddValue("group", "HiddenA");
             hiddenNode.AddValue("group", "HiddenB");
 
-            ParsekScenario.LoadHiddenGroups(node);
+            GroupHierarchyStore.LoadHiddenGroups(node);
 
-            Assert.Equal(2, ParsekScenario.hiddenGroups.Count);
-            Assert.Contains("HiddenA", ParsekScenario.hiddenGroups);
-            Assert.Contains("HiddenB", ParsekScenario.hiddenGroups);
+            Assert.Equal(2, GroupHierarchyStore.hiddenGroups.Count);
+            Assert.Contains("HiddenA", GroupHierarchyStore.hiddenGroups);
+            Assert.Contains("HiddenB", GroupHierarchyStore.hiddenGroups);
         }
 
         [Fact]
         public void HiddenGroups_LoadHiddenGroups_NoNode_ClearsSet()
         {
             // Bug: stale hidden groups survive when save file has no HIDDEN_GROUPS node
-            ParsekScenario.hiddenGroups.Add("Stale");
+            GroupHierarchyStore.hiddenGroups.Add("Stale");
 
             var node = new ConfigNode("SCENARIO");
             // No HIDDEN_GROUPS node
 
-            ParsekScenario.LoadHiddenGroups(node);
+            GroupHierarchyStore.LoadHiddenGroups(node);
 
-            Assert.Empty(ParsekScenario.hiddenGroups);
+            Assert.Empty(GroupHierarchyStore.hiddenGroups);
         }
 
         [Fact]
         public void HiddenGroups_RoundTrip_SaveThenLoad()
         {
             // Bug: hidden groups lost across save/load cycle (end-to-end)
-            ParsekScenario.hiddenGroups.Add("Flights");
-            ParsekScenario.hiddenGroups.Add("Tests");
+            GroupHierarchyStore.hiddenGroups.Add("Flights");
+            GroupHierarchyStore.hiddenGroups.Add("Tests");
 
             // Save
             var node = new ConfigNode("SCENARIO");
-            if (ParsekScenario.hiddenGroups.Count > 0)
+            if (GroupHierarchyStore.hiddenGroups.Count > 0)
             {
                 ConfigNode hiddenNode = node.AddNode("HIDDEN_GROUPS");
-                foreach (var g in ParsekScenario.hiddenGroups)
+                foreach (var g in GroupHierarchyStore.hiddenGroups)
                     hiddenNode.AddValue("group", g);
             }
 
             // Clear and reload
-            ParsekScenario.hiddenGroups.Clear();
-            Assert.Empty(ParsekScenario.hiddenGroups);
+            GroupHierarchyStore.hiddenGroups.Clear();
+            Assert.Empty(GroupHierarchyStore.hiddenGroups);
 
-            ParsekScenario.LoadHiddenGroups(node);
+            GroupHierarchyStore.LoadHiddenGroups(node);
 
-            Assert.Equal(2, ParsekScenario.hiddenGroups.Count);
-            Assert.Contains("Flights", ParsekScenario.hiddenGroups);
-            Assert.Contains("Tests", ParsekScenario.hiddenGroups);
+            Assert.Equal(2, GroupHierarchyStore.hiddenGroups.Count);
+            Assert.Contains("Flights", GroupHierarchyStore.hiddenGroups);
+            Assert.Contains("Tests", GroupHierarchyStore.hiddenGroups);
         }
 
         [Fact]
@@ -894,12 +894,12 @@ namespace Parsek.Tests
             hiddenNode.AddValue("group", "");
             hiddenNode.AddValue("group", "AlsoValid");
 
-            ParsekScenario.LoadHiddenGroups(node);
+            GroupHierarchyStore.LoadHiddenGroups(node);
 
-            Assert.Equal(2, ParsekScenario.hiddenGroups.Count);
-            Assert.Contains("Valid", ParsekScenario.hiddenGroups);
-            Assert.Contains("AlsoValid", ParsekScenario.hiddenGroups);
-            Assert.DoesNotContain("", ParsekScenario.hiddenGroups);
+            Assert.Equal(2, GroupHierarchyStore.hiddenGroups.Count);
+            Assert.Contains("Valid", GroupHierarchyStore.hiddenGroups);
+            Assert.Contains("AlsoValid", GroupHierarchyStore.hiddenGroups);
+            Assert.DoesNotContain("", GroupHierarchyStore.hiddenGroups);
         }
     }
 }

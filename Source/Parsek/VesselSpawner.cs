@@ -60,7 +60,7 @@ namespace Parsek
                     RemoveSpecificCrewFromSnapshot(spawnNode, excludeCrew);
 
                 // Set reserved crew back to Available so KSP can assign them to this vessel
-                ParsekScenario.UnreserveCrewInSnapshot(spawnNode);
+                CrewReservationManager.UnreserveCrewInSnapshot(spawnNode);
 
                 // Remove crew that already exist on a loaded vessel (prevents duplication)
                 RemoveDuplicateCrewFromSnapshot(spawnNode);
@@ -141,7 +141,7 @@ namespace Parsek
                 EnsureCrewExistInRoster(spawnNode);
                 if (excludeCrew != null && excludeCrew.Count > 0)
                     RemoveSpecificCrewFromSnapshot(spawnNode, excludeCrew);
-                ParsekScenario.UnreserveCrewInSnapshot(spawnNode);
+                CrewReservationManager.UnreserveCrewInSnapshot(spawnNode);
 
                 // Remove crew that already exist on a loaded vessel (prevents duplication)
                 RemoveDuplicateCrewFromSnapshot(spawnNode);
@@ -476,7 +476,7 @@ namespace Parsek
             }
 
             // Extract crew from the snapshot and find duplicates
-            var snapshotCrew = ParsekScenario.ExtractCrewFromSnapshot(snapshot);
+            var snapshotCrew = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);
             var duplicates = FindDuplicateCrew(snapshotCrew, existingCrew);
 
             if (duplicates.Count == 0)
@@ -642,7 +642,7 @@ namespace Parsek
                 return;
             }
 
-            var reserved = ParsekScenario.CrewReplacements;
+            var reserved = CrewReservationManager.CrewReplacements;
             int removedCount = 0;
 
             foreach (ConfigNode partNode in snapshot.GetNodes("PART"))

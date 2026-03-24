@@ -18,8 +18,8 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
-            ParsekScenario.ResetGroupsForTesting();
-            ParsekScenario.ResetReplacementsForTesting();
+            GroupHierarchyStore.ResetGroupsForTesting();
+            CrewReservationManager.ResetReplacementsForTesting();
         }
 
         public void Dispose()
@@ -28,8 +28,8 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = true;
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
-            ParsekScenario.ResetGroupsForTesting();
-            ParsekScenario.ResetReplacementsForTesting();
+            GroupHierarchyStore.ResetGroupsForTesting();
+            CrewReservationManager.ResetReplacementsForTesting();
         }
 
         [Fact]

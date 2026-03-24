@@ -688,13 +688,13 @@ namespace Parsek.Tests
             MilestoneStore.ResetForTesting();
             GameStateStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
-            ParsekScenario.ResetReplacementsForTesting();
+            CrewReservationManager.ResetReplacementsForTesting();
         }
 
         [Fact]
         public void CrewReplacements_EmptyByDefault()
         {
-            Assert.Empty(ParsekScenario.CrewReplacements);
+            Assert.Empty(CrewReservationManager.CrewReplacements);
         }
 
         [Fact]
@@ -710,9 +710,9 @@ namespace Parsek.Tests
 
             // Use OnLoad to populate (need a scenario instance)
             // Instead, test via the static accessor after reset
-            ParsekScenario.ResetReplacementsForTesting();
+            CrewReservationManager.ResetReplacementsForTesting();
 
-            Assert.Empty(ParsekScenario.CrewReplacements);
+            Assert.Empty(CrewReservationManager.CrewReplacements);
         }
 
         [Fact]
@@ -787,7 +787,7 @@ namespace Parsek.Tests
         [Fact]
         public void ShouldProcessCrew_Available_ReturnsTrue()
         {
-            Assert.True(ParsekScenario.ShouldProcessCrewForReservation(
+            Assert.True(CrewReservationManager.ShouldProcessCrewForReservation(
                 ProtoCrewMember.RosterStatus.Available));
         }
 
@@ -796,14 +796,14 @@ namespace Parsek.Tests
         {
             // Key scenario: crew already Assigned (on pad vessel after revert)
             // must still be processed so a replacement is hired and swap can happen
-            Assert.True(ParsekScenario.ShouldProcessCrewForReservation(
+            Assert.True(CrewReservationManager.ShouldProcessCrewForReservation(
                 ProtoCrewMember.RosterStatus.Assigned));
         }
 
         [Fact]
         public void ShouldProcessCrew_Dead_ReturnsFalse()
         {
-            Assert.False(ParsekScenario.ShouldProcessCrewForReservation(
+            Assert.False(CrewReservationManager.ShouldProcessCrewForReservation(
                 ProtoCrewMember.RosterStatus.Dead));
         }
 
@@ -812,7 +812,7 @@ namespace Parsek.Tests
         {
             // Missing crew are processed: they may be alive but orphaned from
             // a removed vessel (e.g. --clean-start). ReserveCrewIn rescues them.
-            Assert.True(ParsekScenario.ShouldProcessCrewForReservation(
+            Assert.True(CrewReservationManager.ShouldProcessCrewForReservation(
                 ProtoCrewMember.RosterStatus.Missing));
         }
 
@@ -825,7 +825,7 @@ namespace Parsek.Tests
             var part = snapshot.AddNode("PART");
             part.AddValue("crew", "Jebediah Kerman");
 
-            var crew = ParsekScenario.ExtractCrewFromSnapshot(snapshot);
+            var crew = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);
 
             Assert.Single(crew);
             Assert.Equal("Jebediah Kerman", crew[0]);
@@ -841,7 +841,7 @@ namespace Parsek.Tests
             var part2 = snapshot.AddNode("PART");
             part2.AddValue("crew", "Valentina Kerman");
 
-            var crew = ParsekScenario.ExtractCrewFromSnapshot(snapshot);
+            var crew = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);
 
             Assert.Equal(3, crew.Count);
             Assert.Contains("Jebediah Kerman", crew);
@@ -855,7 +855,7 @@ namespace Parsek.Tests
             var snapshot = new ConfigNode("VESSEL");
             snapshot.AddNode("PART"); // part with no crew
 
-            var crew = ParsekScenario.ExtractCrewFromSnapshot(snapshot);
+            var crew = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);
 
             Assert.Empty(crew);
         }
@@ -863,7 +863,7 @@ namespace Parsek.Tests
         [Fact]
         public void ExtractCrewFromSnapshot_NullSnapshot_ReturnsEmpty()
         {
-            var crew = ParsekScenario.ExtractCrewFromSnapshot(null);
+            var crew = CrewReservationManager.ExtractCrewFromSnapshot(null);
 
             Assert.Empty(crew);
         }
@@ -876,7 +876,7 @@ namespace Parsek.Tests
             part.AddValue("crew", "");
             part.AddValue("crew", "Jebediah Kerman");
 
-            var crew = ParsekScenario.ExtractCrewFromSnapshot(snapshot);
+            var crew = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);
 
             Assert.Single(crew);
             Assert.Equal("Jebediah Kerman", crew[0]);
@@ -892,7 +892,7 @@ namespace Parsek.Tests
                 { "Valentina Kerman", "Agasel Kerman" }
             };
 
-            Assert.True(ParsekScenario.ShouldRemoveEvaVessel(
+            Assert.True(CrewReservationManager.ShouldRemoveEvaVessel(
                 true, "Valentina Kerman", replacements));
         }
 
@@ -905,7 +905,7 @@ namespace Parsek.Tests
                 { "Valentina Kerman", "Agasel Kerman" }
             };
 
-            Assert.False(ParsekScenario.ShouldRemoveEvaVessel(
+            Assert.False(CrewReservationManager.ShouldRemoveEvaVessel(
                 false, "Valentina Kerman", replacements));
         }
 
@@ -918,7 +918,7 @@ namespace Parsek.Tests
                 { "Valentina Kerman", "Agasel Kerman" }
             };
 
-            Assert.False(ParsekScenario.ShouldRemoveEvaVessel(
+            Assert.False(CrewReservationManager.ShouldRemoveEvaVessel(
                 true, "Jebediah Kerman", replacements));
         }
 
@@ -930,7 +930,7 @@ namespace Parsek.Tests
                 { "Valentina Kerman", "Agasel Kerman" }
             };
 
-            Assert.False(ParsekScenario.ShouldRemoveEvaVessel(
+            Assert.False(CrewReservationManager.ShouldRemoveEvaVessel(
                 true, null, replacements));
         }
 
@@ -939,9 +939,102 @@ namespace Parsek.Tests
         {
             var replacements = new Dictionary<string, string>();
 
-            Assert.False(ParsekScenario.ShouldRemoveEvaVessel(
+            Assert.False(CrewReservationManager.ShouldRemoveEvaVessel(
                 true, "Valentina Kerman", replacements));
         }
+
+        #region Serialization Log Assertions
+
+        [Fact]
+        public void LoadCrewReplacements_NullNode_LogsNoReplacementsMessage()
+        {
+            var logLines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekLog.SuppressLogging = false;
+            try
+            {
+                var node = new ConfigNode("SCENARIO");
+                CrewReservationManager.LoadCrewReplacements(node);
+                Assert.Contains(logLines, l => l.Contains("[CrewReservation]") && l.Contains("Loaded 0 crew replacements"));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        [Fact]
+        public void LoadCrewReplacements_WithEntries_LogsCount()
+        {
+            var logLines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekLog.SuppressLogging = false;
+            try
+            {
+                var node = new ConfigNode("SCENARIO");
+                var crNode = node.AddNode("CREW_REPLACEMENTS");
+                var entry = crNode.AddNode("ENTRY");
+                entry.AddValue("original", "Jeb");
+                entry.AddValue("replacement", "Bob");
+
+                CrewReservationManager.LoadCrewReplacements(node);
+                Assert.Contains(logLines, l => l.Contains("[CrewReservation]") && l.Contains("Loaded 1 crew replacement"));
+                Assert.Equal("Bob", CrewReservationManager.CrewReplacements["Jeb"]);
+            }
+            finally
+            {
+                CrewReservationManager.ResetReplacementsForTesting();
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        [Fact]
+        public void SaveCrewReplacements_Empty_WritesNoNode()
+        {
+            CrewReservationManager.ResetReplacementsForTesting();
+            var node = new ConfigNode("SCENARIO");
+            CrewReservationManager.SaveCrewReplacements(node);
+            Assert.Null(node.GetNode("CREW_REPLACEMENTS"));
+        }
+
+        [Fact]
+        public void SaveCrewReplacements_WithData_RoundTrips()
+        {
+            var logLines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekLog.SuppressLogging = false;
+            try
+            {
+                // Load some data
+                var loadNode = new ConfigNode("SCENARIO");
+                var crNode = loadNode.AddNode("CREW_REPLACEMENTS");
+                var e1 = crNode.AddNode("ENTRY");
+                e1.AddValue("original", "Jeb");
+                e1.AddValue("replacement", "Bob");
+                var e2 = crNode.AddNode("ENTRY");
+                e2.AddValue("original", "Val");
+                e2.AddValue("replacement", "Bill");
+                CrewReservationManager.LoadCrewReplacements(loadNode);
+
+                // Save
+                var saveNode = new ConfigNode("SCENARIO");
+                CrewReservationManager.SaveCrewReplacements(saveNode);
+
+                // Verify round-trip
+                var savedCr = saveNode.GetNode("CREW_REPLACEMENTS");
+                Assert.NotNull(savedCr);
+                var entries = savedCr.GetNodes("ENTRY");
+                Assert.Equal(2, entries.Length);
+                Assert.Contains(logLines, l => l.Contains("[CrewReservation]") && l.Contains("Saved 2 crew replacement"));
+            }
+            finally
+            {
+                CrewReservationManager.ResetReplacementsForTesting();
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        #endregion
     }
 
     [Collection("Sequential")]

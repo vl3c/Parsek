@@ -27,16 +27,11 @@ namespace Parsek
 
         /// <summary>
         /// Set to true by ActionReplay during committed action replay to prevent
-        /// recording replayed actions as new game state events.
-        /// </summary>
-        internal static bool SuppressActionReplay = false;
-
-        /// <summary>
-        /// Set to true by ActionReplay during committed action replay to bypass
+        /// recording replayed actions as new game state events and to bypass
         /// blocking Harmony patches (TechResearchPatch, FacilityUpgradePatch)
         /// that normally prevent duplicate actions on committed items.
         /// </summary>
-        internal static bool SuppressBlockingPatches = false;
+        internal static bool IsReplayingActions = false;
 
         /// <summary>
         /// Science subjects captured during the current recording session.
@@ -251,7 +246,7 @@ namespace Parsek
 
         private void OnTechResearched(GameEvents.HostTargetAction<RDTech, RDTech.OperationResult> data)
         {
-            if (SuppressActionReplay)
+            if (IsReplayingActions)
             {
                 ParsekLog.Verbose("GameStateRecorder", "Suppressed TechResearched event during action replay");
                 return;
@@ -290,7 +285,7 @@ namespace Parsek
 
         private void OnPartPurchased(AvailablePart part)
         {
-            if (SuppressActionReplay)
+            if (IsReplayingActions)
             {
                 ParsekLog.Verbose("GameStateRecorder", "Suppressed PartPurchased event during action replay");
                 return;
@@ -316,7 +311,7 @@ namespace Parsek
 
         private void OnKerbalAdded(ProtoCrewMember crew)
         {
-            if (SuppressActionReplay)
+            if (IsReplayingActions)
             {
                 ParsekLog.Verbose("GameStateRecorder", "Suppressed CrewHired event during action replay");
                 return;

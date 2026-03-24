@@ -141,6 +141,198 @@ namespace Parsek.Tests
             Assert.Equal(1, target);
         }
 
+        #region ComputeStandaloneDelta
+
+        private static List<TrajectoryPoint> MakeResourcePoints(
+            params (double ut, double funds, float science, float reputation)[] entries)
+        {
+            var points = new List<TrajectoryPoint>();
+            for (int i = 0; i < entries.Length; i++)
+            {
+                points.Add(new TrajectoryPoint
+                {
+                    ut = entries[i].ut,
+                    funds = entries[i].funds,
+                    science = entries[i].science,
+                    reputation = entries[i].reputation,
+                    latitude = 0, longitude = 0, altitude = 0,
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero,
+                    bodyName = "Kerbin"
+                });
+            }
+            return points;
+        }
+
+        [Fact]
+        public void ComputeStandaloneDelta_NoAdvance_ReturnsNoChange()
+        {
+            var points = MakeResourcePoints(
+                (10, 1000, 100, 50),
+                (20, 900, 95, 48),
+                (30, 800, 90, 46));
+            var delta = ResourceBudget.ComputeStandaloneDelta(points, lastAppliedIndex: 1, currentUT: 15);
+            Assert.False(delta.hasChange);
+            Assert.Equal(1, delta.targetIndex);
+        }
+
+        [Fact]
+        public void ComputeStandaloneDelta_AdvancesMultiplePoints()
+        {
+            var points = MakeResourcePoints(
+                (10, 1000, 100, 50),
+                (20, 900, 95, 48),
+                (30, 800, 90, 46));
+            var delta = ResourceBudget.ComputeStandaloneDelta(points, lastAppliedIndex: -1, currentUT: 25);
+            Assert.True(delta.hasChange);
+            Assert.Equal(1, delta.targetIndex);
+            Assert.Equal(-100, delta.funds);
+            Assert.Equal(-5f, delta.science);
+            Assert.Equal(-2f, delta.reputation);
+        }
+
+        [Fact]
+        public void ComputeStandaloneDelta_FromNegativeOneIndex()
+        {
+            var points = MakeResourcePoints(
+                (10, 1000, 100, 50),
+                (20, 900, 95, 48),
+                (30, 800, 90, 46));
+            var delta = ResourceBudget.ComputeStandaloneDelta(points, lastAppliedIndex: -1, currentUT: 35);
+            Assert.True(delta.hasChange);
+            Assert.Equal(2, delta.targetIndex);
+            // From index 0 (Max(-1,0)=0) to index 2
+            Assert.Equal(-200, delta.funds);
+            Assert.Equal(-10f, delta.science);
+            Assert.Equal(-4f, delta.reputation);
+        }
+
+        #endregion
+
+        #region ResourceApplicator — TickStandalone
+
+        [Fact]
+        public void TickStandalone_EmptyList_NoAction()
+        {
+            var recordings = new List<Recording>();
+            ResourceApplicator.TickStandalone(recordings, 100);
+            // No exception, no-op
+        }
+
+        [Fact]
+        public void TickStandalone_SkipsTreeRecordings()
+        {
+            var rec = new Recording
+            {
+                TreeId = "some-tree",
+                Points = new List<TrajectoryPoint>(MakeResourcePoints(
+                    (10, 1000, 100, 50), (20, 900, 95, 48)))
+            };
+            rec.LastAppliedResourceIndex = -1;
+            var recordings = new List<Recording> { rec };
+
+            ResourceApplicator.TickStandalone(recordings, 25);
+            Assert.Equal(-1, rec.LastAppliedResourceIndex); // unchanged — was skipped
+        }
+
+        [Fact]
+        public void TickStandalone_SkipsLoopRecordings()
+        {
+            var rec = new Recording
+            {
+                LoopPlayback = true,
+                Points = new List<TrajectoryPoint>(MakeResourcePoints(
+                    (10, 1000, 100, 50), (20, 900, 95, 48)))
+            };
+            rec.LastAppliedResourceIndex = -1;
+            var recordings = new List<Recording> { rec };
+
+            ResourceApplicator.TickStandalone(recordings, 25);
+            Assert.Equal(-1, rec.LastAppliedResourceIndex); // unchanged
+        }
+
+        [Fact]
+        public void TickStandalone_SkipsShortRecordings()
+        {
+            var rec = new Recording
+            {
+                Points = new List<TrajectoryPoint>(MakeResourcePoints((10, 1000, 100, 50)))
+            };
+            rec.LastAppliedResourceIndex = -1;
+            var recordings = new List<Recording> { rec };
+
+            ResourceApplicator.TickStandalone(recordings, 25);
+            Assert.Equal(-1, rec.LastAppliedResourceIndex); // unchanged — only 1 point
+        }
+
+        [Fact]
+        public void TickStandalone_AdvancesLastAppliedIndex()
+        {
+            // TickStandalone calls Funding.Instance etc which are null in tests,
+            // but the index advancement and delta computation should still work.
+            // The AddFunds/AddScience/AddReputation calls are guarded by null checks.
+            var rec = new Recording
+            {
+                Points = new List<TrajectoryPoint>(MakeResourcePoints(
+                    (10, 1000, 100, 50), (20, 900, 95, 48), (30, 800, 90, 46)))
+            };
+            rec.LastAppliedResourceIndex = -1;
+            var recordings = new List<Recording> { rec };
+
+            ResourceApplicator.TickStandalone(recordings, 25);
+            Assert.Equal(1, rec.LastAppliedResourceIndex); // advanced to index 1 (UT=20 passed)
+        }
+
+        [Fact]
+        public void TickStandalone_NoAdvance_WhenBeforeNextPoint()
+        {
+            var rec = new Recording
+            {
+                Points = new List<TrajectoryPoint>(MakeResourcePoints(
+                    (10, 1000, 100, 50), (20, 900, 95, 48)))
+            };
+            rec.LastAppliedResourceIndex = 0;
+            var recordings = new List<Recording> { rec };
+
+            ResourceApplicator.TickStandalone(recordings, 15);
+            Assert.Equal(0, rec.LastAppliedResourceIndex); // unchanged
+        }
+
+        #endregion
+
+        #region ResourceApplicator — DeductBudget
+
+        [Fact]
+        public void DeductBudget_ZeroBudget_StillMarksRecordingsApplied()
+        {
+            var rec = new Recording
+            {
+                Points = new List<TrajectoryPoint>(MakeResourcePoints(
+                    (10, 1000, 100, 50), (20, 1000, 100, 50)))
+            };
+            rec.LastAppliedResourceIndex = -1;
+            var recordings = new List<Recording> { rec };
+            var trees = new List<RecordingTree>();
+            var budget = new BudgetSummary();
+
+            ResourceApplicator.DeductBudget(budget, recordings, trees);
+            Assert.Equal(1, rec.LastAppliedResourceIndex); // marked as fully applied
+        }
+
+        [Fact]
+        public void DeductBudget_MarksTreesAsApplied()
+        {
+            var tree = new RecordingTree { ResourcesApplied = false };
+            var recordings = new List<Recording>();
+            var trees = new List<RecordingTree> { tree };
+            var budget = new BudgetSummary();
+
+            ResourceApplicator.DeductBudget(budget, recordings, trees);
+            Assert.True(tree.ResourcesApplied);
+        }
+
+        #endregion
+
         [Fact]
         public void ComputeScaledRcsEmissionRate_ShowcaseEnforcesVisibilityFloor()
         {

@@ -211,6 +211,25 @@ Unify `CommitChainSegment`, `CommitDockUndockSegment`, `CommitBoundarySplit`, `H
 
 **Priority:** Low — moderate savings, moderate risk
 
+### T32. Deep test suite audit
+
+3337 tests accumulated across multiple refactoring passes. Need a thorough audit to:
+- Identify **redundant tests** — duplicates or tests that cover the exact same code path
+- Find **always-passing tests** — tests that can't fail due to missing assertions, tautological checks, or mocked-away logic
+- Discover **missing edge cases** — guard conditions, error paths, and boundary values that have no coverage
+- Check **test isolation** — shared static state leaks between tests (missing ResetForTesting calls, wrong `[Collection]` attributes)
+- Verify **log-assertion completeness** — methods with logging that have no corresponding log-assertion tests
+
+Focus areas: ResourceApplicator (0% direct coverage for KSP-mutation methods), CrewReservationManager (mutation methods untested), ParsekFlight resource replay (duplicated logic with no shared tests).
+
+**Priority:** Medium — test confidence degrades as suite grows without pruning
+
+### T33. Encapsulate GroupHierarchyStore mutable fields
+
+`groupParents`, `hiddenGroups`, `hideActive` are `internal static` fields accessed directly by ParsekUI (~25 sites) and tests (~60 sites). Read-only accessors (`GroupParents`, `HiddenGroups`, `HideActive`) were added but callers still use the mutable fields. Migrate callers to use accessors + mutation methods (e.g. `AddHiddenGroup`/`RemoveHiddenGroup` instead of `hiddenGroups.Add`/`Remove`) to reduce coupling and enable future change tracking.
+
+**Priority:** Low — no functional risk, purely structural improvement
+
 ---
 
 # Known Bugs

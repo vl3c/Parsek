@@ -21,8 +21,8 @@ namespace Parsek.Tests
             GameStateStore.SuppressLogging = true;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
-            ParsekScenario.ResetGroupsForTesting();
-            ParsekScenario.ResetReplacementsForTesting();
+            GroupHierarchyStore.ResetGroupsForTesting();
+            CrewReservationManager.ResetReplacementsForTesting();
         }
 
         public void Dispose()
@@ -32,8 +32,8 @@ namespace Parsek.Tests
             RecordingStore.SuppressLogging = true;
             RecordingStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
-            ParsekScenario.ResetGroupsForTesting();
-            ParsekScenario.ResetReplacementsForTesting();
+            GroupHierarchyStore.ResetGroupsForTesting();
+            CrewReservationManager.ResetReplacementsForTesting();
         }
 
         // Helper: create a recording with optional groups and chainId
@@ -235,7 +235,7 @@ namespace Parsek.Tests
         {
             // Bug caught: grpChildren must reflect the groupParents mapping;
             // if the parent->child relationship is inverted, the tree renders wrong
-            ParsekScenario.groupParents["SubGroup"] = "TopGroup";
+            GroupHierarchyStore.groupParents["SubGroup"] = "TopGroup";
 
             var committed = new List<Recording>
             {
@@ -309,7 +309,7 @@ namespace Parsek.Tests
         {
             // Bug caught: an empty group that is a child in groupParents must NOT
             // appear as a root group — it should only appear under its parent
-            ParsekScenario.groupParents["EmptyChild"] = "ParentGroup";
+            GroupHierarchyStore.groupParents["EmptyChild"] = "ParentGroup";
 
             var committed = new List<Recording>
             {

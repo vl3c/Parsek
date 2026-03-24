@@ -160,7 +160,7 @@ namespace Parsek
                 ParsekLog.Warn("RecordingStore",
                     $"StashPending: overwriting unresolved pending from '{pendingRecording.VesselName}' " +
                     $"with new pending from '{vesselName}' — discarding old pending");
-                ParsekScenario.UnreserveCrewInSnapshot(pendingRecording.VesselSnapshot);
+                CrewReservationManager.UnreserveCrewInSnapshot(pendingRecording.VesselSnapshot);
                 DiscardPending();
             }
 
@@ -641,7 +641,7 @@ namespace Parsek
             }
             var rec = committedRecordings[index];
             ParsekLog.Info("RecordingStore", $"DeleteRecordingFull: deleting '{rec.VesselName}' at index {index}");
-            ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
+            CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
             RemoveRecordingAt(index);
         }
 

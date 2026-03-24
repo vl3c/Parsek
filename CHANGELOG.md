@@ -6,7 +6,7 @@ All notable changes to Parsek are documented here.
 
 ## 0.5.2
 
-Second-pass structural refactoring. ~80 method extractions, ~105 logging additions, 88 new tests. 1 latent bug fixed. Zero logic changes (except the bug fix).
+Second-pass structural refactoring + game action system modularization. ~80 method extractions, ~105 logging additions, 103 new tests. 1 latent bug fixed. Zero logic changes (except the bug fix).
 
 ### Code Refactor
 
@@ -42,6 +42,14 @@ Second-pass structural refactoring. ~80 method extractions, ~105 logging additio
   - `AnimLookup` enum + `FindAnimation` resolver parameterize 3 animation lookup strategies
   - 4 animation sample caches consolidated into 1 `animationSampleCache`
   - `CommitBoundaryAndRestart` shared tail extracted from atmosphere/SOI split handlers (D7)
+- **Pass 5 — Game action system modularization** (ParsekScenario reduced by ~1020 lines)
+  - `GroupHierarchyStore` extracted — UI group hierarchy + visibility (~200 lines, zero coupling to crew/resources)
+  - `ResourceApplicator` extracted — resource ticking (TickStandalone, TickTrees), budget deduction, rewind baseline correction. Coroutine shells stay on ParsekScenario.
+  - `CrewReservationManager` extracted — crew reservation lifecycle (Reserve/Unreserve/Swap/Clear), replacement hiring, EVA vessel cleanup. ~40 call sites updated across 7 source files.
+  - `ResourceDelta` struct + `ComputeStandaloneDelta` added to ResourceBudget — pure testable delta computation
+  - `SuppressActionReplay` + `SuppressBlockingPatches` merged into single `IsReplayingActions` flag
+  - `ActionReplay.ParseDetailField` removed, callers use `GameStateEventDisplay.ExtractDetailField`
+  - Guard logs added to all silent early-return paths in ResourceApplicator and CrewReservationManager
 - **Performance**
   - Per-frame `List<PartEvent>` allocations eliminated — 4 transition-check methods now append to reusable buffer (T19)
   - `TimelineGhosts` dictionary cached per-frame instead of allocating on every property access (T20)
@@ -56,7 +64,7 @@ Second-pass structural refactoring. ~80 method extractions, ~105 logging additio
 
 ### Test Coverage
 
-3227 → 3420 tests (+193). New test areas:
+3227 → 3439 tests (+212). New test areas:
 - GroupTreeDataTests (14): recordings tree data-computation
 - PostSpawnTerminalStateTests (12): spawn terminal state clearing
 - InterpolatePointsTests (11): trajectory interpolation edge cases
@@ -67,6 +75,10 @@ Second-pass structural refactoring. ~80 method extractions, ~105 logging additio
 - GhostSoftCapManager Enabled=false guard (T22)
 - SessionMerger frame trimming verification (T23)
 - EnvironmentDetector ORBITING/ESCAPING situations (T24, 5 tests)
+- ComputeStandaloneDelta (3): no-advance, multi-point, negative-index edge cases
+- ResourceApplicator.TickStandalone (6): skip tree/loop/short, advance index, no-advance
+- ResourceApplicator.DeductBudget (2): marking recordings and trees as applied
+- CrewReservationManager serialization (4): LoadCrewReplacements log assertions, SaveCrewReplacements round-trip
 
 ### Documentation
 
