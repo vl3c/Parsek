@@ -218,13 +218,13 @@ All three violate zero-logic-changes constraint.
 | ID | File | Lines affected | Risk | Status |
 |----|------|---------------|------|--------|
 | D1 | ParsekFlight | ~160 | Medium | Open — conditional flags needed |
-| D2 | ParsekFlight | ~316 | High | Open — needs D20 first (instance methods on controller) |
+| D2 | ParsekFlight | ~316 | High | Open — **unblocked by D20 completion** (instance methods on GhostPlaybackEngine) |
 | D3 | ParsekFlight+ParsekKSC | ~120 | Low | **DONE** (Phase 3A Split 4: TrajectoryMath.InterpolatePoints) |
 | D4 | ParsekFlight+ParsekKSC | ~60 | Low | **DONE** (Phase 3A Split 4: shared positioning) |
-| D5 | ParsekFlight | ~80 | Medium | Open — needs D20 first |
+| D5 | ParsekFlight | ~80 | Medium | Open — **unblocked by D20 completion** |
 | D6 | ParsekFlight | ~15 | N/A | Closed — below 5-line min |
 | D7 | ParsekFlight | ~75 | Low | Open |
-| D8 | ParsekFlight | ~500 | High | Open — needs D20 first |
+| D8 | GhostPlaybackEngine | ~500 | High | Open — **unblocked by D20 completion** (UpdatePlayback decomposition on engine) |
 | D9 | ParsekFlight | ~194 | Low | Closed — minimal gain |
 | D10 | ParsekFlight | ~60 | Medium | Closed — API divergence |
 | D11 | BackgroundRecorder | ~736 | High | Open — intentional design |
@@ -236,5 +236,5 @@ All three violate zero-logic-changes constraint.
 | D17 | GhostVisualBuilder | ~30 | Low | Closed — guard param |
 | D18 | ParsekUI | ~125 | Medium | Open |
 | D19 | ParsekUI | ~40 | Low | Open |
-| D20 | ParsekFlight | ~2443 | High | Open — requires architectural redesign |
+| D20 | ParsekFlight→GhostPlaybackEngine | ~2443 | High | **DONE** (T25: GhostPlaybackEngine 1553 lines + ParsekPlaybackPolicy 192 lines + interfaces) |
 | D21 | ParsekFlight | ~400-500 | High | Open — requires state isolation |

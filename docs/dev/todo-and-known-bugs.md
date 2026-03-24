@@ -187,15 +187,13 @@ Items identified during refactor-2 (March 2026) but deferred because they requir
 
 ### T25. ParsekFlight TimelinePlaybackController extraction (D20)
 
-Extract `#region Timeline Auto-Playback` (~2443 lines) into a `TimelinePlaybackController` class. Blocked by `ghostStates` being referenced 31 times across 8 regions. Requires redesigning ParsekFlight's field layout so playback state is isolated in a passable struct/class. Would enable D2 (commit-pattern dedup), D5 (frame application dedup), D8 (UpdateTimelinePlayback decomposition).
-
-**Priority:** Medium — largest single improvement opportunity for ParsekFlight (9900→7500 lines)
+**Status: DONE** — Completed as GhostPlaybackEngine (1553 lines) + ParsekPlaybackPolicy (192 lines) + IPlaybackTrajectory/IGhostPositioner/GhostPlaybackEvents interfaces. ParsekFlight reduced from ~9900 to 8657 lines. Engine has zero Recording references, accesses trajectories via IPlaybackTrajectory interface only. D2, D5, D8 now unblocked.
 
 ### T26. ParsekFlight ChainSegmentManager extraction (D21)
 
-Extract chain state + 4 commit methods (~400-500 lines) into a `ChainSegmentManager` class. Blocked by `activeChainId` being referenced 50+ times across 5 regions. Same prerequisite as T25 — chain state must be isolated first. Would enable D2 (commit-pattern dedup via instance methods).
+Extract chain state + 4 commit methods (~400-500 lines) into a `ChainSegmentManager` class. Blocked by `activeChainId` being referenced 50+ times across 5 regions. T25 prerequisite is met; chain state isolation is the remaining blocker.
 
-**Priority:** Medium — depends on T25 or parallel state isolation work
+**Priority:** Medium — T25 complete, chain state isolation still needed
 
 ### T27. GhostVisualBuilder SampleXxxStates unification (D15)
 
