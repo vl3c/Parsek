@@ -94,6 +94,293 @@ namespace Parsek
 
         #endregion
 
+        #region Loop utilities
+
+        /// <summary>Whether the trajectory should loop (has enough points and duration).</summary>
+        internal static bool ShouldLoopPlayback(IPlaybackTrajectory traj)
+        {
+            if (traj == null || !traj.LoopPlayback || traj.Points == null || traj.Points.Count < 2)
+                return false;
+            return traj.EndUT - traj.StartUT > GhostPlaybackLogic.MinLoopDurationSeconds;
+        }
+
+        /// <summary>Resolve the effective loop interval for a trajectory.</summary>
+        internal double GetLoopIntervalSeconds(IPlaybackTrajectory traj, double autoLoopIntervalSeconds)
+        {
+            return GhostPlaybackLogic.ResolveLoopInterval(
+                traj, autoLoopIntervalSeconds,
+                GhostPlaybackLogic.DefaultLoopIntervalSeconds,
+                GhostPlaybackLogic.MinCycleDuration);
+        }
+
+        /// <summary>
+        /// Compute the effective UT within a looping trajectory, accounting for cycle index,
+        /// pause windows, and loop phase offsets. Returns false if the trajectory is not loopable.
+        /// </summary>
+        internal bool TryComputeLoopPlaybackUT(
+            IPlaybackTrajectory traj,
+            double currentUT,
+            double autoLoopIntervalSeconds,
+            out double loopUT,
+            out int cycleIndex,
+            out bool inPauseWindow,
+            int recIdx = -1)
+        {
+            loopUT = traj != null ? traj.StartUT : 0;
+            cycleIndex = 0;
+            inPauseWindow = false;
+            if (traj == null || traj.Points == null || traj.Points.Count < 2) return false;
+            if (currentUT < traj.StartUT) return false;
+
+            double duration = traj.EndUT - traj.StartUT;
+            if (duration <= GhostPlaybackLogic.MinLoopDurationSeconds) return false;
+
+            double intervalSeconds = GetLoopIntervalSeconds(traj, autoLoopIntervalSeconds);
+            double cycleDuration = duration + intervalSeconds;
+            if (cycleDuration <= GhostPlaybackLogic.MinLoopDurationSeconds)
+                cycleDuration = duration;
+
+            double elapsed = currentUT - traj.StartUT;
+
+            // Apply loop phase offset (set by Watch mode to reset ghost to recording start)
+            double phaseOffset;
+            if (recIdx >= 0 && loopPhaseOffsets.TryGetValue(recIdx, out phaseOffset))
+            {
+                ParsekLog.Verbose("Engine", $"TryComputeLoopPlaybackUT: applying phase offset {phaseOffset:F2}s for recIdx={recIdx}");
+                elapsed += phaseOffset;
+            }
+
+            cycleIndex = (int)Math.Floor(elapsed / cycleDuration);
+            if (cycleIndex < 0) cycleIndex = 0;
+
+            double cycleTime = elapsed - (cycleIndex * cycleDuration);
+            if (intervalSeconds > 0 && cycleTime > duration)
+            {
+                inPauseWindow = true;
+                loopUT = traj.EndUT;
+                if (ParsekLog.IsVerboseEnabled)
+                    ParsekLog.VerboseRateLimited("Engine", "loop_pause_" + recIdx,
+                        $"TryComputeLoopPlaybackUT: in pause window for recIdx={recIdx}, cycle={cycleIndex}");
+                return true;
+            }
+
+            loopUT = traj.StartUT + Math.Min(cycleTime, duration);
+            return true;
+        }
+
+        /// <summary>Whether any time warp is active.</summary>
+        internal static bool IsAnyWarpActive()
+        {
+            return GhostPlaybackLogic.IsAnyWarpActive(TimeWarp.CurrentRateIndex, TimeWarp.CurrentRate);
+        }
+
+        #endregion
+
+        #region Reentry FX
+
+        /// <summary>
+        /// Update reentry visual effects for a ghost. Computes atmospheric density,
+        /// Mach number, and intensity, then drives glow/fire/shell layers.
+        /// </summary>
+        internal void UpdateReentryFx(int recIdx, GhostPlaybackState state, string vesselName, float warpRate)
+        {
+            var info = state.reentryFxInfo;
+            if (info == null || state.ghost == null) return;
+
+            if (GhostPlaybackLogic.ShouldSuppressVisualFx(warpRate))
+            {
+                DriveReentryToZero(info, recIdx, state.lastInterpolatedBodyName,
+                    state.lastInterpolatedAltitude, vesselName);
+                return;
+            }
+
+            Vector3 interpolatedVel = state.lastInterpolatedVelocity;
+            string bodyName = state.lastInterpolatedBodyName;
+            double altitude = state.lastInterpolatedAltitude;
+
+            if (string.IsNullOrEmpty(bodyName))
+            {
+                DriveReentryToZero(info, recIdx, bodyName, 0.0, vesselName, state);
+                return;
+            }
+
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
+            if (body == null)
+            {
+                ParsekLog.VerboseRateLimited("Engine", $"ghost-{recIdx}-nobody",
+                    $"ReentryFx: body '{bodyName}' not found — skipping");
+                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName, state);
+                return;
+            }
+
+            Vector3 surfaceVel = interpolatedVel - (Vector3)body.getRFrmVel(state.ghost.transform.position);
+            float speed = surfaceVel.magnitude;
+
+            if (!body.atmosphere)
+            {
+                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName, state);
+                return;
+            }
+
+            if (altitude >= body.atmosphereDepth)
+            {
+                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName, state);
+                return;
+            }
+
+            double pressure = body.GetPressure(altitude);
+            double temperature = body.GetTemperature(altitude);
+            if (double.IsNaN(pressure) || pressure < 0 || double.IsNaN(temperature) || temperature < 0)
+            {
+                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName, state);
+                return;
+            }
+
+            double density = body.GetDensity(pressure, temperature);
+            if (double.IsNaN(density) || density < 0)
+            {
+                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName, state);
+                return;
+            }
+
+            double speedOfSound = body.GetSpeedOfSound(pressure, density);
+            float machNumber = (speedOfSound > 0) ? (float)(speed / speedOfSound) : 0f;
+            float rawIntensity = GhostVisualBuilder.ComputeReentryIntensity(speed, (float)density, machNumber);
+
+            float smoothedIntensity = Mathf.Lerp(info.lastIntensity, rawIntensity,
+                1f - Mathf.Exp(-GhostVisualBuilder.ReentrySmoothingRate * Time.deltaTime));
+            if (smoothedIntensity < 0.001f && rawIntensity == 0f)
+                smoothedIntensity = 0f;
+
+            DriveReentryLayers(info, smoothedIntensity, surfaceVel, recIdx, bodyName, altitude, machNumber, vesselName, state);
+            info.lastIntensity = smoothedIntensity;
+        }
+
+        private void DriveReentryToZero(ReentryFxInfo info, int recIdx, string bodyName, double altitude,
+            string vesselName, GhostPlaybackState state = null)
+        {
+            DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, altitude, 0f, vesselName, state);
+            info.lastIntensity = 0f;
+        }
+
+        private void DriveReentryLayers(ReentryFxInfo info, float intensity, Vector3 surfaceVel,
+            int recIdx, string bodyName, double altitude, float machNumber, string vesselName,
+            GhostPlaybackState state = null)
+        {
+            bool wasActive = info.lastIntensity > 0f;
+            bool isActive = intensity > 0f;
+
+            if (isActive && !wasActive)
+            {
+                float speed = surfaceVel.magnitude;
+                ParsekLog.Verbose("Engine",
+                    $"ReentryFx: Activated for ghost #{recIdx} \"{vesselName}\" — intensity={intensity:F2}, Mach={machNumber:F2}, speed={speed:F0} m/s, alt={altitude:F0} m, body={bodyName}");
+            }
+            else if (!isActive && wasActive)
+            {
+                float speed = surfaceVel.magnitude;
+                ParsekLog.Verbose("Engine",
+                    $"ReentryFx: Deactivated for ghost #{recIdx} — intensity dropped to 0 (speed={speed:F0} m/s, alt={altitude:F0} m)");
+            }
+
+            if (isActive)
+            {
+                ParsekLog.VerboseRateLimited("Engine", $"ghost-{recIdx}-intensity",
+                    $"ReentryFx: ghost #{recIdx} intensity={intensity:F2} speed={surfaceVel.magnitude:F0} alt={altitude:F0}");
+            }
+
+            // Layer A: Heat glow (material emission)
+            if (info.glowMaterials != null)
+            {
+                for (int i = 0; i < info.glowMaterials.Count; i++)
+                {
+                    HeatMaterialState ms = info.glowMaterials[i];
+                    if (ms.material == null) continue;
+
+                    if (intensity <= GhostVisualBuilder.ReentryLayerAThreshold)
+                    {
+                        if (!string.IsNullOrEmpty(ms.emissiveProperty))
+                            ms.material.SetColor(ms.emissiveProperty, ms.coldEmission);
+                        if (!string.IsNullOrEmpty(ms.colorProperty))
+                            ms.material.SetColor(ms.colorProperty, ms.coldColor);
+                    }
+                    else
+                    {
+                        float glowFraction = Mathf.InverseLerp(GhostVisualBuilder.ReentryLayerAThreshold, 1f, intensity);
+                        Color targetEmission = Color.Lerp(GhostVisualBuilder.ReentryHotEmissionLow,
+                            GhostVisualBuilder.ReentryHotEmissionHigh, glowFraction);
+                        if (!string.IsNullOrEmpty(ms.emissiveProperty))
+                            ms.material.SetColor(ms.emissiveProperty,
+                                Color.Lerp(ms.coldEmission, ms.coldEmission + targetEmission, glowFraction));
+                        if (!string.IsNullOrEmpty(ms.colorProperty))
+                            ms.material.SetColor(ms.colorProperty,
+                                Color.Lerp(ms.coldColor, ms.hotColor, glowFraction));
+                    }
+                }
+            }
+
+            // Apply ablation char to heat shield parts
+            if (state != null)
+                GhostPlaybackLogic.ApplyColorChangerCharState(state, intensity);
+
+            // Fire envelope particles
+            if (info.fireParticles != null)
+            {
+                if (intensity > GhostVisualBuilder.ReentryFireThreshold)
+                {
+                    float fireFraction = Mathf.InverseLerp(GhostVisualBuilder.ReentryFireThreshold, 1f, intensity);
+
+                    var emissionMod = info.fireParticles.emission;
+                    emissionMod.rateOverTimeMultiplier = Mathf.Lerp(
+                        GhostVisualBuilder.ReentryFireEmissionMin,
+                        GhostVisualBuilder.ReentryFireEmissionMax, fireFraction);
+
+                    var mainMod = info.fireParticles.main;
+                    mainMod.startSizeMultiplier = Mathf.Lerp(0.8f, 2.0f, fireFraction);
+
+                    if (!info.fireParticles.isPlaying)
+                        info.fireParticles.Play();
+                }
+                else
+                {
+                    if (info.fireParticles.isPlaying)
+                        info.fireParticles.Stop(true, ParticleSystemStopBehavior.StopEmitting);
+                }
+            }
+
+            // Fire shell overlay
+            if (info.fireShellMeshes != null && info.fireShellMaterial != null
+                && intensity > GhostVisualBuilder.ReentryFireThreshold)
+            {
+                Vector3 velDir = surfaceVel.normalized;
+                float maxOffset = info.vesselLength * GhostVisualBuilder.ReentryFireShellMaxOffset * intensity;
+                float baseTint = Mathf.Lerp(0.026f, 0.156f, intensity);
+
+                for (int pass = 0; pass < GhostVisualBuilder.ReentryFireShellPasses; pass++)
+                {
+                    float t = (pass + 1f) / GhostVisualBuilder.ReentryFireShellPasses;
+                    Vector3 offset = -velDir * (maxOffset * t);
+                    float alpha = baseTint * (1f - t * 0.7f);
+                    Color tint = GhostVisualBuilder.ReentryFireShellColor * alpha;
+
+                    var mpb = state?.reentryMpb ?? new MaterialPropertyBlock();
+                    mpb.SetColor("_TintColor", tint);
+
+                    for (int m = 0; m < info.fireShellMeshes.Count; m++)
+                    {
+                        FireShellMesh fsm = info.fireShellMeshes[m];
+                        if (fsm.mesh == null || fsm.transform == null) continue;
+                        if (!fsm.transform.gameObject.activeInHierarchy) continue;
+
+                        Matrix4x4 matrix = Matrix4x4.Translate(offset) * fsm.transform.localToWorldMatrix;
+                        Graphics.DrawMesh(fsm.mesh, matrix, info.fireShellMaterial, 0, null, 0, mpb);
+                    }
+                }
+            }
+        }
+
+        #endregion
+
         #region Query API
 
         /// <summary>Number of active primary timeline ghosts.</summary>

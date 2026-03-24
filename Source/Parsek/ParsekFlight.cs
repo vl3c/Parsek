@@ -6870,18 +6870,9 @@ namespace Parsek
             }
         }
 
-        private bool ShouldLoopPlayback(Recording rec)
-        {
-            if (rec == null || !rec.LoopPlayback || rec.Points == null || rec.Points.Count < 2)
-                return false;
-            return rec.EndUT - rec.StartUT > GhostPlaybackLogic.MinLoopDurationSeconds;
-        }
+        private bool ShouldLoopPlayback(Recording rec) => GhostPlaybackEngine.ShouldLoopPlayback(rec);
 
-        /// <summary>
-        /// Checks whether a recording is the active (player-controlled) recording within
-        /// its tree. Returns false for non-tree recordings. Used to determine whether
-        /// the external vessel ghost skip should apply (active recording is never skipped).
-        /// </summary>
+        // IsActiveTreeRecording stays in ParsekFlight (reads RecordingStore.CommittedTrees)
         private bool IsActiveTreeRecording(Recording rec)
         {
             if (string.IsNullOrEmpty(rec.TreeId)) return false;
@@ -6899,57 +6890,20 @@ namespace Parsek
         {
             double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
                                     ?? GhostPlaybackLogic.DefaultLoopIntervalSeconds;
-            return GhostPlaybackLogic.ResolveLoopInterval(rec, globalInterval, GhostPlaybackLogic.DefaultLoopIntervalSeconds, GhostPlaybackLogic.MinCycleDuration);
+            return engine.GetLoopIntervalSeconds(rec, globalInterval);
         }
 
         private bool TryComputeLoopPlaybackUT(
-            Recording rec,
-            double currentUT,
-            out double loopUT,
-            out int cycleIndex,
-            out bool inPauseWindow,
+            Recording rec, double currentUT,
+            out double loopUT, out int cycleIndex, out bool inPauseWindow,
             int recIdx = -1)
         {
-            loopUT = rec != null ? rec.StartUT : 0;
-            cycleIndex = 0;
-            inPauseWindow = false;
-            if (rec == null || rec.Points == null || rec.Points.Count < 2) return false;
-            if (currentUT < rec.StartUT) return false;
-
-            double duration = rec.EndUT - rec.StartUT;
-            if (duration <= GhostPlaybackLogic.MinLoopDurationSeconds) return false;
-
-            double intervalSeconds = GetLoopIntervalSeconds(rec);
-            double cycleDuration = duration + intervalSeconds;
-            if (cycleDuration <= GhostPlaybackLogic.MinLoopDurationSeconds)
-                cycleDuration = duration;
-
-            double elapsed = currentUT - rec.StartUT;
-
-            // Apply loop phase offset (set by Watch mode to reset ghost to recording start)
-            double phaseOffset;
-            if (recIdx >= 0 && loopPhaseOffsets.TryGetValue(recIdx, out phaseOffset))
-            {
-                ParsekLog.Verbose("Ghost", $"TryComputeLoopPlaybackUT: applying phase offset {phaseOffset:F2}s for recIdx={recIdx}");
-                elapsed += phaseOffset;
-            }
-
-            cycleIndex = (int)Math.Floor(elapsed / cycleDuration);
-            if (cycleIndex < 0) cycleIndex = 0;
-
-            double cycleTime = elapsed - (cycleIndex * cycleDuration);
-            if (intervalSeconds > 0 && cycleTime > duration)
-            {
-                inPauseWindow = true;
-                loopUT = rec.EndUT;
-                if (ParsekLog.IsVerboseEnabled)
-                    ParsekLog.VerboseRateLimited("Ghost", "loop_pause_" + recIdx, $"TryComputeLoopPlaybackUT: in pause window for recIdx={recIdx}, cycle={cycleIndex}");
-                return true;
-            }
-
-            loopUT = rec.StartUT + Math.Min(cycleTime, duration);
-            return true;
+            double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
+                                    ?? GhostPlaybackLogic.DefaultLoopIntervalSeconds;
+            return engine.TryComputeLoopPlaybackUT(rec, currentUT, globalInterval,
+                out loopUT, out cycleIndex, out inPauseWindow, recIdx);
         }
+
 
         private void UpdateLoopingTimelinePlayback(
             int recIdx,
@@ -7743,216 +7697,10 @@ namespace Parsek
             }
         }
 
-        private void DriveReentryToZero(ReentryFxInfo info, int recIdx, string bodyName, double altitude, string vesselName,
-            GhostPlaybackState state = null)
-        {
-            DriveReentryLayers(info, 0f, Vector3.zero, recIdx, bodyName, altitude, 0f, vesselName, state);
-            info.lastIntensity = 0f;
-        }
-
+        // DriveReentryToZero, UpdateReentryFx, DriveReentryLayers moved to engine (T25 Phase 5)
         private void UpdateReentryFx(int recIdx, GhostPlaybackState state, string vesselName)
         {
-            var info = state.reentryFxInfo;
-            if (info == null || state.ghost == null) return;
-
-            if (GhostPlaybackLogic.ShouldSuppressVisualFx(TimeWarp.CurrentRate))
-            {
-                DriveReentryToZero(info, recIdx, state.lastInterpolatedBodyName,
-                    state.lastInterpolatedAltitude, vesselName);
-                return;
-            }
-
-            Vector3 interpolatedVel = state.lastInterpolatedVelocity;
-            string bodyName = state.lastInterpolatedBodyName;
-            double altitude = state.lastInterpolatedAltitude;
-
-            if (string.IsNullOrEmpty(bodyName))
-            {
-                DriveReentryToZero(info, recIdx, bodyName, 0.0, vesselName, state);
-                return;
-            }
-
-            CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == bodyName);
-            if (body == null)
-            {
-                ParsekLog.VerboseRateLimited("Flight", $"ghost-{recIdx}-nobody",
-                    $"ReentryFx: body '{bodyName}' not found — skipping");
-                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName, state);
-                return;
-            }
-
-            Vector3 surfaceVel = interpolatedVel - (Vector3)body.getRFrmVel(state.ghost.transform.position);
-            float speed = surfaceVel.magnitude;
-
-            if (!body.atmosphere)
-            {
-                ParsekLog.VerboseRateLimited("Flight", $"ghost-{recIdx}-noatmo",
-                    $"ReentryFx: body {bodyName} has no atmosphere — skipping");
-                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName, state);
-                return;
-            }
-
-            if (altitude >= body.atmosphereDepth)
-            {
-                ParsekLog.VerboseRateLimited("Flight", $"ghost-{recIdx}-aboveatmo",
-                    $"ReentryFx: altitude {altitude:F0} above atmosphereDepth {body.atmosphereDepth:F0} — skipping");
-                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName, state);
-                return;
-            }
-
-            double pressure = body.GetPressure(altitude);
-            double temperature = body.GetTemperature(altitude);
-            if (double.IsNaN(pressure) || pressure < 0 || double.IsNaN(temperature) || temperature < 0)
-            {
-                ParsekLog.VerboseRateLimited("Flight", $"ghost-{recIdx}-badatmo",
-                    $"ReentryFx: GetPressure/GetTemperature returned invalid value for ghost #{recIdx} — density fallback to 0");
-                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName, state);
-                return;
-            }
-
-            double density = body.GetDensity(pressure, temperature);
-            if (double.IsNaN(density) || density < 0)
-            {
-                ParsekLog.VerboseRateLimited("Flight", $"ghost-{recIdx}-baddensity",
-                    $"ReentryFx: GetDensity returned invalid value for ghost #{recIdx} — density fallback to 0");
-                DriveReentryToZero(info, recIdx, bodyName, altitude, vesselName, state);
-                return;
-            }
-
-            // Compute Mach number for aeroFX threshold matching
-            double speedOfSound = body.GetSpeedOfSound(pressure, density);
-            float machNumber = (speedOfSound > 0) ? (float)(speed / speedOfSound) : 0f;
-
-            float rawIntensity = GhostVisualBuilder.ComputeReentryIntensity(speed, (float)density, machNumber);
-
-            float smoothedIntensity = Mathf.Lerp(info.lastIntensity, rawIntensity,
-                1f - Mathf.Exp(-GhostVisualBuilder.ReentrySmoothingRate * Time.deltaTime));
-            if (smoothedIntensity < 0.001f && rawIntensity == 0f)
-                smoothedIntensity = 0f;
-
-            DriveReentryLayers(info, smoothedIntensity, surfaceVel, recIdx, bodyName, altitude, machNumber, vesselName, state);
-            info.lastIntensity = smoothedIntensity;
-        }
-
-        private void DriveReentryLayers(ReentryFxInfo info, float intensity, Vector3 surfaceVel,
-            int recIdx, string bodyName, double altitude, float machNumber, string vesselName,
-            GhostPlaybackState state = null)
-        {
-            bool wasActive = info.lastIntensity > 0f;
-            bool isActive = intensity > 0f;
-
-            if (isActive && !wasActive)
-            {
-                float speed = surfaceVel.magnitude;
-                ParsekLog.Verbose("Flight",
-                    $"ReentryFx: Activated for ghost #{recIdx} \"{vesselName}\" — intensity={intensity:F2}, Mach={machNumber:F2}, speed={speed:F0} m/s, alt={altitude:F0} m, body={bodyName}");
-            }
-            else if (!isActive && wasActive)
-            {
-                float speed = surfaceVel.magnitude;
-                ParsekLog.Verbose("Flight",
-                    $"ReentryFx: Deactivated for ghost #{recIdx} — intensity dropped to 0 (speed={speed:F0} m/s, alt={altitude:F0} m)");
-            }
-
-            if (isActive)
-            {
-                ParsekLog.VerboseRateLimited("Flight", $"ghost-{recIdx}-intensity",
-                    $"ReentryFx: ghost #{recIdx} intensity={intensity:F2} speed={surfaceVel.magnitude:F0} alt={altitude:F0}");
-            }
-
-            // Layer A: Heat glow (material emission)
-            if (info.glowMaterials != null)
-            {
-                for (int i = 0; i < info.glowMaterials.Count; i++)
-                {
-                    HeatMaterialState ms = info.glowMaterials[i];
-                    if (ms.material == null) continue;
-
-                    if (intensity <= GhostVisualBuilder.ReentryLayerAThreshold)
-                    {
-                        if (!string.IsNullOrEmpty(ms.emissiveProperty))
-                            ms.material.SetColor(ms.emissiveProperty, ms.coldEmission);
-                        if (!string.IsNullOrEmpty(ms.colorProperty))
-                            ms.material.SetColor(ms.colorProperty, ms.coldColor);
-                    }
-                    else
-                    {
-                        float glowFraction = Mathf.InverseLerp(GhostVisualBuilder.ReentryLayerAThreshold, 1f, intensity);
-                        Color targetEmission = Color.Lerp(GhostVisualBuilder.ReentryHotEmissionLow,
-                            GhostVisualBuilder.ReentryHotEmissionHigh, glowFraction);
-                        if (!string.IsNullOrEmpty(ms.emissiveProperty))
-                            ms.material.SetColor(ms.emissiveProperty,
-                                Color.Lerp(ms.coldEmission, ms.coldEmission + targetEmission, glowFraction));
-                        if (!string.IsNullOrEmpty(ms.colorProperty))
-                            ms.material.SetColor(ms.colorProperty,
-                                Color.Lerp(ms.coldColor, ms.hotColor, glowFraction));
-                    }
-                }
-            }
-
-            // Apply ablation char to heat shield parts (Pattern B: _BurnColor)
-            if (state != null)
-                GhostPlaybackLogic.ApplyColorChangerCharState(state, intensity);
-
-            // Fire envelope particles
-            if (info.fireParticles != null)
-            {
-                if (intensity > GhostVisualBuilder.ReentryFireThreshold)
-                {
-                    float fireFraction = Mathf.InverseLerp(GhostVisualBuilder.ReentryFireThreshold, 1f, intensity);
-
-                    var emissionMod = info.fireParticles.emission;
-                    emissionMod.rateOverTimeMultiplier = Mathf.Lerp(
-                        GhostVisualBuilder.ReentryFireEmissionMin,
-                        GhostVisualBuilder.ReentryFireEmissionMax, fireFraction);
-
-                    var mainMod = info.fireParticles.main;
-                    mainMod.startSizeMultiplier = Mathf.Lerp(0.8f, 2.0f, fireFraction);
-
-                    if (!info.fireParticles.isPlaying)
-                        info.fireParticles.Play();
-                }
-                else
-                {
-                    if (info.fireParticles.isPlaying)
-                    {
-                        info.fireParticles.Stop(true, ParticleSystemStopBehavior.StopEmitting);
-                    }
-                }
-            }
-
-            // Fire shell overlay: re-draw ghost meshes offset along velocity with additive blending
-            // Approximates KSP's FXCamera replacement shader that displaces vertex positions
-            // along the airflow direction, creating the characteristic turbulent flame shell.
-            if (info.fireShellMeshes != null && info.fireShellMaterial != null
-                && intensity > GhostVisualBuilder.ReentryFireThreshold)
-            {
-                Vector3 velDir = surfaceVel.normalized;
-                float maxOffset = info.vesselLength * GhostVisualBuilder.ReentryFireShellMaxOffset * intensity;
-                float baseTint = Mathf.Lerp(0.026f, 0.156f, intensity);
-
-                for (int pass = 0; pass < GhostVisualBuilder.ReentryFireShellPasses; pass++)
-                {
-                    float t = (pass + 1f) / GhostVisualBuilder.ReentryFireShellPasses;
-                    Vector3 offset = -velDir * (maxOffset * t);
-                    float alpha = baseTint * (1f - t * 0.7f); // closer passes are brighter
-                    Color tint = GhostVisualBuilder.ReentryFireShellColor * alpha;
-
-                    var mpb = state.reentryMpb ?? new MaterialPropertyBlock();
-                    mpb.SetColor("_TintColor", tint);
-
-                    for (int m = 0; m < info.fireShellMeshes.Count; m++)
-                    {
-                        FireShellMesh fsm = info.fireShellMeshes[m];
-                        if (fsm.mesh == null || fsm.transform == null) continue;
-                        // Skip meshes on decoupled/destroyed parts (SetActive(false))
-                        if (!fsm.transform.gameObject.activeInHierarchy) continue;
-
-                        Matrix4x4 matrix = Matrix4x4.Translate(offset) * fsm.transform.localToWorldMatrix;
-                        Graphics.DrawMesh(fsm.mesh, matrix, info.fireShellMaterial, 0, null, 0, mpb);
-                    }
-                }
-            }
+            engine.UpdateReentryFx(recIdx, state, vesselName, TimeWarp.CurrentRate);
         }
 
         private void DestroyReentryFxResources(ReentryFxInfo info)
@@ -8107,11 +7855,7 @@ namespace Parsek
             }
         }
 
-        bool IsAnyWarpActive()
-        {
-            // CurrentRateIndex > 0 covers both rails warp and physics warp.
-            return GhostPlaybackLogic.IsAnyWarpActive(TimeWarp.CurrentRateIndex, TimeWarp.CurrentRate);
-        }
+        bool IsAnyWarpActive() => GhostPlaybackEngine.IsAnyWarpActive();
 
         void ExitAllWarpForPlaybackStart(string context)
         {
