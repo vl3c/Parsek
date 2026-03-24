@@ -850,6 +850,24 @@ Record entire multi-vessel missions as a single unit. Builds on top of the exist
 
 ---
 
+## T25: Ghost Playback Engine Extraction (v0.5.2)
+
+**New source files:**
+- `GhostPlaybackEngine.cs` (1553 lines) - owns ghost state, per-frame rendering loop, loop/overlap playback, zone transitions, soft caps, reentry FX. Accesses trajectories via `IPlaybackTrajectory` only (zero `Recording` references). Future standalone ghost playback mod core.
+- `ParsekPlaybackPolicy.cs` (192 lines) - subscribes to engine lifecycle events (spawn decisions, resource deltas, camera management)
+- `IPlaybackTrajectory.cs` (48 lines) - 19-property interface boundary exposing trajectory/visual data from Recording
+- `IGhostPositioner.cs` (52 lines) - 8 positioning methods implemented by ParsekFlight
+- `GhostPlaybackEvents.cs` (169 lines) - lifecycle event types, TrajectoryPlaybackFlags, FrameContext, CameraActionEvent
+
+**Modified:**
+- `ParsekFlight.cs` (9900 → 8657 lines) - implements `IGhostPositioner`, delegates ghost rendering to `GhostPlaybackEngine`, retains policy/recording/chain/camera logic
+- `Recording.cs` - implements `IPlaybackTrajectory` via explicit interface forwarding
+- `GhostPlaybackLogic.cs`, `GhostVisualBuilder.cs`, `GhostSoftCapManager.cs` - 12 methods changed from `Recording` to `IPlaybackTrajectory` parameter
+
+**Architecture:** Engine fires lifecycle events (`OnPlaybackCompleted`, `OnLoopRestarted`, `OnOverlapExpired`, `OnGhostCreated/Destroyed`), policy subscribes. Camera interactions decomposed into `CameraActionEvent` — engine detects visual state changes, `ParsekFlight` handles `FlightCamera` manipulation.
+
+---
+
 ## Scope
 
 Parsek is a **git-like recording system** for KSP missions. Players record flights sequentially, commit them to a single timeline, and they replay automatically as ghost vessels during future gameplay. Recordings are immutable - once committed, they play back exactly as flown.

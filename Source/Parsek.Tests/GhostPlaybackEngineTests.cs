@@ -822,40 +822,8 @@ namespace Parsek.Tests
 
         #region UpdatePlaybackGuards
 
-        [Fact]
-        public void UpdatePlayback_GuardLogic_NullTrajectories_WouldReturnEarly()
-        {
-            // Verify the guard condition: trajectories == null || count == 0
-            // This tests the logic path, not the method itself (which needs Unity)
-            IReadOnlyList<IPlaybackTrajectory> nullList = null;
-            Assert.True(nullList == null);
-
-            var emptyList = new List<IPlaybackTrajectory>();
-            Assert.Empty(emptyList);
-        }
-
-        [Fact]
-        public void UpdatePlayback_GuardLogic_NullPositioner_WouldReturnEarly()
-        {
-            // Engine created with null positioner — would early-exit
-            var engine = new GhostPlaybackEngine(null);
-            // The positioner field is private, but we can verify that the engine
-            // was created successfully and has no ghost states
-            Assert.Empty(engine.ghostStates);
-        }
-
-        [Fact]
-        public void UpdatePlayback_GuardLogic_FlagsMismatch_Detected()
-        {
-            // Verify the guard condition: flags.Length < trajectories.Count
-            var trajs = new List<IPlaybackTrajectory>
-            {
-                new MockTrajectory().WithTimeRange(100, 200),
-                new MockTrajectory().WithTimeRange(200, 300),
-            };
-            var flags = new TrajectoryPlaybackFlags[] { new TrajectoryPlaybackFlags() };
-            Assert.True(flags.Length < trajs.Count);
-        }
+        // Guard logic tests removed — they tested tautologies about test setup,
+        // not production code. Guard behavior verified via in-game testing.
 
         #endregion
 

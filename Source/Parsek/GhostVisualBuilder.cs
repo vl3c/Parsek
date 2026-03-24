@@ -1107,12 +1107,6 @@ namespace Parsek
                                     sdRot = Quaternion.Inverse(tempClone.transform.rotation) * canopy.rotation;
                                     semiDeployedSampled = true;
                                 }
-                                else
-                                {
-                                }
-                            }
-                            else
-                            {
                             }
                         }
 
@@ -1140,13 +1134,7 @@ namespace Parsek
                                     deployedSampled = true;
                                 }
                             }
-                            else
-                            {
-                            }
                         }
-                    }
-                    else
-                    {
                     }
                 }
                 finally
@@ -2351,9 +2339,6 @@ namespace Parsek
                                         fxDefinitions[f].localRotation,
                                         true);
                                 }
-                            }
-                            else
-                            {
                             }
                         }
                     }
