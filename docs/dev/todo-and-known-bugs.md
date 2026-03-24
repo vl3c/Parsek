@@ -197,11 +197,9 @@ Extract chain state + 4 commit methods (~400-500 lines) into a `ChainSegmentMana
 
 **Priority:** Medium — depends on T25 or parallel state isolation work
 
-### T27. GhostVisualBuilder SampleXxxStates unification (D15)
+### ~~T27. GhostVisualBuilder SampleXxxStates unification (D15)~~ DONE (PR #82)
 
-Unify 4 animation sampling methods (`SampleDeployableStates`, `SampleGearStates`, `SampleLadderStates`, `SampleCargoBayStates`) that share ~80% structure. ~300 lines savings. Blocked by differences in animation lookup strategy, stowed/deployed endpoint logic, cache keys, and sample point count.
-
-**Priority:** Low — methods work correctly, just repetitive
+Extracted `SampleAnimationStates` core method with `AnimLookup` enum + `FindAnimation` resolver. 4 methods reduced to thin wrappers, 4 caches consolidated into 1 `animationSampleCache`. Net -139 lines.
 
 ### T28. ParsekFlight commit-pattern dedup (D2)
 

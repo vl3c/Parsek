@@ -138,9 +138,7 @@ The shared core would need 3-4 parameters/flags to account for these differences
 
 **What:** 4 methods share ~80% structure but differ in: animation lookup strategy, stowed/deployed endpoint logic, cache keys, and (for heat) sample point count. ~300 lines savings possible but risky.
 
-**Why deferred:** Differences in animation lookup, endpoint logic, cache keys, and sample point count prevent clean parameterization without introducing fragile conditionals.
-
-**Revisit when:** Pass 3 candidate.
+**Status:** **DONE** (PR #82). Extracted `SampleAnimationStates` core method with `AnimLookup` enum + `FindAnimation` resolver. Consolidated 4 caches into 1 `animationSampleCache`. Ladder scoring via `useScoring` flag. Net -139 lines.
 
 ### D16. GhostVisualBuilder particle builder dedup
 
@@ -231,7 +229,7 @@ All three violate zero-logic-changes constraint.
 | D12 | GhostPlaybackLogic | ~110 | Medium | Closed — ~47% similarity not worth it |
 | D13 | GhostVisualBuilder | ~565 | High | **DONE** (Phase 3B Split 10: EngineFxBuilder) |
 | D14 | GhostVisualBuilder | ~80 | Medium | Closed — interleaved state |
-| D15 | GhostVisualBuilder | ~300 | Medium | Open — SampleXxxStates unification |
+| D15 | GhostVisualBuilder | ~300 | Medium | **DONE** (PR #82: SampleAnimationStates + AnimLookup) |
 | D16 | GhostVisualBuilder | ~300 | Medium | Closed — too many numeric params |
 | D17 | GhostVisualBuilder | ~30 | Low | Closed — guard param |
 | D18 | ParsekUI | ~125 | Medium | Open |
