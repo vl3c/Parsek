@@ -30,6 +30,11 @@ Second-pass structural refactoring. ~80 method extractions, ~105 logging additio
   - `BudgetSummary` and `UIMode` nested types extracted to top-level
   - Dead code removed: `GetFairingShowMesh`, `GenerateFairingTrussMesh` (zero call sites)
   - `SanitizeQuaternion` unnecessary instance wrapper removed
+- **Pass 4 — Continued dedup**
+  - `SampleAnimationStates` unified core extracted from 4 near-identical methods (D15/T27, -139 lines)
+  - `AnimLookup` enum + `FindAnimation` resolver parameterize 3 animation lookup strategies
+  - 4 animation sample caches consolidated into 1 `animationSampleCache`
+  - `CommitBoundaryAndRestart` shared tail extracted from atmosphere/SOI split handlers (D7)
 
 ### Bug Fixes
 
@@ -37,7 +42,7 @@ Second-pass structural refactoring. ~80 method extractions, ~105 logging additio
 
 ### Test Coverage
 
-3227 → 3315 tests (+88). New test areas:
+3227 → 3322 tests (+95). New test areas:
 - GroupTreeDataTests (14): recordings tree data-computation
 - PostSpawnTerminalStateTests (12): spawn terminal state clearing
 - InterpolatePointsTests (11): trajectory interpolation edge cases
@@ -45,12 +50,16 @@ Second-pass structural refactoring. ~80 method extractions, ~105 logging additio
 - ParsePartPositions + WalkbackAlongTrajectory (14): spawn collision parsing and walkback
 - ReindexTests (7): ghost dict reindexing after deletion
 - AppendCapturedDataTests (7): recording data append + sort
+- GhostSoftCapManager Enabled=false guard (T22)
+- SessionMerger frame trimming verification (T23)
+- EnvironmentDetector ORBITING/ESCAPING situations (T24, 5 tests)
 
 ### Documentation
 
 - Refactor plan, inventory, review checklist, architecture analysis
 - 21 deferred items tracked in `refactor-2-deferred.md` with Open/Done/Closed status
 - 7 future TODO items (T25-T31) added to `todo-and-known-bugs.md`
+- C1, D7, D15, T22-T24, T27 marked done
 
 ---
 
