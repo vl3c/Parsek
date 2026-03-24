@@ -32,7 +32,7 @@ namespace Parsek.Tests
         // --- ShouldTriggerExplosion guard condition tests ---
 
         [Fact]
-        public void ShouldTriggerExplosion_Destroyed_GhostAlive_ReturnsTrueAndLogs()
+        public void ShouldTriggerExplosion_Destroyed_GhostAlive_ReturnsTrue()
         {
             bool result = GhostPlaybackLogic.ShouldTriggerExplosion(
                 explosionAlreadyFired: false,
@@ -42,8 +42,6 @@ namespace Parsek.Tests
                 recIdx: 3);
 
             Assert.True(result);
-            Assert.Contains(logLines, l =>
-                l.Contains("[ExplosionFx]") && l.Contains("will fire") && l.Contains("#3") && l.Contains("TestVessel"));
         }
 
         [Fact]
@@ -92,7 +90,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldTriggerExplosion_GhostNull_ReturnsFalseAndLogs()
+        public void ShouldTriggerExplosion_GhostNull_ReturnsFalse()
         {
             bool result = GhostPlaybackLogic.ShouldTriggerExplosion(
                 explosionAlreadyFired: false,
@@ -102,8 +100,6 @@ namespace Parsek.Tests
                 recIdx: 7);
 
             Assert.False(result);
-            Assert.Contains(logLines, l =>
-                l.Contains("[ExplosionFx]") && l.Contains("ghost GO is null") && l.Contains("#7"));
         }
 
         [Theory]

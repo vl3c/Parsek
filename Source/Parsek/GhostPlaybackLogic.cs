@@ -626,18 +626,6 @@ namespace Parsek
             if (result.colorChangerInfos != null)
                 state.colorChangerInfos = GhostVisualBuilder.GroupColorChangersByPartId(result.colorChangerInfos);
 
-            ParsekLog.Verbose("GhostVisual",
-                $"PopulateGhostInfoDictionaries: " +
-                $"parachute={result.parachuteInfos?.Count ?? 0} " +
-                $"jettison={result.jettisonInfos?.Count ?? 0} " +
-                $"engine={result.engineInfos?.Count ?? 0} " +
-                $"deployable={result.deployableInfos?.Count ?? 0} " +
-                $"heat={result.heatInfos?.Count ?? 0} " +
-                $"light={result.lightInfos?.Count ?? 0} " +
-                $"fairing={result.fairingInfos?.Count ?? 0} " +
-                $"rcs={result.rcsInfos?.Count ?? 0} " +
-                $"robotic={result.roboticInfos?.Count ?? 0} " +
-                $"colorChanger={result.colorChangerInfos?.Count ?? 0}");
         }
 
         #endregion
@@ -666,10 +654,8 @@ namespace Parsek
             }
             if (!ghostExists)
             {
-                ParsekLog.Verbose("ExplosionFx", $"ShouldTriggerExplosion: ghost #{recIdx} — skipped (ghost GO is null)");
                 return false;
             }
-            ParsekLog.Verbose("ExplosionFx", $"ShouldTriggerExplosion: ghost #{recIdx} \"{vesselName}\" — will fire");
             return true;
         }
 
@@ -691,7 +677,6 @@ namespace Parsek
                     hidden++;
                 }
             }
-            ParsekLog.Verbose("GhostVisual", $"HideAllGhostParts: hidden {hidden}/{t.childCount} children (cameraPivot preserved)");
         }
 
         #endregion
@@ -727,7 +712,6 @@ namespace Parsek
                             HidePartSubtree(ghost, evt.partPersistentId, tree);
                         else
                             HideGhostPart(ghost, evt.partPersistentId);
-                        ParsekLog.Verbose("Flight", $"Part event applied: Decoupled '{evt.partName}' pid={evt.partPersistentId}");
                         GhostVisualBuilder.RebuildReentryMeshes(ghost, state.reentryFxInfo);
                         visibilityChanged = true;
                         break;
@@ -737,7 +721,6 @@ namespace Parsek
                         ApplyHeatState(state, evt, HeatLevel.Cold);
                         SpawnPartPuffAtPart(ghost, evt.partPersistentId);
                         HideGhostPart(ghost, evt.partPersistentId);
-                        ParsekLog.Verbose("Flight", $"Part event applied: Destroyed '{evt.partName}' pid={evt.partPersistentId}");
                         GhostVisualBuilder.RebuildReentryMeshes(ghost, state.reentryFxInfo);
                         visibilityChanged = true;
                         break;
@@ -754,11 +737,9 @@ namespace Parsek
                             }
                         }
                         DestroyFakeCanopy(state, evt.partPersistentId);
-                        ParsekLog.Verbose("Flight", $"Part event: ParachuteCut '{evt.partName}' — canopy hidden, housing remains");
                         break;
                     case PartEventType.ShroudJettisoned:
                         ApplyJettisonPanelState(state, evt, jettisoned: true);
-                        ParsekLog.Verbose("Flight", $"Part event applied: ShroudJettisoned '{evt.partName}' pid={evt.partPersistentId}");
                         break;
                     case PartEventType.ParachuteDestroyed:
                         // Clean up canopy visuals before hiding the part
@@ -773,7 +754,6 @@ namespace Parsek
                         }
                         DestroyFakeCanopy(state, evt.partPersistentId);
                         HideGhostPart(ghost, evt.partPersistentId);
-                        ParsekLog.Verbose("Flight", $"Part event applied: ParachuteDestroyed '{evt.partName}' pid={evt.partPersistentId}");
                         visibilityChanged = true;
                         break;
                     case PartEventType.ParachuteSemiDeployed:
@@ -788,11 +768,6 @@ namespace Parsek
                                 semiInfo.canopyTransform.localRotation = semiInfo.semiDeployedCanopyRot;
                                 if (semiInfo.capTransform != null)
                                     semiInfo.capTransform.gameObject.SetActive(false);
-                                ParsekLog.Verbose("Flight", $"Part event: ParachuteSemiDeployed '{evt.partName}' — streamer canopy shown");
-                            }
-                            else
-                            {
-                                ParsekLog.Verbose("Flight", $"Part event: ParachuteSemiDeployed '{evt.partName}' — no semi-deployed state sampled, skipping");
                             }
                         }
                         break;
@@ -810,7 +785,6 @@ namespace Parsek
                                 if (info.capTransform != null)
                                     info.capTransform.gameObject.SetActive(false);
                                 usedRealCanopy = true;
-                                ParsekLog.Verbose("Flight", $"Part event: ParachuteDeployed '{evt.partName}' — real canopy deployed");
                             }
                         }
 
@@ -820,25 +794,18 @@ namespace Parsek
                             if (canopy != null)
                             {
                                 TrackFakeCanopy(state, evt.partPersistentId, canopy);
-                                ParsekLog.Verbose("Flight", $"Part event: ParachuteDeployed '{evt.partName}' — fake canopy (fallback)");
-                            }
-                            else
-                            {
-                                ParsekLog.Verbose("Flight", $"Part event: ParachuteDeployed '{evt.partName}' — could not create canopy");
                             }
                         }
                         break;
                     case PartEventType.EngineIgnited:
                         SetEngineEmission(state, evt, evt.value);
                         ApplyHeatState(state, evt, HeatLevel.Hot);
-                        ParsekLog.Verbose("Flight", $"Part event applied: EngineIgnited '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} throttle={evt.value:F2}");
                         break;
                     case PartEventType.EngineShutdown:
                         SetEngineEmission(state, evt, 0f);
                         // Also reset heat animation glow — engine nozzles stay emissive
                         // after shutdown if ThermalAnimationCold hasn't fired yet.
                         ApplyHeatState(state, evt, HeatLevel.Cold);
-                        ParsekLog.Verbose("Flight", $"Part event applied: EngineShutdown '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex}");
                         break;
                     case PartEventType.EngineThrottle:
                         SetEngineEmission(state, evt, evt.value);
@@ -846,61 +813,47 @@ namespace Parsek
                         break;
                     case PartEventType.DeployableExtended:
                         ApplyDeployableState(state, evt, deployed: true);
-                        ParsekLog.Verbose("Flight", $"Part event applied: DeployableExtended '{evt.partName}' pid={evt.partPersistentId}");
                         break;
                     case PartEventType.DeployableRetracted:
                         ApplyDeployableState(state, evt, deployed: false);
-                        ParsekLog.Verbose("Flight", $"Part event applied: DeployableRetracted '{evt.partName}' pid={evt.partPersistentId}");
                         break;
                     case PartEventType.ThermalAnimationHot:
                         ApplyHeatState(state, evt, HeatLevel.Hot);
-                        ParsekLog.Verbose("Flight", $"Part event applied: ThermalAnimationHot '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} heat={evt.value:F2}");
                         break;
                     case PartEventType.ThermalAnimationMedium:
                         ApplyHeatState(state, evt, HeatLevel.Medium);
-                        ParsekLog.Verbose("Flight", $"Part event applied: ThermalAnimationMedium '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} heat={evt.value:F2}");
                         break;
                     case PartEventType.ThermalAnimationCold:
                         ApplyHeatState(state, evt, HeatLevel.Cold);
-                        ParsekLog.Verbose("Flight", $"Part event applied: ThermalAnimationCold '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} heat={evt.value:F2}");
                         break;
                     case PartEventType.LightOn:
                         ApplyLightPowerEvent(state, evt.partPersistentId, true);
-                        ParsekLog.Verbose("Flight", $"Part event applied: LightOn '{evt.partName}' pid={evt.partPersistentId}");
                         break;
                     case PartEventType.LightOff:
                         ApplyLightPowerEvent(state, evt.partPersistentId, false);
-                        ParsekLog.Verbose("Flight", $"Part event applied: LightOff '{evt.partName}' pid={evt.partPersistentId}");
                         break;
                     case PartEventType.LightBlinkEnabled:
                         ApplyLightBlinkModeEvent(state, evt.partPersistentId, enabled: true, evt.value);
-                        ParsekLog.Verbose("Flight", $"Part event applied: LightBlinkEnabled '{evt.partName}' pid={evt.partPersistentId} rate={evt.value:F2}");
                         break;
                     case PartEventType.LightBlinkDisabled:
                         ApplyLightBlinkModeEvent(state, evt.partPersistentId, enabled: false, evt.value);
-                        ParsekLog.Verbose("Flight", $"Part event applied: LightBlinkDisabled '{evt.partName}' pid={evt.partPersistentId}");
                         break;
                     case PartEventType.LightBlinkRate:
                         ApplyLightBlinkRateEvent(state, evt.partPersistentId, evt.value);
-                        ParsekLog.Verbose("Flight", $"Part event applied: LightBlinkRate '{evt.partName}' pid={evt.partPersistentId} rate={evt.value:F2}");
                         break;
                     case PartEventType.GearDeployed:
                         ApplyDeployableState(state, evt, deployed: true);
-                        ParsekLog.Verbose("Flight", $"Part event applied: GearDeployed '{evt.partName}' pid={evt.partPersistentId}");
                         break;
                     case PartEventType.GearRetracted:
                         ApplyDeployableState(state, evt, deployed: false);
-                        ParsekLog.Verbose("Flight", $"Part event applied: GearRetracted '{evt.partName}' pid={evt.partPersistentId}");
                         break;
                     case PartEventType.CargoBayOpened:
                         if (!ApplyDeployableState(state, evt, deployed: true))
                             ApplyJettisonPanelState(state, evt, jettisoned: true);
-                        ParsekLog.Verbose("Flight", $"Part event applied: CargoBayOpened '{evt.partName}' pid={evt.partPersistentId}");
                         break;
                     case PartEventType.CargoBayClosed:
                         if (!ApplyDeployableState(state, evt, deployed: false))
                             ApplyJettisonPanelState(state, evt, jettisoned: false);
-                        ParsekLog.Verbose("Flight", $"Part event applied: CargoBayClosed '{evt.partName}' pid={evt.partPersistentId}");
                         break;
                     case PartEventType.FairingJettisoned:
                         if (state.fairingInfos != null)
@@ -910,19 +863,16 @@ namespace Parsek
                                 && fInfo.fairingMeshObject != null)
                             {
                                 fInfo.fairingMeshObject.SetActive(false);
-                                ParsekLog.Verbose("Flight", $"Part event applied: FairingJettisoned '{evt.partName}' pid={evt.partPersistentId}");
                             }
                         }
                         break;
                     case PartEventType.RCSActivated:
                         SetRcsEmission(state, evt, evt.value);
                         ApplyHeatState(state, evt, HeatLevel.Hot);
-                        ParsekLog.Verbose("Flight", $"Part event applied: RCSActivated '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} power={evt.value:F2}");
                         break;
                     case PartEventType.RCSStopped:
                         SetRcsEmission(state, evt, 0f);
                         ApplyHeatState(state, evt, HeatLevel.Cold);
-                        ParsekLog.Verbose("Flight", $"Part event applied: RCSStopped '{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex}");
                         break;
                     case PartEventType.RCSThrottle:
                         SetRcsEmission(state, evt, evt.value);
@@ -936,18 +886,20 @@ namespace Parsek
                     case PartEventType.InventoryPartPlaced:
                         SetGhostPartActive(ghost, evt.partPersistentId, true);
                         visibilityChanged = true;
-                        ParsekLog.Verbose("Flight", $"Part event applied: InventoryPartPlaced '{evt.partName}' pid={evt.partPersistentId}");
                         break;
                     case PartEventType.InventoryPartRemoved:
                         SetGhostPartActive(ghost, evt.partPersistentId, false);
                         visibilityChanged = true;
-                        ParsekLog.Verbose("Flight", $"Part event applied: InventoryPartRemoved '{evt.partName}' pid={evt.partPersistentId}");
                         break;
                 }
                 evtIdx++;
             }
 
+            int appliedCount = evtIdx - state.partEventIndex;
             state.partEventIndex = evtIdx;
+            if (appliedCount > 0)
+                ParsekLog.VerboseRateLimited("Flight", $"part-events-{recIdx}",
+                    $"Applied {appliedCount} part events for ghost #{recIdx} (evtIdx now {evtIdx})");
             if (visibilityChanged)
                 RecalculateCameraPivot(state);
             UpdateBlinkingLights(state, currentUT);
@@ -965,12 +917,10 @@ namespace Parsek
             var t = ghost.transform.Find($"ghost_part_{persistentId}");
             if (t == null)
             {
-                ParsekLog.Verbose("PartPuffFx", $"Skipped puff for pid={persistentId} — part transform not found");
                 return;
             }
             if (!t.gameObject.activeSelf)
             {
-                ParsekLog.Verbose("PartPuffFx", $"Skipped puff for pid={persistentId} — part already inactive");
                 return;
             }
 
@@ -982,8 +932,6 @@ namespace Parsek
 
             var pos = t.position;
             GhostVisualBuilder.SpawnPartPuffFx(pos, partScale);
-            ParsekLog.Verbose("PartPuffFx",
-                $"Spawned puff for pid={persistentId} at ({pos.x:F1},{pos.y:F1},{pos.z:F1}) scale={partScale:F2}");
         }
 
         internal static void HideGhostPart(GameObject ghost, uint persistentId)
@@ -1026,7 +974,6 @@ namespace Parsek
                     initialized.Add(evt.partPersistentId);
                 }
             }
-            ParsekLog.Verbose("GhostVisual", $"Initialized inventory visibility: {hidden} parts hidden");
         }
 
         /// <summary>
@@ -1111,7 +1058,6 @@ namespace Parsek
                     for (int c = 0; c < children.Count; c++)
                         stack.Push(children[c]);
             }
-            ParsekLog.Verbose("Flight", $"HidePartSubtree: rootPid={rootPid}, hidden={hidden}, notFound={notFound}, treeHasRoot={tree.ContainsKey(rootPid)}");
         }
 
         /// <summary>
@@ -1256,29 +1202,6 @@ namespace Parsek
                     SetParticleRenderersEnabled(ps, false);
                 }
 
-                if (ParsekLog.IsVerboseEnabled)
-                {
-                    Transform t = ps.transform;
-                    string parentName = t != null && t.parent != null ? t.parent.name : "<none>";
-                    var diagMain = ps.main;
-                    string diagLine = BuildEngineFxEmissionDiagnostic(
-                        evt.partName,
-                        evt.partPersistentId,
-                        evt.moduleIndex,
-                        power,
-                        ps.name,
-                        parentName,
-                        t != null ? t.localPosition : Vector3.zero,
-                        t != null ? t.localRotation : Quaternion.identity,
-                        t != null ? t.position : Vector3.zero,
-                        t != null ? t.forward : Vector3.zero,
-                        t != null ? t.up : Vector3.zero,
-                        power > 0f ? 1f : 0f, // KSP emitter emit state (Unity emission disabled)
-                        diagMain.startSpeedMultiplier,
-                        ps.isPlaying);
-                    string diagKey = $"engine-fx-{evt.partPersistentId}-{evt.moduleIndex}-{ps.GetInstanceID()}";
-                    ParsekLog.VerboseRateLimited("Flight", diagKey, diagLine, 60.0);
-                }
             }
         }
 
@@ -1453,12 +1376,6 @@ namespace Parsek
                 if (renderer != null && renderer.enabled) enabledRenderers++;
             }
 
-            if (info.emissionScale > 1f)
-            {
-                ParsekLog.Verbose("Flight", $"RCS showcase diagnostics: part='{evt.partName}' pid={evt.partPersistentId} midx={evt.moduleIndex} " +
-                    $"power={power:F2} systems={configuredSystems} playing={playingSystems} renderers={enabledRenderers} " +
-                    $"speed={sampleSpeed:F1} size={sampleSize:F2} life={sampleLifetime:F2}");
-            }
         }
 
         internal static float ComputeScaledRcsEmissionRate(
@@ -1507,7 +1424,6 @@ namespace Parsek
                 }
                 suppressedCount++;
             }
-            ParsekLog.Verbose("Flight", $"Suppressed RCS emissions for {suppressedCount} modules");
         }
 
         internal static void RestoreAllRcsEmissions(GhostPlaybackState state)
@@ -1765,7 +1681,6 @@ namespace Parsek
                 }
             }
 
-            ParsekLog.Verbose("Flight", $"ReentryFx: Loop reset for ghost #{recIdx} — cleared fire particles and glow");
         }
 
         #endregion
@@ -1799,9 +1714,6 @@ namespace Parsek
                     ts.t.localScale = ts.stowedScale;
                 }
             }
-
-            if (applied)
-                ParsekLog.Verbose("Flight", $"Applied deployable state {(deployed ? "extended" : "retracted")} to part {evt.partPersistentId}");
 
             return applied;
         }
