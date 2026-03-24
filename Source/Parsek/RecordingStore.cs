@@ -1333,35 +1333,35 @@ namespace Parsek
             if (IsRewinding)
             {
                 reason = "Rewind already in progress";
-                if (!SuppressLogging) ParsekLog.Verbose("Store", $"CanRewind check: {reason}");
+                // Per-frame logging removed (was 3.7% of all log output); reason returned to caller
                 return false;
             }
 
             if (string.IsNullOrEmpty(rec.RewindSaveFileName))
             {
                 reason = "No rewind save available";
-                if (!SuppressLogging) ParsekLog.Verbose("Store", $"CanRewind check: {reason}");
+                // Per-frame logging removed (was 3.7% of all log output); reason returned to caller
                 return false;
             }
 
             if (isRecording)
             {
                 reason = "Stop recording before rewinding";
-                if (!SuppressLogging) ParsekLog.Verbose("Store", $"CanRewind check: {reason}");
+                // Per-frame logging removed (was 3.7% of all log output); reason returned to caller
                 return false;
             }
 
             if (HasPending)
             {
                 reason = "Merge or discard pending recording first";
-                if (!SuppressLogging) ParsekLog.Verbose("Store", $"CanRewind check: {reason}");
+                // Per-frame logging removed (was 3.7% of all log output); reason returned to caller
                 return false;
             }
 
             if (HasPendingTree)
             {
                 reason = "Merge or discard pending tree first";
-                if (!SuppressLogging) ParsekLog.Verbose("Store", $"CanRewind check: {reason}");
+                // Per-frame logging removed (was 3.7% of all log output); reason returned to caller
                 return false;
             }
 
@@ -1371,12 +1371,12 @@ namespace Parsek
             if (string.IsNullOrEmpty(savePath) || !File.Exists(savePath))
             {
                 reason = "Rewind save file missing";
-                if (!SuppressLogging) ParsekLog.Verbose("Store", $"CanRewind check: {reason}");
+                // Per-frame logging removed (was 3.7% of all log output); reason returned to caller
                 return false;
             }
 
             reason = "";
-            if (!SuppressLogging) ParsekLog.Verbose("Store", "CanRewind check: OK");
+            // Per-frame logging removed; reason returned to caller
             return true;
         }
 
@@ -1389,35 +1389,35 @@ namespace Parsek
             if (IsRewinding)
             {
                 reason = "Rewind already in progress";
-                if (!SuppressLogging) ParsekLog.Verbose("Store", $"CanFastForward check: {reason}");
+                // Per-frame logging removed (was 20% of all log output); reason returned to caller
                 return false;
             }
 
             if (rec == null || rec.Points.Count == 0)
             {
                 reason = "Recording not available";
-                if (!SuppressLogging) ParsekLog.Verbose("Store", $"CanFastForward check: {reason}");
+                // Per-frame logging removed (was 20% of all log output); reason returned to caller
                 return false;
             }
 
             if (isRecording)
             {
                 reason = "Stop recording before fast-forwarding";
-                if (!SuppressLogging) ParsekLog.Verbose("Store", $"CanFastForward check: {reason}");
+                // Per-frame logging removed (was 20% of all log output); reason returned to caller
                 return false;
             }
 
             if (HasPending)
             {
                 reason = "Merge or discard pending recording first";
-                if (!SuppressLogging) ParsekLog.Verbose("Store", $"CanFastForward check: {reason}");
+                // Per-frame logging removed (was 20% of all log output); reason returned to caller
                 return false;
             }
 
             if (HasPendingTree)
             {
                 reason = "Merge or discard pending tree first";
-                if (!SuppressLogging) ParsekLog.Verbose("Store", $"CanFastForward check: {reason}");
+                // Per-frame logging removed (was 20% of all log output); reason returned to caller
                 return false;
             }
 
@@ -1426,12 +1426,12 @@ namespace Parsek
             if (now >= rec.StartUT)
             {
                 reason = "Recording is not in the future";
-                if (!SuppressLogging) ParsekLog.Verbose("Store", $"CanFastForward check: {reason}");
+                // Per-frame logging removed (was 20% of all log output); reason returned to caller
                 return false;
             }
 
             reason = "";
-            if (!SuppressLogging) ParsekLog.Verbose("Store", "CanFastForward check: OK");
+            // Per-frame logging removed; reason returned to caller
             return true;
         }
 

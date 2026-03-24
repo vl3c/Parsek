@@ -175,15 +175,13 @@ Items identified during refactor-2 (March 2026) but deferred because they requir
 
 ### T25. ParsekFlight TimelinePlaybackController extraction (D20)
 
-Extract `#region Timeline Auto-Playback` (~2443 lines) into a `TimelinePlaybackController` class. Blocked by `ghostStates` being referenced 31 times across 8 regions. Requires redesigning ParsekFlight's field layout so playback state is isolated in a passable struct/class. Would enable D2 (commit-pattern dedup), D5 (frame application dedup), D8 (UpdateTimelinePlayback decomposition).
-
-**Priority:** Medium — largest single improvement opportunity for ParsekFlight (9900→7500 lines)
+**Status: DONE** — Completed as GhostPlaybackEngine (1553 lines) + ParsekPlaybackPolicy (192 lines) + IPlaybackTrajectory/IGhostPositioner/GhostPlaybackEvents interfaces. ParsekFlight reduced from ~9900 to 8657 lines. Engine has zero Recording references, accesses trajectories via IPlaybackTrajectory interface only. D2, D5, D8 now unblocked.
 
 ### T26. ParsekFlight ChainSegmentManager extraction (D21)
 
-Extract chain state + 4 commit methods (~400-500 lines) into a `ChainSegmentManager` class. Blocked by `activeChainId` being referenced 50+ times across 5 regions. Same prerequisite as T25 — chain state must be isolated first. Would enable D2 (commit-pattern dedup via instance methods).
+Extract chain state + 4 commit methods (~400-500 lines) into a `ChainSegmentManager` class. Blocked by `activeChainId` being referenced 50+ times across 5 regions. T25 prerequisite is met; chain state isolation is the remaining blocker.
 
-**Priority:** Medium — depends on T25 or parallel state isolation work
+**Priority:** Medium — T25 complete, chain state isolation still needed
 
 ### ~~T27. GhostVisualBuilder SampleXxxStates unification (D15)~~ DONE (PR #82)
 
@@ -1557,7 +1555,47 @@ Root cause likely in `StripOrphanedSpawnedVessels` or `PreProcessRewindSave` —
 
 **Status:** Open
 
-## 130. CleanupOrphanedSpawnedVessels destroys freshly-spawned past vessel on first flight after rewind
+## 130. GhostDestroyed event has empty vessel name for loop-restarted ghosts
+
+When a looping ghost cycle restarts, the engine fires `OnGhostDestroyed` for the old cycle. The event's `Trajectory` field is null/empty because `DestroyGhost` is called after the ghost state is already being torn down. The log shows `GhostDestroyed index=8 vessel=` (empty name).
+
+Root cause: `DestroyGhost` fires the event but the trajectory reference passed by the caller (loop playback) may be null when the ghost is destroyed during cycle rebuild. The trajectory reference should be captured before destruction.
+
+**Priority:** Low — cosmetic logging only, no functional impact
+
+**Status:** Open
+
+## 131. Explosion GO count can reach ~90 for overlapping reentry loops
+
+With 3+ overlapping negative-interval loop ghosts that have Destroyed terminal state (e.g., R2 reentry test), each produces continuous explosions. The `activeExplosions` list grows to ~90 concurrent explosion GameObjects before natural particle lifetime decay brings it back to ~10-12 steady state.
+
+Not a crash or leak (explosions decay naturally), but 90 concurrent particle-emitting GOs could cause frame drops on lower-end hardware.
+
+Possible fix: cap `activeExplosions.Count` and skip new explosions when at cap, or increase explosion pruning frequency.
+
+**Priority:** Low — only occurs with many overlapping destroyed-terminal loops
+
+**Status:** Open
+
+## 132. Policy RunSpawnDeathChecks and FlushDeferredSpawns are TODO stubs
+
+`ParsekPlaybackPolicy.RunSpawnDeathChecks()` and `FlushDeferredSpawns()` are placeholder stubs. The old path equivalents in `ParsekFlight.UpdateTimelinePlaybackViaEngine()` still call the original `FlushDeferredSpawns(committed)` directly, so deferred spawns work. But spawn-death detection (vessel dies immediately after spawning → re-spawn with death count tracking) is not wired through the policy yet.
+
+The pure predicates (`ShouldAbandonSpawnDeathLoop`, `ShouldFlushDeferredSpawns`, `ShouldSkipDeferredSpawn`) are tested; only the integration through the policy event handlers is missing.
+
+**Priority:** Medium — edge case (rapid spawn-death cycles) not handled by new path
+
+**Status:** Open
+
+## 133. Forwarding properties in ParsekFlight add ~500 lines of indirection
+
+After T25 extraction, ParsekFlight still has forwarding properties (`ghostStates => engine.ghostStates`, `overlapGhosts => engine.overlapGhosts`, etc.) and bridge methods (`DestroyTimelineGhost`, `DestroyAllOverlapGhosts`, `UpdateReentryFx`, etc.) that external callers (scene change, camera follow, delete, preview) use. These add ~500 lines that could be eliminated by updating callers to use the engine query API directly.
+
+**Priority:** Low — tech debt, no functional impact
+
+**Status:** Open
+
+## 134. CleanupOrphanedSpawnedVessels destroys freshly-spawned past vessel on first flight after rewind
 
 After rewind to UT ~99.8, entering flight at UT ~111. The Aeris 4A recording (UT 53–78, **before** the rewind point) correctly spawns a LANDED vessel on frame 1 (`VesselSpawned=true`). Half a second later, `CleanupOrphanedSpawnedVessels` runs during `OnFlightReady` and **destroys** the just-spawned vessel because "Aeris 4A" matches the cleanup names list. The vessel-gone check resets `VesselSpawned=false` (spawnDeathCount 1/3), the re-spawn attempt is collision-blocked by Crater Crawler at 14m for 150 frames, and eventually abandoned.
 
@@ -1571,7 +1609,7 @@ Different from #109 (missing cleanup on second rewind) — here cleanup runs but
 
 **Status:** Open
 
-## 131. ShouldSpawnAtRecordingEnd VERBOSE log spam — 377K lines/session
+## 135. ShouldSpawnAtRecordingEnd VERBOSE log spam — 377K lines/session
 
 `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` logs a VERBOSE line for every suppressed recording on every call. Called from `UpdateTimelinePlayback()` → `Update()` per-recording per-frame. With 37 recordings and 60fps, this produces ~2,200 lines/second. In the analyzed session: 377,350 lines — 73% of all Parsek log output and the single largest spam source.
 
@@ -1583,7 +1621,7 @@ Different from #117 (CanRewind/CanFastForward UI spam, now fixed) and #121 (Ghos
 
 **Status:** Open
 
-## 132. ParsePartPositions: 0/N parts parsed from vessel snapshot
+## 136. ParsePartPositions: 0/N parts parsed from vessel snapshot
 
 `SpawnCollisionDetector.ParsePartPositions` parsed 0 of 40 parts from the Aeris 4A vessel snapshot, falling back to a 2m bounds estimate. This makes the collision check unreliable — the actual vessel footprint is much larger than 2m but the detector can't compute it.
 
@@ -1595,7 +1633,7 @@ Different from #127 (wrong position source for collision check, now fixed). This
 
 **Status:** Open
 
-## 133. Crew status corruption: reserved kerbals become Missing after post-rewind EVA vessel removal
+## 137. Crew status corruption: reserved kerbals become Missing after post-rewind EVA vessel removal
 
 After rewind, `OnFlightReady` removes reserved EVA vessels (Bob Kerman pid=2373555091, Halemy Kerman pid=2924298993). KSP's removal sets their status from Assigned to Missing. The crew rescue logic (`Rescued Missing crew → Available`) runs earlier during OnLoad but not after OnFlightReady, so these kerbals stay Missing for the rest of the session until the next save/load cycle.
 

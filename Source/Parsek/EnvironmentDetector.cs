@@ -30,43 +30,16 @@ namespace Parsek
             // situation == 1 (LANDED) or situation == 2 (SPLASHED) or situation == 4 (PRELAUNCH)
             if (situation == 1 || situation == 2 || situation == 4)
             {
-                var surfaceResult = srfSpeed > 0.1
+                return srfSpeed > 0.1
                     ? SegmentEnvironment.SurfaceMobile
                     : SegmentEnvironment.SurfaceStationary;
-
-                ParsekLog.Verbose("Environment",
-                    $"Classify: situation={situation} srfSpeed={srfSpeed.ToString("F3", CultureInfo.InvariantCulture)} " +
-                    $"-> {surfaceResult}");
-
-                return surfaceResult;
             }
 
-            // Atmospheric -> below atmosphere ceiling on a body with atmosphere
             if (hasAtmosphere && altitude < atmosphereDepth)
-            {
-                ParsekLog.Verbose("Environment",
-                    $"Classify: hasAtmo=true alt={altitude.ToString("F1", CultureInfo.InvariantCulture)} " +
-                    $"atmoDepth={atmosphereDepth.ToString("F1", CultureInfo.InvariantCulture)} " +
-                    $"situation={situation} -> Atmospheric");
-
                 return SegmentEnvironment.Atmospheric;
-            }
 
-            // Exo -> above atmosphere (or no atmosphere)
             if (hasActiveThrust)
-            {
-                ParsekLog.Verbose("Environment",
-                    $"Classify: hasAtmo={hasAtmosphere} alt={altitude.ToString("F1", CultureInfo.InvariantCulture)} " +
-                    $"atmoDepth={atmosphereDepth.ToString("F1", CultureInfo.InvariantCulture)} " +
-                    $"thrust=active situation={situation} -> ExoPropulsive");
-
                 return SegmentEnvironment.ExoPropulsive;
-            }
-
-            ParsekLog.Verbose("Environment",
-                $"Classify: hasAtmo={hasAtmosphere} alt={altitude.ToString("F1", CultureInfo.InvariantCulture)} " +
-                $"atmoDepth={atmosphereDepth.ToString("F1", CultureInfo.InvariantCulture)} " +
-                $"thrust=none situation={situation} -> ExoBallistic");
 
             return SegmentEnvironment.ExoBallistic;
         }
@@ -106,12 +79,7 @@ namespace Parsek
             {
                 // Cancel any pending transition
                 if (hasPending)
-                {
-                    ParsekLog.Verbose("Environment",
-                        $"Hysteresis: pending {lastConfirmedEnvironment}->{pendingEnvironment} " +
-                        $"cancelled (raw reverted to {rawClassification} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)})");
                     hasPending = false;
-                }
                 return false;
             }
 
@@ -123,11 +91,6 @@ namespace Parsek
                 pendingEnvironment = rawClassification;
                 pendingStartUT = ut;
                 hasPending = true;
-
-                ParsekLog.Verbose("Environment",
-                    $"Hysteresis: pending {lastConfirmedEnvironment}->{rawClassification} " +
-                    $"started at UT={ut.ToString("F2", CultureInfo.InvariantCulture)} " +
-                    $"(debounce={requiredDebounce.ToString("F1", CultureInfo.InvariantCulture)}s)");
 
                 // Immediate transition if debounce is zero
                 if (requiredDebounce <= 0.0)

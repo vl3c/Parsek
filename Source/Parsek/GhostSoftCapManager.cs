@@ -32,15 +32,15 @@ namespace Parsek
         /// Determines priority for a ghost recording. Lower priority = despawned first.
         /// Pure static for testability.
         /// </summary>
-        internal static GhostPriority ClassifyPriority(Recording rec, int loopCycleIndex)
+        internal static GhostPriority ClassifyPriority(IPlaybackTrajectory traj, int loopCycleIndex)
         {
-            if (rec.LoopPlayback)
+            if (traj.LoopPlayback)
             {
                 return loopCycleIndex > 5
                     ? GhostPriority.LoopedOldest
                     : GhostPriority.LoopedRecent;
             }
-            if (rec.IsDebris)
+            if (traj.IsDebris)
             {
                 return GhostPriority.BackgroundDebris;
             }

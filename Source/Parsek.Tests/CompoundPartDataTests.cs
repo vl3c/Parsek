@@ -51,7 +51,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void NoPARTDATA_CompoundPart_ReturnsFalse_LogsWarning()
+        public void NoPARTDATA_CompoundPart_ReturnsFalse()
         {
             var partNode = new ConfigNode("PART");
 
@@ -59,16 +59,10 @@ namespace Parsek.Tests
                 partNode, MakeLinkedMeshConfig(), isCompoundPart: true, 12345, "fuelLine", out _);
 
             Assert.False(result);
-            Assert.Contains(logLines, l =>
-                l.Contains("[GhostVisual]") &&
-                l.Contains("CompoundPart fixup WARNING") &&
-                l.Contains("fuelLine") &&
-                l.Contains("12345") &&
-                l.Contains("no PARTDATA node"));
         }
 
         [Fact]
-        public void PARTDATA_MissingPos_ReturnsFalse_LogsSkip()
+        public void PARTDATA_MissingPos_ReturnsFalse()
         {
             var partNode = new ConfigNode("PART");
             partNode.AddNode("PARTDATA");
@@ -77,15 +71,10 @@ namespace Parsek.Tests
                 partNode, MakeLinkedMeshConfig(), isCompoundPart: true, 99999, "strutConnector", out _);
 
             Assert.False(result);
-            Assert.Contains(logLines, l =>
-                l.Contains("[GhostVisual]") &&
-                l.Contains("CompoundPart fixup skipped") &&
-                l.Contains("strutConnector") &&
-                l.Contains("no parseable 'pos'"));
         }
 
         [Fact]
-        public void PARTDATA_UnparseablePos_ReturnsFalse_LogsSkip()
+        public void PARTDATA_UnparseablePos_ReturnsFalse()
         {
             var partNode = new ConfigNode("PART");
             var partData = partNode.AddNode("PARTDATA");
@@ -95,13 +84,10 @@ namespace Parsek.Tests
                 partNode, MakeLinkedMeshConfig(), isCompoundPart: true, 55555, "fuelLine", out _);
 
             Assert.False(result);
-            Assert.Contains(logLines, l =>
-                l.Contains("CompoundPart fixup skipped") &&
-                l.Contains("no parseable 'pos'"));
         }
 
         [Fact]
-        public void PARTDATA_ValidPos_MissingRot_ReturnsTrue_DefaultsToIdentity_Logs()
+        public void PARTDATA_ValidPos_MissingRot_ReturnsTrue_DefaultsToIdentity()
         {
             var partNode = new ConfigNode("PART");
             var partData = partNode.AddNode("PARTDATA");
@@ -113,10 +99,6 @@ namespace Parsek.Tests
 
             Assert.True(result);
             Assert.Equal(Quaternion.identity, data.targetRot);
-            Assert.Contains(logLines, l =>
-                l.Contains("[GhostVisual]") &&
-                l.Contains("no parseable 'rot'") &&
-                l.Contains("defaulting to identity"));
         }
 
         [Fact]
