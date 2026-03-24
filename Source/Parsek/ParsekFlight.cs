@@ -295,6 +295,10 @@ namespace Parsek
         private static ToolbarControl toolbarControl;
         private ParsekUI ui;
 
+        // Ghost playback engine + policy (T25 extraction)
+        private GhostPlaybackEngine engine;
+        private ParsekPlaybackPolicy policy;
+
         #endregion
 
         #region Public Accessors (for ParsekUI)
@@ -348,6 +352,12 @@ namespace Parsek
             GameEvents.afterFlagPlanted.Add(OnAfterFlagPlanted);
 
             ui = new ParsekUI(this);
+
+            // Ghost playback engine + policy (T25 extraction)
+            // Positioner will be set in Phase 7 when ParsekFlight implements IGhostPositioner.
+            // For now, engine shell exists but does not process any ghosts.
+            engine = new GhostPlaybackEngine(null, co => StartCoroutine(co));
+            policy = new ParsekPlaybackPolicy(engine, this);
 
             // Clean up any orphaned toolbar from rapid scene transitions (e.g. rewind)
             if (toolbarControl != null)
@@ -720,6 +730,10 @@ namespace Parsek
             vesselGhoster = null;
             activeGhostChains = null;
 
+
+            // Clean up engine + policy
+            policy?.Dispose();
+            engine?.Dispose();
 
             ui?.Cleanup();
         }
