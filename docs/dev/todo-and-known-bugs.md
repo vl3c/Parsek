@@ -213,6 +213,19 @@ Unify `CommitChainSegment`, `CommitDockUndockSegment`, `CommitBoundarySplit`, `H
 
 **Priority:** Low — moderate savings, moderate risk
 
+### T32. Deep test suite audit
+
+3337 tests accumulated across multiple refactoring passes. Need a thorough audit to:
+- Identify **redundant tests** — duplicates or tests that cover the exact same code path
+- Find **always-passing tests** — tests that can't fail due to missing assertions, tautological checks, or mocked-away logic
+- Discover **missing edge cases** — guard conditions, error paths, and boundary values that have no coverage
+- Check **test isolation** — shared static state leaks between tests (missing ResetForTesting calls, wrong `[Collection]` attributes)
+- Verify **log-assertion completeness** — methods with logging that have no corresponding log-assertion tests
+
+Focus areas: ResourceApplicator (0% direct coverage for KSP-mutation methods), CrewReservationManager (mutation methods untested), ParsekFlight resource replay (duplicated logic with no shared tests).
+
+**Priority:** Medium — test confidence degrades as suite grows without pruning
+
 ---
 
 # Known Bugs
