@@ -2448,8 +2448,8 @@ namespace Parsek
                     new DialogGUIButton("Wipe All", () =>
                     {
                         foreach (var rec in RecordingStore.CommittedRecordings)
-                            ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
-                        ParsekScenario.ClearReplacements();
+                            CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
+                        CrewReservationManager.ClearReplacements();
                         if (InFlight) flight.DestroyAllTimelineGhosts();
                         RecordingStore.ClearCommitted();
                         GameStateStore.ClearScienceSubjects();

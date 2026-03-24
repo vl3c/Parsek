@@ -24,16 +24,7 @@ namespace Parsek
         // Gates Update() resource ticking while coroutines reset resource baselines
         private bool resourceTickingSuspended = false;
 
-        #region Crew Replacements
-
-        // Maps reserved kerbal name → replacement kerbal name
-        private static Dictionary<string, string> crewReplacements = new Dictionary<string, string>();
-
-        /// <summary>
-        /// Read-only access to current replacement mappings. For testing/diagnostics.
-        /// </summary>
-        internal static IReadOnlyDictionary<string, string> CrewReplacements => crewReplacements;
-
+        #region Crew Replacements (delegated to CrewReservationManager)
         #endregion
 
         public override void OnSave(ConfigNode node)
@@ -99,17 +90,7 @@ namespace Parsek
             }
 
             // Persist crew replacement mappings
-            if (crewReplacements.Count > 0)
-            {
-                ConfigNode replacementsNode = node.AddNode("CREW_REPLACEMENTS");
-                foreach (var kvp in crewReplacements)
-                {
-                    ConfigNode entry = replacementsNode.AddNode("ENTRY");
-                    entry.AddValue("original", kvp.Key);
-                    entry.AddValue("replacement", kvp.Value);
-                }
-                ScenarioLog($"[Parsek Scenario] Saved {crewReplacements.Count} crew replacement(s)");
-            }
+            CrewReservationManager.SaveCrewReplacements(node);
 
             // Persist group hierarchy and hidden groups
             GroupHierarchyStore.SaveInto(node);
@@ -235,7 +216,7 @@ namespace Parsek
             // (it has replacements for recordings committed after this quicksave).
             if (!RecordingStore.IsRewinding)
             {
-                LoadCrewReplacements(node);
+                CrewReservationManager.LoadCrewReplacements(node);
                 GroupHierarchyStore.LoadGroupHierarchy(node);
                 GroupHierarchyStore.LoadHiddenGroups(node);
             }
@@ -526,7 +507,7 @@ namespace Parsek
                     }
                 }
 
-                ReserveSnapshotCrew();
+                CrewReservationManager.ReserveSnapshotCrew();
                 ParsekLog.Info("Scenario", $"{(isRevert ? "Revert" : "Scene change")} — preserving {recordings.Count} session recordings");
                 return;
             }
@@ -553,7 +534,7 @@ namespace Parsek
             // Restore milestone mutable state (LastReplayedEventIndex) from .sfs
             MilestoneStore.RestoreMutableState(node);
 
-            ReserveSnapshotCrew();
+            CrewReservationManager.ReserveSnapshotCrew();
 
             // Diagnostic summary of loaded recordings with UT context
             double loadUT = Planetarium.GetUniversalTime();
@@ -574,10 +555,10 @@ namespace Parsek
                 ParsekLog.Info("Scenario", $"  #{i}: \"{loadedRec.VesselName}\" — {status}");
             }
 
-            if (crewReplacements.Count > 0)
+            if (CrewReservationManager.CrewReplacements.Count > 0)
             {
-                ParsekLog.Info("Scenario", $"Crew reservations active ({crewReplacements.Count}):");
-                foreach (var kvp in crewReplacements)
+                ParsekLog.Info("Scenario", $"Crew reservations active ({CrewReservationManager.CrewReplacements.Count}):");
+                foreach (var kvp in CrewReservationManager.CrewReplacements)
                     ParsekLog.Info("Scenario", $"  {kvp.Key} -> replacement: {kvp.Value}");
             }
 
@@ -590,7 +571,7 @@ namespace Parsek
                 if (rec.LoopPlayback) continue;
                 if (rec.VesselSnapshot != null && !rec.VesselSpawned && currentUT > rec.EndUT)
                 {
-                    UnreserveCrewInSnapshot(rec.VesselSnapshot);
+                    CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
                     rec.VesselSnapshot = null;
                     rec.VesselSpawned = true;
                     ScenarioLog($"[Parsek Scenario] Auto-unreserved crew for recording #{i} " +
@@ -610,7 +591,7 @@ namespace Parsek
                     {
                         var pending = RecordingStore.Pending;
                         if (pending.VesselSnapshot != null)
-                            UnreserveCrewInSnapshot(pending.VesselSnapshot);
+                            CrewReservationManager.UnreserveCrewInSnapshot(pending.VesselSnapshot);
                         pending.VesselSnapshot = null;
                         RecordingStore.CommitPending();
                         ScenarioLog($"[Parsek Scenario] Auto-committed pending recording outside Flight " +
@@ -622,7 +603,7 @@ namespace Parsek
                         foreach (var rec in pt.Recordings.Values)
                         {
                             if (rec.VesselSnapshot != null)
-                                UnreserveCrewInSnapshot(rec.VesselSnapshot);
+                                CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
                             rec.VesselSnapshot = null;
                         }
                         RecordingStore.CommitPendingTree();
@@ -705,7 +686,7 @@ namespace Parsek
                 "OnLoad: resource + UT adjustment deferred (waiting for new scene singletons)");
 
             // Re-reserve crew from all recording snapshots
-            ReserveSnapshotCrew();
+            CrewReservationManager.ReserveSnapshotCrew();
 
             // Clear rewind flags — rewind loads into SpaceCenter, not Flight
             RecordingStore.IsRewinding = false;
@@ -905,77 +886,10 @@ namespace Parsek
                 $"Budget deduction starting for epoch {MilestoneStore.CurrentEpoch}: " +
                 $"funds={budget.reservedFunds:F0}, science={budget.reservedScience:F1}, rep={budget.reservedReputation:F1}");
 
-            GameStateRecorder.SuppressResourceEvents = true;
-            try
-            {
-                if (budget.reservedFunds > 0 && Funding.Instance != null)
-                {
-                    double fundsBefore = Funding.Instance.Funds;
-                    Funding.Instance.AddFunds(-budget.reservedFunds, TransactionReasons.None);
-                    ParsekLog.Info("Scenario",
-                        $"Budget deduction: funds {fundsBefore:F0} → {Funding.Instance.Funds:F0} (reserved={budget.reservedFunds:F0})");
-                }
+            ResourceApplicator.DeductBudget(budget, RecordingStore.CommittedRecordings, RecordingStore.CommittedTrees);
 
-                if (budget.reservedScience > 0 && ResearchAndDevelopment.Instance != null)
-                {
-                    double scienceBefore = ResearchAndDevelopment.Instance.Science;
-                    ResearchAndDevelopment.Instance.AddScience(
-                        -(float)budget.reservedScience, TransactionReasons.None);
-                    ParsekLog.Info("Scenario",
-                        $"Budget deduction: science {scienceBefore:F1} → {ResearchAndDevelopment.Instance.Science:F1} (reserved={budget.reservedScience:F1})");
-                }
-
-                if (budget.reservedReputation > 0 && Reputation.Instance != null)
-                {
-                    float repBefore = Reputation.Instance.reputation;
-                    Reputation.Instance.AddReputation(
-                        -(float)budget.reservedReputation, TransactionReasons.None);
-                    ParsekLog.Info("Scenario",
-                        $"Budget deduction: reputation {repBefore:F1} → {Reputation.Instance.reputation:F1} (reserved={budget.reservedReputation:F1})");
-                }
-            }
-            finally
-            {
-                GameStateRecorder.SuppressResourceEvents = false;
-            }
-
-            // Replay committed actions (tech, parts, facilities, crew) before marking
+            // Replay committed actions (tech, parts, facilities, crew) before resuming ticking
             ActionReplay.ReplayCommittedActions(MilestoneStore.Milestones);
-
-            // Mark all recordings as fully applied so that:
-            // 1. ResourceBudget.ComputeTotal returns 0 reserved (deduction already covers it)
-            // 2. Ghost replay doesn't re-apply resource deltas (avoiding double-subtraction)
-            // 3. The UI correctly shows current funds as available (no second subtraction)
-            var recordings = RecordingStore.CommittedRecordings;
-            int recMarked = 0;
-            for (int i = 0; i < recordings.Count; i++)
-            {
-                if (recordings[i].Points.Count > 0 && recordings[i].LastAppliedResourceIndex < recordings[i].Points.Count - 1)
-                {
-                    int oldIdx = recordings[i].LastAppliedResourceIndex;
-                    recordings[i].LastAppliedResourceIndex = recordings[i].Points.Count - 1;
-                    recMarked++;
-                    ParsekLog.Verbose("Scenario",
-                        $"  recording #{i} '{recordings[i].VesselName}': lastAppliedResourceIndex {oldIdx} → {recordings[i].LastAppliedResourceIndex}");
-                }
-            }
-
-            // Mark all committed trees as ResourcesApplied (deduction already covers their costs)
-            var committedTrees = RecordingStore.CommittedTrees;
-            int treeMarked = 0;
-            for (int i = 0; i < committedTrees.Count; i++)
-            {
-                if (!committedTrees[i].ResourcesApplied)
-                {
-                    committedTrees[i].ResourcesApplied = true;
-                    treeMarked++;
-                }
-            }
-            ParsekLog.Verbose("Scenario", $"  Marked {treeMarked} tree(s) as ResourcesApplied");
-
-            ParsekLog.Info("Scenario",
-                $"Budget deduction applied for epoch {MilestoneStore.CurrentEpoch} — " +
-                $"{recMarked} recording(s) and {treeMarked} tree(s) marked as fully applied");
             resourceTickingSuspended = false;
         }
 
@@ -1024,61 +938,7 @@ namespace Parsek
                        || Reputation.Instance == null))
                 yield return null;
 
-            bool hasResources = Funding.Instance != null
-                && ResearchAndDevelopment.Instance != null
-                && Reputation.Instance != null;
-
-            if (hasResources)
-            {
-                // Career mode: reset resources to baseline
-                double preFunds = Funding.Instance.Funds;
-                float preScience = ResearchAndDevelopment.Instance.Science;
-                float preRep = Reputation.Instance.reputation;
-                ParsekLog.Info("Rewind",
-                    $"Pre-adjustment state: funds={preFunds.ToString("F1", ic)}, " +
-                    $"science={preScience.ToString("F1", ic)}, " +
-                    $"rep={preRep.ToString("F1", ic)}, " +
-                    $"baseline: funds={baselineFunds.ToString("F1", ic)}, " +
-                    $"science={baselineScience.ToString("F1", ic)}, " +
-                    $"rep={baselineRep.ToString("F1", ic)}");
-
-                double fundsCorrection = baselineFunds - preFunds;
-                double scienceCorrection = baselineScience - preScience;
-                double repCorrection = (double)baselineRep - (double)preRep;
-
-                ParsekLog.Info("Rewind",
-                    $"Resource reset to baseline: funds={baselineFunds.ToString("F1", ic)}, " +
-                    $"science={baselineScience.ToString("F1", ic)}, " +
-                    $"rep={baselineRep.ToString("F1", ic)}, " +
-                    $"correction: {fundsCorrection.ToString("F1", ic)}, " +
-                    $"{scienceCorrection.ToString("F1", ic)}, " +
-                    $"{repCorrection.ToString("F1", ic)}");
-
-                GameStateRecorder.SuppressResourceEvents = true;
-                try
-                {
-                    if (fundsCorrection != 0)
-                        Funding.Instance.AddFunds(fundsCorrection, TransactionReasons.None);
-                    if (scienceCorrection != 0)
-                        ResearchAndDevelopment.Instance.AddScience((float)scienceCorrection, TransactionReasons.None);
-                    if (repCorrection != 0)
-                        Reputation.Instance.AddReputation((float)repCorrection, TransactionReasons.None);
-                }
-                finally
-                {
-                    GameStateRecorder.SuppressResourceEvents = false;
-                }
-
-                ParsekLog.Info("Rewind",
-                    $"Post-adjustment state: funds={Funding.Instance.Funds.ToString("F1", ic)}, " +
-                    $"science={ResearchAndDevelopment.Instance.Science.ToString("F1", ic)}, " +
-                    $"rep={Reputation.Instance.reputation.ToString("F1", ic)}");
-            }
-            else
-            {
-                ParsekLog.Info("Rewind",
-                    "Sandbox/science mode: no resource singletons — skipping resource adjustment");
-            }
+            ResourceApplicator.CorrectToBaseline(baselineFunds, baselineScience, baselineRep);
 
             // Replay committed actions (tech, parts, facilities, crew).
             // Always runs regardless of game mode — tech unlocks and facility upgrades
@@ -1115,151 +975,10 @@ namespace Parsek
                 return;
 
             double currentUT = Planetarium.GetUniversalTime();
-            TickStandaloneResourceDeltas(currentUT);
-            TickTreeResourceDeltas(currentUT);
+            ResourceApplicator.TickStandalone(RecordingStore.CommittedRecordings, currentUT);
+            ResourceApplicator.TickTrees(RecordingStore.CommittedTrees, currentUT);
         }
 
-        private void TickStandaloneResourceDeltas(double currentUT)
-        {
-            var recordings = RecordingStore.CommittedRecordings;
-            bool anyApplied = false;
-
-            for (int i = 0; i < recordings.Count; i++)
-            {
-                var rec = recordings[i];
-
-                if (rec.TreeId != null) continue;
-                if (rec.LoopPlayback) continue;
-                if (rec.Points.Count < 2) continue;
-
-                var delta = ResourceBudget.ComputeStandaloneDelta(
-                    rec.Points, rec.LastAppliedResourceIndex, currentUT);
-                if (!delta.hasChange) continue;
-
-                int startIdx = Math.Max(rec.LastAppliedResourceIndex, 0);
-                double fundsDelta = delta.funds;
-                float scienceDelta = delta.science;
-                float repDelta = delta.reputation;
-
-                GameStateRecorder.SuppressResourceEvents = true;
-                try
-                {
-                    if (fundsDelta != 0 && Funding.Instance != null)
-                    {
-                        if (fundsDelta < 0 && Funding.Instance.Funds + fundsDelta < 0)
-                            fundsDelta = -Funding.Instance.Funds;
-                        Funding.Instance.AddFunds(fundsDelta, TransactionReasons.None);
-                    }
-
-                    if (scienceDelta != 0 && ResearchAndDevelopment.Instance != null)
-                    {
-                        if (scienceDelta < 0 && ResearchAndDevelopment.Instance.Science + scienceDelta < 0)
-                            scienceDelta = -ResearchAndDevelopment.Instance.Science;
-                        ResearchAndDevelopment.Instance.AddScience(scienceDelta, TransactionReasons.None);
-                    }
-
-                    if (repDelta != 0 && Reputation.Instance != null)
-                    {
-                        if (repDelta < 0 && Reputation.CurrentRep + repDelta < 0)
-                            repDelta = -Reputation.CurrentRep;
-                        Reputation.Instance.AddReputation(repDelta, TransactionReasons.None);
-                    }
-                }
-                finally
-                {
-                    GameStateRecorder.SuppressResourceEvents = false;
-                }
-
-                rec.LastAppliedResourceIndex = delta.targetIndex;
-                anyApplied = true;
-
-                var ic = CultureInfo.InvariantCulture;
-                ParsekLog.Info("Scenario",
-                    $"Resource tick: \"{rec.VesselName}\" idx {startIdx}\u2192{delta.targetIndex}" +
-                    $" funds={fundsDelta.ToString("+0.0;-0.0", ic)} sci={scienceDelta.ToString("+0.0;-0.0", ic)} rep={repDelta.ToString("+0.0;-0.0", ic)}");
-
-                if (delta.targetIndex == rec.Points.Count - 1)
-                {
-                    ParsekLog.Info("Scenario",
-                        $"Resource tick complete for \"{rec.VesselName}\"");
-                }
-            }
-
-            if (anyApplied)
-                ResourceBudget.Invalidate();
-        }
-
-        private void TickTreeResourceDeltas(double currentUT)
-        {
-            var trees = RecordingStore.CommittedTrees;
-            bool anyApplied = false;
-
-            for (int i = 0; i < trees.Count; i++)
-            {
-                var tree = trees[i];
-                if (tree.ResourcesApplied)
-                    continue;
-
-                double treeEndUT = 0;
-                foreach (var rec in tree.Recordings.Values)
-                {
-                    double recEnd = rec.EndUT;
-                    if (recEnd > treeEndUT) treeEndUT = recEnd;
-                }
-
-                if (currentUT <= treeEndUT)
-                    continue;
-
-                GameStateRecorder.SuppressResourceEvents = true;
-                try
-                {
-                    if (tree.DeltaFunds != 0 && Funding.Instance != null)
-                    {
-                        double delta = tree.DeltaFunds;
-                        if (delta < 0 && Funding.Instance.Funds + delta < 0)
-                            delta = -Funding.Instance.Funds;
-                        Funding.Instance.AddFunds(delta, TransactionReasons.None);
-                        var ic = CultureInfo.InvariantCulture;
-                        ParsekLog.Info("Scenario",
-                            $"Tree resource tick: funds {delta.ToString("+0.0;-0.0", ic)} (tree '{tree.TreeName}')");
-                    }
-
-                    if (tree.DeltaScience != 0 && ResearchAndDevelopment.Instance != null)
-                    {
-                        double delta = tree.DeltaScience;
-                        if (delta < 0 && ResearchAndDevelopment.Instance.Science + delta < 0)
-                            delta = -ResearchAndDevelopment.Instance.Science;
-                        ResearchAndDevelopment.Instance.AddScience((float)delta, TransactionReasons.None);
-                        var ic = CultureInfo.InvariantCulture;
-                        ParsekLog.Info("Scenario",
-                            $"Tree resource tick: science {delta.ToString("+0.0;-0.0", ic)} (tree '{tree.TreeName}')");
-                    }
-
-                    if (tree.DeltaReputation != 0 && Reputation.Instance != null)
-                    {
-                        float delta = tree.DeltaReputation;
-                        if (delta < 0 && Reputation.CurrentRep + delta < 0)
-                            delta = -Reputation.CurrentRep;
-                        Reputation.Instance.AddReputation(delta, TransactionReasons.None);
-                        var ic = CultureInfo.InvariantCulture;
-                        ParsekLog.Info("Scenario",
-                            $"Tree resource tick: reputation {delta.ToString("+0.0;-0.0", ic)} (tree '{tree.TreeName}')");
-                    }
-                }
-                finally
-                {
-                    GameStateRecorder.SuppressResourceEvents = false;
-                }
-
-                tree.ResourcesApplied = true;
-                anyApplied = true;
-                ParsekLog.Info("Scenario",
-                    $"Tree resource lump sum applied for '{tree.TreeName}'");
-            }
-
-            if (anyApplied)
-                ResourceBudget.Invalidate();
-        }
 
         #endregion
 
@@ -1835,369 +1554,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Mark crew from all unspawned vessel snapshots as Assigned so they
-        /// can't be placed on new craft in the VAB/SPH.
-        /// </summary>
-        public static void ReserveSnapshotCrew()
-        {
-            var roster = HighLogic.CurrentGame?.CrewRoster;
-            if (roster == null) return;
-
-            GameStateRecorder.SuppressCrewEvents = true;
-            try
-            {
-                foreach (var rec in RecordingStore.CommittedRecordings)
-                {
-                    if (rec.LoopPlayback) continue;
-                    if (RecordingStore.IsChainFullyDisabled(rec.ChainId)) continue;
-                    ReserveCrewIn(rec.VesselSnapshot, rec.VesselSpawned, roster);
-                }
-
-                if (RecordingStore.HasPending && RecordingStore.Pending.VesselSnapshot != null)
-                    ReserveCrewIn(RecordingStore.Pending.VesselSnapshot, false, roster);
-            }
-            finally
-            {
-                GameStateRecorder.SuppressCrewEvents = false;
-            }
-        }
-
-        /// <summary>
-        /// Set crew in a specific snapshot back to Available.
-        /// Call when discarding, recovering, or wiping recordings.
-        /// </summary>
-        public static void UnreserveCrewInSnapshot(ConfigNode snapshot)
-        {
-            if (snapshot == null) return;
-            var roster = HighLogic.CurrentGame?.CrewRoster;
-            if (roster == null) return;
-
-            GameStateRecorder.SuppressCrewEvents = true;
-            try
-            {
-                foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
-                {
-                    foreach (string name in partNode.GetValues("crew"))
-                    {
-                        foreach (ProtoCrewMember pcm in roster.Crew)
-                        {
-                            if (pcm.name == name && pcm.rosterStatus == ProtoCrewMember.RosterStatus.Assigned)
-                            {
-                                pcm.rosterStatus = ProtoCrewMember.RosterStatus.Available;
-                                ScenarioLog($"[Parsek Scenario] Unreserved crew '{name}'");
-
-                                // Clean up the replacement kerbal
-                                CleanUpReplacement(name, roster);
-
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-            finally
-            {
-                GameStateRecorder.SuppressCrewEvents = false;
-            }
-        }
-
-        internal static void ReserveCrewIn(ConfigNode snapshot, bool alreadySpawned, KerbalRoster roster)
-        {
-            if (snapshot == null || alreadySpawned) return;
-
-            foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
-            {
-                foreach (string name in partNode.GetValues("crew"))
-                {
-                    bool found = false;
-                    foreach (ProtoCrewMember pcm in roster.Crew)
-                    {
-                        if (pcm.name != name) continue;
-                        found = true;
-
-                        // Skip dead crew — they're truly gone
-                        if (pcm.rosterStatus == ProtoCrewMember.RosterStatus.Dead)
-                            break;
-
-                        // Rescue Missing crew — they're alive but orphaned from a
-                        // removed vessel (e.g. --clean-start or manual save edits).
-                        // The recording will respawn them, so restore them first.
-                        if (pcm.rosterStatus == ProtoCrewMember.RosterStatus.Missing)
-                        {
-                            pcm.rosterStatus = ProtoCrewMember.RosterStatus.Available;
-                            ScenarioLog($"[Parsek Scenario] Rescued Missing crew '{name}' → Available for reservation");
-                        }
-
-                        // Hire a replacement kerbal so the available pool stays constant.
-                        // This also handles crew who are already Assigned (e.g. on the pad
-                        // vessel after a revert) — they still need a replacement so the
-                        // swap can move them off the active vessel.
-                        if (!crewReplacements.ContainsKey(name))
-                        {
-                            try
-                            {
-                                ProtoCrewMember replacement = roster.GetNewKerbal(ProtoCrewMember.KerbalType.Crew);
-                                if (replacement != null)
-                                {
-                                    KerbalRoster.SetExperienceTrait(replacement, pcm.experienceTrait.TypeName);
-                                    crewReplacements[name] = replacement.name;
-                                    ScenarioLog($"[Parsek Scenario] Hired replacement '{replacement.name}' " +
-                                        $"(trait: {pcm.experienceTrait.TypeName}) for reserved '{name}'");
-                                }
-                            }
-                            catch (System.Exception ex)
-                            {
-                                ScenarioLog($"[Parsek Scenario] Failed to hire replacement for '{name}': {ex.Message}");
-                            }
-                        }
-
-                        break;
-                    }
-                    if (!found)
-                        ScenarioLog($"[Parsek Scenario] WARNING: Crew '{name}' not found in roster during reservation");
-                }
-            }
-        }
-
-        /// <summary>
-        /// Remove a replacement kerbal from the roster if they're still Available.
-        /// If the replacement is Assigned (on a mission), leave them as a "real" kerbal.
-        /// </summary>
-        private static void CleanUpReplacement(string originalName, KerbalRoster roster)
-        {
-            if (!crewReplacements.TryGetValue(originalName, out string replacementName))
-                return;
-
-            // Always remove the mapping
-            crewReplacements.Remove(originalName);
-
-            // Find the replacement in the roster
-            ProtoCrewMember replacement = null;
-            foreach (ProtoCrewMember pcm in roster.Crew)
-            {
-                if (pcm.name == replacementName)
-                {
-                    replacement = pcm;
-                    break;
-                }
-            }
-
-            if (replacement == null)
-            {
-                ScenarioLog($"[Parsek Scenario] Replacement '{replacementName}' not found in roster (already removed?)");
-                return;
-            }
-
-            if (replacement.rosterStatus == ProtoCrewMember.RosterStatus.Available)
-            {
-                roster.Remove(replacement);
-                ScenarioLog($"[Parsek Scenario] Removed replacement '{replacementName}' (was unused)");
-            }
-            else
-            {
-                ScenarioLog($"[Parsek Scenario] Kept replacement '{replacementName}' " +
-                    $"(status: {replacement.rosterStatus} — now a real kerbal)");
-            }
-        }
-
-        /// <summary>
-        /// Remove all Available replacement kerbals and clear the mapping.
-        /// Called when wiping all recordings.
-        /// </summary>
-        public static void ClearReplacements()
-        {
-            var roster = HighLogic.CurrentGame?.CrewRoster;
-            if (roster == null)
-            {
-                crewReplacements.Clear();
-                return;
-            }
-
-            GameStateRecorder.SuppressCrewEvents = true;
-            try
-            {
-                foreach (var kvp in new Dictionary<string, string>(crewReplacements))
-                {
-                    CleanUpReplacement(kvp.Key, roster);
-                }
-
-                crewReplacements.Clear();
-                ScenarioLog("[Parsek Scenario] Cleared all crew replacements");
-            }
-            finally
-            {
-                GameStateRecorder.SuppressCrewEvents = false;
-            }
-        }
-
-        /// <summary>
-        /// Load crew replacement mappings from a ConfigNode.
-        /// </summary>
-        private static void LoadCrewReplacements(ConfigNode node)
-        {
-            crewReplacements.Clear();
-
-            ConfigNode replacementsNode = node.GetNode("CREW_REPLACEMENTS");
-            if (replacementsNode == null)
-            {
-                ScenarioLog("[Parsek Scenario] Loaded 0 crew replacements (no CREW_REPLACEMENTS node)");
-                return;
-            }
-
-            ConfigNode[] entries = replacementsNode.GetNodes("ENTRY");
-            for (int i = 0; i < entries.Length; i++)
-            {
-                string original = entries[i].GetValue("original");
-                string replacement = entries[i].GetValue("replacement");
-                if (!string.IsNullOrEmpty(original) && !string.IsNullOrEmpty(replacement))
-                {
-                    crewReplacements[original] = replacement;
-                }
-            }
-
-            ScenarioLog($"[Parsek Scenario] Loaded {crewReplacements.Count} crew replacement(s)");
-        }
-
-        /// <summary>
-        /// Swap reserved crew out of the active flight vessel, replacing them
-        /// with their hired replacements. Prevents the player from recording
-        /// with a reserved kerbal again after revert.
-        /// </summary>
-        public static int SwapReservedCrewInFlight()
-        {
-            if (FlightGlobals.ActiveVessel == null) return 0;
-            if (crewReplacements.Count == 0) return 0;
-
-            var roster = HighLogic.CurrentGame?.CrewRoster;
-            if (roster == null) return 0;
-
-            int swapCount = 0;
-            int failCount = 0;
-
-            foreach (Part part in FlightGlobals.ActiveVessel.parts)
-            {
-                // Iterate a copy because RemoveCrewmember modifies the list
-                var crewList = new List<ProtoCrewMember>(part.protoModuleCrew);
-                for (int i = 0; i < crewList.Count; i++)
-                {
-                    ProtoCrewMember original = crewList[i];
-                    if (!crewReplacements.TryGetValue(original.name, out string replacementName))
-                        continue;
-
-                    // Find the replacement in the roster
-                    ProtoCrewMember replacement = null;
-                    foreach (ProtoCrewMember pcm in roster.Crew)
-                    {
-                        if (pcm.name == replacementName)
-                        {
-                            replacement = pcm;
-                            break;
-                        }
-                    }
-
-                    if (replacement == null)
-                    {
-                        ScenarioLog($"[Parsek Scenario] Cannot swap '{original.name}': replacement '{replacementName}' not in roster");
-                        failCount++;
-                        continue;
-                    }
-
-                    int seatIndex = part.protoModuleCrew.IndexOf(original);
-                    if (seatIndex < 0)
-                    {
-                        ScenarioLog($"[Parsek Scenario] Cannot swap '{original.name}': not found in part crew list");
-                        failCount++;
-                        continue;
-                    }
-                    part.RemoveCrewmember(original);
-                    part.AddCrewmemberAt(replacement, seatIndex);
-                    swapCount++;
-                    ScenarioLog($"[Parsek Scenario] Swapped '{original.name}' → '{replacement.name}' in part '{part.partInfo.title}'");
-                }
-            }
-
-            if (swapCount > 0)
-            {
-                FlightGlobals.ActiveVessel.SpawnCrew();
-                GameEvents.onVesselCrewWasModified.Fire(FlightGlobals.ActiveVessel);
-                ScenarioLog($"[Parsek Scenario] Crew swap complete: {swapCount} succeeded" +
-                    (failCount > 0 ? $", {failCount} failed" : "") +
-                    " — refreshed vessel crew display");
-            }
-            else if (failCount > 0)
-            {
-                ScenarioLog($"[Parsek Scenario] Crew swap: 0 succeeded, {failCount} failed");
-            }
-
-            RemoveReservedEvaVessels();
-
-            return swapCount;
-        }
-
-        /// <summary>
-        /// Removes EVA vessels whose crew is reserved (in the replacements dict).
-        /// Reserved crew on EVA are separate vessels, not in ActiveVessel.parts.
-        /// Removing them prevents duplicates at ghost EndUT spawn.
-        /// </summary>
-        private static void RemoveReservedEvaVessels()
-        {
-            int evaRemoved = 0;
-            var allVessels = FlightGlobals.Vessels;
-            for (int v = allVessels.Count - 1; v >= 0; v--)
-            {
-                Vessel vessel = allVessels[v];
-                if (vessel == FlightGlobals.ActiveVessel) continue;
-                if (!vessel.isEVA) continue;
-
-                string evaCrewName = GetEvaCrewName(vessel);
-                if (!ShouldRemoveEvaVessel(true, evaCrewName, crewReplacements)) continue;
-
-                ScenarioLog($"[Parsek Scenario] Removing reserved EVA vessel '{evaCrewName}' (pid={vessel.persistentId})");
-
-                // 1. Remove ProtoVessel to prevent re-spawn on save/load
-                var flightState = HighLogic.CurrentGame?.flightState;
-                if (flightState != null && vessel.protoVessel != null)
-                    flightState.protoVessels.Remove(vessel.protoVessel);
-
-                // 2. Remove from active vessel list
-                allVessels.RemoveAt(v);
-
-                // 3. Unload parts/modules/physics, then destroy GameObject
-                vessel.Unload();
-                if (vessel.gameObject != null)
-                {
-                    vessel.gameObject.SetActive(false);
-                    UnityEngine.Object.Destroy(vessel.gameObject);
-                }
-                evaRemoved++;
-            }
-
-            if (evaRemoved > 0)
-                ScenarioLog($"[Parsek Scenario] Removed {evaRemoved} reserved EVA vessel(s)");
-        }
-
-        /// <summary>
-        /// Returns the single crew member's name from an EVA vessel, or null.
-        /// Uses GetVesselCrew() for robustness with both packed and unpacked vessels.
-        /// </summary>
-        private static string GetEvaCrewName(Vessel evaVessel)
-        {
-            var crew = evaVessel.GetVesselCrew();
-            return crew.Count > 0 ? crew[0].name : null;
-        }
-
-        /// <summary>
-        /// Pure decision: should this EVA vessel be removed during crew swap?
-        /// An EVA vessel is removed if its crew member is reserved (in the replacements dict).
-        /// Extracted for testability.
-        /// </summary>
-        internal static bool ShouldRemoveEvaVessel(
-            bool isEva, string crewName, IReadOnlyDictionary<string, string> replacements)
-        {
-            return isEva && !string.IsNullOrEmpty(crewName) && replacements.ContainsKey(crewName);
-        }
-
-        /// <summary>
         /// Returns true if OnSave should warn about a save folder mismatch.
         /// This detects when HighLogic.SaveFolder has changed since the scenario
         /// was loaded, which could cause file writes to target the wrong save.
@@ -2205,44 +1561,6 @@ namespace Parsek
         internal static bool IsSaveFolderMismatch(string scenarioFolder, string currentFolder)
         {
             return !string.IsNullOrEmpty(scenarioFolder) && currentFolder != scenarioFolder;
-        }
-
-        /// <summary>
-        /// Returns true if a crew member with the given roster status should be
-        /// processed for reservation (i.e. not dead). Missing crew are processed
-        /// because they may be alive but orphaned from a removed vessel.
-        /// Extracted for testability.
-        /// </summary>
-        internal static bool ShouldProcessCrewForReservation(ProtoCrewMember.RosterStatus status)
-        {
-            return status != ProtoCrewMember.RosterStatus.Dead;
-        }
-
-        /// <summary>
-        /// Extracts crew names from a vessel snapshot ConfigNode.
-        /// </summary>
-        internal static List<string> ExtractCrewFromSnapshot(ConfigNode snapshot)
-        {
-            var crew = new List<string>();
-            if (snapshot == null) return crew;
-
-            foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
-            {
-                foreach (string name in partNode.GetValues("crew"))
-                {
-                    if (!string.IsNullOrEmpty(name))
-                        crew.Add(name);
-                }
-            }
-            return crew;
-        }
-
-        /// <summary>
-        /// Clears replacement dictionary without roster access. For unit tests only.
-        /// </summary>
-        internal static void ResetReplacementsForTesting()
-        {
-            crewReplacements.Clear();
         }
 
         #region Vessel Lifecycle Events
@@ -2253,7 +1571,7 @@ namespace Parsek
         /// </summary>
         private static void AutoCommitGhostOnly(Recording pending)
         {
-            UnreserveCrewInSnapshot(pending.VesselSnapshot);
+            CrewReservationManager.UnreserveCrewInSnapshot(pending.VesselSnapshot);
             pending.VesselSnapshot = null;
             ParsekLog.Info("Scenario", $"Auto-commit ghost-only: '{pending.VesselName}'" +
                 (pending.TerminalStateValue.HasValue ? $" (terminal={pending.TerminalStateValue.Value})" : ""));
@@ -2267,7 +1585,7 @@ namespace Parsek
         {
             foreach (var rec in tree.Recordings.Values)
             {
-                UnreserveCrewInSnapshot(rec.VesselSnapshot);
+                CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
                 rec.VesselSnapshot = null;
             }
             ParsekLog.Info("Scenario", $"Auto-commit tree ghost-only: tree '{tree.Id}' " +
@@ -2330,7 +1648,7 @@ namespace Parsek
                 {
                     pending.TerminalStateValue = state;
                     pending.ExplicitEndUT = ut;
-                    UnreserveCrewInSnapshot(pending.VesselSnapshot);
+                    CrewReservationManager.UnreserveCrewInSnapshot(pending.VesselSnapshot);
                     pending.VesselSnapshot = null;
                     anyUpdated = true;
                     ParsekLog.Verbose("Scenario", $"Updated pending recording '{pending.VesselName}' with {state}");
@@ -2346,7 +1664,7 @@ namespace Parsek
                     {
                         rec.TerminalStateValue = state;
                         rec.ExplicitEndUT = ut;
-                        UnreserveCrewInSnapshot(rec.VesselSnapshot);
+                        CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
                         rec.VesselSnapshot = null;
                         anyUpdated = true;
                         ParsekLog.Verbose("Scenario", $"Updated pending tree recording '{rec.VesselName}' with {state}");

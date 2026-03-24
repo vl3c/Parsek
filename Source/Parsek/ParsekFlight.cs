@@ -3108,8 +3108,8 @@ namespace Parsek
             RecordingStore.Pending.EvaCrewName = evaCrewName;
 
             RecordingStore.CommitPending();
-            ParsekScenario.ReserveSnapshotCrew();
-            ParsekScenario.SwapReservedCrewInFlight();
+            CrewReservationManager.ReserveSnapshotCrew();
+            CrewReservationManager.SwapReservedCrewInFlight();
 
             // Prepare boundary anchor from last point of committed segment
             if (segmentRecorder.Recording.Count > 0)
@@ -3771,8 +3771,8 @@ namespace Parsek
             RecordingStore.Pending.VesselSnapshot = null;
 
             RecordingStore.CommitPending();
-            ParsekScenario.ReserveSnapshotCrew();
-            ParsekScenario.SwapReservedCrewInFlight();
+            CrewReservationManager.ReserveSnapshotCrew();
+            CrewReservationManager.SwapReservedCrewInFlight();
 
             // Prepare boundary anchor from last point of committed segment
             if (segmentRecorder.Recording.Count > 0)
@@ -3856,8 +3856,8 @@ namespace Parsek
             // Final chain segment keeps VesselSnapshot for spawning (not ghost-only)
 
             RecordingStore.CommitPending();
-            ParsekScenario.ReserveSnapshotCrew();
-            ParsekScenario.SwapReservedCrewInFlight();
+            CrewReservationManager.ReserveSnapshotCrew();
+            CrewReservationManager.SwapReservedCrewInFlight();
 
             // Clean up continuation sampling if active
             if (continuationVesselPid != 0)
@@ -3935,8 +3935,8 @@ namespace Parsek
             RecordingStore.Pending.VesselSnapshot = null;
 
             RecordingStore.CommitPending();
-            ParsekScenario.ReserveSnapshotCrew();
-            ParsekScenario.SwapReservedCrewInFlight();
+            CrewReservationManager.ReserveSnapshotCrew();
+            CrewReservationManager.SwapReservedCrewInFlight();
 
             // Prepare boundary anchor from last point of committed segment
             if (recorder.Recording.Count > 0)
@@ -4171,7 +4171,7 @@ namespace Parsek
                     {
                         Log($"Auto-committing EVA child recording (parent={pending.ParentRecordingId}, crew={pending.EvaCrewName})");
                         RecordingStore.CommitPending();
-                        ParsekScenario.ReserveSnapshotCrew();
+                        CrewReservationManager.ReserveSnapshotCrew();
                     }
                     else
                     {
@@ -4212,11 +4212,11 @@ namespace Parsek
 
             // Swap reserved crew out of the active vessel so the player
             // can't record with them again (they belong to deferred-spawn vessels)
-            int swapResult = ParsekScenario.SwapReservedCrewInFlight();
+            int swapResult = CrewReservationManager.SwapReservedCrewInFlight();
             if (swapResult > 0)
                 Log($"Crew swap on flight ready: {swapResult} crew swapped out of active vessel");
-            else if (ParsekScenario.CrewReplacements.Count > 0)
-                Log($"Crew swap on flight ready: 0 swapped ({ParsekScenario.CrewReplacements.Count} reservations exist but no matches on active vessel)");
+            else if (CrewReservationManager.CrewReplacements.Count > 0)
+                Log($"Crew swap on flight ready: 0 swapped ({CrewReservationManager.CrewReplacements.Count} reservations exist but no matches on active vessel)");
 
             var committed = RecordingStore.CommittedRecordings;
             Log($"Timeline has {committed.Count} committed recording(s)");
@@ -5264,7 +5264,7 @@ namespace Parsek
             SpawnTreeLeaves(activeTree, activeRecId);
 
             // Crew swap on active vessel
-            int swapped = ParsekScenario.SwapReservedCrewInFlight();
+            int swapped = CrewReservationManager.SwapReservedCrewInFlight();
             if (swapped > 0)
                 ParsekLog.Info("Flight", $"CommitTreeFlight: swapped {swapped} crew on active vessel");
 
@@ -5305,7 +5305,7 @@ namespace Parsek
                     {
                         if (leaf.VesselSpawned) continue;
                         if (leaf.VesselSnapshot == null) continue;
-                        ParsekScenario.ReserveCrewIn(leaf.VesselSnapshot, false, roster);
+                        CrewReservationManager.ReserveCrewIn(leaf.VesselSnapshot, false, roster);
                     }
                 }
                 finally
@@ -7894,7 +7894,7 @@ namespace Parsek
             Log($"Deleting recording '{rec.VesselName}' at index {index}");
 
             // Unreserve crew
-            ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
+            CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
 
             // Destroy ghost if active (primary + overlap)
             DestroyAllOverlapGhosts(index);

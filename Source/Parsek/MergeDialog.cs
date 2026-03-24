@@ -95,7 +95,7 @@ namespace Parsek
                         new DialogGUIButton("Merge to Timeline", () =>
                         {
                             if (pending.VesselSnapshot != null)
-                                ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
+                                CrewReservationManager.UnreserveCrewInSnapshot(pending.VesselSnapshot);
                             pending.VesselSnapshot = null;
                             RecordingStore.CommitPending();
                             ClearPendingFlag();
@@ -105,7 +105,7 @@ namespace Parsek
                         }),
                         new DialogGUIButton("Discard", () =>
                         {
-                            ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
+                            CrewReservationManager.UnreserveCrewInSnapshot(pending.VesselSnapshot);
                             RecordingStore.DiscardPending();
                             ClearPendingFlag();
                             ReplayFlightResultsIfPending();
@@ -123,8 +123,8 @@ namespace Parsek
                         {
                             // Defer spawn — vessel appears when ghost finishes at EndUT
                             RecordingStore.CommitPending();
-                            ParsekScenario.ReserveSnapshotCrew();
-                            ParsekScenario.SwapReservedCrewInFlight();
+                            CrewReservationManager.ReserveSnapshotCrew();
+                            CrewReservationManager.SwapReservedCrewInFlight();
                             ClearPendingFlag();
                             ReplayFlightResultsIfPending();
                             ParsekLog.ScreenMessage("Recording merged — vessel will appear after ghost playback", 3f);
@@ -132,7 +132,7 @@ namespace Parsek
                         }),
                         new DialogGUIButton("Discard", () =>
                         {
-                            ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
+                            CrewReservationManager.UnreserveCrewInSnapshot(pending.VesselSnapshot);
                             RecordingStore.DiscardPending();
                             ClearPendingFlag();
                             ReplayFlightResultsIfPending();
@@ -185,8 +185,8 @@ namespace Parsek
                     new DialogGUIButton("Merge to Timeline", () =>
                     {
                         RecordingStore.CommitPending();
-                        ParsekScenario.ReserveSnapshotCrew();
-                        ParsekScenario.SwapReservedCrewInFlight();
+                        CrewReservationManager.ReserveSnapshotCrew();
+                        CrewReservationManager.SwapReservedCrewInFlight();
                         ClearPendingFlag();
                         ReplayFlightResultsIfPending();
                         ParsekLog.ScreenMessage($"Mission chain ({totalSegments} segments) merged — vessel will appear!", 3f);
@@ -210,7 +210,7 @@ namespace Parsek
                     new DialogGUIButton("Merge to Timeline", () =>
                     {
                         if (pending.VesselSnapshot != null)
-                            ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
+                            CrewReservationManager.UnreserveCrewInSnapshot(pending.VesselSnapshot);
                         pending.VesselSnapshot = null;
                         NullChainSiblingSnapshots(chainSiblings);
                         RecordingStore.CommitPending();
@@ -281,7 +281,7 @@ namespace Parsek
             {
                 if (siblings[i].VesselSnapshot != null)
                 {
-                    ParsekScenario.UnreserveCrewInSnapshot(siblings[i].VesselSnapshot);
+                    CrewReservationManager.UnreserveCrewInSnapshot(siblings[i].VesselSnapshot);
                     siblings[i].VesselSnapshot = null;
                     ParsekLog.Info("MergeDialog", $"Chain sibling #{i} snapshot nulled (no recovery)");
                 }
@@ -295,7 +295,7 @@ namespace Parsek
             // Unreserve crew from pending
             if (pending.VesselSnapshot != null)
             {
-                ParsekScenario.UnreserveCrewInSnapshot(pending.VesselSnapshot);
+                CrewReservationManager.UnreserveCrewInSnapshot(pending.VesselSnapshot);
                 unreservedCount++;
             }
 
@@ -307,7 +307,7 @@ namespace Parsek
                 {
                     if (siblings[i].VesselSnapshot != null)
                     {
-                        ParsekScenario.UnreserveCrewInSnapshot(siblings[i].VesselSnapshot);
+                        CrewReservationManager.UnreserveCrewInSnapshot(siblings[i].VesselSnapshot);
                         unreservedCount++;
                     }
                 }
@@ -393,8 +393,8 @@ namespace Parsek
                     if (av != null && av.persistentId != 0)
                         MarkForceSpawnOnTreeRecordings(tree, av.persistentId);
                     RecordingStore.CommitPendingTree();
-                    ParsekScenario.ReserveSnapshotCrew();
-                    ParsekScenario.SwapReservedCrewInFlight();
+                    CrewReservationManager.ReserveSnapshotCrew();
+                    CrewReservationManager.SwapReservedCrewInFlight();
                     ClearPendingFlag();
                     ReplayFlightResultsIfPending();
                     if (spawnCount > 0)
@@ -411,7 +411,7 @@ namespace Parsek
                     foreach (var rec in tree.Recordings.Values)
                     {
                         if (rec.VesselSnapshot != null)
-                            ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
+                            CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
                     }
                     RecordingStore.DiscardPendingTree();
                     ClearPendingFlag();
@@ -739,7 +739,7 @@ namespace Parsek
                     {
                         if (rec.VesselSnapshot != null)
                         {
-                            ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
+                            CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
                             rec.VesselSnapshot = null;
                             ParsekLog.Info("MergeDialog",
                                 $"ApplyVesselDecisions: ghost-only for '{rec.VesselName}' (id={kvp.Key}), snapshot nulled");
@@ -807,8 +807,8 @@ namespace Parsek
                         MarkForceSpawnOnTreeRecordings(capturedTree, av.persistentId);
                     ApplyVesselDecisions(capturedTree, capturedDecisions);
                     RecordingStore.CommitPendingTree();
-                    ParsekScenario.ReserveSnapshotCrew();
-                    ParsekScenario.SwapReservedCrewInFlight();
+                    CrewReservationManager.ReserveSnapshotCrew();
+                    CrewReservationManager.SwapReservedCrewInFlight();
                     ClearPendingFlag();
                     ReplayFlightResultsIfPending();
 
@@ -830,7 +830,7 @@ namespace Parsek
                     foreach (var rec in capturedTree.Recordings.Values)
                     {
                         if (rec.VesselSnapshot != null)
-                            ParsekScenario.UnreserveCrewInSnapshot(rec.VesselSnapshot);
+                            CrewReservationManager.UnreserveCrewInSnapshot(rec.VesselSnapshot);
                     }
                     RecordingStore.DiscardPendingTree();
                     ClearPendingFlag();

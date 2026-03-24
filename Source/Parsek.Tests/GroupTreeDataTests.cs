@@ -22,7 +22,7 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             GroupHierarchyStore.ResetGroupsForTesting();
-            ParsekScenario.ResetReplacementsForTesting();
+            CrewReservationManager.ResetReplacementsForTesting();
         }
 
         public void Dispose()
@@ -33,7 +33,7 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
             GroupHierarchyStore.ResetGroupsForTesting();
-            ParsekScenario.ResetReplacementsForTesting();
+            CrewReservationManager.ResetReplacementsForTesting();
         }
 
         // Helper: create a recording with optional groups and chainId

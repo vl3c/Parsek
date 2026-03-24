@@ -2517,7 +2517,7 @@ namespace Parsek.Tests
             }
 
             // Verify crew was removed
-            var remainingCrew = ParsekScenario.ExtractCrewFromSnapshot(snapshot);
+            var remainingCrew = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);
             Assert.Single(remainingCrew);
             Assert.Equal("Bill Kerman", remainingCrew[0]);
 
@@ -2534,14 +2534,14 @@ namespace Parsek.Tests
             part.AddValue("crew", "Jebediah Kerman");
             part.AddValue("crew", "Bill Kerman");
 
-            var snapshotCrew = ParsekScenario.ExtractCrewFromSnapshot(snapshot);
+            var snapshotCrew = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);
             var existingCrew = new HashSet<string> { "Valentina Kerman" };
             var duplicates = VesselSpawner.FindDuplicateCrew(snapshotCrew, existingCrew);
 
             Assert.Empty(duplicates);
 
             // Snapshot untouched
-            var crew = ParsekScenario.ExtractCrewFromSnapshot(snapshot);
+            var crew = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);
             Assert.Equal(2, crew.Count);
         }
 
@@ -2572,7 +2572,7 @@ namespace Parsek.Tests
                     partNode.AddValue("crew", name);
             }
 
-            var remaining = ParsekScenario.ExtractCrewFromSnapshot(snapshot);
+            var remaining = CrewReservationManager.ExtractCrewFromSnapshot(snapshot);
             Assert.Single(remaining);
             Assert.Equal("Bill Kerman", remaining[0]);
         }
