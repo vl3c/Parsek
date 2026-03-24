@@ -179,6 +179,11 @@ namespace Parsek
         private SpawnSortColumn cachedSortColumn = SpawnSortColumn.Distance;
         private bool cachedSortAscending = true;
 
+        // Per-frame cached resource budget — avoids duplicate ComputeTotal calls
+        // when both DrawCompactBudgetLine (main window) and DrawResourceBudget (actions window) run
+        private BudgetSummary cachedBudget;
+        private int cachedBudgetFrame = -1;
+
         public ParsekUI(ParsekFlight flight)
         {
             this.flight = flight;
@@ -193,6 +198,26 @@ namespace Parsek
 
         private const float SpacingSmall = 3f;
         private const float SpacingLarge = 10f;
+
+        /// <summary>
+        /// Returns the resource budget, cached once per frame. Avoids duplicate
+        /// ComputeTotal calls when both the main window and actions window render.
+        /// </summary>
+        private BudgetSummary GetCachedBudget()
+        {
+            int currentFrame = Time.frameCount;
+            if (cachedBudgetFrame != currentFrame)
+            {
+                cachedBudget = ResourceBudget.ComputeTotal(
+                    RecordingStore.CommittedRecordings,
+                    MilestoneStore.Milestones,
+                    RecordingStore.CommittedTrees);
+                cachedBudgetFrame = currentFrame;
+                ParsekLog.Verbose("UI",
+                    $"GetCachedBudget: recomputed budget (frame {currentFrame})");
+            }
+            return cachedBudget;
+        }
 
         public void DrawWindow(int windowID)
         {
@@ -352,10 +377,7 @@ namespace Parsek
 
         private void DrawResourceBudget()
         {
-            var budget = ResourceBudget.ComputeTotal(
-                RecordingStore.CommittedRecordings,
-                MilestoneStore.Milestones,
-                RecordingStore.CommittedTrees);
+            var budget = GetCachedBudget();
 
             if (budget.reservedFunds <= 0 && budget.reservedScience <= 0 && budget.reservedReputation <= 0)
                 return;
@@ -420,10 +442,7 @@ namespace Parsek
 
         private void DrawCompactBudgetLine()
         {
-            var budget = ResourceBudget.ComputeTotal(
-                RecordingStore.CommittedRecordings,
-                MilestoneStore.Milestones,
-                RecordingStore.CommittedTrees);
+            var budget = GetCachedBudget();
 
             if (budget.reservedFunds <= 0 && budget.reservedScience <= 0 && budget.reservedReputation <= 0)
                 return;
