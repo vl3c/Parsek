@@ -294,7 +294,7 @@ namespace Parsek
 
         // T25 cutover flag: when true, engine.UpdatePlayback is the primary path.
         // When false, old UpdateTimelinePlayback runs (via forwarding properties).
-        internal bool useEnginePlayback = false;
+        internal bool useEnginePlayback = true;
 
         #endregion
 
