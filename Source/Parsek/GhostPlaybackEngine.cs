@@ -200,21 +200,220 @@ namespace Parsek
         #region Ghost lifecycle
 
         /// <summary>
-        /// Clean up all engine-owned ghost state. Fires OnAllGhostsDestroying so
-        /// policy and host can clear their own state.
+        /// Destroys materials, engine/RCS particle systems, reentry FX, ghost GameObject,
+        /// and fake canopies for a single ghost playback state.
+        /// Does NOT remove from any dictionary — caller handles collection bookkeeping.
+        /// </summary>
+        internal void DestroyGhostResources(GhostPlaybackState state)
+        {
+            if (state.materials != null)
+            {
+                for (int i = 0; i < state.materials.Count; i++)
+                {
+                    if (state.materials[i] != null)
+                        UnityEngine.Object.Destroy(state.materials[i]);
+                }
+            }
+
+            if (state.engineInfos != null)
+            {
+                foreach (var info in state.engineInfos.Values)
+                    for (int i = 0; i < info.particleSystems.Count; i++)
+                        if (info.particleSystems[i] != null)
+                            UnityEngine.Object.Destroy(info.particleSystems[i].gameObject);
+            }
+
+            if (state.rcsInfos != null)
+            {
+                foreach (var info in state.rcsInfos.Values)
+                    for (int i = 0; i < info.particleSystems.Count; i++)
+                        if (info.particleSystems[i] != null)
+                            UnityEngine.Object.Destroy(info.particleSystems[i].gameObject);
+            }
+
+            DestroyReentryFxResources(state.reentryFxInfo);
+
+            if (state.ghost != null)
+                UnityEngine.Object.Destroy(state.ghost);
+
+            GhostPlaybackLogic.DestroyAllFakeCanopies(state);
+        }
+
+        /// <summary>
+        /// Destroys reentry FX resources (cloned materials, generated texture, emission mesh).
+        /// </summary>
+        internal void DestroyReentryFxResources(ReentryFxInfo info)
+        {
+            if (info == null) return;
+            if (info.allClonedMaterials != null)
+                for (int i = 0; i < info.allClonedMaterials.Count; i++)
+                    if (info.allClonedMaterials[i] != null)
+                        UnityEngine.Object.Destroy(info.allClonedMaterials[i]);
+            if (info.generatedTexture != null)
+                UnityEngine.Object.Destroy(info.generatedTexture);
+            if (info.combinedEmissionMesh != null)
+                UnityEngine.Object.Destroy(info.combinedEmissionMesh);
+        }
+
+        /// <summary>
+        /// Despawns a single primary timeline ghost. Destroys its resources and
+        /// removes it from ghostStates and loopPhaseOffsets.
+        /// </summary>
+        internal void DestroyGhost(int index)
+        {
+            ParsekLog.Info("Engine", $"DestroyGhost index={index}");
+
+            GhostPlaybackState state;
+            if (!ghostStates.TryGetValue(index, out state))
+                return;
+
+            DestroyGhostResources(state);
+
+            ghostStates.Remove(index);
+            loopPhaseOffsets.Remove(index);
+        }
+
+        /// <summary>
+        /// Destroys a single overlap ghost's resources. Does NOT remove from any collection.
+        /// </summary>
+        internal void DestroyOverlapGhostState(GhostPlaybackState state)
+        {
+            if (state == null) return;
+            ParsekLog.Verbose("Engine",
+                $"Destroying overlap ghost cycle={state.loopCycleIndex}");
+            DestroyGhostResources(state);
+        }
+
+        /// <summary>
+        /// Destroys all overlap ghosts for a single recording index.
+        /// Returns true if the given recIdx matched the watched recording's overlap tracking
+        /// (caller should reset camera state).
+        /// </summary>
+        internal bool DestroyAllOverlapGhosts(int recIdx)
+        {
+            List<GhostPlaybackState> list;
+            if (!overlapGhosts.TryGetValue(recIdx, out list)) return false;
+            if (list.Count > 0)
+                ParsekLog.Verbose("Engine",
+                    $"Destroying all {list.Count} overlap ghost(s) for recording #{recIdx}");
+
+            for (int i = 0; i < list.Count; i++)
+                DestroyOverlapGhostState(list[i]);
+            list.Clear();
+
+            // Return true so the caller (ParsekFlight) can reset watch mode camera state
+            // if this recording was being watched. Engine does not know about watch mode.
+            return true;
+        }
+
+        /// <summary>
+        /// Checks whether the recording ended with destruction and spawns an explosion FX if so.
+        /// Takes warpRate as parameter (engine does not read KSP globals directly).
+        /// </summary>
+        internal void TriggerExplosionIfDestroyed(GhostPlaybackState state, IPlaybackTrajectory traj,
+            int recIdx, float warpRate)
+        {
+            if (state == null)
+            {
+                ParsekLog.Verbose("Engine", $"TriggerExplosionIfDestroyed: ghost #{recIdx} — skipped (state is null)");
+                return;
+            }
+            if (!GhostPlaybackLogic.ShouldTriggerExplosion(state.explosionFired, traj.TerminalStateValue,
+                    state.ghost != null, traj.VesselName, recIdx))
+                return;
+
+            if (GhostPlaybackLogic.ShouldSuppressVisualFx(warpRate))
+            {
+                state.explosionFired = true;
+                GhostPlaybackLogic.HideAllGhostParts(state);
+                ParsekLog.VerboseRateLimited("Engine", $"explosion-suppress-{recIdx}",
+                    $"Explosion suppressed for ghost #{recIdx} \"{traj.VesselName}\": " +
+                    $"warp rate {warpRate.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}x > " +
+                    $"{GhostPlaybackLogic.FxSuppressWarpThreshold}x");
+                return;
+            }
+
+            state.explosionFired = true;
+
+            Vector3 worldPos = state.ghost.transform.position;
+            float vesselLength = state.reentryFxInfo != null
+                ? state.reentryFxInfo.vesselLength
+                : GhostVisualBuilder.ComputeGhostLength(state.ghost);
+
+            ParsekLog.Info("Engine",
+                $"Triggering explosion for ghost #{recIdx} \"{traj.VesselName}\" " +
+                $"at ({worldPos.x:F1},{worldPos.y:F1},{worldPos.z:F1}) vesselLength={vesselLength:F1}m");
+
+            var explosion = GhostVisualBuilder.SpawnExplosionFx(worldPos, vesselLength);
+            if (explosion != null)
+            {
+                UnityEngine.Object.Destroy(explosion, 6f);
+                activeExplosions.Add(explosion);
+
+                if (activeExplosions.Count > 20)
+                {
+                    for (int e = activeExplosions.Count - 1; e >= 0; e--)
+                    {
+                        if (activeExplosions[e] == null)
+                            activeExplosions.RemoveAt(e);
+                    }
+                }
+
+                ParsekLog.Verbose("Engine",
+                    $"Explosion GO created for ghost #{recIdx}, activeExplosions.Count={activeExplosions.Count}");
+            }
+
+            GhostPlaybackLogic.HideAllGhostParts(state);
+            ParsekLog.Verbose("Engine", $"Ghost #{recIdx} parts hidden after explosion");
+        }
+
+        /// <summary>
+        /// Destroys and clears all active explosion GameObjects.
+        /// </summary>
+        internal void CleanupActiveExplosions()
+        {
+            if (activeExplosions.Count == 0) return;
+            int destroyed = 0;
+            for (int i = activeExplosions.Count - 1; i >= 0; i--)
+            {
+                if (activeExplosions[i] != null)
+                {
+                    UnityEngine.Object.Destroy(activeExplosions[i]);
+                    destroyed++;
+                }
+            }
+            ParsekLog.Verbose("Engine", $"CleanupActiveExplosions: destroyed {destroyed}/{activeExplosions.Count} explosion GOs");
+            activeExplosions.Clear();
+        }
+
+        /// <summary>
+        /// Clean up all engine-owned ghost state. Destroys all ghost GOs first,
+        /// then clears all collections. Fires OnAllGhostsDestroying so policy
+        /// and host can clear their own state.
         /// </summary>
         internal void DestroyAllGhosts()
         {
             ParsekLog.Info("Engine", $"DestroyAllGhosts: clearing {ghostStates.Count} primary + {overlapGhosts.Count} overlap entries");
 
-            // Phase 4 next steps: iterate and destroy ghost GOs before clearing dicts.
-            // For now, just clear state (ghost GOs are still managed by ParsekFlight
-            // until lifecycle methods move in the next sub-steps).
+            // Destroy all primary ghost GOs
+            var keys = new List<int>(ghostStates.Keys);
+            foreach (int key in keys)
+            {
+                if (ghostStates.TryGetValue(key, out var state))
+                    DestroyGhostResources(state);
+            }
 
+            // Destroy all overlap ghost GOs
+            foreach (var kvp in overlapGhosts)
+            {
+                for (int i = 0; i < kvp.Value.Count; i++)
+                    DestroyOverlapGhostState(kvp.Value[i]);
+            }
+
+            // Clear all engine state
             ghostStates.Clear();
             overlapGhosts.Clear();
             loopPhaseOffsets.Clear();
-            activeExplosions.Clear();
             loadedAnchorVessels.Clear();
             softCapSuppressed.Clear();
             loggedGhostEnter.Clear();
@@ -222,6 +421,8 @@ namespace Parsek
             cachedZone1Ghosts.Clear();
             cachedZone2Ghosts.Clear();
             softCapTriggeredThisFrame = false;
+
+            CleanupActiveExplosions();
 
             OnAllGhostsDestroying?.Invoke();
         }
