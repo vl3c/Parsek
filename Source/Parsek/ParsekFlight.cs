@@ -268,7 +268,7 @@ namespace Parsek
             ControlTypes.STAGING | ControlTypes.THROTTLE |
             ControlTypes.VESSEL_SWITCHING | ControlTypes.EVA_INPUT |
             ControlTypes.CAMERAMODES;
-        int watchedRecordingIndex = -1;       // -1 = not watching
+        internal int watchedRecordingIndex = -1;       // -1 = not watching
         string watchedRecordingId = null;     // stable across index shifts
         float watchStartTime;                 // Time.time when watch mode was entered
         int watchedOverlapCycleIndex = -1;    // which overlap cycle the camera is following (-1 = ready for next, -2 = holding after explosion)
@@ -295,6 +295,10 @@ namespace Parsek
         // T25 cutover flag: when true, engine.UpdatePlayback is the primary path.
         // When false, old UpdateTimelinePlayback runs (via forwarding properties).
         internal bool useEnginePlayback = true;
+
+        // Cached per-frame allocations for engine path (avoid GC pressure)
+        private readonly List<IPlaybackTrajectory> cachedTrajectories = new List<IPlaybackTrajectory>();
+        private TrajectoryPlaybackFlags[] cachedFlags;
 
         #endregion
 
@@ -6127,6 +6131,29 @@ namespace Parsek
             SpawnVesselOrChainTip(rec, index);
         }
 
+        /// <summary>Called by policy when a mid-chain segment ends while watched.</summary>
+        internal int FindNextWatchTargetFromPolicy(int currentIndex, Recording currentRec) =>
+            FindNextWatchTarget(currentIndex, currentRec);
+
+        /// <summary>Called by policy to transfer watch to the next chain segment.</summary>
+        internal void TransferWatchToNextSegmentFromPolicy(int nextIndex) =>
+            TransferWatchToNextSegment(nextIndex);
+
+        /// <summary>Called by policy to exit watch mode.</summary>
+        internal void ExitWatchModeFromPolicy() => ExitWatchMode();
+
+        /// <summary>Called by policy to switch camera to a spawned vessel after watch-mode spawn.</summary>
+        internal void DeferredActivateVesselFromPolicy(uint vesselPid) =>
+            StartCoroutine(DeferredActivateVessel(vesselPid));
+
+        /// <summary>Called by policy to start the watch-mode hold timer at recording end.</summary>
+        internal void StartWatchHoldFromPolicy(double holdUntilUT)
+        {
+            watchEndHoldUntilUT = holdUntilUT;
+            ParsekLog.Info("CameraFollow",
+                $"Watch hold timer set: holdUntil={holdUntilUT:F1} (watched #{watchedRecordingIndex})");
+        }
+
         private void SpawnVesselOrChainTip(Recording rec, int index)
         {
             // Real vessel dedup: if a vessel with this PID still exists in the game world,
@@ -6275,12 +6302,12 @@ namespace Parsek
             };
 
             // Build trajectory list (Recording implements IPlaybackTrajectory)
-            var trajectories = new List<IPlaybackTrajectory>(committed.Count);
+            cachedTrajectories.Clear();
             for (int i = 0; i < committed.Count; i++)
-                trajectories.Add(committed[i]);
+                cachedTrajectories.Add(committed[i]);
 
             // Run engine rendering
-            engine.UpdatePlayback(trajectories, flags, ctx);
+            engine.UpdatePlayback(cachedTrajectories, flags, ctx);
 
             // Per-frame resource deltas (policy concern, not engine)
             for (int i = 0; i < committed.Count; i++)

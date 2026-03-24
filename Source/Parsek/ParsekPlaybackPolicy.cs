@@ -56,40 +56,96 @@ namespace Parsek
 
         private void HandlePlaybackCompleted(PlaybackCompletedEvent evt)
         {
+            bool isWatched = host.watchedRecordingIndex == evt.Index;
+
             ParsekLog.Verbose("Policy",
                 $"PlaybackCompleted index={evt.Index} vessel={evt.Trajectory?.VesselName} " +
                 $"ghostWasActive={evt.GhostWasActive} pastEffectiveEnd={evt.PastEffectiveEnd} " +
-                $"needsSpawn={evt.Flags.needsSpawn} isMidChain={evt.Flags.isMidChain}");
+                $"needsSpawn={evt.Flags.needsSpawn} isMidChain={evt.Flags.isMidChain} watched={isWatched}");
 
-            // Mid-chain segments: hold ghost at final position, don't destroy
+            // Mid-chain segments: hold ghost at final position
             if (evt.Flags.isMidChain && !evt.PastEffectiveEnd)
+            {
+                // Auto-follow watch mode to next chain segment
+                if (isWatched)
+                {
+                    var committed = RecordingStore.CommittedRecordings;
+                    if (evt.Index >= 0 && evt.Index < committed.Count)
+                    {
+                        int nextTarget = host.FindNextWatchTargetFromPolicy(evt.Index, committed[evt.Index]);
+                        if (nextTarget >= 0)
+                        {
+                            host.TransferWatchToNextSegmentFromPolicy(nextTarget);
+                            ParsekLog.Info("Policy",
+                                $"Mid-chain auto-follow: #{evt.Index} → #{nextTarget}");
+                        }
+                    }
+                }
                 return;
+            }
 
             // Spawn vessel if needed
+            bool spawned = false;
             if (evt.Flags.needsSpawn && evt.PastEffectiveEnd)
             {
                 bool isWarp = GhostPlaybackEngine.IsAnyWarpActive();
                 if (isWarp)
                 {
-                    // Queue for later flush
                     pendingSpawnRecordingIds.Add(evt.Flags.recordingId);
+                    if (isWatched)
+                    {
+                        pendingWatchRecordingId = evt.Flags.recordingId;
+                        host.ExitWatchModeFromPolicy();
+                    }
                     ParsekLog.Info("Policy",
                         $"Deferred spawn during warp: #{evt.Index} \"{evt.Trajectory?.VesselName}\"");
                 }
                 else
                 {
-                    // Spawn immediately — delegated to host which has VesselSpawner access
                     var committed = RecordingStore.CommittedRecordings;
                     if (evt.Index >= 0 && evt.Index < committed.Count)
                     {
+                        // If watching, exit watch mode and switch to spawned vessel
+                        if (isWatched)
+                            host.ExitWatchModeFromPolicy();
+
                         host.SpawnVesselOrChainTipFromPolicy(committed[evt.Index], evt.Index);
+                        spawned = true;
+
+                        // Switch camera to spawned vessel if we were watching
+                        if (isWatched)
+                        {
+                            uint spawnedPid = committed[evt.Index].SpawnedVesselPersistentId;
+                            if (spawnedPid != 0)
+                                host.DeferredActivateVesselFromPolicy(spawnedPid);
+                        }
                     }
                 }
             }
 
-            // Destroy ghost (unless watched — host manages hold timer)
+            // Destroy ghost
             if (evt.GhostWasActive)
             {
+                // If watching and not spawning: hold ghost for camera (3-5 seconds)
+                if (isWatched && !spawned && !evt.Flags.needsSpawn)
+                {
+                    // Set hold timer — the existing UpdateWatchCamera / watchEndHoldUntilUT
+                    // mechanism in ParsekFlight handles the per-frame countdown
+                    double holdSeconds = evt.Trajectory?.TerminalStateValue == TerminalState.Destroyed
+                        ? 5.0 : 3.0;
+                    host.StartWatchHoldFromPolicy(evt.CurrentUT + holdSeconds);
+
+                    // Trigger explosion if terminal was Destroyed
+                    engine.TriggerExplosionIfDestroyed(evt.State, evt.Trajectory, evt.Index,
+                        TimeWarp.CurrentRate);
+
+                    ParsekLog.Info("Policy",
+                        $"Watch hold started for #{evt.Index}: {holdSeconds:F0}s " +
+                        $"terminal={evt.Trajectory?.TerminalStateValue}");
+                    // Ghost stays alive — ParsekFlight's watch hold timer will destroy it
+                    return;
+                }
+
                 engine.DestroyGhost(evt.Index, evt.Trajectory, evt.Flags);
             }
         }
