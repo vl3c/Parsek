@@ -199,6 +199,81 @@ namespace Parsek
         #region Ghost lifecycle
 
         /// <summary>
+        /// Spawns a timeline ghost for the given trajectory at the specified index.
+        /// Builds the ghost mesh from the snapshot, or falls back to a sphere.
+        /// Populates all ghost info dictionaries and reentry FX.
+        /// </summary>
+        internal void SpawnGhost(int index, IPlaybackTrajectory traj)
+        {
+            ParsekLog.Info("Engine", $"SpawnGhost index={index} vessel={traj?.VesselName}");
+
+            Color ghostColor = new Color(0.2f, 1f, 0.4f, 0.8f); // bright green-cyan
+            GhostBuildResult buildResult = null;
+            GameObject ghost = null;
+            bool builtFromSnapshot = false;
+
+            // Skip expensive snapshot build when no snapshot exists — go straight to sphere fallback.
+            if (GhostVisualBuilder.GetGhostSnapshot(traj) != null)
+            {
+                buildResult = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
+                    traj, $"Parsek_Timeline_{index}");
+                if (buildResult != null)
+                    ghost = buildResult.root;
+                builtFromSnapshot = ghost != null;
+            }
+
+            if (ghost == null)
+            {
+                ghost = GhostVisualBuilder.CreateGhostSphere($"Parsek_Timeline_{index}", ghostColor);
+                ParsekLog.Info("Engine", $"Timeline ghost #{index}: using sphere fallback");
+            }
+            else
+            {
+                bool usedStartSnapshot = traj.GhostVisualSnapshot != null;
+                ParsekLog.Info("Engine", usedStartSnapshot
+                    ? $"Timeline ghost #{index}: built from recording-start snapshot"
+                    : $"Timeline ghost #{index}: built from vessel snapshot");
+            }
+
+            var cameraPivotObj = new GameObject("cameraPivot");
+            cameraPivotObj.transform.SetParent(ghost.transform, false);
+
+            var state = new GhostPlaybackState
+            {
+                ghost = ghost,
+                cameraPivot = cameraPivotObj.transform,
+                playbackIndex = 0,
+                partEventIndex = 0,
+                partTree = GhostVisualBuilder.BuildPartSubtreeMap(GhostVisualBuilder.GetGhostSnapshot(traj))
+            };
+
+            if (builtFromSnapshot)
+            {
+                state.materials = new List<Material>();
+            }
+            else
+            {
+                var m = ghost.GetComponent<Renderer>()?.material;
+                state.materials = m != null ? new List<Material> { m } : new List<Material>();
+            }
+
+            GhostPlaybackLogic.PopulateGhostInfoDictionaries(state, buildResult);
+            GhostPlaybackLogic.InitializeInventoryPlacementVisibility(traj, state);
+
+            state.reentryFxInfo = GhostVisualBuilder.TryBuildReentryFx(
+                ghost, state.heatInfos, index, traj.VesselName);
+            state.reentryMpb = new MaterialPropertyBlock();
+
+            GhostPlaybackLogic.InitializeFlagVisibility(traj, state);
+
+            ghostStates[index] = state;
+
+            ParsekLog.Info("Engine",
+                $"Ghost #{index} spawned: snapshot={builtFromSnapshot} parts={state.partTree?.Count ?? 0} " +
+                $"engines={state.engineInfos?.Count ?? 0} rcs={state.rcsInfos?.Count ?? 0}");
+        }
+
+        /// <summary>
         /// Destroys materials, engine/RCS particle systems, reentry FX, ghost GameObject,
         /// and fake canopies for a single ghost playback state.
         /// Does NOT remove from any dictionary — caller handles collection bookkeeping.

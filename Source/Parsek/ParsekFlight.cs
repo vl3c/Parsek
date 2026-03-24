@@ -7585,75 +7585,7 @@ namespace Parsek
 
         void SpawnTimelineGhost(int index, Recording rec)
         {
-            Log($"Spawning timeline ghost #{index} for {rec.VesselName}");
-
-            // Use a slightly different color to distinguish from manual preview
-            Color ghostColor = new Color(0.2f, 1f, 0.4f, 0.8f); // bright green-cyan
-            GhostBuildResult buildResult = null;
-            GameObject ghost = null;
-            bool builtFromSnapshot = false;
-
-            // Skip expensive snapshot build when no snapshot exists — go straight to sphere fallback.
-            // Avoids per-loop-cycle warning spam for snapshot-less recordings (bug #21).
-            if (GhostVisualBuilder.GetGhostSnapshot(rec) != null)
-            {
-                buildResult = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
-                    rec, $"Parsek_Timeline_{index}");
-                if (buildResult != null)
-                    ghost = buildResult.root;
-                builtFromSnapshot = ghost != null;
-            }
-
-            if (ghost == null)
-            {
-                ghost = GhostVisualBuilder.CreateGhostSphere($"Parsek_Timeline_{index}", ghostColor);
-                Log($"Timeline ghost #{index}: using sphere fallback");
-            }
-            else
-            {
-                bool usedStartSnapshot = rec.GhostVisualSnapshot != null;
-                Log(usedStartSnapshot
-                    ? $"Timeline ghost #{index}: built from recording-start snapshot"
-                    : $"Timeline ghost #{index}: built from vessel snapshot");
-            }
-
-            var cameraPivotObj = new GameObject("cameraPivot");
-            cameraPivotObj.transform.SetParent(ghost.transform, false);
-
-            var state = new GhostPlaybackState
-            {
-                ghost = ghost,
-                cameraPivot = cameraPivotObj.transform,
-                playbackIndex = 0,
-                partEventIndex = 0,
-                partTree = GhostVisualBuilder.BuildPartSubtreeMap(GhostVisualBuilder.GetGhostSnapshot(rec))
-            };
-
-            if (builtFromSnapshot)
-            {
-                state.materials = new List<Material>();
-            }
-            else
-            {
-                var m = ghost.GetComponent<Renderer>()?.material;
-                state.materials = m != null ? new List<Material> { m } : new List<Material>();
-            }
-
-            GhostPlaybackLogic.PopulateGhostInfoDictionaries(state, buildResult);
-
-            GhostPlaybackLogic.InitializeInventoryPlacementVisibility(rec, state);
-
-            state.reentryFxInfo = GhostVisualBuilder.TryBuildReentryFx(
-                ghost,
-                state.heatInfos,
-                index,
-                rec.VesselName);
-            state.reentryMpb = new MaterialPropertyBlock();
-
-            // Initialize flag event index — flags are spawned as real vessels on-demand by ApplyFlagEvents
-            GhostPlaybackLogic.InitializeFlagVisibility(rec, state);
-
-            ghostStates[index] = state;
+            engine.SpawnGhost(index, rec);
         }
 
         internal void DestroyTimelineGhost(int index)
