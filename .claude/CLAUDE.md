@@ -21,7 +21,12 @@ docs/                   # Design docs, roadmap, reference analyses
 ```
 
 Key source files and what they do - read the relevant one before modifying:
-- `ParsekFlight.cs` - main flight-scene controller (playback, timeline, input)
+- `ParsekFlight.cs` - flight-scene controller (policy, recording, chain management, camera follow, input)
+- `GhostPlaybackEngine.cs` - ghost playback mechanics engine: owns ghostStates, per-frame positioning, loop/overlap playback, zone transitions, soft caps, reentry FX. Zero Recording references — accesses trajectories via IPlaybackTrajectory only. Future standalone mod core.
+- `ParsekPlaybackPolicy.cs` - event subscriber reacting to engine lifecycle events (spawn decisions, resource deltas, camera management, deferred spawn queue)
+- `IPlaybackTrajectory.cs` - interface exposing 19 trajectory/visual fields from Recording to the engine
+- `IGhostPositioner.cs` - 8 positioning methods implemented by ParsekFlight, delegates world-space placement to the host scene
+- `GhostPlaybackEvents.cs` - lifecycle event types (PlaybackCompleted, LoopRestarted, OverlapExpired, CameraAction), TrajectoryPlaybackFlags, FrameContext
 - `FlightRecorder.cs` - recording state + sampling (called by Harmony patch)
 - `ParsekUI.cs` - UI windows (main, recordings, actions, settings, Real Spawn Control) and map markers
 - `SelectiveSpawnUI.cs` - pure static methods for Real Spawn Control (proximity candidates, countdown formatting)

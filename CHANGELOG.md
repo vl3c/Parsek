@@ -30,6 +30,13 @@ Second-pass structural refactoring. ~80 method extractions, ~105 logging additio
   - `BudgetSummary` and `UIMode` nested types extracted to top-level
   - Dead code removed: `GetFairingShowMesh`, `GenerateFairingTrussMesh` (zero call sites)
   - `SanitizeQuaternion` unnecessary instance wrapper removed
+- **T25 — Ghost Playback Engine extraction** (ParsekFlight 9900 → 8657 lines)
+  - `GhostPlaybackEngine` (1553 lines) — extracted ghost lifecycle, per-frame rendering, loop/overlap playback, zone transitions, soft caps, reentry FX from ParsekFlight. Zero Recording references; accesses trajectories via `IPlaybackTrajectory` interface only. Fires lifecycle events (OnGhostCreated, OnPlaybackCompleted, OnLoopRestarted, etc.) for policy layer.
+  - `ParsekPlaybackPolicy` (192 lines) — event subscriber handling spawn decisions, resource deltas, camera management, deferred spawn queue.
+  - `IPlaybackTrajectory` interface — 19-property boundary exposing only trajectory/visual data from Recording. Enables future standalone ghost playback mod.
+  - `IGhostPositioner` interface — 8 positioning methods implemented by ParsekFlight, delegates world-space placement to the host scene.
+  - `GhostPlaybackEvents` — TrajectoryPlaybackFlags, FrameContext, lifecycle event types, CameraActionEvent for watch-mode decomposition.
+  - 109 new tests (MockTrajectory, engine lifecycle, query API, interface isolation, log assertions)
 - **Pass 4 — Continued dedup**
   - `SampleAnimationStates` unified core extracted from 4 near-identical methods (D15/T27, -139 lines)
   - `AnimLookup` enum + `FindAnimation` resolver parameterize 3 animation lookup strategies
@@ -49,7 +56,7 @@ Second-pass structural refactoring. ~80 method extractions, ~105 logging additio
 
 ### Test Coverage
 
-3227 → 3322 tests (+95). New test areas:
+3227 → 3420 tests (+193). New test areas:
 - GroupTreeDataTests (14): recordings tree data-computation
 - PostSpawnTerminalStateTests (12): spawn terminal state clearing
 - InterpolatePointsTests (11): trajectory interpolation edge cases

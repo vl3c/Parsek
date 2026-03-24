@@ -97,10 +97,7 @@ namespace Parsek
             var ic = CultureInfo.InvariantCulture;
 
             if (chains == null || chains.Count == 0 || rec == null)
-            {
-                ParsekLog.Verbose(Tag, "IsIntermediateChainLink: null/empty chains or null rec — returning false");
                 return false;
-            }
 
             // Check if rec's RecordingId matches any non-final link in any chain
             foreach (var kvp in chains)
@@ -112,19 +109,8 @@ namespace Parsek
                     {
                         // If this is the last link AND it is the tip, not intermediate
                         if (i == chain.Links.Count - 1 && chain.TipRecordingId == rec.RecordingId)
-                        {
-                            ParsekLog.Verbose(Tag,
-                                string.Format(ic,
-                                    "IsIntermediateChainLink: rec={0} is tip of chain vessel={1} — not intermediate",
-                                    rec.RecordingId, chain.OriginalVesselPid));
                             return false;
-                        }
 
-                        // Non-final link — intermediate
-                        ParsekLog.Verbose(Tag,
-                            string.Format(ic,
-                                "IsIntermediateChainLink: rec={0} is link {1}/{2} in chain vessel={3} — intermediate",
-                                rec.RecordingId, i, chain.Links.Count, chain.OriginalVesselPid));
                         return true;
                     }
                 }
@@ -135,19 +121,9 @@ namespace Parsek
                     && rec.VesselPersistentId == chain.OriginalVesselPid
                     && chain.SpawnUT > rec.EndUT
                     && chain.TipRecordingId != rec.RecordingId)
-                {
-                    ParsekLog.Verbose(Tag,
-                        string.Format(ic,
-                            "IsIntermediateChainLink: rec={0} pid={1} superseded by chain spawnUT={2:F1} > endUT={3:F1} — intermediate",
-                            rec.RecordingId, rec.VesselPersistentId, chain.SpawnUT, rec.EndUT));
                     return true;
-                }
             }
 
-            ParsekLog.Verbose(Tag,
-                string.Format(ic,
-                    "IsIntermediateChainLink: rec={0} not found in any chain — not intermediate",
-                    rec.RecordingId));
             return false;
         }
 
@@ -328,13 +304,7 @@ namespace Parsek
             visited.Add(rec.RecordingId);
 
             if (rec.VesselPersistentId != 0)
-            {
                 pids.Add(rec.VesselPersistentId);
-                ParsekLog.Verbose(Tag,
-                    string.Format(CultureInfo.InvariantCulture,
-                        "TraceLineagePids: rec={0} → added vessel pid={1}",
-                        rec.RecordingId, rec.VesselPersistentId));
-            }
 
             // Follow ChildBranchPointId to find child recordings
             if (rec.ChildBranchPointId != null)

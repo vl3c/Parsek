@@ -14,7 +14,7 @@ namespace Parsek
 
     public enum LoopTimeUnit { Sec, Min, Hour, Auto }
 
-    public class Recording
+    public class Recording : IPlaybackTrajectory
     {
         public string RecordingId = Guid.NewGuid().ToString("N");
         public int RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
@@ -247,5 +247,29 @@ namespace Parsek
             }
             return name;
         }
+
+        #region IPlaybackTrajectory explicit implementation
+
+        // Fields don't satisfy interface properties in C#, so we forward explicitly.
+        // StartUT and EndUT are already expression-bodied properties — they satisfy the interface implicitly.
+        List<TrajectoryPoint> IPlaybackTrajectory.Points => Points;
+        List<OrbitSegment> IPlaybackTrajectory.OrbitSegments => OrbitSegments;
+        List<TrackSection> IPlaybackTrajectory.TrackSections => TrackSections;
+        int IPlaybackTrajectory.RecordingFormatVersion => RecordingFormatVersion;
+        List<PartEvent> IPlaybackTrajectory.PartEvents => PartEvents;
+        List<FlagEvent> IPlaybackTrajectory.FlagEvents => FlagEvents;
+        ConfigNode IPlaybackTrajectory.GhostVisualSnapshot => GhostVisualSnapshot;
+        ConfigNode IPlaybackTrajectory.VesselSnapshot => VesselSnapshot;
+        string IPlaybackTrajectory.VesselName => VesselName;
+        bool IPlaybackTrajectory.LoopPlayback => LoopPlayback;
+        double IPlaybackTrajectory.LoopIntervalSeconds => LoopIntervalSeconds;
+        LoopTimeUnit IPlaybackTrajectory.LoopTimeUnit => LoopTimeUnit;
+        uint IPlaybackTrajectory.LoopAnchorVesselId => LoopAnchorVesselId;
+        TerminalState? IPlaybackTrajectory.TerminalStateValue => TerminalStateValue;
+        SurfacePosition? IPlaybackTrajectory.SurfacePos => SurfacePos;
+        bool IPlaybackTrajectory.PlaybackEnabled => PlaybackEnabled;
+        bool IPlaybackTrajectory.IsDebris => IsDebris;
+
+        #endregion
     }
 }
