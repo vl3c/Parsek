@@ -6178,6 +6178,52 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Pre-computes policy flags for all committed recordings. Called once per frame
+        /// before the engine's update loop. Eliminates per-recording RecordingStore queries
+        /// from the hot path (was O(n^2), now O(n)).
+        /// </summary>
+        private TrajectoryPlaybackFlags[] ComputePlaybackFlags(
+            List<Recording> committed, double currentUT)
+        {
+            var flags = new TrajectoryPlaybackFlags[committed.Count];
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                bool hasData = rec.Points.Count >= 2 || rec.OrbitSegments.Count > 0 || rec.SurfacePos.HasValue;
+
+                bool isActiveChain = activeChainId != null && rec.ChainId == activeChainId;
+                bool chainLoopOrDisabled = rec.ChainId != null &&
+                    (RecordingStore.IsChainLooping(rec.ChainId)
+                     || RecordingStore.IsChainFullyDisabled(rec.ChainId));
+
+                bool externalVesselSuppressed = GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
+                    rec.TreeId, rec.VesselPersistentId, IsActiveTreeRecording(rec));
+
+                var spawnResult = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                    rec, isActiveChain, chainLoopOrDisabled);
+
+                var chainSuppressed = activeGhostChains != null
+                    ? GhostPlaybackLogic.ShouldSuppressSpawnForChain(activeGhostChains, rec)
+                    : (suppressed: false, reason: "");
+
+                flags[i] = new TrajectoryPlaybackFlags
+                {
+                    skipGhost = !hasData || !rec.PlaybackEnabled || externalVesselSuppressed,
+                    isStandalone = rec.TreeId == null,
+                    isMidChain = RecordingStore.IsChainMidSegment(rec),
+                    chainEndUT = RecordingStore.GetChainEndUT(rec),
+                    needsSpawn = spawnResult.needsSpawn && !chainSuppressed.suppressed,
+                    isActiveChainMember = isActiveChain,
+                    isChainLoopingOrDisabled = chainLoopOrDisabled,
+                    segmentLabel = RecordingStore.GetSegmentPhaseLabel(rec),
+                    recordingId = rec.RecordingId,
+                    vesselPersistentId = rec.VesselPersistentId,
+                };
+            }
+            return flags;
+        }
+
         void UpdateTimelinePlayback()
         {
             var committed = RecordingStore.CommittedRecordings;
