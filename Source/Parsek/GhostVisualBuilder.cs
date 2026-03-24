@@ -1196,44 +1196,231 @@ namespace Parsek
             return result;
         }
 
-        // Cache: partName → list of (path, stowed state, deployed state) — sample once per part type
+        // Unified cache for all animation-sampled transform states (deployable, gear, ladder, cargo bay).
+        // Key collision is impossible: Deployable/Gear/CargoBay use plain part names but a part enters
+        // exactly one code path (priority cascade in TryBuildDeployableInfo). Ladder uses compound keys
+        // with '|' separators that never match plain part names.
         private static readonly Dictionary<string, List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
-            Vector3 dPos, Quaternion dRot, Vector3 dScale)>> deployableCache =
+            Vector3 dPos, Quaternion dRot, Vector3 dScale)>> animationSampleCache =
             new Dictionary<string, List<(string, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3)>>();
 
-        internal static void ClearDeployableCache()
+        internal static void ClearAnimationSampleCache()
         {
-            deployableCache.Clear();
+            animationSampleCache.Clear();
         }
 
-        // Cache: partName → list of gear animation transform states — sample once per part type
-        private static readonly Dictionary<string, List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
-            Vector3 dPos, Quaternion dRot, Vector3 dScale)>> gearCache =
-            new Dictionary<string, List<(string, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3)>>();
-
-        internal static void ClearGearCache()
+        /// <summary>
+        /// How to locate the Animation component on a cloned prefab model.
+        /// </summary>
+        private enum AnimLookup
         {
-            gearCache.Clear();
+            /// <summary>GetComponentInChildren (simplest — used by ModuleDeployablePart).</summary>
+            Simple,
+            /// <summary>Try named transform first, fallback to GetComponentInChildren (used by landing gear).</summary>
+            ByTransformName,
+            /// <summary>Search all Animation components for one containing the clip, fallback to GetComponentInChildren (used by cargo bays).</summary>
+            ByClipSearch,
+            /// <summary>Try named transform, then search all for clip. Intentionally NO GetComponentInChildren fallback (used by ladders/animation groups).</summary>
+            ByTransformThenClipSearch
         }
 
-        // Cache: partName(+anim) → list of ladder animation transform states — sample once per part type
-        private static readonly Dictionary<string, List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
-            Vector3 dPos, Quaternion dRot, Vector3 dScale)>> ladderCache =
-            new Dictionary<string, List<(string, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3)>>();
-
-        internal static void ClearLadderCache()
+        /// <summary>
+        /// Find the Animation component on a cloned model using the specified lookup strategy.
+        /// Returns null if no suitable Animation is found.
+        /// </summary>
+        private static Animation FindAnimation(
+            GameObject clone, string animName, string transformName,
+            AnimLookup mode, string label, string partKey)
         {
-            ladderCache.Clear();
+            Animation anim = null;
+
+            switch (mode)
+            {
+                case AnimLookup.Simple:
+                    anim = clone.GetComponentInChildren<Animation>(true);
+                    break;
+
+                case AnimLookup.ByTransformName:
+                    if (!string.IsNullOrEmpty(transformName))
+                    {
+                        Transform trf = FindTransformRecursive(clone.transform, transformName);
+                        if (trf != null)
+                            anim = trf.GetComponent<Animation>();
+                    }
+                    if (anim == null)
+                        anim = clone.GetComponentInChildren<Animation>(true);
+                    break;
+
+                case AnimLookup.ByClipSearch:
+                    foreach (var candidate in clone.GetComponentsInChildren<Animation>(true))
+                    {
+                        if (candidate[animName] != null)
+                        {
+                            anim = candidate;
+                            break;
+                        }
+                    }
+                    if (anim == null)
+                        anim = clone.GetComponentInChildren<Animation>(true);
+                    break;
+
+                case AnimLookup.ByTransformThenClipSearch:
+                    // Try named transform first
+                    if (!string.IsNullOrEmpty(transformName))
+                    {
+                        Transform animRoot = FindTransformRecursive(clone.transform, transformName);
+                        if (animRoot != null)
+                            anim = animRoot.GetComponent<Animation>();
+                        else
+                            ParsekLog.Verbose("GhostVisual", $"  {label} '{partKey}': animation root '{transformName}' not found on clone");
+                    }
+                    // Fallback: search all Animation components for one containing the clip
+                    // Intentionally NO GetComponentInChildren fallback — if clip isn't found, return null
+                    if (anim == null)
+                    {
+                        foreach (var candidate in clone.GetComponentsInChildren<Animation>(true))
+                        {
+                            if (candidate[animName] != null)
+                            {
+                                anim = candidate;
+                                break;
+                            }
+                        }
+                    }
+                    break;
+            }
+
+            return anim;
         }
 
-        // Cache: partName → list of cargo bay animation transform states — sample once per part type
-        private static readonly Dictionary<string, List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
-            Vector3 dPos, Quaternion dRot, Vector3 dScale)>> cargoBayCache =
-            new Dictionary<string, List<(string, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3)>>();
-
-        internal static void ClearCargoBayCache()
+        /// <summary>
+        /// Core animation sampling: clones prefab model, finds Animation via the specified strategy,
+        /// samples at two time points (or uses 3-snapshot scoring for endpoint detection), and returns
+        /// transform deltas between stowed and deployed states.
+        /// Returns null if no animation found, no AnimationState, or no deltas produced.
+        /// Does NOT handle caching — callers manage their own cache read/write.
+        /// </summary>
+        private static List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
+            Vector3 dPos, Quaternion dRot, Vector3 dScale)> SampleAnimationStates(
+            Part prefab, string animName, string label,
+            AnimLookup lookupMode, string lookupTransformName,
+            float stowedTime, float deployedTime, bool useScoring)
         {
-            cargoBayCache.Clear();
+            string partKey = prefab.partInfo?.name ?? prefab.name;
+            Transform modelRoot = FindModelRoot(prefab);
+            GameObject tempClone = Object.Instantiate(modelRoot.gameObject);
+            List<(string, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3)> result = null;
+
+            try
+            {
+                Animation anim = FindAnimation(tempClone, animName, lookupTransformName,
+                    lookupMode, label, partKey);
+                if (anim == null)
+                {
+                    ParsekLog.Verbose("GhostVisual", $"  {label} '{partKey}': no Animation component on model clone");
+                    return null;
+                }
+
+                AnimationState state = anim[animName];
+                if (state == null)
+                {
+                    ParsekLog.Verbose("GhostVisual", $"  {label} '{partKey}': animation '{animName}' not found on clone");
+                    return null;
+                }
+
+                var allTransforms = tempClone.GetComponentsInChildren<Transform>(true);
+
+                if (useScoring)
+                {
+                    // 3-snapshot scoring: capture default state BEFORE setting anim properties
+                    // (ordering is critical — captures prefab defaults before any animation influence)
+                    var defaultStates = SnapshotTransformStates(allTransforms, tempClone.transform);
+
+                    state.enabled = true;
+                    state.speed = 0f;
+                    state.weight = 1f;
+
+                    state.normalizedTime = 0f;
+                    anim.Play(animName);
+                    anim.Sample();
+                    var time0States = SnapshotTransformStates(allTransforms, tempClone.transform);
+
+                    state.normalizedTime = 1f;
+                    anim.Sample();
+                    var time1States = SnapshotTransformStates(allTransforms, tempClone.transform);
+
+                    // Score: which endpoint is closer to the default (= stowed)?
+                    float score0 = 0f;
+                    float score1 = 0f;
+                    foreach (var kv in defaultStates)
+                    {
+                        if (!time0States.TryGetValue(kv.Key, out var t0) ||
+                            !time1States.TryGetValue(kv.Key, out var t1))
+                            continue;
+
+                        float rot0 = Quaternion.Angle(kv.Value.rot, t0.rot);
+                        float rot1 = Quaternion.Angle(kv.Value.rot, t1.rot);
+                        score0 += (t0.pos - kv.Value.pos).sqrMagnitude +
+                            (t0.scale - kv.Value.scale).sqrMagnitude + (rot0 * rot0 * 0.0001f);
+                        score1 += (t1.pos - kv.Value.pos).sqrMagnitude +
+                            (t1.scale - kv.Value.scale).sqrMagnitude + (rot1 * rot1 * 0.0001f);
+                    }
+
+                    bool stowedIsTime0 = score0 <= score1;
+                    var stowedStates = stowedIsTime0 ? time0States : time1States;
+                    float scoredDeployedTime = stowedIsTime0 ? 1f : 0f;
+
+                    // Re-sample at deployed time so transforms hold deployed state
+                    state.normalizedTime = scoredDeployedTime;
+                    anim.Sample();
+
+                    result = CollectTransformDeltas(allTransforms, tempClone.transform, stowedStates);
+
+                    if (result.Count == 0)
+                    {
+                        ParsekLog.Verbose("GhostVisual", $"  {label} '{partKey}': animation '{animName}' produced no transform deltas");
+                        result = null;
+                    }
+                    else
+                    {
+                        ParsekLog.Verbose("GhostVisual", $"  {label} '{partKey}': sampled {result.Count} animated transforms from '{animName}' " +
+                            $"(stowed=time{(stowedIsTime0 ? "0" : "1")})");
+                    }
+                }
+                else
+                {
+                    // Simple 2-point sampling
+                    state.enabled = true;
+                    state.speed = 0f;
+                    state.normalizedTime = stowedTime;
+                    state.weight = 1f;
+                    anim.Play(animName);
+                    anim.Sample();
+
+                    var stowedStates = SnapshotTransformStates(allTransforms, tempClone.transform);
+
+                    state.normalizedTime = deployedTime;
+                    anim.Sample();
+
+                    result = CollectTransformDeltas(allTransforms, tempClone.transform, stowedStates);
+
+                    if (result.Count == 0)
+                    {
+                        ParsekLog.Verbose("GhostVisual", $"  {label} '{partKey}': animation '{animName}' produced no transform deltas");
+                        result = null;
+                    }
+                    else
+                    {
+                        ParsekLog.Verbose("GhostVisual", $"  {label} '{partKey}': sampled {result.Count} animated transforms from '{animName}'");
+                    }
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(tempClone);
+            }
+
+            return result;
         }
 
         // Cache: partName(+anim) -> sampled 3-state ModuleAnimateHeat transform states
@@ -1248,101 +1435,29 @@ namespace Parsek
             animateHeatCache.Clear();
         }
 
-        /// <summary>
-        /// Sample stowed and deployed transform states from a landing gear's animation.
-        /// Uses animationTrfName to resolve the correct Animation component (avoids binding spotlight
-        /// animation on parts like GearSmall that have multiple Animation components).
-        /// deployedPosition determines which animation endpoint is "deployed" (1 for most gear, 0 for rover wheels).
-        /// Returns null if no animation or no transform deltas.
-        /// </summary>
         private static List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
             Vector3 dPos, Quaternion dRot, Vector3 dScale)> SampleGearStates(
             Part prefab, string animationStateName, string animationTrfName, float deployedPosition)
         {
             string key = prefab.partInfo?.name ?? prefab.name;
-            if (gearCache.TryGetValue(key, out var cached))
+            if (animationSampleCache.TryGetValue(key, out var cached))
                 return cached;
 
             if (string.IsNullOrEmpty(animationStateName))
             {
                 ParsekLog.Verbose("GhostVisual", $"  Gear '{key}': no animationStateName — skipping animation sampling");
-                gearCache[key] = null;
+                animationSampleCache[key] = null;
                 return null;
             }
 
-            Transform modelRoot = FindModelRoot(prefab);
-            GameObject tempClone = Object.Instantiate(modelRoot.gameObject);
+            // Most gear: deployedPosition=1 → stowed=0, deployed=1
+            // Rover wheel: deployedPosition=0 → stowed=1, deployed=0
+            float stowedTime = deployedPosition >= 0.5f ? 0f : 1f;
+            float deployedTime = deployedPosition >= 0.5f ? 1f : 0f;
 
-            List<(string, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3)> result = null;
-
-            try
-            {
-                // Resolve Animation via animationTrfName first (prevents binding wrong animation)
-                Animation anim = null;
-                if (!string.IsNullOrEmpty(animationTrfName))
-                {
-                    Transform animTrf = FindTransformRecursive(tempClone.transform, animationTrfName);
-                    if (animTrf != null)
-                        anim = animTrf.GetComponent<Animation>();
-                }
-                // Fallback to any Animation on the clone
-                if (anim == null)
-                    anim = tempClone.GetComponentInChildren<Animation>(true);
-
-                if (anim == null)
-                {
-                    ParsekLog.Verbose("GhostVisual", $"  Gear '{key}': no Animation component on model clone");
-                    gearCache[key] = null;
-                    return null;
-                }
-
-                AnimationState state = anim[animationStateName];
-                if (state == null)
-                {
-                    ParsekLog.Verbose("GhostVisual", $"  Gear '{key}': animation '{animationStateName}' not found on clone");
-                    gearCache[key] = null;
-                    return null;
-                }
-
-                // Determine animation endpoints based on deployedPosition.
-                // Most gear: deployedPosition=1 → stowed at time=0, deployed at time=1
-                // Rover wheel: deployedPosition=0 → stowed at time=1, deployed at time=0
-                float stowedTime = deployedPosition >= 0.5f ? 0f : 1f;
-                float deployedTime = deployedPosition >= 0.5f ? 1f : 0f;
-
-                // Sample stowed state
-                state.enabled = true;
-                state.speed = 0f;
-                state.normalizedTime = stowedTime;
-                state.weight = 1f;
-                anim.Play(animationStateName);
-                anim.Sample();
-
-                var allTransforms = tempClone.GetComponentsInChildren<Transform>(true);
-                var stowedStates = SnapshotTransformStates(allTransforms, tempClone.transform);
-
-                // Sample deployed state
-                state.normalizedTime = deployedTime;
-                anim.Sample();
-
-                result = CollectTransformDeltas(allTransforms, tempClone.transform, stowedStates);
-
-                if (result.Count == 0)
-                {
-                    ParsekLog.Verbose("GhostVisual", $"  Gear '{key}': animation '{animationStateName}' produced no transform deltas");
-                    result = null;
-                }
-                else
-                {
-                    ParsekLog.Verbose("GhostVisual", $"  Gear '{key}': sampled {result.Count} animated transforms from '{animationStateName}'");
-                }
-            }
-            finally
-            {
-                Object.DestroyImmediate(tempClone);
-            }
-
-            gearCache[key] = result;
+            var result = SampleAnimationStates(prefab, animationStateName, "Gear",
+                AnimLookup.ByTransformName, animationTrfName, stowedTime, deployedTime, false);
+            animationSampleCache[key] = result;
             return result;
         }
 
@@ -1686,165 +1801,40 @@ namespace Parsek
             return result;
         }
 
-        /// <summary>
-        /// Sample stowed and deployed transform states for stock RetractableLadder modules.
-        /// Ladders expose "ladderRetractAnimationName" rather than ModuleDeployablePart, and
-        /// clip direction is not guaranteed, so stowed endpoint is inferred from prefab defaults.
-        /// </summary>
         private static List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
             Vector3 dPos, Quaternion dRot, Vector3 dScale)> SampleLadderStates(
             Part prefab, string animationName, string animationRootName)
         {
             string partKey = prefab.partInfo?.name ?? prefab.name;
             string cacheKey = partKey + "|" + (animationName ?? string.Empty) + "|" + (animationRootName ?? string.Empty);
-            if (ladderCache.TryGetValue(cacheKey, out var cached))
+            if (animationSampleCache.TryGetValue(cacheKey, out var cached))
                 return cached;
 
             if (string.IsNullOrEmpty(animationName))
             {
                 ParsekLog.Verbose("GhostVisual", $"  Ladder '{partKey}': no ladderRetractAnimationName — skipping animation sampling");
-                ladderCache[cacheKey] = null;
+                animationSampleCache[cacheKey] = null;
                 return null;
             }
 
-            Transform modelRoot = FindModelRoot(prefab);
-            GameObject tempClone = Object.Instantiate(modelRoot.gameObject);
-            List<(string, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3)> result = null;
-
-            try
-            {
-                Animation anim = null;
-                if (!string.IsNullOrEmpty(animationRootName))
-                {
-                    Transform animRoot = FindTransformRecursive(tempClone.transform, animationRootName);
-                    if (animRoot != null)
-                        anim = animRoot.GetComponent<Animation>();
-                    else
-                        ParsekLog.Verbose("GhostVisual", $"  Ladder '{partKey}': animation root '{animationRootName}' not found on clone");
-                }
-
-                if (anim == null)
-                {
-                    foreach (var candidate in tempClone.GetComponentsInChildren<Animation>(true))
-                    {
-                        if (candidate[animationName] != null)
-                        {
-                            anim = candidate;
-                            break;
-                        }
-                    }
-                }
-
-                if (anim == null)
-                {
-                    ParsekLog.Verbose("GhostVisual", $"  Ladder '{partKey}': no Animation component on model clone");
-                    ladderCache[cacheKey] = null;
-                    return null;
-                }
-
-                AnimationState state = anim[animationName];
-                if (state == null)
-                {
-                    ParsekLog.Verbose("GhostVisual", $"  Ladder '{partKey}': animation '{animationName}' not found on clone");
-                    ladderCache[cacheKey] = null;
-                    return null;
-                }
-
-                var allTransforms = tempClone.GetComponentsInChildren<Transform>(true);
-                var defaultStates = SnapshotTransformStates(allTransforms, tempClone.transform);
-
-                state.enabled = true;
-                state.speed = 0f;
-                state.weight = 1f;
-
-                state.normalizedTime = 0f;
-                anim.Play(animationName);
-                anim.Sample();
-                var time0States = SnapshotTransformStates(allTransforms, tempClone.transform);
-
-                state.normalizedTime = 1f;
-                anim.Sample();
-                var time1States = SnapshotTransformStates(allTransforms, tempClone.transform);
-
-                float score0 = 0f;
-                float score1 = 0f;
-                foreach (var kv in defaultStates)
-                {
-                    if (!time0States.TryGetValue(kv.Key, out var t0) ||
-                        !time1States.TryGetValue(kv.Key, out var t1))
-                        continue;
-
-                    float rot0 = Quaternion.Angle(kv.Value.rot, t0.rot);
-                    float rot1 = Quaternion.Angle(kv.Value.rot, t1.rot);
-                    score0 += (t0.pos - kv.Value.pos).sqrMagnitude +
-                        (t0.scale - kv.Value.scale).sqrMagnitude + (rot0 * rot0 * 0.0001f);
-                    score1 += (t1.pos - kv.Value.pos).sqrMagnitude +
-                        (t1.scale - kv.Value.scale).sqrMagnitude + (rot1 * rot1 * 0.0001f);
-                }
-
-                bool stowedIsTime0 = score0 <= score1;
-                var stowedStates = stowedIsTime0 ? time0States : time1States;
-                var deployedStates = stowedIsTime0 ? time1States : time0States;
-
-                result = new List<(string, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3)>();
-                for (int i = 0; i < allTransforms.Length; i++)
-                {
-                    string path = GetTransformPath(allTransforms[i], tempClone.transform);
-                    if (!stowedStates.TryGetValue(path, out var stowed) ||
-                        !deployedStates.TryGetValue(path, out var deployed))
-                        continue;
-
-                    float posDelta = (deployed.pos - stowed.pos).sqrMagnitude;
-                    float rotDelta = Quaternion.Angle(deployed.rot, stowed.rot);
-                    float scaleDelta = (deployed.scale - stowed.scale).sqrMagnitude;
-
-                    if (posDelta > 0.0001f || rotDelta > 0.01f || scaleDelta > 0.0001f)
-                    {
-                        result.Add((path, stowed.pos, stowed.rot, stowed.scale,
-                            deployed.pos, deployed.rot, deployed.scale));
-                    }
-                }
-
-                if (result.Count == 0)
-                {
-                    ParsekLog.Verbose("GhostVisual", $"  Ladder '{partKey}': animation '{animationName}' produced no transform deltas");
-                    result = null;
-                }
-                else
-                {
-                    ParsekLog.Verbose("GhostVisual", $"  Ladder '{partKey}': sampled {result.Count} animated transforms from '{animationName}' " +
-                        $"(stowed=time{(stowedIsTime0 ? "0" : "1")})");
-                }
-            }
-            finally
-            {
-                Object.DestroyImmediate(tempClone);
-            }
-
-            ladderCache[cacheKey] = result;
+            var result = SampleAnimationStates(prefab, animationName, "Ladder",
+                AnimLookup.ByTransformThenClipSearch, animationRootName, 0f, 0f, useScoring: true);
+            animationSampleCache[cacheKey] = result;
             return result;
         }
 
-        /// <summary>
-        /// Sample closed and open transform states from a cargo bay's animation.
-        /// closedPosition determines which animation endpoint is "closed":
-        ///   near 0 → closed at time=0, open at time=1 (service bays)
-        ///   near 1 → closed at time=1, open at time=0 (Mk3/Mk2 cargo bays)
-        /// Returns stowed=closed, deployed=open (normalized for DeployableGhostInfo reuse).
-        /// Returns null if no animation or no transform deltas.
-        /// </summary>
         private static List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
             Vector3 dPos, Quaternion dRot, Vector3 dScale)> SampleCargoBayStates(
             Part prefab, string animationName, float closedPosition)
         {
             string key = prefab.partInfo?.name ?? prefab.name;
-            if (cargoBayCache.TryGetValue(key, out var cached))
+            if (animationSampleCache.TryGetValue(key, out var cached))
                 return cached;
 
             if (string.IsNullOrEmpty(animationName))
             {
                 ParsekLog.Verbose("GhostVisual", $"  CargoBay '{key}': no animationName — skipping animation sampling");
-                cargoBayCache[key] = null;
+                animationSampleCache[key] = null;
                 return null;
             }
 
@@ -1863,161 +1853,35 @@ namespace Parsek
             else
             {
                 ParsekLog.Verbose("GhostVisual", $"  CargoBay '{key}': non-standard closedPosition={closedPosition} — skipping");
-                cargoBayCache[key] = null;
+                animationSampleCache[key] = null;
                 return null;
             }
 
-            Transform modelRoot = FindModelRoot(prefab);
-            GameObject tempClone = Object.Instantiate(modelRoot.gameObject);
-
-            List<(string, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3)> result = null;
-
-            try
-            {
-                // Search all Animation components for one containing the specific animationName clip
-                Animation anim = null;
-                foreach (var candidate in tempClone.GetComponentsInChildren<Animation>(true))
-                {
-                    if (candidate[animationName] != null)
-                    {
-                        anim = candidate;
-                        break;
-                    }
-                }
-                // Fallback to any Animation on the clone
-                if (anim == null)
-                    anim = tempClone.GetComponentInChildren<Animation>(true);
-
-                if (anim == null)
-                {
-                    ParsekLog.Verbose("GhostVisual", $"  CargoBay '{key}': no Animation component on model clone");
-                    cargoBayCache[key] = null;
-                    return null;
-                }
-
-                AnimationState state = anim[animationName];
-                if (state == null)
-                {
-                    ParsekLog.Verbose("GhostVisual", $"  CargoBay '{key}': animation '{animationName}' not found on clone");
-                    cargoBayCache[key] = null;
-                    return null;
-                }
-
-                // Sample closed state (stowed)
-                state.enabled = true;
-                state.speed = 0f;
-                state.normalizedTime = closedTime;
-                state.weight = 1f;
-                anim.Play(animationName);
-                anim.Sample();
-
-                var allTransforms = tempClone.GetComponentsInChildren<Transform>(true);
-                var stowedStates = SnapshotTransformStates(allTransforms, tempClone.transform);
-
-                // Sample open state (deployed)
-                state.normalizedTime = openTime;
-                anim.Sample();
-
-                result = CollectTransformDeltas(allTransforms, tempClone.transform, stowedStates);
-
-                if (result.Count == 0)
-                {
-                    ParsekLog.Verbose("GhostVisual", $"  CargoBay '{key}': animation '{animationName}' produced no transform deltas");
-                    result = null;
-                }
-                else
-                {
-                    ParsekLog.Verbose("GhostVisual", $"  CargoBay '{key}': sampled {result.Count} animated transforms from '{animationName}'");
-                }
-            }
-            finally
-            {
-                Object.DestroyImmediate(tempClone);
-            }
-
-            cargoBayCache[key] = result;
+            var result = SampleAnimationStates(prefab, animationName, "CargoBay",
+                AnimLookup.ByClipSearch, null, closedTime, openTime, false);
+            animationSampleCache[key] = result;
             return result;
         }
 
-        /// <summary>
-        /// Sample stowed (time=0) and deployed (time=1) transform states from a deployable part's animation.
-        /// Returns a list of (path, stowed, deployed) tuples for transforms that actually change.
-        /// Returns null if the part has no animationName or no animation component.
-        /// </summary>
         private static List<(string path, Vector3 sPos, Quaternion sRot, Vector3 sScale,
             Vector3 dPos, Quaternion dRot, Vector3 dScale)> SampleDeployableStates(
             Part prefab, ModuleDeployablePart deployable)
         {
             string key = prefab.partInfo?.name ?? prefab.name;
-            if (deployableCache.TryGetValue(key, out var cached))
+            if (animationSampleCache.TryGetValue(key, out var cached))
                 return cached;
 
             string animName = deployable.animationName;
             if (string.IsNullOrEmpty(animName))
             {
                 ParsekLog.Verbose("GhostVisual", $"  Deployable '{key}': no animationName — skipping animation sampling");
-                deployableCache[key] = null;
+                animationSampleCache[key] = null;
                 return null;
             }
 
-            Transform modelRoot = FindModelRoot(prefab);
-            GameObject tempClone = Object.Instantiate(modelRoot.gameObject);
-
-            List<(string, Vector3, Quaternion, Vector3, Vector3, Quaternion, Vector3)> result = null;
-
-            try
-            {
-                Animation anim = tempClone.GetComponentInChildren<Animation>(true);
-                if (anim == null)
-                {
-                    ParsekLog.Verbose("GhostVisual", $"  Deployable '{key}': no Animation component on model clone");
-                    deployableCache[key] = null;
-                    return null;
-                }
-
-                AnimationState state = anim[animName];
-                if (state == null)
-                {
-                    ParsekLog.Verbose("GhostVisual", $"  Deployable '{key}': animation '{animName}' not found on clone");
-                    deployableCache[key] = null;
-                    return null;
-                }
-
-                // Sample stowed state (time=0)
-                state.enabled = true;
-                state.speed = 0f;
-                state.normalizedTime = 0f;
-                state.weight = 1f;
-                anim.Play(animName);
-                anim.Sample();
-
-                // Capture all child transforms at stowed
-                var allTransforms = tempClone.GetComponentsInChildren<Transform>(true);
-                var stowedStates = SnapshotTransformStates(allTransforms, tempClone.transform);
-
-                // Sample deployed state (time=1)
-                state.normalizedTime = 1f;
-                anim.Sample();
-
-                // Compare and collect transforms that differ
-                result = CollectTransformDeltas(allTransforms, tempClone.transform, stowedStates);
-
-                if (result.Count == 0)
-                {
-                    ParsekLog.Verbose("GhostVisual", $"  Deployable '{key}': animation '{animName}' produced no transform deltas");
-                    result = null;
-                }
-                else
-                {
-                    ParsekLog.Verbose("GhostVisual", $"  Deployable '{key}': sampled {result.Count} animated transforms from '{animName}'");
-                }
-            }
-            finally
-            {
-                Object.DestroyImmediate(tempClone);
-            }
-
-            deployableCache[key] = result;
+            var result = SampleAnimationStates(prefab, animName, "Deployable",
+                AnimLookup.Simple, null, 0f, 1f, false);
+            animationSampleCache[key] = result;
             return result;
         }
 
