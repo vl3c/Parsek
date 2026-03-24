@@ -347,16 +347,362 @@ namespace Parsek
         /// <summary>
         /// Handles looping ghost playback for a single trajectory.
         /// Manages cycle changes, ghost spawn/destroy, pause windows.
-        /// Fires CameraActionEvents for watch mode interactions.
-        /// Placeholder — delegates to host's existing method until fully extracted.
+        /// Fires CameraActionEvents for watch mode interactions (engine does not
+        /// know about watch mode — ParsekFlight handles camera in event handlers).
         /// </summary>
         private void UpdateLoopingPlayback(int index, IPlaybackTrajectory traj,
             TrajectoryPlaybackFlags flags, FrameContext ctx,
             bool suppressGhosts, bool suppressVisualFx)
         {
-            // TODO Phase 5.4: Move UpdateLoopingTimelinePlayback + UpdateOverlapLoopPlayback
-            // rendering logic here, extract camera code to CameraActionEvents.
-            // For now, the host's forwarding methods handle this via the existing code path.
+            GhostPlaybackState state;
+            ghostStates.TryGetValue(index, out state);
+            bool ghostActive = state != null && state.ghost != null;
+
+            double intervalSeconds = GetLoopIntervalSeconds(traj, ctx.autoLoopIntervalSeconds);
+            double duration = traj.EndUT - traj.StartUT;
+
+            // High time warp: hide ghost, destroy overlaps
+            if (suppressGhosts)
+            {
+                if (ghostActive && state.ghost.activeSelf)
+                {
+                    state.ghost.SetActive(false);
+                    ParsekLog.Info("Engine",
+                        $"Ghost #{index} \"{traj.VesselName}\" (loop) hidden: warp > {GhostPlaybackLogic.GhostHideWarpThreshold}x");
+                    // Fire camera event so host can exit watch mode
+                    OnLoopCameraAction?.Invoke(new CameraActionEvent
+                    {
+                        Index = index, Action = CameraActionType.ExitWatch,
+                        Trajectory = traj, Flags = flags
+                    });
+                }
+                DestroyAllOverlapGhosts(index);
+                return;
+            }
+
+            // For negative intervals: use multi-cycle overlap path
+            if (intervalSeconds < 0)
+            {
+                UpdateOverlapPlayback(index, traj, flags, ctx, state, ghostActive,
+                    intervalSeconds, duration, suppressVisualFx);
+                return;
+            }
+
+            // --- Positive/zero interval: single ghost path (no overlap) ---
+            DestroyAllOverlapGhosts(index);
+            double loopUT;
+            int cycleIndex;
+            bool inPauseWindow;
+            if (!TryComputeLoopPlaybackUT(traj, ctx.currentUT, ctx.autoLoopIntervalSeconds,
+                    out loopUT, out cycleIndex, out inPauseWindow, index))
+            {
+                if (ghostActive)
+                    DestroyGhost(index);
+                return;
+            }
+
+            // Rebuild once per loop cycle to guarantee clean visual state and event indices.
+            bool cycleChanged = !ghostActive || state == null || state.loopCycleIndex != cycleIndex;
+            if (cycleChanged && ghostActive)
+            {
+                // Position at final point so explosion appears at crash site
+                if (traj.Points.Count > 0 && state != null && state.ghost != null)
+                    positioner.PositionAtPoint(index, traj, state, traj.Points[traj.Points.Count - 1]);
+
+                bool needsExplosion = state != null
+                    && traj.TerminalStateValue == TerminalState.Destroyed
+                    && !state.explosionFired;
+
+                TriggerExplosionIfDestroyed(state, traj, index, ctx.warpRate);
+
+                // Fire camera event for cycle change (host handles camera anchor/hold/retarget)
+                OnLoopCameraAction?.Invoke(new CameraActionEvent
+                {
+                    Index = index,
+                    Action = needsExplosion ? CameraActionType.ExplosionHoldStart : CameraActionType.ExplosionHoldEnd,
+                    AnchorPosition = state?.ghost != null ? state.ghost.transform.position : Vector3.zero,
+                    HoldUntilUT = Planetarium.GetUniversalTime() + OverlapExplosionHoldSeconds,
+                    Trajectory = traj, Flags = flags
+                });
+
+                // Fire loop restarted event
+                OnLoopRestarted?.Invoke(new LoopRestartedEvent
+                {
+                    Index = index, Trajectory = traj, State = state, Flags = flags,
+                    PreviousCycleIndex = state?.loopCycleIndex ?? 0,
+                    NewCycleIndex = cycleIndex,
+                    ExplosionFired = needsExplosion,
+                    ExplosionPosition = state?.ghost != null ? state.ghost.transform.position : Vector3.zero
+                });
+
+                GhostPlaybackLogic.ResetReentryFx(state, index);
+                DestroyGhost(index);
+                ghostActive = false;
+                state = null;
+            }
+
+            // Looped ghost distance gating
+            double loopGhostDistance = double.MaxValue;
+            if (ghostActive && state != null && state.ghost != null)
+            {
+                loopGhostDistance = Vector3d.Distance(
+                    (Vector3d)state.ghost.transform.position, ctx.activeVesselPos);
+            }
+
+            var (loopShouldSpawn, loopSimplified) =
+                GhostPlaybackLogic.EvaluateLoopedGhostSpawn(loopGhostDistance);
+
+            // Suppress ghost beyond spawn threshold (but not if protected/watched)
+            if (!loopShouldSpawn && ghostActive && ctx.protectedIndex != index)
+            {
+                if (state.ghost.activeSelf)
+                    state.ghost.SetActive(false);
+                return;
+            }
+
+            if (!ghostActive)
+            {
+                SpawnGhost(index, traj);
+                if (!ghostStates.TryGetValue(index, out state) || state == null)
+                    return;
+                state.loopCycleIndex = cycleIndex;
+                if (loggedGhostEnter.Add(index))
+                    ParsekLog.Info("Engine",
+                        $"Ghost ENTERED range: #{index} \"{traj.VesselName}\" at UT {ctx.currentUT:F1} (loop cycle={cycleIndex})");
+
+                // Fire camera event for retarget to new ghost
+                OnLoopCameraAction?.Invoke(new CameraActionEvent
+                {
+                    Index = index, Action = CameraActionType.RetargetToNewGhost,
+                    NewCycleIndex = cycleIndex,
+                    GhostPivot = state.cameraPivot,
+                    Trajectory = traj, Flags = flags
+                });
+
+                ghostActive = true;
+            }
+            else if (!state.ghost.activeSelf && state.currentZone != RenderingZone.Beyond)
+            {
+                state.ghost.SetActive(true);
+                if (loggedReshow.Add(index))
+                    ParsekLog.Info("Engine",
+                        $"Ghost #{index} \"{traj.VesselName}\" (loop) re-shown after warp-down");
+            }
+
+            if (state == null || state.ghost == null)
+                return;
+
+            // Zone-based rendering
+            double loopZoneDistance = Vector3d.Distance(
+                (Vector3d)state.ghost.transform.position, ctx.activeVesselPos);
+            var zoneResult = positioner.ApplyZoneRendering(index, state, traj, loopZoneDistance, ctx.protectedIndex);
+            if (zoneResult.hiddenByZone)
+                return;
+
+            bool skipLoopPartEvents = zoneResult.skipPartEvents || loopSimplified;
+
+            // Pause window: position at end, hide parts, zero velocity for reentry decay
+            if (inPauseWindow)
+            {
+                var lastPt = traj.Points[traj.Points.Count - 1];
+                positioner.PositionAtPoint(index, traj, state, lastPt);
+                if (string.IsNullOrEmpty(state.lastInterpolatedBodyName))
+                {
+                    state.lastInterpolatedBodyName = lastPt.bodyName;
+                    state.lastInterpolatedAltitude = lastPt.altitude;
+                }
+                TriggerExplosionIfDestroyed(state, traj, index, ctx.warpRate);
+                if (!state.pauseHidden)
+                {
+                    state.pauseHidden = true;
+                    GhostPlaybackLogic.HideAllGhostParts(state);
+                }
+                if (state.reentryFxInfo != null)
+                {
+                    state.lastInterpolatedVelocity = Vector3.zero;
+                    UpdateReentryFx(index, state, traj.VesselName, ctx.warpRate);
+                }
+                return;
+            }
+
+            // Position the loop ghost
+            positioner.PositionLoop(index, traj, state, loopUT, suppressVisualFx);
+
+            // Apply visual events
+            if (!skipLoopPartEvents)
+            {
+                GhostPlaybackLogic.ApplyPartEvents(index, traj, loopUT, state);
+                GhostPlaybackLogic.ApplyFlagEvents(state, traj, loopUT);
+                UpdateReentryFx(index, state, traj.VesselName, ctx.warpRate);
+                if (suppressVisualFx)
+                    GhostPlaybackLogic.StopAllRcsEmissions(state);
+                else
+                    GhostPlaybackLogic.RestoreAllRcsEmissions(state);
+            }
+        }
+
+        /// <summary>
+        /// Multi-cycle overlap path for negative intervals. Multiple ghosts from
+        /// different cycles may be visible simultaneously.
+        /// </summary>
+        private void UpdateOverlapPlayback(int index, IPlaybackTrajectory traj,
+            TrajectoryPlaybackFlags flags, FrameContext ctx,
+            GhostPlaybackState primaryState, bool primaryActive,
+            double intervalSeconds, double duration, bool suppressVisualFx)
+        {
+            if (ctx.currentUT < traj.StartUT)
+            {
+                if (primaryActive) DestroyGhost(index);
+                DestroyAllOverlapGhosts(index);
+                return;
+            }
+
+            double cycleDuration = duration + intervalSeconds;
+            if (cycleDuration < GhostPlaybackLogic.MinCycleDuration)
+                cycleDuration = GhostPlaybackLogic.MinCycleDuration;
+
+            int firstCycle, lastCycle;
+            GhostPlaybackLogic.GetActiveCycles(ctx.currentUT, traj.StartUT, traj.EndUT, intervalSeconds,
+                MaxOverlapGhostsPerRecording, out firstCycle, out lastCycle);
+
+            List<GhostPlaybackState> overlaps;
+            if (!overlapGhosts.TryGetValue(index, out overlaps))
+            {
+                overlaps = new List<GhostPlaybackState>();
+                overlapGhosts[index] = overlaps;
+            }
+
+            bool srfRel = traj.RecordingFormatVersion >= 5;
+
+            // Primary ghost represents the newest (lastCycle)
+            bool primaryCycleChanged = !primaryActive || primaryState == null
+                || primaryState.loopCycleIndex != lastCycle;
+
+            if (primaryCycleChanged)
+            {
+                // Move old primary to overlap list if still alive
+                if (primaryActive && primaryState != null && primaryState.ghost != null)
+                {
+                    ghostStates.Remove(index);
+                    overlaps.Add(primaryState);
+                    ParsekLog.Verbose("Engine",
+                        $"Ghost #{index} cycle={primaryState.loopCycleIndex} moved to overlap list");
+                }
+                else if (primaryActive)
+                {
+                    DestroyGhost(index);
+                }
+
+                // Spawn new primary for lastCycle
+                SpawnGhost(index, traj);
+                if (!ghostStates.TryGetValue(index, out primaryState) || primaryState == null)
+                {
+                    ParsekLog.Warn("Engine",
+                        $"Overlap: SpawnGhost failed for #{index} cycle={lastCycle}");
+                    return;
+                }
+                primaryState.loopCycleIndex = lastCycle;
+                ParsekLog.Info("Engine",
+                    $"Ghost ENTERED range: #{index} \"{traj.VesselName}\" cycle={lastCycle} at UT {ctx.currentUT:F1} (overlap)");
+
+                // Fire camera event for retarget
+                OnOverlapCameraAction?.Invoke(new CameraActionEvent
+                {
+                    Index = index, Action = CameraActionType.RetargetToNewGhost,
+                    NewCycleIndex = lastCycle,
+                    GhostPivot = primaryState.cameraPivot,
+                    Trajectory = traj, Flags = flags
+                });
+            }
+
+            // Determine anchor-relative positioning
+            bool useAnchor = GhostPlaybackLogic.ShouldUseLoopAnchor(traj);
+
+            // Position primary ghost
+            if (primaryState != null && primaryState.ghost != null)
+            {
+                double cycleStartUT = traj.StartUT + lastCycle * cycleDuration;
+                double phase = Math.Max(0, Math.Min(ctx.currentUT - cycleStartUT, duration));
+                double loopUT = traj.StartUT + phase;
+
+                positioner.PositionLoop(index, traj, primaryState, loopUT, suppressVisualFx);
+
+                GhostPlaybackLogic.ApplyPartEvents(index, traj, loopUT, primaryState);
+                GhostPlaybackLogic.ApplyFlagEvents(primaryState, traj, loopUT);
+                UpdateReentryFx(index, primaryState, traj.VesselName, ctx.warpRate);
+                if (suppressVisualFx)
+                    GhostPlaybackLogic.StopAllRcsEmissions(primaryState);
+                else
+                    GhostPlaybackLogic.RestoreAllRcsEmissions(primaryState);
+            }
+
+            // Update overlap ghosts (older cycles)
+            for (int i = overlaps.Count - 1; i >= 0; i--)
+            {
+                var ovState = overlaps[i];
+                if (ovState == null || ovState.ghost == null)
+                {
+                    overlaps.RemoveAt(i);
+                    continue;
+                }
+
+                int cycle = ovState.loopCycleIndex;
+                double cycleStart = traj.StartUT + cycle * cycleDuration;
+                double phase = ctx.currentUT - cycleStart;
+
+                // Expired cycle
+                if (phase > duration)
+                {
+                    if (traj.Points.Count > 0 && ovState.ghost != null)
+                        positioner.PositionAtPoint(index, traj, ovState, traj.Points[traj.Points.Count - 1]);
+                    TriggerExplosionIfDestroyed(ovState, traj, index, ctx.warpRate);
+
+                    // Fire camera event for overlap expiry
+                    OnOverlapCameraAction?.Invoke(new CameraActionEvent
+                    {
+                        Index = index,
+                        Action = CameraActionType.ExplosionHoldStart,
+                        NewCycleIndex = cycle,
+                        AnchorPosition = ovState.ghost != null ? ovState.ghost.transform.position : Vector3.zero,
+                        HoldUntilUT = Planetarium.GetUniversalTime() + OverlapExplosionHoldSeconds,
+                        Trajectory = traj, Flags = flags
+                    });
+
+                    // Fire overlap expired event
+                    OnOverlapExpired?.Invoke(new OverlapExpiredEvent
+                    {
+                        Index = index, Trajectory = traj, State = ovState, Flags = flags,
+                        CycleIndex = cycle,
+                        ExplosionFired = traj.TerminalStateValue == TerminalState.Destroyed,
+                        ExplosionPosition = ovState.ghost != null ? ovState.ghost.transform.position : Vector3.zero
+                    });
+
+                    ParsekLog.Info("Engine",
+                        $"Ghost EXITED range: #{index} \"{traj.VesselName}\" cycle={cycle} (overlap expired)");
+                    DestroyOverlapGhostState(ovState);
+                    overlaps.RemoveAt(i);
+                    continue;
+                }
+
+                if (ovState.ghost == null)
+                {
+                    overlaps.RemoveAt(i);
+                    continue;
+                }
+
+                phase = Math.Max(0, Math.Min(phase, duration));
+                double loopUT = traj.StartUT + phase;
+
+                positioner.PositionLoop(index, traj, ovState, loopUT, suppressVisualFx);
+
+                GhostPlaybackLogic.ApplyPartEvents(index, traj, loopUT, ovState);
+                GhostPlaybackLogic.ApplyFlagEvents(ovState, traj, loopUT);
+                UpdateReentryFx(index, ovState, traj.VesselName, ctx.warpRate);
+                if (suppressVisualFx)
+                    GhostPlaybackLogic.StopAllRcsEmissions(ovState);
+                else
+                    GhostPlaybackLogic.RestoreAllRcsEmissions(ovState);
+            }
         }
 
         #endregion
