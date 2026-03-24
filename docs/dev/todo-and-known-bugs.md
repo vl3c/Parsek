@@ -1546,6 +1546,18 @@ On the second rewind in session 7, `UnreserveCrewIn` logs `Replacement 'Hadfry K
 
 **Status:** Open
 
+## 129. Pad vessel from future persists as real after rewind
+
+When a vessel is sitting on the launch pad and the player rewinds to an earlier point, the pad vessel still appears as a real (non-ghost) vessel in the rewound save. It should be stripped from the flight state during rewind since it belongs to the future timeline — the player hasn't launched it yet at the rewound UT.
+
+Root cause likely in `StripOrphanedSpawnedVessels` or `PreProcessRewindSave` — the pad vessel may not match the vessel name/PID filters because it was placed by KSP's launch system (not spawned by Parsek), or its PRELAUNCH situation may be explicitly excluded from stripping.
+
+**Fix:** Check the rewind vessel-strip logic for PRELAUNCH vessels. A vessel on the pad in the future should be treated the same as any other future vessel — stripped on rewind. May need to match by launch UT or vessel situation rather than relying on Parsek spawn tracking.
+
+**Priority:** Medium — visible bug that breaks the timeline illusion
+
+**Status:** Open
+
 # In-Game Tests
 
 - [ ] Vessels propagate naturally along orbits after FF (no position freezing)
