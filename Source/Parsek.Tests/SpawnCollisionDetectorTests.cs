@@ -467,5 +467,129 @@ namespace Parsek.Tests
                 l.Contains("ParsePartPositions") &&
                 l.Contains("2/3"));
         }
+
+        // ────────────────────────────────────────────────────────────
+        //  WalkbackAlongTrajectory
+        // ────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Build a straight-line trajectory along latitude with uniform time steps.
+        /// </summary>
+        private static List<TrajectoryPoint> MakeTrajectory(
+            int count, double startUT, double endUT, double startLat = 0.0, double endLat = 1.0)
+        {
+            var points = new List<TrajectoryPoint>(count);
+            for (int i = 0; i < count; i++)
+            {
+                double t = count > 1 ? (double)i / (count - 1) : 0.0;
+                points.Add(new TrajectoryPoint
+                {
+                    ut = startUT + t * (endUT - startUT),
+                    latitude = startLat + t * (endLat - startLat),
+                    longitude = 0.0,
+                    altitude = 100.0,
+                    bodyName = "Kerbin",
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero,
+                });
+            }
+            return points;
+        }
+
+        private static Vector3d IdentityWorldPos(TrajectoryPoint pt)
+        {
+            return SpawnCollisionDetector.SimplePointToWorldPos(pt, 600000.0);
+        }
+
+        [Fact]
+        public void Walkback_Normal_FindsNonCollidingPosition()
+        {
+            // Bug caught: walkback must scan backward from the end and return the
+            // first (latest) non-colliding index — returning the wrong index would
+            // spawn the vessel at a stale trajectory position far from its intended
+            // landing site.
+            var points = MakeTrajectory(8, 1000.0, 1007.0);
+            var bounds = new Bounds(Vector3.zero, new Vector3(2, 2, 2));
+
+            // Last 2 points (indices 6,7) overlap; index 5 is clear
+            int callIdx = 7;
+            int result = SpawnCollisionDetector.WalkbackAlongTrajectory(
+                points, bounds, 1f, IdentityWorldPos, pos =>
+                {
+                    bool overlaps = callIdx >= 6;
+                    callIdx--;
+                    return overlaps;
+                });
+
+            // Bug caught: must return 5 (latest clear), not 0 (earliest) or -1 (failure)
+            Assert.Equal(5, result);
+        }
+
+        [Fact]
+        public void Walkback_AllCollide_ReturnsNegativeOne()
+        {
+            // Bug caught: when every trajectory point overlaps with a loaded vessel,
+            // the method must return -1 to signal manual-placement fallback —
+            // returning 0 instead would spawn at the trajectory start, still colliding.
+            var points = MakeTrajectory(6, 1000.0, 1005.0);
+            var bounds = new Bounds(Vector3.zero, new Vector3(2, 2, 2));
+
+            int result = SpawnCollisionDetector.WalkbackAlongTrajectory(
+                points, bounds, 1f, IdentityWorldPos, pos => true);
+
+            Assert.Equal(-1, result);
+        }
+
+        [Fact]
+        public void Walkback_SingleStepSuccess_ReturnsSecondToLast()
+        {
+            // Bug caught: if only the very last point overlaps and the one before it
+            // is clear, walkback should return count-2 after exactly one backward step —
+            // an off-by-one starting at count instead of count-1 would skip the last
+            // point entirely.
+            var points = MakeTrajectory(5, 1000.0, 1004.0);
+            var bounds = new Bounds(Vector3.zero, new Vector3(2, 2, 2));
+
+            int callIdx = 4;
+            int result = SpawnCollisionDetector.WalkbackAlongTrajectory(
+                points, bounds, 1f, IdentityWorldPos, pos =>
+                {
+                    bool overlaps = callIdx == 4; // only last point overlaps
+                    callIdx--;
+                    return overlaps;
+                });
+
+            Assert.Equal(3, result);
+        }
+
+        [Fact]
+        public void Walkback_StartUTEqualsEndUT_SinglePoint()
+        {
+            // Bug caught: trajectory with startUT == endUT (single-point edge case,
+            // e.g., vessel recorded for exactly one physics frame) must not divide
+            // by zero or produce an out-of-range index.
+            var points = MakeTrajectory(1, 500.0, 500.0);
+            var bounds = new Bounds(Vector3.zero, new Vector3(2, 2, 2));
+
+            // Point is clear → returns 0
+            int result = SpawnCollisionDetector.WalkbackAlongTrajectory(
+                points, bounds, 1f, IdentityWorldPos, pos => false);
+
+            Assert.Equal(0, result);
+        }
+
+        [Fact]
+        public void Walkback_StartUTEqualsEndUT_Blocked_ReturnsNegative()
+        {
+            // Bug caught: single-point trajectory where that point is blocked must
+            // return -1 — there are no earlier points to walk back to.
+            var points = MakeTrajectory(1, 500.0, 500.0);
+            var bounds = new Bounds(Vector3.zero, new Vector3(2, 2, 2));
+
+            int result = SpawnCollisionDetector.WalkbackAlongTrajectory(
+                points, bounds, 1f, IdentityWorldPos, pos => true);
+
+            Assert.Equal(-1, result);
+        }
     }
 }

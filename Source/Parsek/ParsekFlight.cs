@@ -1438,7 +1438,7 @@ namespace Parsek
         /// from a source recording into the target, sorts part events by UT, and sets the target's
         /// ExplicitEndUT. If source is null, only ExplicitEndUT is set.
         /// </summary>
-        private static void AppendCapturedDataToRecording(Recording target, Recording source, double endUT)
+        internal static void AppendCapturedDataToRecording(Recording target, Recording source, double endUT)
         {
             if (source != null)
             {
@@ -1456,7 +1456,7 @@ namespace Parsek
         /// body and altitude, if not already set. No-op if SegmentPhase is already non-empty
         /// or vessel/mainBody is null.
         /// </summary>
-        private static void TagSegmentPhaseIfMissing(Recording pending, Vessel v)
+        internal static void TagSegmentPhaseIfMissing(Recording pending, Vessel v)
         {
             if (string.IsNullOrEmpty(pending.SegmentPhase))
             {
@@ -7936,7 +7936,7 @@ namespace Parsek
         /// Reindexes an int-keyed dictionary after a deletion: keys above removedIndex shift down by 1.
         /// The entry at removedIndex (if any) is dropped.
         /// </summary>
-        private static void ReindexAfterDelete<T>(Dictionary<int, T> dict, int removedIndex)
+        internal static void ReindexAfterDelete<T>(Dictionary<int, T> dict, int removedIndex)
         {
             var old = new Dictionary<int, T>(dict);
             dict.Clear();
