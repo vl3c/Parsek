@@ -6621,5 +6621,39 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Creates a simple sphere GameObject as a fallback ghost visual
+        /// when no vessel snapshot is available.
+        /// </summary>
+        internal static GameObject CreateGhostSphere(string name, Color color)
+        {
+            GameObject ghost = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            ghost.name = name;
+            ghost.transform.localScale = Vector3.one * 12f; // 12m diameter
+
+            Collider collider = ghost.GetComponent<Collider>();
+            if (collider != null)
+                collider.enabled = false;
+
+            Renderer renderer = ghost.GetComponent<Renderer>();
+            if (renderer != null)
+            {
+                Shader shader = Shader.Find("KSP/Emissive/Diffuse");
+                if (shader != null)
+                {
+                    Material mat = new Material(shader);
+                    mat.color = color;
+                    mat.SetColor("_EmissiveColor", color);
+                    renderer.material = mat;
+                }
+                else
+                {
+                    ParsekLog.Warn("GhostBuild", "Could not find KSP/Emissive/Diffuse shader, using default");
+                }
+            }
+
+            return ghost;
+        }
+
     }
 }

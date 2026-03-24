@@ -5757,7 +5757,7 @@ namespace Parsek
             if (!builtFromSnapshot)
             {
                 Color previewColor = Color.green;
-                ghost = CreateGhostSphere("Parsek_Ghost_Preview", previewColor);
+                ghost = GhostVisualBuilder.CreateGhostSphere("Parsek_Ghost_Preview", previewColor);
                 var m = ghost.GetComponent<Renderer>()?.material;
                 previewGhostMaterials = m != null ? new List<Material> { m } : new List<Material>();
                 previewGhostState = null;
@@ -7613,7 +7613,7 @@ namespace Parsek
 
             if (ghost == null)
             {
-                ghost = CreateGhostSphere($"Parsek_Timeline_{index}", ghostColor);
+                ghost = GhostVisualBuilder.CreateGhostSphere($"Parsek_Timeline_{index}", ghostColor);
                 Log($"Timeline ghost #{index}: using sphere fallback");
             }
             else
@@ -8937,35 +8937,7 @@ namespace Parsek
 
         #region Ghost Positioning (shared by manual + timeline playback)
 
-        GameObject CreateGhostSphere(string name, Color color)
-        {
-            GameObject ghost = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            ghost.name = name;
-            ghost.transform.localScale = Vector3.one * 12f; // 12m diameter
-
-            Collider collider = ghost.GetComponent<Collider>();
-            if (collider != null)
-                collider.enabled = false;
-
-            Renderer renderer = ghost.GetComponent<Renderer>();
-            if (renderer != null)
-            {
-                Shader shader = Shader.Find("KSP/Emissive/Diffuse");
-                if (shader != null)
-                {
-                    Material mat = new Material(shader);
-                    mat.color = color;
-                    mat.SetColor("_EmissiveColor", color);
-                    renderer.material = mat;
-                }
-                else
-                {
-                    Log("Warning: Could not find KSP/Emissive/Diffuse shader, using default");
-                }
-            }
-
-            return ghost;
-        }
+        // CreateGhostSphere moved to GhostVisualBuilder.CreateGhostSphere (T25 Phase 4 prep)
 
         void InterpolateAndPosition(GameObject ghost, List<TrajectoryPoint> points, ref int cachedIndex, double targetUT, out InterpolationResult interpResult, bool surfaceRelativeRotation = false)
         {

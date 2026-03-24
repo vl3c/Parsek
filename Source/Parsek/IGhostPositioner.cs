@@ -44,8 +44,6 @@ namespace Parsek
         void PositionLoop(int index, IPlaybackTrajectory traj,
             GhostPlaybackState state, double ut, bool suppressFx);
 
-        GameObject CreateSphere(string name, int index);
-
         ZoneRenderingResult ApplyZoneRendering(int index, GhostPlaybackState state,
             IPlaybackTrajectory traj, double distance, int protectedIndex);
 
