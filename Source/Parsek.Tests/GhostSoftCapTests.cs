@@ -100,6 +100,23 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region EvaluateCaps — Disabled
+
+        [Fact]
+        public void EvaluateCaps_Disabled_ReturnsEmpty_EvenAboveAllThresholds()
+        {
+            GhostSoftCapManager.Enabled = false;
+            // 20 zone1 (above despawn 15), 25 zone2 (above simplify 20)
+            var zone1 = MakeGhostList(20, GhostPriority.LoopedOldest);
+            var zone2 = MakeGhostList(25, GhostPriority.FullTimeline);
+
+            var actions = GhostSoftCapManager.EvaluateCaps(20, 25, zone1, zone2);
+
+            Assert.Empty(actions);
+        }
+
+        #endregion
+
         #region EvaluateCaps — Below Thresholds
 
         [Fact]

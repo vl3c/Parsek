@@ -687,6 +687,100 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region ResolveOverlaps — frame trimming
+
+        [Fact]
+        public void ResolveOverlaps_FramesTrimmedToResultBoundaries()
+        {
+            // Background section [0-200] with frames at 0, 25, 50, 75, 100, 125, 150, 175, 200
+            var bgFrames = new List<TrajectoryPoint>();
+            for (int i = 0; i <= 8; i++)
+            {
+                bgFrames.Add(new TrajectoryPoint
+                {
+                    ut = i * 25.0,
+                    latitude = 0, longitude = 0, altitude = 70000,
+                    bodyName = "Kerbin",
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero
+                });
+            }
+            var bgSection = new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 0,
+                endUT = 200,
+                source = TrackSectionSource.Background,
+                sampleRateHz = 10f,
+                frames = bgFrames,
+                checkpoints = new List<OrbitSegment>(),
+                boundaryDiscontinuityMeters = 0f
+            };
+
+            // Active section [50-150] with frames at 50, 75, 100, 125, 150
+            var activeFrames = new List<TrajectoryPoint>();
+            for (int i = 2; i <= 6; i++)
+            {
+                activeFrames.Add(new TrajectoryPoint
+                {
+                    ut = i * 25.0,
+                    latitude = 0, longitude = 0, altitude = 71000,
+                    bodyName = "Kerbin",
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero
+                });
+            }
+            var activeSection = new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 50,
+                endUT = 150,
+                source = TrackSectionSource.Active,
+                sampleRateHz = 10f,
+                frames = activeFrames,
+                checkpoints = new List<OrbitSegment>(),
+                boundaryDiscontinuityMeters = 0f
+            };
+
+            var sections = new List<TrackSection> { bgSection, activeSection };
+
+            var result = SessionMerger.ResolveOverlaps(sections);
+
+            // Expected: Background[0-50] + Active[50-150] + Background[150-200]
+            Assert.Equal(3, result.Count);
+
+            // Background [0-50]: frames at 0, 25, 50
+            Assert.Equal(TrackSectionSource.Background, result[0].source);
+            Assert.Equal(0, result[0].startUT);
+            Assert.Equal(50, result[0].endUT);
+            Assert.NotNull(result[0].frames);
+            Assert.Equal(3, result[0].frames.Count);
+            Assert.Equal(0, result[0].frames[0].ut);
+            Assert.Equal(50, result[0].frames[result[0].frames.Count - 1].ut);
+
+            // Active [50-150]: all 5 frames preserved
+            Assert.Equal(TrackSectionSource.Active, result[1].source);
+            Assert.Equal(50, result[1].startUT);
+            Assert.Equal(150, result[1].endUT);
+            Assert.NotNull(result[1].frames);
+            Assert.Equal(5, result[1].frames.Count);
+            Assert.Equal(50, result[1].frames[0].ut);
+            Assert.Equal(150, result[1].frames[result[1].frames.Count - 1].ut);
+
+            // Background [150-200]: frames at 150, 175, 200
+            Assert.Equal(TrackSectionSource.Background, result[2].source);
+            Assert.Equal(150, result[2].startUT);
+            Assert.Equal(200, result[2].endUT);
+            Assert.NotNull(result[2].frames);
+            Assert.Equal(3, result[2].frames.Count);
+            Assert.Equal(150, result[2].frames[0].ut);
+            Assert.Equal(200, result[2].frames[result[2].frames.Count - 1].ut);
+        }
+
+        #endregion
+
         #region ResolveOverlaps — equal priority (same source)
 
         [Fact]
