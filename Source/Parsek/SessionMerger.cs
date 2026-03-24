@@ -87,50 +87,60 @@ namespace Parsek
 
                 result[recId] = merged;
 
-                // Diagnostics
-                int outputSectionCount = mergedSections.Count;
-                int overlapsResolved = inputSectionCount > outputSectionCount
-                    ? inputSectionCount - outputSectionCount : 0;
-                // Count by actual section trimming — if output < input, overlaps were resolved
-                // More accurate: count how many output sections differ from input
-                int overlapCount = CountOverlapsResolved(
+                LogMergeDiagnostics(recId, srcRec.VesselName, inputSectionCount,
                     srcRec.TrackSections ?? new List<TrackSection>(), mergedSections);
-
-                int activeCount = 0, bgCount = 0, cpCount = 0;
-                for (int i = 0; i < mergedSections.Count; i++)
-                {
-                    switch (mergedSections[i].source)
-                    {
-                        case TrackSectionSource.Active: activeCount++; break;
-                        case TrackSectionSource.Background: bgCount++; break;
-                        case TrackSectionSource.Checkpoint: cpCount++; break;
-                    }
-                }
-
-                ParsekLog.Info(Tag,
-                    $"MergeTree: vessel='{srcRec.VesselName}' id={recId} " +
-                    $"inputSections={inputSectionCount} outputSections={outputSectionCount} " +
-                    $"overlapsResolved={overlapCount} " +
-                    $"active={activeCount} background={bgCount} checkpoint={cpCount}");
-
-                // Log discontinuity warnings
-                for (int i = 0; i < mergedSections.Count; i++)
-                {
-                    float disc = mergedSections[i].boundaryDiscontinuityMeters;
-                    if (disc > 1.0f)
-                    {
-                        ParsekLog.Warn(Tag,
-                            $"MergeTree: boundary discontinuity={disc.ToString("F2", ic)}m " +
-                            $"at section[{i}] ut={mergedSections[i].startUT.ToString("F2", ic)} " +
-                            $"vessel='{srcRec.VesselName}'");
-                    }
-                }
             }
 
             ParsekLog.Info(Tag,
                 $"MergeTree: completed merge for tree='{tree.TreeName}' merged={result.Count} recordings");
 
             return result;
+        }
+
+        /// <summary>
+        /// Logs diagnostics for a single recording's merge result: section counts by source,
+        /// overlaps resolved, and boundary discontinuity warnings.
+        /// </summary>
+        private static void LogMergeDiagnostics(
+            string recId, string vesselName, int inputSectionCount,
+            List<TrackSection> inputSections, List<TrackSection> mergedSections)
+        {
+            var ic = CultureInfo.InvariantCulture;
+
+            int outputSectionCount = mergedSections.Count;
+            int overlapsResolved = inputSectionCount > outputSectionCount
+                ? inputSectionCount - outputSectionCount : 0;
+            int overlapCount = CountOverlapsResolved(inputSections, mergedSections);
+
+            int activeCount = 0, bgCount = 0, cpCount = 0;
+            for (int i = 0; i < mergedSections.Count; i++)
+            {
+                switch (mergedSections[i].source)
+                {
+                    case TrackSectionSource.Active: activeCount++; break;
+                    case TrackSectionSource.Background: bgCount++; break;
+                    case TrackSectionSource.Checkpoint: cpCount++; break;
+                }
+            }
+
+            ParsekLog.Info(Tag,
+                $"MergeTree: vessel='{vesselName}' id={recId} " +
+                $"inputSections={inputSectionCount} outputSections={outputSectionCount} " +
+                $"overlapsResolved={overlapCount} " +
+                $"active={activeCount} background={bgCount} checkpoint={cpCount}");
+
+            // Log discontinuity warnings
+            for (int i = 0; i < mergedSections.Count; i++)
+            {
+                float disc = mergedSections[i].boundaryDiscontinuityMeters;
+                if (disc > 1.0f)
+                {
+                    ParsekLog.Warn(Tag,
+                        $"MergeTree: boundary discontinuity={disc.ToString("F2", ic)}m " +
+                        $"at section[{i}] ut={mergedSections[i].startUT.ToString("F2", ic)} " +
+                        $"vessel='{vesselName}'");
+                }
+            }
         }
 
         /// <summary>

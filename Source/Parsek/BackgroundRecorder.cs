@@ -430,32 +430,7 @@ namespace Parsek
             var childRecordings = result.childRecordings;
 
             // Close parent recording: set ChildBranchPointId, close orbit segment/trajectory
-            parentRec.ChildBranchPointId = bp.Id;
-            parentRec.ExplicitEndUT = branchUT;
-
-            // Close parent's orbit segment if open
-            BackgroundOnRailsState parentRails;
-            if (onRailsStates.TryGetValue(parentPid, out parentRails) && parentRails.hasOpenOrbitSegment)
-            {
-                CloseOrbitSegment(parentRails, branchUT);
-            }
-
-            // Sample a final boundary point for the parent if loaded
-            BackgroundVesselState parentLoaded;
-            if (loadedStates.TryGetValue(parentPid, out parentLoaded))
-            {
-                Vessel parentVessel = FlightRecorder.FindVesselByPid(parentPid);
-                if (parentVessel != null)
-                {
-                    SampleBoundaryPoint(parentVessel, parentRec, branchUT);
-                }
-            }
-
-            // Remove parent from BackgroundMap (it has branched, no longer a live recording)
-            tree.BackgroundMap.Remove(parentPid);
-            onRailsStates.Remove(parentPid);
-            loadedStates.Remove(parentPid);
-            debrisTTLExpiry.Remove(parentPid);
+            CloseParentRecording(parentRec, parentPid, bp.Id, branchUT);
 
             // Add BranchPoint to tree
             tree.BranchPoints.Add(bp);
@@ -489,7 +464,58 @@ namespace Parsek
                     $"expiry={branchUT + DebrisTTLSeconds:F1}");
             }
 
-            // Add each child recording to tree and BackgroundMap.
+            // Add each child recording to tree and BackgroundMap
+            RegisterChildRecordingsFromSplit(childRecordings, newVesselInfos, branchUT);
+
+            ParsekLog.Info("BgRecorder",
+                $"Background split branch complete: bp={bp.Id} type={branchType} " +
+                $"parentRecId={parentRecordingId} children={bp.ChildRecordingIds.Count} " +
+                $"(1 parent continuation + {newVesselInfos.Count} new vessels)");
+        }
+
+        /// <summary>
+        /// Closes the parent recording at a branch point: sets ChildBranchPointId, ExplicitEndUT,
+        /// closes any open orbit segment, samples a final boundary point, and removes from tracking dicts.
+        /// </summary>
+        private void CloseParentRecording(Recording parentRec, uint parentPid, string branchPointId, double branchUT)
+        {
+            parentRec.ChildBranchPointId = branchPointId;
+            parentRec.ExplicitEndUT = branchUT;
+
+            // Close parent's orbit segment if open
+            BackgroundOnRailsState parentRails;
+            if (onRailsStates.TryGetValue(parentPid, out parentRails) && parentRails.hasOpenOrbitSegment)
+            {
+                CloseOrbitSegment(parentRails, branchUT);
+            }
+
+            // Sample a final boundary point for the parent if loaded
+            BackgroundVesselState parentLoaded;
+            if (loadedStates.TryGetValue(parentPid, out parentLoaded))
+            {
+                Vessel parentVessel = FlightRecorder.FindVesselByPid(parentPid);
+                if (parentVessel != null)
+                {
+                    SampleBoundaryPoint(parentVessel, parentRec, branchUT);
+                }
+            }
+
+            // Remove parent from BackgroundMap (it has branched, no longer a live recording)
+            tree.BackgroundMap.Remove(parentPid);
+            onRailsStates.Remove(parentPid);
+            loadedStates.Remove(parentPid);
+            debrisTTLExpiry.Remove(parentPid);
+        }
+
+        /// <summary>
+        /// Registers child recordings from a vessel split: captures snapshots, adds to tree
+        /// and BackgroundMap, initializes tracking state, and sets TTL for debris children.
+        /// </summary>
+        private void RegisterChildRecordingsFromSplit(
+            List<Recording> childRecordings,
+            List<(uint pid, string name, bool hasController)> newVesselInfos,
+            double branchUT)
+        {
             // Capture vessel snapshots so ghosts can be built during playback
             // (without snapshots, GhostVisualBuilder returns null → no ghost appears).
             for (int i = 0; i < childRecordings.Count; i++)
@@ -540,11 +566,6 @@ namespace Parsek
                         $"name='{child.VesselName}'");
                 }
             }
-
-            ParsekLog.Info("BgRecorder",
-                $"Background split branch complete: bp={bp.Id} type={branchType} " +
-                $"parentRecId={parentRecordingId} children={bp.ChildRecordingIds.Count} " +
-                $"(1 parent continuation + {newVesselInfos.Count} new vessels)");
         }
 
         /// <summary>
@@ -1089,18 +1110,7 @@ namespace Parsek
                 // Open a new orbit segment with the new body's orbit
                 if (v.orbit != null)
                 {
-                    state.currentOrbitSegment = new OrbitSegment
-                    {
-                        startUT = ut,
-                        inclination = v.orbit.inclination,
-                        eccentricity = v.orbit.eccentricity,
-                        semiMajorAxis = v.orbit.semiMajorAxis,
-                        longitudeOfAscendingNode = v.orbit.LAN,
-                        argumentOfPeriapsis = v.orbit.argumentOfPeriapsis,
-                        meanAnomalyAtEpoch = v.orbit.meanAnomalyAtEpoch,
-                        epoch = v.orbit.epoch,
-                        bodyName = v.mainBody?.name ?? "Unknown"
-                    };
+                    state.currentOrbitSegment = CreateOrbitSegmentFromVessel(v, ut, "Unknown");
                     state.hasOpenOrbitSegment = true;
                 }
 
@@ -1296,18 +1306,7 @@ namespace Parsek
                 }
 
                 // Open a fresh orbit segment with current orbital elements
-                state.currentOrbitSegment = new OrbitSegment
-                {
-                    startUT = ut,
-                    inclination = v.orbit.inclination,
-                    eccentricity = v.orbit.eccentricity,
-                    semiMajorAxis = v.orbit.semiMajorAxis,
-                    longitudeOfAscendingNode = v.orbit.LAN,
-                    argumentOfPeriapsis = v.orbit.argumentOfPeriapsis,
-                    meanAnomalyAtEpoch = v.orbit.meanAnomalyAtEpoch,
-                    epoch = v.orbit.epoch,
-                    bodyName = v.mainBody?.name ?? "Unknown"
-                };
+                state.currentOrbitSegment = CreateOrbitSegmentFromVessel(v, ut, "Unknown");
                 state.hasOpenOrbitSegment = true;
                 checkpointed++;
             }
@@ -1375,18 +1374,7 @@ namespace Parsek
             else if (v.orbit != null)
             {
                 // Open orbit segment
-                state.currentOrbitSegment = new OrbitSegment
-                {
-                    startUT = ut,
-                    inclination = v.orbit.inclination,
-                    eccentricity = v.orbit.eccentricity,
-                    semiMajorAxis = v.orbit.semiMajorAxis,
-                    longitudeOfAscendingNode = v.orbit.LAN,
-                    argumentOfPeriapsis = v.orbit.argumentOfPeriapsis,
-                    meanAnomalyAtEpoch = v.orbit.meanAnomalyAtEpoch,
-                    epoch = v.orbit.epoch,
-                    bodyName = v.mainBody?.name ?? "Kerbin"
-                };
+                state.currentOrbitSegment = CreateOrbitSegmentFromVessel(v, ut, "Kerbin");
                 state.hasOpenOrbitSegment = true;
 
                 Recording treeRec;
@@ -1443,29 +1431,7 @@ namespace Parsek
                 }
             }
             double seedUT = Planetarium.GetUniversalTime();
-            var seedSets = new PartTrackingSets
-            {
-                deployedFairings = state.deployedFairings,
-                jettisonedShrouds = state.jettisonedShrouds,
-                parachuteStates = state.parachuteStates,
-                extendedDeployables = state.extendedDeployables,
-                lightsOn = state.lightsOn,
-                blinkingLights = state.blinkingLights,
-                lightBlinkRates = state.lightBlinkRates,
-                deployedGear = state.deployedGear,
-                openCargoBays = state.openCargoBays,
-                deployedLadders = state.deployedLadders,
-                deployedAnimationGroups = state.deployedAnimationGroups,
-                deployedAnimateGenericModules = state.deployedAnimateGenericModules,
-                deployedAeroSurfaceModules = state.deployedAeroSurfaceModules,
-                deployedControlSurfaceModules = state.deployedControlSurfaceModules,
-                deployedRobotArmScannerModules = state.deployedRobotArmScannerModules,
-                animateHeatLevels = state.animateHeatLevels,
-                activeEngineKeys = state.activeEngineKeys,
-                lastThrottle = state.lastThrottle,
-                activeRcsKeys = state.activeRcsKeys,
-                lastRcsThrottle = state.lastRcsThrottle,
-            };
+            var seedSets = BuildPartTrackingSetsFromState(state);
             var seedEvents = PartStateSeeder.EmitSeedEvents(seedSets, partNamesByPid, seedUT, "BgRecorder");
             Recording treeRecForSeed;
             if (seedEvents.Count > 0 && tree.Recordings.TryGetValue(recordingId, out treeRecForSeed))
@@ -1491,37 +1457,66 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Builds a PartTrackingSets struct from a BackgroundVesselState's tracking fields.
+        /// Used by both InitializeLoadedState (seed events) and SeedBackgroundPartStates (seed state).
+        /// </summary>
+        private static PartTrackingSets BuildPartTrackingSetsFromState(BackgroundVesselState state)
+        {
+            return new PartTrackingSets
+            {
+                deployedFairings = state.deployedFairings,
+                jettisonedShrouds = state.jettisonedShrouds,
+                parachuteStates = state.parachuteStates,
+                extendedDeployables = state.extendedDeployables,
+                lightsOn = state.lightsOn,
+                blinkingLights = state.blinkingLights,
+                lightBlinkRates = state.lightBlinkRates,
+                deployedGear = state.deployedGear,
+                openCargoBays = state.openCargoBays,
+                deployedLadders = state.deployedLadders,
+                deployedAnimationGroups = state.deployedAnimationGroups,
+                deployedAnimateGenericModules = state.deployedAnimateGenericModules,
+                deployedAeroSurfaceModules = state.deployedAeroSurfaceModules,
+                deployedControlSurfaceModules = state.deployedControlSurfaceModules,
+                deployedRobotArmScannerModules = state.deployedRobotArmScannerModules,
+                animateHeatLevels = state.animateHeatLevels,
+                activeEngineKeys = state.activeEngineKeys,
+                lastThrottle = state.lastThrottle,
+                activeRcsKeys = state.activeRcsKeys,
+                lastRcsThrottle = state.lastRcsThrottle,
+            };
+        }
+
+        /// <summary>
         /// Pre-populates a BackgroundVesselState's tracking sets with the current
         /// state of every part on the vessel. Delegates to shared PartStateSeeder.
         /// </summary>
         private static void SeedBackgroundPartStates(Vessel v, BackgroundVesselState state)
         {
             PartStateSeeder.SeedPartStates(v,
-                new PartTrackingSets
-                {
-                    deployedFairings = state.deployedFairings,
-                    jettisonedShrouds = state.jettisonedShrouds,
-                    parachuteStates = state.parachuteStates,
-                    extendedDeployables = state.extendedDeployables,
-                    lightsOn = state.lightsOn,
-                    blinkingLights = state.blinkingLights,
-                    lightBlinkRates = state.lightBlinkRates,
-                    deployedGear = state.deployedGear,
-                    openCargoBays = state.openCargoBays,
-                    deployedLadders = state.deployedLadders,
-                    deployedAnimationGroups = state.deployedAnimationGroups,
-                    deployedAnimateGenericModules = state.deployedAnimateGenericModules,
-                    deployedAeroSurfaceModules = state.deployedAeroSurfaceModules,
-                    deployedControlSurfaceModules = state.deployedControlSurfaceModules,
-                    deployedRobotArmScannerModules = state.deployedRobotArmScannerModules,
-                    animateHeatLevels = state.animateHeatLevels,
-                    activeEngineKeys = state.activeEngineKeys,
-                    lastThrottle = state.lastThrottle,
-                    activeRcsKeys = state.activeRcsKeys,
-                    lastRcsThrottle = state.lastRcsThrottle,
-                },
+                BuildPartTrackingSetsFromState(state),
                 state.cachedEngines, state.cachedRcsModules,
                 seedColorChangerLights: false, logTag: "BgRecorder");
+        }
+
+        /// <summary>
+        /// Creates an OrbitSegment from a vessel's current orbital elements.
+        /// Used by OnBackgroundVesselSOIChanged, CheckpointAllVessels, and InitializeOnRailsState.
+        /// </summary>
+        private static OrbitSegment CreateOrbitSegmentFromVessel(Vessel v, double startUT, string defaultBodyName)
+        {
+            return new OrbitSegment
+            {
+                startUT = startUT,
+                inclination = v.orbit.inclination,
+                eccentricity = v.orbit.eccentricity,
+                semiMajorAxis = v.orbit.semiMajorAxis,
+                longitudeOfAscendingNode = v.orbit.LAN,
+                argumentOfPeriapsis = v.orbit.argumentOfPeriapsis,
+                meanAnomalyAtEpoch = v.orbit.meanAnomalyAtEpoch,
+                epoch = v.orbit.epoch,
+                bodyName = v.mainBody?.name ?? defaultBodyName
+            };
         }
 
         private void CloseOrbitSegment(BackgroundOnRailsState state, double ut)

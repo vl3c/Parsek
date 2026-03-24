@@ -76,6 +76,25 @@ namespace Parsek
                 return new Bounds(Vector3.zero, Vector3.one * FallbackBoundsSize);
             }
 
+            var parts = ParsePartPositions(partNodes);
+
+            if (parts.Count == 0)
+            {
+                ParsekLog.Verbose(Tag, "ComputeVesselBounds: no parseable PART positions — returning fallback 2m bounds");
+                return new Bounds(Vector3.zero, Vector3.one * FallbackBoundsSize);
+            }
+
+            ParsekLog.Verbose(Tag, $"ComputeVesselBounds: parsed {parts.Count}/{partNodes.Length} parts");
+            return ComputeBoundsFromParts(parts);
+        }
+
+        /// <summary>
+        /// Parses PART ConfigNodes to extract local positions. Each PART must have a
+        /// pos=x,y,z value. Returns a list of (localPos, halfExtent) tuples.
+        /// Parts with missing or unparseable positions are skipped.
+        /// </summary>
+        internal static List<(Vector3 localPos, float halfExtent)> ParsePartPositions(ConfigNode[] partNodes)
+        {
             var parts = new List<(Vector3 localPos, float halfExtent)>();
             for (int i = 0; i < partNodes.Length; i++)
             {
@@ -97,14 +116,8 @@ namespace Parsek
                 parts.Add((new Vector3(x, y, z), DefaultPartHalfExtent));
             }
 
-            if (parts.Count == 0)
-            {
-                ParsekLog.Verbose(Tag, "ComputeVesselBounds: no parseable PART positions — returning fallback 2m bounds");
-                return new Bounds(Vector3.zero, Vector3.one * FallbackBoundsSize);
-            }
-
-            ParsekLog.Verbose(Tag, $"ComputeVesselBounds: parsed {parts.Count}/{partNodes.Length} parts");
-            return ComputeBoundsFromParts(parts);
+            ParsekLog.Verbose(Tag, $"ParsePartPositions: parsed {parts.Count}/{partNodes.Length} parts from snapshot");
+            return parts;
         }
 
         /// <summary>
@@ -274,6 +287,10 @@ namespace Parsek
         internal static (bool overlap, float closestDistance, string blockerName) CheckOverlapAgainstLoadedVessels(
             Vector3d spawnWorldPos, Bounds spawnBounds, float padding)
         {
+            ParsekLog.Verbose(Tag,
+                $"CheckOverlapAgainstLoadedVessels: checking spawn at ({spawnWorldPos.x.ToString("F0", IC)},{spawnWorldPos.y.ToString("F0", IC)},{spawnWorldPos.z.ToString("F0", IC)}) " +
+                $"padding={padding.ToString("F1", IC)}m against {FlightGlobals.Vessels.Count} vessels");
+
             bool anyOverlap = false;
             float closestDist = float.MaxValue;
             string blockerName = null;
@@ -340,6 +357,10 @@ namespace Parsek
         internal static (bool withinWarning, float distance, string vesselName) CheckWarningProximity(
             Vector3d spawnWorldPos, float warningRadius)
         {
+            ParsekLog.Verbose(Tag,
+                $"CheckWarningProximity: checking spawn at ({spawnWorldPos.x.ToString("F0", IC)},{spawnWorldPos.y.ToString("F0", IC)},{spawnWorldPos.z.ToString("F0", IC)}) " +
+                $"warningRadius={warningRadius.ToString("F0", IC)}m");
+
             float closestDist = float.MaxValue;
             string closestName = null;
 

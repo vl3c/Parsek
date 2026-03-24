@@ -185,7 +185,11 @@ namespace Parsek
         {
             const int maxSpawnAttempts = 3;
             if (rec.SpawnAttempts >= maxSpawnAttempts)
+            {
+                ParsekLog.Verbose("Spawner",
+                    $"Spawn skipped for #{index} ({rec.VesselName}): max attempts ({maxSpawnAttempts}) already reached");
                 return;
+            }
 
             // Crew protection: strip crew from spawn snapshot when recording ended in
             // destruction to prevent killing crew during spawn-death cycles (#114).
@@ -211,32 +215,14 @@ namespace Parsek
                 rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot, excludeCrew);
                 rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
                 if (!rec.VesselSpawned)
-                {
-                    rec.SpawnAttempts++;
-                    if (rec.SpawnAttempts >= maxSpawnAttempts)
-                        ParsekLog.Error("Spawner", $"Vessel spawn failed permanently for recording #{index} ({rec.VesselName}) after {maxSpawnAttempts} attempts");
-                    else
-                        ParsekLog.Warn("Spawner", $"Vessel spawn failed for recording #{index} ({rec.VesselName}) — will retry (attempt {rec.SpawnAttempts}/{maxSpawnAttempts})");
-                }
+                    LogSpawnFailure(rec, index, maxSpawnAttempts);
                 return;
             }
 
-            // Use snapshot lat/lon/alt for collision check — this is where RespawnVessel
-            // actually places the vessel. Falls back to trajectory endpoint if snapshot
-            // lacks position data (#127).
+            // Resolve spawn position from snapshot or trajectory endpoint
             var lastPt = rec.Points[rec.Points.Count - 1];
-            double spawnLat = 0, spawnLon = 0, spawnAlt = 0;
-            bool hasSnapshotPos = TryGetSnapshotDouble(rec.VesselSnapshot, "lat", out spawnLat)
-                               && TryGetSnapshotDouble(rec.VesselSnapshot, "lon", out spawnLon)
-                               && TryGetSnapshotDouble(rec.VesselSnapshot, "alt", out spawnAlt);
-            if (!hasSnapshotPos)
-            {
-                spawnLat = lastPt.latitude;
-                spawnLon = lastPt.longitude;
-                spawnAlt = lastPt.altitude;
-                ParsekLog.Verbose("Spawner",
-                    $"No snapshot lat/lon/alt for #{index} ({rec.VesselName}) — using trajectory endpoint for collision check");
-            }
+            double spawnLat, spawnLon, spawnAlt;
+            ResolveSpawnPosition(rec, index, lastPt, out spawnLat, out spawnLon, out spawnAlt);
 
             CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == lastPt.bodyName);
             if (body == null)
@@ -247,13 +233,7 @@ namespace Parsek
                 rec.SpawnedVesselPersistentId = RespawnVessel(rec.VesselSnapshot, excludeCrew);
                 rec.VesselSpawned = rec.SpawnedVesselPersistentId != 0;
                 if (!rec.VesselSpawned)
-                {
-                    rec.SpawnAttempts++;
-                    if (rec.SpawnAttempts >= maxSpawnAttempts)
-                        ParsekLog.Error("Spawner", $"Vessel spawn failed permanently for recording #{index} ({rec.VesselName}) after {maxSpawnAttempts} attempts");
-                    else
-                        ParsekLog.Warn("Spawner", $"Vessel spawn failed for recording #{index} ({rec.VesselName}) — will retry (attempt {rec.SpawnAttempts}/{maxSpawnAttempts})");
-                }
+                    LogSpawnFailure(rec, index, maxSpawnAttempts);
                 return;
             }
 
@@ -296,15 +276,7 @@ namespace Parsek
             rec.CollisionBlockCount = 0;
 
             // Find nearest vessel for spawn context logging
-            double closestDist = double.MaxValue;
-            for (int v = 0; v < FlightGlobals.Vessels.Count; v++)
-            {
-                Vessel other = FlightGlobals.Vessels[v];
-                if (other.mainBody != body) continue;
-                double dist = Vector3d.Distance(spawnPos, other.GetWorldPos3D());
-                if (dist < closestDist)
-                    closestDist = dist;
-            }
+            double closestDist = FindNearestVesselDistance(spawnPos, body);
 
             LogSpawnContext(rec, closestDist);
 
@@ -317,12 +289,60 @@ namespace Parsek
             }
             else
             {
-                rec.SpawnAttempts++;
-                if (rec.SpawnAttempts >= maxSpawnAttempts)
-                    ParsekLog.Error("Spawner", $"Vessel spawn failed permanently for recording #{index} ({rec.VesselName}) after {maxSpawnAttempts} attempts");
-                else
-                    ParsekLog.Warn("Spawner", $"Vessel spawn failed for recording #{index} ({rec.VesselName}) — will retry (attempt {rec.SpawnAttempts}/{maxSpawnAttempts})");
+                LogSpawnFailure(rec, index, maxSpawnAttempts);
             }
+        }
+
+        /// <summary>
+        /// Resolve spawn position from vessel snapshot lat/lon/alt, falling back to
+        /// trajectory endpoint if snapshot lacks position data (#127).
+        /// </summary>
+        private static void ResolveSpawnPosition(Recording rec, int index,
+            TrajectoryPoint lastPt, out double lat, out double lon, out double alt)
+        {
+            lat = 0; lon = 0; alt = 0;
+            bool hasSnapshotPos = TryGetSnapshotDouble(rec.VesselSnapshot, "lat", out lat)
+                               && TryGetSnapshotDouble(rec.VesselSnapshot, "lon", out lon)
+                               && TryGetSnapshotDouble(rec.VesselSnapshot, "alt", out alt);
+            if (!hasSnapshotPos)
+            {
+                lat = lastPt.latitude;
+                lon = lastPt.longitude;
+                alt = lastPt.altitude;
+                ParsekLog.Verbose("Spawner",
+                    $"No snapshot lat/lon/alt for #{index} ({rec.VesselName}) — using trajectory endpoint for collision check");
+            }
+        }
+
+        /// <summary>
+        /// Find the distance to the nearest loaded vessel on the same body.
+        /// Used for spawn context logging.
+        /// </summary>
+        private static double FindNearestVesselDistance(Vector3d spawnPos, CelestialBody body)
+        {
+            double closestDist = double.MaxValue;
+            for (int v = 0; v < FlightGlobals.Vessels.Count; v++)
+            {
+                Vessel other = FlightGlobals.Vessels[v];
+                if (other.mainBody != body) continue;
+                double dist = Vector3d.Distance(spawnPos, other.GetWorldPos3D());
+                if (dist < closestDist)
+                    closestDist = dist;
+            }
+            return closestDist;
+        }
+
+        /// <summary>
+        /// Log spawn failure and increment attempt counter. Logs error on final
+        /// attempt, warning on retryable failures.
+        /// </summary>
+        private static void LogSpawnFailure(Recording rec, int index, int maxAttempts)
+        {
+            rec.SpawnAttempts++;
+            if (rec.SpawnAttempts >= maxAttempts)
+                ParsekLog.Error("Spawner", $"Vessel spawn failed permanently for recording #{index} ({rec.VesselName}) after {maxAttempts} attempts");
+            else
+                ParsekLog.Warn("Spawner", $"Vessel spawn failed for recording #{index} ({rec.VesselName}) — will retry (attempt {rec.SpawnAttempts}/{maxAttempts})");
         }
 
         /// <summary>

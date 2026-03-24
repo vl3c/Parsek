@@ -16,6 +16,8 @@ namespace Parsek
         // Ghost threshold: 50x is the last level where ghost meshes update often enough to be useful.
         internal const float FxSuppressWarpThreshold = 10f;
         internal const float GhostHideWarpThreshold = 50f;
+        internal const double DefaultLoopIntervalSeconds = 10.0;
+        internal const double MinLoopDurationSeconds = 1.0;
         internal const double MinCycleDuration = 1.0;
         // Grace period before zone-based watch mode exit (wall-clock seconds).
         // Prevents immediate exit when a ghost briefly crosses a zone boundary at watch-mode start.
@@ -495,7 +497,13 @@ namespace Parsek
             if (IsVesselOwnedByTree(treeId, vesselPersistentId))
                 return false;
 
-            return RealVesselExists(vesselPersistentId);
+            if (RealVesselExists(vesselPersistentId))
+            {
+                ParsekLog.Verbose("Flight",
+                    $"Skipping external vessel ghost: real vessel {vesselPersistentId} exists");
+                return true;
+            }
+            return false;
         }
 
         /// <summary>
@@ -529,6 +537,18 @@ namespace Parsek
         #region Ghost Info Population
 
         /// <summary>
+        /// Builds a Dictionary keyed by partPersistentId from a list of ghost info items.
+        /// Shared helper for the 6 simple PID-keyed dict constructions in PopulateGhostInfoDictionaries.
+        /// </summary>
+        private static Dictionary<uint, T> BuildDictByPid<T>(List<T> items, Func<T, uint> getPid)
+        {
+            var dict = new Dictionary<uint, T>();
+            for (int i = 0; i < items.Count; i++)
+                dict[getPid(items[i])] = items[i];
+            return dict;
+        }
+
+        /// <summary>
         /// Converts a GhostBuildResult into the per-PID dictionaries on GhostPlaybackState.
         /// Shared between SpawnTimelineGhost and StartPlayback to eliminate code duplication.
         /// </summary>
@@ -538,18 +558,10 @@ namespace Parsek
             if (result == null) return;
 
             if (result.parachuteInfos != null)
-            {
-                state.parachuteInfos = new Dictionary<uint, ParachuteGhostInfo>();
-                for (int i = 0; i < result.parachuteInfos.Count; i++)
-                    state.parachuteInfos[result.parachuteInfos[i].partPersistentId] = result.parachuteInfos[i];
-            }
+                state.parachuteInfos = BuildDictByPid(result.parachuteInfos, p => p.partPersistentId);
 
             if (result.jettisonInfos != null)
-            {
-                state.jettisonInfos = new Dictionary<uint, JettisonGhostInfo>();
-                for (int i = 0; i < result.jettisonInfos.Count; i++)
-                    state.jettisonInfos[result.jettisonInfos[i].partPersistentId] = result.jettisonInfos[i];
-            }
+                state.jettisonInfos = BuildDictByPid(result.jettisonInfos, j => j.partPersistentId);
 
             if (result.engineInfos != null)
             {
@@ -563,17 +575,11 @@ namespace Parsek
             }
 
             if (result.deployableInfos != null)
-            {
-                state.deployableInfos = new Dictionary<uint, DeployableGhostInfo>();
-                for (int i = 0; i < result.deployableInfos.Count; i++)
-                    state.deployableInfos[result.deployableInfos[i].partPersistentId] = result.deployableInfos[i];
-            }
+                state.deployableInfos = BuildDictByPid(result.deployableInfos, d => d.partPersistentId);
 
             if (result.heatInfos != null)
             {
-                state.heatInfos = new Dictionary<uint, HeatGhostInfo>();
-                for (int i = 0; i < result.heatInfos.Count; i++)
-                    state.heatInfos[result.heatInfos[i].partPersistentId] = result.heatInfos[i];
+                state.heatInfos = BuildDictByPid(result.heatInfos, h => h.partPersistentId);
 
                 // Initialize all heat parts to cold state at spawn — ensures FXModuleAnimateThrottle
                 // parts don't inherit the prefab's baked emissive state.
@@ -586,21 +592,14 @@ namespace Parsek
 
             if (result.lightInfos != null)
             {
-                state.lightInfos = new Dictionary<uint, LightGhostInfo>();
+                state.lightInfos = BuildDictByPid(result.lightInfos, l => l.partPersistentId);
                 state.lightPlaybackStates = new Dictionary<uint, LightPlaybackState>();
                 for (int i = 0; i < result.lightInfos.Count; i++)
-                {
-                    state.lightInfos[result.lightInfos[i].partPersistentId] = result.lightInfos[i];
                     state.lightPlaybackStates[result.lightInfos[i].partPersistentId] = new LightPlaybackState();
-                }
             }
 
             if (result.fairingInfos != null)
-            {
-                state.fairingInfos = new Dictionary<uint, FairingGhostInfo>();
-                for (int i = 0; i < result.fairingInfos.Count; i++)
-                    state.fairingInfos[result.fairingInfos[i].partPersistentId] = result.fairingInfos[i];
-            }
+                state.fairingInfos = BuildDictByPid(result.fairingInfos, f => f.partPersistentId);
 
             if (result.rcsInfos != null)
             {
@@ -626,6 +625,19 @@ namespace Parsek
 
             if (result.colorChangerInfos != null)
                 state.colorChangerInfos = GhostVisualBuilder.GroupColorChangersByPartId(result.colorChangerInfos);
+
+            ParsekLog.Verbose("GhostVisual",
+                $"PopulateGhostInfoDictionaries: " +
+                $"parachute={result.parachuteInfos?.Count ?? 0} " +
+                $"jettison={result.jettisonInfos?.Count ?? 0} " +
+                $"engine={result.engineInfos?.Count ?? 0} " +
+                $"deployable={result.deployableInfos?.Count ?? 0} " +
+                $"heat={result.heatInfos?.Count ?? 0} " +
+                $"light={result.lightInfos?.Count ?? 0} " +
+                $"fairing={result.fairingInfos?.Count ?? 0} " +
+                $"rcs={result.rcsInfos?.Count ?? 0} " +
+                $"robotic={result.roboticInfos?.Count ?? 0} " +
+                $"colorChanger={result.colorChangerInfos?.Count ?? 0}");
         }
 
         #endregion
@@ -996,6 +1008,7 @@ namespace Parsek
             // If a part's first placement-related event is "placed", start hidden so it
             // visibly appears only when the event fires.
             var initialized = new HashSet<uint>();
+            int hidden = 0;
             for (int i = 0; i < rec.PartEvents.Count; i++)
             {
                 var evt = rec.PartEvents[i];
@@ -1005,6 +1018,7 @@ namespace Parsek
                 {
                     SetGhostPartActive(state.ghost, evt.partPersistentId, false);
                     initialized.Add(evt.partPersistentId);
+                    hidden++;
                 }
                 else if (evt.eventType == PartEventType.InventoryPartRemoved)
                 {
@@ -1012,6 +1026,7 @@ namespace Parsek
                     initialized.Add(evt.partPersistentId);
                 }
             }
+            ParsekLog.Verbose("GhostVisual", $"Initialized inventory visibility: {hidden} parts hidden");
         }
 
         /// <summary>
@@ -1311,6 +1326,50 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Stop and clear all engine FX particle systems across every engine info in the state.
+        /// Used during ghost teardown to ensure no orphaned particle effects remain.
+        /// </summary>
+        internal static void StopAllEngineFx(GhostPlaybackState state)
+        {
+            if (state?.engineInfos == null) return;
+            foreach (var kv in state.engineInfos)
+            {
+                SetKspEmittersEnabled(kv.Value.kspEmitters, false);
+                if (kv.Value.particleSystems == null) continue;
+                for (int i = 0; i < kv.Value.particleSystems.Count; i++)
+                {
+                    var ps = kv.Value.particleSystems[i];
+                    if (ps == null) continue;
+                    ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                    ps.Clear(true);
+                    SetParticleRenderersEnabled(ps, false);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Stop and clear all RCS FX particle systems across every RCS info in the state.
+        /// Used during ghost teardown to ensure no orphaned particle effects remain.
+        /// </summary>
+        internal static void StopAllRcsFx(GhostPlaybackState state)
+        {
+            if (state?.rcsInfos == null) return;
+            foreach (var kv in state.rcsInfos)
+            {
+                SetKspEmittersEnabled(kv.Value.kspEmitters, false);
+                if (kv.Value.particleSystems == null) continue;
+                for (int i = 0; i < kv.Value.particleSystems.Count; i++)
+                {
+                    var ps = kv.Value.particleSystems[i];
+                    if (ps == null) continue;
+                    ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                    ps.Clear(true);
+                    SetParticleRenderersEnabled(ps, false);
+                }
+            }
+        }
+
         internal static void SetParticleRenderersEnabled(ParticleSystem ps, bool enabled)
         {
             if (ps == null)
@@ -1433,6 +1492,7 @@ namespace Parsek
             if (state?.rcsInfos == null) return;
             if (state.rcsSuppressed) return;
             state.rcsSuppressed = true;
+            int suppressedCount = 0;
             foreach (var info in state.rcsInfos.Values)
             {
                 SetKspEmittersEnabled(info.kspEmitters, false);
@@ -1445,7 +1505,9 @@ namespace Parsek
                         ps.Clear(true);
                     }
                 }
+                suppressedCount++;
             }
+            ParsekLog.Verbose("Flight", $"Suppressed RCS emissions for {suppressedCount} modules");
         }
 
         internal static void RestoreAllRcsEmissions(GhostPlaybackState state)
@@ -1453,6 +1515,7 @@ namespace Parsek
             if (state?.rcsInfos == null) return;
             if (!state.rcsSuppressed) return;
             state.rcsSuppressed = false;
+            int restoredCount = 0;
             foreach (var info in state.rcsInfos.Values)
             {
                 // Only restore emission for RCS that had active KSP emitters.
@@ -1482,8 +1545,10 @@ namespace Parsek
                         if (ps != null && !ps.isPlaying)
                             ps.Play();
                     }
+                    restoredCount++;
                 }
             }
+            ParsekLog.Info("Flight", $"Restored RCS emissions for {restoredCount} modules");
         }
 
         #endregion
@@ -1735,6 +1800,9 @@ namespace Parsek
                 }
             }
 
+            if (applied)
+                ParsekLog.Verbose("Flight", $"Applied deployable state {(deployed ? "extended" : "retracted")} to part {evt.partPersistentId}");
+
             return applied;
         }
 
@@ -1976,19 +2044,34 @@ namespace Parsek
         {
             // Base condition: must have a snapshot, not already spawned, not destroyed
             if (rec.VesselSnapshot == null)
+            {
+                ParsekLog.Verbose("Spawner", $"ShouldSpawnAtRecordingEnd: '{rec.VesselName}' suppressed — no vessel snapshot");
                 return (false, "no vessel snapshot");
+            }
             if (rec.VesselSpawned)
+            {
+                ParsekLog.Verbose("Spawner", $"ShouldSpawnAtRecordingEnd: '{rec.VesselName}' suppressed — already spawned (VesselSpawned=true)");
                 return (false, "already spawned (VesselSpawned=true)");
+            }
             if (rec.VesselDestroyed)
+            {
+                ParsekLog.Verbose("Spawner", $"ShouldSpawnAtRecordingEnd: '{rec.VesselName}' suppressed — vessel destroyed");
                 return (false, "vessel destroyed");
+            }
 
             // Branch > 0 recordings are ghost-only (undock continuations) — never spawn
             if (rec.ChainBranch > 0)
+            {
+                ParsekLog.Verbose("Spawner", $"ShouldSpawnAtRecordingEnd: '{rec.VesselName}' suppressed — branch > 0 (ghost-only)");
                 return (false, "branch > 0 (ghost-only)");
+            }
 
             // Suppress spawning for recordings belonging to a chain currently being built
             if (isActiveChainMember)
+            {
+                ParsekLog.Verbose("Spawner", $"ShouldSpawnAtRecordingEnd: '{rec.VesselName}' suppressed — active chain being built");
                 return (false, "active chain being built");
+            }
 
             // Looping recordings: first playthrough spawns the vessel (so it exists in the world),
             // subsequent loops are visual-only. The VesselSpawned/SpawnedVesselPersistentId checks
@@ -1997,21 +2080,33 @@ namespace Parsek
 
             // Suppress spawn for looping or fully-disabled chains
             if (isChainLoopingOrDisabled)
+            {
+                ParsekLog.Verbose("Spawner", $"ShouldSpawnAtRecordingEnd: '{rec.VesselName}' suppressed — chain looping or fully disabled");
                 return (false, "chain looping or fully disabled");
+            }
 
             // Non-leaf tree recordings should never spawn (they branched into children)
             if (rec.ChildBranchPointId != null)
+            {
+                ParsekLog.Verbose("Spawner", $"ShouldSpawnAtRecordingEnd: '{rec.VesselName}' suppressed — non-leaf tree recording");
                 return (false, "non-leaf tree recording");
+            }
 
             // Safety net: even if ChildBranchPointId is null, check committed trees
             // for recordings that are parents of a branch point. Covers edge cases where
             // ChildBranchPointId was not set (e.g., serialization gaps). (#114)
             if (IsNonLeafInCommittedTree(rec))
+            {
+                ParsekLog.Verbose("Spawner", $"ShouldSpawnAtRecordingEnd: '{rec.VesselName}' suppressed — non-leaf in committed tree (safety net)");
                 return (false, "non-leaf in committed tree (safety net)");
+            }
 
             // Debris recordings are visual-only (short TTL, no meaningful vessel to persist)
             if (rec.IsDebris)
+            {
+                ParsekLog.Verbose("Spawner", $"ShouldSpawnAtRecordingEnd: '{rec.VesselName}' suppressed — debris recording (visual-only)");
                 return (false, "debris recording (visual-only)");
+            }
 
             // Terminal states: destroyed/recovered/docked/boarded/suborbital should not spawn
             // SubOrbital includes FLYING and ESCAPING — vessel would materialize mid-air and crash (#45)
@@ -2021,7 +2116,10 @@ namespace Parsek
                 if (ts == TerminalState.Destroyed || ts == TerminalState.Recovered
                     || ts == TerminalState.Docked || ts == TerminalState.Boarded
                     || ts == TerminalState.SubOrbital)
+                {
+                    ParsekLog.Verbose("Spawner", $"ShouldSpawnAtRecordingEnd: '{rec.VesselName}' suppressed — terminal state {ts}");
                     return (false, $"terminal state {ts}");
+                }
             }
 
             // Snapshot situation check: if the snapshot's sit field is FLYING or SUB_ORBITAL,
@@ -2029,12 +2127,18 @@ namespace Parsek
             // This catches cases where TerminalState is null/Landed but the snapshot was
             // captured mid-flight. (#114)
             if (IsSnapshotSituationUnsafe(rec.VesselSnapshot))
+            {
+                ParsekLog.Verbose("Spawner", $"ShouldSpawnAtRecordingEnd: '{rec.VesselName}' suppressed — snapshot situation unsafe (FLYING/SUB_ORBITAL)");
                 return (false, "snapshot situation unsafe (FLYING/SUB_ORBITAL)");
+            }
 
             // PID dedup: if vessel was already spawned (PID recorded), never re-spawn.
             // On revert, SpawnedVesselPersistentId resets to 0 from quicksave so reverts still work.
             if (rec.SpawnedVesselPersistentId != 0)
+            {
+                ParsekLog.Verbose("Spawner", $"ShouldSpawnAtRecordingEnd: '{rec.VesselName}' suppressed — already spawned (pid={rec.SpawnedVesselPersistentId})");
                 return (false, $"already spawned (pid={rec.SpawnedVesselPersistentId})");
+            }
 
             return (true, "");
         }

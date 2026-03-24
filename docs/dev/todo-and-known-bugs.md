@@ -181,6 +181,54 @@ Tests only cover LANDED(1), SPLASHED(2), PRELAUNCH(4), FLYING(8), SUB_ORBITAL(16
 
 ---
 
+## TODO — Refactor Deferred Items
+
+Items identified during refactor-2 (March 2026) but deferred because they require architectural changes beyond mechanical extraction. Full details in [refactor-2-deferred.md](plans/refactor-2-deferred.md).
+
+### T25. ParsekFlight TimelinePlaybackController extraction (D20)
+
+Extract `#region Timeline Auto-Playback` (~2443 lines) into a `TimelinePlaybackController` class. Blocked by `ghostStates` being referenced 31 times across 8 regions. Requires redesigning ParsekFlight's field layout so playback state is isolated in a passable struct/class. Would enable D2 (commit-pattern dedup), D5 (frame application dedup), D8 (UpdateTimelinePlayback decomposition).
+
+**Priority:** Medium — largest single improvement opportunity for ParsekFlight (9900→7500 lines)
+
+### T26. ParsekFlight ChainSegmentManager extraction (D21)
+
+Extract chain state + 4 commit methods (~400-500 lines) into a `ChainSegmentManager` class. Blocked by `activeChainId` being referenced 50+ times across 5 regions. Same prerequisite as T25 — chain state must be isolated first. Would enable D2 (commit-pattern dedup via instance methods).
+
+**Priority:** Medium — depends on T25 or parallel state isolation work
+
+### T27. GhostVisualBuilder SampleXxxStates unification (D15)
+
+Unify 4 animation sampling methods (`SampleDeployableStates`, `SampleGearStates`, `SampleLadderStates`, `SampleCargoBayStates`) that share ~80% structure. ~300 lines savings. Blocked by differences in animation lookup strategy, stowed/deployed endpoint logic, cache keys, and sample point count.
+
+**Priority:** Low — methods work correctly, just repetitive
+
+### T28. ParsekFlight commit-pattern dedup (D2)
+
+Unify `CommitChainSegment`, `CommitDockUndockSegment`, `CommitBoundarySplit`, `HandleVesselSwitchChainTermination` (~316 lines, ~60% shared stash-tag-commit-advance pattern). Blocked: callback-based `CommitChainSegmentCore` would change the call pattern. Becomes feasible after T26 (instance methods on ChainSegmentManager).
+
+**Priority:** Low — depends on T26
+
+### T29. BackgroundRecorder Check*State polling dedup (D11)
+
+17 Check*State method pairs (~736 lines) mirror FlightRecorder. Layer 1 (pure transition logic) is already shared. Layer 2 duplication is intentional design for per-vessel state isolation. A shared `PartEventSink` interface could unify Layer 2 but would change the call pattern.
+
+**Priority:** Low — intentional design, not a bug
+
+### T30. ParsekUI window resize drag dedup (D18)
+
+4 windows + group popup all have identical ~15-line resize drag blocks. IMGUI `Event.current.Use()` calls are order-sensitive — a shared helper could subtly break input consumption.
+
+**Priority:** Low — cosmetic duplication, risk outweighs savings
+
+### T31. ParsekFlight CreateBreakupChildRecording dedup (D1)
+
+4 child-recording creation loops across `ProcessBreakupEvent` + `PromoteToTreeForBreakup` (~160 lines). Blocked: sites diverge in BackgroundMap handling (inline vs bulk). Would require a conditional flag.
+
+**Priority:** Low — moderate savings, moderate risk
+
+---
+
 # Known Bugs
 
 ## 1. Tech tree nodes stay unlocked after rewind
@@ -1495,6 +1543,18 @@ On the second rewind in session 7, `UnreserveCrewIn` logs `Replacement 'Hadfry K
 **Fix:** Investigate ordering between rewind save-load and crew roster cleanup. The replacement may be getting removed by KSP's own roster management before Parsek's unreservation runs.
 
 **Priority:** Low — no crash, handled gracefully, but may cause crew roster drift over many rewinds
+
+**Status:** Open
+
+## 129. Pad vessel from future persists as real after rewind
+
+When a vessel is sitting on the launch pad and the player rewinds to an earlier point, the pad vessel still appears as a real (non-ghost) vessel in the rewound save. It should be stripped from the flight state during rewind since it belongs to the future timeline — the player hasn't launched it yet at the rewound UT.
+
+Root cause likely in `StripOrphanedSpawnedVessels` or `PreProcessRewindSave` — the pad vessel may not match the vessel name/PID filters because it was placed by KSP's launch system (not spawned by Parsek), or its PRELAUNCH situation may be explicitly excluded from stripping.
+
+**Fix:** Check the rewind vessel-strip logic for PRELAUNCH vessels. A vessel on the pad in the future should be treated the same as any other future vessel — stripped on rewind. May need to match by launch UT or vessel situation rather than relying on Parsek spawn tracking.
+
+**Priority:** Medium — visible bug that breaks the timeline illusion
 
 **Status:** Open
 

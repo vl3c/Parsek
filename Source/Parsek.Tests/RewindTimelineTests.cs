@@ -557,7 +557,7 @@ namespace Parsek.Tests
         [Fact]
         public void InitiateRewind_SetsRewindReserved()
         {
-            RecordingStore.RewindReserved = new ResourceBudget.BudgetSummary
+            RecordingStore.RewindReserved = new BudgetSummary
             {
                 reservedFunds = 5000.0,
                 reservedScience = 25.0,

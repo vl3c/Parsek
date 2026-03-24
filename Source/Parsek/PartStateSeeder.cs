@@ -426,81 +426,34 @@ namespace Parsek
                 return partNamesByPid != null && partNamesByPid.TryGetValue(pid, out n) ? n : "unknown";
             }
 
+            // Helper to emit a seed event for each pid in a uint-keyed set (value=0, moduleIndex=0)
+            void EmitFromUintSet(HashSet<uint> set, PartEventType evtType)
+            {
+                if (set == null) return;
+                foreach (uint pid in set)
+                {
+                    events.Add(new PartEvent
+                    {
+                        ut = startUT,
+                        partPersistentId = pid,
+                        eventType = evtType,
+                        partName = NameFor(pid),
+                        value = 0f,
+                        moduleIndex = 0
+                    });
+                    ParsekLog.Verbose(logTag, $"Seed event: {evtType} pid={pid} part='{NameFor(pid)}'");
+                }
+            }
+
             // --- uint-keyed sets (pid only, moduleIndex = 0) ---
 
-            // extendedDeployables → DeployableExtended
-            if (sets.extendedDeployables != null)
-            {
-                foreach (uint pid in sets.extendedDeployables)
-                {
-                    events.Add(new PartEvent
-                    {
-                        ut = startUT,
-                        partPersistentId = pid,
-                        eventType = PartEventType.DeployableExtended,
-                        partName = NameFor(pid),
-                        value = 0f,
-                        moduleIndex = 0
-                    });
-                    ParsekLog.Verbose(logTag, $"Seed event: DeployableExtended pid={pid} part='{NameFor(pid)}'");
-                }
-            }
-
-            // jettisonedShrouds → ShroudJettisoned
-            if (sets.jettisonedShrouds != null)
-            {
-                foreach (uint pid in sets.jettisonedShrouds)
-                {
-                    events.Add(new PartEvent
-                    {
-                        ut = startUT,
-                        partPersistentId = pid,
-                        eventType = PartEventType.ShroudJettisoned,
-                        partName = NameFor(pid),
-                        value = 0f,
-                        moduleIndex = 0
-                    });
-                    ParsekLog.Verbose(logTag, $"Seed event: ShroudJettisoned pid={pid} part='{NameFor(pid)}'");
-                }
-            }
-
-            // deployedFairings → FairingJettisoned
-            if (sets.deployedFairings != null)
-            {
-                foreach (uint pid in sets.deployedFairings)
-                {
-                    events.Add(new PartEvent
-                    {
-                        ut = startUT,
-                        partPersistentId = pid,
-                        eventType = PartEventType.FairingJettisoned,
-                        partName = NameFor(pid),
-                        value = 0f,
-                        moduleIndex = 0
-                    });
-                    ParsekLog.Verbose(logTag, $"Seed event: FairingJettisoned pid={pid} part='{NameFor(pid)}'");
-                }
-            }
-
-            // lightsOn → LightOn
-            if (sets.lightsOn != null)
-            {
-                foreach (uint pid in sets.lightsOn)
-                {
-                    events.Add(new PartEvent
-                    {
-                        ut = startUT,
-                        partPersistentId = pid,
-                        eventType = PartEventType.LightOn,
-                        partName = NameFor(pid),
-                        value = 0f,
-                        moduleIndex = 0
-                    });
-                    ParsekLog.Verbose(logTag, $"Seed event: LightOn pid={pid} part='{NameFor(pid)}'");
-                }
-            }
+            EmitFromUintSet(sets.extendedDeployables, PartEventType.DeployableExtended);
+            EmitFromUintSet(sets.jettisonedShrouds, PartEventType.ShroudJettisoned);
+            EmitFromUintSet(sets.deployedFairings, PartEventType.FairingJettisoned);
+            EmitFromUintSet(sets.lightsOn, PartEventType.LightOn);
 
             // blinkingLights → LightBlinkEnabled (value = blink rate from lightBlinkRates)
+            // NOTE: must emit BEFORE deployedGear/openCargoBays to preserve original ordering
             if (sets.blinkingLights != null)
             {
                 foreach (uint pid in sets.blinkingLights)
@@ -521,41 +474,9 @@ namespace Parsek
                 }
             }
 
-            // deployedGear → GearDeployed
-            if (sets.deployedGear != null)
-            {
-                foreach (uint pid in sets.deployedGear)
-                {
-                    events.Add(new PartEvent
-                    {
-                        ut = startUT,
-                        partPersistentId = pid,
-                        eventType = PartEventType.GearDeployed,
-                        partName = NameFor(pid),
-                        value = 0f,
-                        moduleIndex = 0
-                    });
-                    ParsekLog.Verbose(logTag, $"Seed event: GearDeployed pid={pid} part='{NameFor(pid)}'");
-                }
-            }
-
-            // openCargoBays → CargoBayOpened
-            if (sets.openCargoBays != null)
-            {
-                foreach (uint pid in sets.openCargoBays)
-                {
-                    events.Add(new PartEvent
-                    {
-                        ut = startUT,
-                        partPersistentId = pid,
-                        eventType = PartEventType.CargoBayOpened,
-                        partName = NameFor(pid),
-                        value = 0f,
-                        moduleIndex = 0
-                    });
-                    ParsekLog.Verbose(logTag, $"Seed event: CargoBayOpened pid={pid} part='{NameFor(pid)}'");
-                }
-            }
+            // deployedGear and openCargoBays (after blinkingLights to preserve original ordering)
+            EmitFromUintSet(sets.deployedGear, PartEventType.GearDeployed);
+            EmitFromUintSet(sets.openCargoBays, PartEventType.CargoBayOpened);
 
             // parachuteStates → ParachuteSemiDeployed (value=1) or ParachuteDeployed (value=2)
             if (sets.parachuteStates != null)
@@ -613,80 +534,102 @@ namespace Parsek
             EmitDeployableFromUlongSet(sets.deployedControlSurfaceModules, "controlSurface");
             EmitDeployableFromUlongSet(sets.deployedRobotArmScannerModules, "robotArmScanner");
 
-            // animateHeatLevels → ThermalAnimationHot or ThermalAnimationMedium
-            if (sets.animateHeatLevels != null)
-            {
-                foreach (var kvp in sets.animateHeatLevels)
-                {
-                    ulong key = kvp.Key;
-                    HeatLevel level = kvp.Value;
-                    if (level == HeatLevel.Cold) continue; // no seed event for cold
-                    uint pid; int midx;
-                    FlightRecorder.DecodeEngineKey(key, out pid, out midx);
-                    PartEventType eventType = level == HeatLevel.Hot
-                        ? PartEventType.ThermalAnimationHot
-                        : PartEventType.ThermalAnimationMedium;
-                    events.Add(new PartEvent
-                    {
-                        ut = startUT,
-                        partPersistentId = pid,
-                        eventType = eventType,
-                        partName = NameFor(pid),
-                        value = 0f,
-                        moduleIndex = midx
-                    });
-                    ParsekLog.Verbose(logTag, $"Seed event: {eventType} pid={pid} midx={midx} part='{NameFor(pid)}'");
-                }
-            }
-
-            // activeEngineKeys → EngineIgnited (value = throttle from lastThrottle)
-            if (sets.activeEngineKeys != null)
-            {
-                foreach (ulong key in sets.activeEngineKeys)
-                {
-                    uint pid; int midx;
-                    FlightRecorder.DecodeEngineKey(key, out pid, out midx);
-                    float throttle = 0f;
-                    if (sets.lastThrottle != null)
-                        sets.lastThrottle.TryGetValue(key, out throttle);
-                    events.Add(new PartEvent
-                    {
-                        ut = startUT,
-                        partPersistentId = pid,
-                        eventType = PartEventType.EngineIgnited,
-                        partName = NameFor(pid),
-                        value = throttle,
-                        moduleIndex = midx
-                    });
-                    ParsekLog.Verbose(logTag, $"Seed event: EngineIgnited pid={pid} midx={midx} throttle={throttle.ToString("F2", CultureInfo.InvariantCulture)} part='{NameFor(pid)}'");
-                }
-            }
-
-            // activeRcsKeys → RCSActivated (value = power from lastRcsThrottle)
-            if (sets.activeRcsKeys != null)
-            {
-                foreach (ulong key in sets.activeRcsKeys)
-                {
-                    uint pid; int midx;
-                    FlightRecorder.DecodeEngineKey(key, out pid, out midx);
-                    float power = 0f;
-                    if (sets.lastRcsThrottle != null)
-                        sets.lastRcsThrottle.TryGetValue(key, out power);
-                    events.Add(new PartEvent
-                    {
-                        ut = startUT,
-                        partPersistentId = pid,
-                        eventType = PartEventType.RCSActivated,
-                        partName = NameFor(pid),
-                        value = power,
-                        moduleIndex = midx
-                    });
-                    ParsekLog.Verbose(logTag, $"Seed event: RCSActivated pid={pid} midx={midx} power={power.ToString("F2", CultureInfo.InvariantCulture)} part='{NameFor(pid)}'");
-                }
-            }
+            EmitHeatSeedEvents(sets, events, startUT, logTag, NameFor);
+            EmitEngineSeedEvents(sets, events, startUT, logTag, NameFor);
+            EmitRcsSeedEvents(sets, events, startUT, logTag, NameFor);
 
             ParsekLog.Info(logTag, $"Seed events emitted: {events.Count} events at UT={startUT.ToString("F2", CultureInfo.InvariantCulture)}");
             return events;
+        }
+
+        /// <summary>
+        /// Emits ThermalAnimationHot/Medium seed events from animateHeatLevels.
+        /// </summary>
+        private static void EmitHeatSeedEvents(
+            PartTrackingSets sets, List<PartEvent> events,
+            double startUT, string logTag, System.Func<uint, string> NameFor)
+        {
+            if (sets.animateHeatLevels == null) return;
+
+            foreach (var kvp in sets.animateHeatLevels)
+            {
+                ulong key = kvp.Key;
+                HeatLevel level = kvp.Value;
+                if (level == HeatLevel.Cold) continue; // no seed event for cold
+                uint pid; int midx;
+                FlightRecorder.DecodeEngineKey(key, out pid, out midx);
+                PartEventType eventType = level == HeatLevel.Hot
+                    ? PartEventType.ThermalAnimationHot
+                    : PartEventType.ThermalAnimationMedium;
+                events.Add(new PartEvent
+                {
+                    ut = startUT,
+                    partPersistentId = pid,
+                    eventType = eventType,
+                    partName = NameFor(pid),
+                    value = 0f,
+                    moduleIndex = midx
+                });
+                ParsekLog.Verbose(logTag, $"Seed event: {eventType} pid={pid} midx={midx} part='{NameFor(pid)}'");
+            }
+        }
+
+        /// <summary>
+        /// Emits EngineIgnited seed events from activeEngineKeys with throttle values.
+        /// </summary>
+        private static void EmitEngineSeedEvents(
+            PartTrackingSets sets, List<PartEvent> events,
+            double startUT, string logTag, System.Func<uint, string> NameFor)
+        {
+            if (sets.activeEngineKeys == null) return;
+
+            foreach (ulong key in sets.activeEngineKeys)
+            {
+                uint pid; int midx;
+                FlightRecorder.DecodeEngineKey(key, out pid, out midx);
+                float throttle = 0f;
+                if (sets.lastThrottle != null)
+                    sets.lastThrottle.TryGetValue(key, out throttle);
+                events.Add(new PartEvent
+                {
+                    ut = startUT,
+                    partPersistentId = pid,
+                    eventType = PartEventType.EngineIgnited,
+                    partName = NameFor(pid),
+                    value = throttle,
+                    moduleIndex = midx
+                });
+                ParsekLog.Verbose(logTag, $"Seed event: EngineIgnited pid={pid} midx={midx} throttle={throttle.ToString("F2", CultureInfo.InvariantCulture)} part='{NameFor(pid)}'");
+            }
+        }
+
+        /// <summary>
+        /// Emits RCSActivated seed events from activeRcsKeys with power values.
+        /// </summary>
+        private static void EmitRcsSeedEvents(
+            PartTrackingSets sets, List<PartEvent> events,
+            double startUT, string logTag, System.Func<uint, string> NameFor)
+        {
+            if (sets.activeRcsKeys == null) return;
+
+            foreach (ulong key in sets.activeRcsKeys)
+            {
+                uint pid; int midx;
+                FlightRecorder.DecodeEngineKey(key, out pid, out midx);
+                float power = 0f;
+                if (sets.lastRcsThrottle != null)
+                    sets.lastRcsThrottle.TryGetValue(key, out power);
+                events.Add(new PartEvent
+                {
+                    ut = startUT,
+                    partPersistentId = pid,
+                    eventType = PartEventType.RCSActivated,
+                    partName = NameFor(pid),
+                    value = power,
+                    moduleIndex = midx
+                });
+                ParsekLog.Verbose(logTag, $"Seed event: RCSActivated pid={pid} midx={midx} power={power.ToString("F2", CultureInfo.InvariantCulture)} part='{NameFor(pid)}'");
+            }
         }
     }
 

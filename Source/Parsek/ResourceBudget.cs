@@ -4,15 +4,15 @@ using System.Globalization;
 
 namespace Parsek
 {
+    internal struct BudgetSummary
+    {
+        public double reservedFunds;
+        public double reservedScience;
+        public double reservedReputation;
+    }
+
     internal static class ResourceBudget
     {
-        internal struct BudgetSummary
-        {
-            public double reservedFunds;
-            public double reservedScience;
-            public double reservedReputation;
-        }
-
         private static BudgetSummary cachedBudget;
         private static bool budgetDirty = true;
 
