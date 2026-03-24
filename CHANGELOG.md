@@ -6,23 +6,57 @@ All notable changes to Parsek are documented here.
 
 ## 0.5.2
 
-### New Features
+Second-pass structural refactoring. ~80 method extractions, ~105 logging additions, 88 new tests. 1 latent bug fixed. Zero logic changes (except the bug fix).
 
-- **Real Spawn Control window** — proximity-based UI for warping to when nearby ghost craft become real vessels. Detects ghosts within 500m whose recording ends in the future. Per-craft Warp button, sortable columns (Craft, Dist, Spawns at, In T-), and "Warp to Next Spawn" quick-jump button.
-- **Countdown column in Recordings Manager** — shows `T-Xd Xh Xm Xs` until each recording's vessel spawns. Updates live during playback, shows `-` when past.
-- **Screen notification** when a new ghost craft enters spawn proximity range.
-- **Toggle button in main window** — "Real Spawn Control (N)" under the Recordings/Game Actions group, grayed out when no candidates are nearby.
+### Code Refactor
 
-### UI Improvements
+- **Pass 1 — Method extraction + logging + tests** across 18 source files
+  - `AddPartVisuals` reduced from 802 → 454 lines (parachute, deployable, heat phases extracted)
+  - `RecordingStore` POINT/ORBIT serialization dedup (-140 lines, 4 shared helpers)
+  - `ParsekScenario.OnLoad` split from 587 → ~450 lines (HandleRewindOnLoad, DiscardStalePendingState, LoadRecordingTrees)
+  - `ParsekFlight.OnSceneChangeRequested` split from 205 → ~50 lines
+  - `FlightRecorder` triple-dedup: FinalizeRecordingState shared across StopRecording/StopRecordingForChainBoundary/ForceStop
+  - `FlightRecorder.CreateOrbitSegmentFromVessel` dedup (was duplicated in 4 sites)
+  - `GhostPlaybackLogic.BuildDictByPid<T>` replaces 6 identical dict-construction blocks
+  - `PartStateSeeder.EmitSeedEvents` -60 lines via local emit helper
+  - `GhostChainWalker` zero-logging gaps fixed (4 methods now have full diagnostics)
+  - `GhostExtender.PropagateOrbital` split from 83 → 15 lines (ComputeOrbitalPosition + CartesianToGeodetic)
+- **Pass 2 — Architecture analysis** (dependency graph, static state inventory, cross-file duplication analysis)
+- **Pass 3 — SOLID restructuring**
+  - `EngineFxBuilder` extracted from GhostVisualBuilder (-975 lines)
+  - `MaterialCleanup` MonoBehaviour extracted to own file
+  - Loop constants consolidated into GhostPlaybackLogic
+  - Shared ghost interpolation extracted to TrajectoryMath
+  - `BudgetSummary` and `UIMode` nested types extracted to top-level
+  - Dead code removed: `GetFairingShowMesh`, `GenerateFairingTrussMesh` (zero call sites)
+  - `SanitizeQuaternion` unnecessary instance wrapper removed
 
-- Bottom buttons (Warp, Close, etc.) pinned to window bottom in Actions, Recordings, and Spawn Control windows.
-- Recordings window widened for better readability (1106 collapsed, 1324 expanded).
+### Bug Fixes
+
+- **KSC ghost heat initialization** — KSC scene ghosts now properly start heat-animated parts in cold state. Previously, the KSC private copy of `PopulateGhostInfoDictionaries` missed the cold-state initialization that the flight scene had. Fixed by deleting the private copy and calling the shared `GhostPlaybackLogic` version.
+
+### Test Coverage
+
+3227 → 3315 tests (+88). New test areas:
+- GroupTreeDataTests (14): recordings tree data-computation
+- PostSpawnTerminalStateTests (12): spawn terminal state clearing
+- InterpolatePointsTests (11): trajectory interpolation edge cases
+- SerializationEdgeCaseTests (16): POINT/OrbitSegment round-trip, NaN, InvariantCulture
+- ParsePartPositions + WalkbackAlongTrajectory (14): spawn collision parsing and walkback
+- ReindexTests (7): ghost dict reindexing after deletion
+- AppendCapturedDataTests (7): recording data append + sort
+
+### Documentation
+
+- Refactor plan, inventory, review checklist, architecture analysis
+- 21 deferred items tracked in `refactor-2-deferred.md` with Open/Done/Closed status
+- 7 future TODO items (T25-T31) added to `todo-and-known-bugs.md`
 
 ---
 
 ## 0.5.1
 
-Spawn safety hardening, ghost visual improvements, booster/debris tree recording, flag planting, and Fast Forward redesign. 20 PRs merged, 26 bugs fixed.
+Spawn safety hardening, ghost visual improvements, booster/debris tree recording, flag planting, Fast Forward redesign, Real Spawn Control window. 20 PRs merged, 26 bugs fixed.
 
 ### Bug Fixes (Late)
 
