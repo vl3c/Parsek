@@ -6285,7 +6285,8 @@ namespace Parsek
             if (committed.Count == 0) return;
 
             // Pre-compute flags
-            var flags = ComputePlaybackFlags(committed, currentUT);
+            cachedFlags = ComputePlaybackFlags(committed, currentUT);
+            var flags = cachedFlags;
 
             // Build frame context
             var ctx = new FrameContext
