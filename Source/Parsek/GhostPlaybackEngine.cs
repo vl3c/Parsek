@@ -89,7 +89,237 @@ namespace Parsek
             TrajectoryPlaybackFlags[] flags,
             FrameContext ctx)
         {
-            // Phase 5: main loop will be moved here from ParsekFlight.UpdateTimelinePlayback
+            if (trajectories == null || trajectories.Count == 0) return;
+
+            bool suppressGhosts = GhostPlaybackLogic.ShouldSuppressGhosts(ctx.warpRate);
+            bool suppressVisualFx = GhostPlaybackLogic.ShouldSuppressVisualFx(ctx.warpRate);
+
+            // Reset reshow dedup when entering warp suppression
+            if (suppressGhosts)
+                loggedReshow.Clear();
+
+            var deferredCompleted = new List<PlaybackCompletedEvent>();
+            var deferredCreated = new List<GhostLifecycleEvent>();
+
+            for (int i = 0; i < trajectories.Count; i++)
+            {
+                var traj = trajectories[i];
+                var f = flags[i];
+
+                if (f.skipGhost) continue;
+
+                bool hasPoints = traj.Points != null && traj.Points.Count >= 2;
+                bool hasOrbitData = traj.OrbitSegments != null && traj.OrbitSegments.Count > 0;
+                bool hasSurfaceData = traj.SurfacePos.HasValue;
+                if (!hasPoints && !hasOrbitData && !hasSurfaceData) continue;
+
+                bool inRange = ctx.currentUT >= traj.StartUT && ctx.currentUT <= traj.EndUT;
+                bool pastEnd = ctx.currentUT > traj.EndUT;
+                bool pastEffectiveEnd = ctx.currentUT > f.chainEndUT;
+
+                GhostPlaybackState state;
+                ghostStates.TryGetValue(i, out state);
+                bool ghostActive = state != null && state.ghost != null;
+
+                // === Loop dispatch (before main rendering) ===
+                if (ShouldLoopPlayback(traj))
+                {
+                    // Anchor gating: if anchor configured but not loaded, skip ghost
+                    if (traj.LoopAnchorVesselId != 0 && !loadedAnchorVessels.Contains(traj.LoopAnchorVesselId))
+                    {
+                        if (ghostActive)
+                        {
+                            ParsekLog.Info("Engine", $"Loop ghost #{i} \"{traj.VesselName}\" — anchor vessel {traj.LoopAnchorVesselId} unloaded, destroying ghost");
+                            DestroyGhost(i);
+                            DestroyAllOverlapGhosts(i);
+                        }
+                        continue;
+                    }
+
+                    UpdateLoopingPlayback(i, traj, f, ctx, suppressGhosts, suppressVisualFx);
+
+                    // Clean up leftover overlap ghosts from loop->non-loop transition
+                    List<GhostPlaybackState> leftoverOverlaps;
+                    if (overlapGhosts.TryGetValue(i, out leftoverOverlaps) && leftoverOverlaps.Count > 0)
+                    {
+                        // Overlap cleanup handled in UpdateLoopingPlayback/UpdateOverlapPlayback
+                    }
+
+                    continue;
+                }
+
+                // Clean up overlap ghosts if recording switched from looping to non-looping
+                if (overlapGhosts.ContainsKey(i))
+                {
+                    DestroyAllOverlapGhosts(i);
+                    overlapGhosts.Remove(i);
+                }
+
+                // === Warp suppression: hide ghost during high warp ===
+                if (suppressGhosts && ghostActive)
+                {
+                    state.ghost.SetActive(false);
+                    continue;
+                }
+
+                // === In-range rendering ===
+                if (inRange && !ghostActive && !softCapSuppressed.Contains(i))
+                {
+                    SpawnGhost(i, traj);
+                    ghostStates.TryGetValue(i, out state);
+                    ghostActive = state != null && state.ghost != null;
+                    if (ghostActive)
+                    {
+                        if (loggedGhostEnter.Add(i))
+                            ParsekLog.Info("Engine", $"Ghost ENTERED range: #{i} \"{traj.VesselName}\" ({f.segmentLabel})");
+
+                        deferredCreated.Add(new GhostLifecycleEvent
+                        {
+                            Index = i, Trajectory = traj, State = state, Flags = f
+                        });
+                    }
+                }
+
+                if (inRange && ghostActive)
+                {
+                    // Re-show ghost after warp-down
+                    if (!state.ghost.activeSelf && state.currentZone != RenderingZone.Beyond)
+                    {
+                        state.ghost.SetActive(true);
+                        if (loggedReshow.Add(i))
+                            ParsekLog.Info("Engine", $"Ghost re-shown after warp-down: #{i} \"{traj.VesselName}\"");
+                    }
+
+                    // Zone-based rendering
+                    double ghostDist = Vector3d.Distance(ctx.activeVesselPos,
+                        (Vector3d)state.ghost.transform.position);
+                    var zoneResult = positioner.ApplyZoneRendering(i, state, traj, ghostDist, ctx.protectedIndex);
+                    if (zoneResult.hiddenByZone) continue;
+
+                    // Position the ghost
+                    if (hasPoints)
+                    {
+                        positioner.InterpolateAndPosition(i, traj, state, ctx.currentUT, suppressVisualFx);
+                    }
+                    else if (hasSurfaceData)
+                    {
+                        positioner.PositionAtSurface(i, traj, state);
+                    }
+                    else if (hasOrbitData)
+                    {
+                        positioner.PositionFromOrbit(i, traj, state, ctx.currentUT);
+                    }
+
+                    // Apply visual events
+                    if (!zoneResult.skipPartEvents)
+                    {
+                        GhostPlaybackLogic.ApplyPartEvents(i, traj, ctx.currentUT, state);
+                        GhostPlaybackLogic.ApplyFlagEvents(state, traj, ctx.currentUT);
+                    }
+
+                    // Reentry FX
+                    UpdateReentryFx(i, state, traj.VesselName, ctx.warpRate);
+
+                    // RCS emission suppression during warp
+                    if (suppressVisualFx)
+                        GhostPlaybackLogic.StopAllRcsEmissions(state);
+                    else
+                        GhostPlaybackLogic.RestoreAllRcsEmissions(state);
+
+                    continue;
+                }
+
+                // === Past end: fire completed event, optionally destroy ===
+                if ((pastEnd || pastEffectiveEnd) && ghostActive)
+                {
+                    // Position ghost at final point
+                    if (hasPoints)
+                    {
+                        var lastPoint = traj.Points[traj.Points.Count - 1];
+                        positioner.PositionAtPoint(i, traj, state, lastPoint);
+                    }
+
+                    // Trigger explosion if destroyed
+                    TriggerExplosionIfDestroyed(state, traj, i, ctx.warpRate);
+
+                    // Fire completed event (policy handles spawn/resources/camera)
+                    deferredCompleted.Add(new PlaybackCompletedEvent
+                    {
+                        Index = i,
+                        Trajectory = traj,
+                        State = state,
+                        Flags = f,
+                        GhostWasActive = true,
+                        PastEffectiveEnd = pastEffectiveEnd,
+                        LastPoint = hasPoints ? traj.Points[traj.Points.Count - 1] : default,
+                        CurrentUT = ctx.currentUT
+                    });
+
+                    // Mid-chain: hold ghost at final position; otherwise destroy
+                    if (!f.isMidChain)
+                    {
+                        DestroyGhost(i);
+                    }
+
+                    continue;
+                }
+
+                // Past end, ghost not active: fire event for policy (deferred spawn, resources)
+                if (pastEnd || pastEffectiveEnd)
+                {
+                    deferredCompleted.Add(new PlaybackCompletedEvent
+                    {
+                        Index = i,
+                        Trajectory = traj,
+                        State = state,
+                        Flags = f,
+                        GhostWasActive = false,
+                        PastEffectiveEnd = pastEffectiveEnd,
+                        LastPoint = hasPoints ? traj.Points[traj.Points.Count - 1] : default,
+                        CurrentUT = ctx.currentUT
+                    });
+                }
+            }
+
+            // Post-loop: soft caps
+            EvaluateSoftCaps(trajectories, ctx);
+
+            // Post-loop: cleanup explosions
+            for (int i = activeExplosions.Count - 1; i >= 0; i--)
+            {
+                if (activeExplosions[i] == null)
+                    activeExplosions.RemoveAt(i);
+            }
+
+            // Fire deferred events AFTER loop completes
+            for (int i = 0; i < deferredCreated.Count; i++)
+                OnGhostCreated?.Invoke(deferredCreated[i]);
+
+            for (int i = 0; i < deferredCompleted.Count; i++)
+                OnPlaybackCompleted?.Invoke(deferredCompleted[i]);
+        }
+
+        /// <summary>
+        /// Placeholder for soft cap evaluation. Will be moved from ParsekFlight.
+        /// </summary>
+        private void EvaluateSoftCaps(IReadOnlyList<IPlaybackTrajectory> trajectories, FrameContext ctx)
+        {
+            // TODO Phase 5: move EvaluateGhostSoftCaps here
+        }
+
+        /// <summary>
+        /// Handles looping ghost playback for a single trajectory.
+        /// Manages cycle changes, ghost spawn/destroy, pause windows.
+        /// Fires CameraActionEvents for watch mode interactions.
+        /// Placeholder — delegates to host's existing method until fully extracted.
+        /// </summary>
+        private void UpdateLoopingPlayback(int index, IPlaybackTrajectory traj,
+            TrajectoryPlaybackFlags flags, FrameContext ctx,
+            bool suppressGhosts, bool suppressVisualFx)
+        {
+            // TODO Phase 5.4: Move UpdateLoopingTimelinePlayback + UpdateOverlapLoopPlayback
+            // rendering logic here, extract camera code to CameraActionEvents.
+            // For now, the host's forwarding methods handle this via the existing code path.
         }
 
         #endregion
