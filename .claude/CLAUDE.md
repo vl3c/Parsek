@@ -25,7 +25,10 @@ Key source files and what they do - read the relevant one before modifying:
 - `FlightRecorder.cs` - recording state + sampling (called by Harmony patch)
 - `ParsekUI.cs` - UI windows (main, recordings, actions, settings, Real Spawn Control) and map markers
 - `SelectiveSpawnUI.cs` - pure static methods for Real Spawn Control (proximity candidates, countdown formatting)
-- `ParsekScenario.cs` - ScenarioModule for save/load, crew reservation & replacement
+- `ParsekScenario.cs` - ScenarioModule for save/load, coroutine hosting, scene transitions
+- `CrewReservationManager.cs` - crew reservation lifecycle (reserve/unreserve/swap/clear)
+- `ResourceApplicator.cs` - resource mutation (tick deltas, budget deduction, rewind correction)
+- `GroupHierarchyStore.cs` - UI recording group hierarchy and visibility state
 - `RecordingStore.cs` - static recording storage surviving scene changes
 - `GhostVisualBuilder.cs` - ghost mesh building from vessel snapshots
 - `TrajectoryMath.cs` - pure static math (sampling, interpolation, orbit search)
