@@ -337,11 +337,91 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Placeholder for soft cap evaluation. Will be moved from ParsekFlight.
+        /// Evaluates ghost soft caps: if too many ghosts are active, despawn or simplify
+        /// the lowest-priority ones. Uses zone-based priority classification.
         /// </summary>
         private void EvaluateSoftCaps(IReadOnlyList<IPlaybackTrajectory> trajectories, FrameContext ctx)
         {
-            // TODO Phase 5: move EvaluateGhostSoftCaps here
+            cachedZone1Ghosts.Clear();
+            cachedZone2Ghosts.Clear();
+
+            foreach (var kvp in ghostStates)
+            {
+                int idx = kvp.Key;
+                var capState = kvp.Value;
+                if (capState == null || capState.ghost == null) continue;
+                if (idx < 0 || idx >= trajectories.Count) continue;
+
+                var priority = GhostSoftCapManager.ClassifyPriority(trajectories[idx], capState.loopCycleIndex);
+
+                if (capState.currentZone == RenderingZone.Physics)
+                    cachedZone1Ghosts.Add((idx, priority));
+                else if (capState.currentZone == RenderingZone.Visual)
+                    cachedZone2Ghosts.Add((idx, priority));
+            }
+
+            if (cachedZone1Ghosts.Count > GhostSoftCapManager.Zone1ReduceThreshold ||
+                cachedZone2Ghosts.Count > GhostSoftCapManager.Zone2SimplifyThreshold)
+            {
+                var capActions = GhostSoftCapManager.EvaluateCaps(
+                    cachedZone1Ghosts.Count, cachedZone2Ghosts.Count,
+                    cachedZone1Ghosts, cachedZone2Ghosts);
+
+                if (capActions.Count > 0)
+                {
+                    if (!softCapTriggeredThisFrame)
+                    {
+                        ParsekLog.Info("Engine",
+                            $"SoftCap triggered: zone1={cachedZone1Ghosts.Count} zone2={cachedZone2Ghosts.Count} " +
+                            $"actions={capActions.Count}");
+                        softCapTriggeredThisFrame = true;
+                    }
+
+                    foreach (var capKvp in capActions)
+                    {
+                        int capIdx = capKvp.Key;
+                        GhostCapAction action = capKvp.Value;
+                        string vesselName = capIdx >= 0 && capIdx < trajectories.Count
+                            ? trajectories[capIdx].VesselName : "?";
+
+                        switch (action)
+                        {
+                            case GhostCapAction.Despawn:
+                                // Don't despawn the protected (watched) ghost
+                                if (capIdx == ctx.protectedIndex) break;
+                                ParsekLog.Info("Engine",
+                                    $"SoftCap: despawning ghost #{capIdx} \"{vesselName}\"");
+                                DestroyGhost(capIdx);
+                                softCapSuppressed.Add(capIdx);
+                                break;
+                            case GhostCapAction.SimplifyToOrbitLine:
+                                GhostPlaybackState simplifyState;
+                                if (ghostStates.TryGetValue(capIdx, out simplifyState) &&
+                                    simplifyState?.ghost != null && simplifyState.ghost.activeSelf)
+                                {
+                                    simplifyState.ghost.SetActive(false);
+                                    ParsekLog.Verbose("Engine",
+                                        $"SoftCap: simplified ghost #{capIdx} \"{vesselName}\" — mesh hidden");
+                                }
+                                break;
+                            case GhostCapAction.ReduceFidelity:
+                                ParsekLog.Verbose("Engine",
+                                    $"SoftCap: ReduceFidelity ghost #{capIdx} \"{vesselName}\" (no-op placeholder)");
+                                break;
+                        }
+                    }
+                }
+            }
+            else
+            {
+                softCapTriggeredThisFrame = false;
+                if (softCapSuppressed.Count > 0)
+                {
+                    ParsekLog.Verbose("Engine",
+                        $"SoftCap resolved, clearing {softCapSuppressed.Count} suppressed ghosts");
+                    softCapSuppressed.Clear();
+                }
+            }
         }
 
         /// <summary>
